@@ -1,14 +1,30 @@
 # **MESA: Mission-Critical Enterprise AI Memory**
 
-> **MESA: A highly resilient, asynchronous cognitive memory engine built for mission-critical enterprise AI agents, prioritizing absolute data integrity and zero-hallucination cross-verification.**
+> **MESA: A highly resilient, asynchronous cognitive memory engine built for mission-critical enterprise AI agents, prioritizing absolute data integrity, zero-hallucination cross-verification, and zero-trust security.**
 
 ## **1. Core Value Proposition**
 
-General-purpose RAG (Retrieval-Augmented Generation) systems fail in enterprise settings due to a lack of strict referential integrity and deterministic safeguards. MESA bridges this gap. By leveraging a robust, asynchronous graph-vector consolidation core, MESA enables absolute cross-verification of entities. It is engineered for enterprise workflows—ensuring that sensitive organizational data is processed securely and that generated insights are cryptographically and contextually verifiable.
+General-purpose RAG systems fail in enterprise settings due to a lack of strict referential integrity and deterministic safeguards. MESA bridges this gap. By leveraging a robust, asynchronous graph-vector consolidation core, MESA enables absolute cross-verification of entities. It is engineered for enterprise workflows—ensuring that sensitive organizational data is processed securely and that generated insights are cryptographically and contextually verifiable.
 
-## **2. The Refusal Philosophy**
+## **2. Security & Compliance**
 
-MESA is designed to actively reject low-value, anomalous, or potentially harmful data *before* it enters the memory graph. The Valence Motor acts as the gatekeeper.
+MESA is built on a **Zero-Trust architecture**, ensuring that AI agents cannot arbitrarily corrupt the global memory state.
+
+- **Role-Based Access Control (RBAC):** All Read and Write operations are cryptographically bound to an `agent_id` and `session_id`. Storage modules (Vector, Graph, Raw Log) independently verify `WRITE` permissions before any data mutation, raising strict `PermissionError`s on violation.
+- **Regex Sanitization:** All incoming payloads are aggressively sanitized to prevent adversarial prompt injections and malformed JSON payloads from poisoning the context window.
+- **Strict Abstraction:** Abstracted interfaces (like `BaseGraphProvider`) prevent unauthorized direct interaction with internal database instances.
+
+## **3. Performance & Reliability**
+
+MESA is designed to operate continuously in hostile, resource-constrained environments.
+
+- **Multi-Dimensional Vector Routing:** Dynamically isolates vector spaces (e.g., 768d vs 1536d) to prevent LanceDB schema crashes without compromising semantic accuracy.
+- **3-Layer Recovery & Salvage:** If an LLM returns malformed data, MESA attempts an AST-based Bisection followed by a Local SLM Salvage prompt before discarding the memory, ensuring maximum data retention.
+- **OOM Protection:** Active `psutil` memory monitoring and dynamic Cgroup limit detection proactively halt batch processing before Linux Out-Of-Memory killers can terminate the process.
+
+## **4. The Refusal Philosophy**
+
+MESA actively rejects low-value, anomalous, or potentially harmful data *before* it enters the memory graph.
 
 ```mermaid
 flowchart TD
@@ -28,93 +44,22 @@ flowchart TD
     style F fill:#16a34a,stroke:#14532d,color:#fff
 ```
 
-## **3. Technology Stack**
-
-MESA is built upon a high-performance, asynchronous foundation optimized for scale and security.
-
-<table>
-  <thead>
-    <tr>
-      <th>Layer</th>
-      <th>Technology</th>
-      <th>Enterprise Role</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><strong>Core Engine</strong></td>
-      <td>Python 3 (asyncio) / FastAPI</td>
-      <td>High-throughput, non-blocking ingestion and routing.</td>
-    </tr>
-    <tr>
-      <td><strong>Data Validation</strong></td>
-      <td>Pydantic V2</td>
-      <td>Strict schema enforcement to prevent malformed data ingestion.</td>
-    </tr>
-    <tr>
-      <td><strong>Vector Storage</strong></td>
-      <td>LanceDB</td>
-      <td>High-dimensional semantic similarity search and retrieval.</td>
-    </tr>
-    <tr>
-      <td><strong>Graph Storage</strong></td>
-      <td>NetworkX / Memgraph</td>
-      <td>Abstracted relationship modeling via <code>BaseGraphProvider</code>.</td>
-    </tr>
-    <tr>
-      <td><strong>Dual-LLM Tiering</strong></td>
-      <td>Local SLMs + Cloud LLMs</td>
-      <td>Asymmetric routing for privacy-preserving pre-processing and complex reasoning.</td>
-    </tr>
-  </tbody>
-</table>
-
-## **4. Environment Configuration**
+## **5. Installation & Environment Configuration**
 
 > [!IMPORTANT]
 > **Strict Limits Applied:** The batch size for consolidation is hard-capped to protect memory and ensure transaction atomicity. You MUST adhere to these limits.
 
-<table>
-  <thead>
-    <tr>
-      <th>Variable</th>
-      <th>Example Value</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>MESA_OPENAI_API_KEY</code></td>
-      <td><code>sk-...</code></td>
-      <td>Cloud model API key for Tier-1 extraction.</td>
-    </tr>
-    <tr>
-      <td><code>MESA_ANTHROPIC_API_KEY</code></td>
-      <td><code>sk-...</code></td>
-      <td>Alternative Cloud model API key.</td>
-    </tr>
-    <tr>
-      <td><code>MESA_LOCAL_LLM_ENDPOINT</code></td>
-      <td><code>http://localhost:11434/api/generate</code></td>
-      <td>Tier-0 Local SLM endpoint for sensitive data processing.</td>
-    </tr>
-    <tr>
-      <td><code>MESA_DB_PATH</code></td>
-      <td><code>./data/raw_log.db</code></td>
-      <td>Path to the primary SQLite immutable log.</td>
-    </tr>
-    <tr>
-      <td><code>MESA_VECTOR_PATH</code></td>
-      <td><code>./data/vector_index.lance</code></td>
-      <td>Path to the LanceDB vector store.</td>
-    </tr>
-    <tr>
-      <td><code>MESA_CONSOLIDATION_BATCH_SIZE</code></td>
-      <td><code>20</code></td>
-      <td><strong>CRITICAL: Must not exceed 20 (Pydantic/RAM constraint).</strong></td>
-    </tr>
-  </tbody>
-</table>
+MESA utilizes hierarchical configuration management via `MesaConfig`.
+
+| Variable | Example Value | Description |
+| :--- | :--- | :--- |
+| `MESA_OPENAI_API_KEY` | `sk-...` | Cloud model API key for Tier-1 extraction. |
+| `MESA_LOCAL_LLM_ENDPOINT`| `http://localhost:11434/...` | Tier-0 Local SLM endpoint for sensitive data. |
+| `MESA_DB_PATH` | `./data/raw_log.db` | Path to the immutable SQLite log. |
+| `MESA_VECTOR_PATH` | `./data/vector_index.lance` | Path to the LanceDB vector store. |
+| `MESA_CONSOLIDATION_BATCH_SIZE` | `20` | **CRITICAL: Must not exceed 20 (Pydantic/RAM constraint).** |
+| `MESA_MAX_RAM_MB` | `4096` | Hard cap on memory usage. Overrides psutil detection. |
+| `MESA_METRICS_ADMISSION_THRESHOLD`| `0.80` | Observability threshold for bloat warnings. |
 
 ---
 *MESA Architecture is proprietary. Designed for integrity-first enterprise environments.*

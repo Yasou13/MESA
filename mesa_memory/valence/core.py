@@ -45,7 +45,7 @@ def _strip_markdown_json(text: str) -> str:
     return text.strip()
 
 
-MAX_EMBEDDING_HISTORY = 500
+
 
 
 class ValenceMotor:
@@ -65,7 +65,7 @@ class ValenceMotor:
             return self.bootstrap_threshold
         if n > 3 * interval:
             return self._ewmad_threshold
-        w = 1 / (1 + np.exp(-10 * ((n - interval) / (2 * interval) - 0.5)))
+        w = 1 / (1 + np.exp(config.drift_sigmoid_weight * ((n - interval) / (2 * interval) - 0.5)))
         return (1 - w) * self.bootstrap_threshold + w * self._ewmad_threshold
 
     def _recalibrate(self):
@@ -191,8 +191,8 @@ class ValenceMotor:
         self._records_since_recalibration += 1
         if embedding:
             self.existing_embeddings.append(embedding)
-            if len(self.existing_embeddings) > MAX_EMBEDDING_HISTORY:
-                self.existing_embeddings = self.existing_embeddings[-MAX_EMBEDDING_HISTORY:]
+            if len(self.existing_embeddings) > config.max_embedding_history:
+                self.existing_embeddings = self.existing_embeddings[-config.max_embedding_history:]
         if self._records_since_recalibration >= config.recalibration_interval:
             self._recalibrate()
 

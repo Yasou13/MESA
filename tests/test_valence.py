@@ -38,6 +38,22 @@ def test_tier1_bypass():
     adapter.complete.assert_not_called()
 
 
+def test_tier1_error_state():
+    adapter = _make_mock_adapter()
+    obs = ObservabilityLayer()
+    motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
+
+    cmb = _make_cmb_candidate()
+    signals = {"error": True}
+
+    result = motor.evaluate(cmb, signals)
+
+    # Operational behavior: ExecutionFailure should discard the CMB (return False)
+    # The previous faulty test logic expected True, which is incorrect.
+    assert result is False
+    adapter.complete.assert_not_called()
+
+
 def test_tier2_ecod_bootstrap():
     adapter = _make_mock_adapter()
     obs = ObservabilityLayer()

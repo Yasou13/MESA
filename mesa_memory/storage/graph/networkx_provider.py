@@ -28,6 +28,7 @@ from uuid_extensions import uuid7 as _uuid7_func
 from rocksdict import Rdict
 
 from mesa_memory.storage.graph.base import BaseGraphProvider
+from mesa_memory.security.rbac import AccessControl
 
 
 class NetworkXProvider(BaseGraphProvider):
@@ -37,9 +38,11 @@ class NetworkXProvider(BaseGraphProvider):
         self,
         db_path: str = "./storage/knowledge_graph.db",
         rocks_path: str = "./storage/kg_history.rocks",
+        access_control: AccessControl | None = None,
     ):
         self.db_path = db_path
         self.rocks_path = rocks_path
+        self.access_control = access_control
         self._graph = nx.MultiDiGraph()
         self._lock = asyncio.Lock()
 
@@ -139,7 +142,12 @@ class NetworkXProvider(BaseGraphProvider):
         name: str,
         type: str,
         cmb_id: Optional[str] = None,
+        agent_id: str = "system",
+        session_id: str = "system",
     ) -> str:
+        if self.access_control and not self.access_control.check_access(agent_id, session_id, "WRITE"):
+            raise PermissionError(f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'")
+
         node_id = str(_uuid7_func())
         now = datetime.now(timezone.utc).isoformat()
         old_id = None
@@ -208,7 +216,12 @@ class NetworkXProvider(BaseGraphProvider):
         target_id: str,
         relation: str,
         weight: float = 1.0,
+        agent_id: str = "system",
+        session_id: str = "system",
     ) -> str:
+        if self.access_control and not self.access_control.check_access(agent_id, session_id, "WRITE"):
+            raise PermissionError(f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'")
+
         edge_id = str(_uuid7_func())
         now = datetime.now(timezone.utc).isoformat()
 
