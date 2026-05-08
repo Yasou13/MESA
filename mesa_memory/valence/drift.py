@@ -18,7 +18,7 @@ def recalibrate_threshold(current_threshold: float, existing_embeddings: list) -
     sim_matrix = cosine_similarity(recent, historical)
     mean_sim = float(np.mean(sim_matrix))
 
-    new_val = (0.2 * mean_sim) + (0.8 * current_threshold)
-    new_val = max(0.50, min(0.90, new_val))
+    new_val = (config.drift_ewmad_alpha * mean_sim) + (config.drift_ewmad_momentum * current_threshold)
+    new_val = max(config.drift_clamp_min, min(config.drift_clamp_max, new_val))
 
     return new_val

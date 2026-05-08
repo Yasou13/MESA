@@ -80,11 +80,7 @@ Respond with a JSON object containing a "triplets" array. Each element MUST incl
 You MUST return exactly one triplet per input record. Do NOT skip any record."""
 
 # Attention-reset checkpoint injected every N records (LitM Layer 4)
-ANCHOR_INTERVAL = 3
-
 logger = logging.getLogger("MESA_Consolidation")
-
-HUMAN_REVIEW_MAX_SIZE = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +205,8 @@ class ConsolidationLoop:
         self.llm_b = llm_b
         self.obs_layer = obs_layer
         self._running = False
-        self.human_review_queue = deque(maxlen=HUMAN_REVIEW_MAX_SIZE)
-        self.dead_letter_queue = deque(maxlen=HUMAN_REVIEW_MAX_SIZE)
+        self.human_review_queue = deque(maxlen=config.human_review_max_size)
+        self.dead_letter_queue = deque(maxlen=config.human_review_max_size)
 
     async def start(self):
         self._running = True
@@ -247,35 +243,6 @@ class ConsolidationLoop:
                 hi -= 1
         return result
 
-    def _chunk_batch(self, records: list[dict]) -> list[list[dict]]:
-        """Partition records into sub-batches respecting token and count limits.
-
-        Two hard ceilings enforced via config (no magic numbers):
-        - ``config.batch_llm_chunk_size``: max records per sub-batch.
-        - ``config.max_batch_tokens``: max total content tokens per sub-batch.
-        """
-        chunks: list[list[dict]] = []
-        current_chunk: list[dict] = []
-        current_tokens = 0
-
-        for record in records:
-            content = record.get("content_payload", "")
-            record_tokens = self.llm_a.get_token_count(content)
-
-            if (current_tokens + record_tokens > config.max_batch_tokens
-                    or len(current_chunk) >= config.batch_llm_chunk_size):
-                if current_chunk:
-                    chunks.append(current_chunk)
-                current_chunk = [record]
-                current_tokens = record_tokens
-            else:
-                current_chunk.append(record)
-                current_tokens += record_tokens
-
-        if current_chunk:
-            chunks.append(current_chunk)
-        return chunks
-
     @staticmethod
     def _build_records_block(sub_batch: list[dict]) -> str:
         """Build the positionally-tagged records block for a batch prompt.
@@ -288,7 +255,7 @@ class ConsolidationLoop:
         """
         parts: list[str] = []
         for i, record in enumerate(sub_batch):
-            if i > 0 and i % ANCHOR_INTERVAL == 0:
+            if i > 0 and i % config.anchor_interval == 0:
                 parts.append(
                     f"--- CHECKPOINT: You have processed records 0 through {i - 1}. "
                     f"Continue with record {i}. ---\n"
@@ -466,14 +433,14 @@ class ConsolidationLoop:
     async def run_batch(self, batch: list[dict] = None):
         """Process a batch of raw log records through the consolidation pipeline.
 
-        P0-A refactored flow:
+        P0-A compliant flow — full batch processed in a single LLM call:
         1. Sort by salience (high-density records at edges, LitM Layer 2).
-        2. Chunk into token-budget sub-batches (LitM Layer 3).
-        3. For each sub-batch, build batch prompts and call LLM_A + LLM_B
-           in parallel via the existing adapter ``complete(schema=...)`` path.
+        2. Build a single batch prompt for the entire record set.
+        3. Call LLM_A + LLM_B in parallel via the adapter
+           ``complete(schema=...)`` path.
         4. Parse responses through the 3-layer recovery pipeline.
         5. Audit coverage and backfill missing indices via 1:1 fallback.
-        6. Cross-validate triplet pairs and commit to graph (unchanged logic).
+        6. Cross-validate triplet pairs and commit to graph.
         """
         if batch is None:
             batch = await self.storage.raw_log.fetch_unconsolidated(
@@ -491,174 +458,171 @@ class ConsolidationLoop:
         # LitM Layer 2: Salience-first ordering
         sorted_batch = self._sort_by_salience(batch)
 
-        # LitM Layer 3: Token-budget sub-batching
-        sub_batches = self._chunk_batch(sorted_batch)
-
         loop = asyncio.get_running_loop()
 
-        for sub_batch in sub_batches:
-            records_block = self._build_records_block(sub_batch)
-            prompt_a = BATCH_PROMPT_A_TEMPLATE.format(records_block=records_block)
-            prompt_b = BATCH_PROMPT_B_TEMPLATE.format(records_block=records_block)
+        # Single-call batch processing (no sub-batch fragmentation)
+        records_block = self._build_records_block(sorted_batch)
+        prompt_a = BATCH_PROMPT_A_TEMPLATE.format(records_block=records_block)
+        prompt_b = BATCH_PROMPT_B_TEMPLATE.format(records_block=records_block)
 
-            # Parallel dual-LLM calls via existing adapter contract
-            raw_a, raw_b = await asyncio.gather(
-                loop.run_in_executor(
-                    None,
-                    functools.partial(
-                        self.llm_a.complete, prompt_a, BatchExtractionResponse,
-                    ),
+        # Parallel dual-LLM calls via existing adapter contract
+        raw_a, raw_b = await asyncio.gather(
+            loop.run_in_executor(
+                None,
+                functools.partial(
+                    self.llm_a.complete, prompt_a, BatchExtractionResponse,
                 ),
-                loop.run_in_executor(
-                    None,
-                    functools.partial(
-                        self.llm_b.complete, prompt_b, BatchExtractionResponse,
-                    ),
+            ),
+            loop.run_in_executor(
+                None,
+                functools.partial(
+                    self.llm_b.complete, prompt_b, BatchExtractionResponse,
                 ),
+            ),
+        )
+
+        # --- Parse LLM_A response with recovery pipeline ---
+        try:
+            response_a = self._parse_batch_response(raw_a, len(sorted_batch))
+            indexed_a, missing_a = self._audit_batch_coverage(
+                response_a, len(sorted_batch),
+            )
+        except ValueError:
+            logger.warning(
+                f"Batch {batch_id}: LLM_A total parse failure, "
+                f"entering bisection for {len(sorted_batch)} records"
+            )
+            indexed_a = await self._retry_with_bisection(
+                sorted_batch, BATCH_PROMPT_A_TEMPLATE,
+                PROMPT_A_TEMPLATE, self.llm_a,
+            )
+            missing_a = []
+
+        # --- Parse LLM_B response with recovery pipeline ---
+        try:
+            response_b = self._parse_batch_response(raw_b, len(sorted_batch))
+            indexed_b, missing_b = self._audit_batch_coverage(
+                response_b, len(sorted_batch),
+            )
+        except ValueError:
+            logger.warning(
+                f"Batch {batch_id}: LLM_B total parse failure, "
+                f"entering bisection for {len(sorted_batch)} records"
+            )
+            indexed_b = await self._retry_with_bisection(
+                sorted_batch, BATCH_PROMPT_B_TEMPLATE,
+                PROMPT_B_TEMPLATE, self.llm_b,
+            )
+            missing_b = []
+
+        # --- Backfill missing indices via 1:1 fallback ---
+        for idx in missing_a:
+            trip = await self._single_record_extract(
+                sorted_batch[idx], self.llm_a, PROMPT_A_TEMPLATE,
+            )
+            if trip and trip.get("head"):
+                indexed_a[idx] = ExtractedTriplet(
+                    record_index=idx,
+                    head=trip["head"],
+                    relation=trip.get("relation", ""),
+                    tail=trip.get("tail", ""),
+                )
+
+        for idx in missing_b:
+            trip = await self._single_record_extract(
+                sorted_batch[idx], self.llm_b, PROMPT_B_TEMPLATE,
+            )
+            if trip and trip.get("head"):
+                indexed_b[idx] = ExtractedTriplet(
+                    record_index=idx,
+                    head=trip["head"],
+                    relation=trip.get("relation", ""),
+                    tail=trip.get("tail", ""),
+                )
+
+        # --- Cross-validate and commit ---
+        for idx, record in enumerate(sorted_batch):
+            cmb_id = record.get("cmb_id", "")
+
+            triplet_a = indexed_a.get(idx)
+            triplet_b = indexed_b.get(idx)
+
+            # Convert to plain dicts for compatibility with existing lock
+            trip_a = (
+                {"head": triplet_a.head, "relation": triplet_a.relation, "tail": triplet_a.tail}
+                if triplet_a else {"head": "", "relation": "", "tail": ""}
+            )
+            trip_b = (
+                {"head": triplet_b.head, "relation": triplet_b.relation, "tail": triplet_b.tail}
+                if triplet_b else {"head": "", "relation": "", "tail": ""}
             )
 
-            # --- Parse LLM_A response with recovery pipeline ---
-            try:
-                response_a = self._parse_batch_response(raw_a, len(sub_batch))
-                indexed_a, missing_a = self._audit_batch_coverage(
-                    response_a, len(sub_batch),
-                )
-            except ValueError:
-                logger.warning(
-                    f"Batch {batch_id}: LLM_A total parse failure, "
-                    f"entering bisection for {len(sub_batch)} records"
-                )
-                indexed_a = await self._retry_with_bisection(
-                    sub_batch, BATCH_PROMPT_A_TEMPLATE,
-                    PROMPT_A_TEMPLATE, self.llm_a,
-                )
-                missing_a = []
-
-            # --- Parse LLM_B response with recovery pipeline ---
-            try:
-                response_b = self._parse_batch_response(raw_b, len(sub_batch))
-                indexed_b, missing_b = self._audit_batch_coverage(
-                    response_b, len(sub_batch),
-                )
-            except ValueError:
-                logger.warning(
-                    f"Batch {batch_id}: LLM_B total parse failure, "
-                    f"entering bisection for {len(sub_batch)} records"
-                )
-                indexed_b = await self._retry_with_bisection(
-                    sub_batch, BATCH_PROMPT_B_TEMPLATE,
-                    PROMPT_B_TEMPLATE, self.llm_b,
-                )
-                missing_b = []
-
-            # --- Backfill missing indices via 1:1 fallback ---
-            for idx in missing_a:
-                trip = await self._single_record_extract(
-                    sub_batch[idx], self.llm_a, PROMPT_A_TEMPLATE,
-                )
-                if trip and trip.get("head"):
-                    indexed_a[idx] = ExtractedTriplet(
-                        record_index=idx,
-                        head=trip["head"],
-                        relation=trip.get("relation", ""),
-                        tail=trip.get("tail", ""),
-                    )
-
-            for idx in missing_b:
-                trip = await self._single_record_extract(
-                    sub_batch[idx], self.llm_b, PROMPT_B_TEMPLATE,
-                )
-                if trip and trip.get("head"):
-                    indexed_b[idx] = ExtractedTriplet(
-                        record_index=idx,
-                        head=trip["head"],
-                        relation=trip.get("relation", ""),
-                        tail=trip.get("tail", ""),
-                    )
-
-            # --- Cross-validate and commit (logic preserved from original) ---
-            for idx, record in enumerate(sub_batch):
-                cmb_id = record.get("cmb_id", "")
-
-                triplet_a = indexed_a.get(idx)
-                triplet_b = indexed_b.get(idx)
-
-                # Convert to plain dicts for compatibility with existing lock
-                trip_a = (
-                    {"head": triplet_a.head, "relation": triplet_a.relation, "tail": triplet_a.tail}
-                    if triplet_a else {"head": "", "relation": "", "tail": ""}
-                )
-                trip_b = (
-                    {"head": triplet_b.head, "relation": triplet_b.relation, "tail": triplet_b.tail}
-                    if triplet_b else {"head": "", "relation": "", "tail": ""}
-                )
-
-                if not trip_a.get("head") or not trip_b.get("head"):
-                    await self.storage.raw_log.mark_consolidated(cmb_id)
-                    continue
-
-                sim_score = calculate_composite_similarity(
-                    trip_a, trip_b, self.embedder,
-                )
-
-                if sim_score >= config.relation_similarity_threshold:
-                    node_head = await self.storage.graph.upsert_node(
-                        name=trip_a["head"], type="ENTITY", cmb_id=cmb_id,
-                    )
-                    node_tail = await self.storage.graph.upsert_node(
-                        name=trip_a["tail"], type="ENTITY", cmb_id=cmb_id,
-                    )
-                    await self.storage.graph.create_edge(
-                        source_id=node_head,
-                        target_id=node_tail,
-                        relation=trip_a["relation"],
-                        weight=1.0,
-                    )
-                    successful_writes += 1
-
-                elif config.uncertain_zone_lower_bound <= sim_score < config.relation_similarity_threshold:
-                    divergence_count += 1
-                    node_head = await self.storage.graph.upsert_node(
-                        name=trip_a["head"], type="ENTITY", cmb_id=cmb_id,
-                    )
-                    node_tail = await self.storage.graph.upsert_node(
-                        name=trip_a["tail"], type="ENTITY", cmb_id=cmb_id,
-                    )
-                    await self.storage.graph.create_edge(
-                        source_id=node_head,
-                        target_id=node_tail,
-                        relation=trip_a["relation"],
-                        weight=0.5,
-                    )
-                    successful_writes += 1
-
-                else:
-                    divergence_count += 1
-                    is_hub = self._check_hub_node(
-                        trip_a["head"], trip_a["tail"],
-                        trip_b["head"], trip_b["tail"],
-                    )
-
-                    if is_hub:
-                        self.human_review_queue.append({
-                            "batch_id": batch_id,
-                            "cmb_id": cmb_id,
-                            "triplet_a": trip_a,
-                            "triplet_b": trip_b,
-                            "sim_score": sim_score,
-                        })
-                        logger.warning(
-                            f"Record {cmb_id} queued for human review "
-                            f"(hub node divergence, sim={sim_score:.4f})"
-                        )
-                    else:
-                        logger.info(
-                            f"Record {cmb_id} silently discarded "
-                            f"(peripheral node, sim={sim_score:.4f})"
-                        )
-
-                # Idempotency: mark ONLY after successful processing
+            if not trip_a.get("head") or not trip_b.get("head"):
                 await self.storage.raw_log.mark_consolidated(cmb_id)
+                continue
+
+            sim_score = calculate_composite_similarity(
+                trip_a, trip_b, self.embedder,
+            )
+
+            if sim_score >= config.relation_similarity_threshold:
+                node_head = await self.storage.graph.upsert_node(
+                    name=trip_a["head"], type="ENTITY", cmb_id=cmb_id,
+                )
+                node_tail = await self.storage.graph.upsert_node(
+                    name=trip_a["tail"], type="ENTITY", cmb_id=cmb_id,
+                )
+                await self.storage.graph.create_edge(
+                    source_id=node_head,
+                    target_id=node_tail,
+                    relation=trip_a["relation"],
+                    weight=1.0,
+                )
+                successful_writes += 1
+
+            elif config.uncertain_zone_lower_bound <= sim_score < config.relation_similarity_threshold:
+                divergence_count += 1
+                node_head = await self.storage.graph.upsert_node(
+                    name=trip_a["head"], type="ENTITY", cmb_id=cmb_id,
+                )
+                node_tail = await self.storage.graph.upsert_node(
+                    name=trip_a["tail"], type="ENTITY", cmb_id=cmb_id,
+                )
+                await self.storage.graph.create_edge(
+                    source_id=node_head,
+                    target_id=node_tail,
+                    relation=trip_a["relation"],
+                    weight=0.5,
+                )
+                successful_writes += 1
+
+            else:
+                divergence_count += 1
+                is_hub = await self._check_hub_node(
+                    trip_a["head"], trip_a["tail"],
+                    trip_b["head"], trip_b["tail"],
+                )
+
+                if is_hub:
+                    self.human_review_queue.append({
+                        "batch_id": batch_id,
+                        "cmb_id": cmb_id,
+                        "triplet_a": trip_a,
+                        "triplet_b": trip_b,
+                        "sim_score": sim_score,
+                    })
+                    logger.warning(
+                        f"Record {cmb_id} queued for human review "
+                        f"(hub node divergence, sim={sim_score:.4f})"
+                    )
+                else:
+                    logger.info(
+                        f"Record {cmb_id} silently discarded "
+                        f"(peripheral node, sim={sim_score:.4f})"
+                    )
+
+            # Idempotency: mark ONLY after successful processing
+            await self.storage.raw_log.mark_consolidated(cmb_id)
 
         duration_ms = (time.time() * 1000) - start_ms
         self.obs_layer.log_consolidation_batch(
@@ -669,11 +633,13 @@ class ConsolidationLoop:
             duration_ms=duration_ms,
         )
 
-    def _check_hub_node(self, *entity_names: str) -> bool:
-        active_graph = self.storage.graph.get_active_graph()
-        for node_id, data in active_graph.nodes(data=True):
-            name = data.get("name", "").lower()
-            if name in [n.lower() for n in entity_names if n]:
-                if active_graph.degree(node_id) >= config.hub_degree_threshold:
-                    return True
+    async def _check_hub_node(self, *entity_names: str) -> bool:
+        valid_names = [n for n in entity_names if n]
+        if not valid_names:
+            return False
+        nodes = await self.storage.graph.find_nodes_by_name(valid_names, case_insensitive=True)
+        for node in nodes:
+            degree = await self.storage.graph.get_node_degree(node["node_id"])
+            if degree >= config.hub_degree_threshold:
+                return True
         return False

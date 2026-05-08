@@ -37,6 +37,8 @@ class BaseGraphProvider(ABC):
         name: str,
         type: str,
         cmb_id: Optional[str] = None,
+        agent_id: str = "system",
+        session_id: str = "system",
     ) -> str:
         """Insert or update a node by name.
 
@@ -61,6 +63,8 @@ class BaseGraphProvider(ABC):
         target_id: str,
         relation: str,
         weight: float = 1.0,
+        agent_id: str = "system",
+        session_id: str = "system",
     ) -> str:
         """Create a directed edge between two existing nodes.
 

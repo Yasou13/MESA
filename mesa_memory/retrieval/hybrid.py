@@ -4,14 +4,10 @@ import networkx as nx
 import numpy as np
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
+from mesa_memory.config import config
 from mesa_memory.storage import StorageFacade
 from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
 from mesa_memory.security.rbac import AccessControl
-
-
-RRF_K = 60
-COLD_START_MIN_NODES = 10
-PPR_ALPHA = 0.15
 
 
 class HybridRetriever:
@@ -35,9 +31,10 @@ class HybridRetriever:
         normalized = normalize_query(query_text)
         entities = self.analyzer.extract_entities(normalized)
 
-        active_graph = self.storage.graph.get_active_graph()
-        seed_ids = self._match_entities_to_nodes(entities, active_graph)
-        is_cold_start = len(seed_ids) == 0 or len(active_graph.nodes) < COLD_START_MIN_NODES
+        seed_nodes = await self.storage.graph.find_nodes_by_name(entities, case_insensitive=True)
+        seed_ids = [n["node_id"] for n in seed_nodes]
+        all_nodes = await self.storage.graph.get_all_active_nodes()
+        is_cold_start = len(seed_ids) == 0 or len(all_nodes) < config.cold_start_min_nodes
 
         vector_task = self.get_vector_results(normalized, k=top_n * 2)
         graph_task = self.get_graph_results(entities)
@@ -49,7 +46,7 @@ class HybridRetriever:
                 return []
             return [r["cmb_id"] for r in self._cold_start_rerank(vector_results, top_n)]
 
-        fused_ids = self._apply_rrf(vector_results, graph_results, k=RRF_K)
+        fused_ids = self._apply_rrf(vector_results, graph_results, k=config.rrf_k)
         return fused_ids[:top_n]
 
     async def get_vector_results(self, query_text: str, k: int = 10) -> list[dict]:
@@ -71,13 +68,13 @@ class HybridRetriever:
         return results
 
     async def get_graph_results(self, entities: list[str]) -> list[dict]:
-        active_graph = self.storage.graph.get_active_graph()
-        seed_ids = self._match_entities_to_nodes(entities, active_graph)
+        seed_nodes = await self.storage.graph.find_nodes_by_name(entities, case_insensitive=True)
+        seed_ids = [n["node_id"] for n in seed_nodes]
 
         if not seed_ids:
             return []
 
-        return await self._run_ppr(active_graph, seed_ids)
+        return await self._run_ppr(seed_ids)
 
     def _apply_rrf(self, vector_ranks: list[dict], graph_ranks: list[dict], k: int = 60) -> list[str]:
         rrf_scores = {}
@@ -99,38 +96,25 @@ class HybridRetriever:
         sorted_ids = sorted(rrf_scores.keys(), key=lambda cid: rrf_scores[cid], reverse=True)
         return sorted_ids
 
-    def _match_entities_to_nodes(self, entities: list[str], graph: nx.MultiDiGraph) -> list[str]:
-        matched = []
-        entity_set = {e.lower() for e in entities}
-        for node_id, data in graph.nodes(data=True):
-            name = data.get("name", "").lower()
-            if name in entity_set:
-                matched.append(node_id)
-        return matched
-
-    async def _run_ppr(self, graph: nx.MultiDiGraph, seed_ids: list[str], top_k: int = 15) -> list[dict]:
-        if not seed_ids or len(graph.nodes) == 0:
+    async def _run_ppr(self, seed_ids: list[str], top_k: int = 15) -> list[dict]:
+        all_nodes = await self.storage.graph.get_all_active_nodes()
+        if not seed_ids or len(all_nodes) == 0:
             return []
 
-        personalization = {node: 0.0 for node in graph.nodes}
+        personalization = {node["node_id"]: 0.0 for node in all_nodes}
         weight = 1.0 / len(seed_ids)
         for sid in seed_ids:
             if sid in personalization:
                 personalization[sid] = weight
 
-        def _compute_pagerank():
-            return nx.pagerank(
-                graph,
-                alpha=PPR_ALPHA,
-                personalization=personalization,
-                max_iter=100,
-                tol=1e-6,
-            )
-
-        loop = asyncio.get_running_loop()
-        try:
-            ppr_scores = await loop.run_in_executor(None, _compute_pagerank)
-        except nx.NetworkXError:
+        ppr_scores = await self.storage.graph.compute_pagerank(
+            alpha=config.ppr_alpha,
+            personalization=personalization,
+            max_iter=100,
+            tol=1e-6
+        )
+        
+        if not ppr_scores:
             return []
 
         seed_set = set(seed_ids)
@@ -159,3 +143,66 @@ class HybridRetriever:
 
         reranked.sort(key=lambda x: x["rrf_score"], reverse=True)
         return reranked[:top_k]
+
+    def format_working_memory(
+        self,
+        nodes: list[dict],
+        max_tokens: int | None = None,
+    ) -> str:
+        """Convert retrieved graph nodes into a token-limited string for LLM context.
+
+        **Whole-Node Inclusion Policy**: Each node is formatted into a complete
+        entry string *before* its token cost is measured.  If appending the
+        entry would exceed the remaining token budget, the entire node is
+        **discarded** and iteration stops immediately.  No partial content
+        slicing is ever performed — the LLM receives only structurally and
+        semantically complete node records.
+
+        Args:
+            nodes: List of node dicts, each expected to have at least
+                ``content_payload`` and optionally ``source`` / ``cmb_id``.
+            max_tokens: Hard token ceiling.  Defaults to
+                ``config.context_window_limit`` when *None*.
+
+        Returns:
+            A formatted context string safe to inject into an LLM prompt.
+            Returns ``"Retrieved Context: None"`` when *nodes* is empty or
+            no node fits within the budget.
+        """
+        if not nodes:
+            return "Retrieved Context: None"
+
+        budget = max_tokens if max_tokens is not None else config.context_window_limit
+
+        # Reserve tokens for the header line
+        header = "Retrieved Context:"
+        remaining = budget - self.embedder.get_token_count(header)
+        if remaining <= 0:
+            return "Retrieved Context: None"
+
+        included: list[str] = []
+        for idx, node in enumerate(nodes):
+            # --- Build the complete entry string (never sliced) ---
+            content = node.get("content_payload", "").strip()
+            source = node.get("source", "unknown")
+            cmb_id = node.get("cmb_id", "")
+
+            entry = f"\n[{idx + 1}] (source={source}"
+            if cmb_id:
+                entry += f", id={cmb_id}"
+            entry += f") {content}"
+
+            # --- Whole-node budget gate ---
+            entry_tokens = self.embedder.get_token_count(entry)
+            if entry_tokens > remaining:
+                # Node does not fit — discard entirely, stop processing.
+                break
+
+            included.append(entry)
+            remaining -= entry_tokens
+
+        if not included:
+            return "Retrieved Context: None"
+
+        return header + "".join(included)
+
