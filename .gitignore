@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# MESA Databases (Zero Trust)
+*.db
+*.sqlite3
+*.lance
+*.rocksdb
+raw_log.db
+vector_index.lance
+rocksdict_archive/
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.test
+
+# IDE & OS Artifacts
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
