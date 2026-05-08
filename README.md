@@ -1,69 +1,120 @@
-# MESA: Cognitive Memory Engine for High-Security Clinical Environments
+# **MESA: Mission-Critical Enterprise AI Memory**
 
-## 1. Mission & Value Proposition
+> **MESA: A highly resilient, asynchronous cognitive memory engine built for mission-critical enterprise AI agents, prioritizing absolute data integrity and zero-hallucination cross-verification.**
 
-**MESA (Medical Entity Storage Architecture)** is a highly resilient, asynchronous, and scalable cognitive memory system. While the core architecture serves as an advanced, high-dimensional memory engine, it is explicitly engineered and deployed as a "Zero-Hallucination" clinical memory engine for High-Security Medical Environments (HIS/EMR).
+## **1. Core Value Proposition**
 
-General-purpose RAG (Retrieval-Augmented Generation) systems fail in clinical settings because they lack strict referential integrity and deterministic safeguards. MESA bridges this gap. By leveraging a robust, asynchronous graph-vector consolidation core, MESA enables absolute cross-verification of medical entities. It is engineered for clinical triage, EMR integration, and physician support—ensuring that Protected Health Information (PHI) is processed with "Local-First" prioritization and that generated insights are cryptographically and contextually verifiable, permanently eliminating generative hallucinations.
+General-purpose RAG (Retrieval-Augmented Generation) systems fail in enterprise settings due to a lack of strict referential integrity and deterministic safeguards. MESA bridges this gap. By leveraging a robust, asynchronous graph-vector consolidation core, MESA enables absolute cross-verification of entities. It is engineered for enterprise workflows—ensuring that sensitive organizational data is processed securely and that generated insights are cryptographically and contextually verifiable.
 
-## 2. Core Architectural Modules
+## **2. The Refusal Philosophy**
 
-The system is fortified by three primary engines, engineered to prevent the contamination of the cognitive graph and ensure clinical relevance.
+MESA is designed to actively reject low-value, anomalous, or potentially harmful data *before* it enters the memory graph. The Valence Motor acts as the gatekeeper.
 
-### Valence Motor (The Gatekeeper)
-To prevent "junk data" ingestion, the Valence Motor acts as the deterministic first line of defense. It utilizes mathematically rigorous models for anomaly detection before data enters the memory pipeline:
-*   **ECOD (Empirical Cumulative distribution functions for Outlier Detection):** Rapidly identifies mathematically anomalous or syntactically corrupt patterns in incoming cognitive streams.
-*   **EWMAD (Exponentially Weighted Moving Average Deviation):** A dynamic thresholding algorithm that recalibrates continuously, ensuring that only highly salient, medically relevant information crosses the threshold into the storage layer.
-
-### Asymmetric Hybrid LLM (Tier-0 Routing)
-MESA utilizes a highly optimized, cost-effective, and secure routing layer to balance intelligence with strict data privacy.
-*   **Local SLMs (e.g., Qwen, Gemma):** All PHI and initial clinical triage processing are routed exclusively to localized, self-hosted Small Language Models (Tier-0). This guarantees air-gapped HIPAA/GDPR compliance.
-*   **Cloud Models (e.g., Claude 3.5 Sonnet):** Only scrubbed, anonymized, and heavily abstracted tasks requiring complex reasoning are elevated to Tier-1 Cloud LLMs for deterministic graph extraction and cross-verification.
-
-### Cognitive Memory Block (CMB)
-The fundamental atomic unit of MESA is the Cognitive Memory Block (CMB). Going beyond simple text vectors, CMBs inherently embed affective state metrics to map the clinical focus and patient urgency during encounters:
-*   `cat7_focus`: Tracks the concentration and context depth of the interaction.
-*   `mood_valence`: Analyzes sentiment to prioritize acute, distressing, or unstable patient states.
-*   `arousal`: Measures the intensity or urgency of the clinical scenario, feeding directly into automated triage priorities.
-
-## 3. Setup & Configuration
-
-MESA requires strict initialization via environment variables. The `MESA_` prefix is mandatory for all settings to prevent namespace collisions in complex EMR deployment environments.
-
-Create a `.env` file in the project root:
-
-```env
-# Required API Keys
-MESA_OPENAI_API_KEY=your_secure_openai_key
-MESA_ANTHROPIC_API_KEY=your_secure_anthropic_key
-
-# Asymmetric Routing Configuration
-MESA_LOCAL_LLM_ENDPOINT=http://localhost:11434/api/generate
-MESA_TIER0_MODEL=qwen2.5:7b-instruct-q4_0
-
-# Consolidation Engine Constraints
-# CRITICAL: Do not exceed 20. Forced cap by Pydantic validation & RAM constraints.
-MESA_CONSOLIDATION_BATCH_SIZE=20
-MESA_CONSOLIDATION_TIMEOUT_MS=30000
-
-# Storage Locations
-MESA_DB_PATH=./data/raw_log.db
-MESA_VECTOR_PATH=./data/vector_index.lance
+```mermaid
+flowchart TD
+    A([Incoming Data Stream]) --> B{Valence Motor}
+    
+    subgraph "Refusal Philosophy"
+        B -->|Syntactic/Structural Anomaly| C[REJECT: ECOD Outlier]
+        B -->|Low Novelty Score| D[REJECT: EWMAD Threshold]
+        B -->|Adversarial Signature| E[REJECT: Prompt Injection]
+    end
+    
+    B -->|High Novelty & Verified| F([ACCEPT: Add to Consolidation Queue])
+    
+    style C fill:#dc2626,stroke:#7f1d1d,color:#fff
+    style D fill:#dc2626,stroke:#7f1d1d,color:#fff
+    style E fill:#dc2626,stroke:#7f1d1d,color:#fff
+    style F fill:#16a34a,stroke:#14532d,color:#fff
 ```
 
-## 4. Reliability & Security
+## **3. Technology Stack**
 
-MESA is designed upon a "Zero Trust" architecture, assuming both user inputs and LLM generative outputs are potentially hostile, non-deterministic, or malformed.
+MESA is built upon a high-performance, asynchronous foundation optimized for scale and security.
 
-*   **`reconcile_orphans` Protocol:** To prevent data desynchronization between the primary SQLite Raw Log and the LanceDB Vector Index, MESA employs a background reconciliation protocol. Any orphaned vectors (where the SQLite record was corrupted) or unindexed records are detected and resolved via scheduled background syncs, ensuring 100% referential integrity.
-*   **Zero Trust Data Handling & Prompt Injection Filtering:** All incoming clinical notes undergo strict sanitization before hitting the embedding model or Tier-0 routers. System prompts are structurally isolated from user data payloads to prevent Prompt Injection attacks that could induce data exfiltration or corrupt the cognitive graph.
+<table>
+  <thead>
+    <tr>
+      <th>Layer</th>
+      <th>Technology</th>
+      <th>Enterprise Role</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Core Engine</strong></td>
+      <td>Python 3 (asyncio) / FastAPI</td>
+      <td>High-throughput, non-blocking ingestion and routing.</td>
+    </tr>
+    <tr>
+      <td><strong>Data Validation</strong></td>
+      <td>Pydantic V2</td>
+      <td>Strict schema enforcement to prevent malformed data ingestion.</td>
+    </tr>
+    <tr>
+      <td><strong>Vector Storage</strong></td>
+      <td>LanceDB</td>
+      <td>High-dimensional semantic similarity search and retrieval.</td>
+    </tr>
+    <tr>
+      <td><strong>Graph Storage</strong></td>
+      <td>NetworkX / Memgraph</td>
+      <td>Abstracted relationship modeling via <code>BaseGraphProvider</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>Dual-LLM Tiering</strong></td>
+      <td>Local SLMs + Cloud LLMs</td>
+      <td>Asymmetric routing for privacy-preserving pre-processing and complex reasoning.</td>
+    </tr>
+  </tbody>
+</table>
 
-## 5. Testing Strategy
+## **4. Environment Configuration**
 
-Quality assurance in MESA targets failure modes unique to large-scale, batch-oriented memory systems.
+> [!IMPORTANT]
+> **Strict Limits Applied:** The batch size for consolidation is hard-capped to protect memory and ensure transaction atomicity. You MUST adhere to these limits.
 
-*   **"Lost-in-the-Middle" Verification:** Specialized test suites inject critical clinical details into the middle of massive contextual noise. These tests ensure the Asymmetric LLM routers and the Consolidation engine accurately extract hidden entities, preventing the notorious "Lost-in-the-Middle" amnesia common in standard batch processing.
-*   **Data Retention Integrity Testing:** Rigorous read/write audits, simulated process terminations during batch consolidation, and automated rollback testing guarantee that once a CMB passes the Valence Motor, it is permanently and accurately retrievable.
+<table>
+  <thead>
+    <tr>
+      <th>Variable</th>
+      <th>Example Value</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>MESA_OPENAI_API_KEY</code></td>
+      <td><code>sk-...</code></td>
+      <td>Cloud model API key for Tier-1 extraction.</td>
+    </tr>
+    <tr>
+      <td><code>MESA_ANTHROPIC_API_KEY</code></td>
+      <td><code>sk-...</code></td>
+      <td>Alternative Cloud model API key.</td>
+    </tr>
+    <tr>
+      <td><code>MESA_LOCAL_LLM_ENDPOINT</code></td>
+      <td><code>http://localhost:11434/api/generate</code></td>
+      <td>Tier-0 Local SLM endpoint for sensitive data processing.</td>
+    </tr>
+    <tr>
+      <td><code>MESA_DB_PATH</code></td>
+      <td><code>./data/raw_log.db</code></td>
+      <td>Path to the primary SQLite immutable log.</td>
+    </tr>
+    <tr>
+      <td><code>MESA_VECTOR_PATH</code></td>
+      <td><code>./data/vector_index.lance</code></td>
+      <td>Path to the LanceDB vector store.</td>
+    </tr>
+    <tr>
+      <td><code>MESA_CONSOLIDATION_BATCH_SIZE</code></td>
+      <td><code>20</code></td>
+      <td><strong>CRITICAL: Must not exceed 20 (Pydantic/RAM constraint).</strong></td>
+    </tr>
+  </tbody>
+</table>
 
 ---
-*MESA Architecture is proprietary. Designed for highly resilient, zero-hallucination clinical environments.*
+*MESA Architecture is proprietary. Designed for integrity-first enterprise environments.*
