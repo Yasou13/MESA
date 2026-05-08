@@ -1,4 +1,10 @@
-# Python
+# ==============================================================================
+# MESA Memory Layer - .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Python & Build Artifacts
+# ------------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,26 +12,55 @@ __pycache__/
 .venv/
 env/
 venv/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+.tox/
 
-# MESA Databases (Zero Trust)
+# ------------------------------------------------------------------------------
+# 2. MESA Databases & Vector Storage (Zero Trust / Critical)
+#    Strictly ignore all clinical data, embeddings, and raw transaction logs.
+# ------------------------------------------------------------------------------
+# Relational & Graph DBs
 *.db
 *.sqlite3
-*.lance
-*.rocksdb
 raw_log.db
-vector_index.lance
+storage/*.db
+storage/*.sqlite3
+*.rocksdb
 rocksdict_archive/
+storage/*.rocks
 
-# Environment Variables & Secrets
+# Vector Storage (LanceDB)
+*.lance
+storage/*.lance
+vector_index.lance
+
+# ------------------------------------------------------------------------------
+# 3. Environment Variables & Secrets
+#    Never commit API keys (OpenAI, Anthropic) or local config overrides.
+# ------------------------------------------------------------------------------
 .env
 .env.local
 .env.test
+.env.*
 
-# IDE & OS Artifacts
-.vscode/
-.idea/
+# ------------------------------------------------------------------------------
+# 4. OS & IDE Configuration
+# ------------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Logs
+# ------------------------------------------------------------------------------
+# 5. Logs & Temporary Files
+# ------------------------------------------------------------------------------
 *.log
+tmp/
+temp/
