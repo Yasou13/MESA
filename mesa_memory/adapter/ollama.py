@@ -12,8 +12,6 @@ from mesa_memory.config import config
 
 
 class OllamaAdapter(BaseUniversalLLMAdapter):
-    EMBEDDING_DIM = 768
-
     def __init__(self, model: str = "mistral", embedding_model: str = "nomic-embed-text"):
         self._model = model
         self._embedding_model = embedding_model

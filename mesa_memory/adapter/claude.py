@@ -10,13 +10,17 @@ from mesa_memory.config import config
 
 
 class ClaudeAdapter(BaseUniversalLLMAdapter):
-    EMBEDDING_DIM = 1536
-
     def __init__(self, anthropic_api_key: Optional[str] = None, openai_api_key: Optional[str] = None):
+        self.openai_api_key = openai_api_key
         self._sync_anthropic = anthropic.Anthropic(api_key=anthropic_api_key)
         self._async_anthropic = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
-        self._sync_openai = openai.OpenAI(api_key=openai_api_key)
-        self._async_openai = openai.AsyncOpenAI(api_key=openai_api_key)
+        
+        if openai_api_key:
+            self._sync_openai = openai.OpenAI(api_key=openai_api_key)
+            self._async_openai = openai.AsyncOpenAI(api_key=openai_api_key)
+        else:
+            self._sync_openai = None
+            self._async_openai = None
 
     def complete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
         max_tokens = kwargs.get("max_tokens", 1024)
@@ -53,6 +57,8 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
         return text
 
     def embed(self, text: str, **kwargs) -> list[float]:
+        if not self._sync_openai:
+            raise RuntimeError("OPENAI_API_KEY must be provided to ClaudeAdapter for vector embedding fallback.")
         model = kwargs.get("model", "text-embedding-3-small")
         response = self._sync_openai.embeddings.create(
             model=model,
@@ -61,6 +67,8 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
         return response.data[0].embedding
 
     async def aembed(self, text: str, **kwargs) -> list[float]:
+        if not self._async_openai:
+            raise RuntimeError("OPENAI_API_KEY must be provided to ClaudeAdapter for vector embedding fallback.")
         model = kwargs.get("model", "text-embedding-3-small")
         response = await self._async_openai.embeddings.create(
             model=model,

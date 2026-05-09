@@ -1,7 +1,7 @@
 from typing import List, Optional
 from datetime import datetime, timezone
 
-from uuid_extensions import uuid7 as _uuid7_func
+from uuid6 import uuid7 as _uuid7_func
 from pydantic import BaseModel, ConfigDict, Field
 
 

@@ -3,13 +3,17 @@ from typing import Optional, Type, Union, Any
 
 from pydantic import BaseModel
 
+from mesa_memory.config import config
+
 
 class TokenBudgetExceededError(Exception):
     pass
 
 
 class BaseUniversalLLMAdapter(ABC):
-    EMBEDDING_DIM: int
+    @property
+    def EMBEDDING_DIM(self) -> int:
+        return config.embedding_dimension
 
     @abstractmethod
     def complete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:

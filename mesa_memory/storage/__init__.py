@@ -1,6 +1,7 @@
 from mesa_memory.schema.cmb import CMB
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
+from mesa_memory.storage.graph.base import BaseGraphProvider
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.security.rbac import AccessControl, sanitize_cmb_content
 
@@ -17,11 +18,20 @@ class StorageFacade:
         graph_db_path: str = "./storage/knowledge_graph.db",
         graph_rocks_path: str = "./storage/kg_history.rocks",
         access_control: AccessControl | None = None,
+        graph_provider: BaseGraphProvider | None = None,
     ):
         self.access_control = access_control or AccessControl()
         self.raw_log = RawLogStorage(db_path=raw_log_path)
         self.vector = VectorStorage(uri=vector_uri, access_control=self.access_control)
-        self.graph = NetworkXProvider(db_path=graph_db_path, rocks_path=graph_rocks_path, access_control=self.access_control)
+        
+        if graph_provider is not None:
+            self.graph: BaseGraphProvider = graph_provider
+        else:
+            self.graph: BaseGraphProvider = NetworkXProvider(
+                db_path=graph_db_path,
+                rocks_path=graph_rocks_path,
+                access_control=self.access_control
+            )
 
     async def initialize_all(self):
         await self.raw_log.initialize()

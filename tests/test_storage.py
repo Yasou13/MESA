@@ -6,7 +6,7 @@ import pytest_asyncio
 from mesa_memory.schema.cmb import CMB, ResourceCost, AffectiveState
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
-from mesa_memory.storage.graph_store import GraphStorage
+from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 
 
 TEST_STORAGE_DIR = "./storage_test_tmp"
@@ -91,7 +91,7 @@ async def test_vector_index_search_filter():
 async def test_graph_mvcc_node_versioning():
     db_path = os.path.join(TEST_STORAGE_DIR, "kg_test.db")
     rocks_path = os.path.join(TEST_STORAGE_DIR, "kg_test.rocks")
-    gs = GraphStorage(db_path=db_path, rocks_path=rocks_path)
+    gs = NetworkXProvider(db_path=db_path, rocks_path=rocks_path)
     await gs.initialize()
 
     old_id = await gs.upsert_node("Patient_X", "PERSON")

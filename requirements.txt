@@ -1,0 +1,17 @@
+pydantic
+pydantic-settings
+anthropic
+openai
+outlines
+tiktoken
+transformers
+numpy
+spacy
+aiosqlite
+rocksdict
+pyarrow
+lancedb
+pyod
+pytest
+pytest-asyncio
+networkx

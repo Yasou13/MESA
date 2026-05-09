@@ -1,4 +1,5 @@
 import json
+import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
 
@@ -24,7 +25,8 @@ def _make_cmb_candidate(embedding=None, latency_ms=100.0):
     }
 
 
-def test_tier1_bypass():
+@pytest.mark.asyncio
+async def test_tier1_bypass():
     adapter = _make_mock_adapter()
     obs = ObservabilityLayer()
     motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
@@ -32,13 +34,14 @@ def test_tier1_bypass():
     cmb = _make_cmb_candidate()
     signals = {"explicit_correction": True}
 
-    result = motor.evaluate(cmb, signals)
+    result = await motor.evaluate(cmb, signals)
 
     assert result is True
     adapter.complete.assert_not_called()
 
 
-def test_tier1_error_state():
+@pytest.mark.asyncio
+async def test_tier1_error_state():
     adapter = _make_mock_adapter()
     obs = ObservabilityLayer()
     motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
@@ -46,7 +49,7 @@ def test_tier1_error_state():
     cmb = _make_cmb_candidate()
     signals = {"error": True}
 
-    result = motor.evaluate(cmb, signals)
+    result = await motor.evaluate(cmb, signals)
 
     # Operational behavior: ExecutionFailure should discard the CMB (return False)
     # The previous faulty test logic expected True, which is incorrect.
@@ -54,7 +57,8 @@ def test_tier1_error_state():
     adapter.complete.assert_not_called()
 
 
-def test_tier2_ecod_bootstrap():
+@pytest.mark.asyncio
+async def test_tier2_ecod_bootstrap():
     adapter = _make_mock_adapter()
     obs = ObservabilityLayer()
     motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
@@ -72,7 +76,7 @@ def test_tier2_ecod_bootstrap():
     cmb = _make_cmb_candidate(embedding=novel_embedding)
     signals = {}
 
-    motor.evaluate(cmb, signals)
+    await motor.evaluate(cmb, signals)
 
     tier2_logs = [
         c for c in obs.metrics.counters
@@ -106,7 +110,8 @@ def test_threshold_recalibration_ewmad():
     assert 0.50 <= recalibrated <= 0.90
 
 
-def test_tier3_tiebreaker():
+@pytest.mark.asyncio
+async def test_tier3_tiebreaker():
     adapter = _make_mock_adapter()
     obs = ObservabilityLayer()
     motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
@@ -121,7 +126,7 @@ def test_tier3_tiebreaker():
 
     near_duplicate = np.ones(768).tolist()
     cmb_cheap = _make_cmb_candidate(embedding=near_duplicate, latency_ms=100.0)
-    result_cheap = motor.evaluate(cmb_cheap, {})
+    result_cheap = await motor.evaluate(cmb_cheap, {})
     assert result_cheap is True
 
     adapter.complete.side_effect = [
@@ -133,5 +138,5 @@ def test_tier3_tiebreaker():
     motor.memory_count = 5
 
     cmb_expensive = _make_cmb_candidate(embedding=near_duplicate, latency_ms=9999.0)
-    result_expensive = motor.evaluate(cmb_expensive, {})
+    result_expensive = await motor.evaluate(cmb_expensive, {})
     assert result_expensive is False

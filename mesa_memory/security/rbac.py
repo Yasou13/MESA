@@ -1,5 +1,7 @@
 import re
 import logging
+import json
+import os
 
 logger = logging.getLogger("MESA_Security")
 
@@ -33,8 +35,31 @@ def detect_prompt_injection(content: str) -> bool:
 
 
 class AccessControl:
-    def __init__(self):
+    def __init__(self, policy_path: str = "./storage/rbac_policy.json"):
+        self.policy_path = policy_path
         self.permissions = {}
+        self._load_policy()
+
+    def _load_policy(self):
+        if os.path.exists(self.policy_path):
+            try:
+                with open(self.policy_path, "r") as f:
+                    self.permissions = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load RBAC policy from {self.policy_path}: {e}")
+                self.permissions = {"system": {"system": "WRITE"}}
+                self._save_policy()
+        else:
+            self.permissions = {"system": {"system": "WRITE"}}
+            self._save_policy()
+
+    def _save_policy(self):
+        os.makedirs(os.path.dirname(os.path.abspath(self.policy_path)), exist_ok=True)
+        try:
+            with open(self.policy_path, "w") as f:
+                json.dump(self.permissions, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save RBAC policy to {self.policy_path}: {e}")
 
     def grant_access(self, agent_id: str, session_id: str, level: str):
         if level not in ("READ", "WRITE"):
@@ -42,6 +67,14 @@ class AccessControl:
         if agent_id not in self.permissions:
             self.permissions[agent_id] = {}
         self.permissions[agent_id][session_id] = level
+        self._save_policy()
+
+    def revoke_access(self, agent_id: str, session_id: str):
+        if agent_id in self.permissions and session_id in self.permissions[agent_id]:
+            del self.permissions[agent_id][session_id]
+            if not self.permissions[agent_id]:
+                del self.permissions[agent_id]
+            self._save_policy()
 
     def check_access(self, agent_id: str, session_id: str, required_level: str) -> bool:
         if agent_id not in self.permissions:

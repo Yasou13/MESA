@@ -1,5 +1,6 @@
 import json
 import re
+import asyncio
 
 import numpy as np
 
@@ -138,7 +139,7 @@ class ValenceMotor:
         )
 
         try:
-            response_a = self.llm_adapter.complete(prompt_a)
+            response_a = await asyncio.get_running_loop().run_in_executor(None, self.llm_adapter.complete, prompt_a)
             cleaned_a = _strip_markdown_json(response_a) if isinstance(response_a, str) else ""
             result_a = json.loads(cleaned_a) if cleaned_a else response_a
             decision_a = result_a.get("decision", "DISCARD")
@@ -146,7 +147,7 @@ class ValenceMotor:
             decision_a = "DISCARD"
 
         try:
-            response_b = self.llm_adapter.complete(prompt_b)
+            response_b = await asyncio.get_running_loop().run_in_executor(None, self.llm_adapter.complete, prompt_b)
             cleaned_b = _strip_markdown_json(response_b) if isinstance(response_b, str) else ""
             result_b = json.loads(cleaned_b) if cleaned_b else response_b
             decision_b = result_b.get("decision", "DISCARD")

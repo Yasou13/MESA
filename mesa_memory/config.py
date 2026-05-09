@@ -3,7 +3,7 @@ import os
 from typing import Optional
 
 import psutil
-from pydantic import ConfigDict
+from pydantic import ConfigDict, model_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger("MESA_Config")
@@ -85,6 +85,11 @@ def _read_cgroup_ram_limit() -> Optional[int]:
 class MesaConfig(BaseSettings):
     model_config = ConfigDict(env_prefix="MESA_")
 
+    llm_provider: str = "claude"
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    embedding_dimension: int = 1536
+
     tiebreaker_latency_threshold_ms: float = 500.0
     bootstrap_cosine_threshold: float = 0.75
     context_window_limit: int = 8000
@@ -128,6 +133,12 @@ class MesaConfig(BaseSettings):
     rrf_k: int = 60
     cold_start_min_nodes: int = 10
     ppr_alpha: float = 0.15
+
+    @model_validator(mode="after")
+    def validate_embedding_fallback(self) -> "MesaConfig":
+        if self.llm_provider.lower() == "claude" and not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY is explicitly required for embedding fallback when Claude is the selected LLM provider.")
+        return self
 
 
 def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:

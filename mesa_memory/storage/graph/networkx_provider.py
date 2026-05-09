@@ -24,7 +24,7 @@ from typing import Optional
 
 import aiosqlite
 import networkx as nx
-from uuid_extensions import uuid7 as _uuid7_func
+from uuid6 import uuid7 as _uuid7_func
 from rocksdict import Rdict
 
 from mesa_memory.storage.graph.base import BaseGraphProvider

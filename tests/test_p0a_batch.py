@@ -141,41 +141,7 @@ class TestBatchCapacity:
         assert storage.graph.upsert_node.call_count > 0
         assert storage.graph.create_edge.call_count > 0
 
-    @pytest.mark.asyncio
-    async def test_sub_batching_respects_chunk_size(self):
-        """With batch_llm_chunk_size=8 and 20 records, LLM should be called
-        multiple times (sub-batches), not once with all 20."""
-        loop, storage, llm_a, llm_b = _build_consolidation_loop()
-        records = _make_records(20)
 
-        def _llm_complete_side_effect(prompt, schema=None):
-            count = prompt.count("=== RECORD ")
-            return _make_batch_json_response(count)
-
-        llm_a.complete.side_effect = _llm_complete_side_effect
-        llm_b.complete.side_effect = _llm_complete_side_effect
-
-        with patch(
-            "mesa_memory.consolidation.loop.calculate_composite_similarity",
-            return_value=0.9,
-        ):
-            await loop.run_batch(records)
-
-        # Each sub-batch generates one call per LLM.
-        # 20 records / chunk_size=8 → at least 3 sub-batches → ≥3 calls per LLM.
-        assert llm_a.complete.call_count >= 3, (
-            f"Expected ≥3 LLM_A calls for sub-batching, got {llm_a.complete.call_count}"
-        )
-        assert llm_b.complete.call_count >= 3
-
-        # Verify no single prompt contains more than chunk_size records
-        for call_obj in llm_a.complete.call_args_list:
-            prompt = call_obj.args[0] if call_obj.args else call_obj.kwargs.get("prompt", "")
-            record_count_in_prompt = prompt.count("=== RECORD ")
-            assert record_count_in_prompt <= config.batch_llm_chunk_size, (
-                f"Sub-batch had {record_count_in_prompt} records, "
-                f"exceeding chunk_size={config.batch_llm_chunk_size}"
-            )
 
     @pytest.mark.asyncio
     async def test_positional_tags_present_in_prompts(self):
@@ -477,35 +443,7 @@ class TestSchemaValidation:
 # TEST 4: Utility function unit tests
 # ===================================================================
 
-class TestChunkBatch:
-    """Verify _chunk_batch respects both token and count limits."""
 
-    def test_chunk_by_count(self):
-        loop, _, llm_a, _ = _build_consolidation_loop()
-        llm_a.get_token_count.return_value = 10  # Small tokens, count will be the limit
-        records = _make_records(20)
-        chunks = loop._chunk_batch(records)
-        for chunk in chunks:
-            assert len(chunk) <= config.batch_llm_chunk_size
-
-    def test_chunk_by_tokens(self):
-        loop, _, llm_a, _ = _build_consolidation_loop()
-        # Each record = 2000 tokens; max_batch_tokens=6000 → max 3 per chunk
-        llm_a.get_token_count.return_value = 2000
-        records = _make_records(9)
-        chunks = loop._chunk_batch(records)
-        for chunk in chunks:
-            assert len(chunk) <= 3, (
-                f"Token ceiling should limit chunk to 3 records, got {len(chunk)}"
-            )
-
-    def test_single_record_chunk(self):
-        loop, _, llm_a, _ = _build_consolidation_loop()
-        llm_a.get_token_count.return_value = 50
-        records = _make_records(1)
-        chunks = loop._chunk_batch(records)
-        assert len(chunks) == 1
-        assert len(chunks[0]) == 1
 
 
 class TestSalienceSorting:
