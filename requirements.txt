@@ -6,3 +6,5 @@ openai
 outlines
 spacy
 pytest
+pytest-asyncio
+psutil
