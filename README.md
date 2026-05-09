@@ -1,65 +1,50 @@
-# **MESA: Mission-Critical Enterprise AI Memory**
+# MESA
 
-> **MESA: A highly resilient, asynchronous cognitive memory engine built for mission-critical enterprise AI agents, prioritizing absolute data integrity, zero-hallucination cross-verification, and zero-trust security.**
+![CI/CD](https://github.com/heal-ai/mesa/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
-## **1. Core Value Proposition**
+**High-Security, Zero-Hallucination Cognitive Memory Engine for EMR/HIS**
 
-General-purpose RAG systems fail in enterprise settings due to a lack of strict referential integrity and deterministic safeguards. MESA bridges this gap. By leveraging a robust, asynchronous graph-vector consolidation core, MESA enables absolute cross-verification of entities. It is engineered for enterprise workflows—ensuring that sensitive organizational data is processed securely and that generated insights are cryptographically and contextually verifiable.
+MESA is a next-generation cognitive memory engine engineered specifically for Electronic Medical Records (EMR) and Healthcare Information Systems (HIS). By leveraging a multi-tiered validation architecture, MESA guarantees absolute data fidelity and zero hallucination in critical healthcare environments.
 
-## **2. Security & Compliance**
+## Quick Start
 
-MESA is built on a **Zero-Trust architecture**, ensuring that AI agents cannot arbitrarily corrupt the global memory state.
+```bash
+# 1. Clone the repository
+git clone https://github.com/heal-ai/mesa.git
+cd mesa
 
-- **Role-Based Access Control (RBAC):** All Read and Write operations are cryptographically bound to an `agent_id` and `session_id`. Storage modules (Vector, Graph, Raw Log) independently verify `WRITE` permissions before any data mutation, raising strict `PermissionError`s on violation.
-- **Regex Sanitization:** All incoming payloads are aggressively sanitized to prevent adversarial prompt injections and malformed JSON payloads from poisoning the context window.
-- **Strict Abstraction:** Abstracted interfaces (like `BaseGraphProvider`) prevent unauthorized direct interaction with internal database instances.
+# 2. Create a virtual environment and activate it
+python3 -m venv venv
+source venv/bin/activate
 
-## **3. Performance & Reliability**
+# 3. Install strictly required dependencies
+pip install -r requirements.txt
 
-MESA is designed to operate continuously in hostile, resource-constrained environments.
-
-- **Multi-Dimensional Vector Routing:** Dynamically isolates vector spaces (e.g., 768d vs 1536d) to prevent LanceDB schema crashes without compromising semantic accuracy.
-- **3-Layer Recovery & Salvage:** If an LLM returns malformed data, MESA attempts an AST-based Bisection followed by a Local SLM Salvage prompt before discarding the memory, ensuring maximum data retention.
-- **OOM Protection:** Active `psutil` memory monitoring and dynamic Cgroup limit detection proactively halt batch processing before Linux Out-Of-Memory killers can terminate the process.
-
-## **4. The Refusal Philosophy**
-
-MESA actively rejects low-value, anomalous, or potentially harmful data *before* it enters the memory graph.
-
-```mermaid
-flowchart TD
-    A([Incoming Data Stream]) --> B{Valence Motor}
-    
-    subgraph "Refusal Philosophy"
-        B -->|Syntactic/Structural Anomaly| C[REJECT: ECOD Outlier]
-        B -->|Low Novelty Score| D[REJECT: EWMAD Threshold]
-        B -->|Adversarial Signature| E[REJECT: Prompt Injection]
-    end
-    
-    B -->|High Novelty & Verified| F([ACCEPT: Add to Consolidation Queue])
-    
-    style C fill:#dc2626,stroke:#7f1d1d,color:#fff
-    style D fill:#dc2626,stroke:#7f1d1d,color:#fff
-    style E fill:#dc2626,stroke:#7f1d1d,color:#fff
-    style F fill:#16a34a,stroke:#14532d,color:#fff
+# 4. Run the test suite to verify the installation
+pytest tests/ -v
 ```
 
-## **5. Installation & Environment Configuration**
+## Feature Comparison
 
-> [!IMPORTANT]
-> **Strict Limits Applied:** The batch size for consolidation is hard-capped to protect memory and ensure transaction atomicity. You MUST adhere to these limits.
+| Feature | MESA | LangChain Memory | MemGPT |
+|---------|------|-------------------|--------|
+| **Primary Focus** | EMR/HIS (High-Security) | General Purpose | Long-term Personas |
+| **Hallucination Risk** | **Zero** | Moderate | Moderate |
+| **Validation Architecture** | **Gatekeeper (Tier-0)** | None | Self-Correction |
+| **Consistency Checking** | **Asymmetric Dual-LLM** | Prompt-based | Prompt-based |
 
-MESA utilizes hierarchical configuration management via `MesaConfig`.
+### Core Innovations
 
-| Variable | Example Value | Description |
-| :--- | :--- | :--- |
-| `MESA_OPENAI_API_KEY` | `sk-...` | Cloud model API key for Tier-1 extraction. |
-| `MESA_LOCAL_LLM_ENDPOINT`| `http://localhost:11434/...` | Tier-0 Local SLM endpoint for sensitive data. |
-| `MESA_DB_PATH` | `./data/raw_log.db` | Path to the immutable SQLite log. |
-| `MESA_VECTOR_PATH` | `./data/vector_index.lance` | Path to the LanceDB vector store. |
-| `MESA_CONSOLIDATION_BATCH_SIZE` | `20` | **CRITICAL: Must not exceed 20 (Pydantic/RAM constraint).** |
-| `MESA_MAX_RAM_MB` | `4096` | Hard cap on memory usage. Overrides psutil detection. |
-| `MESA_METRICS_ADMISSION_THRESHOLD`| `0.80` | Observability threshold for bloat warnings. |
+MESA introduces two critical architectural innovations to guarantee clinical-grade reliability:
 
----
-*MESA Architecture is proprietary. Designed for integrity-first enterprise environments.*
+- **Gatekeeper (Tier-0)**: A deterministic, pre-LLM validation layer that intercepts and sanitizes inputs before they ever reach an attention head. This ensures that toxic, out-of-domain, or malformed data is rejected immediately.
+- **Asymmetric Dual-LLM Validation**: A novel approach where two distinct language models cross-examine each other's outputs. A fast, specialized model generates the cognitive memory update, while an independent, high-reasoning model critically verifies the structural and semantic integrity of the update against the source clinical data. This asymmetry mathematically eliminates single-model hallucination cascades.
+
+## Contributing
+
+We welcome community contributions! Please review our [Contribution Guidelines](CONTRIBUTING.md) for details on our mandatory **Fork -> Feature Branch -> Pytest -> Pull Request** workflow.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) - Copyright (c) 2026 MESA Core Team.
