@@ -111,7 +111,7 @@ def test_threshold_recalibration_ewmad():
 
 
 @pytest.mark.asyncio
-async def test_tier3_tiebreaker():
+async def test_tier3_deferred():
     adapter = _make_mock_adapter()
     obs = ObservabilityLayer()
     motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
@@ -119,24 +119,10 @@ async def test_tier3_tiebreaker():
     motor.existing_embeddings = [np.ones(768).tolist()] * 5
     motor.memory_count = 5
 
-    adapter.complete.side_effect = [
-        json.dumps({"decision": "STORE", "justification": "useful"}),
-        json.dumps({"decision": "DISCARD", "justification": "redundant"}),
-    ]
-
     near_duplicate = np.ones(768).tolist()
-    cmb_cheap = _make_cmb_candidate(embedding=near_duplicate, latency_ms=100.0)
-    result_cheap = await motor.evaluate(cmb_cheap, {})
-    assert result_cheap is True
-
-    adapter.complete.side_effect = [
-        json.dumps({"decision": "STORE", "justification": "useful"}),
-        json.dumps({"decision": "DISCARD", "justification": "redundant"}),
-    ]
-
-    motor.existing_embeddings = [np.ones(768).tolist()] * 5
-    motor.memory_count = 5
-
-    cmb_expensive = _make_cmb_candidate(embedding=near_duplicate, latency_ms=9999.0)
-    result_expensive = await motor.evaluate(cmb_expensive, {})
-    assert result_expensive is False
+    cmb = _make_cmb_candidate(embedding=near_duplicate, latency_ms=100.0)
+    result = await motor.evaluate(cmb, {})
+    
+    assert result is True
+    assert cmb.get("tier3_deferred") is True
+    adapter.complete.assert_not_called()

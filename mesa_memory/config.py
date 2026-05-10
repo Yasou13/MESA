@@ -83,7 +83,7 @@ def _read_cgroup_ram_limit() -> Optional[int]:
 
 
 class MesaConfig(BaseSettings):
-    model_config = ConfigDict(env_prefix="MESA_")
+    model_config = ConfigDict(env_prefix="MESA_", env_file=".env")
 
     llm_provider: str = "claude"
     openai_api_key: Optional[str] = None
