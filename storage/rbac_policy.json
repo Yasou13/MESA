@@ -1,0 +1,8 @@
+{
+  "system": {
+    "system": "WRITE"
+  },
+  "test_agent": {
+    "test_session": "READ"
+  }
+}

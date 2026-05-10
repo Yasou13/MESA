@@ -97,13 +97,14 @@ class VectorStorage:
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
         try:
-            for table_name in self.db.table_names():
+            for table_name in self.db.list_tables():
                 if table_name.startswith("mesa_memory_"):
                     table = self.db.open_table(table_name)
                     table.update(
                         where=f"cmb_id = '{cmb_id}'",
                         values={"expired_at": now},
                     )
+            self._tables.clear()
         except Exception:
             pass
 
@@ -111,7 +112,7 @@ class VectorStorage:
         """Return all cmb_ids currently in the vector table (active or not). Used by reconciliation."""
         all_ids = set()
         try:
-            for table_name in self.db.table_names():
+            for table_name in self.db.list_tables():
                 if table_name.startswith("mesa_memory_"):
                     table = self.db.open_table(table_name)
                     rows = table.to_pandas()["cmb_id"].tolist()

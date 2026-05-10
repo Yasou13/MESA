@@ -43,6 +43,8 @@ async def test_hybrid_retrieval_cold_start():
 
     empty_graph = nx.MultiDiGraph()
     storage.graph.get_active_graph.return_value = empty_graph
+    storage.graph.find_nodes_by_name = AsyncMock(return_value=[])
+    storage.graph.get_all_active_nodes = AsyncMock(return_value=[])
 
     storage.vector.search.return_value = [
         {"cmb_id": "vec_1", "content_payload": "content 1", "fitness_score": 0.8, "_distance": 0.1},

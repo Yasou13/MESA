@@ -80,6 +80,7 @@ async def test_vector_index_search_filter():
     )
 
     vs.soft_delete(cmb_a.cmb_id)
+    vs._tables.clear()
 
     results = vs.search(query_vector=[0.7] * 768, limit=10)
     returned_ids = [r["cmb_id"] for r in results]
