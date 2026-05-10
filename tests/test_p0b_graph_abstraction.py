@@ -458,9 +458,8 @@ class TestHybridRetrieverCompat:
             embedder=embedder,
         )
 
-        # _match_entities_to_nodes should find B_entity in the real graph
-        active_graph = storage.graph.get_active_graph()
-        matched = retriever._match_entities_to_nodes(["B_entity"], active_graph)
+        # The retriever now uses the async graph methods directly.
+        matched = await storage.graph.find_nodes_by_name(["B_entity"], case_insensitive=True)
         assert len(matched) == 1, "Provider-backed graph must be searchable by name"
 
     @pytest.mark.asyncio

@@ -55,13 +55,18 @@ async def test_hybrid_retrieval_cold_start():
     embedder = MagicMock()
     embedder.embed.return_value = [0.1] * 768
 
+    from mesa_memory.security.rbac import AccessControl
+    ac = AccessControl()
+    ac.grant_access("test_agent", "test_session", "READ")
+
     retriever = HybridRetriever(
         storage_facade=storage,
         analyzer=analyzer,
         embedder=embedder,
+        access_control=ac,
     )
 
-    results = await retriever.retrieve("unknown_entity query", top_n=5)
+    results = await retriever.retrieve("unknown_entity query", agent_id="test_agent", session_id="test_session", top_n=5)
 
     assert len(results) > 0
     assert "vec_1" in results

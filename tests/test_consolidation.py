@@ -102,6 +102,8 @@ async def test_consolidation_divergence_paths():
     hub_graph.nodes.return_value = hub_node_data
     hub_graph.degree.return_value = 6
     storage.graph.get_active_graph.return_value = hub_graph
+    storage.graph.find_nodes_by_name = AsyncMock(return_value=[{"node_id": "hub_1"}])
+    storage.graph.get_node_degree = AsyncMock(return_value=6)
 
     with patch(
         "mesa_memory.consolidation.loop.calculate_composite_similarity",
@@ -120,6 +122,8 @@ async def test_consolidation_divergence_paths():
     periph_graph.nodes.return_value = [("periph_1", {"name": "X"})]
     periph_graph.degree.return_value = 2
     storage.graph.get_active_graph.return_value = periph_graph
+    storage.graph.find_nodes_by_name = AsyncMock(return_value=[{"node_id": "periph_1"}])
+    storage.graph.get_node_degree = AsyncMock(return_value=2)
 
     with patch(
         "mesa_memory.consolidation.loop.calculate_composite_similarity",

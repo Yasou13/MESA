@@ -54,7 +54,7 @@ async def test_raw_log_soft_delete():
 async def test_vector_index_search_filter():
     uri = os.path.join(TEST_STORAGE_DIR, "vector_test.lance")
     vs = VectorStorage(uri=uri)
-    vs.create_table(dimension=768)
+    vs.get_or_create_table(dimension=768)
 
     cmb_a = _make_cmb("vector A", embedding=[0.5] * 768)
     cmb_b = _make_cmb("vector B", embedding=[0.9] * 768)
