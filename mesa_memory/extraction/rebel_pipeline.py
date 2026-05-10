@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import List, Dict
 
 try:
@@ -8,24 +9,67 @@ except ImportError:
 
 logger = logging.getLogger("MESA_Extraction")
 
+
+# ---------------------------------------------------------------------------
+# Singleton holder — ensures the 1.8 GB REBEL model is loaded exactly once
+# per application lifecycle, regardless of how many RebelExtractor instances
+# are created (e.g. by ConsolidationLoop re-init or test fixtures).
+# ---------------------------------------------------------------------------
+
+class _RebelModelHolder:
+    """Thread-safe singleton for the REBEL transformers pipeline."""
+
+    _instance = None
+    _lock = threading.Lock()
+    _pipeline = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def get_pipeline(self, model_name: str):
+        """Return the cached pipeline, initializing on first call."""
+        if self._pipeline is None:
+            with self._lock:
+                if self._pipeline is None:
+                    if pipeline is None:
+                        raise ImportError("transformers library is not installed")
+                    logger.info(
+                        "Initializing REBEL extraction pipeline with model %s "
+                        "(singleton — will be reused for all subsequent calls)",
+                        model_name,
+                    )
+                    self._pipeline = pipeline(
+                        "text2text-generation", model=model_name
+                    )
+        return self._pipeline
+
+    @classmethod
+    def reset(cls):
+        """Reset the singleton — intended for test teardown only."""
+        with cls._lock:
+            cls._pipeline = None
+            cls._instance = None
+
+
+_model_holder = _RebelModelHolder()
+
+
 class RebelExtractor:
     def __init__(self, model_name: str = "Babelscape/rebel-large"):
         self.model_name = model_name
-        self._pipeline = None
-        
-    def _initialize(self):
-        if self._pipeline is None:
-            if pipeline is None:
-                raise ImportError("transformers library is not installed")
-            logger.info(f"Initializing REBEL extraction pipeline with model {self.model_name}")
-            self._pipeline = pipeline("text2text-generation", model=self.model_name)
-            
+
+    @property
+    def _pipeline(self):
+        return _model_holder.get_pipeline(self.model_name)
+
     def extract_triplets(self, text: str) -> List[Dict[str, str]]:
         if not text.strip():
             return []
-            
-        self._initialize()
-        
+
         # Max length for rebel-large is typically 256 or 512
         # Use truncation to ensure we don't crash on long texts
         try:

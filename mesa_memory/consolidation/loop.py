@@ -491,8 +491,8 @@ class ConsolidationLoop:
         elif decision_a == "DISCARD" and decision_b == "DISCARD":
             return False
             
-        latency = record.get("resource_cost_latency_ms", 0.0)
-        return latency <= config.tiebreaker_latency_threshold_ms
+        # Fail-safe: LLMs disagree → discard the candidate
+        return False
 
     async def run_batch(self, batch: list[dict] = None):
         """Process a batch of raw log records through the consolidation pipeline.

@@ -135,7 +135,7 @@ class HybridRetriever:
         for r in vector_results:
             fitness = r.get("fitness_score", 0.0)
             distance_score = r.get("score", 0.0)
-            combined = fitness * distance_score if fitness > 0 else distance_score
+            combined = (config.cold_start_fitness_weight * fitness) + (config.cold_start_distance_weight * distance_score)
             entry = dict(r)
             entry["rrf_score"] = combined
             entry["source"] = "vector_cold_start"

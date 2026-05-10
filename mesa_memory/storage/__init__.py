@@ -66,7 +66,7 @@ class StorageFacade:
                 f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
             )
 
-        cmb.content_payload = sanitize_cmb_content(cmb.content_payload)
+        cmb = cmb.model_copy(update={"content_payload": sanitize_cmb_content(cmb.content_payload)})
 
         await self.raw_log.insert_cmb(cmb)
 

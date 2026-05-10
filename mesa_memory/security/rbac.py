@@ -5,16 +5,17 @@ import os
 
 logger = logging.getLogger("MESA_Security")
 
-# Prompt injection detection patterns — adversarial instructions
-# that attempt to hijack LLM behavior when interpolated into prompts.
+# ---------------------------------------------------------------------------
+# Advisory prompt injection patterns — logged for observability but NOT used
+# to hard-block content.  MESA's primary injection defense is architectural:
+# all user content is interpolated inside <CONTENT>…</CONTENT> sandbox tags
+# in the LLM prompt templates (see consolidation/loop.py), so the model is
+# explicitly instructed to treat the block as untrusted data.
+# ---------------------------------------------------------------------------
 INJECTION_PATTERNS = [
     r"(?i)ignore\s+(all\s+)?previous\s+(instructions|context|rules|prompts)",
     r"(?i)disregard\s+(all\s+)?(prior|previous|above)",
     r"(?i)forget\s+(all\s+)?(previous|prior|above|your)\s+(instructions|rules|context)",
-    r"(?i)you\s+are\s+now\s+a",
-    r"(?i)act\s+as\s+if\s+you\s+have\s+no\s+(restrictions|rules|guidelines)",
-    r"(?i)system\s*:\s*",
-    r"(?i)return\s+all\s+(passwords|secrets|keys|credentials|tokens|api.?keys)",
     r"(?i)override\s+(safety|security|restrictions|guidelines|filters)",
     r"(?i)\bDAN\b.*\bmode\b",
     r"(?i)do\s+anything\s+now",
@@ -30,7 +31,12 @@ class PromptInjectionError(ValueError):
 
 
 def detect_prompt_injection(content: str) -> bool:
-    """Check content for known prompt injection patterns."""
+    """Check content for known prompt injection patterns (advisory only).
+
+    Returns True if any pattern matches.  Callers may log or flag the
+    content but should NOT hard-block it — false positives are common
+    in conversational agent systems.
+    """
     return any(re.search(p, content) for p in INJECTION_PATTERNS)
 
 
@@ -93,20 +99,44 @@ class AccessControl:
 
 
 def sanitize_cmb_content(content: str) -> str:
+    """Standard input normalization for CMB content payloads.
+
+    Performs the following transformations:
+    1. Strips null bytes (binary safety).
+    2. Strips ANSI escape sequences (terminal injection).
+    3. Strips dangerous HTML tags AND their content (script, style, iframe, etc.).
+    4. Strips remaining HTML tags (preserves text content).
+    5. Neutralizes common shell metacharacters (backticks, $()).
+    6. Normalizes whitespace to single spaces.
+    7. Advisory-only prompt injection logging (no hard block).
+    """
+    # 1. Null bytes
     content = content.replace("\x00", "")
-    # Strip dangerous tags AND their content (script, style, etc.)
-    content = re.sub(r"<(script|style|iframe|object|embed)[^>]*>.*?</\1>", "", content, flags=re.DOTALL | re.IGNORECASE)
-    # Strip remaining HTML tags
+
+    # 2. ANSI escape sequences
+    content = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", content)
+
+    # 3. Strip dangerous tags AND their content (script, style, etc.)
+    content = re.sub(
+        r"<(script|style|iframe|object|embed)[^>]*>.*?</\1>",
+        "", content, flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    # 4. Strip remaining HTML tags
     content = re.sub(r"<[^>]*>", "", content)
+
+    # 5. Neutralize shell metacharacters
+    content = content.replace("`", "'")
+    content = re.sub(r"\$\(", "(", content)
+
+    # 6. Normalize whitespace
     content = " ".join(content.split())
 
-    # Prompt injection detection — reject adversarial content before it
-    # enters the memory pipeline and gets interpolated into LLM prompts.
+    # 7. Advisory logging — flag but do not block
     if detect_prompt_injection(content):
-        logger.warning(f"PROMPT_INJECTION_DETECTED: Content rejected by security layer")
-        raise PromptInjectionError(
-            "PROMPT_INJECTION_DETECTED: Content contains adversarial patterns "
-            "and has been rejected by the security layer."
+        logger.info(
+            "PROMPT_INJECTION_ADVISORY: Content matched injection heuristic "
+            "(advisory only — content passed through)"
         )
 
     return content

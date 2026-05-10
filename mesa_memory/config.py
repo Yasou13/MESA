@@ -132,12 +132,22 @@ class MesaConfig(BaseSettings):
     # Hybrid retrieval parameters (Module 9)
     rrf_k: int = 60
     cold_start_min_nodes: int = 10
+    cold_start_fitness_weight: float = 0.5
+    cold_start_distance_weight: float = 0.5
     ppr_alpha: float = 0.15
+
+    # Local embedding fallback model (used when OpenAI key is absent)
+    local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     @model_validator(mode="after")
     def validate_embedding_fallback(self) -> "MesaConfig":
         if self.llm_provider.lower() == "claude" and not self.openai_api_key:
-            raise ValueError("OPENAI_API_KEY is explicitly required for embedding fallback when Claude is the selected LLM provider.")
+            import logging
+            logging.getLogger("MESA_Config").warning(
+                "OPENAI_API_KEY not set for Claude provider. "
+                "Embeddings will use local model '%s' as fallback.",
+                self.local_embedding_model,
+            )
         return self
 
 
