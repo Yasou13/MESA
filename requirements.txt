@@ -19,3 +19,4 @@ spacy
 tiktoken
 transformers
 uuid6
+pytest-cov

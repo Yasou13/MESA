@@ -1,6 +1,6 @@
 # MESA
 
-![CI/CD](https://github.com/heal-ai/mesa/actions/workflows/ci.yml/badge.svg)
+[![MESA CI](https://github.com/Yasou13/MESA/actions/workflows/python-app.yml/badge.svg)](https://github.com/Yasou13/MESA/actions)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
 **High-Security, Zero-Hallucination Cognitive Memory Engine for EMR/HIS**
@@ -11,7 +11,7 @@ MESA is a next-generation cognitive memory engine engineered specifically for El
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/heal-ai/mesa.git
+git clone https://github.com/Yasou13/MESA.git
 cd mesa
 
 # 2. Create a virtual environment and activate it
