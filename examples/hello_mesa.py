@@ -12,6 +12,8 @@ from mesa_memory.consolidation.schemas import BatchExtractionResponse, Extracted
 
 
 class MockOllamaAdapter(BaseUniversalLLMAdapter):
+    EMBEDDING_DIM = 768
+
     def complete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
         if schema == BatchExtractionResponse:
             return BatchExtractionResponse(triplets=[

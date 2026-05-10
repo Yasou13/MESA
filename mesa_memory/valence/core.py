@@ -131,61 +131,15 @@ class ValenceMotor:
             cost=cost,
         )
 
-        prompt_a = PROMPT_A_TEMPLATE.format(
-            content=content, source=source, performative=performative,
+        # Defer Tier-3 cross-validation to the asynchronous consolidation loop
+        cmb_candidate["tier3_deferred"] = True
+        self.obs_layer.log_valence_decision(
+            tier=3, decision="ADMIT",
+            justification="Tier-3 validation deferred to background consolidation",
+            cost=cost,
         )
-        prompt_b = PROMPT_B_TEMPLATE.format(
-            content=content, source=source, performative=performative,
-        )
-
-        try:
-            response_a = await asyncio.get_running_loop().run_in_executor(None, self.llm_adapter.complete, prompt_a)
-            cleaned_a = _strip_markdown_json(response_a) if isinstance(response_a, str) else ""
-            result_a = json.loads(cleaned_a) if cleaned_a else response_a
-            decision_a = result_a.get("decision", "DISCARD")
-        except Exception:
-            decision_a = "DISCARD"
-
-        try:
-            response_b = await asyncio.get_running_loop().run_in_executor(None, self.llm_adapter.complete, prompt_b)
-            cleaned_b = _strip_markdown_json(response_b) if isinstance(response_b, str) else ""
-            result_b = json.loads(cleaned_b) if cleaned_b else response_b
-            decision_b = result_b.get("decision", "DISCARD")
-        except Exception:
-            decision_b = "DISCARD"
-
-        if decision_a == "STORE" and decision_b == "STORE":
-            self.obs_layer.log_valence_decision(
-                tier=3, decision="ADMIT",
-                justification="Dual-prompt consensus: both STORE",
-                cost=cost,
-            )
-            self._admit(embedding)
-            return True
-
-        if decision_a == "DISCARD" and decision_b == "DISCARD":
-            self.obs_layer.log_valence_decision(
-                tier=3, decision="DISCARD",
-                justification="Dual-prompt consensus: both DISCARD",
-                cost=cost,
-            )
-            return False
-
-        if latency <= config.tiebreaker_latency_threshold_ms:
-            self.obs_layer.log_valence_decision(
-                tier=3, decision="ADMIT",
-                justification=f"Divergence tiebreaker: latency {latency}ms <= {config.tiebreaker_latency_threshold_ms}ms",
-                cost=cost,
-            )
-            self._admit(embedding)
-            return True
-        else:
-            self.obs_layer.log_valence_decision(
-                tier=3, decision="DISCARD",
-                justification=f"Divergence tiebreaker: latency {latency}ms > {config.tiebreaker_latency_threshold_ms}ms",
-                cost=cost,
-            )
-            return False
+        self._admit(embedding)
+        return True
 
     def _admit(self, embedding: list):
         self.memory_count += 1

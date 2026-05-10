@@ -1,6 +1,6 @@
 import re
 import logging
-import json
+import sqlite3
 import os
 
 logger = logging.getLogger("MESA_Security")
@@ -35,58 +35,61 @@ def detect_prompt_injection(content: str) -> bool:
 
 
 class AccessControl:
-    def __init__(self, policy_path: str = "./storage/rbac_policy.json"):
+    def __init__(self, policy_path: str = "./storage/rbac_policy.db"):
         self.policy_path = policy_path
-        self.permissions = {}
-        self._load_policy()
+        self._init_db()
 
-    def _load_policy(self):
-        if os.path.exists(self.policy_path):
-            try:
-                with open(self.policy_path, "r") as f:
-                    self.permissions = json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to load RBAC policy from {self.policy_path}: {e}")
-                self.permissions = {"system": {"system": "WRITE"}}
-                self._save_policy()
-        else:
-            self.permissions = {"system": {"system": "WRITE"}}
-            self._save_policy()
-
-    def _save_policy(self):
+    def _init_db(self):
         os.makedirs(os.path.dirname(os.path.abspath(self.policy_path)), exist_ok=True)
-        try:
-            with open(self.policy_path, "w") as f:
-                json.dump(self.permissions, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save RBAC policy to {self.policy_path}: {e}")
+        with sqlite3.connect(self.policy_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS permissions (
+                    agent_id TEXT,
+                    session_id TEXT,
+                    access_level TEXT,
+                    PRIMARY KEY (agent_id, session_id)
+                )
+            ''')
+            # Add default system write access if table is empty
+            cursor = conn.execute("SELECT COUNT(*) FROM permissions")
+            if cursor.fetchone()[0] == 0:
+                conn.execute(
+                    "INSERT INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
+                    ("system", "system", "WRITE")
+                )
 
     def grant_access(self, agent_id: str, session_id: str, level: str):
         if level not in ("READ", "WRITE"):
             raise ValueError(f"Invalid access level: {level}. Must be 'READ' or 'WRITE'.")
-        if agent_id not in self.permissions:
-            self.permissions[agent_id] = {}
-        self.permissions[agent_id][session_id] = level
-        self._save_policy()
+        with sqlite3.connect(self.policy_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
+                (agent_id, session_id, level)
+            )
 
     def revoke_access(self, agent_id: str, session_id: str):
-        if agent_id in self.permissions and session_id in self.permissions[agent_id]:
-            del self.permissions[agent_id][session_id]
-            if not self.permissions[agent_id]:
-                del self.permissions[agent_id]
-            self._save_policy()
+        with sqlite3.connect(self.policy_path) as conn:
+            conn.execute(
+                "DELETE FROM permissions WHERE agent_id = ? AND session_id = ?",
+                (agent_id, session_id)
+            )
 
     def check_access(self, agent_id: str, session_id: str, required_level: str) -> bool:
-        if agent_id not in self.permissions:
+        with sqlite3.connect(self.policy_path) as conn:
+            cursor = conn.execute(
+                "SELECT access_level FROM permissions WHERE agent_id = ? AND session_id = ?",
+                (agent_id, session_id)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+            granted = row[0]
+            if required_level == "READ":
+                return granted in ("READ", "WRITE")
+            if required_level == "WRITE":
+                return granted == "WRITE"
             return False
-        if session_id not in self.permissions[agent_id]:
-            return False
-        granted = self.permissions[agent_id][session_id]
-        if required_level == "READ":
-            return granted in ("READ", "WRITE")
-        if required_level == "WRITE":
-            return granted == "WRITE"
-        return False
 
 
 def sanitize_cmb_content(content: str) -> str:

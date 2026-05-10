@@ -31,6 +31,7 @@ class RawLogStorage:
                     embedding               TEXT    NOT NULL DEFAULT '[]',
                     parent_cmb_id           TEXT    DEFAULT NULL,
                     consolidated            INTEGER NOT NULL DEFAULT 0,
+                    tier3_deferred          INTEGER NOT NULL DEFAULT 0,
                     expired_at              TEXT    DEFAULT NULL,
                     invalid_at              TEXT    DEFAULT NULL
                 )
@@ -55,8 +56,8 @@ class RawLogStorage:
                     cat7_mood_valence, cat7_mood_arousal,
                     prediction_error_score,
                     resource_cost_token_count, resource_cost_latency_ms,
-                    fitness_score, embedding, parent_cmb_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    fitness_score, embedding, parent_cmb_id, tier3_deferred
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data["cmb_id"],
                 data["schema_version"],
@@ -73,6 +74,7 @@ class RawLogStorage:
                 data["fitness_score"],
                 json.dumps(data["embedding"]),
                 data["parent_cmb_id"],
+                int(data.get("tier3_deferred", False)),
             ))
             await db.commit()
 
