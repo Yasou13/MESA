@@ -84,7 +84,7 @@ class RebelExtractor:
             raw_text = extracted_text[0]["generated_text"]
             return self._parse_rebel_output(raw_text)
         except Exception as e:
-            logger.error(f"REBEL extraction failed: {e}")
+            logger.error(f"REBEL extraction failed: {e}", exc_info=True)
             return []
 
     def _parse_rebel_output(self, text: str) -> List[Dict[str, str]]:

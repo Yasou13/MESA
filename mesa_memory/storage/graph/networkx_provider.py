@@ -29,6 +29,7 @@ from rocksdict import Rdict
 
 from mesa_memory.storage.graph.base import BaseGraphProvider
 from mesa_memory.security.rbac import AccessControl
+from mesa_memory.security.rbac_constants import _UNSET_IDENTITY
 
 
 class NetworkXProvider(BaseGraphProvider):
@@ -142,8 +143,8 @@ class NetworkXProvider(BaseGraphProvider):
         name: str,
         type: str,
         cmb_id: Optional[str] = None,
-        agent_id: str = "system",
-        session_id: str = "system",
+        agent_id: str = _UNSET_IDENTITY,
+        session_id: str = _UNSET_IDENTITY,
     ) -> str:
         if self.access_control and not self.access_control.check_access(agent_id, session_id, "WRITE"):
             raise PermissionError(f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'")
@@ -216,8 +217,8 @@ class NetworkXProvider(BaseGraphProvider):
         target_id: str,
         relation: str,
         weight: float = 1.0,
-        agent_id: str = "system",
-        session_id: str = "system",
+        agent_id: str = _UNSET_IDENTITY,
+        session_id: str = _UNSET_IDENTITY,
     ) -> str:
         if self.access_control and not self.access_control.check_access(agent_id, session_id, "WRITE"):
             raise PermissionError(f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'")
@@ -288,7 +289,12 @@ class NetworkXProvider(BaseGraphProvider):
                             row["source_node"], row["target_node"], key=edge_id,
                         )
                     except nx.NetworkXError:
-                        pass
+                        import logging
+                        logging.getLogger("MESA_Graph").error(
+                            "Edge not found in memory but might exist in persistence layer. State desynchronization detected for edge_id: %s",
+                            edge_id,
+                            exc_info=True,
+                        )
 
     async def soft_delete_by_cmb(self, cmb_id: str) -> None:
         now = datetime.now(timezone.utc).isoformat()

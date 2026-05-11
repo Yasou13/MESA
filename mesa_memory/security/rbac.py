@@ -3,6 +3,8 @@ import logging
 import sqlite3
 import os
 
+from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
+
 logger = logging.getLogger("MESA_Security")
 
 # ---------------------------------------------------------------------------
@@ -57,13 +59,11 @@ class AccessControl:
                     PRIMARY KEY (agent_id, session_id)
                 )
             ''')
-            # Add default system write access if table is empty
-            cursor = conn.execute("SELECT COUNT(*) FROM permissions")
-            if cursor.fetchone()[0] == 0:
-                conn.execute(
-                    "INSERT INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
-                    ("system", "system", "WRITE")
-                )
+            # Seed the reserved system daemon identity with WRITE access
+            conn.execute(
+                "INSERT OR IGNORE INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
+                (SYSTEM_AGENT_ID, SYSTEM_SESSION_ID, "WRITE")
+            )
 
     def grant_access(self, agent_id: str, session_id: str, level: str):
         if level not in ("READ", "WRITE"):

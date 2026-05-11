@@ -114,7 +114,7 @@ class ValenceMotor:
         existing = np.array(self.existing_embeddings) if self.existing_embeddings else np.array([])
         new_emb = np.array(embedding)
 
-        is_novel = await calculate_novelty_score(new_emb, existing, threshold)
+        is_novel = await calculate_novelty_score(new_emb, existing, cosine_threshold=threshold)
 
         if is_novel:
             self.obs_layer.log_valence_decision(

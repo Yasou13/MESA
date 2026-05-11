@@ -123,6 +123,7 @@ class MesaConfig(BaseSettings):
     # Valence recalibration interval (Module 7)
     recalibration_interval: int = 50
     max_embedding_history: int = 500
+    ecod_anomaly_threshold: float = 0.80     # MESA_ECOD_ANOMALY_THRESHOLD (0-1, normalized)
     drift_sigmoid_weight: float = -10.0
     drift_ewmad_alpha: float = 0.2
     drift_ewmad_momentum: float = 0.8

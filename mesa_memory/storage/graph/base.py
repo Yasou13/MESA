@@ -9,6 +9,8 @@ on any concrete graph library (e.g. NetworkX) — only on this interface.
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from mesa_memory.security.rbac_constants import _UNSET_IDENTITY
+
 
 class BaseGraphProvider(ABC):
     """Provider-agnostic async contract for the MESA knowledge graph layer.
@@ -37,8 +39,8 @@ class BaseGraphProvider(ABC):
         name: str,
         type: str,
         cmb_id: Optional[str] = None,
-        agent_id: str = "system",
-        session_id: str = "system",
+        agent_id: str = _UNSET_IDENTITY,
+        session_id: str = _UNSET_IDENTITY,
     ) -> str:
         """Insert or update a node by name.
 
@@ -63,8 +65,8 @@ class BaseGraphProvider(ABC):
         target_id: str,
         relation: str,
         weight: float = 1.0,
-        agent_id: str = "system",
-        session_id: str = "system",
+        agent_id: str = _UNSET_IDENTITY,
+        session_id: str = _UNSET_IDENTITY,
     ) -> str:
         """Create a directed edge between two existing nodes.
 

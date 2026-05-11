@@ -16,6 +16,7 @@ from mesa_memory.consolidation.lock import calculate_composite_similarity, valid
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
+from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
 
 
 
@@ -475,7 +476,8 @@ class ConsolidationLoop:
             cleaned_a = _strip_markdown_json(raw_a) if isinstance(raw_a, str) else ""
             result_a = json.loads(cleaned_a) if cleaned_a else raw_a
             decision_a = result_a.get("decision", "DISCARD")
-        except Exception:
+        except (json.JSONDecodeError, TypeError, AttributeError, Exception) as exc:
+            logger.warning("Tier-3 LLM_A validation failed, defaulting to DISCARD: %s", exc)
             decision_a = "DISCARD"
             
         try:
@@ -483,7 +485,8 @@ class ConsolidationLoop:
             cleaned_b = _strip_markdown_json(raw_b) if isinstance(raw_b, str) else ""
             result_b = json.loads(cleaned_b) if cleaned_b else raw_b
             decision_b = result_b.get("decision", "DISCARD")
-        except Exception:
+        except (json.JSONDecodeError, TypeError, AttributeError, Exception) as exc:
+            logger.warning("Tier-3 LLM_B validation failed, defaulting to DISCARD: %s", exc)
             decision_b = "DISCARD"
             
         if decision_a == "STORE" and decision_b == "STORE":
@@ -532,7 +535,7 @@ class ConsolidationLoop:
                         justification="Deferred Tier-3 validation failed in consolidation loop",
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
-                    await self.storage.raw_log.soft_delete(record.get("cmb_id", ""))
+                    await self.storage.soft_delete_all(record.get("cmb_id", ""))
             else:
                 ready_batch.append(record)
         
@@ -665,15 +668,18 @@ class ConsolidationLoop:
             if sim_score >= config.relation_similarity_threshold:
                 node_head = await self.storage.graph.upsert_node(
                     name=trip_a["head"], type="ENTITY", cmb_id=cmb_id,
+                    agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
                 )
                 node_tail = await self.storage.graph.upsert_node(
                     name=trip_a["tail"], type="ENTITY", cmb_id=cmb_id,
+                    agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
                 )
                 await self.storage.graph.create_edge(
                     source_id=node_head,
                     target_id=node_tail,
                     relation=trip_a["relation"],
                     weight=1.0,
+                    agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
                 )
                 successful_writes += 1
 
@@ -681,15 +687,18 @@ class ConsolidationLoop:
                 divergence_count += 1
                 node_head = await self.storage.graph.upsert_node(
                     name=trip_a["head"], type="ENTITY", cmb_id=cmb_id,
+                    agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
                 )
                 node_tail = await self.storage.graph.upsert_node(
                     name=trip_a["tail"], type="ENTITY", cmb_id=cmb_id,
+                    agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
                 )
                 await self.storage.graph.create_edge(
                     source_id=node_head,
                     target_id=node_tail,
                     relation=trip_a["relation"],
                     weight=0.5,
+                    agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
                 )
                 successful_writes += 1
 

@@ -1,10 +1,13 @@
 from typing import Optional
+import logging
 
 import tiktoken
 from transformers import AutoTokenizer
 
 from mesa_memory.config import config
 from mesa_memory.adapter.base import TokenBudgetExceededError
+
+logger = logging.getLogger("MESA_Tokenizer")
 
 
 def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
@@ -15,7 +18,11 @@ def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_id)
             return len(tokenizer.encode(text))
-        except Exception:
+        except (OSError, ValueError) as exc:
+            logger.warning(
+                "AutoTokenizer.from_pretrained(%s) failed, using word-count estimate: %s",
+                model_id, exc,
+            )
             return int(len(text.split()) * 1.3)
     raise ValueError(f"Unknown adapter_type: {adapter_type}")
 

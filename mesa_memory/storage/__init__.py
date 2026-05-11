@@ -56,8 +56,8 @@ class StorageFacade:
                 logger.warning(f"Reconciling orphan record: {orphan_id}")
                 await self.raw_log.soft_delete(orphan_id)
             return len(orphans)
-        except Exception as e:
-            logger.error(f"Reconciliation failed: {e}")
+        except (RuntimeError, OSError, Exception) as e:
+            logger.error("Reconciliation failed: %s", e, exc_info=True)
             return 0
 
     async def persist_cmb(self, cmb: CMB, agent_id: str, session_id: str):
@@ -79,6 +79,8 @@ class StorageFacade:
                 source=data["source"],
                 fitness_score=data["fitness_score"],
                 created_at=data["created_at"].isoformat(),
+                agent_id=agent_id,
+                session_id=session_id,
             )
         except Exception as e:
             # Revert the raw_log insert if vector insert fails for ANY reason
@@ -93,7 +95,36 @@ class StorageFacade:
         return await self.raw_log.get_cmb(cmb_id)
 
     async def soft_delete_all(self, cmb_id: str):
-        await self.raw_log.soft_delete(cmb_id)
-        self.vector.soft_delete(cmb_id)
-        await self.graph.soft_delete_by_cmb(cmb_id)
+        """Purge a CMB record from ALL storage layers (SQLite, LanceDB, NetworkX).
+
+        Executes deletions sequentially in dependency order.  If a downstream
+        store fails, the already-completed deletions are logged as a partial
+        purge so operators can manually reconcile via the dead-letter audit log.
+
+        Raises:
+            RuntimeError: If any storage layer fails after partial completion.
+        """
+        completed_layers: list[str] = []
+        try:
+            await self.raw_log.soft_delete(cmb_id)
+            completed_layers.append("raw_log")
+
+            self.vector.soft_delete(cmb_id)
+            completed_layers.append("vector")
+
+            await self.graph.soft_delete_by_cmb(cmb_id)
+            completed_layers.append("graph")
+        except Exception as exc:
+            all_layers = ["raw_log", "vector", "graph"]
+            failed_layer = next(
+                (l for l in all_layers if l not in completed_layers), "unknown"
+            )
+            logger.error(
+                f"PARTIAL PURGE for cmb_id={cmb_id}: "
+                f"completed={completed_layers}, failed_at={failed_layer}, error={exc}"
+            )
+            raise RuntimeError(
+                f"soft_delete_all failed at '{failed_layer}' for cmb_id={cmb_id}. "
+                f"Completed layers: {completed_layers}. Manual reconciliation required."
+            ) from exc
 
