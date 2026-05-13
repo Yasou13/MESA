@@ -9,6 +9,8 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from mesa_memory.utils import _strip_markdown_json
+
 from mesa_memory.config import config
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.storage import StorageFacade
@@ -118,14 +120,6 @@ logger = logging.getLogger("MESA_Consolidation")
 # ---------------------------------------------------------------------------
 # Module-level utility functions
 # ---------------------------------------------------------------------------
-
-def _strip_markdown_json(text: str) -> str:
-    """Strip markdown code fences from LLM JSON responses."""
-    match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if match:
-        return match.group(1).strip()
-    return text.strip()
-
 
 def _sanitize_llm_response(text: str) -> str:
     """Multi-pass sanitization for LLM JSON responses.

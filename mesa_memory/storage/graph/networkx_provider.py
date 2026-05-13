@@ -317,6 +317,7 @@ class NetworkXProvider(BaseGraphProvider):
                         "UPDATE edges SET expired_at = ? WHERE (source_node = ? OR target_node = ?) AND expired_at IS NULL",
                         (now, node_id, node_id),
                     )
+                await db.execute("DELETE FROM cmb_nodes WHERE cmb_id = ?", (cmb_id,))
                 await db.commit()
 
                 for row in rows:

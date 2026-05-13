@@ -4,6 +4,8 @@ import asyncio
 
 import numpy as np
 
+from mesa_memory.utils import _strip_markdown_json
+
 from mesa_memory.config import config
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -36,14 +38,6 @@ Source: {source}
 Performative: {performative}
 
 Respond ONLY with valid JSON: {{"decision": "STORE" or "DISCARD", "justification": "..."}}"""
-
-
-def _strip_markdown_json(text: str) -> str:
-    """Strip markdown code fences from LLM JSON responses."""
-    match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if match:
-        return match.group(1).strip()
-    return text.strip()
 
 
 
