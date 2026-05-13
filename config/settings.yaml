@@ -1,0 +1,15 @@
+# Vector Database Configuration
+vector_store:
+  provider: "faiss"  # Options: faiss, lancedb, chromadb
+  storage_path: "data/faiss_index/"
+  
+# Embedding Configuration
+embeddings:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  dimension: 384     # Match the dimension of the chosen model (e.g., 384 for MiniLM, 1536 for OpenAI)
+  batch_size: 32
+  
+# System Configuration
+system:
+  max_memory_mb: 4096
+  environment: "development"

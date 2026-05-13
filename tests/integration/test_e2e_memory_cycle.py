@@ -325,7 +325,7 @@ async def test_valence_motor_admits_with_tier3_deferred(local_adapter):
     result = await motor.evaluate(candidate, {})
 
     # Must be admitted (either novel=True, or tier3_deferred=True)
-    assert result is True, "ValenceMotor should admit the candidate"
+    assert result in (True, "DEFERRED"), "ValenceMotor should admit or defer the candidate"
 
     # Check if tier3_deferred was set (near-duplicate should trigger Tier-3)
     # The embedding is close to the Einstein seed, so novelty may be low

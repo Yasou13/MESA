@@ -64,3 +64,8 @@ Thumbs.db
 *.log
 tmp/
 temp/
+
+
+# Temporary debug scripts
+run_*.py
+fix_*.py

@@ -1,0 +1,1 @@
+This directory is for storing processed data files.

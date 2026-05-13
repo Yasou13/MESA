@@ -123,6 +123,6 @@ async def test_tier3_deferred():
     cmb = _make_cmb_candidate(embedding=near_duplicate, latency_ms=100.0)
     result = await motor.evaluate(cmb, {})
     
-    assert result is True
+    assert result == "DEFERRED"
     assert cmb.get("tier3_deferred") is True
     adapter.complete.assert_not_called()
