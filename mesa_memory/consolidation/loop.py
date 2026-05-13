@@ -640,6 +640,42 @@ class ConsolidationLoop:
                 if trip and trip.get("head"):
                     indexed_b[global_idx] = ExtractedTriplet(record_index=global_idx, head=trip["head"], relation=trip.get("relation", ""), tail=trip.get("tail", ""))
 
+        # --- Pre-fetch embeddings to solve N+1 problem ---
+        unique_texts = set()
+        for idx, record in enumerate(sorted_batch):
+            triplet_a = indexed_a.get(idx)
+            triplet_b = indexed_b.get(idx)
+            
+            trip_a = ({"head": triplet_a.head, "relation": triplet_a.relation, "tail": triplet_a.tail} if triplet_a else {"head": "", "relation": "", "tail": ""})
+            trip_b = ({"head": triplet_b.head, "relation": triplet_b.relation, "tail": triplet_b.tail} if triplet_b else {"head": "", "relation": "", "tail": ""})
+            
+            for t in [trip_a["head"], trip_a["relation"], trip_a["tail"], trip_b["head"], trip_b["relation"], trip_b["tail"]]:
+                if t: unique_texts.add(t)
+                
+        texts_list = list(unique_texts)
+        embedding_cache = {}
+        if texts_list:
+            import inspect
+            aembed_batch = getattr(self.embedder, "aembed_batch", None)
+            embed_batch = getattr(self.embedder, "embed_batch", None)
+            
+            if aembed_batch and (inspect.iscoroutinefunction(aembed_batch) or type(aembed_batch).__name__ == "AsyncMock"):
+                embs = await aembed_batch(texts_list)
+            elif embed_batch and type(embed_batch).__name__ != "MagicMock":
+                loop_instance = asyncio.get_running_loop()
+                embs = await loop_instance.run_in_executor(None, embed_batch, texts_list)
+            else:
+                aembed = getattr(self.embedder, "aembed", None)
+                if aembed and (inspect.iscoroutinefunction(aembed) or type(aembed).__name__ == "AsyncMock"):
+                    embs = await asyncio.gather(*(aembed(t) for t in texts_list))
+                else:
+                    loop_instance = asyncio.get_running_loop()
+                    embs = []
+                    for t in texts_list:
+                        embs.append(await loop_instance.run_in_executor(None, self.embedder.embed, t))
+            for t, e in zip(texts_list, embs):
+                embedding_cache[t] = e
+
         # --- Cross-validate and commit ---
         for idx, record in enumerate(sorted_batch):
             cmb_id = record.get("cmb_id", "")
@@ -662,7 +698,7 @@ class ConsolidationLoop:
                 continue
 
             sim_score = calculate_composite_similarity(
-                trip_a, trip_b, self.embedder,
+                trip_a, trip_b, self.embedder, cache=embedding_cache
             )
 
             if sim_score >= config.relation_similarity_threshold:

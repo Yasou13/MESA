@@ -329,60 +329,63 @@ class NetworkXProvider(BaseGraphProvider):
     # ------------------------------------------------------------------
 
     async def get_node_by_id(self, node_id: str) -> Optional[dict]:
-        if not self._graph.has_node(node_id):
-            return None
-        data = self._graph.nodes[node_id]
-        return {
-            "node_id": node_id,
-            "name": data.get("name", ""),
-            "type": data.get("type", ""),
-            "created_at": data.get("created_at", ""),
-        }
+        async with self._lock:
+            if not self._graph.has_node(node_id):
+                return None
+            data = self._graph.nodes[node_id]
+            return {
+                "node_id": node_id,
+                "name": data.get("name", ""),
+                "type": data.get("type", ""),
+                "created_at": data.get("created_at", ""),
+            }
 
     async def get_neighbors(
         self,
         node_id: str,
         direction: str = "both",
     ) -> list[dict]:
-        if not self._graph.has_node(node_id):
-            return []
-
-        results: list[dict] = []
-
-        if direction in ("out", "both"):
-            for _, target, key, data in self._graph.edges(
-                node_id, data=True, keys=True,
-            ):
-                target_data = self._graph.nodes.get(target, {})
-                results.append({
-                    "node_id": target,
-                    "name": target_data.get("name", ""),
-                    "type": target_data.get("type", ""),
-                    "edge_id": key,
-                    "relation": data.get("relation_type", ""),
-                    "weight": data.get("weight", 1.0),
-                })
-
-        if direction in ("in", "both"):
-            for source, _, key, data in self._graph.in_edges(
-                node_id, data=True, keys=True,
-            ):
-                source_data = self._graph.nodes.get(source, {})
-                results.append({
-                    "node_id": source,
-                    "name": source_data.get("name", ""),
-                    "type": source_data.get("type", ""),
-                    "edge_id": key,
-                    "relation": data.get("relation_type", ""),
-                    "weight": data.get("weight", 1.0),
-                })
-
-        return results
+        async with self._lock:
+            if not self._graph.has_node(node_id):
+                return []
+    
+            results: list[dict] = []
+    
+            if direction in ("out", "both"):
+                for _, target, key, data in self._graph.edges(
+                    node_id, data=True, keys=True,
+                ):
+                    target_data = self._graph.nodes.get(target, {})
+                    results.append({
+                        "node_id": target,
+                        "name": target_data.get("name", ""),
+                        "type": target_data.get("type", ""),
+                        "edge_id": key,
+                        "relation": data.get("relation_type", ""),
+                        "weight": data.get("weight", 1.0),
+                    })
+    
+            if direction in ("in", "both"):
+                for source, _, key, data in self._graph.in_edges(
+                    node_id, data=True, keys=True,
+                ):
+                    source_data = self._graph.nodes.get(source, {})
+                    results.append({
+                        "node_id": source,
+                        "name": source_data.get("name", ""),
+                        "type": source_data.get("type", ""),
+                        "edge_id": key,
+                        "relation": data.get("relation_type", ""),
+                        "weight": data.get("weight", 1.0),
+                    })
+    
+            return results
 
     async def get_node_degree(self, node_id: str) -> int:
-        if not self._graph.has_node(node_id):
-            return 0
-        return self._graph.degree(node_id)
+        async with self._lock:
+            if not self._graph.has_node(node_id):
+                return 0
+            return self._graph.degree(node_id)
 
     async def find_nodes_by_name(
         self,
@@ -391,16 +394,17 @@ class NetworkXProvider(BaseGraphProvider):
     ) -> list[dict]:
         lookup = {n.lower() for n in names} if case_insensitive else set(names)
         results: list[dict] = []
-        for node_id, data in self._graph.nodes(data=True):
-            name = data.get("name", "")
-            match_name = name.lower() if case_insensitive else name
-            if match_name in lookup:
-                results.append({
-                    "node_id": node_id,
-                    "name": name,
-                    "type": data.get("type", ""),
-                    "created_at": data.get("created_at", ""),
-                })
+        async with self._lock:
+            for node_id, data in self._graph.nodes(data=True):
+                name = data.get("name", "")
+                match_name = name.lower() if case_insensitive else name
+                if match_name in lookup:
+                    results.append({
+                        "node_id": node_id,
+                        "name": name,
+                        "type": data.get("type", ""),
+                        "created_at": data.get("created_at", ""),
+                    })
         return results
 
     async def get_subgraph(
@@ -408,51 +412,53 @@ class NetworkXProvider(BaseGraphProvider):
         node_ids: list[str],
         depth: int = 1,
     ) -> dict:
-        collected_nodes: set[str] = set(node_ids)
-        frontier: set[str] = {
-            nid for nid in node_ids if self._graph.has_node(nid)
-        }
-
-        for _ in range(depth):
-            next_frontier: set[str] = set()
-            for nid in frontier:
-                next_frontier.update(self._graph.successors(nid))
-                next_frontier.update(self._graph.predecessors(nid))
-            collected_nodes.update(next_frontier)
-            frontier = next_frontier
-
-        sub = self._graph.subgraph(collected_nodes)
-        nodes = [
-            {
-                "node_id": n,
-                "name": d.get("name", ""),
-                "type": d.get("type", ""),
-                "created_at": d.get("created_at", ""),
+        async with self._lock:
+            collected_nodes: set[str] = set(node_ids)
+            frontier: set[str] = {
+                nid for nid in node_ids if self._graph.has_node(nid)
             }
-            for n, d in sub.nodes(data=True)
-        ]
-        edges = [
-            {
-                "edge_id": k,
-                "source_id": u,
-                "target_id": v,
-                "relation": d.get("relation_type", ""),
-                "weight": d.get("weight", 1.0),
-            }
-            for u, v, k, d in sub.edges(data=True, keys=True)
-        ]
-        return {"nodes": nodes, "edges": edges}
+    
+            for _ in range(depth):
+                next_frontier: set[str] = set()
+                for nid in frontier:
+                    next_frontier.update(self._graph.successors(nid))
+                    next_frontier.update(self._graph.predecessors(nid))
+                collected_nodes.update(next_frontier)
+                frontier = next_frontier
+    
+            sub = self._graph.subgraph(collected_nodes)
+            nodes = [
+                {
+                    "node_id": n,
+                    "name": d.get("name", ""),
+                    "type": d.get("type", ""),
+                    "created_at": d.get("created_at", ""),
+                }
+                for n, d in sub.nodes(data=True)
+            ]
+            edges = [
+                {
+                    "edge_id": k,
+                    "source_id": u,
+                    "target_id": v,
+                    "relation": d.get("relation_type", ""),
+                    "weight": d.get("weight", 1.0),
+                }
+                for u, v, k, d in sub.edges(data=True, keys=True)
+            ]
+            return {"nodes": nodes, "edges": edges}
 
     async def get_all_active_nodes(self) -> list[dict]:
-        return [
-            {
-                "node_id": n,
-                "name": d.get("name", ""),
-                "type": d.get("type", ""),
-                "created_at": d.get("created_at", ""),
-            }
-            for n, d in self._graph.nodes(data=True)
-        ]
+        async with self._lock:
+            return [
+                {
+                    "node_id": n,
+                    "name": d.get("name", ""),
+                    "type": d.get("type", ""),
+                    "created_at": d.get("created_at", ""),
+                }
+                for n, d in self._graph.nodes(data=True)
+            ]
 
     # ------------------------------------------------------------------
     # Graph analytics
@@ -469,7 +475,8 @@ class NetworkXProvider(BaseGraphProvider):
             return {}
 
         # Snapshot the graph to avoid mutations during computation
-        graph_copy = self._graph.copy()
+        async with self._lock:
+            graph_copy = self._graph.copy()
 
         def _compute() -> dict[str, float]:
             return nx.pagerank(
@@ -491,7 +498,7 @@ class NetworkXProvider(BaseGraphProvider):
     # ------------------------------------------------------------------
 
     async def offload_expired(self) -> int:
-        rocks = Rdict(self.rocks_path)
+        rocks = await asyncio.to_thread(Rdict, self.rocks_path)
         total_archived = 0
 
         try:
@@ -503,10 +510,12 @@ class NetworkXProvider(BaseGraphProvider):
                 ) as cursor:
                     expired_nodes = [dict(row) async for row in cursor]
 
-                for node in expired_nodes:
-                    rocks[f"node:{node['node_id']}"] = json.dumps(node)
-
                 if expired_nodes:
+                    def _write_nodes():
+                        for node in expired_nodes:
+                            rocks[f"node:{node['node_id']}"] = json.dumps(node)
+                    await asyncio.to_thread(_write_nodes)
+
                     node_ids = [n["node_id"] for n in expired_nodes]
                     placeholders = ",".join("?" for _ in node_ids)
                     await db.execute(
@@ -520,10 +529,12 @@ class NetworkXProvider(BaseGraphProvider):
                 ) as cursor:
                     expired_edges = [dict(row) async for row in cursor]
 
-                for edge in expired_edges:
-                    rocks[f"edge:{edge['edge_id']}"] = json.dumps(edge)
-
                 if expired_edges:
+                    def _write_edges():
+                        for edge in expired_edges:
+                            rocks[f"edge:{edge['edge_id']}"] = json.dumps(edge)
+                    await asyncio.to_thread(_write_edges)
+
                     edge_ids = [e["edge_id"] for e in expired_edges]
                     placeholders = ",".join("?" for _ in edge_ids)
                     await db.execute(
@@ -534,7 +545,7 @@ class NetworkXProvider(BaseGraphProvider):
 
                 await db.commit()
         finally:
-            rocks.close()
+            await asyncio.to_thread(rocks.close)
 
         return total_archived
 
@@ -551,4 +562,16 @@ class NetworkXProvider(BaseGraphProvider):
             migration.  Consumers must migrate to the decomposed query
             methods (``find_nodes_by_name``, ``get_node_degree``, etc.).
         """
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return self._graph.copy()
+        
+        if loop.is_running():
+            # Usually get_active_graph is deprecated and might be called synchronously
+            # If so, locking sync is hard from async code if it returns nx.MultiDiGraph directly
+            # For backward compatibility, just return the copy directly
+            pass
+            
         return self._graph.copy()

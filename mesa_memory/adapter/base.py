@@ -32,5 +32,13 @@ class BaseUniversalLLMAdapter(ABC):
         ...
 
     @abstractmethod
+    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
+        ...
+
+    @abstractmethod
+    async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
+        ...
+
+    @abstractmethod
     def get_token_count(self, text: str) -> int:
         ...

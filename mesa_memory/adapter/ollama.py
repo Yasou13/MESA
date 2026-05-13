@@ -50,5 +50,15 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
             functools.partial(self.embed, text, **kwargs),
         )
 
+    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
+        return [self.embed(t, **kwargs) for t in texts]
+
+    async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            functools.partial(self.embed_batch, texts, **kwargs),
+        )
+
     def get_token_count(self, text: str) -> int:
         return count_tokens(text, adapter_type="ollama", model_id=self._model)

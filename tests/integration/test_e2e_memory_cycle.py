@@ -118,6 +118,14 @@ class LocalTestAdapter(BaseUniversalLLMAdapter):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.embed, text)
 
+    def embed_batch(self, texts, **kwargs):
+        return [self.embed(t, **kwargs) for t in texts]
+
+    async def aembed_batch(self, texts, **kwargs):
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.embed_batch, texts)
+
     def get_token_count(self, text):
         return count_tokens(text, adapter_type="claude")
 

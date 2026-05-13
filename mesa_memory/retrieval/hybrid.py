@@ -53,7 +53,7 @@ class HybridRetriever:
         loop = asyncio.get_running_loop()
         embedding = await loop.run_in_executor(None, self.embedder.embed, query_text)
 
-        raw_results = self.storage.vector.search(embedding, limit=k)
+        raw_results = await asyncio.to_thread(self.storage.vector.search, embedding, limit=k)
 
         results = []
         for i, r in enumerate(raw_results):

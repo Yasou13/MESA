@@ -10,11 +10,13 @@ Internal daemons (``ConsolidationLoop``, ``StorageFacade.reconcile_orphans``,
 ``SYSTEM_SESSION_ID`` to authenticate as the system process.
 """
 
+import secrets
+
 # ---------------------------------------------------------------------------
 # System daemon identity — seeded in AccessControl._init_db() with WRITE
 # ---------------------------------------------------------------------------
-SYSTEM_AGENT_ID: str = "__mesa_system__"
-SYSTEM_SESSION_ID: str = "__mesa_system__"
+SYSTEM_AGENT_ID: str = secrets.token_hex(32)
+SYSTEM_SESSION_ID: str = secrets.token_hex(32)
 
 # ---------------------------------------------------------------------------
 # Fail-closed sentinel — has NO permissions in the RBAC database, so any

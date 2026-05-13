@@ -55,15 +55,11 @@ def _get_local_embed_components():
     return _local_embed_tokenizer, _local_embed_model
 
 
-def _local_embed(text: str) -> list[float]:
-    """Generate an embedding using the local transformer model.
-
-    Uses mean pooling over token embeddings with attention-mask weighting,
-    matching the canonical sentence-transformers approach.
-    """
+def _local_embed_batch(texts: list[str]) -> list[list[float]]:
+    """Generate embeddings for a batch of texts using the local transformer model."""
     tokenizer, model = _get_local_embed_components()
     encoded = tokenizer(
-        text, padding=True, truncation=True, max_length=512, return_tensors="pt"
+        texts, padding=True, truncation=True, max_length=512, return_tensors="pt"
     )
     with torch.no_grad():
         outputs = model(**encoded)
@@ -73,11 +69,21 @@ def _local_embed(text: str) -> list[float]:
     input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
     summed = torch.sum(token_embeddings * input_mask_expanded, dim=1)
     counted = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
-    embedding = (summed / counted).squeeze().tolist()
-    # Ensure list[float] even for single-dim edge cases
-    if isinstance(embedding, float):
-        embedding = [embedding]
-    return embedding
+    embeddings = (summed / counted).tolist()
+    
+    # Ensure nested list structure even for single texts
+    if len(texts) == 1 and not isinstance(embeddings[0], list):
+        embeddings = [embeddings]
+    return embeddings
+
+
+def _local_embed(text: str) -> list[float]:
+    """Generate an embedding using the local transformer model.
+
+    Uses mean pooling over token embeddings with attention-mask weighting,
+    matching the canonical sentence-transformers approach.
+    """
+    return _local_embed_batch([text])[0]
 
 
 class ClaudeAdapter(BaseUniversalLLMAdapter):
@@ -154,6 +160,33 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
         return await loop.run_in_executor(
             None,
             functools.partial(_local_embed, text),
+        )
+
+    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
+        if self._sync_openai:
+            model = kwargs.get("model", "text-embedding-3-small")
+            response = self._sync_openai.embeddings.create(
+                model=model,
+                input=texts,
+            )
+            return [data.embedding for data in sorted(response.data, key=lambda x: x.index)]
+
+        logger.debug("Using local embedding fallback (no OpenAI key) for batch")
+        return _local_embed_batch(texts)
+
+    async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
+        if self._async_openai:
+            model = kwargs.get("model", "text-embedding-3-small")
+            response = await self._async_openai.embeddings.create(
+                model=model,
+                input=texts,
+            )
+            return [data.embedding for data in sorted(response.data, key=lambda x: x.index)]
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            functools.partial(_local_embed_batch, texts),
         )
 
     def get_token_count(self, text: str) -> int:

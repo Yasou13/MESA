@@ -108,6 +108,14 @@ class RawLogStorage:
             )
             await db.commit()
 
+    async def clear_tier3_deferred(self, cmb_id: str):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE raw_log SET tier3_deferred = 0 WHERE cmb_id = ? AND expired_at IS NULL",
+                (cmb_id,),
+            )
+            await db.commit()
+
     async def soft_delete(self, cmb_id: str):
         now = datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(self.db_path) as db:

@@ -14,14 +14,23 @@ def _cosine_sim(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
     return float(cosine_similarity(vec_a, vec_b)[0][0])
 
 
-def calculate_composite_similarity(trip_a: dict, trip_b: dict, embedder: BaseUniversalLLMAdapter) -> float:
-    emb_head_a = _embed_text(trip_a["head"], embedder)
-    emb_tail_a = _embed_text(trip_a["tail"], embedder)
-    emb_rel_a = _embed_text(trip_a["relation"], embedder)
+def calculate_composite_similarity(
+    trip_a: dict, trip_b: dict, embedder: BaseUniversalLLMAdapter, cache: dict | None = None
+) -> float:
+    def _get_emb(text: str) -> np.ndarray:
+        if cache is not None and text in cache:
+            vec = cache[text]
+        else:
+            vec = embedder.embed(text)
+        return np.array(vec).reshape(1, -1)
 
-    emb_head_b = _embed_text(trip_b["head"], embedder)
-    emb_tail_b = _embed_text(trip_b["tail"], embedder)
-    emb_rel_b = _embed_text(trip_b["relation"], embedder)
+    emb_head_a = _get_emb(trip_a["head"])
+    emb_tail_a = _get_emb(trip_a["tail"])
+    emb_rel_a = _get_emb(trip_a["relation"])
+
+    emb_head_b = _get_emb(trip_b["head"])
+    emb_tail_b = _get_emb(trip_b["tail"])
+    emb_rel_b = _get_emb(trip_b["relation"])
 
     sim_head = _cosine_sim(emb_head_a, emb_head_b)
     sim_tail = _cosine_sim(emb_tail_a, emb_tail_b)
