@@ -9,15 +9,22 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
 env/
 venv/
 build/
 dist/
 *.egg-info/
+*.egg
+*.whl
+pip-wheel-metadata/
 .coverage
+.coverage.*
 htmlcov/
 .tox/
+.nox/
 
 # ------------------------------------------------------------------------------
 # 2. MESA Databases & Vector Storage (Zero Trust / Critical)
@@ -29,6 +36,8 @@ htmlcov/
 raw_log.db
 storage/*.db
 storage/*.sqlite3
+
+# RocksDB
 *.rocksdb
 rocksdict_archive/
 storage/*.rocks
@@ -36,22 +45,39 @@ storage/*.rocks
 # Vector Storage (LanceDB)
 *.lance
 storage/*.lance
+storage/**/*.lance
 vector_index.lance
+
+# RBAC Policy DB (auto-generated, not source-controlled)
+storage/rbac_policy.db
 
 # ------------------------------------------------------------------------------
 # 3. Environment Variables & Secrets
-#    Never commit API keys (OpenAI, Anthropic) or local config overrides.
+#    Never commit API keys (OpenAI, Anthropic, Groq) or local config overrides.
 # ------------------------------------------------------------------------------
 .env
 .env.local
 .env.test
 .env.*
+!.env.example
 
 # ------------------------------------------------------------------------------
-# 4. OS & IDE Configuration
+# 4. Model Caches & Large Binaries
+#    REBEL / HuggingFace transformer weights should never enter the repo.
+# ------------------------------------------------------------------------------
+models/
+*.bin
+*.pt
+*.onnx
+*.safetensors
+.cache/
+
+# ------------------------------------------------------------------------------
+# 5. OS & IDE Configuration
 # ------------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
 .idea/
 *.swp
@@ -59,8 +85,19 @@ Thumbs.db
 *~
 
 # ------------------------------------------------------------------------------
-# 5. Logs & Temporary Files
+# 6. Logs & Temporary Files
 # ------------------------------------------------------------------------------
 *.log
 tmp/
 temp/
+scratch/
+
+# ------------------------------------------------------------------------------
+# 7. Jupyter Notebook Checkpoints
+# ------------------------------------------------------------------------------
+.ipynb_checkpoints/
+
+# ------------------------------------------------------------------------------
+# 8. Agent / Tooling Metadata
+# ------------------------------------------------------------------------------
+.gemini/
