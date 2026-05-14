@@ -1,0 +1,81 @@
+# ──────────────────────────────────────────────────────────────
+# MESA – ML / Local-model dependencies (heavy)
+# Install: pip install -r requirements-ml.txt
+# Includes all core dependencies automatically.
+# ──────────────────────────────────────────────────────────────
+-r requirements-core.txt
+
+# --- PyTorch & CUDA ---
+torch==2.11.0
+triton==3.6.0
+sympy==1.14.0
+mpmath==1.3.0
+cuda-bindings==13.2.0
+cuda-pathfinder==1.5.4
+cuda-toolkit==13.0.2
+nvidia-cublas==13.1.0.3
+nvidia-cuda-cupti==13.0.85
+nvidia-cuda-nvrtc==13.0.88
+nvidia-cuda-runtime==13.0.96
+nvidia-cudnn-cu13==9.19.0.56
+nvidia-cufft==12.0.0.61
+nvidia-cufile==1.15.1.6
+nvidia-curand==10.4.0.35
+nvidia-cusolver==12.0.4.66
+nvidia-cusparse==12.6.3.3
+nvidia-cusparselt-cu13==0.8.0
+nvidia-nccl-cu13==2.28.9
+nvidia-nvjitlink==13.0.88
+nvidia-nvshmem-cu13==3.4.5
+nvidia-nvtx==13.0.85
+
+# --- Hugging Face / Transformers ---
+transformers==5.8.0
+tokenizers==0.22.2
+safetensors==0.7.0
+huggingface_hub==1.14.0
+hf-xet==1.5.0
+sentence-transformers>=3.0.0
+
+# --- Structured generation ---
+outlines==1.2.13
+outlines_core==0.2.14
+
+# --- spaCy NLP pipeline ---
+spacy==3.8.14
+spacy-legacy==3.0.12
+spacy-loggers==1.0.5
+blis==1.3.3
+catalogue==2.0.10
+cloudpathlib==0.24.0
+cloudpickle==3.1.2
+confection==1.3.3
+cymem==2.0.13
+murmurhash==1.0.15
+preshed==3.0.13
+srsly==2.5.3
+thinc==8.3.13
+wasabi==1.1.3
+weasel==1.0.0
+xx_ent_wiki_sm @ https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl
+
+# --- Numba / LLVM (used by ML pipelines) ---
+numba==0.65.1
+llvmlite==0.47.0
+
+# --- Visualisation (often used with ML) ---
+matplotlib==3.10.9
+contourpy==1.3.2
+cycler==0.12.1
+fonttools==4.62.1
+kiwisolver==1.5.0
+pillow==12.2.0
+pyparsing==3.3.2
+
+# --- Misc ML utilities ---
+annotated-doc==0.0.4
+backports.asyncio.runner==1.2.0
+deprecation==2.1.0
+docstring_parser==0.18.0
+overrides==7.7.0
+threadpoolctl==3.6.0
