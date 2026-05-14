@@ -154,3 +154,43 @@ class VectorStorage:
                 "get_all_cmb_ids failed: %s", exc, exc_info=True,
             )
             return set()
+
+    def get_all_embeddings(self, limit: int = 500) -> list[list[float]]:
+        """Return active embedding vectors from persistent storage.
+
+        Used to hydrate the ValenceMotor's in-memory embedding cache on
+        startup, ensuring novelty detection survives process restarts.
+
+        Args:
+            limit: Maximum number of embeddings to return.  Defaults to
+                ``max_embedding_history`` (500) to match the ValenceMotor's
+                ring-buffer size.  The most recent embeddings are preferred
+                when the store exceeds this limit.
+
+        Returns:
+            A list of embedding vectors (each a list of floats), ordered
+            from oldest to newest (tail = most recent).  Returns an empty
+            list if no tables exist or on any storage error.
+        """
+        embeddings: list[list[float]] = []
+        try:
+            for table_name in self._list_table_names():
+                if not table_name.startswith("mesa_memory_"):
+                    continue
+                table = self.db.open_table(table_name)
+                # Only return non-expired (active) records
+                arrow_table = table.search().where("expired_at IS NULL").limit(limit).to_arrow()
+                emb_column = arrow_table.column("embedding")
+                for vec in emb_column:
+                    embeddings.append(vec.as_py())
+            # Return only the most recent `limit` embeddings (tail-end)
+            if len(embeddings) > limit:
+                embeddings = embeddings[-limit:]
+            return embeddings
+        except (RuntimeError, OSError, KeyError, Exception) as exc:
+            logger.warning(
+                "get_all_embeddings failed (ValenceMotor will cold-start): %s",
+                exc,
+            )
+            return []
+

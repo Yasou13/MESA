@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import asyncio
 
@@ -12,20 +13,61 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.valence.novelty import calculate_novelty_score
 from mesa_memory.valence.drift import recalibrate_threshold
 
-
-
-
+logger = logging.getLogger("MESA_Valence")
 
 
 class ValenceMotor:
-    def __init__(self, llm_adapter: BaseUniversalLLMAdapter, obs_layer: ObservabilityLayer):
+    def __init__(
+        self,
+        llm_adapter: BaseUniversalLLMAdapter,
+        obs_layer: ObservabilityLayer,
+        storage=None,
+    ):
         self.llm_adapter = llm_adapter
         self.obs_layer = obs_layer
+        self.storage = storage
         self.bootstrap_threshold = config.bootstrap_cosine_threshold
         self._ewmad_threshold = config.bootstrap_cosine_threshold
-        self.memory_count = 0
-        self.existing_embeddings = []
         self._records_since_recalibration = 0
+
+        # --- Hydrate from persistent storage (survives process restarts) ---
+        self.existing_embeddings = self._hydrate_embeddings()
+        self.memory_count = len(self.existing_embeddings)
+        if self.memory_count:
+            logger.info(
+                "ValenceMotor hydrated %d embeddings from persistent storage",
+                self.memory_count,
+            )
+
+    def _hydrate_embeddings(self) -> list:
+        """Load existing embeddings from persistent vector storage.
+
+        Falls back gracefully to an empty list when:
+        - No storage was injected (unit-test / standalone mode).
+        - The storage layer raises any exception (cold-start).
+
+        Supports both ``StorageFacade`` (preferred, via ``load_embedding_cache``)
+        and raw ``VectorStorage`` (via ``get_all_embeddings``) for flexibility.
+        """
+        if self.storage is None:
+            return []
+
+        try:
+            # Prefer the StorageFacade convenience method
+            if hasattr(self.storage, "load_embedding_cache"):
+                return self.storage.load_embedding_cache(
+                    limit=config.max_embedding_history,
+                )
+            # Fallback: direct VectorStorage access
+            if hasattr(self.storage, "get_all_embeddings"):
+                return self.storage.get_all_embeddings(
+                    limit=config.max_embedding_history,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to hydrate embeddings from storage (cold-start): %s", exc,
+            )
+        return []
 
     def _get_current_threshold(self) -> float:
         n = self.memory_count

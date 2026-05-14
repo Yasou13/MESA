@@ -130,3 +130,24 @@ class StorageFacade:
                 f"Completed layers: {completed_layers}. Manual reconciliation required."
             ) from exc
 
+    def load_embedding_cache(self, limit: int | None = None) -> list[list[float]]:
+        """Load existing embeddings from vector storage for ValenceMotor hydration.
+
+        This is a synchronous convenience wrapper around
+        ``VectorStorage.get_all_embeddings()`` intended to be called once
+        during ``ValenceMotor`` initialization (before the async event
+        loop is typically used for hot-path traffic).
+
+        Args:
+            limit: Maximum number of embeddings to load.  Defaults to
+                ``config.max_embedding_history`` when *None*.
+
+        Returns:
+            A list of embedding vectors, capped and tail-truncated to
+            ``limit``.  Returns ``[]`` on any storage error (cold-start).
+        """
+        from mesa_memory.config import config as _cfg
+        effective_limit = limit if limit is not None else _cfg.max_embedding_history
+        return self.vector.get_all_embeddings(limit=effective_limit)
+
+

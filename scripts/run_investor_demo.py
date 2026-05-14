@@ -1,6 +1,10 @@
 import asyncio
+import hashlib
 import json
+import math
 import os
+import random
+import re
 import sys
 from dotenv import load_dotenv
 
@@ -12,10 +16,107 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
+# ---------------------------------------------------------------------------
+# Mock REBEL extractor — generates plausible triplets from input text
+# instead of returning an empty list, so the consolidation loop can
+# populate the knowledge graph without requiring the real 1.8 GB model.
+# ---------------------------------------------------------------------------
+
+from mesa_memory.config import config
+
+EMBEDDING_DIM = config.embedding_dimension  # 1536
+
+
+def _deterministic_embedding(text: str) -> list[float]:
+    """Generate a deterministic, unit-normalised pseudo-random embedding.
+
+    Seeds a PRNG with the SHA-256 hash of the text so every call with
+    the same text returns an identical vector, while different texts
+    produce orthogonal-ish vectors — exactly what vector search needs.
+    """
+    seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2**32)
+    rng = random.Random(seed)
+    raw = [rng.gauss(0, 1) for _ in range(EMBEDDING_DIM)]
+    norm = math.sqrt(sum(x * x for x in raw)) or 1.0
+    return [x / norm for x in raw]
+
+
+def _mock_extract_triplets(text: str) -> list[dict]:
+    """Extract pseudo-triplets by pulling capitalised entities from text.
+
+    Strategy:
+    1. Find all capitalised multi-word entities (2+ consecutive Title-Case words).
+    2. Fall back to individual capitalised words if no multi-word entities found.
+    3. Pair consecutive entities as (subject, object) with a generic relation
+       derived from the first verb-like word between them, or 'RELATES_TO'.
+
+    This is intentionally rough — it exists only to unblock the demo pipeline.
+    """
+    if not text or not text.strip():
+        return []
+
+    # Find multi-word named entities (e.g. "Elon Musk", "Morgan Stanley")
+    multi_word = re.findall(r'\b(?:[A-ZÇĞİÖŞÜ][a-zçğıöşü]+(?:\s+)){1,3}[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\b', text)
+    # Deduplicate preserving order
+    seen = set()
+    entities = []
+    for ent in multi_word:
+        key = ent.strip().lower()
+        if key not in seen:
+            seen.add(key)
+            entities.append(ent.strip())
+
+    # Fallback: individual capitalised words (min 3 chars, not sentence starters)
+    if len(entities) < 2:
+        words = text.split()
+        for i, w in enumerate(words):
+            clean = re.sub(r'[^A-Za-zÇĞİÖŞÜçğıöşü]', '', w)
+            if len(clean) >= 3 and clean[0].isupper() and i > 0:
+                key = clean.lower()
+                if key not in seen:
+                    seen.add(key)
+                    entities.append(clean)
+
+    if len(entities) < 2:
+        # Last resort: use first 6+ char words
+        for w in text.split():
+            clean = re.sub(r'[^A-Za-zÇĞİÖŞÜçğıöşü0-9]', '', w)
+            if len(clean) >= 6 and clean.lower() not in seen:
+                seen.add(clean.lower())
+                entities.append(clean)
+            if len(entities) >= 2:
+                break
+
+    if len(entities) < 2:
+        return [{"head": "UnknownEntity", "relation": "MENTIONED_IN", "tail": "Document", "confidence": 0.5}]
+
+    triplets = []
+    for i in range(0, len(entities) - 1, 2):
+        subj = entities[i]
+        obj = entities[i + 1] if i + 1 < len(entities) else entities[0]
+        # Derive a relation from context between the two entity mentions
+        relation = "RELATES_TO"
+        subj_pos = text.find(subj)
+        obj_pos = text.find(obj)
+        if subj_pos != -1 and obj_pos != -1:
+            between = text[min(subj_pos + len(subj), obj_pos):max(subj_pos, obj_pos)]
+            verbs = re.findall(r'\b[a-zçğıöşü]{3,12}(?:ed|ing|tion|ment|ise|ize|aldı|etti|dı|di)\b', between, re.IGNORECASE)
+            if verbs:
+                relation = verbs[0].upper().replace(" ", "_")
+        triplets.append({
+            "head": subj,
+            "relation": relation,
+            "tail": obj,
+            "confidence": 0.9,
+        })
+
+    return triplets if triplets else [{"head": entities[0], "relation": "RELATES_TO", "tail": entities[-1], "confidence": 0.85}]
+
+
 from unittest.mock import MagicMock
 mock_rebel = MagicMock()
 mock_extractor = MagicMock()
-mock_extractor.extract_triplets.return_value = []
+mock_extractor.extract_triplets.side_effect = _mock_extract_triplets
 mock_rebel.RebelExtractor = MagicMock(return_value=mock_extractor)
 sys.modules['mesa_memory.extraction.rebel_pipeline'] = mock_rebel
 
@@ -25,19 +126,19 @@ from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.adapter.factory import AdapterFactory
-from mesa_memory.config import config
 from mesa_memory.observability.metrics import ObservabilityLayer
 
 # Bypass the aggressive memory limit check for the demo
 config.lancedb_memory_limit_bytes = 100 * 1024 * 1024 * 1024
 
 async def ingest_record(facade: StorageFacade, record: dict, agent_id: str):
+    content = f"[{record['record_id']}] {record['content']}"
     cmb = CMB(
-        content_payload=f"[{record['record_id']}] {record['content']}",
+        content_payload=content,
         source=record['source_type'],
         performative='INFORM',
         resource_cost=ResourceCost(token_count=50, latency_ms=10.0),
-        embedding=[0.1] * 1536,
+        embedding=_deterministic_embedding(content),
         tier3_deferred=True
     )
     await facade.persist_cmb(cmb, agent_id, session_id="demo_session")
