@@ -19,7 +19,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-asyncio sentence-transformers torch transformers
+        pip install pytest pytest-asyncio pytest-cov sentence-transformers torch transformers
     - name: Download spaCy model
       run: |
         python -m spacy download xx_ent_wiki_sm
