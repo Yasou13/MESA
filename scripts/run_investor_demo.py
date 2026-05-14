@@ -2,6 +2,9 @@ import asyncio
 import json
 import os
 import sys
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Ensure MESA is in the python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -21,7 +24,7 @@ from mesa_memory.schema.cmb import CMB, ResourceCost, AffectiveState
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.retrieval.core import QueryAnalyzer
-from mesa_memory.adapter.mock import MockLLMAdapter
+from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config
 from mesa_memory.observability.metrics import ObservabilityLayer
 
@@ -86,7 +89,7 @@ async def main():
     print(f"Ingested {len(dataset)} records.")
 
     print("Running ConsolidationLoop (Tier-3 processing)...")
-    adapter = MockLLMAdapter()
+    adapter = AdapterFactory.get_adapter()
     
     obs_layer = ObservabilityLayer()
     loop = ConsolidationLoop(storage_facade=facade, embedder=adapter, llm_a=adapter, llm_b=adapter, obs_layer=obs_layer)
@@ -116,7 +119,8 @@ async def main():
             print(f"- {cmb['content_payload']} (Source: {cmb['source']})")
             context.append(cmb)
             
-    print("\n" + adapter.deep_research(query, context))
+    prompt = f"Query: {query}\n\nContext:\n" + "\n".join([c['content_payload'] for c in context])
+    print("\n" + adapter.complete(prompt))
     print("==============================================")
 
 if __name__ == "__main__":

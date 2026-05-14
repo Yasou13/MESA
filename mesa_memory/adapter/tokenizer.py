@@ -11,7 +11,7 @@ logger = logging.getLogger("MESA_Tokenizer")
 
 
 def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
-    if adapter_type == "claude":
+    if adapter_type in ("claude", "openai"):
         enc = tiktoken.get_encoding("cl100k_base")
         return len(enc.encode(text))
     if adapter_type == "ollama":

@@ -1,10 +1,13 @@
 import logging
 import os
 from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 import psutil
-from pydantic import ConfigDict, model_validator
-from pydantic_settings import BaseSettings
+from pydantic import ConfigDict, model_validator, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("MESA_Config")
 
@@ -83,11 +86,15 @@ def _read_cgroup_ram_limit() -> Optional[int]:
 
 
 class MesaConfig(BaseSettings):
-    model_config = ConfigDict(env_prefix="MESA_", env_file=".env")
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
     llm_provider: str = "claude"
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    mesa_llm_provider: str = Field("openai_compatible", validation_alias="MESA_LLM_PROVIDER")
+    llm_base_url: str | None = Field(None, validation_alias="LLM_BASE_URL")
+    llm_api_key: str | None = Field(None, validation_alias="LLM_API_KEY")
+    llm_model_name: str | None = Field("llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME")
     embedding_dimension: int = 1536
 
     tiebreaker_latency_threshold_ms: float = 500.0
