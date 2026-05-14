@@ -122,7 +122,8 @@ async def test_tier3_deferred():
     near_duplicate = np.ones(768).tolist()
     cmb = _make_cmb_candidate(embedding=near_duplicate, latency_ms=100.0)
     result = await motor.evaluate(cmb, {})
-    
-    assert result is True
+
+    # Tier-3 deferral now returns the status string "DEFERRED", not a boolean.
+    assert result == "DEFERRED"
     assert cmb.get("tier3_deferred") is True
     adapter.complete.assert_not_called()

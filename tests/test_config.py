@@ -3,8 +3,11 @@ from mesa_memory.config import MesaConfig, calculate_dynamic_limits
 
 
 def test_env_variable_override(monkeypatch):
-    monkeypatch.setenv("MESA_CONTEXT_WINDOW_LIMIT", "9000")
-    cfg = MesaConfig()
+    # Pydantic BaseSettings maps field 'context_window_limit' to env var
+    # CONTEXT_WINDOW_LIMIT (no prefix). Suppress .env file so the env-var
+    # override set here is the sole source of truth.
+    monkeypatch.setenv("CONTEXT_WINDOW_LIMIT", "9000")
+    cfg = MesaConfig(_env_file=None)
     assert cfg.context_window_limit == 9000
 
 

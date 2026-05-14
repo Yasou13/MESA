@@ -324,12 +324,11 @@ async def test_valence_motor_admits_with_tier3_deferred(local_adapter):
 
     result = await motor.evaluate(candidate, {})
 
-    # Must be admitted (either novel=True, or tier3_deferred=True)
-    assert result is True, "ValenceMotor should admit the candidate"
-
-    # Check if tier3_deferred was set (near-duplicate should trigger Tier-3)
-    # The embedding is close to the Einstein seed, so novelty may be low
-    # Either path is valid for E2E — what matters is no crash and valid admission
+    # Must be admitted: True (novel admit) or "DEFERRED" (tier-3 deferred admit).
+    # Both are valid non-discard outcomes in the status-based valence architecture.
+    assert result in (True, "DEFERRED"), (
+        f"ValenceMotor should admit the candidate, got {result!r}"
+    )
 
 
 # ===================================================================
