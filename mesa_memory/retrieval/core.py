@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 import spacy
 
 from mesa_memory.config import config
@@ -16,11 +13,10 @@ class QueryAnalyzer:
         try:
             self.nlp = spacy.load(model_name)
         except OSError:
-            subprocess.run(
-                [sys.executable, "-m", "spacy", "download", model_name],
-                check=True,
+            raise OSError(
+                f"spaCy model '{model_name}' is not installed. "
+                f"Install it at build time with: python -m spacy download {model_name}"
             )
-            self.nlp = spacy.load(model_name)
 
     def extract_entities(self, query: str) -> list[str]:
         normalized = normalize_query(query)

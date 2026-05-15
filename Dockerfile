@@ -18,6 +18,9 @@ RUN apt-get update && \
 COPY requirements-core.txt .
 RUN pip install --no-cache-dir -r requirements-core.txt
 
+# ── Pre-download spaCy language model (prevents runtime downloads in air-gapped envs) ──
+RUN python -m spacy download en_core_web_sm
+
 # ── Application code ──
 COPY mesa_memory/ ./mesa_memory/
 COPY .env.example .env.example

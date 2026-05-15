@@ -44,7 +44,7 @@ from mesa_memory.storage.vector_index import VectorStorage
 # ---------------------------------------------------------------------------
 
 BENCH_STORAGE_DIR = "./storage_bench_tmp"
-EMBEDDING_DIM = 128  # Smaller dimension for benchmark speed
+EMBEDDING_DIM = 384  # Matches MiniLM-L6-v2 production embedding output
 BATCH_SIZE = 20
 
 
