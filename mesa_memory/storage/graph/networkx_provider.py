@@ -18,17 +18,16 @@ Sync → Async strategy:
 """
 
 import asyncio
-import json
 from datetime import datetime, timezone
 from typing import Optional
 
 import aiosqlite
 import networkx as nx
-from rocksdict import Rdict
 from uuid6 import uuid7 as _uuid7_func
 
 from mesa_memory.security.rbac import AccessControl
 from mesa_memory.security.rbac_constants import _UNSET_IDENTITY
+from mesa_memory.storage.graph import analytics as graph_analytics
 from mesa_memory.storage.graph.base import BaseGraphProvider
 
 
@@ -497,7 +496,7 @@ class NetworkXProvider(BaseGraphProvider):
             ]
 
     # ------------------------------------------------------------------
-    # Graph analytics
+    # Graph analytics (delegated to analytics module)
     # ------------------------------------------------------------------
 
     async def compute_pagerank(
@@ -507,87 +506,24 @@ class NetworkXProvider(BaseGraphProvider):
         max_iter: int = 100,
         tol: float = 1e-6,
     ) -> dict[str, float]:
-        if len(self._graph.nodes) == 0:
-            return {}
-
-        # Snapshot the graph to avoid mutations during computation
-        async with self._lock:
-            graph_copy = self._graph.copy()
-
-        def _compute() -> dict[str, float]:
-            return nx.pagerank(
-                graph_copy,
-                alpha=alpha,
-                personalization=personalization,
-                max_iter=max_iter,
-                tol=tol,
-            )
-
-        # CPU-heavy: offload to thread pool to protect the event loop
-        try:
-            return await asyncio.to_thread(_compute)
-        except nx.NetworkXError:
-            return {}
+        return await graph_analytics.compute_pagerank(
+            graph=self._graph,
+            lock=self._lock,
+            personalization=personalization,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+        )
 
     # ------------------------------------------------------------------
-    # Maintenance
+    # Maintenance (delegated to analytics module)
     # ------------------------------------------------------------------
 
     async def offload_expired(self) -> int:
-        rocks = await asyncio.to_thread(Rdict, self.rocks_path)
-        total_archived = 0
-
-        try:
-            async with aiosqlite.connect(self.db_path) as db:
-                db.row_factory = aiosqlite.Row
-
-                async with db.execute(
-                    "SELECT * FROM nodes WHERE expired_at IS NOT NULL"
-                ) as cursor:
-                    expired_nodes = [dict(row) async for row in cursor]
-
-                if expired_nodes:
-
-                    def _write_nodes():
-                        for node in expired_nodes:
-                            rocks[f"node:{node['node_id']}"] = json.dumps(node)
-
-                    await asyncio.to_thread(_write_nodes)
-
-                    node_ids = [n["node_id"] for n in expired_nodes]
-                    placeholders = ",".join("?" for _ in node_ids)
-                    await db.execute(
-                        f"DELETE FROM nodes WHERE node_id IN ({placeholders})",
-                        node_ids,
-                    )
-                    total_archived += len(expired_nodes)
-
-                async with db.execute(
-                    "SELECT * FROM edges WHERE expired_at IS NOT NULL"
-                ) as cursor:
-                    expired_edges = [dict(row) async for row in cursor]
-
-                if expired_edges:
-
-                    def _write_edges():
-                        for edge in expired_edges:
-                            rocks[f"edge:{edge['edge_id']}"] = json.dumps(edge)
-
-                    await asyncio.to_thread(_write_edges)
-
-                    edge_ids = [e["edge_id"] for e in expired_edges]
-                    placeholders = ",".join("?" for _ in edge_ids)
-                    await db.execute(
-                        f"DELETE FROM edges WHERE edge_id IN ({placeholders})",
-                        edge_ids,
-                    )
-                    total_archived += len(expired_edges)
-
-                await db.commit()
-        finally:
-            await asyncio.to_thread(rocks.close)
-
-        return total_archived
+        return await graph_analytics.offload_expired(
+            db_path=self.db_path,
+            rocks_path=self.rocks_path,
+        )
 
     # ------------------------------------------------------------------
     # Provider-specific (NOT in ABC — backward compatibility)
