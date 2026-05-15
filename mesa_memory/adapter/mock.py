@@ -3,7 +3,7 @@ import json
 import math
 import random
 import re
-from typing import Optional, Type, Union
+from typing import Any, Optional, Type, Union
 
 from pydantic import BaseModel
 
@@ -37,6 +37,7 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
     def complete(
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
     ) -> Union[str, BaseModel]:
+        res: dict[str, Any]
         if "decision" in prompt and "justification" in prompt:
             res = {"decision": "STORE", "justification": "Mock STORE decision"}
         elif "triplets" in prompt and "record_index" in prompt:

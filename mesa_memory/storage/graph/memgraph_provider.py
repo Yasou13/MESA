@@ -15,7 +15,7 @@ class MemgraphProvider(BaseGraphProvider):
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ) -> str:
-        pass
+        raise NotImplementedError("MemgraphProvider is planned for the roadmap.")
 
     async def create_edge(
         self,
@@ -26,7 +26,7 @@ class MemgraphProvider(BaseGraphProvider):
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ) -> str:
-        pass
+        raise NotImplementedError("MemgraphProvider is planned for the roadmap.")
 
     async def soft_delete_node(self, node_id: str) -> None:
         pass

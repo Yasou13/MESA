@@ -1,3 +1,5 @@
+from typing import Optional
+
 from mesa_memory.config import config
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
@@ -5,7 +7,7 @@ from mesa_memory.adapter.live import OpenAICompatibleAdapter
 
 class AdapterFactory:
     @staticmethod
-    def get_adapter(provider: str = None) -> BaseUniversalLLMAdapter:
+    def get_adapter(provider: Optional[str] = None) -> BaseUniversalLLMAdapter:
         provider = provider or config.mesa_llm_provider
 
         if provider == "openai_compatible":

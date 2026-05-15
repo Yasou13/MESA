@@ -62,7 +62,7 @@ _model_holder = _RebelModelHolder()
 class RebelExtractor:
     def __init__(self, model_name: str = "Babelscape/rebel-large"):
         self.model_name = model_name
-        self._rebel_failures = []
+        self._rebel_failures: list[dict[str, str]] = []
 
         try:
             import torch
