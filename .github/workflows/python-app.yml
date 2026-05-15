@@ -26,7 +26,7 @@ jobs:
     - name: Lint Code (Ruff)
       run: ruff check mesa_memory/ tests/
     - name: Type Check (Mypy)
-      run: mypy mesa_memory/ --ignore-missing-imports
+      run: mypy mesa_memory/ --ignore-missing-imports --explicit-package-bases
     - name: Download spaCy model
       run: python -m spacy download xx_ent_wiki_sm
     - name: Test with pytest
