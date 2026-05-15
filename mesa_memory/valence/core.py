@@ -1,4 +1,6 @@
 import logging
+import json
+import aiosqlite
 
 import numpy as np
 
@@ -34,6 +36,38 @@ class ValenceMotor:
                 "ValenceMotor hydrated %d embeddings from persistent storage",
                 self.memory_count,
             )
+
+    async def save_state(self, db_path: str):
+        """Persist the cognitive state (ewmad_threshold, memory_count) to SQLite."""
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS valence_state (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            state_data = {
+                "ewmad_threshold": self._ewmad_threshold,
+                "memory_count": self.memory_count,
+            }
+            await db.execute(
+                "INSERT OR REPLACE INTO valence_state (key, value) VALUES (?, ?)",
+                ("valence_core_state", json.dumps(state_data)),
+            )
+            await db.commit()
+
+    async def load_state(self, db_path: str):
+        """Restore the cognitive state from SQLite if available."""
+        try:
+            async with aiosqlite.connect(db_path) as db:
+                async with db.execute(
+                    "SELECT value FROM valence_state WHERE key = 'valence_core_state'"
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        state_data = json.loads(row[0])
+                        self._ewmad_threshold = state_data.get("ewmad_threshold", self.bootstrap_threshold)
+                        self.memory_count = state_data.get("memory_count", self.memory_count)
+                        logger.info(f"Restored ValenceMotor state: threshold={self._ewmad_threshold:.4f}, count={self.memory_count}")
+        except Exception as e:
+            logger.warning(f"Could not load ValenceMotor state (fresh setup or error): {e}")
 
     def _hydrate_embeddings(self) -> list:
         """Load existing embeddings from persistent vector storage.

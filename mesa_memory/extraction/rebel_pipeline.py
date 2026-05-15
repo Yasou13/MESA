@@ -62,6 +62,14 @@ _model_holder = _RebelModelHolder()
 class RebelExtractor:
     def __init__(self, model_name: str = "Babelscape/rebel-large"):
         self.model_name = model_name
+        self._rebel_failures = []
+        
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                logger.warning("REBEL running on CPU — expect ~2-5s/record. Set MESA_REBEL_DEVICE=cuda for GPU acceleration.")
+        except ImportError:
+            logger.warning("REBEL running on CPU — expect ~2-5s/record. Set MESA_REBEL_DEVICE=cuda for GPU acceleration.")
 
     @property
     def _pipeline(self):
@@ -85,7 +93,8 @@ class RebelExtractor:
             raw_text = extracted_text[0]["generated_text"]
             return self._parse_rebel_output(raw_text)
         except Exception as e:
-            logger.error(f"REBEL extraction failed: {e}", exc_info=True)
+            self._rebel_failures.append({"text_preview": text[:100], "error": str(e)})
+            logger.warning("REBEL failed, triggering LLM fallback")
             return []
 
     def _parse_rebel_output(self, text: str) -> List[Dict[str, str]]:

@@ -34,9 +34,13 @@ class StorageFacade:
                 access_control=self.access_control,
             )
 
-    async def initialize_all(self):
+    async def initialize_all(self, valence_motor=None):
         await self.raw_log.initialize()
         await self.graph.initialize()
+        
+        if valence_motor is not None:
+            await valence_motor.load_state(self.raw_log.db_path)
+
         orphan_count = await self.reconcile_orphans()
         if orphan_count:
             logger.warning(
