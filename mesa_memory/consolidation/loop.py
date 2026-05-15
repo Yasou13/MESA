@@ -12,25 +12,24 @@ Refactored from the original God-Object into three focused modules:
 import asyncio
 import functools
 import json
+import logging
 import re
 import time
-import logging
 from collections import deque
 from typing import Any, Optional
 
 from pydantic import ValidationError
 
-from mesa_memory.utils import _strip_markdown_json
-
-from mesa_memory.config import config
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
-from mesa_memory.storage import StorageFacade
+from mesa_memory.config import config
 from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
-from mesa_memory.consolidation.validator import Tier3Validator, Tier3ValidationError
+from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 from mesa_memory.consolidation.writer import GraphWriter
-from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
+from mesa_memory.observability.metrics import ObservabilityLayer
+from mesa_memory.storage import StorageFacade
+from mesa_memory.utils import _strip_markdown_json
 
 # ---------------------------------------------------------------------------
 # Tier-3 Validation templates (re-exported for backward compatibility)

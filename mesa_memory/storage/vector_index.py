@@ -1,9 +1,9 @@
 import logging
 import threading
 
+import lancedb
 import psutil
 import pyarrow as pa
-import lancedb
 
 from mesa_memory.config import config
 from mesa_memory.security.rbac import AccessControl

@@ -1,11 +1,12 @@
 import json
-import pytest
-import numpy as np
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
+import pytest
+
+from mesa_memory.config import config
 from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.loop import ConsolidationLoop
-from mesa_memory.config import config
 from mesa_memory.observability.metrics import ObservabilityLayer
 
 
@@ -15,7 +16,7 @@ def _make_mock_embedder(dim=768):
 
     def _embed(text, **kwargs):
         call_count["n"] += 1
-        np.random.seed(hash(text.strip().lower()) % 2**31)
+        np.random.seed(hash(text.strip().lower()) % 2 ** 31)
         return np.random.rand(dim).tolist()
 
     embedder.embed.side_effect = _embed

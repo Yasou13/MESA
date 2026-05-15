@@ -9,13 +9,14 @@ These tests mock LLM adapters and storage; no network calls are made.
 """
 
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
-    _sanitize_llm_response,
     _salvage_truncated_json,
+    _sanitize_llm_response,
 )
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
 from mesa_memory.observability.metrics import ObservabilityLayer

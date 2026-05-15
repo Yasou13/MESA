@@ -1,11 +1,11 @@
-from typing import Optional
 import logging
+from typing import Optional
 
 import tiktoken
 from transformers import AutoTokenizer
 
-from mesa_memory.config import config
 from mesa_memory.adapter.base import TokenBudgetExceededError
+from mesa_memory.config import config
 
 logger = logging.getLogger("MESA_Tokenizer")
 

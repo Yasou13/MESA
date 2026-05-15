@@ -1,15 +1,15 @@
-import re
 import json
 import logging
+import re
 from typing import Optional, Type, Union
 
 import openai
 from pydantic import BaseModel
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -187,6 +187,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         except openai.NotFoundError:
             import asyncio
             import functools
+
             from mesa_memory.adapter.claude import _local_embed
 
             loop = asyncio.get_running_loop()
@@ -248,6 +249,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         except openai.NotFoundError:
             import asyncio
             import functools
+
             from mesa_memory.adapter.claude import _local_embed_batch
 
             loop = asyncio.get_running_loop()

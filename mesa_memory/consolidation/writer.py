@@ -19,8 +19,8 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.schemas import ExtractedTriplet
-from mesa_memory.storage import StorageFacade
 from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
+from mesa_memory.storage import StorageFacade
 
 logger = logging.getLogger("MESA_GraphWriter")
 

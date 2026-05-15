@@ -19,7 +19,7 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
 
     def embed(self, text: str, **kwargs) -> list[float]:
         EMBEDDING_DIM = 384
-        seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2**32)
+        seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2 ** 32)
         rng = random.Random(seed)
         raw = [rng.gauss(0, 1) for _ in range(EMBEDDING_DIM)]
         norm = math.sqrt(sum(x * x for x in raw)) or 1.0

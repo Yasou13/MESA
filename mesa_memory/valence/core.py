@@ -1,15 +1,14 @@
-import logging
 import json
-import aiosqlite
+import logging
 
+import aiosqlite
 import numpy as np
 
-
+from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.observability.metrics import ObservabilityLayer
-from mesa_memory.adapter.base import BaseUniversalLLMAdapter
-from mesa_memory.valence.novelty import calculate_novelty_score
 from mesa_memory.valence.drift import recalibrate_threshold
+from mesa_memory.valence.novelty import calculate_novelty_score
 
 logger = logging.getLogger("MESA_Valence")
 

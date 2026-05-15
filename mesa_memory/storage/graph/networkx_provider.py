@@ -17,19 +17,19 @@ Sync → Async strategy:
   ``asyncio.to_thread`` to avoid blocking the event loop.
 """
 
-import json
 import asyncio
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
 import aiosqlite
 import networkx as nx
-from uuid6 import uuid7 as _uuid7_func
 from rocksdict import Rdict
+from uuid6 import uuid7 as _uuid7_func
 
-from mesa_memory.storage.graph.base import BaseGraphProvider
 from mesa_memory.security.rbac import AccessControl
 from mesa_memory.security.rbac_constants import _UNSET_IDENTITY
+from mesa_memory.storage.graph.base import BaseGraphProvider
 
 
 class NetworkXProvider(BaseGraphProvider):
@@ -53,7 +53,8 @@ class NetworkXProvider(BaseGraphProvider):
 
     async def initialize(self) -> None:
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS nodes (
                     node_id     TEXT PRIMARY KEY,
                     name        TEXT NOT NULL,
@@ -61,8 +62,10 @@ class NetworkXProvider(BaseGraphProvider):
                     created_at  TEXT NOT NULL,
                     expired_at  TEXT DEFAULT NULL
                 )
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS edges (
                     edge_id       TEXT PRIMARY KEY,
                     source_node   TEXT NOT NULL,
@@ -74,30 +77,41 @@ class NetworkXProvider(BaseGraphProvider):
                     FOREIGN KEY (source_node) REFERENCES nodes(node_id),
                     FOREIGN KEY (target_node) REFERENCES nodes(node_id)
                 )
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_nodes_active
                 ON nodes(expired_at) WHERE expired_at IS NULL
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_edges_active
                 ON edges(expired_at) WHERE expired_at IS NULL
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_edges_source
                 ON edges(source_node) WHERE expired_at IS NULL
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_edges_target
                 ON edges(target_node) WHERE expired_at IS NULL
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS cmb_nodes (
                     cmb_id TEXT NOT NULL,
                     node_id TEXT NOT NULL,
                     PRIMARY KEY (cmb_id, node_id)
                 )
-            """)
+            """
+            )
             await db.commit()
 
         await self._load_active_graph()

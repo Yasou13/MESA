@@ -6,11 +6,11 @@ Tier3ValidationError exceptions and NEVER silently default to DISCARD.
 """
 
 import json
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mesa_memory.consolidation.validator import Tier3Validator, Tier3ValidationError
+from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 
 
 def _make_record(cmb_id="test-cmb-001", tier3=True):

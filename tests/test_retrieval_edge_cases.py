@@ -12,12 +12,12 @@ Verifies that the HybridRetriever gracefully handles:
 
 import os
 import shutil
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.retrieval.core import QueryAnalyzer
+from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
 
 COLD_START_DIR = "./storage_cold_start_tmp"

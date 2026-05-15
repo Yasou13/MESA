@@ -27,17 +27,17 @@ from unittest.mock import patch
 
 import pytest
 
-from mesa_memory.schema.cmb import CMB, ResourceCost
-from mesa_memory.storage.raw_log import RawLogStorage
-from mesa_memory.storage.vector_index import VectorStorage
-from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.consolidation.loop import (
-    _sanitize_llm_response,
-    _salvage_truncated_json,
     _estimate_salience,
+    _salvage_truncated_json,
+    _sanitize_llm_response,
 )
+from mesa_memory.schema.cmb import CMB, ResourceCost
 from mesa_memory.security.rbac import AccessControl
 from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
+from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
+from mesa_memory.storage.raw_log import RawLogStorage
+from mesa_memory.storage.vector_index import VectorStorage
 
 # ---------------------------------------------------------------------------
 # Constants

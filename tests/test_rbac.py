@@ -1,6 +1,8 @@
-import sqlite3
 import os
+import sqlite3
+
 import pytest
+
 from mesa_memory.security.rbac import AccessControl, sanitize_cmb_content
 
 
@@ -96,6 +98,7 @@ def test_system_daemon_identity_succeeds(tmp_path):
     This is the legitimate internal daemon path (ConsolidationLoop, etc.).
     """
     from unittest.mock import patch
+
     from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
     from mesa_memory.storage.vector_index import VectorStorage
 

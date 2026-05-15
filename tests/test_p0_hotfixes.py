@@ -1,12 +1,13 @@
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from mesa_memory.storage import StorageFacade
-from mesa_memory.security.rbac import AccessControl
-from mesa_memory.schema.cmb import CMB, ResourceCost
-from mesa_memory.consolidation.loop import ConsolidationLoop
+import pytest
+
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
+from mesa_memory.consolidation.loop import ConsolidationLoop
+from mesa_memory.schema.cmb import CMB, ResourceCost
+from mesa_memory.security.rbac import AccessControl
+from mesa_memory.storage import StorageFacade
 
 
 @pytest.fixture

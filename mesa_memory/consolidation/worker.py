@@ -1,8 +1,8 @@
 import asyncio
 import logging
 
-from mesa_memory.storage import StorageFacade
 from mesa_memory.consolidation.loop import ConsolidationLoop
+from mesa_memory.storage import StorageFacade
 
 logger = logging.getLogger("MESA_Worker")
 

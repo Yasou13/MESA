@@ -1,13 +1,17 @@
-import logging
 import json
+import logging
 import time
-from enum import Enum
 from collections import Counter, deque
+from enum import Enum
 
 from prometheus_client import (
     Counter as PromCounter,
-    Histogram as PromHistogram,
+)
+from prometheus_client import (
     Gauge as PromGauge,
+)
+from prometheus_client import (
+    Histogram as PromHistogram,
 )
 
 from mesa_memory.config import config

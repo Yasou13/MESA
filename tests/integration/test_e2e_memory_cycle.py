@@ -24,6 +24,7 @@ No external API keys, no mocks on storage or data paths.
 import json
 import os
 import shutil
+
 import pytest
 import pytest_asyncio
 
@@ -35,7 +36,7 @@ from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
-from mesa_memory.schema.cmb import CMB, ResourceCost, AffectiveState
+from mesa_memory.schema.cmb import CMB, AffectiveState, ResourceCost
 from mesa_memory.security.rbac import AccessControl
 from mesa_memory.storage import StorageFacade
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
@@ -150,7 +151,7 @@ def e2e_storage_cleanup():
     os.makedirs(E2E_STORAGE_DIR, exist_ok=True)
     original_limit = config.lancedb_memory_limit_bytes
     # Set to 16 GB to avoid false MemoryError on test machines
-    object.__setattr__(config, "lancedb_memory_limit_bytes", 16 * 1024**3)
+    object.__setattr__(config, "lancedb_memory_limit_bytes", 16 * 1024 ** 3)
     yield
     object.__setattr__(config, "lancedb_memory_limit_bytes", original_limit)
     shutil.rmtree(E2E_STORAGE_DIR, ignore_errors=True)

@@ -1,12 +1,13 @@
 import os
 import shutil
-import pytest
 from unittest.mock import MagicMock
 
-from mesa_memory.schema.cmb import CMB, ResourceCost, AffectiveState
+import pytest
+
+from mesa_memory.schema.cmb import CMB, AffectiveState, ResourceCost
+from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
-from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 
 TEST_STORAGE_DIR = "./storage_test_tmp"
 

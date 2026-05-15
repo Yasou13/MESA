@@ -22,7 +22,7 @@ except ImportError:
 
 try:
     import torch
-    from transformers import AutoTokenizer, AutoModel
+    from transformers import AutoModel, AutoTokenizer
 
     _LOCAL_EMBED_AVAILABLE = True
 except ImportError:

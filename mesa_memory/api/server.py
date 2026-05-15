@@ -1,8 +1,8 @@
 import time
 
 from fastapi import FastAPI, Response
-from pydantic import BaseModel
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from pydantic import BaseModel
 
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.observability.metrics import ObservabilityLayer

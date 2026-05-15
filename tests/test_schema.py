@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mesa_memory.schema.cmb import CMB, ResourceCost, AffectiveState, generate_uuid7
+from mesa_memory.schema.cmb import CMB, AffectiveState, ResourceCost, generate_uuid7
 
 
 def test_uuid7_generation():

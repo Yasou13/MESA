@@ -1,8 +1,8 @@
 from typing import Optional
 
-from mesa_memory.config import config
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
+from mesa_memory.config import config
 
 
 class AdapterFactory:

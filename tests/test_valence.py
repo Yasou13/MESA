@@ -1,7 +1,8 @@
 import json
-import pytest
-import numpy as np
 from unittest.mock import MagicMock
+
+import numpy as np
+import pytest
 
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.valence.core import ValenceMotor

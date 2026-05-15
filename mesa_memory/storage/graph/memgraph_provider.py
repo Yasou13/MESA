@@ -1,6 +1,7 @@
 from typing import Optional
-from mesa_memory.storage.graph.base import BaseGraphProvider
+
 from mesa_memory.security.rbac_constants import _UNSET_IDENTITY
+from mesa_memory.storage.graph.base import BaseGraphProvider
 
 
 class MemgraphProvider(BaseGraphProvider):

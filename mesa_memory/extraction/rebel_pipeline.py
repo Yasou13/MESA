@@ -1,6 +1,6 @@
 import logging
 import threading
-from typing import List, Dict
+from typing import Dict, List
 
 try:
     from transformers import pipeline as pipeline  # type: ignore[no-redef]
