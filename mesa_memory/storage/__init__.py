@@ -37,7 +37,7 @@ class StorageFacade:
     async def initialize_all(self, valence_motor=None):
         await self.raw_log.initialize()
         await self.graph.initialize()
-        
+
         if valence_motor is not None:
             await valence_motor.load_state(self.raw_log.db_path)
 

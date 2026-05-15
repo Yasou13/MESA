@@ -63,11 +63,19 @@ class ValenceMotor:
                     row = await cursor.fetchone()
                     if row:
                         state_data = json.loads(row[0])
-                        self._ewmad_threshold = state_data.get("ewmad_threshold", self.bootstrap_threshold)
-                        self.memory_count = state_data.get("memory_count", self.memory_count)
-                        logger.info(f"Restored ValenceMotor state: threshold={self._ewmad_threshold:.4f}, count={self.memory_count}")
+                        self._ewmad_threshold = state_data.get(
+                            "ewmad_threshold", self.bootstrap_threshold
+                        )
+                        self.memory_count = state_data.get(
+                            "memory_count", self.memory_count
+                        )
+                        logger.info(
+                            f"Restored ValenceMotor state: threshold={self._ewmad_threshold:.4f}, count={self.memory_count}"
+                        )
         except Exception as e:
-            logger.warning(f"Could not load ValenceMotor state (fresh setup or error): {e}")
+            logger.warning(
+                f"Could not load ValenceMotor state (fresh setup or error): {e}"
+            )
 
     def _hydrate_embeddings(self) -> list:
         """Load existing embeddings from persistent vector storage.
