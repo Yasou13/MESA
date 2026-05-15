@@ -52,14 +52,16 @@ class AccessControl:
         os.makedirs(os.path.dirname(os.path.abspath(self.policy_path)), exist_ok=True)
         with sqlite3.connect(self.policy_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS permissions (
                     agent_id TEXT,
                     session_id TEXT,
                     access_level TEXT,
                     PRIMARY KEY (agent_id, session_id)
                 )
-            """)
+            """
+            )
             # Seed the reserved system daemon identity with WRITE access
             conn.execute(
                 "INSERT OR IGNORE INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",

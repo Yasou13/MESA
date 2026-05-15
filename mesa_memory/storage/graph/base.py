@@ -7,7 +7,7 @@ on any concrete graph library (e.g. NetworkX) — only on this interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 from mesa_memory.security.rbac_constants import _UNSET_IDENTITY
 
@@ -187,6 +187,22 @@ class BaseGraphProvider(ABC):
             List of ``{node_id, name, type, created_at}``.
         """
         ...
+
+    def get_active_graph(self) -> Any:
+        """Return a snapshot of the full active graph.
+
+        .. deprecated::
+            Retained for backward compatibility with multi-hop traversal.
+            New code should use the decomposed query methods
+            (``find_nodes_by_name``, ``get_neighbors``, etc.).
+
+        Returns:
+            A graph object whose concrete type is provider-specific.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_active_graph(). "
+            "Use the decomposed query methods instead."
+        )
 
     # ------------------------------------------------------------------
     # Graph analytics
