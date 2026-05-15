@@ -97,6 +97,7 @@ typer==0.25.1
 pytest>=7.4.0
 pytest-asyncio>=0.23.0
 pytest-cov>=4.1.0
+pytest-benchmark>=4.0.0
 iniconfig==2.3.0
 
 # --- Anomaly detection ---

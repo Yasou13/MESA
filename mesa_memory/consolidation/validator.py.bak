@@ -111,7 +111,7 @@ class Tier3Validator:
             The caller should decide whether to retry or dead-letter.
         """
         content = record.get("content_payload", "")
-        source = record.get("source", "XXXX")
+        source = record.get("source", "")
         performative = record.get("performative", "")
         prompt_a = VALENCE_PROMPT_A_TEMPLATE.format(
             content=content,

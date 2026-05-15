@@ -36,4 +36,10 @@ jobs:
         OPENAI_API_KEY: "sk-dummy-key"
       run: |
         export PYTHONPATH=.
-        pytest tests/ --cov=mesa_memory --cov-report=xml
+        pytest tests/ --cov=mesa_memory --cov-report=xml --ignore=tests/bench
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage.xml
+        fail_ci_if_error: false
