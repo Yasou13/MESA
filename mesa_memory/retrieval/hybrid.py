@@ -1,10 +1,14 @@
 import asyncio
+import logging
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
+from mesa_memory.retrieval.graph_traversal import find_path
 from mesa_memory.security.rbac import AccessControl
 from mesa_memory.storage import StorageFacade
+
+logger = logging.getLogger("MESA_Retrieval")
 
 
 class HybridRetriever:
@@ -21,8 +25,13 @@ class HybridRetriever:
         self.access_control = access_control or AccessControl()
 
     async def retrieve(
-        self, query_text: str, agent_id: str, session_id: str, top_n: int = 5
-    ) -> list[str]:
+        self,
+        query_text: str,
+        agent_id: str,
+        session_id: str,
+        top_n: int = 5,
+        enable_multi_hop: bool = False,
+    ) -> list[str] | dict:
         if not self.access_control.check_access(agent_id, session_id, "READ"):
             raise PermissionError(
                 f"Agent '{agent_id}' lacks READ access for session '{session_id}'"
@@ -46,11 +55,35 @@ class HybridRetriever:
 
         if is_cold_start or not graph_results:
             if not vector_results:
-                return []
-            return [r["cmb_id"] for r in self._cold_start_rerank(vector_results, top_n)]
+                cmb_ids: list[str] = []
+            else:
+                cmb_ids = [
+                    r["cmb_id"] for r in self._cold_start_rerank(vector_results, top_n)
+                ]
+        else:
+            fused_ids = self._apply_rrf(vector_results, graph_results, k=config.rrf_k)
+            cmb_ids = fused_ids[:top_n]
 
-        fused_ids = self._apply_rrf(vector_results, graph_results, k=config.rrf_k)
-        return fused_ids[:top_n]
+        if not enable_multi_hop:
+            return cmb_ids
+
+        # --- Multi-hop graph traversal between top 2 seed entities ---
+        multi_hop_path: list[str] = []
+        if len(seed_nodes) >= 2:
+            source_id = seed_nodes[0]["node_id"]
+            target_id = seed_nodes[1]["node_id"]
+            try:
+                graph_snapshot = self.storage.graph.get_active_graph()
+                multi_hop_path = find_path(graph_snapshot, source_id, target_id)
+            except Exception:
+                logger.warning(
+                    "Multi-hop traversal failed between %s and %s",
+                    source_id,
+                    target_id,
+                    exc_info=True,
+                )
+
+        return {"cmb_ids": cmb_ids, "multi_hop_path": multi_hop_path}
 
     async def get_vector_results(self, query_text: str, k: int = 10) -> list[dict]:
         loop = asyncio.get_running_loop()

@@ -7,6 +7,7 @@ from mesa_memory.storage.graph.base import BaseGraphProvider
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
+from mesa_memory.valence.fitness import calculate_fitness_score
 
 logger = logging.getLogger("MESA_Storage")
 
@@ -73,8 +74,17 @@ class StorageFacade:
                 f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
             )
 
+        sanitized_content = sanitize_cmb_content(cmb.content_payload)
+
+        # Dynamically compute fitness score from actual content and token count
+        token_count = cmb.resource_cost.token_count
+        fitness = calculate_fitness_score(sanitized_content, token_count)
+
         cmb = cmb.model_copy(
-            update={"content_payload": sanitize_cmb_content(cmb.content_payload)}
+            update={
+                "content_payload": sanitized_content,
+                "fitness_score": fitness,
+            }
         )
 
         await self.raw_log.insert_cmb(cmb)
