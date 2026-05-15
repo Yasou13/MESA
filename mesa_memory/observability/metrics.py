@@ -4,6 +4,12 @@ import time
 from enum import Enum
 from collections import Counter, deque
 
+from prometheus_client import (
+    Counter as PromCounter,
+    Histogram as PromHistogram,
+    Gauge as PromGauge,
+)
+
 from mesa_memory.config import config
 
 
@@ -42,6 +48,27 @@ class ObservabilityLayer:
             self.logger.addHandler(handler)
         self.metrics = MetricsRegistry()
 
+        # Prometheus metrics
+        self.prom_valence_hits = PromCounter(
+            "mesa_valence_tier_hits_total", "Total hits per valence tier", ["tier"]
+        )
+        self.prom_valence_decisions = PromCounter(
+            "mesa_valence_decisions_total", "Total valence decisions", ["decision"]
+        )
+        self.prom_consolidation_duration = PromHistogram(
+            "mesa_consolidation_duration_ms", "Consolidation batch duration in ms"
+        )
+        self.prom_cross_validation_divergence = PromCounter(
+            "mesa_cross_validation_divergence_total",
+            "Total cross-validation divergences",
+        )
+        self.prom_admission_rate = PromGauge(
+            "mesa_cmb_admission_rate", "CMB admission rate"
+        )
+        self.prom_divergence_rate = PromGauge(
+            "mesa_consolidation_divergence_rate", "Consolidation divergence rate"
+        )
+
     def log_valence_decision(
         self, tier: int, decision: SystemState | str, justification: str, cost: dict
     ):
@@ -69,6 +96,9 @@ class ObservabilityLayer:
         self.metrics.inc(f"valence_tier_{tier}_hits")
         self.metrics.inc(f"valence_decision_{decision_val}")
 
+        self.prom_valence_hits.labels(tier=str(tier)).inc()
+        self.prom_valence_decisions.labels(decision=decision_val).inc()
+
         admitted = self.metrics.counters.get(
             f"valence_decision_{SystemState.ADMIT.value}", 0
         )
@@ -76,7 +106,9 @@ class ObservabilityLayer:
             f"valence_decision_{SystemState.DISCARD.value}", 0
         )
         if total > 0:
-            self.metrics.set("cmb_admission_rate", admitted / total)
+            rate = admitted / total
+            self.metrics.set("cmb_admission_rate", rate)
+            self.prom_admission_rate.set(rate)
 
     def log_consolidation_batch(
         self,
@@ -101,6 +133,10 @@ class ObservabilityLayer:
         self.metrics.observe("consolidation_batch_duration", duration_ms)
         self.metrics.inc("cross_validation_divergence", divergences)
         self.metrics.set("consolidation_divergence_rate", divergence_rate)
+
+        self.prom_consolidation_duration.observe(duration_ms)
+        self.prom_cross_validation_divergence.inc(divergences)
+        self.prom_divergence_rate.set(divergence_rate)
 
         if divergence_rate > config.metrics_divergence_threshold:
             self.logger.warning(

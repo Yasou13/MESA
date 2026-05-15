@@ -14,6 +14,8 @@ httpx==0.28.1
 # --- Web / API ---
 click==8.3.3
 uvicorn>=0.29.0
+fastapi>=0.111.0
+prometheus_client>=0.20.0
 
 # --- LLM Provider SDKs ---
 anthropic==0.100.0
