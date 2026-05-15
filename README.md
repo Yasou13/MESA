@@ -1,4 +1,4 @@
-<![CDATA[<div align="center">
+<div align="center">
 
 # MESA — Memory Engine for Structured Agents
 
@@ -260,4 +260,3 @@ We welcome contributions! Please follow the **Fork → Feature Branch → Pytest
 ## License
 
 This project is licensed under the [MIT License](LICENSE) — Copyright © 2026 MESA Core Team.
-]]>
