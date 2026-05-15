@@ -151,7 +151,7 @@ def e2e_storage_cleanup():
     os.makedirs(E2E_STORAGE_DIR, exist_ok=True)
     original_limit = config.lancedb_memory_limit_bytes
     # Set to 16 GB to avoid false MemoryError on test machines
-    object.__setattr__(config, "lancedb_memory_limit_bytes", 16 * 1024 ** 3)
+    object.__setattr__(config, "lancedb_memory_limit_bytes", 16 * 1024**3)
     yield
     object.__setattr__(config, "lancedb_memory_limit_bytes", original_limit)
     shutil.rmtree(E2E_STORAGE_DIR, ignore_errors=True)
