@@ -47,6 +47,7 @@ storage/*.rocks
 storage/*.lance
 storage/**/*.lance
 vector_index.lance
+storage/vector_index*/
 
 # RBAC Policy DB (auto-generated, not source-controlled)
 storage/rbac_policy.db
@@ -66,6 +67,7 @@ storage/rbac_policy.db
 #    REBEL / HuggingFace transformer weights should never enter the repo.
 # ------------------------------------------------------------------------------
 models/
+huggingface_cache/
 *.bin
 *.pt
 *.onnx
@@ -101,3 +103,12 @@ scratch/
 # 8. Agent / Tooling Metadata
 # ------------------------------------------------------------------------------
 .gemini/
+
+# ------------------------------------------------------------------------------
+# 9. Data Pipelines
+#    Ignore all data except the whitelisted raw dataset.
+# ------------------------------------------------------------------------------
+data/*
+!data/raw/
+data/raw/*
+!data/raw/ma_dataset.json
