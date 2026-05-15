@@ -8,6 +8,7 @@ from mesa_memory.schema.cmb import CMB, AffectiveState, ResourceCost
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
+from tests.conftest import deterministic_embedding
 
 TEST_STORAGE_DIR = "./storage_test_tmp"
 
@@ -27,7 +28,7 @@ def _make_cmb(payload: str = "test content", embedding: list[float] = None) -> C
         cat7_focus=0.7,
         cat7_mood=AffectiveState(valence=0.2, arousal=0.3),
         resource_cost=ResourceCost(token_count=50, latency_ms=10.0),
-        embedding=embedding or [0.1] * 768,
+        embedding=embedding or deterministic_embedding(payload, 768),
     )
 
 
@@ -60,8 +61,8 @@ async def test_vector_index_search_filter():
     vs.upsert_vector = MagicMock()
     vs.soft_delete = MagicMock()
 
-    cmb_a = _make_cmb("vector A", embedding=[0.5] * 768)
-    cmb_b = _make_cmb("vector B", embedding=[0.9] * 768)
+    cmb_a = _make_cmb("vector A", embedding=deterministic_embedding("vector A", 768))
+    cmb_b = _make_cmb("vector B", embedding=deterministic_embedding("vector B", 768))
 
     # Filtrelemenin başarılı olduğu ve sadece silinmemiş hedefin (cmb_b) döndüğü simüle edilir.
     vs.search = MagicMock(
@@ -94,7 +95,9 @@ async def test_vector_index_search_filter():
     )
 
     vs.soft_delete(cmb_a.cmb_id)
-    results = vs.search(query_vector=[0.7] * 768, limit=10)
+    results = vs.search(
+        query_vector=deterministic_embedding("query vector", 768), limit=10
+    )
 
     returned_ids = [r["cmb_id"] for r in results]
     assert cmb_b.cmb_id in returned_ids

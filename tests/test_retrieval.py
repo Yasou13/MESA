@@ -4,6 +4,7 @@ import networkx as nx
 import pytest
 
 from mesa_memory.retrieval.hybrid import HybridRetriever
+from tests.conftest import deterministic_embedding
 
 
 def test_query_analyzer_fallback():
@@ -66,7 +67,7 @@ async def test_hybrid_retrieval_cold_start():
     analyzer.extract_entities.return_value = ["unknown_entity"]
 
     embedder = MagicMock()
-    embedder.embed.return_value = [0.1] * 768
+    embedder.embed.side_effect = lambda text: deterministic_embedding(text, 768)
 
     from mesa_memory.security.rbac import AccessControl
 
@@ -120,7 +121,7 @@ async def test_rrf_ranking_logic():
     analyzer.extract_entities.return_value = ["test"]
 
     embedder = MagicMock()
-    embedder.embed.return_value = [0.1] * 768
+    embedder.embed.side_effect = lambda text: deterministic_embedding(text, 768)
 
     retriever = HybridRetriever(
         storage_facade=storage,

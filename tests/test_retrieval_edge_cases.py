@@ -19,6 +19,7 @@ import pytest
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
+from tests.conftest import deterministic_embedding
 
 COLD_START_DIR = "./storage_cold_start_tmp"
 
@@ -31,9 +32,11 @@ def cold_start_dir():
 
 
 def _make_mock_embedder(dim=128):
-    """Create a mock embedder that returns deterministic vectors."""
+    """Create a mock embedder that returns deterministic, text-seeded vectors."""
     embedder = MagicMock()
-    embedder.embed = MagicMock(return_value=[0.1] * dim)
+    embedder.embed = MagicMock(
+        side_effect=lambda text: deterministic_embedding(text, dim)
+    )
     embedder.EMBEDDING_DIM = dim
     embedder.get_token_count = MagicMock(return_value=5)
     return embedder
