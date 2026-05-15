@@ -41,11 +41,12 @@ from mesa_memory.security.rbac import AccessControl
 from mesa_memory.storage import StorageFacade
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.valence.core import ValenceMotor
+from tests.conftest import make_test_storage_dir
 
 # ---------------------------------------------------------------------------
 # Test storage root — cleaned up after each test
 # ---------------------------------------------------------------------------
-E2E_STORAGE_DIR = "./storage_e2e_test_tmp"
+E2E_STORAGE_DIR = make_test_storage_dir("e2e")
 
 
 # ---------------------------------------------------------------------------

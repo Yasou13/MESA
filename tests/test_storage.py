@@ -8,9 +8,9 @@ from mesa_memory.schema.cmb import CMB, AffectiveState, ResourceCost
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
-from tests.conftest import deterministic_embedding
+from tests.conftest import deterministic_embedding, make_test_storage_dir
 
-TEST_STORAGE_DIR = "./storage_test_tmp"
+TEST_STORAGE_DIR = make_test_storage_dir("storage_test")
 
 
 @pytest.fixture(autouse=True)

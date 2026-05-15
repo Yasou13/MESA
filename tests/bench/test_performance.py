@@ -38,12 +38,13 @@ from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
+from tests.conftest import make_test_storage_dir
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-BENCH_STORAGE_DIR = "./storage_bench_tmp"
+BENCH_STORAGE_DIR = make_test_storage_dir("bench")
 EMBEDDING_DIM = 384  # Matches MiniLM-L6-v2 production embedding output
 BATCH_SIZE = 20
 

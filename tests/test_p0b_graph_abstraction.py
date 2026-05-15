@@ -26,8 +26,9 @@ from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
 from mesa_memory.storage.graph.base import BaseGraphProvider
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
+from tests.conftest import make_test_storage_dir
 
-TEST_STORAGE_DIR = "./storage_p0b_test_tmp"
+TEST_STORAGE_DIR = make_test_storage_dir("p0b_graph")
 
 
 @pytest.fixture(autouse=True)

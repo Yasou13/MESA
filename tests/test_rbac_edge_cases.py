@@ -17,8 +17,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pytest
 
 from mesa_memory.security.rbac import AccessControl
+from tests.conftest import make_test_storage_dir
 
-RBAC_TEST_DIR = "./storage_rbac_test_tmp"
+RBAC_TEST_DIR = make_test_storage_dir("rbac_test")
 
 
 @pytest.fixture(autouse=True)

@@ -116,3 +116,6 @@ data/*
 !data/raw/
 data/raw/*
 !data/raw/ma_dataset.json
+
+# Test storage directories (dynamically created by conftest.py)
+.test_storage_tmp/
