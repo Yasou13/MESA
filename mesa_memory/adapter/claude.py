@@ -6,7 +6,7 @@ from typing import Optional, Type, Union
 import anthropic
 from pydantic import BaseModel
 
-from mesa_memory.adapter.base import BaseUniversalLLMAdapter, TokenBudgetExceededError
+from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.adapter.tokenizer import count_tokens
 from mesa_memory.config import config
 
@@ -18,11 +18,12 @@ logger = logging.getLogger("MESA_Adapter")
 try:
     import openai as _openai_module
 except ImportError:
-    _openai_module = None
+    _openai_module = None  # type: ignore[assignment]
 
 try:
     import torch
     from transformers import AutoTokenizer, AutoModel
+
     _LOCAL_EMBED_AVAILABLE = True
 except ImportError:
     _LOCAL_EMBED_AVAILABLE = False
@@ -66,11 +67,13 @@ def _local_embed_batch(texts: list[str]) -> list[list[float]]:
     # Mean pooling
     attention_mask = encoded["attention_mask"]
     token_embeddings = outputs.last_hidden_state
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    input_mask_expanded = (
+        attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    )
     summed = torch.sum(token_embeddings * input_mask_expanded, dim=1)
     counted = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
     embeddings = (summed / counted).tolist()
-    
+
     # Ensure nested list structure even for single texts
     if len(texts) == 1 and not isinstance(embeddings[0], list):
         embeddings = [embeddings]
@@ -87,7 +90,11 @@ def _local_embed(text: str) -> list[float]:
 
 
 class ClaudeAdapter(BaseUniversalLLMAdapter):
-    def __init__(self, anthropic_api_key: Optional[str] = None, openai_api_key: Optional[str] = None):
+    def __init__(
+        self,
+        anthropic_api_key: Optional[str] = None,
+        openai_api_key: Optional[str] = None,
+    ):
         self.openai_api_key = openai_api_key
         self._sync_anthropic = anthropic.Anthropic(api_key=anthropic_api_key)
         self._async_anthropic = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
@@ -96,10 +103,12 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
             self._sync_openai = _openai_module.OpenAI(api_key=openai_api_key)
             self._async_openai = _openai_module.AsyncOpenAI(api_key=openai_api_key)
         else:
-            self._sync_openai = None
-            self._async_openai = None
+            self._sync_openai = None  # type: ignore[assignment]
+            self._async_openai = None  # type: ignore[assignment]
 
-    def complete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
+    def complete(
+        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
+    ) -> Union[str, BaseModel]:
         max_tokens = kwargs.get("max_tokens", 1024)
         temperature = kwargs.get("temperature", 0.7)
         model = kwargs.get("model", "claude-sonnet-4-20250514")
@@ -110,13 +119,15 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = response.content[0].text
+        text = response.content[0].text  # type: ignore[union-attr]
 
         if schema is not None:
             return schema.model_validate_json(text)
         return text
 
-    async def acomplete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
+    async def acomplete(
+        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
+    ) -> Union[str, BaseModel]:
         max_tokens = kwargs.get("max_tokens", 1024)
         temperature = kwargs.get("temperature", 0.7)
         model = kwargs.get("model", "claude-sonnet-4-20250514")
@@ -127,7 +138,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = response.content[0].text
+        text = response.content[0].text  # type: ignore[union-attr]
 
         if schema is not None:
             return schema.model_validate_json(text)
@@ -169,7 +180,9 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
                 model=model,
                 input=texts,
             )
-            return [data.embedding for data in sorted(response.data, key=lambda x: x.index)]
+            return [
+                data.embedding for data in sorted(response.data, key=lambda x: x.index)
+            ]
 
         logger.debug("Using local embedding fallback (no OpenAI key) for batch")
         return _local_embed_batch(texts)
@@ -181,7 +194,9 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
                 model=model,
                 input=texts,
             )
-            return [data.embedding for data in sorted(response.data, key=lambda x: x.index)]
+            return [
+                data.embedding for data in sorted(response.data, key=lambda x: x.index)
+            ]
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(

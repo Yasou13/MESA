@@ -9,26 +9,21 @@ These tests mock LLM adapters and storage; no network calls are made.
 """
 
 import json
-import asyncio
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch, call
+from unittest.mock import MagicMock, AsyncMock, patch
 
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
     _sanitize_llm_response,
     _salvage_truncated_json,
-    _strip_markdown_json,
-    BATCH_PROMPT_A_TEMPLATE,
-    BATCH_PROMPT_B_TEMPLATE,
 )
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
-from mesa_memory.config import config
 from mesa_memory.observability.metrics import ObservabilityLayer
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_records(n: int) -> list[dict]:
     """Generate N synthetic raw-log records with unique cmb_ids."""
@@ -46,17 +41,21 @@ def _make_batch_json_response(record_count: int, offset: int = 0) -> str:
     """Build a well-formed BatchExtractionResponse JSON string for N records."""
     triplets = []
     for i in range(record_count):
-        triplets.append({
-            "record_index": i,
-            "head": f"Entity_{offset + i}",
-            "relation": f"action_{offset + i}",
-            "tail": f"Target_{offset + i}",
-            "confidence": 0.95,
-        })
+        triplets.append(
+            {
+                "record_index": i,
+                "head": f"Entity_{offset + i}",
+                "relation": f"action_{offset + i}",
+                "tail": f"Target_{offset + i}",
+                "confidence": 0.95,
+            }
+        )
     return json.dumps({"triplets": triplets})
 
 
-def _build_consolidation_loop() -> tuple[ConsolidationLoop, MagicMock, MagicMock, MagicMock]:
+def _build_consolidation_loop() -> (
+    tuple[ConsolidationLoop, MagicMock, MagicMock, MagicMock]
+):
     """Build a ConsolidationLoop with fully mocked dependencies.
 
     Returns (loop, storage_mock, llm_a_mock, llm_b_mock).
@@ -97,6 +96,7 @@ def _build_consolidation_loop() -> tuple[ConsolidationLoop, MagicMock, MagicMock
 # TEST 1: Capacity — 20-record batch, zero data loss
 # ===================================================================
 
+
 class TestBatchCapacity:
     """Prove that a full 20-record batch is processed end-to-end with
     exactly 20 mark_consolidated calls and no Lost-in-the-Middle degradation.
@@ -124,24 +124,22 @@ class TestBatchCapacity:
             await loop.run_batch(records)
 
         # Assertion 1: Exactly 20 records marked consolidated
-        assert storage.raw_log.mark_consolidated.call_count == 20, (
-            f"Expected 20 consolidated, got {storage.raw_log.mark_consolidated.call_count}"
-        )
+        assert (
+            storage.raw_log.mark_consolidated.call_count == 20
+        ), f"Expected 20 consolidated, got {storage.raw_log.mark_consolidated.call_count}"
 
         # Assertion 2: Every cmb_id was marked
         consolidated_ids = {
             c.args[0] for c in storage.raw_log.mark_consolidated.call_args_list
         }
         expected_ids = {f"cmb-{i:04d}" for i in range(20)}
-        assert consolidated_ids == expected_ids, (
-            f"Missing cmb_ids: {expected_ids - consolidated_ids}"
-        )
+        assert (
+            consolidated_ids == expected_ids
+        ), f"Missing cmb_ids: {expected_ids - consolidated_ids}"
 
         # Assertion 3: Graph writes occurred (sim=0.9 > threshold)
         assert storage.graph.upsert_node.call_count > 0
         assert storage.graph.create_edge.call_count > 0
-
-
 
     @pytest.mark.asyncio
     async def test_positional_tags_present_in_prompts(self):
@@ -197,6 +195,7 @@ class TestBatchCapacity:
 # TEST 2: Fault Tolerance — Truncated/malformed JSON recovery
 # ===================================================================
 
+
 class TestFaultTolerance:
     """Prove that the recovery pipeline salvages intact records and
     isolates broken ones without discarding the entire batch.
@@ -219,22 +218,44 @@ class TestFaultTolerance:
     def test_salvage_recovers_truncated_json(self):
         """Layer 2: A response truncated mid-object recovers complete elements."""
         # 3 complete triplets + 1 truncated mid-field
-        truncated = json.dumps({
-            "triplets": [
-                {"record_index": 0, "head": "A", "relation": "r0", "tail": "B", "confidence": 0.9},
-                {"record_index": 1, "head": "C", "relation": "r1", "tail": "D", "confidence": 0.8},
-                {"record_index": 2, "head": "E", "relation": "r2", "tail": "F", "confidence": 0.7},
-            ]
-        })
+        truncated = json.dumps(
+            {
+                "triplets": [
+                    {
+                        "record_index": 0,
+                        "head": "A",
+                        "relation": "r0",
+                        "tail": "B",
+                        "confidence": 0.9,
+                    },
+                    {
+                        "record_index": 1,
+                        "head": "C",
+                        "relation": "r1",
+                        "tail": "D",
+                        "confidence": 0.8,
+                    },
+                    {
+                        "record_index": 2,
+                        "head": "E",
+                        "relation": "r2",
+                        "tail": "F",
+                        "confidence": 0.7,
+                    },
+                ]
+            }
+        )
         # Simulate truncation: cut off the closing of a 4th element
-        truncated_with_partial = truncated[:-2] + ', {"record_index": 3, "head": "G", "rela'
+        truncated_with_partial = (
+            truncated[:-2] + ', {"record_index": 3, "head": "G", "rela'
+        )
         result = _salvage_truncated_json(truncated_with_partial)
 
         assert result is not None, "Salvage returned None for recoverable JSON"
         response = BatchExtractionResponse.model_validate(result)
-        assert len(response.triplets) == 3, (
-            f"Expected 3 salvaged triplets, got {len(response.triplets)}"
-        )
+        assert (
+            len(response.triplets) == 3
+        ), f"Expected 3 salvaged triplets, got {len(response.triplets)}"
         recovered_indices = {t.record_index for t in response.triplets}
         assert recovered_indices == {0, 1, 2}
 
@@ -248,9 +269,11 @@ class TestFaultTolerance:
     async def test_parse_batch_response_layer0_passthrough(self):
         """Layer 0: Already-parsed BatchExtractionResponse passes through."""
         loop, _, _, _ = _build_consolidation_loop()
-        response = BatchExtractionResponse(triplets=[
-            ExtractedTriplet(record_index=0, head="A", relation="r", tail="B"),
-        ])
+        response = BatchExtractionResponse(
+            triplets=[
+                ExtractedTriplet(record_index=0, head="A", relation="r", tail="B"),
+            ]
+        )
         result = loop._parse_batch_response(response, 1)
         assert result is response
 
@@ -267,12 +290,26 @@ class TestFaultTolerance:
         """Layer 2: Truncated JSON triggers bracket-depth salvage."""
         loop, _, _, _ = _build_consolidation_loop()
         # Build valid JSON then truncate
-        full = json.dumps({
-            "triplets": [
-                {"record_index": 0, "head": "A", "relation": "r", "tail": "B", "confidence": 0.9},
-                {"record_index": 1, "head": "C", "relation": "r", "tail": "D", "confidence": 0.8},
-            ]
-        })
+        full = json.dumps(
+            {
+                "triplets": [
+                    {
+                        "record_index": 0,
+                        "head": "A",
+                        "relation": "r",
+                        "tail": "B",
+                        "confidence": 0.9,
+                    },
+                    {
+                        "record_index": 1,
+                        "head": "C",
+                        "relation": "r",
+                        "tail": "D",
+                        "confidence": 0.8,
+                    },
+                ]
+            }
+        )
         truncated = full[:-2] + ', {"record_index": 2, "head": "X"'
         result = loop._parse_batch_response(truncated, 3)
         # Should recover the 2 complete triplets
@@ -290,10 +327,12 @@ class TestFaultTolerance:
         """Post-hoc audit identifies which record_indices are missing."""
         loop, _, _, _ = _build_consolidation_loop()
         # Response has indices 0 and 2, but not 1
-        response = BatchExtractionResponse(triplets=[
-            ExtractedTriplet(record_index=0, head="A", relation="r", tail="B"),
-            ExtractedTriplet(record_index=2, head="C", relation="r", tail="D"),
-        ])
+        response = BatchExtractionResponse(
+            triplets=[
+                ExtractedTriplet(record_index=0, head="A", relation="r", tail="B"),
+                ExtractedTriplet(record_index=2, head="C", relation="r", tail="D"),
+            ]
+        )
         indexed, missing = loop._audit_batch_coverage(response, expected_count=3)
         assert missing == [1]
         assert set(indexed.keys()) == {0, 2}
@@ -308,13 +347,33 @@ class TestFaultTolerance:
         records = _make_records(5)
 
         # --- Mock LLM_A: returns truncated JSON (3 of 5 complete) ---
-        full_a = json.dumps({
-            "triplets": [
-                {"record_index": 0, "head": "E0", "relation": "r0", "tail": "T0", "confidence": 0.9},
-                {"record_index": 1, "head": "E1", "relation": "r1", "tail": "T1", "confidence": 0.9},
-                {"record_index": 2, "head": "E2", "relation": "r2", "tail": "T2", "confidence": 0.9},
-            ]
-        })
+        full_a = json.dumps(
+            {
+                "triplets": [
+                    {
+                        "record_index": 0,
+                        "head": "E0",
+                        "relation": "r0",
+                        "tail": "T0",
+                        "confidence": 0.9,
+                    },
+                    {
+                        "record_index": 1,
+                        "head": "E1",
+                        "relation": "r1",
+                        "tail": "T1",
+                        "confidence": 0.9,
+                    },
+                    {
+                        "record_index": 2,
+                        "head": "E2",
+                        "relation": "r2",
+                        "tail": "T2",
+                        "confidence": 0.9,
+                    },
+                ]
+            }
+        )
         # Truncate: indices 3 and 4 are cut off
         truncated_a = full_a[:-2] + ', {"record_index": 3, "head": "E3", "rela'
 
@@ -327,7 +386,9 @@ class TestFaultTolerance:
                 # First call: batch prompt → truncated response
                 return truncated_a
             # Subsequent calls: 1:1 fallback
-            return json.dumps({"head": "FallbackA", "relation": "fr", "tail": "FallbackT"})
+            return json.dumps(
+                {"head": "FallbackA", "relation": "fr", "tail": "FallbackT"}
+            )
 
         llm_a.complete.side_effect = _llm_a_side_effect
 
@@ -347,9 +408,9 @@ class TestFaultTolerance:
             await loop.run_batch(records)
 
         # All 5 records must be marked consolidated (no data loss)
-        assert storage.raw_log.mark_consolidated.call_count == 5, (
-            f"Expected 5 consolidated, got {storage.raw_log.mark_consolidated.call_count}"
-        )
+        assert (
+            storage.raw_log.mark_consolidated.call_count == 5
+        ), f"Expected 5 consolidated, got {storage.raw_log.mark_consolidated.call_count}"
 
     @pytest.mark.asyncio
     async def test_total_parse_failure_triggers_bisection(self):
@@ -394,14 +455,15 @@ class TestFaultTolerance:
         )
 
         # LLM_A should have been called more than once (initial + retries)
-        assert llm_a.complete.call_count > 1, (
-            "Bisection should have triggered additional LLM calls"
-        )
+        assert (
+            llm_a.complete.call_count > 1
+        ), "Bisection should have triggered additional LLM calls"
 
 
 # ===================================================================
 # TEST 3: Schema validation unit tests
 # ===================================================================
+
 
 class TestSchemaValidation:
     """Validate the Pydantic schemas enforce structural correctness."""
@@ -425,25 +487,27 @@ class TestSchemaValidation:
 
     def test_confidence_bounds(self):
         with pytest.raises(Exception):
-            ExtractedTriplet(record_index=0, head="A", relation="r", tail="B", confidence=1.5)
+            ExtractedTriplet(
+                record_index=0, head="A", relation="r", tail="B", confidence=1.5
+            )
 
     def test_batch_response_empty_array_rejected(self):
         with pytest.raises(Exception):
             BatchExtractionResponse(triplets=[])
 
     def test_batch_response_valid(self):
-        resp = BatchExtractionResponse(triplets=[
-            ExtractedTriplet(record_index=0, head="A", relation="r", tail="B"),
-            ExtractedTriplet(record_index=1, head="C", relation="r", tail="D"),
-        ])
+        resp = BatchExtractionResponse(
+            triplets=[
+                ExtractedTriplet(record_index=0, head="A", relation="r", tail="B"),
+                ExtractedTriplet(record_index=1, head="C", relation="r", tail="D"),
+            ]
+        )
         assert len(resp.triplets) == 2
 
 
 # ===================================================================
 # TEST 4: Utility function unit tests
 # ===================================================================
-
-
 
 
 class TestSalienceSorting:
@@ -453,9 +517,13 @@ class TestSalienceSorting:
         loop, _, _, _ = _build_consolidation_loop()
         # Create records with varying content density
         records = [
-            {"content_payload": "a", "source": "s", "cmb_id": "low"},           # low salience
-            {"content_payload": "x, y: z, w: v, u", "source": "s", "cmb_id": "high"},  # high salience
-            {"content_payload": "b", "source": "s", "cmb_id": "low2"},          # low salience
+            {"content_payload": "a", "source": "s", "cmb_id": "low"},  # low salience
+            {
+                "content_payload": "x, y: z, w: v, u",
+                "source": "s",
+                "cmb_id": "high",
+            },  # high salience
+            {"content_payload": "b", "source": "s", "cmb_id": "low2"},  # low salience
         ]
         sorted_records = loop._sort_by_salience(records)
         # Highest salience record should be at position 0 or last position

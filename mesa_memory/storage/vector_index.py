@@ -13,7 +13,11 @@ logger = logging.getLogger("MESA_VectorStorage")
 
 
 class VectorStorage:
-    def __init__(self, uri: str = "./storage/vector_index.lance", access_control: AccessControl | None = None):
+    def __init__(
+        self,
+        uri: str = "./storage/vector_index.lance",
+        access_control: AccessControl | None = None,
+    ):
         self.uri = uri
         self.access_control = access_control
         self.db = lancedb.connect(uri)
@@ -40,21 +44,25 @@ class VectorStorage:
             if table_name in self._tables:
                 return self._tables[table_name]
 
-            schema = pa.schema([
-                pa.field("cmb_id", pa.string(), nullable=False),
-                pa.field("embedding", pa.list_(pa.float32(), dimension), nullable=False),
-                pa.field("content_payload", pa.string(), nullable=False),
-                pa.field("source", pa.string(), nullable=False),
-                pa.field("fitness_score", pa.float32(), nullable=False),
-                pa.field("embedding_dim", pa.int32(), nullable=False),
-                pa.field("created_at", pa.string(), nullable=False),
-                pa.field("expired_at", pa.string(), nullable=True),
-            ])
+            schema = pa.schema(
+                [
+                    pa.field("cmb_id", pa.string(), nullable=False),
+                    pa.field(
+                        "embedding", pa.list_(pa.float32(), dimension), nullable=False
+                    ),
+                    pa.field("content_payload", pa.string(), nullable=False),
+                    pa.field("source", pa.string(), nullable=False),
+                    pa.field("fitness_score", pa.float32(), nullable=False),
+                    pa.field("embedding_dim", pa.int32(), nullable=False),
+                    pa.field("created_at", pa.string(), nullable=False),
+                    pa.field("expired_at", pa.string(), nullable=True),
+                ]
+            )
             try:
                 table = self.db.open_table(table_name)
             except (FileNotFoundError, ValueError):
                 table = self.db.create_table(table_name, schema=schema)
-            
+
             self._tables[table_name] = table
             return table
 
@@ -78,8 +86,12 @@ class VectorStorage:
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ):
-        if self.access_control and not self.access_control.check_access(agent_id, session_id, "WRITE"):
-            raise PermissionError(f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'")
+        if self.access_control and not self.access_control.check_access(
+            agent_id, session_id, "WRITE"
+        ):
+            raise PermissionError(
+                f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
+            )
 
         self._check_memory_limit()
 
@@ -98,11 +110,15 @@ class VectorStorage:
         }
 
         try:
-            table.merge_insert("cmb_id").when_matched_update_all().when_not_matched_insert_all().execute([record])
+            table.merge_insert(
+                "cmb_id"
+            ).when_matched_update_all().when_not_matched_insert_all().execute([record])
         except RuntimeError as exc:
             logger.warning(
                 "merge_insert failed for cmb_id=%s, falling back to add(): %s",
-                cmb_id, exc, exc_info=True
+                cmb_id,
+                exc,
+                exc_info=True,
             )
             table.add([record])
 
@@ -111,8 +127,7 @@ class VectorStorage:
         table = self.get_or_create_table(dimension)
 
         results = (
-            table
-            .search(query_vector)
+            table.search(query_vector)
             .where("expired_at IS NULL")
             .limit(limit)
             .to_list()
@@ -121,6 +136,7 @@ class VectorStorage:
 
     def soft_delete(self, cmb_id: str):
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).isoformat()
         try:
             for table_name in self._list_table_names():
@@ -135,7 +151,9 @@ class VectorStorage:
         except (RuntimeError, OSError) as exc:
             logger.error(
                 "Vector soft_delete failed for cmb_id=%s: %s",
-                cmb_id, exc, exc_info=True,
+                cmb_id,
+                exc,
+                exc_info=True,
             )
             raise
 
@@ -151,7 +169,9 @@ class VectorStorage:
             return all_ids
         except (RuntimeError, OSError, KeyError) as exc:
             logger.error(
-                "get_all_cmb_ids failed: %s", exc, exc_info=True,
+                "get_all_cmb_ids failed: %s",
+                exc,
+                exc_info=True,
             )
             return set()
 
@@ -179,7 +199,9 @@ class VectorStorage:
                     continue
                 table = self.db.open_table(table_name)
                 # Only return non-expired (active) records
-                arrow_table = table.search().where("expired_at IS NULL").limit(limit).to_arrow()
+                arrow_table = (
+                    table.search().where("expired_at IS NULL").limit(limit).to_arrow()
+                )
                 emb_column = arrow_table.column("embedding")
                 for vec in emb_column:
                     embeddings.append(vec.as_py())
@@ -193,4 +215,3 @@ class VectorStorage:
                 exc,
             )
             return []
-

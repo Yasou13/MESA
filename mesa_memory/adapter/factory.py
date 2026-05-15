@@ -1,7 +1,7 @@
-import os
 from mesa_memory.config import config
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
+
 
 class AdapterFactory:
     @staticmethod
@@ -11,6 +11,6 @@ class AdapterFactory:
             return OpenAICompatibleAdapter(
                 api_key=config.llm_api_key,
                 base_url=config.llm_base_url,
-                model_name=config.llm_model_name
+                model_name=config.llm_model_name,
             )
         raise ValueError(f"Unknown LLM provider: {provider}")

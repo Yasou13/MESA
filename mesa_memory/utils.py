@@ -1,11 +1,13 @@
 import re
 
+
 def _strip_markdown_json(text: str) -> str:
     """Strip markdown code fences from LLM JSON responses."""
-    match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
         return match.group(1).strip()
     return text.strip()
+
 
 MESA_VALENCE_PROMPT_A = """Role: You are the cognitive agent that generated this memory.
 Task: Given your recent context window, should the CMB in the CONTENT block below be stored as a long-term memory?

@@ -1,13 +1,13 @@
 import logging
 import os
 from typing import Optional
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
 
 import psutil
-from pydantic import ConfigDict, model_validator, Field
+from dotenv import load_dotenv
+from pydantic import model_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+load_dotenv(override=True)
 
 logger = logging.getLogger("MESA_Config")
 
@@ -27,6 +27,7 @@ _CGROUP_MAX_SENTINEL = "max"
 # Hierarchical RAM detection helpers
 # ---------------------------------------------------------------------------
 
+
 def _read_env_ram_limit() -> Optional[int]:
     """Tier 2: Read ``MESA_MAX_RAM_MB`` environment variable.
 
@@ -42,7 +43,9 @@ def _read_env_ram_limit() -> Optional[int]:
             logger.warning("MESA_MAX_RAM_MB=%s is non-positive; ignoring", raw)
             return None
         total = mb * 1024 * 1024
-        logger.info("RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)", mb, total)
+        logger.info(
+            "RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)", mb, total
+        )
         return total
     except ValueError:
         logger.warning("MESA_MAX_RAM_MB=%r is not a valid integer; ignoring", raw)
@@ -61,7 +64,9 @@ def _read_cgroup_ram_limit() -> Optional[int]:
                 content = fh.read().strip()
             if content == _CGROUP_MAX_SENTINEL:
                 # cgroup v2 reports "max" when no limit is set
-                logger.debug("cgroup %s at %s reports 'max' (no limit); skipping", version, path)
+                logger.debug(
+                    "cgroup %s at %s reports 'max' (no limit); skipping", version, path
+                )
                 continue
             limit = int(content)
             # Ignore absurdly large cgroup v1 values (kernel reports
@@ -69,32 +74,45 @@ def _read_cgroup_ram_limit() -> Optional[int]:
             if limit <= 0 or limit >= (1 << 62):
                 logger.debug(
                     "cgroup %s at %s reports implausible limit %d; skipping",
-                    version, path, limit,
+                    version,
+                    path,
+                    limit,
                 )
                 continue
             logger.info(
                 "RAM limit sourced from cgroup %s (%s): %d bytes (%.0f MB)",
-                version, path, limit, limit / (1024 * 1024),
+                version,
+                path,
+                limit,
+                limit / (1024 * 1024),
             )
             return limit
         except (FileNotFoundError, PermissionError, OSError):
             continue
         except ValueError:
-            logger.debug("cgroup %s at %s contained non-integer data; skipping", version, path)
+            logger.debug(
+                "cgroup %s at %s contained non-integer data; skipping", version, path
+            )
             continue
     return None
 
 
 class MesaConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     llm_provider: str = "claude"
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
-    mesa_llm_provider: str = Field("openai_compatible", validation_alias="MESA_LLM_PROVIDER")
+    mesa_llm_provider: str = Field(
+        "openai_compatible", validation_alias="MESA_LLM_PROVIDER"
+    )
     llm_base_url: str | None = Field(None, validation_alias="LLM_BASE_URL")
     llm_api_key: str | None = Field(None, validation_alias="LLM_API_KEY")
-    llm_model_name: str | None = Field("llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME")
+    llm_model_name: str | None = Field(
+        "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
+    )
     embedding_dimension: int = 1536
 
     tiebreaker_latency_threshold_ms: float = 500.0
@@ -119,8 +137,8 @@ class MesaConfig(BaseSettings):
     human_review_max_size: int = 1000
 
     # P0-A: Batch processing & token compression
-    max_batch_tokens: int = 6000             # MESA_MAX_BATCH_TOKENS
-    truncation_max_retries: int = 2          # MESA_TRUNCATION_MAX_RETRIES
+    max_batch_tokens: int = 6000  # MESA_MAX_BATCH_TOKENS
+    truncation_max_retries: int = 2  # MESA_TRUNCATION_MAX_RETRIES
 
     # Observability (Module 4)
     histogram_max_size: int = 10000
@@ -130,7 +148,9 @@ class MesaConfig(BaseSettings):
     # Valence recalibration interval (Module 7)
     recalibration_interval: int = 50
     max_embedding_history: int = 500
-    ecod_anomaly_threshold: float = 0.80     # MESA_ECOD_ANOMALY_THRESHOLD (0-1, normalized)
+    ecod_anomaly_threshold: float = (
+        0.80  # MESA_ECOD_ANOMALY_THRESHOLD (0-1, normalized)
+    )
     drift_sigmoid_weight: float = -10.0
     drift_ewmad_alpha: float = 0.2
     drift_ewmad_momentum: float = 0.8
@@ -151,6 +171,7 @@ class MesaConfig(BaseSettings):
     def validate_embedding_fallback(self) -> "MesaConfig":
         if self.llm_provider.lower() == "claude" and not self.openai_api_key:
             import logging
+
             logging.getLogger("MESA_Config").warning(
                 "OPENAI_API_KEY not set for Claude provider. "
                 "Embeddings will use local model '%s' as fallback.",
@@ -173,8 +194,11 @@ def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:
     # --- Tier 1: psutil (host-level) ---
     try:
         total_ram = psutil.virtual_memory().total
-        logger.info("RAM limit sourced from psutil: %d bytes (%.0f MB)",
-                     total_ram, total_ram / (1024 * 1024))
+        logger.info(
+            "RAM limit sourced from psutil: %d bytes (%.0f MB)",
+            total_ram,
+            total_ram / (1024 * 1024),
+        )
     except Exception as exc:
         logger.warning("psutil.virtual_memory() failed: %s", exc)
 
@@ -200,5 +224,4 @@ def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:
     return config
 
 
-config = calculate_dynamic_limits(MesaConfig())
-
+config = calculate_dynamic_limits(MesaConfig())  # type: ignore[call-arg]

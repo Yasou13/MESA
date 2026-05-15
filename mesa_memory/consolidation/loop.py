@@ -16,7 +16,7 @@ import re
 import time
 import logging
 from collections import deque
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import ValidationError
 
@@ -25,22 +25,16 @@ from mesa_memory.utils import _strip_markdown_json
 from mesa_memory.config import config
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.storage import StorageFacade
-from mesa_memory.consolidation.lock import calculate_composite_similarity, validate_extraction_pair
+from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
 from mesa_memory.consolidation.validator import Tier3Validator, Tier3ValidationError
 from mesa_memory.consolidation.writer import GraphWriter
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
-from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
-
 
 # ---------------------------------------------------------------------------
 # Tier-3 Validation templates (re-exported for backward compatibility)
 # ---------------------------------------------------------------------------
-from mesa_memory.consolidation.validator import (
-    VALENCE_PROMPT_A_TEMPLATE,
-    VALENCE_PROMPT_B_TEMPLATE,
-)
 
 # ---------------------------------------------------------------------------
 # Legacy single-record templates (retained for 1:1 fallback path)
@@ -116,6 +110,7 @@ logger = logging.getLogger("MESA_Consolidation")
 # Module-level utility functions
 # ---------------------------------------------------------------------------
 
+
 def _sanitize_llm_response(text: str) -> str:
     """Multi-pass sanitization for LLM JSON responses.
 
@@ -124,10 +119,10 @@ def _sanitize_llm_response(text: str) -> str:
     last '}' to discard any surrounding prose the model may have emitted.
     """
     text = _strip_markdown_json(text)
-    first_brace = text.find('{')
-    last_brace = text.rfind('}')
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        text = text[first_brace:last_brace + 1]
+        text = text[first_brace : last_brace + 1]
     return text.strip()
 
 
@@ -169,7 +164,7 @@ def _salvage_truncated_json(raw: str) -> Optional[dict]:
             i += 1
             continue
 
-        if ch == '\\' and in_string:
+        if ch == "\\" and in_string:
             escape_next = True
             i += 1
             continue
@@ -177,17 +172,17 @@ def _salvage_truncated_json(raw: str) -> Optional[dict]:
         if ch == '"':
             in_string = not in_string
         elif not in_string:
-            if ch == '{':
+            if ch == "{":
                 element_depth += 1
-            elif ch == '}':
+            elif ch == "}":
                 element_depth -= 1
                 if element_depth == 0:
                     last_complete_element_end = i + 1
-            elif ch == ']':
+            elif ch == "]":
                 break  # Array properly closed
         i += 1
 
-    repaired = sanitized[:last_complete_element_end].rstrip(',').rstrip() + ']}'
+    repaired = sanitized[:last_complete_element_end].rstrip(",").rstrip() + "]}"
 
     try:
         return json.loads(repaired)
@@ -210,6 +205,7 @@ def _estimate_salience(record: dict) -> float:
 # ---------------------------------------------------------------------------
 # ConsolidationLoop — Batch Orchestrator
 # ---------------------------------------------------------------------------
+
 
 class ConsolidationLoop:
     """Orchestrates batch processing of raw log records through the
@@ -240,8 +236,12 @@ class ConsolidationLoop:
         self.llm_b = llm_b
         self.obs_layer = obs_layer
         self._running = False
-        self.human_review_queue = deque(maxlen=config.human_review_max_size)
-        self.dead_letter_queue = deque(maxlen=config.human_review_max_size)
+        self.human_review_queue: deque[dict[str, Any]] = deque(
+            maxlen=config.human_review_max_size
+        )
+        self.dead_letter_queue: deque[dict[str, Any]] = deque(
+            maxlen=config.human_review_max_size
+        )
         self.rebel_extractor = RebelExtractor()
 
         # Delegate modules
@@ -277,7 +277,7 @@ class ConsolidationLoop:
         to index 0, N-1, 1, N-2, ... pushing lowest-salience to the middle.
         """
         scored = sorted(records, key=_estimate_salience, reverse=True)
-        result = [None] * len(scored)
+        result: list[dict] = [None] * len(scored)  # type: ignore[list-item]
         lo, hi = 0, len(scored) - 1
         for idx, record in enumerate(scored):
             if idx % 2 == 0:
@@ -320,7 +320,9 @@ class ConsolidationLoop:
     # -------------------------------------------------------------------
 
     def _parse_batch_response(
-        self, raw_response, sub_batch_size: int,
+        self,
+        raw_response,
+        sub_batch_size: int,
     ) -> BatchExtractionResponse:
         """Three-layer recovery pipeline for LLM batch responses.
 
@@ -395,7 +397,8 @@ class ConsolidationLoop:
         loop = asyncio.get_running_loop()
         try:
             raw = await loop.run_in_executor(
-                None, functools.partial(llm.complete, prompt),
+                None,
+                functools.partial(llm.complete, prompt),
             )
             cleaned = _strip_markdown_json(raw) if isinstance(raw, str) else ""
             return json.loads(cleaned) if cleaned else None
@@ -424,7 +427,9 @@ class ConsolidationLoop:
             # Terminal: 1:1 fallback for every record
             for i, record in enumerate(sub_batch):
                 trip = await self._single_record_extract(
-                    record, llm, fallback_template,
+                    record,
+                    llm,
+                    fallback_template,
                 )
                 if trip and trip.get("head"):
                     results[i] = ExtractedTriplet(
@@ -450,7 +455,9 @@ class ConsolidationLoop:
                 raw = await loop.run_in_executor(
                     None,
                     functools.partial(
-                        llm.complete, prompt, BatchExtractionResponse,
+                        llm.complete,
+                        prompt,
+                        BatchExtractionResponse,
                     ),
                 )
                 response = self._parse_batch_response(raw, len(half))
@@ -462,7 +469,11 @@ class ConsolidationLoop:
                     f"Bisection retry depth={depth} failed ({len(half)} records): {exc}"
                 )
                 sub_results = await self._retry_with_bisection(
-                    half, batch_template, fallback_template, llm, depth + 1,
+                    half,
+                    batch_template,
+                    fallback_template,
+                    llm,
+                    depth + 1,
                 )
                 for local_idx, triplet in sub_results.items():
                     results[offset + local_idx] = triplet
@@ -475,7 +486,7 @@ class ConsolidationLoop:
     # Core batch orchestrator
     # -------------------------------------------------------------------
 
-    async def run_batch(self, batch: list[dict] = None):
+    async def run_batch(self, batch: Optional[list[dict]] = None):
         """Process a batch of raw log records through the consolidation pipeline.
 
         P0-A compliant flow — full batch processed in a single LLM call:
@@ -503,24 +514,29 @@ class ConsolidationLoop:
                     # Infrastructure error — do NOT treat as cognitive DISCARD
                     logger.error(
                         "Tier-3 validation error for %s (will retry): %s",
-                        record.get("cmb_id", "?"), exc,
+                        record.get("cmb_id", "?"),
+                        exc,
                     )
-                    self.dead_letter_queue.append({
-                        "cmb_id": record.get("cmb_id", ""),
-                        "error": str(exc),
-                    })
+                    self.dead_letter_queue.append(
+                        {
+                            "cmb_id": record.get("cmb_id", ""),
+                            "error": str(exc),
+                        }
+                    )
                     continue
 
                 if is_valid:
                     self.obs_layer.log_valence_decision(
-                        tier=3, decision="ADMIT",
+                        tier=3,
+                        decision="ADMIT",
                         justification="Deferred Tier-3 validation passed in consolidation loop",
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
                     ready_batch.append(record)
                 else:
                     self.obs_layer.log_valence_decision(
-                        tier=3, decision="DISCARD",
+                        tier=3,
+                        decision="DISCARD",
                         justification="Deferred Tier-3 validation failed in consolidation loop",
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
@@ -540,11 +556,6 @@ class ConsolidationLoop:
 
         loop = asyncio.get_running_loop()
 
-        # Build batch prompts
-        records_block = self._build_records_block(sorted_batch)
-        prompt_a = BATCH_PROMPT_A_TEMPLATE.format(records_block=records_block)
-        prompt_b = BATCH_PROMPT_B_TEMPLATE.format(records_block=records_block)
-
         indexed_a = {}
         indexed_b = {}
         missing_a = list(range(len(sorted_batch)))
@@ -554,7 +565,9 @@ class ConsolidationLoop:
         for idx, record in enumerate(sorted_batch):
             try:
                 triplets = await loop.run_in_executor(
-                    None, self.rebel_extractor.extract_triplets, record.get("content_payload", "")
+                    None,
+                    self.rebel_extractor.extract_triplets,
+                    record.get("content_payload", ""),
                 )
                 if triplets:
                     indexed_a[idx] = ExtractedTriplet(
@@ -577,29 +590,59 @@ class ConsolidationLoop:
         # --- Phase 4: LLM fallback for missing records ---
         if missing_a:
             fallback_batch = [sorted_batch[i] for i in missing_a]
-            logger.info(f"Batch {batch_id}: Falling back to LLMs for {len(fallback_batch)} records.")
+            logger.info(
+                f"Batch {batch_id}: Falling back to LLMs for {len(fallback_batch)} records."
+            )
 
             fallback_records_block = self._build_records_block(fallback_batch)
-            fb_prompt_a = BATCH_PROMPT_A_TEMPLATE.format(records_block=fallback_records_block)
-            fb_prompt_b = BATCH_PROMPT_B_TEMPLATE.format(records_block=fallback_records_block)
+            fb_prompt_a = BATCH_PROMPT_A_TEMPLATE.format(
+                records_block=fallback_records_block
+            )
+            fb_prompt_b = BATCH_PROMPT_B_TEMPLATE.format(
+                records_block=fallback_records_block
+            )
 
             raw_a, raw_b = await asyncio.gather(
-                loop.run_in_executor(None, functools.partial(self.llm_a.complete, fb_prompt_a, BatchExtractionResponse)),
-                loop.run_in_executor(None, functools.partial(self.llm_b.complete, fb_prompt_b, BatchExtractionResponse)),
+                loop.run_in_executor(
+                    None,
+                    functools.partial(
+                        self.llm_a.complete, fb_prompt_a, BatchExtractionResponse
+                    ),
+                ),
+                loop.run_in_executor(
+                    None,
+                    functools.partial(
+                        self.llm_b.complete, fb_prompt_b, BatchExtractionResponse
+                    ),
+                ),
             )
 
             try:
                 response_a = self._parse_batch_response(raw_a, len(fallback_batch))
-                fb_indexed_a, fb_missing_a = self._audit_batch_coverage(response_a, len(fallback_batch))
+                fb_indexed_a, fb_missing_a = self._audit_batch_coverage(
+                    response_a, len(fallback_batch)
+                )
             except ValueError:
-                fb_indexed_a = await self._retry_with_bisection(fallback_batch, BATCH_PROMPT_A_TEMPLATE, PROMPT_A_TEMPLATE, self.llm_a)
+                fb_indexed_a = await self._retry_with_bisection(
+                    fallback_batch,
+                    BATCH_PROMPT_A_TEMPLATE,
+                    PROMPT_A_TEMPLATE,
+                    self.llm_a,
+                )
                 fb_missing_a = []
 
             try:
                 response_b = self._parse_batch_response(raw_b, len(fallback_batch))
-                fb_indexed_b, fb_missing_b = self._audit_batch_coverage(response_b, len(fallback_batch))
+                fb_indexed_b, fb_missing_b = self._audit_batch_coverage(
+                    response_b, len(fallback_batch)
+                )
             except ValueError:
-                fb_indexed_b = await self._retry_with_bisection(fallback_batch, BATCH_PROMPT_B_TEMPLATE, PROMPT_B_TEMPLATE, self.llm_b)
+                fb_indexed_b = await self._retry_with_bisection(
+                    fallback_batch,
+                    BATCH_PROMPT_B_TEMPLATE,
+                    PROMPT_B_TEMPLATE,
+                    self.llm_b,
+                )
                 fb_missing_b = []
 
             # Map fallback results back to global indices
@@ -615,23 +658,43 @@ class ConsolidationLoop:
 
             for local_idx in fb_missing_a:
                 global_idx = missing_a[local_idx]
-                trip = await self._single_record_extract(sorted_batch[global_idx], self.llm_a, PROMPT_A_TEMPLATE)
+                trip = await self._single_record_extract(
+                    sorted_batch[global_idx], self.llm_a, PROMPT_A_TEMPLATE
+                )
                 if trip and trip.get("head"):
-                    indexed_a[global_idx] = ExtractedTriplet(record_index=global_idx, head=trip["head"], relation=trip.get("relation", ""), tail=trip.get("tail", ""))
+                    indexed_a[global_idx] = ExtractedTriplet(
+                        record_index=global_idx,
+                        head=trip["head"],
+                        relation=trip.get("relation", ""),
+                        tail=trip.get("tail", ""),
+                    )
 
             for local_idx in fb_missing_b:
                 global_idx = missing_b[local_idx]
-                trip = await self._single_record_extract(sorted_batch[global_idx], self.llm_b, PROMPT_B_TEMPLATE)
+                trip = await self._single_record_extract(
+                    sorted_batch[global_idx], self.llm_b, PROMPT_B_TEMPLATE
+                )
                 if trip and trip.get("head"):
-                    indexed_b[global_idx] = ExtractedTriplet(record_index=global_idx, head=trip["head"], relation=trip.get("relation", ""), tail=trip.get("tail", ""))
+                    indexed_b[global_idx] = ExtractedTriplet(
+                        record_index=global_idx,
+                        head=trip["head"],
+                        relation=trip.get("relation", ""),
+                        tail=trip.get("tail", ""),
+                    )
 
         # --- Phase 5: Pre-fetch embeddings & commit via GraphWriter ---
         embedding_cache = await self.graph_writer.prefetch_embeddings(
-            sorted_batch, indexed_a, indexed_b,
+            sorted_batch,
+            indexed_a,
+            indexed_b,
         )
 
         successful_writes, divergence_count = await self.graph_writer.commit_batch(
-            sorted_batch, indexed_a, indexed_b, embedding_cache, batch_id,
+            sorted_batch,
+            indexed_a,
+            indexed_b,
+            embedding_cache,
+            batch_id,
             similarity_fn=calculate_composite_similarity,
         )
 

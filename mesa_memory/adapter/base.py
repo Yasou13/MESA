@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Type, Union, Any
+from typing import Optional, Type, Union
 
 from pydantic import BaseModel
 
@@ -16,29 +16,26 @@ class BaseUniversalLLMAdapter(ABC):
         return config.embedding_dimension
 
     @abstractmethod
-    def complete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
-        ...
+    def complete(
+        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
+    ) -> Union[str, BaseModel]: ...
 
     @abstractmethod
-    async def acomplete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
-        ...
+    async def acomplete(
+        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
+    ) -> Union[str, BaseModel]: ...
 
     @abstractmethod
-    def embed(self, text: str, **kwargs) -> list[float]:
-        ...
+    def embed(self, text: str, **kwargs) -> list[float]: ...
 
     @abstractmethod
-    async def aembed(self, text: str, **kwargs) -> list[float]:
-        ...
+    async def aembed(self, text: str, **kwargs) -> list[float]: ...
 
     @abstractmethod
-    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
-        ...
+    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]: ...
 
     @abstractmethod
-    async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
-        ...
+    async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]: ...
 
     @abstractmethod
-    def get_token_count(self, text: str) -> int:
-        ...
+    def get_token_count(self, text: str) -> int: ...

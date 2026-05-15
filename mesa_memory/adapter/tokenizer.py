@@ -21,13 +21,16 @@ def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
         except (OSError, ValueError) as exc:
             logger.warning(
                 "AutoTokenizer.from_pretrained(%s) failed, using word-count estimate: %s",
-                model_id, exc,
+                model_id,
+                exc,
             )
             return int(len(text.split()) * 1.3)
     raise ValueError(f"Unknown adapter_type: {adapter_type}")
 
 
-def enforce_context_limit(text: str, adapter_type: str, model_id: str, limit: Optional[int] = None):
+def enforce_context_limit(
+    text: str, adapter_type: str, model_id: str, limit: Optional[int] = None
+):
     effective_limit = limit if limit is not None else config.context_window_limit
     token_count = count_tokens(text, adapter_type, model_id)
     if token_count > effective_limit:

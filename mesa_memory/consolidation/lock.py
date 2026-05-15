@@ -15,7 +15,10 @@ def _cosine_sim(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
 
 
 def calculate_composite_similarity(
-    trip_a: dict, trip_b: dict, embedder: BaseUniversalLLMAdapter, cache: dict | None = None
+    trip_a: dict,
+    trip_b: dict,
+    embedder: BaseUniversalLLMAdapter,
+    cache: dict | None = None,
 ) -> float:
     def _get_emb(text: str) -> np.ndarray:
         if cache is not None and text in cache:
@@ -35,14 +38,20 @@ def calculate_composite_similarity(
     sim_head = _cosine_sim(emb_head_a, emb_head_b)
     sim_tail = _cosine_sim(emb_tail_a, emb_tail_b)
 
-    if sim_head >= config.entity_similarity_threshold and sim_tail >= config.entity_similarity_threshold:
+    if (
+        sim_head >= config.entity_similarity_threshold
+        and sim_tail >= config.entity_similarity_threshold
+    ):
         sim_rel = _cosine_sim(emb_rel_a, emb_rel_b)
         return sim_rel
 
     sim_head_to_tail = _cosine_sim(emb_head_a, emb_tail_b)
     sim_tail_to_head = _cosine_sim(emb_tail_a, emb_head_b)
 
-    if sim_head_to_tail >= config.entity_similarity_threshold and sim_tail_to_head >= config.entity_similarity_threshold:
+    if (
+        sim_head_to_tail >= config.entity_similarity_threshold
+        and sim_tail_to_head >= config.entity_similarity_threshold
+    ):
         sim_rel = _cosine_sim(emb_rel_a, emb_rel_b)
         return sim_rel
 
@@ -64,11 +73,19 @@ def validate_extraction_pair(
         entity_sim = len(names_a & names_b) / len(names_a | names_b)
 
     triples_a = {
-        (r["source"].strip().lower(), r["target"].strip().lower(), r["type"].strip().lower())
+        (
+            r["source"].strip().lower(),
+            r["target"].strip().lower(),
+            r["type"].strip().lower(),
+        )
         for r in relations_a
     }
     triples_b = {
-        (r["source"].strip().lower(), r["target"].strip().lower(), r["type"].strip().lower())
+        (
+            r["source"].strip().lower(),
+            r["target"].strip().lower(),
+            r["type"].strip().lower(),
+        )
         for r in relations_b
     }
 
@@ -77,7 +94,10 @@ def validate_extraction_pair(
     else:
         relation_sim = len(triples_a & triples_b) / len(triples_a | triples_b)
 
-    passed = entity_sim >= config.entity_similarity_threshold and relation_sim >= config.relation_similarity_threshold
+    passed = (
+        entity_sim >= config.entity_similarity_threshold
+        and relation_sim >= config.relation_similarity_threshold
+    )
 
     return {
         "entity_similarity": entity_sim,
@@ -86,9 +106,11 @@ def validate_extraction_pair(
         "entities_intersection": list(names_a & names_b),
         "entities_union": list(names_a | names_b),
         "relations_intersection": [
-            {"source": s, "target": t, "type": tp} for s, t, tp in (triples_a & triples_b)
+            {"source": s, "target": t, "type": tp}
+            for s, t, tp in (triples_a & triples_b)
         ],
         "relations_union": [
-            {"source": s, "target": t, "type": tp} for s, t, tp in (triples_a | triples_b)
+            {"source": s, "target": t, "type": tp}
+            for s, t, tp in (triples_a | triples_b)
         ],
     }

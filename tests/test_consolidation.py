@@ -1,7 +1,5 @@
 import json
-import asyncio
 import pytest
-import pytest_asyncio
 import numpy as np
 from unittest.mock import MagicMock, AsyncMock, patch
 
@@ -80,8 +78,12 @@ async def test_consolidation_divergence_paths():
         "source": "agent",
     }
 
-    llm_a.complete.return_value = json.dumps({"head": "X", "relation": "rel", "tail": "Y"})
-    llm_b.complete.return_value = json.dumps({"head": "X", "relation": "rel", "tail": "Y"})
+    llm_a.complete.return_value = json.dumps(
+        {"head": "X", "relation": "rel", "tail": "Y"}
+    )
+    llm_b.complete.return_value = json.dumps(
+        {"head": "X", "relation": "rel", "tail": "Y"}
+    )
 
     with patch(
         "mesa_memory.consolidation.loop.calculate_composite_similarity",
@@ -147,7 +149,9 @@ async def test_batch_processing_limit():
         for i in range(25)
     ]
 
-    storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=all_records[:config.consolidation_batch_size])
+    storage.raw_log.fetch_unconsolidated = AsyncMock(
+        return_value=all_records[: config.consolidation_batch_size]
+    )
     storage.raw_log.mark_consolidated = AsyncMock()
     storage.graph = MagicMock()
     storage.graph.upsert_node = AsyncMock(return_value="node_id")
@@ -158,8 +162,12 @@ async def test_batch_processing_limit():
 
     llm_a = MagicMock()
     llm_b = MagicMock()
-    llm_a.complete.return_value = json.dumps({"head": "A", "relation": "r", "tail": "B"})
-    llm_b.complete.return_value = json.dumps({"head": "A", "relation": "r", "tail": "B"})
+    llm_a.complete.return_value = json.dumps(
+        {"head": "A", "relation": "r", "tail": "B"}
+    )
+    llm_b.complete.return_value = json.dumps(
+        {"head": "A", "relation": "r", "tail": "B"}
+    )
 
     embedder = MagicMock()
 
@@ -177,15 +185,21 @@ async def test_batch_processing_limit():
     ):
         await loop.run_batch()
 
-    assert storage.raw_log.fetch_unconsolidated.call_args[1]["limit"] == config.consolidation_batch_size
-    assert storage.raw_log.mark_consolidated.call_count == config.consolidation_batch_size
+    assert (
+        storage.raw_log.fetch_unconsolidated.call_args[1]["limit"]
+        == config.consolidation_batch_size
+    )
+    assert (
+        storage.raw_log.mark_consolidated.call_count == config.consolidation_batch_size
+    )
+
 
 @pytest.mark.asyncio
 async def test_rebel_extraction_fallback():
     obs = ObservabilityLayer()
     storage = MagicMock()
     storage.raw_log = MagicMock()
-    
+
     # One record
     record = {"cmb_id": "r-1", "content_payload": "Alice likes Bob.", "source": "agent"}
     storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=[record])
@@ -193,13 +207,17 @@ async def test_rebel_extraction_fallback():
     storage.graph = MagicMock()
     storage.graph.upsert_node = AsyncMock(return_value="n_id")
     storage.graph.create_edge = AsyncMock(return_value="e_id")
-    
+
     llm_a = MagicMock()
     llm_b = MagicMock()
-    
+
     # Mock LLM return to verify fallback
-    llm_a.complete.return_value = json.dumps({"head": "Alice", "relation": "likes", "tail": "Bob"})
-    llm_b.complete.return_value = json.dumps({"head": "Alice", "relation": "likes", "tail": "Bob"})
+    llm_a.complete.return_value = json.dumps(
+        {"head": "Alice", "relation": "likes", "tail": "Bob"}
+    )
+    llm_b.complete.return_value = json.dumps(
+        {"head": "Alice", "relation": "likes", "tail": "Bob"}
+    )
     embedder = MagicMock()
 
     loop_obj = ConsolidationLoop(
@@ -209,30 +227,34 @@ async def test_rebel_extraction_fallback():
         llm_b=llm_b,
         obs_layer=obs,
     )
-    
+
     # Force Rebel Extractor to fail
     loop_obj.rebel_extractor.extract_triplets = MagicMock(return_value=[])
 
-    with patch("mesa_memory.consolidation.loop.calculate_composite_similarity", return_value=0.9):
+    with patch(
+        "mesa_memory.consolidation.loop.calculate_composite_similarity",
+        return_value=0.9,
+    ):
         await loop_obj.run_batch([record])
-        
+
     # Assert LLM WAS called because rebel failed
     assert llm_a.complete.called
     assert llm_b.complete.called
+
 
 @pytest.mark.asyncio
 async def test_rebel_extraction_success():
     obs = ObservabilityLayer()
     storage = MagicMock()
     storage.raw_log = MagicMock()
-    
+
     record = {"cmb_id": "r-2", "content_payload": "Alice likes Bob.", "source": "agent"}
     storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=[record])
     storage.raw_log.mark_consolidated = AsyncMock()
     storage.graph = MagicMock()
     storage.graph.upsert_node = AsyncMock(return_value="n_id")
     storage.graph.create_edge = AsyncMock(return_value="e_id")
-    
+
     llm_a = MagicMock()
     llm_b = MagicMock()
     embedder = MagicMock()
@@ -244,13 +266,18 @@ async def test_rebel_extraction_success():
         llm_b=llm_b,
         obs_layer=obs,
     )
-    
-    # Force Rebel Extractor to succeed
-    loop_obj.rebel_extractor.extract_triplets = MagicMock(return_value=[{"head": "Alice", "relation": "likes", "tail": "Bob"}])
 
-    with patch("mesa_memory.consolidation.loop.calculate_composite_similarity", return_value=0.9):
+    # Force Rebel Extractor to succeed
+    loop_obj.rebel_extractor.extract_triplets = MagicMock(
+        return_value=[{"head": "Alice", "relation": "likes", "tail": "Bob"}]
+    )
+
+    with patch(
+        "mesa_memory.consolidation.loop.calculate_composite_similarity",
+        return_value=0.9,
+    ):
         await loop_obj.run_batch([record])
-        
+
     # Assert LLM WAS NOT called because rebel succeeded
     assert not llm_a.complete.called
     assert not llm_b.complete.called
@@ -276,8 +303,12 @@ async def test_tier3_discard_calls_soft_delete_all():
     embedder = MagicMock()
 
     # Both LLMs return DISCARD → unanimous discard
-    llm_a.complete.return_value = json.dumps({"decision": "DISCARD", "justification": "test"})
-    llm_b.complete.return_value = json.dumps({"decision": "DISCARD", "justification": "test"})
+    llm_a.complete.return_value = json.dumps(
+        {"decision": "DISCARD", "justification": "test"}
+    )
+    llm_b.complete.return_value = json.dumps(
+        {"decision": "DISCARD", "justification": "test"}
+    )
 
     loop_obj = ConsolidationLoop(
         storage_facade=storage,
@@ -324,4 +355,3 @@ async def test_soft_delete_all_partial_failure():
     facade.raw_log.soft_delete.assert_awaited_once_with("fail-001")
     # graph should NOT have been called since vector failed first
     facade.graph.soft_delete_by_cmb.assert_not_awaited()
-

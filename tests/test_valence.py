@@ -1,7 +1,7 @@
 import json
 import pytest
 import numpy as np
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.valence.core import ValenceMotor
@@ -11,7 +11,9 @@ from mesa_memory.valence.drift import recalibrate_threshold
 def _make_mock_adapter():
     adapter = MagicMock()
     adapter.EMBEDDING_DIM = 768
-    adapter.complete.return_value = json.dumps({"decision": "DISCARD", "justification": "test"})
+    adapter.complete.return_value = json.dumps(
+        {"decision": "DISCARD", "justification": "test"}
+    )
     return adapter
 
 
@@ -79,7 +81,8 @@ async def test_tier2_ecod_bootstrap():
     await motor.evaluate(cmb, signals)
 
     tier2_logs = [
-        c for c in obs.metrics.counters
+        c
+        for c in obs.metrics.counters
         if "valence_tier_2" in c or "valence_decision" in c
     ]
     assert len(tier2_logs) > 0
@@ -104,7 +107,9 @@ def test_threshold_recalibration_ewmad():
 
     assert motor.memory_count == 160
     # Verify threshold has been modified by EWMAD recalibration
-    assert motor._ewmad_threshold != initial_threshold, "Threshold should have drifted after 160 records"
+    assert (
+        motor._ewmad_threshold != initial_threshold
+    ), "Threshold should have drifted after 160 records"
 
     recalibrated = recalibrate_threshold(0.75, motor.existing_embeddings)
     assert 0.50 <= recalibrated <= 0.90

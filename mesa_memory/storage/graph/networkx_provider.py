@@ -111,26 +111,26 @@ class NetworkXProvider(BaseGraphProvider):
                 "SELECT * FROM nodes WHERE expired_at IS NULL"
             ) as cursor:
                 async for row in cursor:
-                    row = dict(row)
+                    node_row = dict(row)
                     self._graph.add_node(
-                        row["node_id"],
-                        name=row["name"],
-                        type=row["type"],
-                        created_at=row["created_at"],
+                        node_row["node_id"],
+                        name=node_row["name"],
+                        type=node_row["type"],
+                        created_at=node_row["created_at"],
                         expired_at=None,
                     )
             async with db.execute(
                 "SELECT * FROM edges WHERE expired_at IS NULL"
             ) as cursor:
                 async for row in cursor:
-                    row = dict(row)
+                    edge_row = dict(row)
                     self._graph.add_edge(
-                        row["source_node"],
-                        row["target_node"],
-                        key=row["edge_id"],
-                        relation_type=row["relation_type"],
-                        weight=row["weight"],
-                        created_at=row["created_at"],
+                        edge_row["source_node"],
+                        edge_row["target_node"],
+                        key=edge_row["edge_id"],
+                        relation_type=edge_row["relation_type"],
+                        weight=edge_row["weight"],
+                        created_at=edge_row["created_at"],
                         expired_at=None,
                     )
 
@@ -146,8 +146,12 @@ class NetworkXProvider(BaseGraphProvider):
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ) -> str:
-        if self.access_control and not self.access_control.check_access(agent_id, session_id, "WRITE"):
-            raise PermissionError(f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'")
+        if self.access_control and not self.access_control.check_access(
+            agent_id, session_id, "WRITE"
+        ):
+            raise PermissionError(
+                f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
+            )
 
         node_id = str(_uuid7_func())
         now = datetime.now(timezone.utc).isoformat()
@@ -198,7 +202,9 @@ class NetworkXProvider(BaseGraphProvider):
             if old_id is not None:
                 for u, v, k, d in list(self._graph.edges(old_id, data=True, keys=True)):
                     self._graph.add_edge(node_id, v, key=k, **d)
-                for u, v, k, d in list(self._graph.in_edges(old_id, data=True, keys=True)):
+                for u, v, k, d in list(
+                    self._graph.in_edges(old_id, data=True, keys=True)
+                ):
                     self._graph.add_edge(u, node_id, key=k, **d)
                 self._graph.remove_node(old_id)
 
@@ -220,8 +226,12 @@ class NetworkXProvider(BaseGraphProvider):
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ) -> str:
-        if self.access_control and not self.access_control.check_access(agent_id, session_id, "WRITE"):
-            raise PermissionError(f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'")
+        if self.access_control and not self.access_control.check_access(
+            agent_id, session_id, "WRITE"
+        ):
+            raise PermissionError(
+                f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
+            )
 
         edge_id = str(_uuid7_func())
         now = datetime.now(timezone.utc).isoformat()
@@ -283,13 +293,16 @@ class NetworkXProvider(BaseGraphProvider):
                         (now, edge_id),
                     )
                     await db.commit()
-                    row = dict(row)
+                    edge_data = dict(row)
                     try:
                         self._graph.remove_edge(
-                            row["source_node"], row["target_node"], key=edge_id,
+                            edge_data["source_node"],
+                            edge_data["target_node"],
+                            key=edge_id,
                         )
                     except nx.NetworkXError:
                         import logging
+
                         logging.getLogger("MESA_Graph").error(
                             "Edge not found in memory but might exist in persistence layer. State desynchronization detected for edge_id: %s",
                             edge_id,
@@ -349,37 +362,45 @@ class NetworkXProvider(BaseGraphProvider):
         async with self._lock:
             if not self._graph.has_node(node_id):
                 return []
-    
+
             results: list[dict] = []
-    
+
             if direction in ("out", "both"):
                 for _, target, key, data in self._graph.edges(
-                    node_id, data=True, keys=True,
+                    node_id,
+                    data=True,
+                    keys=True,
                 ):
                     target_data = self._graph.nodes.get(target, {})
-                    results.append({
-                        "node_id": target,
-                        "name": target_data.get("name", ""),
-                        "type": target_data.get("type", ""),
-                        "edge_id": key,
-                        "relation": data.get("relation_type", ""),
-                        "weight": data.get("weight", 1.0),
-                    })
-    
+                    results.append(
+                        {
+                            "node_id": target,
+                            "name": target_data.get("name", ""),
+                            "type": target_data.get("type", ""),
+                            "edge_id": key,
+                            "relation": data.get("relation_type", ""),
+                            "weight": data.get("weight", 1.0),
+                        }
+                    )
+
             if direction in ("in", "both"):
                 for source, _, key, data in self._graph.in_edges(
-                    node_id, data=True, keys=True,
+                    node_id,
+                    data=True,
+                    keys=True,
                 ):
                     source_data = self._graph.nodes.get(source, {})
-                    results.append({
-                        "node_id": source,
-                        "name": source_data.get("name", ""),
-                        "type": source_data.get("type", ""),
-                        "edge_id": key,
-                        "relation": data.get("relation_type", ""),
-                        "weight": data.get("weight", 1.0),
-                    })
-    
+                    results.append(
+                        {
+                            "node_id": source,
+                            "name": source_data.get("name", ""),
+                            "type": source_data.get("type", ""),
+                            "edge_id": key,
+                            "relation": data.get("relation_type", ""),
+                            "weight": data.get("weight", 1.0),
+                        }
+                    )
+
             return results
 
     async def get_node_degree(self, node_id: str) -> int:
@@ -400,12 +421,14 @@ class NetworkXProvider(BaseGraphProvider):
                 name = data.get("name", "")
                 match_name = name.lower() if case_insensitive else name
                 if match_name in lookup:
-                    results.append({
-                        "node_id": node_id,
-                        "name": name,
-                        "type": data.get("type", ""),
-                        "created_at": data.get("created_at", ""),
-                    })
+                    results.append(
+                        {
+                            "node_id": node_id,
+                            "name": name,
+                            "type": data.get("type", ""),
+                            "created_at": data.get("created_at", ""),
+                        }
+                    )
         return results
 
     async def get_subgraph(
@@ -415,10 +438,8 @@ class NetworkXProvider(BaseGraphProvider):
     ) -> dict:
         async with self._lock:
             collected_nodes: set[str] = set(node_ids)
-            frontier: set[str] = {
-                nid for nid in node_ids if self._graph.has_node(nid)
-            }
-    
+            frontier: set[str] = {nid for nid in node_ids if self._graph.has_node(nid)}
+
             for _ in range(depth):
                 next_frontier: set[str] = set()
                 for nid in frontier:
@@ -426,7 +447,7 @@ class NetworkXProvider(BaseGraphProvider):
                     next_frontier.update(self._graph.predecessors(nid))
                 collected_nodes.update(next_frontier)
                 frontier = next_frontier
-    
+
             sub = self._graph.subgraph(collected_nodes)
             nodes = [
                 {
@@ -512,9 +533,11 @@ class NetworkXProvider(BaseGraphProvider):
                     expired_nodes = [dict(row) async for row in cursor]
 
                 if expired_nodes:
+
                     def _write_nodes():
                         for node in expired_nodes:
                             rocks[f"node:{node['node_id']}"] = json.dumps(node)
+
                     await asyncio.to_thread(_write_nodes)
 
                     node_ids = [n["node_id"] for n in expired_nodes]
@@ -531,9 +554,11 @@ class NetworkXProvider(BaseGraphProvider):
                     expired_edges = [dict(row) async for row in cursor]
 
                 if expired_edges:
+
                     def _write_edges():
                         for edge in expired_edges:
                             rocks[f"edge:{edge['edge_id']}"] = json.dumps(edge)
+
                     await asyncio.to_thread(_write_edges)
 
                     edge_ids = [e["edge_id"] for e in expired_edges]
@@ -564,15 +589,16 @@ class NetworkXProvider(BaseGraphProvider):
             methods (``find_nodes_by_name``, ``get_node_degree``, etc.).
         """
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return self._graph.copy()
-        
+
         if loop.is_running():
             # Usually get_active_graph is deprecated and might be called synchronously
             # If so, locking sync is hard from async code if it returns nx.MultiDiGraph directly
             # For backward compatibility, just return the copy directly
             pass
-            
+
         return self._graph.copy()

@@ -8,19 +8,22 @@ from pydantic import BaseModel
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.adapter.tokenizer import count_tokens
-from mesa_memory.config import config
 
 
 class OllamaAdapter(BaseUniversalLLMAdapter):
-    def __init__(self, model: str = "mistral", embedding_model: str = "nomic-embed-text"):
+    def __init__(
+        self, model: str = "mistral", embedding_model: str = "nomic-embed-text"
+    ):
         self._model = model
         self._embedding_model = embedding_model
         self._ollama_client = ollama.Client()
 
-    def complete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
+    def complete(
+        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
+    ) -> Union[str, BaseModel]:
         if schema is not None:
-            llm = outlines.models.transformers(self._model)
-            generator = outlines.generate.json(llm, schema)
+            llm = outlines.models.transformers(self._model)  # type: ignore[operator]
+            generator = outlines.generate.json(llm, schema)  # type: ignore[attr-defined]
             return generator(prompt)
 
         response = self._ollama_client.generate(
@@ -29,7 +32,9 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         )
         return response["response"]
 
-    async def acomplete(self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs) -> Union[str, BaseModel]:
+    async def acomplete(
+        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
+    ) -> Union[str, BaseModel]:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,

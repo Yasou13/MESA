@@ -6,6 +6,7 @@ from collections import Counter, deque
 
 from mesa_memory.config import config
 
+
 class SystemState(str, Enum):
     ADMIT = "ADMIT"
     DISCARD = "DISCARD"
@@ -42,7 +43,9 @@ class ObservabilityLayer:
             self.logger.addHandler(handler)
         self.metrics = MetricsRegistry()
 
-    def log_valence_decision(self, tier: int, decision: SystemState | str, justification: str, cost: dict):
+    def log_valence_decision(
+        self, tier: int, decision: SystemState | str, justification: str, cost: dict
+    ):
         if isinstance(decision, str) and decision == "STORE":
             decision = SystemState.ADMIT
         elif isinstance(decision, str):
@@ -51,7 +54,9 @@ class ObservabilityLayer:
             except ValueError:
                 pass
 
-        decision_val = decision.value if isinstance(decision, SystemState) else str(decision)
+        decision_val = (
+            decision.value if isinstance(decision, SystemState) else str(decision)
+        )
 
         entry = {
             "event": "valence_decision",
@@ -64,13 +69,24 @@ class ObservabilityLayer:
         self.logger.info(json.dumps(entry))
         self.metrics.inc(f"valence_tier_{tier}_hits")
         self.metrics.inc(f"valence_decision_{decision_val}")
-        
-        admitted = self.metrics.counters.get(f"valence_decision_{SystemState.ADMIT.value}", 0)
-        total = admitted + self.metrics.counters.get(f"valence_decision_{SystemState.DISCARD.value}", 0)
+
+        admitted = self.metrics.counters.get(
+            f"valence_decision_{SystemState.ADMIT.value}", 0
+        )
+        total = admitted + self.metrics.counters.get(
+            f"valence_decision_{SystemState.DISCARD.value}", 0
+        )
         if total > 0:
             self.metrics.set("cmb_admission_rate", admitted / total)
 
-    def log_consolidation_batch(self, batch_id: str, processed: int, divergences: int, writes: int, duration_ms: float):
+    def log_consolidation_batch(
+        self,
+        batch_id: str,
+        processed: int,
+        divergences: int,
+        writes: int,
+        duration_ms: float,
+    ):
         divergence_rate = divergences / processed if processed > 0 else 0.0
         entry = {
             "event": "consolidation_batch",
@@ -91,7 +107,10 @@ class ObservabilityLayer:
             self.logger.warning(
                 "BAD_BATCH: batch %s divergence_rate=%.2f exceeds 50%% threshold "
                 "(%d divergences / %d processed)",
-                batch_id, divergence_rate, divergences, processed,
+                batch_id,
+                divergence_rate,
+                divergences,
+                processed,
             )
 
     def get_health_status(self) -> dict:

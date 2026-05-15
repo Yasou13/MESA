@@ -31,11 +31,13 @@ class QueryAnalyzer:
         if entities:
             return entities
 
-        nouns = list({
-            token.text.strip()
-            for token in doc
-            if token.pos_ in ("NOUN", "PROPN") and token.text.strip()
-        })
+        nouns = list(
+            {
+                token.text.strip()
+                for token in doc
+                if token.pos_ in ("NOUN", "PROPN") and token.text.strip()
+            }
+        )
 
         if nouns:
             return nouns

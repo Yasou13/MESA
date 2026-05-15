@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 
 import aiosqlite
 
-from mesa_memory.config import config
 from mesa_memory.schema.cmb import CMB
 
 
@@ -49,7 +48,8 @@ class RawLogStorage:
     async def insert_cmb(self, cmb: CMB):
         data = cmb.model_dump()
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT INTO raw_log (
                     cmb_id, schema_version, created_at, content_payload,
                     source, performative, cat7_focus,
@@ -58,24 +58,26 @@ class RawLogStorage:
                     resource_cost_token_count, resource_cost_latency_ms,
                     fitness_score, embedding, parent_cmb_id, tier3_deferred
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data["cmb_id"],
-                data["schema_version"],
-                data["created_at"].isoformat(),
-                data["content_payload"],
-                data["source"],
-                data["performative"],
-                data["cat7_focus"],
-                data["cat7_mood"]["valence"],
-                data["cat7_mood"]["arousal"],
-                data["prediction_error_score"],
-                data["resource_cost"]["token_count"],
-                data["resource_cost"]["latency_ms"],
-                data["fitness_score"],
-                json.dumps(data["embedding"]),
-                data["parent_cmb_id"],
-                int(data.get("tier3_deferred", False)),
-            ))
+            """,
+                (
+                    data["cmb_id"],
+                    data["schema_version"],
+                    data["created_at"].isoformat(),
+                    data["content_payload"],
+                    data["source"],
+                    data["performative"],
+                    data["cat7_focus"],
+                    data["cat7_mood"]["valence"],
+                    data["cat7_mood"]["arousal"],
+                    data["prediction_error_score"],
+                    data["resource_cost"]["token_count"],
+                    data["resource_cost"]["latency_ms"],
+                    data["fitness_score"],
+                    json.dumps(data["embedding"]),
+                    data["parent_cmb_id"],
+                    int(data.get("tier3_deferred", False)),
+                ),
+            )
             await db.commit()
 
     async def get_cmb(self, cmb_id: str) -> dict | None:
@@ -133,4 +135,3 @@ class RawLogStorage:
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [row[0] for row in rows]
-

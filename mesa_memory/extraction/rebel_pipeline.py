@@ -3,9 +3,9 @@ import threading
 from typing import List, Dict
 
 try:
-    from transformers import pipeline
+    from transformers import pipeline as pipeline  # type: ignore[no-redef]
 except ImportError:
-    pipeline = None
+    pipeline = None  # type: ignore[assignment]
 
 logger = logging.getLogger("MESA_Extraction")
 
@@ -15,6 +15,7 @@ logger = logging.getLogger("MESA_Extraction")
 # per application lifecycle, regardless of how many RebelExtractor instances
 # are created (e.g. by ConsolidationLoop re-init or test fixtures).
 # ---------------------------------------------------------------------------
+
 
 class _RebelModelHolder:
     """Thread-safe singleton for the REBEL transformers pipeline."""
@@ -42,7 +43,7 @@ class _RebelModelHolder:
                         "(singleton — will be reused for all subsequent calls)",
                         model_name,
                     )
-                    self._pipeline = pipeline(
+                    self._pipeline = pipeline(  # type: ignore[call-overload]
                         "text2text-generation", model=model_name
                     )
         return self._pipeline
@@ -74,12 +75,12 @@ class RebelExtractor:
         # Use truncation to ensure we don't crash on long texts
         try:
             extracted_text = self._pipeline(
-                text, 
-                return_tensors=False, 
-                return_text=True, 
+                text,
+                return_tensors=False,
+                return_text=True,
                 max_new_tokens=128,
                 truncation=True,
-                max_length=256
+                max_length=256,
             )
             raw_text = extracted_text[0]["generated_text"]
             return self._parse_rebel_output(raw_text)
@@ -89,36 +90,54 @@ class RebelExtractor:
 
     def _parse_rebel_output(self, text: str) -> List[Dict[str, str]]:
         triplets = []
-        subject, relation, object_ = '', '', ''
+        subject, relation, object_ = "", "", ""
         text = text.strip()
-        current = 'x'
-        
+        current = "x"
+
         clean_text = text.replace("<s>", "").replace("<pad>", "").replace("</s>", "")
-        
+
         for token in clean_text.split():
             if token == "<triplet>":
-                current = 't'
-                if relation != '':
-                    triplets.append({'head': subject.strip(), 'relation': relation.strip(), 'tail': object_.strip()})
-                    relation = ''
-                subject = ''
+                current = "t"
+                if relation != "":
+                    triplets.append(
+                        {
+                            "head": subject.strip(),
+                            "relation": relation.strip(),
+                            "tail": object_.strip(),
+                        }
+                    )
+                    relation = ""
+                subject = ""
             elif token == "<subj>":
-                current = 's'
-                if relation != '':
-                    triplets.append({'head': subject.strip(), 'relation': relation.strip(), 'tail': object_.strip()})
-                object_ = ''
+                current = "s"
+                if relation != "":
+                    triplets.append(
+                        {
+                            "head": subject.strip(),
+                            "relation": relation.strip(),
+                            "tail": object_.strip(),
+                        }
+                    )
+                object_ = ""
             elif token == "<obj>":
-                current = 'o'
-                relation = ''
+                current = "o"
+                relation = ""
             else:
-                if current == 't':
-                    subject += ' ' + token
-                elif current == 's':
-                    object_ += ' ' + token
-                elif current == 'o':
-                    relation += ' ' + token
-                    
-        if subject != '' and relation != '' and object_ != '':
-            triplets.append({'head': subject.strip(), 'relation': relation.strip(), 'tail': object_.strip()})
-            
+                if current == "t":
+                    subject += " " + token
+                elif current == "s":
+                    object_ += " " + token
+                elif current == "o":
+                    relation += " " + token
+
+        if subject != "" and relation != "" and object_ != "":
+            triplets.append(
+                {
+                    "head": subject.strip(),
+                    "relation": relation.strip(),
+                    "tail": object_.strip(),
+                }
+            )
+
         return triplets

@@ -1,5 +1,4 @@
 import pytest
-import pytest_asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 import networkx as nx
 
@@ -29,6 +28,7 @@ def test_query_analyzer_fallback():
         mock_spacy.load.return_value = mock_nlp
 
         from mesa_memory.retrieval.core import QueryAnalyzer
+
         analyzer = QueryAnalyzer.__new__(QueryAnalyzer)
         analyzer.nlp = mock_nlp
 
@@ -47,8 +47,18 @@ async def test_hybrid_retrieval_cold_start():
     storage.graph.get_all_active_nodes = AsyncMock(return_value=[])
 
     storage.vector.search.return_value = [
-        {"cmb_id": "vec_1", "content_payload": "content 1", "fitness_score": 0.8, "_distance": 0.1},
-        {"cmb_id": "vec_2", "content_payload": "content 2", "fitness_score": 0.5, "_distance": 0.3},
+        {
+            "cmb_id": "vec_1",
+            "content_payload": "content 1",
+            "fitness_score": 0.8,
+            "_distance": 0.1,
+        },
+        {
+            "cmb_id": "vec_2",
+            "content_payload": "content 2",
+            "fitness_score": 0.5,
+            "_distance": 0.3,
+        },
     ]
 
     analyzer = MagicMock()
@@ -58,6 +68,7 @@ async def test_hybrid_retrieval_cold_start():
     embedder.embed.return_value = [0.1] * 768
 
     from mesa_memory.security.rbac import AccessControl
+
     ac = AccessControl()
     ac.grant_access("test_agent", "test_session", "READ")
 
@@ -68,7 +79,12 @@ async def test_hybrid_retrieval_cold_start():
         access_control=ac,
     )
 
-    results = await retriever.retrieve("unknown_entity query", agent_id="test_agent", session_id="test_session", top_n=5)
+    results = await retriever.retrieve(
+        "unknown_entity query",
+        agent_id="test_agent",
+        session_id="test_session",
+        top_n=5,
+    )
 
     assert len(results) > 0
     assert "vec_1" in results
@@ -85,8 +101,18 @@ async def test_rrf_ranking_logic():
     storage.graph.get_active_graph.return_value = graph
 
     storage.vector.search.return_value = [
-        {"cmb_id": "A", "content_payload": "a", "fitness_score": 0.9, "_distance": 0.05},
-        {"cmb_id": "B", "content_payload": "b", "fitness_score": 0.7, "_distance": 0.15},
+        {
+            "cmb_id": "A",
+            "content_payload": "a",
+            "fitness_score": 0.9,
+            "_distance": 0.05,
+        },
+        {
+            "cmb_id": "B",
+            "content_payload": "b",
+            "fitness_score": 0.7,
+            "_distance": 0.15,
+        },
     ]
 
     analyzer = MagicMock()

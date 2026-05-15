@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 
 from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.ollama import OllamaAdapter
-from mesa_memory.schema.cmb import CMB, ResourceCost
+from mesa_memory.schema.cmb import CMB
 
 
 def test_claude_adapter_embed():
@@ -11,9 +11,9 @@ def test_claude_adapter_embed():
     mock_response = MagicMock()
     mock_response.data = [MagicMock(embedding=mock_embedding)]
 
-    with patch("mesa_memory.adapter.claude._openai_module") as mock_openai, \
-         patch("mesa_memory.adapter.claude.anthropic.Anthropic"), \
-         patch("mesa_memory.adapter.claude.anthropic.AsyncAnthropic"):
+    with patch("mesa_memory.adapter.claude._openai_module") as mock_openai, patch(
+        "mesa_memory.adapter.claude.anthropic.Anthropic"
+    ), patch("mesa_memory.adapter.claude.anthropic.AsyncAnthropic"):
         mock_client = MagicMock()
         mock_client.embeddings.create.return_value = mock_response
         mock_openai.OpenAI.return_value = mock_client
@@ -32,9 +32,11 @@ def test_claude_adapter_local_embed_fallback():
     """When no OpenAI key is provided, embed() should fall back to local model."""
     mock_embedding = [0.05] * 384  # all-MiniLM-L6-v2 produces 384-dim vectors
 
-    with patch("mesa_memory.adapter.claude._local_embed", return_value=mock_embedding) as mock_local, \
-         patch("mesa_memory.adapter.claude.anthropic.Anthropic"), \
-         patch("mesa_memory.adapter.claude.anthropic.AsyncAnthropic"):
+    with patch(
+        "mesa_memory.adapter.claude._local_embed", return_value=mock_embedding
+    ) as mock_local, patch("mesa_memory.adapter.claude.anthropic.Anthropic"), patch(
+        "mesa_memory.adapter.claude.anthropic.AsyncAnthropic"
+    ):
 
         adapter = ClaudeAdapter(anthropic_api_key="test", openai_api_key=None)
         assert adapter._sync_openai is None
@@ -73,9 +75,13 @@ def test_adapter_complete_with_schema():
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text=mock_json_response)]
 
-    with patch("mesa_memory.adapter.claude.anthropic.Anthropic") as MockAnthropic, \
-         patch("mesa_memory.adapter.claude.anthropic.AsyncAnthropic"), \
-         patch("mesa_memory.adapter.claude._openai_module") as mock_openai:
+    with patch(
+        "mesa_memory.adapter.claude.anthropic.Anthropic"
+    ) as MockAnthropic, patch(
+        "mesa_memory.adapter.claude.anthropic.AsyncAnthropic"
+    ), patch(
+        "mesa_memory.adapter.claude._openai_module"
+    ) as mock_openai:
         mock_openai.OpenAI.return_value = MagicMock()
         mock_openai.AsyncOpenAI.return_value = MagicMock()
         mock_client = MagicMock()

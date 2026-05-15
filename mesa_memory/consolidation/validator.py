@@ -55,6 +55,7 @@ class Tier3ValidationError(Exception):
     which falsely implied a cognitive rejection when the real cause was
     a JSON parse error, rate-limit, or network failure.
     """
+
     pass
 
 
@@ -113,10 +114,14 @@ class Tier3Validator:
         source = record.get("source", "")
         performative = record.get("performative", "")
         prompt_a = VALENCE_PROMPT_A_TEMPLATE.format(
-            content=content, source=source, performative=performative,
+            content=content,
+            source=source,
+            performative=performative,
         )
         prompt_b = VALENCE_PROMPT_B_TEMPLATE.format(
-            content=content, source=source, performative=performative,
+            content=content,
+            source=source,
+            performative=performative,
         )
 
         loop = asyncio.get_running_loop()
@@ -136,6 +141,8 @@ class Tier3Validator:
         # Fail-safe: LLMs disagree → reject the candidate
         logger.info(
             "Tier-3 disagreement (A=%s, B=%s) for record %s — rejecting",
-            decision_a, decision_b, record.get("cmb_id", "?"),
+            decision_a,
+            decision_b,
+            record.get("cmb_id", "?"),
         )
         return False

@@ -24,14 +24,14 @@ class StorageFacade:
         self.access_control = access_control or AccessControl()
         self.raw_log = RawLogStorage(db_path=raw_log_path)
         self.vector = VectorStorage(uri=vector_uri, access_control=self.access_control)
-        
+
         if graph_provider is not None:
             self.graph: BaseGraphProvider = graph_provider
         else:
-            self.graph: BaseGraphProvider = NetworkXProvider(
+            self.graph = NetworkXProvider(
                 db_path=graph_db_path,
                 rocks_path=graph_rocks_path,
-                access_control=self.access_control
+                access_control=self.access_control,
             )
 
     async def initialize_all(self):
@@ -39,7 +39,9 @@ class StorageFacade:
         await self.graph.initialize()
         orphan_count = await self.reconcile_orphans()
         if orphan_count:
-            logger.warning(f"Reconciled {orphan_count} orphaned raw_log records on startup")
+            logger.warning(
+                f"Reconciled {orphan_count} orphaned raw_log records on startup"
+            )
 
     async def reconcile_orphans(self) -> int:
         """Find raw_log records with no matching vector and soft-delete them.
@@ -67,7 +69,9 @@ class StorageFacade:
                 f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
             )
 
-        cmb = cmb.model_copy(update={"content_payload": sanitize_cmb_content(cmb.content_payload)})
+        cmb = cmb.model_copy(
+            update={"content_payload": sanitize_cmb_content(cmb.content_payload)}
+        )
 
         await self.raw_log.insert_cmb(cmb)
 
@@ -119,7 +123,8 @@ class StorageFacade:
         except Exception as exc:
             all_layers = ["raw_log", "vector", "graph"]
             failed_layer = next(
-                (l for l in all_layers if l not in completed_layers), "unknown"
+                (layer for layer in all_layers if layer not in completed_layers),
+                "unknown",
             )
             logger.error(
                 f"PARTIAL PURGE for cmb_id={cmb_id}: "
@@ -147,7 +152,6 @@ class StorageFacade:
             ``limit``.  Returns ``[]`` on any storage error (cold-start).
         """
         from mesa_memory.config import config as _cfg
+
         effective_limit = limit if limit is not None else _cfg.max_embedding_history
         return self.vector.get_all_embeddings(limit=effective_limit)
-
-

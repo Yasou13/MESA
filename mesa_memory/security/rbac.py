@@ -29,6 +29,7 @@ INJECTION_PATTERNS = [
 
 class PromptInjectionError(ValueError):
     """Raised when prompt injection is detected in content."""
+
     pass
 
 
@@ -51,41 +52,43 @@ class AccessControl:
         os.makedirs(os.path.dirname(os.path.abspath(self.policy_path)), exist_ok=True)
         with sqlite3.connect(self.policy_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute('''
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS permissions (
                     agent_id TEXT,
                     session_id TEXT,
                     access_level TEXT,
                     PRIMARY KEY (agent_id, session_id)
                 )
-            ''')
+            """)
             # Seed the reserved system daemon identity with WRITE access
             conn.execute(
                 "INSERT OR IGNORE INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
-                (SYSTEM_AGENT_ID, SYSTEM_SESSION_ID, "WRITE")
+                (SYSTEM_AGENT_ID, SYSTEM_SESSION_ID, "WRITE"),
             )
 
     def grant_access(self, agent_id: str, session_id: str, level: str):
         if level not in ("READ", "WRITE"):
-            raise ValueError(f"Invalid access level: {level}. Must be 'READ' or 'WRITE'.")
+            raise ValueError(
+                f"Invalid access level: {level}. Must be 'READ' or 'WRITE'."
+            )
         with sqlite3.connect(self.policy_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
-                (agent_id, session_id, level)
+                (agent_id, session_id, level),
             )
 
     def revoke_access(self, agent_id: str, session_id: str):
         with sqlite3.connect(self.policy_path) as conn:
             conn.execute(
                 "DELETE FROM permissions WHERE agent_id = ? AND session_id = ?",
-                (agent_id, session_id)
+                (agent_id, session_id),
             )
 
     def check_access(self, agent_id: str, session_id: str, required_level: str) -> bool:
         with sqlite3.connect(self.policy_path) as conn:
             cursor = conn.execute(
                 "SELECT access_level FROM permissions WHERE agent_id = ? AND session_id = ?",
-                (agent_id, session_id)
+                (agent_id, session_id),
             )
             row = cursor.fetchone()
             if not row:
@@ -119,7 +122,9 @@ def sanitize_cmb_content(content: str) -> str:
     # 3. Strip dangerous tags AND their content (script, style, etc.)
     content = re.sub(
         r"<(script|style|iframe|object|embed)[^>]*>.*?</\1>",
-        "", content, flags=re.DOTALL | re.IGNORECASE,
+        "",
+        content,
+        flags=re.DOTALL | re.IGNORECASE,
     )
 
     # 4. Strip remaining HTML tags

@@ -87,7 +87,9 @@ async def calculate_novelty_score(
 
     logger.debug(
         "ECOD novelty: raw=%.4f, normalized=%.4f, threshold=%.4f",
-        raw_score, normalized_score, config.ecod_anomaly_threshold,
+        raw_score,
+        normalized_score,
+        config.ecod_anomaly_threshold,
     )
 
     return normalized_score > config.ecod_anomaly_threshold

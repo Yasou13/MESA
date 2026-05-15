@@ -26,7 +26,6 @@ import os
 import shutil
 import pytest
 import pytest_asyncio
-import numpy as np
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.adapter.claude import _local_embed
@@ -38,7 +37,6 @@ from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.schema.cmb import CMB, ResourceCost, AffectiveState
 from mesa_memory.security.rbac import AccessControl
-from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
 from mesa_memory.storage import StorageFacade
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.valence.core import ValenceMotor
@@ -71,10 +69,12 @@ class LocalTestAdapter(BaseUniversalLLMAdapter):
         """Deterministic completion: extracts a plausible triplet from prompt content."""
         # Detect if this is a Tier-3 validation prompt (STORE/DISCARD)
         if '"decision": "STORE" or "DISCARD"' in prompt:
-            response = json.dumps({
-                "decision": "STORE",
-                "justification": "E2E test: deterministic STORE",
-            })
+            response = json.dumps(
+                {
+                    "decision": "STORE",
+                    "justification": "E2E test: deterministic STORE",
+                }
+            )
             if schema is not None:
                 return schema.model_validate_json(response)
             return response
@@ -85,24 +85,28 @@ class LocalTestAdapter(BaseUniversalLLMAdapter):
             record_count = prompt.count("=== RECORD")
             triplets = []
             for i in range(record_count):
-                triplets.append({
-                    "record_index": i,
-                    "head": "Einstein",
-                    "relation": "born in",
-                    "tail": "Germany",
-                    "confidence": 0.95,
-                })
+                triplets.append(
+                    {
+                        "record_index": i,
+                        "head": "Einstein",
+                        "relation": "born in",
+                        "tail": "Germany",
+                        "confidence": 0.95,
+                    }
+                )
             response = json.dumps({"triplets": triplets})
             if schema is not None:
                 return schema.model_validate_json(response)
             return response
 
         # Single-record extraction fallback
-        response = json.dumps({
-            "head": "Einstein",
-            "relation": "born in",
-            "tail": "Germany",
-        })
+        response = json.dumps(
+            {
+                "head": "Einstein",
+                "relation": "born in",
+                "tail": "Germany",
+            }
+        )
         if schema is not None:
             return schema.model_validate_json(response)
         return response
@@ -115,6 +119,7 @@ class LocalTestAdapter(BaseUniversalLLMAdapter):
 
     async def aembed(self, text, **kwargs):
         import asyncio
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.embed, text)
 
@@ -123,6 +128,7 @@ class LocalTestAdapter(BaseUniversalLLMAdapter):
 
     async def aembed_batch(self, texts, **kwargs):
         import asyncio
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.embed_batch, texts)
 
@@ -186,7 +192,9 @@ async def storage_facade(access_control):
 # ---------------------------------------------------------------------------
 
 
-def _make_cmb(adapter: LocalTestAdapter, content: str, source: str = "e2e_agent") -> CMB:
+def _make_cmb(
+    adapter: LocalTestAdapter, content: str, source: str = "e2e_agent"
+) -> CMB:
     """Create a CMB with a real embedding from the local model."""
     embedding = adapter.embed(content)
     return CMB(
@@ -255,12 +263,16 @@ async def test_full_memory_lifecycle(storage_facade, local_adapter, access_contr
 
     # Assert: Graph persistence (real NetworkX + SQLite)
     all_nodes = await facade.graph.get_all_active_nodes()
-    assert len(all_nodes) >= 2, (
-        f"Expected at least 2 graph nodes (head + tail), got {len(all_nodes)}"
-    )
+    assert (
+        len(all_nodes) >= 2
+    ), f"Expected at least 2 graph nodes (head + tail), got {len(all_nodes)}"
     node_names = {n["name"] for n in all_nodes}
-    assert "Einstein" in node_names, f"Head entity 'Einstein' not in graph nodes: {node_names}"
-    assert "Germany" in node_names, f"Tail entity 'Germany' not in graph nodes: {node_names}"
+    assert (
+        "Einstein" in node_names
+    ), f"Head entity 'Einstein' not in graph nodes: {node_names}"
+    assert (
+        "Germany" in node_names
+    ), f"Tail entity 'Germany' not in graph nodes: {node_names}"
 
     # --- Phase 3: Retrieval via Hybrid Search ---
     analyzer = QueryAnalyzer()
@@ -278,9 +290,9 @@ async def test_full_memory_lifecycle(storage_facade, local_adapter, access_contr
         top_n=5,
     )
     assert len(results) >= 1, "HybridRetriever returned no results"
-    assert cmb.cmb_id in results, (
-        f"Ingested CMB {cmb.cmb_id} not found in retrieval results: {results}"
-    )
+    assert (
+        cmb.cmb_id in results
+    ), f"Ingested CMB {cmb.cmb_id} not found in retrieval results: {results}"
 
 
 # ===================================================================
@@ -326,9 +338,10 @@ async def test_valence_motor_admits_with_tier3_deferred(local_adapter):
 
     # Must be admitted: True (novel admit) or "DEFERRED" (tier-3 deferred admit).
     # Both are valid non-discard outcomes in the status-based valence architecture.
-    assert result in (True, "DEFERRED"), (
-        f"ValenceMotor should admit the candidate, got {result!r}"
-    )
+    assert result in (
+        True,
+        "DEFERRED",
+    ), f"ValenceMotor should admit the candidate, got {result!r}"
 
 
 # ===================================================================
@@ -337,7 +350,9 @@ async def test_valence_motor_admits_with_tier3_deferred(local_adapter):
 
 
 @pytest.mark.asyncio
-async def test_multi_record_batch_consolidation(storage_facade, local_adapter, access_control):
+async def test_multi_record_batch_consolidation(
+    storage_facade, local_adapter, access_control
+):
     """E2E: Ingest multiple records, consolidate as a batch, verify
     all records are persisted across all three stores.
     """
@@ -383,9 +398,9 @@ async def test_multi_record_batch_consolidation(storage_facade, local_adapter, a
 
     # Assert: Graph populated with entities from ALL records
     all_nodes = await facade.graph.get_all_active_nodes()
-    assert len(all_nodes) >= 2, (
-        f"Expected graph nodes from batch consolidation, got {len(all_nodes)}"
-    )
+    assert (
+        len(all_nodes) >= 2
+    ), f"Expected graph nodes from batch consolidation, got {len(all_nodes)}"
 
 
 # ===================================================================
@@ -394,7 +409,9 @@ async def test_multi_record_batch_consolidation(storage_facade, local_adapter, a
 
 
 @pytest.mark.asyncio
-async def test_vector_search_semantic_relevance(storage_facade, local_adapter, access_control):
+async def test_vector_search_semantic_relevance(
+    storage_facade, local_adapter, access_control
+):
     """E2E: Verify that LanceDB vector search returns semantically
     relevant results using real embeddings — not mocked distances.
     """
@@ -421,9 +438,9 @@ async def test_vector_search_semantic_relevance(storage_facade, local_adapter, a
 
     # The top result should be the Eiffel Tower record (closest semantically)
     top_cmb_id = results[0]["cmb_id"]
-    assert top_cmb_id == cmb_map["The Eiffel Tower is a famous landmark in Paris."], (
-        f"Expected Eiffel Tower CMB as top result, got {top_cmb_id}"
-    )
+    assert (
+        top_cmb_id == cmb_map["The Eiffel Tower is a famous landmark in Paris."]
+    ), f"Expected Eiffel Tower CMB as top result, got {top_cmb_id}"
 
 
 # ===================================================================
@@ -432,7 +449,9 @@ async def test_vector_search_semantic_relevance(storage_facade, local_adapter, a
 
 
 @pytest.mark.asyncio
-async def test_rbac_enforced_on_retrieval(storage_facade, local_adapter, access_control):
+async def test_rbac_enforced_on_retrieval(
+    storage_facade, local_adapter, access_control
+):
     """E2E: Verify that an unauthorized agent cannot retrieve data
     through the HybridRetriever, even though the data exists.
     """

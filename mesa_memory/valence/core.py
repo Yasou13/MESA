@@ -1,11 +1,7 @@
-import json
 import logging
-import re
-import asyncio
 
 import numpy as np
 
-from mesa_memory.utils import _strip_markdown_json, MESA_VALENCE_PROMPT_A, MESA_VALENCE_PROMPT_B
 
 from mesa_memory.config import config
 from mesa_memory.observability.metrics import ObservabilityLayer
@@ -65,7 +61,8 @@ class ValenceMotor:
                 )
         except Exception as exc:
             logger.warning(
-                "Failed to hydrate embeddings from storage (cold-start): %s", exc,
+                "Failed to hydrate embeddings from storage (cold-start): %s",
+                exc,
             )
         return []
 
@@ -76,7 +73,12 @@ class ValenceMotor:
             return self.bootstrap_threshold
         if n > 3 * interval:
             return self._ewmad_threshold
-        w = 1 / (1 + np.exp(config.drift_sigmoid_weight * ((n - interval) / (2 * interval) - 0.5)))
+        w = 1 / (
+            1
+            + np.exp(
+                config.drift_sigmoid_weight * ((n - interval) / (2 * interval) - 0.5)
+            )
+        )
         return (1 - w) * self.bootstrap_threshold + w * self._ewmad_threshold
 
     def _recalibrate(self):
@@ -87,16 +89,19 @@ class ValenceMotor:
         self._records_since_recalibration = 0
         self.obs_layer.metrics.set("valence_threshold", self._ewmad_threshold)
 
-    async def evaluate(self, cmb_candidate: dict, current_state_signals: dict) -> bool | str:
-        content = cmb_candidate.get("content_payload", "")
-        source = cmb_candidate.get("source", "")
-        performative = cmb_candidate.get("performative", "")
-        latency = cmb_candidate.get("resource_cost", {}).get("latency_ms", 0.0)
+    async def evaluate(
+        self, cmb_candidate: dict, current_state_signals: dict
+    ) -> bool | str:
+        _content = cmb_candidate.get("content_payload", "")
+        _source = cmb_candidate.get("source", "")
+        _performative = cmb_candidate.get("performative", "")
+        _latency = cmb_candidate.get("resource_cost", {}).get("latency_ms", 0.0)
         cost = cmb_candidate.get("resource_cost", {})
 
         if current_state_signals.get("error"):
             self.obs_layer.log_valence_decision(
-                tier=1, decision="DISCARD",
+                tier=1,
+                decision="DISCARD",
                 justification="ExecutionFailure signal detected",
                 cost=cost,
             )
@@ -104,7 +109,8 @@ class ValenceMotor:
 
         if current_state_signals.get("format_violation"):
             self.obs_layer.log_valence_decision(
-                tier=1, decision="DISCARD",
+                tier=1,
+                decision="DISCARD",
                 justification="FormatViolation signal detected",
                 cost=cost,
             )
@@ -112,7 +118,8 @@ class ValenceMotor:
 
         if current_state_signals.get("explicit_correction"):
             self.obs_layer.log_valence_decision(
-                tier=1, decision="ADMIT",
+                tier=1,
+                decision="ADMIT",
                 justification="ExplicitCorrection signal — force admit",
                 cost=cost,
             )
@@ -121,14 +128,21 @@ class ValenceMotor:
         embedding = cmb_candidate.get("embedding", [])
         threshold = self._get_current_threshold()
 
-        existing = np.array(self.existing_embeddings) if self.existing_embeddings else np.array([])
+        existing = (
+            np.array(self.existing_embeddings)
+            if self.existing_embeddings
+            else np.array([])
+        )
         new_emb = np.array(embedding)
 
-        is_novel = await calculate_novelty_score(new_emb, existing, cosine_threshold=threshold)
+        is_novel = await calculate_novelty_score(
+            new_emb, existing, cosine_threshold=threshold
+        )
 
         if is_novel:
             self.obs_layer.log_valence_decision(
-                tier=2, decision="ADMIT",
+                tier=2,
+                decision="ADMIT",
                 justification=f"Novelty detected (threshold={threshold:.4f})",
                 cost=cost,
             )
@@ -136,7 +150,8 @@ class ValenceMotor:
             return True
 
         self.obs_layer.log_valence_decision(
-            tier=2, decision="UNCERTAIN",
+            tier=2,
+            decision="UNCERTAIN",
             justification=f"Novelty below threshold ({threshold:.4f}), escalating to Tier 3",
             cost=cost,
         )
@@ -144,7 +159,8 @@ class ValenceMotor:
         # Defer Tier-3 cross-validation to the asynchronous consolidation loop
         cmb_candidate["tier3_deferred"] = True
         self.obs_layer.log_valence_decision(
-            tier=3, decision="ADMIT",
+            tier=3,
+            decision="ADMIT",
             justification="Tier-3 validation deferred to background consolidation",
             cost=cost,
         )
@@ -156,7 +172,8 @@ class ValenceMotor:
         if embedding:
             self.existing_embeddings.append(embedding)
             if len(self.existing_embeddings) > config.max_embedding_history:
-                self.existing_embeddings = self.existing_embeddings[-config.max_embedding_history:]
+                self.existing_embeddings = self.existing_embeddings[
+                    -config.max_embedding_history :
+                ]
         if self._records_since_recalibration >= config.recalibration_interval:
             self._recalibrate()
-

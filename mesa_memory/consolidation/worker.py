@@ -6,6 +6,7 @@ from mesa_memory.consolidation.loop import ConsolidationLoop
 
 logger = logging.getLogger("MESA_Worker")
 
+
 async def start_tier3_deferred_worker(
     storage: StorageFacade,
     consolidation_loop: ConsolidationLoop,
@@ -21,19 +22,21 @@ async def start_tier3_deferred_worker(
         try:
             records = await storage.raw_log.fetch_unconsolidated(limit=100)
             deferred_records = [r for r in records if r.get("tier3_deferred")]
-            
+
             if deferred_records:
                 batch = deferred_records[:batch_size]
-                logger.debug(f"Worker fetched {len(deferred_records)} deferred records.")
+                logger.debug(
+                    f"Worker fetched {len(deferred_records)} deferred records."
+                )
                 logger.info(f"Worker processing {len(batch)} deferred records.")
                 await consolidation_loop.run_batch(batch)
-                
+
                 # Clear the tier3_deferred flag to prevent infinite loops on the same record
                 for record in batch:
                     await storage.raw_log.clear_tier3_deferred(record["cmb_id"])
             else:
                 await asyncio.sleep(sleep_interval)
-                
+
         except asyncio.CancelledError:
             logger.info("Tier-3 Deferred worker cancelled, shutting down.")
             break

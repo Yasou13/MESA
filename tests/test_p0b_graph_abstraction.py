@@ -19,14 +19,12 @@ end-to-end persistence (not just in-memory state).
 import os
 import shutil
 import pytest
-from unittest.mock import MagicMock, AsyncMock
-import networkx as nx
+from unittest.mock import MagicMock
 
 from mesa_memory.storage.graph.base import BaseGraphProvider
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
-
 
 TEST_STORAGE_DIR = "./storage_p0b_test_tmp"
 
@@ -51,6 +49,7 @@ async def _make_provider() -> NetworkXProvider:
 # TEST 1: ABC Conformance
 # ===================================================================
 
+
 class TestABCConformance:
     """Verify NetworkXProvider properly implements the BaseGraphProvider ABC."""
 
@@ -64,11 +63,20 @@ class TestABCConformance:
     def test_all_abstract_methods_implemented(self):
         """Every method in the ABC must be implemented (not raise TypeError)."""
         abstract_methods = {
-            "initialize", "upsert_node", "create_edge",
-            "soft_delete_node", "soft_delete_edge", "soft_delete_by_cmb",
-            "get_node_by_id", "get_neighbors", "get_node_degree",
-            "find_nodes_by_name", "get_subgraph", "get_all_active_nodes",
-            "compute_pagerank", "offload_expired",
+            "initialize",
+            "upsert_node",
+            "create_edge",
+            "soft_delete_node",
+            "soft_delete_edge",
+            "soft_delete_by_cmb",
+            "get_node_by_id",
+            "get_neighbors",
+            "get_node_degree",
+            "find_nodes_by_name",
+            "get_subgraph",
+            "get_all_active_nodes",
+            "compute_pagerank",
+            "offload_expired",
         }
         provider_methods = set(dir(NetworkXProvider))
         for method in abstract_methods:
@@ -79,6 +87,7 @@ class TestABCConformance:
 # ===================================================================
 # TEST 2: Lossless Async CRUD (upsert_node + create_edge)
 # ===================================================================
+
 
 class TestLosslessAsyncCRUD:
     """Prove writes through the async interface are lossless —
@@ -139,7 +148,7 @@ class TestLosslessAsyncCRUD:
         provider = await _make_provider()
         a_id = await provider.upsert_node("A", "ENTITY")
         b_id = await provider.upsert_node("B", "ENTITY")
-        edge_id = await provider.create_edge(a_id, b_id, "knows")
+        _edge_id = await provider.create_edge(a_id, b_id, "knows")
 
         # Upsert B → new ID, edge should re-link
         b_new_id = await provider.upsert_node("B", "ENTITY_V2")
@@ -214,6 +223,7 @@ class TestLosslessAsyncCRUD:
 # TEST 3: Decomposed Query Methods
 # ===================================================================
 
+
 class TestDecomposedQueries:
     """Verify the ABC query methods that replaced get_active_graph()."""
 
@@ -234,12 +244,14 @@ class TestDecomposedQueries:
         await provider.upsert_node("Alice", "PERSON")
 
         results = await provider.find_nodes_by_name(
-            ["alice"], case_insensitive=False,
+            ["alice"],
+            case_insensitive=False,
         )
         assert len(results) == 0
 
         results = await provider.find_nodes_by_name(
-            ["Alice"], case_insensitive=False,
+            ["Alice"],
+            case_insensitive=False,
         )
         assert len(results) == 1
 
@@ -340,6 +352,7 @@ class TestDecomposedQueries:
 # TEST 4: Soft-Delete Through ABC
 # ===================================================================
 
+
 class TestSoftDelete:
     """Verify soft-delete operations through the async interface."""
 
@@ -381,6 +394,7 @@ class TestSoftDelete:
 # TEST 5: HybridRetriever Backward Compatibility
 # ===================================================================
 
+
 class TestHybridRetrieverCompat:
     """Prove existing HybridRetriever tests pass under the new provider.
 
@@ -399,8 +413,18 @@ class TestHybridRetrieverCompat:
         storage.graph.get_active_graph = provider.get_active_graph
 
         storage.vector.search.return_value = [
-            {"cmb_id": "vec_1", "content_payload": "c1", "fitness_score": 0.8, "_distance": 0.1},
-            {"cmb_id": "vec_2", "content_payload": "c2", "fitness_score": 0.5, "_distance": 0.3},
+            {
+                "cmb_id": "vec_1",
+                "content_payload": "c1",
+                "fitness_score": 0.8,
+                "_distance": 0.1,
+            },
+            {
+                "cmb_id": "vec_2",
+                "content_payload": "c2",
+                "fitness_score": 0.5,
+                "_distance": 0.3,
+            },
         ]
 
         analyzer = MagicMock()
@@ -420,7 +444,10 @@ class TestHybridRetrieverCompat:
         )
 
         results = await retriever.retrieve(
-            "unknown query", agent_id="a", session_id="s", top_n=5,
+            "unknown query",
+            agent_id="a",
+            session_id="s",
+            top_n=5,
         )
         assert "vec_1" in results
         assert "vec_2" in results
@@ -442,8 +469,18 @@ class TestHybridRetrieverCompat:
         storage.graph.get_active_graph = provider.get_active_graph
 
         storage.vector.search.return_value = [
-            {"cmb_id": "A", "content_payload": "a", "fitness_score": 0.9, "_distance": 0.05},
-            {"cmb_id": "B", "content_payload": "b", "fitness_score": 0.7, "_distance": 0.15},
+            {
+                "cmb_id": "A",
+                "content_payload": "a",
+                "fitness_score": 0.9,
+                "_distance": 0.05,
+            },
+            {
+                "cmb_id": "B",
+                "content_payload": "b",
+                "fitness_score": 0.7,
+                "_distance": 0.15,
+            },
         ]
 
         analyzer = MagicMock()
@@ -452,14 +489,16 @@ class TestHybridRetrieverCompat:
         embedder = MagicMock()
         embedder.embed.return_value = [0.1] * 768
 
-        retriever = HybridRetriever(
+        _retriever = HybridRetriever(
             storage_facade=storage,
             analyzer=analyzer,
             embedder=embedder,
         )
 
         # The retriever now uses the async graph methods directly.
-        matched = await storage.graph.find_nodes_by_name(["B_entity"], case_insensitive=True)
+        matched = await storage.graph.find_nodes_by_name(
+            ["B_entity"], case_insensitive=True
+        )
         assert len(matched) == 1, "Provider-backed graph must be searchable by name"
 
     @pytest.mark.asyncio

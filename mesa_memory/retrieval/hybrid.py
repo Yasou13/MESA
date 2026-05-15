@@ -1,7 +1,5 @@
 import asyncio
 
-import networkx as nx
-import numpy as np
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -23,7 +21,9 @@ class HybridRetriever:
         self.embedder = embedder
         self.access_control = access_control or AccessControl()
 
-    async def retrieve(self, query_text: str, agent_id: str, session_id: str, top_n: int = 5) -> list[str]:
+    async def retrieve(
+        self, query_text: str, agent_id: str, session_id: str, top_n: int = 5
+    ) -> list[str]:
         if not self.access_control.check_access(agent_id, session_id, "READ"):
             raise PermissionError(
                 f"Agent '{agent_id}' lacks READ access for session '{session_id}'"
@@ -31,10 +31,14 @@ class HybridRetriever:
         normalized = normalize_query(query_text)
         entities = self.analyzer.extract_entities(normalized)
 
-        seed_nodes = await self.storage.graph.find_nodes_by_name(entities, case_insensitive=True)
+        seed_nodes = await self.storage.graph.find_nodes_by_name(
+            entities, case_insensitive=True
+        )
         seed_ids = [n["node_id"] for n in seed_nodes]
         all_nodes = await self.storage.graph.get_all_active_nodes()
-        is_cold_start = len(seed_ids) == 0 or len(all_nodes) < config.cold_start_min_nodes
+        is_cold_start = (
+            len(seed_ids) == 0 or len(all_nodes) < config.cold_start_min_nodes
+        )
 
         vector_task = self.get_vector_results(normalized, k=top_n * 2)
         graph_task = self.get_graph_results(entities)
@@ -53,22 +57,28 @@ class HybridRetriever:
         loop = asyncio.get_running_loop()
         embedding = await loop.run_in_executor(None, self.embedder.embed, query_text)
 
-        raw_results = await asyncio.to_thread(self.storage.vector.search, embedding, limit=k)
+        raw_results = await asyncio.to_thread(
+            self.storage.vector.search, embedding, limit=k
+        )
 
         results = []
         for i, r in enumerate(raw_results):
-            results.append({
-                "cmb_id": r.get("cmb_id", ""),
-                "content_payload": r.get("content_payload", ""),
-                "fitness_score": r.get("fitness_score", 0.0),
-                "score": 1.0 / (1.0 + r.get("_distance", 0.0)),
-                "source": "vector",
-                "rank": i + 1,
-            })
+            results.append(
+                {
+                    "cmb_id": r.get("cmb_id", ""),
+                    "content_payload": r.get("content_payload", ""),
+                    "fitness_score": r.get("fitness_score", 0.0),
+                    "score": 1.0 / (1.0 + r.get("_distance", 0.0)),
+                    "source": "vector",
+                    "rank": i + 1,
+                }
+            )
         return results
 
     async def get_graph_results(self, entities: list[str]) -> list[dict]:
-        seed_nodes = await self.storage.graph.find_nodes_by_name(entities, case_insensitive=True)
+        seed_nodes = await self.storage.graph.find_nodes_by_name(
+            entities, case_insensitive=True
+        )
         seed_ids = [n["node_id"] for n in seed_nodes]
 
         if not seed_ids:
@@ -76,8 +86,10 @@ class HybridRetriever:
 
         return await self._run_ppr(seed_ids)
 
-    def _apply_rrf(self, vector_ranks: list[dict], graph_ranks: list[dict], k: int = 60) -> list[str]:
-        rrf_scores = {}
+    def _apply_rrf(
+        self, vector_ranks: list[dict], graph_ranks: list[dict], k: int = 60
+    ) -> list[str]:
+        rrf_scores: dict[str, float] = {}
 
         for item in vector_ranks:
             cmb_id = item.get("cmb_id", "")
@@ -93,7 +105,9 @@ class HybridRetriever:
             rank = item.get("rank", len(graph_ranks))
             rrf_scores[cmb_id] = rrf_scores.get(cmb_id, 0.0) + 1.0 / (k + rank)
 
-        sorted_ids = sorted(rrf_scores.keys(), key=lambda cid: rrf_scores[cid], reverse=True)
+        sorted_ids = sorted(
+            rrf_scores.keys(), key=lambda cid: rrf_scores[cid], reverse=True
+        )
         return sorted_ids
 
     async def _run_ppr(self, seed_ids: list[str], top_k: int = 15) -> list[dict]:
@@ -111,9 +125,9 @@ class HybridRetriever:
             alpha=config.ppr_alpha,
             personalization=personalization,
             max_iter=100,
-            tol=1e-6
+            tol=1e-6,
         )
-        
+
         if not ppr_scores:
             return []
 
@@ -123,7 +137,7 @@ class HybridRetriever:
             for node, score in ppr_scores.items()
             if node not in seed_set and score > 0
         ]
-        ranked.sort(key=lambda x: x["score"], reverse=True)
+        ranked.sort(key=lambda x: float(x["score"]), reverse=True)  # type: ignore[arg-type]
 
         for i, item in enumerate(ranked):
             item["rank"] = i + 1
@@ -135,7 +149,9 @@ class HybridRetriever:
         for r in vector_results:
             fitness = r.get("fitness_score", 0.0)
             distance_score = r.get("score", 0.0)
-            combined = (config.cold_start_fitness_weight * fitness) + (config.cold_start_distance_weight * distance_score)
+            combined = (config.cold_start_fitness_weight * fitness) + (
+                config.cold_start_distance_weight * distance_score
+            )
             entry = dict(r)
             entry["rrf_score"] = combined
             entry["source"] = "vector_cold_start"
@@ -205,4 +221,3 @@ class HybridRetriever:
             return "Retrieved Context: None"
 
         return header + "".join(included)
-

@@ -146,14 +146,21 @@ class GraphWriter:
                 continue
 
             sim_score = _sim_fn(
-                trip_a, trip_b, self.embedder, cache=embedding_cache,
+                trip_a,
+                trip_b,
+                self.embedder,
+                cache=embedding_cache,
             )
 
             if sim_score >= config.relation_similarity_threshold:
                 await self._write_triplet(cmb_id, trip_a, weight=1.0)
                 successful_writes += 1
 
-            elif config.uncertain_zone_lower_bound <= sim_score < config.relation_similarity_threshold:
+            elif (
+                config.uncertain_zone_lower_bound
+                <= sim_score
+                < config.relation_similarity_threshold
+            ):
                 divergence_count += 1
                 await self._write_triplet(cmb_id, trip_a, weight=0.5)
                 successful_writes += 1
@@ -161,28 +168,33 @@ class GraphWriter:
             else:
                 divergence_count += 1
                 is_hub = await self._check_hub_node(
-                    trip_a["head"], trip_a["tail"],
-                    trip_b["head"], trip_b["tail"],
+                    trip_a["head"],
+                    trip_a["tail"],
+                    trip_b["head"],
+                    trip_b["tail"],
                 )
 
                 if is_hub:
-                    self.human_review_queue.append({
-                        "batch_id": batch_id,
-                        "cmb_id": cmb_id,
-                        "triplet_a": trip_a,
-                        "triplet_b": trip_b,
-                        "sim_score": sim_score,
-                    })
+                    self.human_review_queue.append(
+                        {
+                            "batch_id": batch_id,
+                            "cmb_id": cmb_id,
+                            "triplet_a": trip_a,
+                            "triplet_b": trip_b,
+                            "sim_score": sim_score,
+                        }
+                    )
                     logger.warning(
                         "Record %s queued for human review "
                         "(hub node divergence, sim=%.4f)",
-                        cmb_id, sim_score,
+                        cmb_id,
+                        sim_score,
                     )
                 else:
                     logger.info(
-                        "Record %s silently discarded "
-                        "(peripheral node, sim=%.4f)",
-                        cmb_id, sim_score,
+                        "Record %s silently discarded " "(peripheral node, sim=%.4f)",
+                        cmb_id,
+                        sim_score,
                     )
 
             # Idempotency: mark ONLY after successful processing
@@ -197,19 +209,26 @@ class GraphWriter:
     async def _write_triplet(self, cmb_id: str, triplet: dict, weight: float):
         """Upsert head/tail nodes and create an edge between them."""
         node_head = await self.storage.graph.upsert_node(
-            name=triplet["head"], type="ENTITY", cmb_id=cmb_id,
-            agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
+            name=triplet["head"],
+            type="ENTITY",
+            cmb_id=cmb_id,
+            agent_id=SYSTEM_AGENT_ID,
+            session_id=SYSTEM_SESSION_ID,
         )
         node_tail = await self.storage.graph.upsert_node(
-            name=triplet["tail"], type="ENTITY", cmb_id=cmb_id,
-            agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
+            name=triplet["tail"],
+            type="ENTITY",
+            cmb_id=cmb_id,
+            agent_id=SYSTEM_AGENT_ID,
+            session_id=SYSTEM_SESSION_ID,
         )
         await self.storage.graph.create_edge(
             source_id=node_head,
             target_id=node_tail,
             relation=triplet["relation"],
             weight=weight,
-            agent_id=SYSTEM_AGENT_ID, session_id=SYSTEM_SESSION_ID,
+            agent_id=SYSTEM_AGENT_ID,
+            session_id=SYSTEM_SESSION_ID,
         )
 
     async def _check_hub_node(self, *entity_names: str) -> bool:
@@ -218,7 +237,8 @@ class GraphWriter:
         if not valid_names:
             return False
         nodes = await self.storage.graph.find_nodes_by_name(
-            valid_names, case_insensitive=True,
+            valid_names,
+            case_insensitive=True,
         )
         for node in nodes:
             degree = await self.storage.graph.get_node_degree(node["node_id"])
