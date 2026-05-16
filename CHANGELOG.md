@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prometheus Observability**: Module-level `Counter`, `Histogram`, and `Gauge` metrics for valence tier hits, admission rates, consolidation batch duration, and cross-validation divergence. Exposed via `GET /metrics` for Prometheus scraping.
 - **CMB Fitness Scoring** (`mesa_memory/valence/fitness.py`): Composite scoring function (0.0–1.0) based on content word density, token cost efficiency, and novelty score. Integrated into the `/ingest` pipeline.
 - **Multi-Hop Graph Traversal** (`mesa_memory/retrieval/graph_traversal.py`): `find_path()` function using `networkx.shortest_path` with configurable `max_hops` and graceful `NetworkXNoPath` handling.
-- **Memgraph Provider Stub** (`mesa_memory/storage/graph/memgraph_provider.py`): Scaffolded `BaseGraphProvider` implementation for future Memgraph/Cypher migration. Raises `NotImplementedError` on `initialize()`.
+
 - **Persistent ValenceMotor State**: `save_state()` and `load_state()` methods using `aiosqlite` to persist `_ewmad_threshold` and `memory_count` across process restarts via a `valence_state` key-value table.
 - **StorageFacade Integration**: `initialize_all()` now accepts an optional `valence_motor` parameter to automatically restore cognitive state on startup.
 - **Docker Containerisation**: `Dockerfile` (python:3.10-slim, multi-layer caching, built-in healthcheck) and `docker-compose.yml` (persistent volume mapping, env passthrough, `unless-stopped` restart policy).
@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **mypy strict compliance**: Resolved 5 type errors — `empty-body` stubs in `MemgraphProvider`, incompatible dict types in `DeterministicMockAdapter`, missing `_rebel_failures` annotation, and implicit `Optional` in `AdapterFactory.get_adapter`.
+- **mypy strict compliance**: Resolved type errors — incompatible dict types in `DeterministicMockAdapter`, missing `_rebel_failures` annotation, and implicit `Optional` in `AdapterFactory.get_adapter`.
 - **RBAC grant semantics**: Tutorial and demo scripts now grant only `WRITE` (which implicitly includes `READ` per `check_access` logic) instead of overwriting `WRITE` with `READ` due to the primary key constraint.
 - **Prometheus duplicate registry**: Module-level metric singletons prevent re-registration crashes across test fixtures and multi-instance scenarios.
 

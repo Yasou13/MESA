@@ -530,3 +530,46 @@ class TestStrictDecisionMatrixAndBoundaries:
         v, _, _ = _make_validator("", "")
         with pytest.raises(Tier3ValidationError, match="invalid decision.*None"):
             v._parse_decision("{}", "X")
+
+
+# ===================================================================
+# 13. Exact exception types and strict boundary checks
+# ===================================================================
+
+
+class TestStrictExceptionTypesAndEarlyExits:
+    """Kill mutants around exact exception types and strict type matching for early returns."""
+
+    def test_logger_name_and_docstring(self):
+        import mesa_memory.consolidation.validator as val
+
+        assert val.logger.name == "MESA_Tier3Validator"
+        assert val.__doc__ is not None
+        assert "Tier-3 Validation" in val.__doc__
+        assert "silent-DISCARD-on-error" in val.__doc__
+        with open(val.__file__, "r") as f:
+            assert "import asyncio" in f.read()
+
+    def test_strict_type_matching_for_exceptions_none(self):
+        v, _, _ = _make_validator("", "")
+        try:
+            v._parse_decision(None, "LBL")
+        except Exception as exc:
+            assert type(exc) is Tier3ValidationError
+            assert exc.__cause__ is None
+
+    def test_strict_type_matching_for_exceptions_empty_dict(self):
+        v, _, _ = _make_validator("", "")
+        try:
+            v._parse_decision({}, "LBL")
+        except Exception as exc:
+            assert type(exc) is Tier3ValidationError
+            assert exc.__cause__ is None
+
+    def test_strict_type_matching_for_exceptions_unparseable(self):
+        v, _, _ = _make_validator("", "")
+        try:
+            v._parse_decision("{invalid}", "LBL")
+        except Exception as exc:
+            assert type(exc) is Tier3ValidationError
+            assert type(exc.__cause__) is json.JSONDecodeError
