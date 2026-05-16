@@ -218,6 +218,7 @@ class TestDeadLetterIntegration:
             llm_b=llm_b,
             obs_layer=MagicMock(),
         )
+        loop.dead_letter_queue.clear()
 
         await loop.run_batch([_make_record(tier3=True)])
 
@@ -246,6 +247,7 @@ class TestDeadLetterIntegration:
             llm_b=llm_b,
             obs_layer=MagicMock(),
         )
+        loop.dead_letter_queue.clear()
 
         await loop.run_batch([_make_record(tier3=True)])
 

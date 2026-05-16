@@ -13,7 +13,7 @@ concerns from batch orchestration.  ``GraphWriter`` owns:
 import asyncio
 import inspect
 import logging
-from collections import deque
+from typing import Any
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -39,7 +39,7 @@ class GraphWriter:
         self,
         storage_facade: StorageFacade,
         embedder: BaseUniversalLLMAdapter,
-        human_review_queue: deque,
+        human_review_queue: Any,
         similarity_fn=None,
     ):
         self.storage = storage_facade

@@ -11,10 +11,11 @@ Refactored into focused modules following the Single Responsibility Principle:
 """
 
 import asyncio
+import json
 import logging
+import os
 import time
-from collections import deque
-from typing import Any, Optional
+from typing import Optional
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -36,6 +37,37 @@ from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.storage import StorageFacade
 
 logger = logging.getLogger("MESA_Consolidation")
+
+
+# ---------------------------------------------------------------------------
+# Persistent Queue
+# ---------------------------------------------------------------------------
+class PersistentQueue:
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+        os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
+
+    def append(self, item: dict):
+        with open(self.filepath, "a") as f:
+            f.write(json.dumps(item) + "\n")
+
+    def clear(self):
+        open(self.filepath, "w").close()
+
+    def __len__(self):
+        try:
+            with open(self.filepath, "r") as f:
+                return sum(1 for line in f if line.strip())
+        except FileNotFoundError:
+            return 0
+
+    def __getitem__(self, index):
+        try:
+            with open(self.filepath, "r") as f:
+                lines = [json.loads(line) for line in f if line.strip()]
+            return lines[index]
+        except FileNotFoundError:
+            raise IndexError("Queue is empty")
 
 
 # ---------------------------------------------------------------------------
@@ -73,12 +105,8 @@ class ConsolidationLoop:
         self.llm_b = llm_b
         self.obs_layer = obs_layer
         self._running = False
-        self.human_review_queue: deque[dict[str, Any]] = deque(
-            maxlen=config.human_review_max_size
-        )
-        self.dead_letter_queue: deque[dict[str, Any]] = deque(
-            maxlen=config.human_review_max_size
-        )
+        self.human_review_queue = PersistentQueue("./storage/human_review_queue.jsonl")
+        self.dead_letter_queue = PersistentQueue("./storage/dead_letter_queue.jsonl")
 
         # Delegate modules
         self.triplet_extractor = TripletExtractor(llm_a=llm_a, llm_b=llm_b)

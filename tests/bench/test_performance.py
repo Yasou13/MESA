@@ -45,7 +45,7 @@ from tests.conftest import make_test_storage_dir
 # ---------------------------------------------------------------------------
 
 BENCH_STORAGE_DIR = make_test_storage_dir("bench")
-EMBEDDING_DIM = 384  # Matches MiniLM-L6-v2 production embedding output
+EMBEDDING_DIM = 1536  # Matches MiniLM-L6-v2 production embedding output
 BATCH_SIZE = 20
 
 

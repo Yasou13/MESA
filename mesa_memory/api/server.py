@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 
@@ -7,6 +8,10 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 
 from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.consolidation.loop import (
+    ConsolidationLoop,
+    start_tier3_deferred_worker,
+)
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
@@ -20,9 +25,12 @@ app = FastAPI(title="MESA API", version="0.2.0")
 # API Key Authentication
 # ---------------------------------------------------------------------------
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
-_MESA_API_KEY = os.environ.get(
-    "MESA_API_KEY", "mesa-local-dev-key-do-not-use-in-production"
-)
+_MESA_API_KEY = os.environ.get("MESA_API_KEY")
+
+if not _MESA_API_KEY:
+    raise RuntimeError(
+        "MESA_API_KEY environment variable must be set. No local fallback allowed."
+    )
 
 
 async def get_api_key(api_key: str = Depends(_API_KEY_HEADER)) -> str:
@@ -37,6 +45,7 @@ class AppState:
     motor: ValenceMotor
     obs_layer: ObservabilityLayer
     retriever: HybridRetriever
+    consolidation_loop: ConsolidationLoop
 
 
 state = AppState()
@@ -76,6 +85,17 @@ async def startup_event():
         access_control=state.facade.access_control,
     )
 
+    state.consolidation_loop = ConsolidationLoop(
+        storage_facade=state.facade,
+        embedder=adapter,
+        llm_a=adapter,
+        llm_b=adapter,
+        obs_layer=state.obs_layer,
+    )
+    asyncio.create_task(
+        start_tier3_deferred_worker(state.facade, state.consolidation_loop)
+    )
+
 
 @app.post("/ingest")
 async def ingest(request: IngestRequest, _api_key: str = Depends(get_api_key)):
@@ -92,7 +112,7 @@ async def ingest(request: IngestRequest, _api_key: str = Depends(get_api_key)):
 
     token_count = state.motor.llm_adapter.get_token_count(request.content)
 
-    from mesa_memory.valence.fitness import calculate_fitness_score
+    from mesa_memory.valence.core import calculate_fitness_score
 
     fitness_score = calculate_fitness_score(request.content, token_count)
 

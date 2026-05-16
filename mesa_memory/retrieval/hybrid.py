@@ -1,14 +1,28 @@
 import asyncio
 import logging
 
+import networkx as nx
+
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
-from mesa_memory.retrieval.graph_traversal import find_path
 from mesa_memory.security.rbac import AccessControl
 from mesa_memory.storage import StorageFacade
 
 logger = logging.getLogger("MESA_Retrieval")
+
+
+def find_path(
+    graph: nx.Graph, source_entity: str, target_entity: str, max_hops: int = 3
+) -> list:
+    """Find the shortest path between two entities in the knowledge graph."""
+    try:
+        path = nx.shortest_path(graph, source=source_entity, target=target_entity)
+        if len(path) - 1 <= max_hops:
+            return path
+        return []
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        return []
 
 
 class HybridRetriever:

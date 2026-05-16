@@ -7,7 +7,7 @@ from mesa_memory.storage.graph.base import BaseGraphProvider
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.storage.raw_log import RawLogStorage
 from mesa_memory.storage.vector_index import VectorStorage
-from mesa_memory.valence.fitness import calculate_fitness_score
+from mesa_memory.valence.core import calculate_fitness_score
 
 logger = logging.getLogger("MESA_Storage")
 
@@ -40,7 +40,7 @@ class StorageFacade:
         await self.graph.initialize()
 
         if valence_motor is not None:
-            await valence_motor.load_state(self.raw_log.db_path)
+            await valence_motor.load_state("./storage/valence_state.db")
 
         orphan_count = await self.reconcile_orphans()
         if orphan_count:
