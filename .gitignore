@@ -39,6 +39,7 @@ bench_results.json
 raw_log.db
 storage/*.db
 storage/*.sqlite3
+storage/*.jsonl
 
 # RocksDB
 *.rocksdb

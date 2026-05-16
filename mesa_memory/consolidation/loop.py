@@ -52,7 +52,8 @@ class PersistentQueue:
             f.write(json.dumps(item) + "\n")
 
     def clear(self):
-        open(self.filepath, "w").close()
+        with open(self.filepath, "w") as f:  # noqa: F841
+            pass
 
     def __len__(self):
         try:
