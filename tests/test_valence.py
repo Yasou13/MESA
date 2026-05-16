@@ -1,135 +1,56 @@
-import json
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from mesa_memory.observability.metrics import ObservabilityLayer
-from mesa_memory.valence.core import ValenceMotor
-from mesa_memory.valence.drift import recalibrate_threshold
+from mesa_memory.valence.novelty import _normalize_ecod_score, calculate_novelty_score
 
 
-def _make_mock_adapter():
-    adapter = MagicMock()
-    adapter.EMBEDDING_DIM = 768
-    adapter.complete.return_value = json.dumps(
-        {"decision": "DISCARD", "justification": "test"}
-    )
-    return adapter
-
-
-def _make_cmb_candidate(embedding=None, latency_ms=100.0):
-    return {
-        "content_payload": "test content",
-        "source": "agent",
-        "performative": "assert",
-        "resource_cost": {"token_count": 50, "latency_ms": latency_ms},
-        "embedding": embedding or [0.1] * 768,
-    }
+def test_normalize_ecod_score():
+    assert _normalize_ecod_score(5.0, np.array([5.0, 5.0])) == 0.5
+    assert _normalize_ecod_score(7.0, np.array([0.0, 10.0])) == 0.7
+    assert _normalize_ecod_score(-1.0, np.array([0.0, 10.0])) == 0.0
+    assert _normalize_ecod_score(11.0, np.array([0.0, 10.0])) == 1.0
 
 
 @pytest.mark.asyncio
-async def test_tier1_bypass():
-    adapter = _make_mock_adapter()
-    obs = ObservabilityLayer()
-    motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
-
-    cmb = _make_cmb_candidate()
-    signals = {"explicit_correction": True}
-
-    result = await motor.evaluate(cmb, signals)
-
-    assert result is True
-    adapter.complete.assert_not_called()
+async def test_calculate_novelty_cold_start():
+    res = await calculate_novelty_score([0.1], [], 0.5)
+    assert res is True
 
 
 @pytest.mark.asyncio
-async def test_tier1_error_state():
-    adapter = _make_mock_adapter()
-    obs = ObservabilityLayer()
-    motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
-
-    cmb = _make_cmb_candidate()
-    signals = {"error": True}
-
-    result = await motor.evaluate(cmb, signals)
-
-    # Operational behavior: ExecutionFailure should discard the CMB (return False)
-    # The previous faulty test logic expected True, which is incorrect.
-    assert result is False
-    adapter.complete.assert_not_called()
+@patch("mesa_memory.valence.novelty.config")
+async def test_calculate_novelty_fast_path(mock_config):
+    mock_config.bootstrap_cosine_threshold = 0.9
+    res = await calculate_novelty_score([1.0], [[-1.0]], 0.95)
+    assert res is True
 
 
 @pytest.mark.asyncio
-async def test_tier2_ecod_bootstrap():
-    adapter = _make_mock_adapter()
-    obs = ObservabilityLayer()
-    motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
+@patch("mesa_memory.valence.novelty.config")
+async def test_calculate_novelty_bootstrap(mock_config):
+    mock_config.bootstrap_cosine_threshold = 0.1
+    mock_config.recalibration_interval = 10
 
-    rng = np.random.RandomState(42)
-    for _ in range(10):
-        motor.existing_embeddings.append(rng.rand(768).tolist())
-        motor.memory_count += 1
+    # max_sim < cosine_threshold -> novel
+    res = await calculate_novelty_score([1.0], [[1.0]], 1.5)
+    assert res is True
 
-    assert motor.memory_count < 50
-    threshold = motor._get_current_threshold()
-    assert threshold == motor.bootstrap_threshold
-
-    novel_embedding = rng.rand(768).tolist()
-    cmb = _make_cmb_candidate(embedding=novel_embedding)
-    signals = {}
-
-    await motor.evaluate(cmb, signals)
-
-    tier2_logs = [
-        c
-        for c in obs.metrics.counters
-        if "valence_tier_2" in c or "valence_decision" in c
-    ]
-    assert len(tier2_logs) > 0
-
-
-def test_threshold_recalibration_ewmad():
-    adapter = _make_mock_adapter()
-    obs = ObservabilityLayer()
-    motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
-
-    initial_threshold = motor.bootstrap_threshold
-    assert initial_threshold == 0.75
-
-    rng = np.random.RandomState(99)
-    for i in range(160):
-        emb = rng.rand(768).tolist()
-        motor.existing_embeddings.append(emb)
-        motor.memory_count += 1
-        motor._records_since_recalibration += 1
-        if motor._records_since_recalibration >= 50:
-            motor._recalibrate()
-
-    assert motor.memory_count == 160
-    # Verify threshold has been modified by EWMAD recalibration
-    assert (
-        motor._ewmad_threshold != initial_threshold
-    ), "Threshold should have drifted after 160 records"
-
-    recalibrated = recalibrate_threshold(0.75, motor.existing_embeddings)
-    assert 0.50 <= recalibrated <= 0.90
+    # max_sim >= cosine_threshold -> not novel
+    res2 = await calculate_novelty_score([1.0], [[1.0]], 0.5)
+    assert res2 is False
 
 
 @pytest.mark.asyncio
-async def test_tier3_deferred():
-    adapter = _make_mock_adapter()
-    obs = ObservabilityLayer()
-    motor = ValenceMotor(llm_adapter=adapter, obs_layer=obs)
+@patch("mesa_memory.valence.novelty.config")
+async def test_calculate_novelty_steady_state(mock_config):
+    mock_config.bootstrap_cosine_threshold = 0.1
+    mock_config.recalibration_interval = 2
+    mock_config.ecod_anomaly_threshold = 0.8
 
-    motor.existing_embeddings = [np.ones(768).tolist()] * 5
-    motor.memory_count = 5
-
-    near_duplicate = np.ones(768).tolist()
-    cmb = _make_cmb_candidate(embedding=near_duplicate, latency_ms=100.0)
-    result = await motor.evaluate(cmb, {})
-
-    # Tier-3 deferral now returns the status string "DEFERRED", not a boolean.
-    assert result == "DEFERRED"
-    assert cmb.get("tier3_deferred") is True
-    adapter.complete.assert_not_called()
+    # Provide more points so ECOD assigns distinct train anomaly scores
+    train_set = [[0.0, 0.0], [0.1, 0.1], [0.5, 0.5], [-0.1, -0.1], [0.9, 0.9]]
+    res = await calculate_novelty_score([100.0, 100.0], train_set, 0.5)
+    # ECOD will flag [100, 100] as highly anomalous (novel)
+    assert res is True

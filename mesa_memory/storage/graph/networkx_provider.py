@@ -29,6 +29,8 @@ from mesa_memory.security.rbac import AccessControl
 from mesa_memory.security.rbac_constants import _UNSET_IDENTITY
 from mesa_memory.storage.graph import analytics as graph_analytics
 from mesa_memory.storage.graph.base import BaseGraphProvider
+from mesa_memory.storage.graph.cache import GraphCache
+from mesa_memory.storage.graph.mvcc import MVCCManager
 
 
 class NetworkXProvider(BaseGraphProvider):
@@ -43,7 +45,8 @@ class NetworkXProvider(BaseGraphProvider):
         self.db_path = db_path
         self.rocks_path = rocks_path
         self.access_control = access_control
-        self._graph = nx.MultiDiGraph()
+        self._cache = GraphCache()
+        self._mvcc = MVCCManager(db_path=self.db_path)
         self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
@@ -103,7 +106,7 @@ class NetworkXProvider(BaseGraphProvider):
 
     async def _load_active_graph(self) -> None:
         """Hydrate the in-memory graph from the persistent store."""
-        self._graph.clear()
+        self._cache.clear()
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -111,7 +114,7 @@ class NetworkXProvider(BaseGraphProvider):
             ) as cursor:
                 async for row in cursor:
                     node_row = dict(row)
-                    self._graph.add_node(
+                    self._cache.add_node(
                         node_row["node_id"],
                         name=node_row["name"],
                         type=node_row["type"],
@@ -123,7 +126,7 @@ class NetworkXProvider(BaseGraphProvider):
             ) as cursor:
                 async for row in cursor:
                     edge_row = dict(row)
-                    self._graph.add_edge(
+                    self._cache.add_edge(
                         edge_row["source_node"],
                         edge_row["target_node"],
                         key=edge_row["edge_id"],
@@ -161,37 +164,9 @@ class NetworkXProvider(BaseGraphProvider):
                 db.row_factory = aiosqlite.Row
                 await db.execute("BEGIN IMMEDIATE")
                 try:
-                    async with db.execute(
-                        "SELECT node_id FROM nodes WHERE name = ? AND expired_at IS NULL",
-                        (name,),
-                    ) as cursor:
-                        existing = await cursor.fetchone()
-
-                    if existing:
-                        old_id = existing["node_id"]
-                        # Re-link edges to the new node_id before expiring the old node
-                        await db.execute(
-                            "UPDATE edges SET source_node = ? WHERE source_node = ? AND expired_at IS NULL",
-                            (node_id, old_id),
-                        )
-                        await db.execute(
-                            "UPDATE edges SET target_node = ? WHERE target_node = ? AND expired_at IS NULL",
-                            (node_id, old_id),
-                        )
-                        await db.execute(
-                            "UPDATE nodes SET expired_at = ? WHERE node_id = ? AND expired_at IS NULL",
-                            (now, old_id),
-                        )
-
-                    await db.execute(
-                        "INSERT INTO nodes (node_id, name, type, created_at) VALUES (?, ?, ?, ?)",
-                        (node_id, name, type, now),
+                    old_id = await self._mvcc.upsert_node_version(
+                        db, name, type, node_id, now, cmb_id
                     )
-                    if cmb_id:
-                        await db.execute(
-                            "INSERT OR IGNORE INTO cmb_nodes (cmb_id, node_id) VALUES (?, ?)",
-                            (cmb_id, node_id),
-                        )
                     await db.execute("COMMIT")
                 except Exception:
                     await db.execute("ROLLBACK")
@@ -199,15 +174,13 @@ class NetworkXProvider(BaseGraphProvider):
 
             # Update in-memory graph AFTER successful DB commit
             if old_id is not None:
-                for u, v, k, d in list(self._graph.edges(old_id, data=True, keys=True)):
-                    self._graph.add_edge(node_id, v, key=k, **d)
-                for u, v, k, d in list(
-                    self._graph.in_edges(old_id, data=True, keys=True)
-                ):
-                    self._graph.add_edge(u, node_id, key=k, **d)
-                self._graph.remove_node(old_id)
+                for u, v, k, d in self._cache.get_out_edges(old_id):
+                    self._cache.add_edge(node_id, v, key=k, **d)
+                for u, v, k, d in self._cache.get_in_edges(old_id):
+                    self._cache.add_edge(u, node_id, key=k, **d)
+                self._cache.remove_node(old_id)
 
-            self._graph.add_node(
+            self._cache.add_node(
                 node_id,
                 name=name,
                 type=type,
@@ -243,7 +216,7 @@ class NetworkXProvider(BaseGraphProvider):
                 )
                 await db.commit()
 
-            self._graph.add_edge(
+            self._cache.add_edge(
                 source_id,
                 target_id,
                 key=edge_id,
@@ -262,80 +235,37 @@ class NetworkXProvider(BaseGraphProvider):
         now = datetime.now(timezone.utc).isoformat()
         async with self._lock:
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute(
-                    "UPDATE nodes SET expired_at = ? WHERE node_id = ? AND expired_at IS NULL",
-                    (now, node_id),
-                )
-                await db.execute(
-                    "UPDATE edges SET expired_at = ? WHERE (source_node = ? OR target_node = ?) AND expired_at IS NULL",
-                    (now, node_id, node_id),
-                )
+                await self._mvcc.soft_delete_node(db, node_id, now)
                 await db.commit()
 
-            if self._graph.has_node(node_id):
-                self._graph.remove_node(node_id)
+            self._cache.remove_node(node_id)
 
     async def soft_delete_edge(self, edge_id: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
         async with self._lock:
             async with aiosqlite.connect(self.db_path) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    "SELECT source_node, target_node FROM edges WHERE edge_id = ? AND expired_at IS NULL",
-                    (edge_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-
-                if row:
-                    await db.execute(
-                        "UPDATE edges SET expired_at = ? WHERE edge_id = ? AND expired_at IS NULL",
-                        (now, edge_id),
-                    )
+                edge_data = await self._mvcc.get_active_edge(db, edge_id)
+                if edge_data:
+                    await self._mvcc.soft_delete_edge(db, edge_id, now)
                     await db.commit()
-                    edge_data = dict(row)
-                    try:
-                        self._graph.remove_edge(
-                            edge_data["source_node"],
-                            edge_data["target_node"],
-                            key=edge_id,
-                        )
-                    except nx.NetworkXError:
-                        import logging
-
-                        logging.getLogger("MESA_Graph").error(
-                            "Edge not found in memory but might exist in persistence layer. State desynchronization detected for edge_id: %s",
-                            edge_id,
-                            exc_info=True,
-                        )
+                    self._cache.remove_edge(
+                        edge_data["source_node"],
+                        edge_data["target_node"],
+                        key=edge_id,
+                    )
 
     async def soft_delete_by_cmb(self, cmb_id: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
         async with self._lock:
             async with aiosqlite.connect(self.db_path) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    "SELECT node_id FROM cmb_nodes WHERE cmb_id = ?",
-                    (cmb_id,),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-
-                for row in rows:
-                    node_id = row["node_id"]
-                    await db.execute(
-                        "UPDATE nodes SET expired_at = ? WHERE node_id = ? AND expired_at IS NULL",
-                        (now, node_id),
-                    )
-                    await db.execute(
-                        "UPDATE edges SET expired_at = ? WHERE (source_node = ? OR target_node = ?) AND expired_at IS NULL",
-                        (now, node_id, node_id),
-                    )
-                await db.execute("DELETE FROM cmb_nodes WHERE cmb_id = ?", (cmb_id,))
+                nodes = await self._mvcc.get_cmb_nodes(db, cmb_id)
+                for node_id in nodes:
+                    await self._mvcc.soft_delete_node(db, node_id, now)
+                await self._mvcc.remove_cmb_link(db, cmb_id)
                 await db.commit()
 
-                for row in rows:
-                    node_id = row["node_id"]
-                    if self._graph.has_node(node_id):
-                        self._graph.remove_node(node_id)
+                for node_id in nodes:
+                    self._cache.remove_node(node_id)
 
     # ------------------------------------------------------------------
     # Read operations  (decomposed from legacy get_active_graph)
@@ -343,9 +273,9 @@ class NetworkXProvider(BaseGraphProvider):
 
     async def get_node_by_id(self, node_id: str) -> Optional[dict]:
         async with self._lock:
-            if not self._graph.has_node(node_id):
+            data = self._cache.get_node_data(node_id)
+            if not data:
                 return None
-            data = self._graph.nodes[node_id]
             return {
                 "node_id": node_id,
                 "name": data.get("name", ""),
@@ -359,18 +289,14 @@ class NetworkXProvider(BaseGraphProvider):
         direction: str = "both",
     ) -> list[dict]:
         async with self._lock:
-            if not self._graph.has_node(node_id):
+            if not self._cache.has_node(node_id):
                 return []
 
             results: list[dict] = []
 
             if direction in ("out", "both"):
-                for _, target, key, data in self._graph.edges(
-                    node_id,
-                    data=True,
-                    keys=True,
-                ):
-                    target_data = self._graph.nodes.get(target, {})
+                for _, target, key, data in self._cache.get_out_edges(node_id):
+                    target_data = self._cache.get_node_data(target) or {}
                     results.append(
                         {
                             "node_id": target,
@@ -383,12 +309,8 @@ class NetworkXProvider(BaseGraphProvider):
                     )
 
             if direction in ("in", "both"):
-                for source, _, key, data in self._graph.in_edges(
-                    node_id,
-                    data=True,
-                    keys=True,
-                ):
-                    source_data = self._graph.nodes.get(source, {})
+                for source, _, key, data in self._cache.get_in_edges(node_id):
+                    source_data = self._cache.get_node_data(source) or {}
                     results.append(
                         {
                             "node_id": source,
@@ -404,9 +326,7 @@ class NetworkXProvider(BaseGraphProvider):
 
     async def get_node_degree(self, node_id: str) -> int:
         async with self._lock:
-            if not self._graph.has_node(node_id):
-                return 0
-            return self._graph.degree(node_id)
+            return self._cache.get_node_degree(node_id)
 
     async def find_nodes_by_name(
         self,
@@ -416,7 +336,7 @@ class NetworkXProvider(BaseGraphProvider):
         lookup = {n.lower() for n in names} if case_insensitive else set(names)
         results: list[dict] = []
         async with self._lock:
-            for node_id, data in self._graph.nodes(data=True):
+            for node_id, data in self._cache.get_all_nodes():
                 name = data.get("name", "")
                 match_name = name.lower() if case_insensitive else name
                 if match_name in lookup:
@@ -437,17 +357,17 @@ class NetworkXProvider(BaseGraphProvider):
     ) -> dict:
         async with self._lock:
             collected_nodes: set[str] = set(node_ids)
-            frontier: set[str] = {nid for nid in node_ids if self._graph.has_node(nid)}
+            frontier: set[str] = {nid for nid in node_ids if self._cache.has_node(nid)}
 
             for _ in range(depth):
                 next_frontier: set[str] = set()
                 for nid in frontier:
-                    next_frontier.update(self._graph.successors(nid))
-                    next_frontier.update(self._graph.predecessors(nid))
+                    next_frontier.update(self._cache.get_successors(nid))
+                    next_frontier.update(self._cache.get_predecessors(nid))
                 collected_nodes.update(next_frontier)
                 frontier = next_frontier
 
-            sub = self._graph.subgraph(collected_nodes)
+            sub = self._cache.get_subgraph(collected_nodes)
             nodes = [
                 {
                     "node_id": n,
@@ -478,7 +398,7 @@ class NetworkXProvider(BaseGraphProvider):
                     "type": d.get("type", ""),
                     "created_at": d.get("created_at", ""),
                 }
-                for n, d in self._graph.nodes(data=True)
+                for n, d in self._cache.get_all_nodes()
             ]
 
     # ------------------------------------------------------------------
@@ -493,7 +413,7 @@ class NetworkXProvider(BaseGraphProvider):
         tol: float = 1e-6,
     ) -> dict[str, float]:
         return await graph_analytics.compute_pagerank(
-            graph=self._graph,
+            graph=self._cache.get_raw_graph(),
             lock=self._lock,
             personalization=personalization,
             alpha=alpha,
@@ -529,7 +449,7 @@ class NetworkXProvider(BaseGraphProvider):
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            return self._graph.copy()
+            return self._cache.copy()
 
         if loop.is_running():
             # Usually get_active_graph is deprecated and might be called synchronously
@@ -537,4 +457,4 @@ class NetworkXProvider(BaseGraphProvider):
             # For backward compatibility, just return the copy directly
             pass
 
-        return self._graph.copy()
+        return self._cache.copy()
