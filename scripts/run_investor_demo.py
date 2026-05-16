@@ -34,7 +34,7 @@ async def ingest_record(facade: StorageFacade, adapter, record: dict, agent_id: 
         performative="INFORM",
         resource_cost=ResourceCost(token_count=50, latency_ms=10.0),
         embedding=adapter.embed(content),
-        tier3_deferred=True,
+        tier3_deferred=False,
     )
     await facade.persist_cmb(cmb, agent_id, session_id="demo_session")
     print(f"[{agent_id}] Ingested {record['record_id']}")

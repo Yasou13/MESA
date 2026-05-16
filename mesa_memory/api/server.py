@@ -14,7 +14,7 @@ from mesa_memory.schema.cmb import CMB, ResourceCost
 from mesa_memory.storage import StorageFacade
 from mesa_memory.valence.core import ValenceMotor
 
-app = FastAPI(title="MESA API", version="1.0.0")
+app = FastAPI(title="MESA API", version="0.2.0")
 
 # ---------------------------------------------------------------------------
 # API Key Authentication
@@ -153,3 +153,8 @@ async def health():
 @app.get("/metrics")
 async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await state.motor.save_state("./storage/valence_state.db")

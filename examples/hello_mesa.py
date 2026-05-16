@@ -104,7 +104,7 @@ async def scenario_1_ingest_and_retrieve(facade: StorageFacade, adapter):
         resource_cost=ResourceCost(token_count=token_count, latency_ms=5.0),
         embedding=embedding,
         fitness_score=fitness,
-        tier3_deferred=True,  # Mark for consolidation processing
+        tier3_deferred=False,  # Mark for consolidation processing
     )
 
     print(f"  CMB ID       : {cmb.cmb_id}")
@@ -186,7 +186,7 @@ async def scenario_2_concurrent_ingestion(facade: StorageFacade, adapter):
             resource_cost=ResourceCost(token_count=token_count, latency_ms=5.0),
             embedding=embedding,
             fitness_score=calculate_fitness_score(rec["content"], token_count),
-            tier3_deferred=True,
+            tier3_deferred=False,
         )
         await facade.persist_cmb(
             cmb, agent_id=rec["agent"], session_id="tutorial_session"

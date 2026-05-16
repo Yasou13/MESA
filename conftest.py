@@ -1,9 +1,10 @@
 import sys
 import os
 import importlib.util
+from pathlib import Path
 
 # Add original MESA dir to sys.path so unmutated packages can be found
-root_dir = "/home/yasin/Desktop/MESA"
+root_dir = str(Path(__file__).resolve().parent)
 if root_dir not in sys.path:
     sys.path.append(root_dir)
 

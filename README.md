@@ -6,10 +6,10 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/Version-0.2.0-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
-Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus that statistically minimises hallucination cascades.
+Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
 
 </div>
 
@@ -91,7 +91,7 @@ graph TB
 | 2 | **ECOD Detector** | `mesa_memory/valence/novelty.py` | Embedding-space anomaly detection for novelty scoring |
 | 3 | **Fitness Scorer** | `mesa_memory/valence/fitness.py` | Content density × cost efficiency × novelty composite |
 | 4 | **Observability** | `mesa_memory/observability/metrics.py` | Prometheus counters/histograms + structured JSON audit |
-| 5 | **Graph Writer** | `mesa_memory/consolidation/graph_writer.py` | Atomic triplet commit with MVCC node versioning |
+| 5 | **Graph Writer** | `mesa_memory/consolidation/writer.py` | Atomic triplet commit with MVCC node versioning |
 | 6 | **REBEL Extractor** | `mesa_memory/extraction/rebel_pipeline.py` | Local seq2seq triplet extraction (zero token cost) |
 | 7 | **Storage Facade** | `mesa_memory/storage/__init__.py` | Unified SQLite + LanceDB + NetworkX interface |
 | 8 | **Consolidation Loop** | `mesa_memory/consolidation/loop.py` | Batch orchestration with dual-LLM cross-validation |
