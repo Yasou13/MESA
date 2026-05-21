@@ -16,7 +16,7 @@ def _make_mock_embedder(dim=768):
 
     def _embed(text, **kwargs):
         call_count["n"] += 1
-        np.random.seed(hash(text.strip().lower()) % 2 ** 31)
+        np.random.seed(hash(text.strip().lower()) % 2**31)
         return np.random.rand(dim).tolist()
 
     embedder.embed.side_effect = _embed

@@ -77,16 +77,14 @@ class AccessControl:
         os.makedirs(os.path.dirname(os.path.abspath(self.policy_path)), exist_ok=True)
         async with aiosqlite.connect(self.policy_path) as db:
             await db.execute("PRAGMA journal_mode=WAL;")
-            await db.execute(
-                """
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS permissions (
                     agent_id TEXT,
                     session_id TEXT,
                     access_level TEXT,
                     PRIMARY KEY (agent_id, session_id)
                 )
-            """
-            )
+            """)
             # Seed the reserved system daemon identity with WRITE access
             await db.execute(
                 "INSERT OR IGNORE INTO permissions "

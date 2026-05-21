@@ -69,8 +69,7 @@ _UNCONSOLIDATED_WARNING = (
 class TokenCounter(Protocol):
     """Minimal interface for token budget enforcement."""
 
-    def get_token_count(self, text: str) -> int:
-        ...
+    def get_token_count(self, text: str) -> int: ...
 
 
 class _NoOpCounter:
