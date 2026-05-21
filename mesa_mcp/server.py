@@ -73,7 +73,9 @@ async def list_tools() -> list[types.Tool]:
 
 
 @app.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+async def call_tool(
+    name: str, arguments: dict[str, Any] | None
+) -> list[types.TextContent]:
     """Handle execution of MESA tools."""
     if not arguments:
         raise ValueError("Missing tool arguments")

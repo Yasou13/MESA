@@ -189,8 +189,7 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         await db.commit()
 
     logger.info(
-        "SCHEMA_INIT | tables=[nodes, edges, nodes_fts] "
-        "indexes=10 triggers=3 db=%s",
+        "SCHEMA_INIT | tables=[nodes, edges, nodes_fts] " "indexes=10 triggers=3 db=%s",
         engine.db_path,
     )
 
@@ -346,9 +345,7 @@ async def bulk_insert_nodes(
     return len(nodes)
 
 
-async def soft_delete_node(
-    engine: AsyncEngine, node_id: str, *, agent_id: str
-) -> None:
+async def soft_delete_node(engine: AsyncEngine, node_id: str, *, agent_id: str) -> None:
     """Soft-delete a node by setting its invalid_at timestamp.
 
     Also soft-deletes all edges connected to this node (source or target).
@@ -520,8 +517,7 @@ async def upsert_edge(
             # Merge: update weight additively
             # RLS: agent_id hardcoded into UPDATE
             await db.execute(
-                "UPDATE edges SET weight = weight + ? "
-                "WHERE id = ? AND agent_id = ?",
+                "UPDATE edges SET weight = weight + ? " "WHERE id = ? AND agent_id = ?",
                 (weight, existing[0], agent_id),
             )
             await db.commit()
@@ -537,9 +533,7 @@ async def upsert_edge(
             return edge_id
 
 
-async def soft_delete_edge(
-    engine: AsyncEngine, edge_id: str, *, agent_id: str
-) -> None:
+async def soft_delete_edge(engine: AsyncEngine, edge_id: str, *, agent_id: str) -> None:
     """Soft-delete a single edge by its ID.
 
     RLS: agent_id is mandatory and hardcoded into the WHERE clause.

@@ -108,7 +108,7 @@ async def _async_retry(
 
 class MesaClient:
     """Synchronous MESA API client.
-    
+
     Provides blocking methods to interact with the MESA memory system endpoints.
     Includes built-in retries for network resilience and enforces Pydantic V2 schemas.
     """
@@ -144,6 +144,7 @@ class MesaClient:
 
     def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         """Internal request executor with error handling and retry logic."""
+
         def _op() -> httpx.Response:
             response = self._client.request(method, path, **kwargs)
             # Catch 4XX and 5XX status codes
@@ -156,7 +157,7 @@ class MesaClient:
 
     def insert(self, request: MemoryInsertRequest) -> MemoryInsertResponse:
         """POST /v3/memory/insert - Insert memory into the MESA system.
-        
+
         Args:
             request: MemoryInsertRequest instance.
         Returns:
@@ -171,7 +172,7 @@ class MesaClient:
 
     def search(self, request: MemorySearchRequest) -> MemorySearchResponse:
         """POST /v3/memory/search - Search memory in the MESA system.
-        
+
         Args:
             request: MemorySearchRequest instance.
         Returns:
@@ -186,7 +187,7 @@ class MesaClient:
 
     def purge(self, request: MemoryPurgeRequest) -> MemoryPurgeResponse:
         """DELETE /v3/memory/purge - Purge (soft-delete) memory in the MESA system.
-        
+
         Args:
             request: MemoryPurgeRequest instance.
         Returns:
@@ -202,7 +203,7 @@ class MesaClient:
 
 class AsyncMesaClient:
     """Asynchronous MESA API client.
-    
+
     Provides non-blocking methods to interact with the MESA memory system endpoints.
     Includes built-in retries for network resilience and enforces Pydantic V2 schemas.
     """
@@ -238,6 +239,7 @@ class AsyncMesaClient:
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         """Internal request executor with error handling and retry logic."""
+
         async def _op() -> httpx.Response:
             response = await self._client.request(method, path, **kwargs)
             # Catch 4XX and 5XX status codes
@@ -250,7 +252,7 @@ class AsyncMesaClient:
 
     async def insert(self, request: MemoryInsertRequest) -> MemoryInsertResponse:
         """POST /v3/memory/insert - Insert memory into the MESA system asynchronously.
-        
+
         Args:
             request: MemoryInsertRequest instance.
         Returns:
@@ -265,7 +267,7 @@ class AsyncMesaClient:
 
     async def search(self, request: MemorySearchRequest) -> MemorySearchResponse:
         """POST /v3/memory/search - Search memory in the MESA system asynchronously.
-        
+
         Args:
             request: MemorySearchRequest instance.
         Returns:
@@ -280,7 +282,7 @@ class AsyncMesaClient:
 
     async def purge(self, request: MemoryPurgeRequest) -> MemoryPurgeResponse:
         """DELETE /v3/memory/purge - Purge (soft-delete) memory in the MESA system asynchronously.
-        
+
         Args:
             request: MemoryPurgeRequest instance.
         Returns:

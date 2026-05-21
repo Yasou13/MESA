@@ -7,9 +7,11 @@ from mesa_client.client import MesaClient
 from mesa_client.langchain import MesaRetriever
 
 
-def run_legal_simulation(base_url: str = "http://localhost:8000", api_key: str = "") -> None:
+def run_legal_simulation(
+    base_url: str = "http://localhost:8000", api_key: str = ""
+) -> None:
     """Run the legal assistant simulation as an integration test."""
-    
+
     agent_id = f"legal-proxy-{uuid.uuid4().hex[:8]}"
     session_id = f"case-{uuid.uuid4().hex[:8]}"
 
@@ -18,7 +20,7 @@ def run_legal_simulation(base_url: str = "http://localhost:8000", api_key: str =
     print(f"Session ID: {session_id}\n")
 
     client = MesaClient(base_url=base_url, api_key=api_key)
-    
+
     # Initialize LangChain retriever
     retriever = MesaRetriever(
         client=client,
@@ -32,21 +34,17 @@ def run_legal_simulation(base_url: str = "http://localhost:8000", api_key: str =
     fact_2 = "Deed shows client owns house in 2025"
 
     print(f"Injecting Fact 1: {fact_1}")
-    client.insert(MemoryInsertRequest(
-        agent_id=agent_id,
-        session_id=session_id,
-        content=fact_1
-    ))
+    client.insert(
+        MemoryInsertRequest(agent_id=agent_id, session_id=session_id, content=fact_1)
+    )
 
     # Allow time for async processing (if needed by MESA)
     time.sleep(1)
 
     print(f"Injecting Fact 2 (Temporal Contradiction): {fact_2}")
-    client.insert(MemoryInsertRequest(
-        agent_id=agent_id,
-        session_id=session_id,
-        content=fact_2
-    ))
+    client.insert(
+        MemoryInsertRequest(agent_id=agent_id, session_id=session_id, content=fact_2)
+    )
 
     # Allow time for potential vectorization/DB triggers
     time.sleep(2)
@@ -54,26 +52,28 @@ def run_legal_simulation(base_url: str = "http://localhost:8000", api_key: str =
     # 2. Query Execution via LangChain Adapter
     query = "Does the client own the house?"
     print(f"\nQuerying: '{query}'")
-    
+
     # Call standard LangChain invoke method which routes to _get_relevant_documents
     docs = retriever.invoke(query)
-    
+
     print("\n--- Retrieved Context ---")
     combined_context = []
     for i, doc in enumerate(docs):
-        print(f"Document {i+1} [Score: {doc.metadata.get('score', 'N/A')}]: {doc.page_content}")
+        print(
+            f"Document {i+1} [Score: {doc.metadata.get('score', 'N/A')}]: {doc.page_content}"
+        )
         combined_context.append(doc.page_content.lower())
-    
+
     full_text = " | ".join(combined_context)
-    
+
     # 3. Validation Criteria
     # The output must demonstrate Bi-temporal gating (warning) OR correct resolution.
     has_warning = "unconsolidated" in full_text or "warning" in full_text
     has_fact_1 = "sold" in full_text and "2024" in full_text
     has_fact_2 = "owns" in full_text and "2025" in full_text
-    
+
     print("\n--- Validation ---")
-    
+
     try:
         # We assert that the system either warns about unconsolidated data
         # OR it successfully retrieves both conflicting facts so the agent can reason.

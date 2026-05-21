@@ -65,16 +65,21 @@ class SQLiteEngineProtocol(Protocol):
     """Structural interface for the AsyncEngine dependency."""
 
     @property
-    def db_path(self) -> str: ...
+    def db_path(self) -> str:
+        ...
 
     @property
-    def is_initialized(self) -> bool: ...
+    def is_initialized(self) -> bool:
+        ...
 
-    async def initialize(self) -> None: ...
+    async def initialize(self) -> None:
+        ...
 
-    def connection(self) -> Any: ...
+    def connection(self) -> Any:
+        ...
 
-    def transaction(self) -> Any: ...
+    def transaction(self) -> Any:
+        ...
 
 
 @runtime_checkable
@@ -82,9 +87,11 @@ class VectorEngineProtocol(Protocol):
     """Structural interface for the VectorEngine dependency."""
 
     @property
-    def is_initialized(self) -> bool: ...
+    def is_initialized(self) -> bool:
+        ...
 
-    async def initialize(self) -> None: ...
+    async def initialize(self) -> None:
+        ...
 
     async def upsert(
         self,
@@ -92,7 +99,8 @@ class VectorEngineProtocol(Protocol):
         agent_id: str,
         embedding: list[float],
         content_hash: str | None = None,
-    ) -> None: ...
+    ) -> None:
+        ...
 
     async def search(
         self,
@@ -101,9 +109,11 @@ class VectorEngineProtocol(Protocol):
         limit: int = 10,
         agent_id: str | None = None,
         include_expired: bool = False,
-    ) -> list[dict]: ...
+    ) -> list[dict]:
+        ...
 
-    async def soft_delete(self, node_id: str) -> None: ...
+    async def soft_delete(self, node_id: str) -> None:
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +125,8 @@ class VectorEngineProtocol(Protocol):
 class EmbedderProtocol(Protocol):
     """Structural interface for an embedding function."""
 
-    def __call__(self, text: str) -> list[float]: ...
+    def __call__(self, text: str) -> list[float]:
+        ...
 
 
 def _noop_embedder(text: str) -> list[float]:
@@ -230,7 +241,8 @@ def create_memory_router(
             from mesa_storage.schemas import fts5_search
 
             fts_results = await fts5_search(
-                sqlite_engine, request.query,
+                sqlite_engine,
+                request.query,
                 agent_id=request.agent_id,
                 limit=request.limit,
             )

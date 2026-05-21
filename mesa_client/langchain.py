@@ -19,9 +19,7 @@ class MesaRetriever(BaseRetriever):
     client: MesaClient = Field(
         description="Configured instance of the synchronous MesaClient"
     )
-    agent_id: str = Field(
-        description="Tenant identifier enforcing row-level isolation"
-    )
+    agent_id: str = Field(description="Tenant identifier enforcing row-level isolation")
     session_id: str = Field(
         default="langchain-session",
         description="Session scope within the agent tenant",
