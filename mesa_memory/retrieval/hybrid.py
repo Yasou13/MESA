@@ -46,7 +46,7 @@ class HybridRetriever:
         top_n: int = 5,
         enable_multi_hop: bool = False,
     ) -> list[str] | dict:
-        if not self.access_control.check_access(agent_id, session_id, "READ"):
+        if not await self.access_control.check_access(agent_id, session_id, "READ"):
             raise PermissionError(
                 f"Agent '{agent_id}' lacks READ access for session '{session_id}'"
             )

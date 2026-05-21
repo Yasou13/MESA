@@ -1,7 +1,8 @@
 import logging
 import os
 import re
-import sqlite3
+
+import aiosqlite
 
 from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
 
@@ -44,15 +45,39 @@ def detect_prompt_injection(content: str) -> bool:
 
 
 class AccessControl:
+    """Async RBAC policy engine backed by aiosqlite.
+
+    All connection management, policy reads, and permission evaluations
+    are strictly asynchronous.  The ``initialize()`` coroutine MUST be
+    awaited before any other method is called.
+
+    Usage::
+
+        ac = AccessControl(policy_path="./storage/rbac_policy.db")
+        await ac.initialize()
+
+        await ac.grant_access("agent_1", "session_A", "WRITE")
+        has_access = await ac.check_access("agent_1", "session_A", "READ")
+
+        await ac.close()
+    """
+
     def __init__(self, policy_path: str = "./storage/rbac_policy.db"):
         self.policy_path = policy_path
-        self._init_db()
+        self._initialized = False
 
-    def _init_db(self):
+    async def initialize(self) -> None:
+        """Create the policy database and seed the system daemon identity.
+
+        This is idempotent — safe to call multiple times.
+        """
+        if self._initialized:
+            return
+
         os.makedirs(os.path.dirname(os.path.abspath(self.policy_path)), exist_ok=True)
-        with sqlite3.connect(self.policy_path) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute(
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL;")
+            await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS permissions (
                     agent_id TEXT,
@@ -63,44 +88,81 @@ class AccessControl:
             """
             )
             # Seed the reserved system daemon identity with WRITE access
-            conn.execute(
-                "INSERT OR IGNORE INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
+            await db.execute(
+                "INSERT OR IGNORE INTO permissions "
+                "(agent_id, session_id, access_level) VALUES (?, ?, ?)",
                 (SYSTEM_AGENT_ID, SYSTEM_SESSION_ID, "WRITE"),
             )
+            await db.commit()
 
-    def grant_access(self, agent_id: str, session_id: str, level: str):
+        self._initialized = True
+
+    async def close(self) -> None:
+        """Mark the controller as closed.
+
+        Each operation opens and closes its own connection via
+        ``async with aiosqlite.connect()``, so there is no persistent
+        connection to tear down.  This method exists for lifecycle
+        symmetry with other MESA engines.
+        """
+        self._initialized = False
+
+    async def grant_access(self, agent_id: str, session_id: str, level: str) -> None:
+        """Grant READ or WRITE access to an agent/session pair."""
         if level not in ("READ", "WRITE"):
             raise ValueError(
                 f"Invalid access level: {level}. Must be 'READ' or 'WRITE'."
             )
-        with sqlite3.connect(self.policy_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO permissions (agent_id, session_id, access_level) VALUES (?, ?, ?)",
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO permissions "
+                "(agent_id, session_id, access_level) VALUES (?, ?, ?)",
                 (agent_id, session_id, level),
             )
+            await db.commit()
 
-    def revoke_access(self, agent_id: str, session_id: str):
-        with sqlite3.connect(self.policy_path) as conn:
-            conn.execute(
+    async def revoke_access(self, agent_id: str, session_id: str) -> None:
+        """Revoke all access for an agent/session pair."""
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(
                 "DELETE FROM permissions WHERE agent_id = ? AND session_id = ?",
                 (agent_id, session_id),
             )
+            await db.commit()
 
-    def check_access(self, agent_id: str, session_id: str, required_level: str) -> bool:
-        with sqlite3.connect(self.policy_path) as conn:
-            cursor = conn.execute(
-                "SELECT access_level FROM permissions WHERE agent_id = ? AND session_id = ?",
+    async def check_access(
+        self, agent_id: str, session_id: str, required_level: str
+    ) -> bool:
+        """Check whether an agent/session has the required access level.
+
+        Returns True if the granted level satisfies the requirement:
+        - READ is satisfied by READ or WRITE.
+        - WRITE is satisfied only by WRITE.
+        """
+        async with aiosqlite.connect(self.policy_path) as db:
+            async with db.execute(
+                "SELECT access_level FROM permissions "
+                "WHERE agent_id = ? AND session_id = ?",
                 (agent_id, session_id),
-            )
-            row = cursor.fetchone()
-            if not row:
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+                granted = row[0]
+                if required_level == "READ":
+                    return granted in ("READ", "WRITE")
+                if required_level == "WRITE":
+                    return granted == "WRITE"
                 return False
-            granted = row[0]
-            if required_level == "READ":
-                return granted in ("READ", "WRITE")
-            if required_level == "WRITE":
-                return granted == "WRITE"
-            return False
+
+    # -- Async context manager for lifecycle symmetry -----------------------
+
+    async def __aenter__(self) -> "AccessControl":
+        await self.initialize()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
 
 
 def sanitize_cmb_content(content: str) -> str:

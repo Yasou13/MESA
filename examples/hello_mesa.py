@@ -76,7 +76,7 @@ async def setup() -> tuple:
 
     # Grant RBAC access for all tutorial agents (WRITE includes READ)
     for agent in ["tutorial_agent", "Agent_A", "Agent_B", "Agent_C"]:
-        facade.access_control.grant_access(agent, "tutorial_session", "WRITE")
+        await facade.access_control.grant_access(agent, "tutorial_session", "WRITE")
 
     return facade, adapter
 

@@ -86,12 +86,10 @@ class VectorStorage:
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ):
-        if self.access_control and not self.access_control.check_access(
-            agent_id, session_id, "WRITE"
-        ):
-            raise PermissionError(
-                f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
-            )
+        # NOTE: RBAC authorization is enforced by the async caller
+        # (StorageFacade.persist_cmb) BEFORE dispatching to this
+        # synchronous method via asyncio.to_thread().  Do NOT add a
+        # blocking check_access() call here.
 
         self._check_memory_limit()
 

@@ -63,11 +63,12 @@ def _make_mock_storage_facade(
     return storage
 
 
-def _make_retriever(storage, ac=None, embedder=None):
+async def _make_retriever(storage, ac=None, embedder=None):
     """Create a HybridRetriever with controlled dependencies."""
     if ac is None:
         ac = AccessControl(policy_path=os.path.join(COLD_START_DIR, "cold_rbac.db"))
-        ac.grant_access("test_agent", "test_session", "READ")
+        await ac.initialize()
+        await ac.grant_access("test_agent", "test_session", "READ")
     analyzer = MagicMock(spec=QueryAnalyzer)
     analyzer.extract_entities = MagicMock(return_value=["test_entity"])
     return HybridRetriever(
@@ -86,7 +87,7 @@ class TestEmptyGraph:
     async def test_empty_graph_returns_empty_list(self):
         """Query on a graph with zero nodes → empty list, no crash."""
         storage = _make_mock_storage_facade(graph_nodes=[], vector_results=[])
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = await retriever.retrieve(
             "test query", "test_agent", "test_session", top_n=5
@@ -97,7 +98,7 @@ class TestEmptyGraph:
     async def test_empty_graph_no_entity_match(self):
         """Entities extracted but none found in graph → cold-start path."""
         storage = _make_mock_storage_facade(graph_nodes=[], vector_results=[])
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = await retriever.get_graph_results(["CompanyX", "CompanyY"])
         assert result == []
@@ -106,7 +107,7 @@ class TestEmptyGraph:
     async def test_ppr_on_empty_graph(self):
         """PPR with no active nodes → empty result, no exception."""
         storage = _make_mock_storage_facade(graph_nodes=[])
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = await retriever._run_ppr(seed_ids=["nonexistent_node"])
         assert result == []
@@ -120,7 +121,7 @@ class TestEmptyVectorStore:
     async def test_empty_vector_returns_empty(self):
         """Search on empty vector store → empty results."""
         storage = _make_mock_storage_facade(vector_results=[])
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = await retriever.get_vector_results("test query", k=10)
         assert result == []
@@ -129,7 +130,7 @@ class TestEmptyVectorStore:
     async def test_cold_start_rerank_empty(self):
         """Cold-start rerank on empty vector results → empty list."""
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = retriever._cold_start_rerank([], top_k=5)
         assert result == []
@@ -143,7 +144,7 @@ class TestBothStoresEmpty:
     async def test_full_retrieve_both_empty(self):
         """Full retrieval pipeline with zero data → empty list, no crash."""
         storage = _make_mock_storage_facade(graph_nodes=[], vector_results=[])
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = await retriever.retrieve(
             "acquisition merger deal", "test_agent", "test_session"
@@ -155,7 +156,7 @@ class TestBothStoresEmpty:
     async def test_retrieve_returns_list_type(self):
         """Return type is always list[str], even on empty stores."""
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = await retriever.retrieve("anything", "test_agent", "test_session")
         assert isinstance(result, list)
@@ -178,7 +179,7 @@ class TestColdStartVectorOnly:
             for i in range(5)
         ]
         storage = _make_mock_storage_facade(graph_nodes=[], vector_results=vector_data)
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = await retriever.retrieve(
             "test query", "test_agent", "test_session", top_n=3
@@ -195,7 +196,7 @@ class TestColdStartVectorOnly:
             {"cmb_id": "mid", "fitness_score": 0.5, "score": 0.5},
         ]
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         ranked = retriever._cold_start_rerank(vector_results, top_k=3)
         assert ranked[0]["cmb_id"] == "high"
@@ -206,32 +207,35 @@ class TestColdStartVectorOnly:
 
 
 class TestFormatWorkingMemory:
-    def test_empty_nodes_returns_none_context(self):
+    @pytest.mark.asyncio
+    async def test_empty_nodes_returns_none_context(self):
         """Empty node list → 'Retrieved Context: None'."""
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = retriever.format_working_memory([])
         assert result == "Retrieved Context: None"
 
-    def test_zero_token_budget(self):
+    @pytest.mark.asyncio
+    async def test_zero_token_budget(self):
         """Zero token budget → 'Retrieved Context: None'."""
         embedder = _make_mock_embedder()
         embedder.get_token_count = MagicMock(return_value=100)
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage, embedder=embedder)
+        retriever = await _make_retriever(storage, embedder=embedder)
 
         result = retriever.format_working_memory(
             [{"content_payload": "test"}], max_tokens=5
         )
         assert result == "Retrieved Context: None"
 
-    def test_single_node_fits(self):
+    @pytest.mark.asyncio
+    async def test_single_node_fits(self):
         """Single node within budget → formatted context string."""
         embedder = _make_mock_embedder()
         embedder.get_token_count = MagicMock(return_value=3)
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage, embedder=embedder)
+        retriever = await _make_retriever(storage, embedder=embedder)
 
         result = retriever.format_working_memory(
             [{"content_payload": "Acme acquired Globex", "source": "test"}],
@@ -249,9 +253,10 @@ class TestRetrievalRBACEnforcement:
     async def test_no_access_raises_permission_error(self):
         """Agent without READ access → PermissionError."""
         ac = AccessControl(policy_path=os.path.join(COLD_START_DIR, "rbac_deny.db"))
+        await ac.initialize()
         # Deliberately NOT granting access
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage, ac=ac)
+        retriever = await _make_retriever(storage, ac=ac)
 
         with pytest.raises(PermissionError, match="lacks READ access"):
             await retriever.retrieve("test", "unauthorized_agent", "some_session")
@@ -260,16 +265,17 @@ class TestRetrievalRBACEnforcement:
     async def test_revoked_access_denied(self):
         """Access revoked mid-session → immediate denial."""
         ac = AccessControl(policy_path=os.path.join(COLD_START_DIR, "rbac_revoke.db"))
-        ac.grant_access("temp_agent", "temp_session", "READ")
+        await ac.initialize()
+        await ac.grant_access("temp_agent", "temp_session", "READ")
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage, ac=ac)
+        retriever = await _make_retriever(storage, ac=ac)
 
         # First call succeeds
         result = await retriever.retrieve("test", "temp_agent", "temp_session")
         assert isinstance(result, list)
 
         # Revoke and re-try
-        ac.revoke_access("temp_agent", "temp_session")
+        await ac.revoke_access("temp_agent", "temp_session")
         with pytest.raises(PermissionError):
             await retriever.retrieve("test", "temp_agent", "temp_session")
 
@@ -278,18 +284,20 @@ class TestRetrievalRBACEnforcement:
 
 
 class TestRRFEdgeCases:
-    def test_rrf_both_empty(self):
+    @pytest.mark.asyncio
+    async def test_rrf_both_empty(self):
         """RRF with empty vector and graph results → empty list."""
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         result = retriever._apply_rrf([], [], k=60)
         assert result == []
 
-    def test_rrf_vector_only(self):
+    @pytest.mark.asyncio
+    async def test_rrf_vector_only(self):
         """RRF with vector results but no graph → ordered by vector rank."""
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         vector = [
             {"cmb_id": "v1", "rank": 1},
@@ -299,10 +307,11 @@ class TestRRFEdgeCases:
         assert "v1" in result
         assert "v2" in result
 
-    def test_rrf_graph_only(self):
+    @pytest.mark.asyncio
+    async def test_rrf_graph_only(self):
         """RRF with graph results but no vector → ordered by graph rank."""
         storage = _make_mock_storage_facade()
-        retriever = _make_retriever(storage)
+        retriever = await _make_retriever(storage)
 
         graph = [
             {"cmb_id": "g1", "rank": 1},

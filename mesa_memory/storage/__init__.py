@@ -36,6 +36,7 @@ class StorageFacade:
             )
 
     async def initialize_all(self, valence_motor=None):
+        await self.access_control.initialize()
         await self.raw_log.initialize()
         await self.graph.initialize()
 
@@ -69,7 +70,7 @@ class StorageFacade:
             return 0
 
     async def persist_cmb(self, cmb: CMB, agent_id: str, session_id: str):
-        if not self.access_control.check_access(agent_id, session_id, "WRITE"):
+        if not await self.access_control.check_access(agent_id, session_id, "WRITE"):
             raise PermissionError(
                 f"Agent '{agent_id}' lacks WRITE access for session '{session_id}'"
             )
@@ -108,7 +109,7 @@ class StorageFacade:
             raise RuntimeError(f"Vector write failed, raw_log reverted: {e}") from e
 
     async def get_cmb(self, cmb_id: str, agent_id: str, session_id: str) -> dict | None:
-        if not self.access_control.check_access(agent_id, session_id, "READ"):
+        if not await self.access_control.check_access(agent_id, session_id, "READ"):
             raise PermissionError(
                 f"Agent '{agent_id}' lacks READ access for session '{session_id}'"
             )

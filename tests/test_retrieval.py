@@ -72,7 +72,8 @@ async def test_hybrid_retrieval_cold_start():
     from mesa_memory.security.rbac import AccessControl
 
     ac = AccessControl()
-    ac.grant_access("test_agent", "test_session", "READ")
+    await ac.initialize()
+    await ac.grant_access("test_agent", "test_session", "READ")
 
     retriever = HybridRetriever(
         storage_facade=storage,

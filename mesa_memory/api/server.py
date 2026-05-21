@@ -99,7 +99,7 @@ async def startup_event():
 
 @app.post("/ingest")
 async def ingest(request: IngestRequest, _api_key: str = Depends(get_api_key)):
-    if not state.facade.access_control.check_access(
+    if not await state.facade.access_control.check_access(
         request.agent_id, request.session_id, "WRITE"
     ):
         raise HTTPException(
@@ -142,7 +142,7 @@ async def ingest(request: IngestRequest, _api_key: str = Depends(get_api_key)):
 
 @app.post("/query")
 async def query(request: QueryRequest, _api_key: str = Depends(get_api_key)):
-    if not state.facade.access_control.check_access(
+    if not await state.facade.access_control.check_access(
         request.agent_id, request.session_id, "READ"
     ):
         raise HTTPException(

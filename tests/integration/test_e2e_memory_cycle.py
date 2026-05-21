@@ -163,11 +163,12 @@ def local_adapter():
     return LocalTestAdapter()
 
 
-@pytest.fixture
-def access_control():
+@pytest_asyncio.fixture
+async def access_control():
     db_path = os.path.join(E2E_STORAGE_DIR, "rbac_policy.db")
     ac = AccessControl(policy_path=db_path)
-    ac.grant_access("e2e_agent", "e2e_session", "WRITE")
+    await ac.initialize()
+    await ac.grant_access("e2e_agent", "e2e_session", "WRITE")
     return ac
 
 

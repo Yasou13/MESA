@@ -33,7 +33,6 @@ from mesa_memory.consolidation.loop import (
     _sanitize_llm_response,
 )
 from mesa_memory.schema.cmb import CMB, ResourceCost
-from mesa_memory.security.rbac import AccessControl
 from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.storage.raw_log import RawLogStorage
@@ -162,9 +161,7 @@ class TestVectorThroughput:
     @pytest.fixture
     def vector_store(self):
         uri = os.path.join(BENCH_STORAGE_DIR, "bench_vector.lance")
-        ac = AccessControl(policy_path=os.path.join(BENCH_STORAGE_DIR, "bench_rbac.db"))
-        ac.grant_access(SYSTEM_AGENT_ID, SYSTEM_SESSION_ID, "WRITE")
-        vs = VectorStorage(uri=uri, access_control=ac)
+        vs = VectorStorage(uri=uri)
         return vs
 
     def test_single_vector_upsert(self, benchmark, vector_store):

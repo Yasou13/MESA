@@ -436,7 +436,8 @@ class TestHybridRetrieverCompat:
         embedder.embed.return_value = [0.1] * 768
 
         ac = AccessControl()
-        ac.grant_access("a", "s", "READ")
+        await ac.initialize()
+        await ac.grant_access("a", "s", "READ")
 
         retriever = HybridRetriever(
             storage_facade=storage,

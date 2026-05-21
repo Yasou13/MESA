@@ -67,9 +67,9 @@ async def main():
     )
     await facade.initialize_all()
 
-    facade.access_control.grant_access("Agent_A", "demo_session", "WRITE")
-    facade.access_control.grant_access("Agent_B", "demo_session", "WRITE")
-    facade.access_control.grant_access("Agent_C", "demo_session", "WRITE")
+    await facade.access_control.grant_access("Agent_A", "demo_session", "WRITE")
+    await facade.access_control.grant_access("Agent_B", "demo_session", "WRITE")
+    await facade.access_control.grant_access("Agent_C", "demo_session", "WRITE")
 
     print("Loading JSON Dataset...")
     try:

@@ -620,17 +620,23 @@ class MaintenanceWorker:
             try:
                 table = db.open_table(table_name)
 
-                # Try modern optimize API first, fall back to legacy
-                if hasattr(table, "cleanup_old_versions"):
-                    table.cleanup_old_versions(older_than=timedelta(hours=1))
+                # Modern LanceDB optimize API (v0.21+):
+                #   1. compact_files() — merge small data fragments
+                #   2. cleanup_old_versions() — remove stale manifest files
+                if hasattr(table, "optimize"):
+                    table.optimize.compact_files()
+                    table.optimize.cleanup_old_versions(
+                        older_than=timedelta(hours=1),
+                        delete_unverified=True,
+                    )
                     logger.info(
-                        "VECTOR_COMPACTED | table=%s method=cleanup_old_versions",
+                        "VECTOR_COMPACTED | table=%s method=optimize.compact_files+cleanup",
                         table_name,
                     )
                 else:
                     logger.debug(
                         "VECTOR_COMPACTION_UNAVAILABLE | table=%s "
-                        "(pylance not installed)",
+                        "(Table.optimize API not available)",
                         table_name,
                     )
 

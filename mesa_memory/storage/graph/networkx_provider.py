@@ -162,7 +162,7 @@ class NetworkXProvider(BaseGraphProvider):
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ) -> str:
-        if self.access_control and not self.access_control.check_access(
+        if self.access_control and not await self.access_control.check_access(
             agent_id, session_id, "WRITE"
         ):
             raise PermissionError(
@@ -212,7 +212,7 @@ class NetworkXProvider(BaseGraphProvider):
         agent_id: str = _UNSET_IDENTITY,
         session_id: str = _UNSET_IDENTITY,
     ) -> str:
-        if self.access_control and not self.access_control.check_access(
+        if self.access_control and not await self.access_control.check_access(
             agent_id, session_id, "WRITE"
         ):
             raise PermissionError(
