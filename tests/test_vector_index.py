@@ -150,8 +150,9 @@ async def test_rbac_write():
 
     After the aiosqlite migration, RBAC enforcement moved from the
     synchronous VectorStorage.upsert_vector() to the async caller
-    (StorageFacade.persist_cmb).  This test validates the async mock
-    contract that the facade relies on.
+    (StorageFacade.persist_cmb).  This test replicates the exact
+    production guard: ``await vs.access_control.check_access(...)``
+    before dispatching to ``vs.upsert_vector()``.
     """
     from unittest.mock import AsyncMock
 
@@ -161,13 +162,19 @@ async def test_rbac_write():
     with patch("mesa_memory.storage.vector_index.lancedb.connect"):
         vs = VectorStorage(access_control=mock_ac)
 
-        # Verify the async RBAC check returns denial
-        denied = await mock_ac.check_access("bad_agent", "bad_session", "WRITE")
-        assert denied is False
-
-        # Confirm the facade-level guard would raise on denial
+        # Replicate the StorageFacade.persist_cmb RBAC guard pattern:
+        #   if not await self.access_control.check_access(...):
+        #       raise PermissionError(...)
         with pytest.raises(PermissionError):
-            if not await mock_ac.check_access("bad_agent", "bad_session", "WRITE"):
+            if not await vs.access_control.check_access(
+                "bad_agent", "bad_session", "WRITE"
+            ):
                 raise PermissionError(
-                    "Agent 'bad_agent' lacks WRITE access for session 'bad_session'"
+                    "Agent 'bad_agent' lacks WRITE access " "for session 'bad_session'"
                 )
+            vs.upsert_vector(
+                cmb_id="cmb1",
+                embedding=[0.0] * 8,
+                agent_id="bad_agent",
+                session_id="bad_session",
+            )
