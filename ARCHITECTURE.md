@@ -1,13 +1,15 @@
 # MESA Memory Layer: Architecture Whitepaper
 
-> **Version:** 0.2.0
-> **Last Updated:** 2026-05-16
+> **Version:** 0.3.0
+> **Last Updated:** 2026-05-22
 
 ---
 
 ## 1. Executive Summary: Integrity over Velocity
 
 MESA is fundamentally architected as a high-throughput, asynchronous cognitive memory engine. The core design principle is **"Integrity over Velocity."** While the system leverages non-blocking `asyncio` routines and decoupled storage layers to achieve high scalability, it deliberately introduces computational bottlenecks (via the Valence Motor) to aggressively validate data before persistence.
+
+In v0.3.0, MESA transitioned from an importable library to a **headless FastAPI daemon** (API-first architecture). All client interaction flows through versioned REST endpoints (`/v3/memory/*`) or the Python SDK (`mesa_client`). This architectural shift enables deployment as a standalone service with strict process-level isolation between API request handling and background maintenance operations.
 
 ---
 
@@ -22,7 +24,8 @@ classDiagram
         +upsert_node(name: str, type: str, cmb_id: str, agent_id: str, session_id: str)*
         +create_edge(source_id: str, target_id: str, relation: str, agent_id: str, session_id: str)*
         +compute_pagerank(alpha: float, personalization: dict)*
-        +find_nodes_by_name(names: list)*
+        +find_nodes_by_name(names: list, agent_id: str)*
+        +get_neighbors(node_id: str, agent_id: str, direction: str)*
         +offload_expired()*
     }
 
@@ -33,6 +36,7 @@ classDiagram
         +create_edge()
         +compute_pagerank()
         +find_nodes_by_name()
+        +get_neighbors()
         +offload_expired()
     }
 
@@ -43,26 +47,127 @@ Graph analytics (`compute_pagerank`) and cold-storage archival (`offload_expired
 
 ---
 
-## 3. Multi-Dimensional Vector Routing
+## 3. Storage Layer
 
-MESA natively supports multi-model embedding pipelines (e.g., OpenAI `1536` dimensions, local MiniLM `384` dimensions). Rather than utilizing mathematical projections like Procrustes—which destroy clinical semantic accuracy—the `VectorStorage` engine dynamically isolates vector spaces.
+### 3.1 SQLite — Relational Store (aiosqlite + WAL)
 
-Upon ingestion, MESA analyzes the incoming tensor dimension and routes the vector to a dedicated, dimension-specific LanceDB table (e.g., `mesa_memory_1536` or `mesa_memory_384`). This ensures absolute semantic integrity while allowing real-time switching between cloud and local SLMs.
+The relational layer uses `aiosqlite` for fully non-blocking database I/O within the `asyncio` event loop. The engine enforces production-grade PRAGMA settings at connection time:
+
+| PRAGMA | Value | Rationale |
+|---|---|---|
+| `journal_mode` | `WAL` | Concurrent readers + single writer without blocking |
+| `synchronous` | `NORMAL` | Durability with reduced fsync overhead |
+| `cache_size` | `-64000` (64 MB) | Reduce disk I/O for hot-path queries |
+| `foreign_keys` | `ON` | Referential integrity enforcement |
+
+The schema is fully idempotent (`CREATE TABLE IF NOT EXISTS`) with trigger-based FTS5 synchronisation for lexical search.
+
+### 3.2 SQLite FTS5 — Zero-VRAM Lexical Pre-Filtering
+
+MESA provisions a `nodes_fts` FTS5 virtual table that mirrors the `entity_name` and `type` columns of the `nodes` table. Three triggers maintain synchronisation:
+
+| Trigger | Event | Action |
+|---|---|---|
+| `nodes_fts_insert` | `AFTER INSERT ON nodes` | Insert new row into `nodes_fts` |
+| `nodes_fts_update` | `AFTER UPDATE ON nodes` | Delete old + insert updated row |
+| `nodes_fts_delete` | `AFTER DELETE ON nodes` | Remove row from `nodes_fts` |
+
+FTS5 provides **zero-VRAM lexical pre-filtering** — enabling fast keyword/prefix search (`con*`, `trademark AND infringement`) before the system incurs the cost of vector similarity or graph traversal operations. All FTS5 queries are scoped by `agent_id` via a JOIN predicate: `AND n.agent_id = ?`.
+
+### 3.3 LanceDB — Vector Store
+
+Vector embeddings are stored in LanceDB with **multi-dimensional table routing**. Upon ingestion, the engine detects the embedding dimensionality and routes to a dedicated table (`mesa_vectors_384`, `mesa_vectors_1536`, etc.), preserving full semantic integrity across embedding providers.
+
+All LanceDB operations are offloaded from the event loop via `ThreadPoolExecutor` + `asyncio.run_in_executor()`. The vector engine supports:
+
+- **Upsert** with mandatory `agent_id` and optional `session_id`
+- **Soft-delete** via `expired_at` timestamp (no physical removal in the hot path)
+- **Cosine similarity search** with mandatory `agent_id` filtering in the WHERE clause
+
+### 3.4 NetworkX — Knowledge Graph
+
+The in-memory graph provider backs the structured knowledge layer. Nodes and edges are persisted to SQLite via the schema DDL and restored on startup. Graph analytics (Personalized PageRank, k-hop BFS traversal) operate on the in-memory representation for sub-millisecond latency.
 
 ---
 
-## 4. RBAC Enforcement Flow
+## 4. Security & Tenant Isolation
+
+### 4.1 Epistemic Isolation (Row-Level Security)
+
+> **Invariant:** Every SQL query, LanceDB filter, and graph traversal in the MESA data path **MUST** include a mandatory `agent_id` predicate. No function accepts `agent_id` as optional. This is enforced at the function signature level (keyword-only argument) and in every `WHERE` clause.
+
+This rule guarantees **mathematical row-level security**: Agent A can never read, modify, or traverse Agent B's data, regardless of application-layer bugs.
+
+**Enforcement points:**
+
+| Layer | Mechanism |
+|---|---|
+| `mesa_api/schemas.py` | Pydantic V2 rejects empty `agent_id` and `__unset__` sentinel values |
+| `mesa_storage/dao.py` | Every DAO method requires `agent_id` as the first positional argument |
+| `mesa_storage/schemas.py` | All 11 query/mutation functions hardcode `AND agent_id = ?` |
+| `mesa_storage/vector_engine.py` | `agent_id` filter injected into every LanceDB `WHERE` clause |
+| `mesa_memory/retriever.py` | Retrieval path passes `agent_id` through all sub-queries |
+
+### 4.2 Soft-Delete vs. Hard-Delete Separation
+
+The API layer and the maintenance layer have **strict, non-overlapping responsibilities**:
+
+```mermaid
+graph LR
+    subgraph "API Layer (mesa_api)"
+        A["DELETE /v3/memory/purge"] -->|"UPDATE SET deleted_at = NOW()"| B["Soft-Delete ONLY"]
+    end
+
+    subgraph "Background Worker (mesa_workers)"
+        C["MaintenanceWorker"] -->|"DELETE FROM ... WHERE invalid_at < retention"| D["Hard-Delete"]
+        C -->|"VACUUM"| E["Database Compaction"]
+        C -->|"Table.optimize()"| F["LanceDB Compaction"]
+    end
+
+    B -.->|"Records age past retention window"| C
+
+    style A fill:#16213e,stroke:#0f3460,color:#fff
+    style B fill:#1a1a2e,stroke:#e94560,color:#fff
+    style C fill:#0f3460,stroke:#533483,color:#fff
+    style D fill:#3d0000,stroke:#e94560,color:#fff
+    style E fill:#3d0000,stroke:#e94560,color:#fff
+    style F fill:#3d0000,stroke:#e94560,color:#fff
+```
+
+**Why this matters:** SQLite VACUUM requires an exclusive lock on the database file. If VACUUM were triggered from the API request path, it would cause catastrophic WAL reader starvation under concurrent load. By sequestering all destructive operations in the `MaintenanceWorker` — which runs on a **dedicated synchronous `sqlite3` connection** with `isolation_level=None` — the API's WAL readers are never blocked.
+
+### 4.3 RBAC & Input Sanitisation
+
+- **Authentication:** `X-API-Key` header validated against `MESA_API_KEY` environment variable.
+- **Content Sanitisation:** `sanitize_cmb_content()` strips null bytes, ANSI escape sequences, dangerous HTML tags (script/style/iframe), shell metacharacters, and normalises whitespace. Prompt injection patterns are logged (advisory) but not hard-blocked to avoid false positives.
+- **Schema Validation:** All API payloads pass through strict Pydantic V2 schemas before reaching any storage logic.
+
+### 4.4 Epistemic Gating (Bi-Temporal Read Path)
+
+The retriever (`mesa_memory/retriever.py`) implements bi-temporal awareness: memories that have not yet been processed by the consolidation pipeline (`is_consolidated = FALSE`) are wrapped in an explicit `⚠️ UNVERIFIED MEMORY` Markdown warning. This prevents the downstream LLM from treating unconsolidated data as authoritative.
+
+---
+
+## 5. Multi-Dimensional Vector Routing
+
+MESA natively supports multi-model embedding pipelines (e.g., OpenAI `1536` dimensions, local MiniLM `384` dimensions). Rather than utilizing mathematical projections like Procrustes—which destroy clinical semantic accuracy—the `VectorEngine` dynamically isolates vector spaces.
+
+Upon ingestion, MESA analyzes the incoming tensor dimension and routes the vector to a dedicated, dimension-specific LanceDB table (e.g., `mesa_vectors_1536` or `mesa_vectors_384`). This ensures absolute semantic integrity while allowing real-time switching between cloud and local SLMs.
+
+---
+
+## 6. RBAC Enforcement Flow
 
 Security is deeply integrated at the lowest storage mutation points. The `AccessControl` module evaluates agent authorization based on robust `session_id` and `agent_id` tracking.
 
 - **Authentication:** The FastAPI server requires an `X-API-Key` header on all sensitive endpoints, validated against the `MESA_API_KEY` environment variable. Invalid or missing keys receive `401 Unauthorized`.
 - **Read Operations:** Validated at the retrieval boundaries. If an agent lacks `READ` privileges, the system raises a strict `PermissionError` before any computational expense is incurred.
 - **Write Operations:** Validated directly inside the persistence methods (e.g., `upsert_node`, `upsert_vector`). By enforcing the check inside the data adapter itself, MESA ensures zero-trust security even if higher-level logic is compromised.
-- **Multi-Tenancy:** Both `IngestRequest` and `QueryRequest` require a dynamic `session_id`, ensuring full tenant isolation across storage, retrieval, and RBAC layers.
+- **Multi-Tenancy:** Both `MemoryInsertRequest` and `MemorySearchRequest` require a non-empty `agent_id`, ensuring full tenant isolation across storage, retrieval, and RBAC layers.
 
 ---
 
-## 5. Cognitive Data Lifecycle (Valence to Storage)
+## 7. Cognitive Data Lifecycle (Valence to Storage)
 
 The journey of a Cognitive Memory Block (CMB) involves rigorous filtering, algorithmic novelty detection, and transactional persistence.
 
@@ -95,14 +200,14 @@ sequenceDiagram
 
 ---
 
-## 6. ValenceMotor Persistence
+## 8. ValenceMotor Persistence
 
 The `ValenceMotor` maintains adaptive novelty thresholds via Exponentially Weighted Moving Average of Distances (EWMAD). These thresholds are **stateful** — they drift over time as the memory pool grows. Losing them on process restart would force the system back to bootstrap-mode, causing a flood of redundant admissions until the threshold reconverges.
 
 ### Persistence Mechanism
 
 | Operation | Trigger | Storage |
-|-----------|---------|---------|
+|-----------|---------|---------:|
 | `save_state()` | FastAPI `shutdown` event | `valence_state` table in SQLite |
 | `load_state()` | FastAPI `startup` event | `valence_state` table in SQLite |
 
@@ -137,7 +242,7 @@ Where `w` is a sigmoid function of `memory_count`, controlled by `drift_sigmoid_
 
 ---
 
-## 7. Fitness Gate
+## 9. Fitness Gate
 
 Before any CMB is persisted to the database, `calculate_fitness_score` evaluates whether the content carries sufficient information density to justify storage costs. This gate runs inside the `StorageFacade.persist_cmb()` lifecycle — scores are computed dynamically at the point of persistence, not pre-computed.
 
@@ -161,7 +266,7 @@ The fitness score is a weighted composite of three dimensions:
 
 ---
 
-## 8. Extraction Pipeline
+## 10. Extraction Pipeline
 
 The extraction pipeline transforms raw text records into structured knowledge graph triplets. Formerly a monolithic God-Object (`ConsolidationLoop`), the pipeline was decomposed into focused modules following the Single Responsibility Principle.
 
@@ -169,11 +274,11 @@ The extraction pipeline transforms raw text records into structured knowledge gr
 
 ```mermaid
 graph TD
-    A[ConsolidationLoop<br/>Orchestrator] --> B[TripletExtractor<br/>extraction/triplet_extractor.py]
-    A --> C[Tier3Validator<br/>consolidation/validator.py]
-    A --> D[GraphWriter<br/>consolidation/writer.py]
-    B --> E[RebelExtractor<br/>extraction/rebel_pipeline.py]
-    B --> F[BatchResponseParser<br/>consolidation/parser.py]
+    A["ConsolidationLoop<br/>Orchestrator"] --> B["TripletExtractor<br/>extraction/triplet_extractor.py"]
+    A --> C["Tier3Validator<br/>consolidation/validator.py"]
+    A --> D["GraphWriter<br/>consolidation/writer.py"]
+    B --> E["RebelExtractor<br/>extraction/rebel_pipeline.py"]
+    B --> F["BatchResponseParser<br/>consolidation/parser.py"]
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style B fill:#16213e,stroke:#0f3460,color:#fff
@@ -226,7 +331,7 @@ Infrastructure errors (JSON parse failure, rate limits, network) raise `Tier3Val
 
 ---
 
-## 9. Data Pipeline & Isolation Logic
+## 11. Data Pipeline & Isolation Logic
 
 To guarantee deterministic extraction from non-deterministic LLMs, the pipeline enforces strict JSON schema generation via Pydantic models (`ExtractedTriplet`, `BatchExtractionResponse`). Malformed responses trigger the **"Isolation & Recovery"** protocol.
 
@@ -235,42 +340,45 @@ To guarantee deterministic extraction from non-deterministic LLMs, the pipeline 
 
 ---
 
-## 10. Deployment Architecture
+## 12. Deployment Architecture
 
 ```mermaid
 graph LR
-    subgraph Container
-        API[FastAPI Server<br/>:8000]
-        VM[ValenceMotor]
-        CL[ConsolidationLoop]
-        API --> VM
-        API --> CL
+    subgraph "API Container"
+        API["FastAPI v3 Server<br/>:8000"]
+        REM["REM Cycle Worker"]
+        MW["Maintenance Worker"]
+        API --> REM
     end
 
-    subgraph Persistent Volume
-        SQL[(SQLite WAL<br/>raw_log.db)]
-        KG[(SQLite<br/>knowledge_graph.db)]
-        VEC[(LanceDB<br/>vector store)]
-        ROCKS[(RocksDB<br/>cold archive)]
+    subgraph "Persistent Volume (/app/storage)"
+        SQL[("SQLite WAL<br/>mesa.db")]
+        VEC[("LanceDB<br/>vector store")]
+        KG[("SQLite<br/>knowledge_graph.db")]
     end
 
-    API --> SQL
-    API --> VEC
-    CL --> KG
-    CL --> ROCKS
+    API -->|"aiosqlite (async)"| SQL
+    API -->|"run_in_executor"| VEC
+    REM -->|"aiosqlite (async)"| SQL
+    MW -->|"sqlite3 (sync, dedicated)"| SQL
+    MW -->|"Table.optimize()"| VEC
+    REM --> KG
 
-    style Container fill:#1a1a2e,stroke:#e94560,color:#fff
+    style API fill:#0f3460,stroke:#16213e,color:#fff
+    style REM fill:#1a1a2e,stroke:#e94560,color:#fff
+    style MW fill:#3d0000,stroke:#e94560,color:#fff
     style SQL fill:#16213e,stroke:#0f3460,color:#fff
     style KG fill:#16213e,stroke:#0f3460,color:#fff
     style VEC fill:#16213e,stroke:#0f3460,color:#fff
-    style ROCKS fill:#16213e,stroke:#0f3460,color:#fff
 ```
 
 **Key deployment notes:**
 
-- The spaCy language model (`en_core_web_sm`) is downloaded at **build time** in the Dockerfile — no runtime network calls in air-gapped environments.
+- The spaCy language model (`xx_ent_wiki_sm`) is downloaded at **build time** in the Dockerfile — no runtime network calls in air-gapped environments.
 - Persistent storage is mounted at `/app/storage` via a Docker volume.
 - The `MESA_API_KEY` environment variable must be set for production authentication.
+- The `MaintenanceWorker` operates on a **separate synchronous `sqlite3` connection** with `isolation_level=None` to avoid WAL reader contention during VACUUM.
+- LanceDB disk I/O is offloaded from the asyncio event loop via `ThreadPoolExecutor`.
 
 ---
 

@@ -12,7 +12,8 @@ class RawLogStorage:
 
     async def initialize(self):
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS raw_log (
                     cmb_id                  TEXT PRIMARY KEY,
                     schema_version          INTEGER NOT NULL DEFAULT 1,
@@ -34,15 +35,20 @@ class RawLogStorage:
                     expired_at              TEXT    DEFAULT NULL,
                     invalid_at              TEXT    DEFAULT NULL
                 )
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_raw_log_active
                 ON raw_log(expired_at) WHERE expired_at IS NULL
-            """)
-            await db.execute("""
+            """
+            )
+            await db.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_raw_log_unconsolidated
                 ON raw_log(consolidated) WHERE consolidated = 0 AND expired_at IS NULL
-            """)
+            """
+            )
             await db.commit()
 
     async def insert_cmb(self, cmb: CMB):

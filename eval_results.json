@@ -1,0 +1,1560 @@
+{
+  "mesa_version": "0.3.0",
+  "evaluation_paths": [
+    "Base",
+    "Base_Vector",
+    "Base_Graph",
+    "Base_Hybrid",
+    "Base_Hybrid_FTS5"
+  ],
+  "total_entries": 30,
+  "summaries": {
+    "Base": {
+      "path": "Base",
+      "total_entries": 30,
+      "mean_ttft_ms": 6.388,
+      "p95_ttft_ms": 10.085,
+      "total_input_tokens": 645,
+      "total_output_tokens": 300,
+      "mean_recall": 0.066
+    },
+    "Base_Vector": {
+      "path": "Base_Vector",
+      "total_entries": 30,
+      "mean_ttft_ms": 11.871,
+      "p95_ttft_ms": 19.737,
+      "total_input_tokens": 2083,
+      "total_output_tokens": 617,
+      "mean_recall": 0.3449
+    },
+    "Base_Graph": {
+      "path": "Base_Graph",
+      "total_entries": 30,
+      "mean_ttft_ms": 7.305,
+      "p95_ttft_ms": 9.258,
+      "total_input_tokens": 2053,
+      "total_output_tokens": 513,
+      "mean_recall": 0.2666
+    },
+    "Base_Hybrid": {
+      "path": "Base_Hybrid",
+      "total_entries": 30,
+      "mean_ttft_ms": 12.309,
+      "p95_ttft_ms": 20.311,
+      "total_input_tokens": 2173,
+      "total_output_tokens": 727,
+      "mean_recall": 0.2556
+    },
+    "Base_Hybrid_FTS5": {
+      "path": "Base_Hybrid_FTS5",
+      "total_entries": 30,
+      "mean_ttft_ms": 18.169,
+      "p95_ttft_ms": 32.267,
+      "total_input_tokens": 2173,
+      "total_output_tokens": 732,
+      "mean_recall": 0.2353
+    }
+  },
+  "results": [
+    {
+      "entry_id": "53dceb02-0ea2-4737-a737-a7097ef85d44",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 7.997,
+      "input_tokens": 26,
+      "output_tokens": 10,
+      "total_tokens": 36,
+      "recall": 0.0833
+    },
+    {
+      "entry_id": "3a6a93ad-ce29-4c27-91cd-c358dfd54f1a",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 5.677,
+      "input_tokens": 24,
+      "output_tokens": 10,
+      "total_tokens": 34,
+      "recall": 0.0769
+    },
+    {
+      "entry_id": "f9178630-e7f8-4bac-8de8-94a6ffaecdec",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 10.251,
+      "input_tokens": 19,
+      "output_tokens": 10,
+      "total_tokens": 29,
+      "recall": 0.0526
+    },
+    {
+      "entry_id": "db9174e4-8a47-42be-8219-a85bd56e69b1",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 6.842,
+      "input_tokens": 25,
+      "output_tokens": 10,
+      "total_tokens": 35,
+      "recall": 0.0417
+    },
+    {
+      "entry_id": "251bc1e3-81d0-4e9b-8f75-5b2d2f58c899",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 9.068,
+      "input_tokens": 27,
+      "output_tokens": 10,
+      "total_tokens": 37,
+      "recall": 0.087
+    },
+    {
+      "entry_id": "0e222437-6440-4f7c-8cd9-ad430aa20116",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 9.025,
+      "input_tokens": 27,
+      "output_tokens": 10,
+      "total_tokens": 37,
+      "recall": 0.0833
+    },
+    {
+      "entry_id": "d7590ffe-18c6-46fd-814b-9618bea2b909",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 4.448,
+      "input_tokens": 13,
+      "output_tokens": 10,
+      "total_tokens": 23,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "6f58cf55-13f9-483a-bcd7-6ba05c564478",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 5.601,
+      "input_tokens": 14,
+      "output_tokens": 10,
+      "total_tokens": 24,
+      "recall": 0.0588
+    },
+    {
+      "entry_id": "0a099e2f-15c4-47f3-a18d-a638024e7428",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 9.018,
+      "input_tokens": 27,
+      "output_tokens": 10,
+      "total_tokens": 37,
+      "recall": 0.087
+    },
+    {
+      "entry_id": "f2aac377-aca1-4856-815b-33218f3ea4df",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 9.042,
+      "input_tokens": 18,
+      "output_tokens": 10,
+      "total_tokens": 28,
+      "recall": 0.0556
+    },
+    {
+      "entry_id": "478b4ba4-1030-421e-8946-4a770baf3b79",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 5.597,
+      "input_tokens": 24,
+      "output_tokens": 10,
+      "total_tokens": 34,
+      "recall": 0.0741
+    },
+    {
+      "entry_id": "806b6eff-0b56-4e60-9007-1710f8c1c021",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 2.213,
+      "input_tokens": 21,
+      "output_tokens": 10,
+      "total_tokens": 31,
+      "recall": 0.0833
+    },
+    {
+      "entry_id": "f9bcfc32-f05a-4612-9f94-ea1ce01ccde8",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 4.43,
+      "input_tokens": 23,
+      "output_tokens": 10,
+      "total_tokens": 33,
+      "recall": 0.0588
+    },
+    {
+      "entry_id": "68e28971-50d4-4f4f-aa91-04fcb82d1473",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 9.031,
+      "input_tokens": 18,
+      "output_tokens": 10,
+      "total_tokens": 28,
+      "recall": 0.0556
+    },
+    {
+      "entry_id": "b768ef6c-59df-4753-a3b1-643b6ff92891",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 3.313,
+      "input_tokens": 22,
+      "output_tokens": 10,
+      "total_tokens": 32,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "9cbf80d7-c3e2-4c01-b854-b87b2e1a9d96",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 2.219,
+      "input_tokens": 21,
+      "output_tokens": 10,
+      "total_tokens": 31,
+      "recall": 0.0435
+    },
+    {
+      "entry_id": "85e277b7-a8d7-420d-8a1f-75998cc9968a",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 8.988,
+      "input_tokens": 27,
+      "output_tokens": 10,
+      "total_tokens": 37,
+      "recall": 0.0909
+    },
+    {
+      "entry_id": "69337dff-93c3-4ed5-892c-fcfb79edca96",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 4.417,
+      "input_tokens": 23,
+      "output_tokens": 10,
+      "total_tokens": 33,
+      "recall": 0.0909
+    },
+    {
+      "entry_id": "cc8b81fe-ec54-4da9-b3e6-24223965a4b6",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 4.422,
+      "input_tokens": 23,
+      "output_tokens": 10,
+      "total_tokens": 33,
+      "recall": 0.0476
+    },
+    {
+      "entry_id": "eb924a75-9a7e-407d-9fcc-2dbc3164c7d1",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 7.827,
+      "input_tokens": 16,
+      "output_tokens": 10,
+      "total_tokens": 26,
+      "recall": 0.0526
+    },
+    {
+      "entry_id": "76c37789-564b-4fa0-b2f8-9cb3c6a94e87",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 4.42,
+      "input_tokens": 23,
+      "output_tokens": 10,
+      "total_tokens": 33,
+      "recall": 0.08
+    },
+    {
+      "entry_id": "a144dd04-53fa-409c-81ea-2ff02f2ab1b3",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 5.544,
+      "input_tokens": 14,
+      "output_tokens": 10,
+      "total_tokens": 24,
+      "recall": 0.0588
+    },
+    {
+      "entry_id": "8dbaccf1-4be9-4436-bc0c-99818289620b",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 3.276,
+      "input_tokens": 22,
+      "output_tokens": 10,
+      "total_tokens": 32,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "46c30d57-ebde-4c31-be9e-a80a0abecd83",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 10.071,
+      "input_tokens": 18,
+      "output_tokens": 10,
+      "total_tokens": 28,
+      "recall": 0.0556
+    },
+    {
+      "entry_id": "e54dc60c-c7b0-4fa5-ae0b-cb9fe1b4aedc",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 10.085,
+      "input_tokens": 19,
+      "output_tokens": 10,
+      "total_tokens": 29,
+      "recall": 0.0526
+    },
+    {
+      "entry_id": "d90f83ec-67aa-4bbb-a472-b5d56844e00a",
+      "path": "Base",
+      "domain": "code",
+      "ttft_ms": 4.403,
+      "input_tokens": 13,
+      "output_tokens": 10,
+      "total_tokens": 23,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "52705f0b-e8ed-42ab-9e59-4a12e409ead4",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 5.532,
+      "input_tokens": 24,
+      "output_tokens": 10,
+      "total_tokens": 34,
+      "recall": 0.0455
+    },
+    {
+      "entry_id": "aa1c39a0-67ca-4ced-afa3-adea9f6547dc",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 5.54,
+      "input_tokens": 24,
+      "output_tokens": 10,
+      "total_tokens": 34,
+      "recall": 0.0417
+    },
+    {
+      "entry_id": "11ec23db-49fd-4e8a-a579-c879254b5274",
+      "path": "Base",
+      "domain": "financial",
+      "ttft_ms": 5.549,
+      "input_tokens": 24,
+      "output_tokens": 10,
+      "total_tokens": 34,
+      "recall": 0.0909
+    },
+    {
+      "entry_id": "dfad61f9-a04a-425a-9101-46318fa09081",
+      "path": "Base",
+      "domain": "legal",
+      "ttft_ms": 7.783,
+      "input_tokens": 26,
+      "output_tokens": 10,
+      "total_tokens": 36,
+      "recall": 0.08
+    },
+    {
+      "entry_id": "53dceb02-0ea2-4737-a737-a7097ef85d44",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 20.407,
+      "input_tokens": 81,
+      "output_tokens": 22,
+      "total_tokens": 103,
+      "recall": 0.4167
+    },
+    {
+      "entry_id": "3a6a93ad-ce29-4c27-91cd-c358dfd54f1a",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 19.737,
+      "input_tokens": 87,
+      "output_tokens": 24,
+      "total_tokens": 111,
+      "recall": 0.3462
+    },
+    {
+      "entry_id": "f9178630-e7f8-4bac-8de8-94a6ffaecdec",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 18.89,
+      "input_tokens": 57,
+      "output_tokens": 22,
+      "total_tokens": 79,
+      "recall": 0.4737
+    },
+    {
+      "entry_id": "db9174e4-8a47-42be-8219-a85bd56e69b1",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 18.292,
+      "input_tokens": 80,
+      "output_tokens": 18,
+      "total_tokens": 98,
+      "recall": 0.2083
+    },
+    {
+      "entry_id": "251bc1e3-81d0-4e9b-8f75-5b2d2f58c899",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 17.655,
+      "input_tokens": 83,
+      "output_tokens": 21,
+      "total_tokens": 104,
+      "recall": 0.3478
+    },
+    {
+      "entry_id": "0e222437-6440-4f7c-8cd9-ad430aa20116",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 16.974,
+      "input_tokens": 83,
+      "output_tokens": 23,
+      "total_tokens": 106,
+      "recall": 0.2083
+    },
+    {
+      "entry_id": "d7590ffe-18c6-46fd-814b-9618bea2b909",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 16.394,
+      "input_tokens": 38,
+      "output_tokens": 16,
+      "total_tokens": 54,
+      "recall": 0.4375
+    },
+    {
+      "entry_id": "6f58cf55-13f9-483a-bcd7-6ba05c564478",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 15.909,
+      "input_tokens": 39,
+      "output_tokens": 16,
+      "total_tokens": 55,
+      "recall": 0.1176
+    },
+    {
+      "entry_id": "0a099e2f-15c4-47f3-a18d-a638024e7428",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 15.261,
+      "input_tokens": 83,
+      "output_tokens": 21,
+      "total_tokens": 104,
+      "recall": 0.3913
+    },
+    {
+      "entry_id": "f2aac377-aca1-4856-815b-33218f3ea4df",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 14.548,
+      "input_tokens": 54,
+      "output_tokens": 21,
+      "total_tokens": 75,
+      "recall": 0.4444
+    },
+    {
+      "entry_id": "478b4ba4-1030-421e-8946-4a770baf3b79",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 13.962,
+      "input_tokens": 87,
+      "output_tokens": 23,
+      "total_tokens": 110,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "806b6eff-0b56-4e60-9007-1710f8c1c021",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 13.147,
+      "input_tokens": 81,
+      "output_tokens": 23,
+      "total_tokens": 104,
+      "recall": 0.375
+    },
+    {
+      "entry_id": "f9bcfc32-f05a-4612-9f94-ea1ce01ccde8",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 12.448,
+      "input_tokens": 73,
+      "output_tokens": 16,
+      "total_tokens": 89,
+      "recall": 0.1765
+    },
+    {
+      "entry_id": "68e28971-50d4-4f4f-aa91-04fcb82d1473",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 11.84,
+      "input_tokens": 54,
+      "output_tokens": 21,
+      "total_tokens": 75,
+      "recall": 0.4444
+    },
+    {
+      "entry_id": "b768ef6c-59df-4753-a3b1-643b6ff92891",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 11.227,
+      "input_tokens": 69,
+      "output_tokens": 15,
+      "total_tokens": 84,
+      "recall": 0.125
+    },
+    {
+      "entry_id": "9cbf80d7-c3e2-4c01-b854-b87b2e1a9d96",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 10.456,
+      "input_tokens": 76,
+      "output_tokens": 23,
+      "total_tokens": 99,
+      "recall": 0.4348
+    },
+    {
+      "entry_id": "85e277b7-a8d7-420d-8a1f-75998cc9968a",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 9.639,
+      "input_tokens": 83,
+      "output_tokens": 21,
+      "total_tokens": 104,
+      "recall": 0.4091
+    },
+    {
+      "entry_id": "69337dff-93c3-4ed5-892c-fcfb79edca96",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 9.035,
+      "input_tokens": 75,
+      "output_tokens": 20,
+      "total_tokens": 95,
+      "recall": 0.1818
+    },
+    {
+      "entry_id": "cc8b81fe-ec54-4da9-b3e6-24223965a4b6",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 9.5,
+      "input_tokens": 78,
+      "output_tokens": 22,
+      "total_tokens": 100,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "eb924a75-9a7e-407d-9fcc-2dbc3164c7d1",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 7.474,
+      "input_tokens": 41,
+      "output_tokens": 16,
+      "total_tokens": 57,
+      "recall": 0.3684
+    },
+    {
+      "entry_id": "76c37789-564b-4fa0-b2f8-9cb3c6a94e87",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 8.312,
+      "input_tokens": 85,
+      "output_tokens": 24,
+      "total_tokens": 109,
+      "recall": 0.36
+    },
+    {
+      "entry_id": "a144dd04-53fa-409c-81ea-2ff02f2ab1b3",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 9.791,
+      "input_tokens": 39,
+      "output_tokens": 16,
+      "total_tokens": 55,
+      "recall": 0.1176
+    },
+    {
+      "entry_id": "8dbaccf1-4be9-4436-bc0c-99818289620b",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 9.194,
+      "input_tokens": 70,
+      "output_tokens": 20,
+      "total_tokens": 90,
+      "recall": 0.4375
+    },
+    {
+      "entry_id": "46c30d57-ebde-4c31-be9e-a80a0abecd83",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 8.578,
+      "input_tokens": 54,
+      "output_tokens": 21,
+      "total_tokens": 75,
+      "recall": 0.4444
+    },
+    {
+      "entry_id": "e54dc60c-c7b0-4fa5-ae0b-cb9fe1b4aedc",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 4.524,
+      "input_tokens": 57,
+      "output_tokens": 22,
+      "total_tokens": 79,
+      "recall": 0.4737
+    },
+    {
+      "entry_id": "d90f83ec-67aa-4bbb-a472-b5d56844e00a",
+      "path": "Base_Vector",
+      "domain": "code",
+      "ttft_ms": 9.641,
+      "input_tokens": 38,
+      "output_tokens": 16,
+      "total_tokens": 54,
+      "recall": 0.4375
+    },
+    {
+      "entry_id": "52705f0b-e8ed-42ab-9e59-4a12e409ead4",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 4.754,
+      "input_tokens": 82,
+      "output_tokens": 25,
+      "total_tokens": 107,
+      "recall": 0.4545
+    },
+    {
+      "entry_id": "aa1c39a0-67ca-4ced-afa3-adea9f6547dc",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 8.443,
+      "input_tokens": 85,
+      "output_tokens": 24,
+      "total_tokens": 109,
+      "recall": 0.375
+    },
+    {
+      "entry_id": "11ec23db-49fd-4e8a-a579-c879254b5274",
+      "path": "Base_Vector",
+      "domain": "financial",
+      "ttft_ms": 3.257,
+      "input_tokens": 80,
+      "output_tokens": 21,
+      "total_tokens": 101,
+      "recall": 0.2727
+    },
+    {
+      "entry_id": "dfad61f9-a04a-425a-9101-46318fa09081",
+      "path": "Base_Vector",
+      "domain": "legal",
+      "ttft_ms": 6.848,
+      "input_tokens": 91,
+      "output_tokens": 24,
+      "total_tokens": 115,
+      "recall": 0.4
+    },
+    {
+      "entry_id": "53dceb02-0ea2-4737-a737-a7097ef85d44",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 9.766,
+      "input_tokens": 82,
+      "output_tokens": 16,
+      "total_tokens": 98,
+      "recall": 0.25
+    },
+    {
+      "entry_id": "3a6a93ad-ce29-4c27-91cd-c358dfd54f1a",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 9.258,
+      "input_tokens": 88,
+      "output_tokens": 22,
+      "total_tokens": 110,
+      "recall": 0.3846
+    },
+    {
+      "entry_id": "f9178630-e7f8-4bac-8de8-94a6ffaecdec",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 8.89,
+      "input_tokens": 58,
+      "output_tokens": 21,
+      "total_tokens": 79,
+      "recall": 0.5263
+    },
+    {
+      "entry_id": "db9174e4-8a47-42be-8219-a85bd56e69b1",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 8.573,
+      "input_tokens": 81,
+      "output_tokens": 16,
+      "total_tokens": 97,
+      "recall": 0.2083
+    },
+    {
+      "entry_id": "251bc1e3-81d0-4e9b-8f75-5b2d2f58c899",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 8.14,
+      "input_tokens": 84,
+      "output_tokens": 19,
+      "total_tokens": 103,
+      "recall": 0.3043
+    },
+    {
+      "entry_id": "0e222437-6440-4f7c-8cd9-ad430aa20116",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 7.815,
+      "input_tokens": 84,
+      "output_tokens": 17,
+      "total_tokens": 101,
+      "recall": 0.25
+    },
+    {
+      "entry_id": "d7590ffe-18c6-46fd-814b-9618bea2b909",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 7.603,
+      "input_tokens": 27,
+      "output_tokens": 14,
+      "total_tokens": 41,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "6f58cf55-13f9-483a-bcd7-6ba05c564478",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 7.432,
+      "input_tokens": 28,
+      "output_tokens": 14,
+      "total_tokens": 42,
+      "recall": 0.0588
+    },
+    {
+      "entry_id": "0a099e2f-15c4-47f3-a18d-a638024e7428",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 7.037,
+      "input_tokens": 84,
+      "output_tokens": 19,
+      "total_tokens": 103,
+      "recall": 0.3043
+    },
+    {
+      "entry_id": "f2aac377-aca1-4856-815b-33218f3ea4df",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 6.76,
+      "input_tokens": 55,
+      "output_tokens": 20,
+      "total_tokens": 75,
+      "recall": 0.5
+    },
+    {
+      "entry_id": "478b4ba4-1030-421e-8946-4a770baf3b79",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 7.806,
+      "input_tokens": 88,
+      "output_tokens": 21,
+      "total_tokens": 109,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "806b6eff-0b56-4e60-9007-1710f8c1c021",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 7.53,
+      "input_tokens": 82,
+      "output_tokens": 17,
+      "total_tokens": 99,
+      "recall": 0.2917
+    },
+    {
+      "entry_id": "f9bcfc32-f05a-4612-9f94-ea1ce01ccde8",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 6.044,
+      "input_tokens": 74,
+      "output_tokens": 14,
+      "total_tokens": 88,
+      "recall": 0.1765
+    },
+    {
+      "entry_id": "68e28971-50d4-4f4f-aa91-04fcb82d1473",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 5.704,
+      "input_tokens": 55,
+      "output_tokens": 20,
+      "total_tokens": 75,
+      "recall": 0.5
+    },
+    {
+      "entry_id": "b768ef6c-59df-4753-a3b1-643b6ff92891",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 7.841,
+      "input_tokens": 70,
+      "output_tokens": 13,
+      "total_tokens": 83,
+      "recall": 0.125
+    },
+    {
+      "entry_id": "9cbf80d7-c3e2-4c01-b854-b87b2e1a9d96",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 8.676,
+      "input_tokens": 77,
+      "output_tokens": 15,
+      "total_tokens": 92,
+      "recall": 0.2609
+    },
+    {
+      "entry_id": "85e277b7-a8d7-420d-8a1f-75998cc9968a",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 4.807,
+      "input_tokens": 84,
+      "output_tokens": 19,
+      "total_tokens": 103,
+      "recall": 0.3182
+    },
+    {
+      "entry_id": "69337dff-93c3-4ed5-892c-fcfb79edca96",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 7.987,
+      "input_tokens": 76,
+      "output_tokens": 14,
+      "total_tokens": 90,
+      "recall": 0.1364
+    },
+    {
+      "entry_id": "cc8b81fe-ec54-4da9-b3e6-24223965a4b6",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 5.34,
+      "input_tokens": 79,
+      "output_tokens": 14,
+      "total_tokens": 93,
+      "recall": 0.1905
+    },
+    {
+      "entry_id": "eb924a75-9a7e-407d-9fcc-2dbc3164c7d1",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 3.897,
+      "input_tokens": 30,
+      "output_tokens": 14,
+      "total_tokens": 44,
+      "recall": 0.0526
+    },
+    {
+      "entry_id": "76c37789-564b-4fa0-b2f8-9cb3c6a94e87",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 5.986,
+      "input_tokens": 86,
+      "output_tokens": 17,
+      "total_tokens": 103,
+      "recall": 0.24
+    },
+    {
+      "entry_id": "a144dd04-53fa-409c-81ea-2ff02f2ab1b3",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 7.956,
+      "input_tokens": 28,
+      "output_tokens": 14,
+      "total_tokens": 42,
+      "recall": 0.0588
+    },
+    {
+      "entry_id": "8dbaccf1-4be9-4436-bc0c-99818289620b",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 8.894,
+      "input_tokens": 71,
+      "output_tokens": 13,
+      "total_tokens": 84,
+      "recall": 0.125
+    },
+    {
+      "entry_id": "46c30d57-ebde-4c31-be9e-a80a0abecd83",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 5.056,
+      "input_tokens": 55,
+      "output_tokens": 20,
+      "total_tokens": 75,
+      "recall": 0.5
+    },
+    {
+      "entry_id": "e54dc60c-c7b0-4fa5-ae0b-cb9fe1b4aedc",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 8.286,
+      "input_tokens": 58,
+      "output_tokens": 21,
+      "total_tokens": 79,
+      "recall": 0.5263
+    },
+    {
+      "entry_id": "d90f83ec-67aa-4bbb-a472-b5d56844e00a",
+      "path": "Base_Graph",
+      "domain": "code",
+      "ttft_ms": 6.916,
+      "input_tokens": 27,
+      "output_tokens": 14,
+      "total_tokens": 41,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "52705f0b-e8ed-42ab-9e59-4a12e409ead4",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 9.015,
+      "input_tokens": 83,
+      "output_tokens": 19,
+      "total_tokens": 102,
+      "recall": 0.3182
+    },
+    {
+      "entry_id": "aa1c39a0-67ca-4ced-afa3-adea9f6547dc",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 6.403,
+      "input_tokens": 86,
+      "output_tokens": 20,
+      "total_tokens": 106,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "11ec23db-49fd-4e8a-a579-c879254b5274",
+      "path": "Base_Graph",
+      "domain": "financial",
+      "ttft_ms": 7.285,
+      "input_tokens": 81,
+      "output_tokens": 19,
+      "total_tokens": 100,
+      "recall": 0.3182
+    },
+    {
+      "entry_id": "dfad61f9-a04a-425a-9101-46318fa09081",
+      "path": "Base_Graph",
+      "domain": "legal",
+      "ttft_ms": 6.445,
+      "input_tokens": 92,
+      "output_tokens": 17,
+      "total_tokens": 109,
+      "recall": 0.28
+    },
+    {
+      "entry_id": "53dceb02-0ea2-4737-a737-a7097ef85d44",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 21.188,
+      "input_tokens": 84,
+      "output_tokens": 27,
+      "total_tokens": 111,
+      "recall": 0.375
+    },
+    {
+      "entry_id": "3a6a93ad-ce29-4c27-91cd-c358dfd54f1a",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 20.311,
+      "input_tokens": 90,
+      "output_tokens": 25,
+      "total_tokens": 115,
+      "recall": 0.1923
+    },
+    {
+      "entry_id": "f9178630-e7f8-4bac-8de8-94a6ffaecdec",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 19.55,
+      "input_tokens": 60,
+      "output_tokens": 26,
+      "total_tokens": 86,
+      "recall": 0.3158
+    },
+    {
+      "entry_id": "db9174e4-8a47-42be-8219-a85bd56e69b1",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 19.069,
+      "input_tokens": 83,
+      "output_tokens": 22,
+      "total_tokens": 105,
+      "recall": 0.25
+    },
+    {
+      "entry_id": "251bc1e3-81d0-4e9b-8f75-5b2d2f58c899",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 18.192,
+      "input_tokens": 86,
+      "output_tokens": 27,
+      "total_tokens": 113,
+      "recall": 0.3913
+    },
+    {
+      "entry_id": "0e222437-6440-4f7c-8cd9-ad430aa20116",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 17.528,
+      "input_tokens": 86,
+      "output_tokens": 27,
+      "total_tokens": 113,
+      "recall": 0.2083
+    },
+    {
+      "entry_id": "d7590ffe-18c6-46fd-814b-9618bea2b909",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 16.839,
+      "input_tokens": 41,
+      "output_tokens": 19,
+      "total_tokens": 60,
+      "recall": 0.1875
+    },
+    {
+      "entry_id": "6f58cf55-13f9-483a-bcd7-6ba05c564478",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 16.399,
+      "input_tokens": 42,
+      "output_tokens": 23,
+      "total_tokens": 65,
+      "recall": 0.2353
+    },
+    {
+      "entry_id": "0a099e2f-15c4-47f3-a18d-a638024e7428",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 15.795,
+      "input_tokens": 86,
+      "output_tokens": 27,
+      "total_tokens": 113,
+      "recall": 0.4783
+    },
+    {
+      "entry_id": "f2aac377-aca1-4856-815b-33218f3ea4df",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 15.091,
+      "input_tokens": 57,
+      "output_tokens": 25,
+      "total_tokens": 82,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "478b4ba4-1030-421e-8946-4a770baf3b79",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 14.562,
+      "input_tokens": 90,
+      "output_tokens": 26,
+      "total_tokens": 116,
+      "recall": 0.1111
+    },
+    {
+      "entry_id": "806b6eff-0b56-4e60-9007-1710f8c1c021",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 13.898,
+      "input_tokens": 84,
+      "output_tokens": 27,
+      "total_tokens": 111,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "f9bcfc32-f05a-4612-9f94-ea1ce01ccde8",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 13.08,
+      "input_tokens": 76,
+      "output_tokens": 19,
+      "total_tokens": 95,
+      "recall": 0.1176
+    },
+    {
+      "entry_id": "68e28971-50d4-4f4f-aa91-04fcb82d1473",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 12.411,
+      "input_tokens": 57,
+      "output_tokens": 25,
+      "total_tokens": 82,
+      "recall": 0.2778
+    },
+    {
+      "entry_id": "b768ef6c-59df-4753-a3b1-643b6ff92891",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 11.894,
+      "input_tokens": 72,
+      "output_tokens": 17,
+      "total_tokens": 89,
+      "recall": 0.125
+    },
+    {
+      "entry_id": "9cbf80d7-c3e2-4c01-b854-b87b2e1a9d96",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 11.255,
+      "input_tokens": 79,
+      "output_tokens": 26,
+      "total_tokens": 105,
+      "recall": 0.3478
+    },
+    {
+      "entry_id": "85e277b7-a8d7-420d-8a1f-75998cc9968a",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 10.425,
+      "input_tokens": 86,
+      "output_tokens": 26,
+      "total_tokens": 112,
+      "recall": 0.3636
+    },
+    {
+      "entry_id": "69337dff-93c3-4ed5-892c-fcfb79edca96",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 9.676,
+      "input_tokens": 78,
+      "output_tokens": 22,
+      "total_tokens": 100,
+      "recall": 0.1818
+    },
+    {
+      "entry_id": "cc8b81fe-ec54-4da9-b3e6-24223965a4b6",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 8.806,
+      "input_tokens": 81,
+      "output_tokens": 24,
+      "total_tokens": 105,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "eb924a75-9a7e-407d-9fcc-2dbc3164c7d1",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 9.264,
+      "input_tokens": 44,
+      "output_tokens": 21,
+      "total_tokens": 65,
+      "recall": 0.2105
+    },
+    {
+      "entry_id": "76c37789-564b-4fa0-b2f8-9cb3c6a94e87",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 8.64,
+      "input_tokens": 88,
+      "output_tokens": 26,
+      "total_tokens": 114,
+      "recall": 0.32
+    },
+    {
+      "entry_id": "a144dd04-53fa-409c-81ea-2ff02f2ab1b3",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 6.71,
+      "input_tokens": 42,
+      "output_tokens": 23,
+      "total_tokens": 65,
+      "recall": 0.2353
+    },
+    {
+      "entry_id": "8dbaccf1-4be9-4436-bc0c-99818289620b",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 8.499,
+      "input_tokens": 73,
+      "output_tokens": 20,
+      "total_tokens": 93,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "46c30d57-ebde-4c31-be9e-a80a0abecd83",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 7.679,
+      "input_tokens": 57,
+      "output_tokens": 26,
+      "total_tokens": 83,
+      "recall": 0.2778
+    },
+    {
+      "entry_id": "e54dc60c-c7b0-4fa5-ae0b-cb9fe1b4aedc",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 4.776,
+      "input_tokens": 60,
+      "output_tokens": 27,
+      "total_tokens": 87,
+      "recall": 0.3158
+    },
+    {
+      "entry_id": "d90f83ec-67aa-4bbb-a472-b5d56844e00a",
+      "path": "Base_Hybrid",
+      "domain": "code",
+      "ttft_ms": 6.516,
+      "input_tokens": 41,
+      "output_tokens": 20,
+      "total_tokens": 61,
+      "recall": 0.1875
+    },
+    {
+      "entry_id": "52705f0b-e8ed-42ab-9e59-4a12e409ead4",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 4.801,
+      "input_tokens": 85,
+      "output_tokens": 25,
+      "total_tokens": 110,
+      "recall": 0.1364
+    },
+    {
+      "entry_id": "aa1c39a0-67ca-4ced-afa3-adea9f6547dc",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 8.486,
+      "input_tokens": 88,
+      "output_tokens": 26,
+      "total_tokens": 114,
+      "recall": 0.1667
+    },
+    {
+      "entry_id": "11ec23db-49fd-4e8a-a579-c879254b5274",
+      "path": "Base_Hybrid",
+      "domain": "financial",
+      "ttft_ms": 8.786,
+      "input_tokens": 83,
+      "output_tokens": 26,
+      "total_tokens": 109,
+      "recall": 0.3182
+    },
+    {
+      "entry_id": "dfad61f9-a04a-425a-9101-46318fa09081",
+      "path": "Base_Hybrid",
+      "domain": "legal",
+      "ttft_ms": 9.157,
+      "input_tokens": 94,
+      "output_tokens": 27,
+      "total_tokens": 121,
+      "recall": 0.28
+    },
+    {
+      "entry_id": "53dceb02-0ea2-4737-a737-a7097ef85d44",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 33.651,
+      "input_tokens": 84,
+      "output_tokens": 27,
+      "total_tokens": 111,
+      "recall": 0.375
+    },
+    {
+      "entry_id": "3a6a93ad-ce29-4c27-91cd-c358dfd54f1a",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 32.267,
+      "input_tokens": 90,
+      "output_tokens": 24,
+      "total_tokens": 114,
+      "recall": 0.1154
+    },
+    {
+      "entry_id": "f9178630-e7f8-4bac-8de8-94a6ffaecdec",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 30.965,
+      "input_tokens": 60,
+      "output_tokens": 25,
+      "total_tokens": 85,
+      "recall": 0.2632
+    },
+    {
+      "entry_id": "db9174e4-8a47-42be-8219-a85bd56e69b1",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 30.026,
+      "input_tokens": 83,
+      "output_tokens": 23,
+      "total_tokens": 106,
+      "recall": 0.125
+    },
+    {
+      "entry_id": "251bc1e3-81d0-4e9b-8f75-5b2d2f58c899",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 28.825,
+      "input_tokens": 86,
+      "output_tokens": 27,
+      "total_tokens": 113,
+      "recall": 0.4783
+    },
+    {
+      "entry_id": "0e222437-6440-4f7c-8cd9-ad430aa20116",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 27.644,
+      "input_tokens": 86,
+      "output_tokens": 27,
+      "total_tokens": 113,
+      "recall": 0.2083
+    },
+    {
+      "entry_id": "d7590ffe-18c6-46fd-814b-9618bea2b909",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 26.543,
+      "input_tokens": 41,
+      "output_tokens": 21,
+      "total_tokens": 62,
+      "recall": 0.1875
+    },
+    {
+      "entry_id": "6f58cf55-13f9-483a-bcd7-6ba05c564478",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 25.731,
+      "input_tokens": 42,
+      "output_tokens": 23,
+      "total_tokens": 65,
+      "recall": 0.2353
+    },
+    {
+      "entry_id": "0a099e2f-15c4-47f3-a18d-a638024e7428",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 24.876,
+      "input_tokens": 86,
+      "output_tokens": 27,
+      "total_tokens": 113,
+      "recall": 0.4783
+    },
+    {
+      "entry_id": "f2aac377-aca1-4856-815b-33218f3ea4df",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 23.676,
+      "input_tokens": 57,
+      "output_tokens": 26,
+      "total_tokens": 83,
+      "recall": 0.2778
+    },
+    {
+      "entry_id": "478b4ba4-1030-421e-8946-4a770baf3b79",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 22.855,
+      "input_tokens": 90,
+      "output_tokens": 26,
+      "total_tokens": 116,
+      "recall": 0.1111
+    },
+    {
+      "entry_id": "806b6eff-0b56-4e60-9007-1710f8c1c021",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 21.648,
+      "input_tokens": 84,
+      "output_tokens": 27,
+      "total_tokens": 111,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "f9bcfc32-f05a-4612-9f94-ea1ce01ccde8",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 20.535,
+      "input_tokens": 76,
+      "output_tokens": 21,
+      "total_tokens": 97,
+      "recall": 0.0588
+    },
+    {
+      "entry_id": "68e28971-50d4-4f4f-aa91-04fcb82d1473",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 19.221,
+      "input_tokens": 57,
+      "output_tokens": 23,
+      "total_tokens": 80,
+      "recall": 0.1667
+    },
+    {
+      "entry_id": "b768ef6c-59df-4753-a3b1-643b6ff92891",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 18.202,
+      "input_tokens": 72,
+      "output_tokens": 19,
+      "total_tokens": 91,
+      "recall": 0.0625
+    },
+    {
+      "entry_id": "9cbf80d7-c3e2-4c01-b854-b87b2e1a9d96",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 17.028,
+      "input_tokens": 79,
+      "output_tokens": 26,
+      "total_tokens": 105,
+      "recall": 0.3043
+    },
+    {
+      "entry_id": "85e277b7-a8d7-420d-8a1f-75998cc9968a",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 15.83,
+      "input_tokens": 86,
+      "output_tokens": 26,
+      "total_tokens": 112,
+      "recall": 0.3636
+    },
+    {
+      "entry_id": "69337dff-93c3-4ed5-892c-fcfb79edca96",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 14.576,
+      "input_tokens": 78,
+      "output_tokens": 22,
+      "total_tokens": 100,
+      "recall": 0.1818
+    },
+    {
+      "entry_id": "cc8b81fe-ec54-4da9-b3e6-24223965a4b6",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 13.375,
+      "input_tokens": 81,
+      "output_tokens": 24,
+      "total_tokens": 105,
+      "recall": 0.3333
+    },
+    {
+      "entry_id": "eb924a75-9a7e-407d-9fcc-2dbc3164c7d1",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 12.125,
+      "input_tokens": 44,
+      "output_tokens": 23,
+      "total_tokens": 67,
+      "recall": 0.2105
+    },
+    {
+      "entry_id": "76c37789-564b-4fa0-b2f8-9cb3c6a94e87",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 11.182,
+      "input_tokens": 88,
+      "output_tokens": 27,
+      "total_tokens": 115,
+      "recall": 0.28
+    },
+    {
+      "entry_id": "a144dd04-53fa-409c-81ea-2ff02f2ab1b3",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 10.104,
+      "input_tokens": 42,
+      "output_tokens": 23,
+      "total_tokens": 65,
+      "recall": 0.2353
+    },
+    {
+      "entry_id": "8dbaccf1-4be9-4436-bc0c-99818289620b",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 9.237,
+      "input_tokens": 73,
+      "output_tokens": 22,
+      "total_tokens": 95,
+      "recall": 0.25
+    },
+    {
+      "entry_id": "46c30d57-ebde-4c31-be9e-a80a0abecd83",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 8.169,
+      "input_tokens": 57,
+      "output_tokens": 25,
+      "total_tokens": 82,
+      "recall": 0.2778
+    },
+    {
+      "entry_id": "e54dc60c-c7b0-4fa5-ae0b-cb9fe1b4aedc",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 7.256,
+      "input_tokens": 60,
+      "output_tokens": 26,
+      "total_tokens": 86,
+      "recall": 0.2632
+    },
+    {
+      "entry_id": "d90f83ec-67aa-4bbb-a472-b5d56844e00a",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "code",
+      "ttft_ms": 7.446,
+      "input_tokens": 41,
+      "output_tokens": 21,
+      "total_tokens": 62,
+      "recall": 0.25
+    },
+    {
+      "entry_id": "52705f0b-e8ed-42ab-9e59-4a12e409ead4",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 7.649,
+      "input_tokens": 85,
+      "output_tokens": 24,
+      "total_tokens": 109,
+      "recall": 0.0909
+    },
+    {
+      "entry_id": "aa1c39a0-67ca-4ced-afa3-adea9f6547dc",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 6.551,
+      "input_tokens": 88,
+      "output_tokens": 25,
+      "total_tokens": 113,
+      "recall": 0.125
+    },
+    {
+      "entry_id": "11ec23db-49fd-4e8a-a579-c879254b5274",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "financial",
+      "ttft_ms": 9.549,
+      "input_tokens": 83,
+      "output_tokens": 25,
+      "total_tokens": 108,
+      "recall": 0.1364
+    },
+    {
+      "entry_id": "dfad61f9-a04a-425a-9101-46318fa09081",
+      "path": "Base_Hybrid_FTS5",
+      "domain": "legal",
+      "ttft_ms": 8.342,
+      "input_tokens": 94,
+      "output_tokens": 27,
+      "total_tokens": 121,
+      "recall": 0.28
+    }
+  ]
+}

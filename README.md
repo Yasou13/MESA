@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.2.0-green.svg)
+![Version](https://img.shields.io/badge/Version-0.3.0-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
 Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
@@ -17,14 +17,15 @@ Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consens
 
 ## Why MESA?
 
-Traditional agent memory is a flat buffer of text. MESA replaces that with a **9-module pipeline** that gates every incoming record through statistical novelty checks, anomaly detection, and asymmetric dual-LLM cross-validation before committing structured knowledge triplets to a persistent graph. The result: agents that remember *accurately*, not just *recently*.
+Traditional agent memory is a flat buffer of text. MESA replaces that with a **multi-module pipeline** that gates every incoming record through statistical novelty checks, anomaly detection, and asymmetric dual-LLM cross-validation before committing structured knowledge triplets to a persistent graph. The result: agents that remember *accurately*, not just *recently*.
 
 | Capability | MESA | LangChain Memory | MemGPT |
 |---|---|---|---|
 | **Hallucination Mitigation** | Dual-LLM Consensus + Fail-safe Discard | Prompt-based | Self-correction |
 | **Validation Architecture** | 3-Tier Statistical + LLM Pipeline | None | Prompt-based |
 | **Knowledge Graph** | Automated REBEL + LLM Triplet Extraction | Manual | None |
-| **Local-First** | Yes (SQLite, LanceDB, NetworkX) | Cloud-dependent | Cloud-dependent |
+| **Tenant Isolation** | Mandatory `agent_id` RLS on every query | None | None |
+| **Local-First** | Yes (SQLite WAL, LanceDB, NetworkX) | Cloud-dependent | Cloud-dependent |
 | **Observability** | Prometheus + structured JSON logs | Basic logging | Basic logging |
 
 ---
@@ -33,69 +34,62 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **9
 
 ```mermaid
 graph TB
+    subgraph "API Layer"
+        T["FastAPI v3<br/>Daemon :8000"] --> INS["POST /v3/memory/insert"]
+        T --> SCH["POST /v3/memory/search"]
+        T --> PRG["DELETE /v3/memory/purge"]
+    end
+
     subgraph "Ingestion Layer"
-        A["CMB Input<br/>(Content + Metadata)"] --> B["Module 1<br/>Valence Motor"]
+        INS --> B["Valence Motor"]
         B --> C{"Tier-1<br/>Fitness Gate"}
         C -->|DISCARD| X1["❌ Rejected"]
-        C -->|PASS| D["Module 2<br/>ECOD Anomaly Detection"]
+        C -->|PASS| D["ECOD Anomaly Detection"]
         D --> E{"Tier-2<br/>Novelty Check"}
         E -->|DISCARD| X1
-        E -->|UNCERTAIN| F["Module 3<br/>Tier-3 Deferred Queue"]
+        E -->|UNCERTAIN| F["Tier-3 Deferred Queue"]
     end
 
     subgraph "Consolidation Layer"
-        F --> G["Module 8<br/>ConsolidationLoop"]
+        F --> G["ConsolidationLoop"]
         G --> H["REBEL Extractor<br/>(Local, Zero-Cost)"]
         H --> I["Dual-LLM<br/>Cross-Validation"]
-        I -->|AGREE| J["Module 5<br/>GraphWriter"]
+        I -->|AGREE| J["GraphWriter"]
         I -->|DISAGREE| X2["❌ Discarded<br/>(Fail-Safe)"]
     end
 
-    subgraph "Storage Facade"
-        J --> K["SQLite<br/>Raw Log"]
+    subgraph "Storage Layer"
+        J --> K["SQLite WAL<br/>+ FTS5"]
         J --> L["LanceDB<br/>Vector Index"]
         J --> M["NetworkX<br/>Knowledge Graph"]
     end
 
     subgraph "Retrieval Layer"
-        N["Query Input"] --> O["Module 9<br/>HybridRetriever"]
-        O --> P["Vector Search<br/>(Cosine Similarity)"]
-        O --> Q["Graph Search<br/>(Personalized PageRank)"]
-        P --> R["RRF Fusion"]
-        Q --> R
-        R --> S["Ranked Results"]
+        SCH --> O["HybridRetriever"]
+        O --> P["Vector Search"]
+        O --> Q["Graph Search<br/>(PPR + k-hop)"]
+        O --> R["FTS5 Lexical<br/>Pre-Filter"]
+        P --> S["RRF Fusion"]
+        Q --> S
+        R --> S
+        S --> RES["Ranked Results"]
     end
 
-    subgraph "API Layer"
-        T["FastAPI<br/>REST Server"] --> B
-        T --> O
-        T --> U["Prometheus<br/>/metrics"]
+    subgraph "Background Workers"
+        MW["MaintenanceWorker<br/>(VACUUM, Hard-Delete)"]
+        REM["REM Cycle Worker<br/>(Consolidation)"]
     end
 
     E -->|ADMIT| K
     E -->|ADMIT| L
 
-    style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style T fill:#0f3460,stroke:#16213e,color:#fff
     style J fill:#1a1a2e,stroke:#0f3460,color:#fff
-    style S fill:#1a1a2e,stroke:#e94560,color:#fff
+    style RES fill:#1a1a2e,stroke:#e94560,color:#fff
     style X1 fill:#3d0000,stroke:#e94560,color:#fff
     style X2 fill:#3d0000,stroke:#e94560,color:#fff
+    style MW fill:#3d0000,stroke:#e94560,color:#fff
 ```
-
-### Module Inventory
-
-| # | Module | File | Responsibility |
-|---|---|---|---|
-| 1 | **Valence Motor** | `mesa_memory/valence/core.py` | 3-tier admission gate with EWMAD drift calibration |
-| 2 | **ECOD Detector** | `mesa_memory/valence/novelty.py` | Embedding-space anomaly detection for novelty scoring |
-| 3 | **Fitness Scorer** | `mesa_memory/valence/fitness.py` | Content density × cost efficiency × novelty composite |
-| 4 | **Observability** | `mesa_memory/observability/metrics.py` | Prometheus counters/histograms + structured JSON audit |
-| 5 | **Graph Writer** | `mesa_memory/consolidation/writer.py` | Atomic triplet commit with MVCC node versioning |
-| 6 | **REBEL Extractor** | `mesa_memory/extraction/rebel_pipeline.py` | Local seq2seq triplet extraction (zero token cost) |
-| 7 | **Storage Facade** | `mesa_memory/storage/__init__.py` | Unified SQLite + LanceDB + NetworkX interface |
-| 8 | **Consolidation Loop** | `mesa_memory/consolidation/loop.py` | Batch orchestration with dual-LLM cross-validation |
-| 9 | **Hybrid Retriever** | `mesa_memory/retrieval/hybrid.py` | RRF-fused vector + PPR graph search |
 
 ---
 
@@ -110,49 +104,68 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements-core.txt
 ```
 
+> **Core dependencies installed:** `aiosqlite`, `fastapi`, `lancedb`, `httpx`, `pydantic`, `uvicorn`, `networkx`, `pyarrow`, and all supporting packages. See `requirements-core.txt` for the full manifest or `pyproject.toml` for version ranges.
+
 ### 2. Configure
 
 ```bash
 cp .env.example .env
 # Edit .env with your provider credentials, or use mock mode:
 # MESA_LLM_PROVIDER=mock
+# MESA_API_KEY=your-secret-key
 ```
 
-### 3. Run the Demo
+### 3. Launch the API Server (Daemon Mode)
+
+MESA v0.3.0 runs as a **headless FastAPI daemon**. All interaction flows through the REST API:
 
 ```bash
-python scripts/run_investor_demo.py
-```
-
-**Expected output:**
-
-```
-Initializing MESA StorageFacade...
-Concurrent ingestion using multiple agents...
-[Agent_A] Ingested SEC-001
-[Agent_B] Ingested EMAIL-002
-...
-Running ConsolidationLoop (Tier-3 processing)...
-Consolidated Tier-3 deferred records.
-
-================ FINAL REPORT ================
-Query: Explain the Twitter Inc. Acquisition...
-Found Results:
-- [SEC-008] Musk, Twitter'ın tüm hisselerini ...
-- [EMAIL-010] Morgan Stanley, 46.5 milyar dolar...
-==============================================
-```
-
-### 4. Launch the API Server
-
-```bash
-uvicorn mesa_memory.api.server:app --reload
+uvicorn mesa_api.router:app --host 0.0.0.0 --port 8000 --reload
 # → http://127.0.0.1:8000/docs  (Swagger UI)
 # → http://127.0.0.1:8000/health
-# → http://127.0.0.1:8000/metrics (Prometheus)
 ```
 
-### 5. Docker Deployment
+### 4. Insert & Search via cURL
+
+```bash
+# Insert a memory
+curl -X POST http://localhost:8000/v3/memory/insert \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-key" \
+  -d '{
+    "agent_id": "analyst_1",
+    "session_id": "session_001",
+    "content": "Tesla Q4 2025 revenue exceeded $25B, up 12% YoY."
+  }'
+
+# Search memories
+curl -X POST http://localhost:8000/v3/memory/search \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-key" \
+  -d '{
+    "agent_id": "analyst_1",
+    "query": "What was Tesla Q4 revenue?",
+    "limit": 5
+  }'
+```
+
+### 5. Use the Python SDK
+
+```python
+from mesa_client.client import MesaClient
+
+client = MesaClient(base_url="http://localhost:8000", api_key="your-secret-key")
+
+# Insert
+client.insert(agent_id="analyst_1", session_id="s1", content="Tesla Q4 revenue: $25B")
+
+# Search
+results = client.search(agent_id="analyst_1", query="Tesla revenue")
+for r in results:
+    print(r.content, r.score)
+```
+
+### 6. Docker Deployment
 
 ```bash
 docker compose up --build -d
@@ -162,40 +175,37 @@ docker compose up --build -d
 
 ---
 
-## API Endpoints
+## API Endpoints (v3)
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/ingest` | Submit a memory record through the validation pipeline |
-| `POST` | `/query` | Hybrid vector + graph retrieval |
-| `GET` | `/health` | System status, admission rates, divergence metrics |
+| `POST` | `/v3/memory/insert` | Queue memory ingestion (fire-and-forget, <150ms) |
+| `POST` | `/v3/memory/search` | Hybrid vector + graph + FTS5 retrieval |
+| `DELETE` | `/v3/memory/purge` | Soft-delete only (hard-delete is background-only) |
+| `GET` | `/health` | System status and readiness check |
 | `GET` | `/metrics` | Prometheus scrape endpoint |
-
-**Ingest example:**
-
-```bash
-curl -X POST http://localhost:8000/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"content": "Tesla Q4 revenue exceeded $25B", "source": "earnings_report", "agent_id": "analyst_1"}'
-```
 
 ---
 
 ## Running Tests
 
 ```bash
-# Full test suite
+# Full test suite (409 tests)
 pytest tests/ -q
 
 # With coverage
-pytest tests/ --cov=mesa_memory --cov-report=term-missing --ignore=tests/bench
+pytest tests/ --cov=mesa_memory --cov=mesa_api --cov=mesa_storage --cov-report=term-missing --ignore=tests/bench
 
 # Type checking
-mypy mesa_memory/ --ignore-missing-imports --explicit-package-bases
+mypy mesa_memory/ mesa_api/ mesa_storage/ --ignore-missing-imports --explicit-package-bases
 
 # Formatting
-black --check mesa_memory/ tests/
-ruff check mesa_memory/ tests/
+black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
+ruff check mesa_memory/ mesa_api/ mesa_storage/ tests/
+
+# Evaluation pipeline
+python -m mesa_evals.evals        # Run 30-entry synthetic benchmark
+python -m mesa_evals.gatekeeper   # CI/CD gate (exit 0 = PASS)
 ```
 
 ---
@@ -207,14 +217,14 @@ ruff check mesa_memory/ tests/
 
 ### NetworkX Graph Scalability
 
-The default graph provider uses **in-memory NetworkX** backed by SQLite persistence. This works well for graphs up to ~100K nodes. For larger knowledge bases, the planned `MemgraphProvider` (currently stubbed) will provide a scalable alternative with Cypher query support.
+The default graph provider uses **in-memory NetworkX** backed by SQLite persistence. This works well for graphs up to ~100K nodes. For larger knowledge bases, a dedicated graph database backend is recommended.
 
-### Groq / LLM Provider Rate Limits
+### LLM Provider Rate Limits
 
 When using Groq's free tier as the LLM backend, you may hit **30 requests/minute** rate limits during consolidation batches. Mitigations:
 - Reduce `consolidation_batch_size` in your `.env` or config.
 - Use the `mock` provider for local development and testing.
-- Deploy with a paid Groq plan or switch to a self-hosted Ollama instance.
+- Deploy with a paid plan or switch to a self-hosted Ollama instance.
 
 ### CPU-Only REBEL Extraction
 
@@ -222,33 +232,33 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 - Set `MESA_REBEL_DEVICE=cuda` if a GPU is available.
 - The system automatically falls back to LLM-based extraction when REBEL fails, so extraction never blocks the pipeline.
 
-### Transformers Compatibility
-
-The `text2text-generation` pipeline task used by REBEL may conflict with newer versions of the `transformers` library. If you encounter `KeyError: "Unknown task text2text-generation"`, pin `transformers<=4.44.0` or rely on the automatic LLM fallback path.
-
 ---
 
 ## Project Structure
 
 ```
 MESA/
+├── mesa_api/             # Headless FastAPI v3 REST server + Pydantic schemas
+├── mesa_client/          # Python SDK (sync/async) + LangChain adapter
+├── mesa_evals/           # Golden Dataset, evaluation runner, CI/CD gatekeeper
 ├── mesa_memory/
 │   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
-│   ├── api/              # FastAPI REST server
 │   ├── consolidation/    # Batch orchestration + graph writing
 │   ├── extraction/       # REBEL triplet extraction pipeline
 │   ├── observability/    # Prometheus metrics + structured logging
 │   ├── retrieval/        # Hybrid vector + graph retrieval
 │   ├── schema/           # Pydantic CMB schema
-│   ├── security/         # RBAC access control
-│   ├── storage/          # StorageFacade (SQLite, LanceDB, NetworkX)
-│   └── valence/          # 3-tier admission gate + fitness scoring
-├── scripts/              # Demo and utility scripts
-├── examples/             # Tutorial scripts (hello_mesa.py)
-├── tests/                # pytest suite (159+ tests)
+│   ├── security/         # RBAC access control + input sanitisation
+│   └── storage/          # StorageFacade (graph provider abstraction)
+├── mesa_storage/         # Async SQLite engine, LanceDB vector engine, schema DDL
+├── mesa_workers/         # MaintenanceWorker, REM Cycle Worker
+├── tests/                # pytest suite (409 tests + benchmarks)
+├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)
 ├── Dockerfile            # Production container
 ├── docker-compose.yml    # Single-command deployment
-└── requirements-core.txt # Lightweight API dependencies
+├── pyproject.toml        # Package metadata + dependency ranges
+├── requirements-core.txt # Lightweight API dependencies (~200 MB)
+└── requirements-ml.txt   # Full ML dependencies (PyTorch/REBEL, ~3 GB)
 ```
 
 ---

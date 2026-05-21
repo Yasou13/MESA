@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesa-memory"
-version = "0.2.0"
+version = "0.3.0"
 description = "Enterprise-grade cognitive memory engine for autonomous AI agents"
 readme = "README.md"
 license = {text = "MIT"}
@@ -107,7 +107,7 @@ Changelog = "https://github.com/Yasou13/MESA/blob/main/CHANGELOG.md"
 Issues = "https://github.com/Yasou13/MESA/issues"
 
 [tool.setuptools.packages.find]
-include = ["mesa_memory*"]
+include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_evals*", "mesa_storage*", "mesa_workers*"]
 
 [tool.black]
 line-length = 88

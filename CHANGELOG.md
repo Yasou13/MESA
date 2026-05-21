@@ -5,6 +5,51 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-22
+
+### 🔴 Critical Security Fix
+
+- **Mandatory `agent_id` Enforcement (P0 RLS Remediation):** 11 functions in `mesa_storage/schemas.py` previously accepted `agent_id` as optional or omitted it from SQL `WHERE` clauses, creating cross-tenant data leakage vectors. All query, mutation, and traversal functions now require **mandatory `agent_id`** with hardcoded `AND agent_id = ?` predicates. Affected: `soft_delete_node`, `mark_consolidated`, `get_active_nodes`, `find_nodes_by_name`, `upsert_edge`, `soft_delete_edge`, `get_neighbors`, `get_active_edges`, `k_hop_neighbors`, `fts5_search`. The `fts5_search` call in `mesa_api/router.py` was also patched to pass `agent_id=request.agent_id`.
+
+### Added
+
+- **Headless FastAPI v3 API** (`mesa_api/router.py`): Stateless daemon-mode REST server. `POST /v3/memory/insert` (fire-and-forget via `BackgroundTasks`, <150ms TTFT), `POST /v3/memory/search` (synchronous await), `DELETE /v3/memory/purge` (soft-delete only).
+- **Strict Pydantic V2 API Schemas** (`mesa_api/schemas.py`): `min_length=1` on all identity fields, `__unset__` sentinel rejection, content ≤32 KB, metadata ≤64 keys, `strict=True`, frozen response models.
+- **Asynchronous Storage Engine** (`mesa_storage/sqlite_engine.py`): `aiosqlite` with connection pooling, WAL mode, `synchronous=NORMAL`, 64 MB cache, health checks, and WAL checkpointing.
+- **LanceDB Vector Engine** (`mesa_storage/vector_engine.py`): Async-compatible via `ThreadPoolExecutor` + `run_in_executor`. Multi-dimensional table routing, soft-delete with `expired_at`, mandatory `agent_id` on all operations.
+- **SQLite FTS5 Lexical Pre-Filtering** (`mesa_storage/schemas.py`): Zero-VRAM full-text search via FTS5 virtual tables with trigger-based sync. Enables lexical pre-filtering before vector/graph operations.
+- **Memory DAO** (`mesa_storage/dao.py`): High-level Data Access Object enforcing mandatory `agent_id` on every method.
+- **Isolated Maintenance Worker** (`mesa_workers/maintenance.py`): Background worker for `VACUUM`, hard `DELETE FROM`, and LanceDB compaction on a **dedicated synchronous `sqlite3` connection** with `isolation_level=None` and `busy_timeout=30s`. Retention-window-gated purge.
+- **REM Cycle Worker** (`mesa_workers/rem_cycle.py`): Async consolidation with `max_records_per_cycle` batch slicing and token budget enforcement.
+- **Python Client SDK** (`mesa_client/client.py`): Sync/async HTTP clients via `httpx` with Pydantic V2 validation and `tenacity` retry logic.
+- **LangChain Adapter** (`mesa_client/langchain.py`): `MesaRetriever` implementing LangChain's `BaseRetriever` protocol.
+- **Evaluation Pipeline** (`mesa_evals/`): 100-question Golden Dataset (Legal=35, Financial=35, Code=30), deterministic synthetic generator, multi-path eval runner, and CI/CD gatekeeper enforcing cost/latency SLAs.
+- **k-hop Graph Traversal** (`mesa_storage/schemas.py`): BFS `k_hop_neighbors()` with mandatory `agent_id` propagation.
+
+### Changed
+
+- **Architecture: Library → Daemon:** MESA is now a headless FastAPI daemon. All interaction flows through v3 REST endpoints or the Python SDK.
+- **Storage Decoupling:** `mesa_storage` is a standalone package independent of `mesa_memory`.
+- **Soft-Delete / Hard-Delete Separation:** API restricted to soft-deletes; physical deletion exclusively in `MaintenanceWorker`.
+- **Test suite:** Expanded from 159+ to **409 tests**.
+
+### Removed
+
+- **Memgraph references:** All legacy stubs and configuration purged.
+
+### Dependencies
+
+| Package | Version | Role |
+|---|---|---|
+| `aiosqlite` | ≥0.22.0 | Non-blocking SQLite engine |
+| `fastapi` | ≥0.111.0 | Headless REST API server |
+| `lancedb` | ≥0.30.0 | Vector storage |
+| `httpx` | ≥0.28.0 | HTTP client for SDK |
+| `pydantic` | ≥2.13.0 | Strict V2 schema validation |
+| `uvicorn` | ≥0.29.0 | ASGI server |
+
+---
+
 ## [0.2.0] - 2026-05-15
 
 ### Added
@@ -64,5 +109,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.3.0]: https://github.com/Yasou13/MESA/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Yasou13/MESA/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Yasou13/MESA/releases/tag/v0.1.0
