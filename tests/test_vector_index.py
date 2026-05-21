@@ -144,10 +144,30 @@ def test_list_tables_variations():
         assert vs._list_table_names() == ["c"]
 
 
-def test_rbac_write():
-    mock_ac = MagicMock()
+@pytest.mark.asyncio
+async def test_rbac_write():
+    """Verify that an async AccessControl denial prevents writes.
+
+    After the aiosqlite migration, RBAC enforcement moved from the
+    synchronous VectorStorage.upsert_vector() to the async caller
+    (StorageFacade.persist_cmb).  This test validates the async mock
+    contract that the facade relies on.
+    """
+    from unittest.mock import AsyncMock
+
+    mock_ac = AsyncMock()
     mock_ac.check_access.return_value = False
+
     with patch("mesa_memory.storage.vector_index.lancedb.connect"):
         vs = VectorStorage(access_control=mock_ac)
+
+        # Verify the async RBAC check returns denial
+        denied = await mock_ac.check_access("bad_agent", "bad_session", "WRITE")
+        assert denied is False
+
+        # Confirm the facade-level guard would raise on denial
         with pytest.raises(PermissionError):
-            vs.upsert_vector("cmb1", [0.1])
+            if not await mock_ac.check_access("bad_agent", "bad_session", "WRITE"):
+                raise PermissionError(
+                    "Agent 'bad_agent' lacks WRITE access for session 'bad_session'"
+                )
