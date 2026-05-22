@@ -335,39 +335,40 @@ class TestMaintenanceMissingCoverage:
     async def test_stop_timeout_and_cancelled_error(self, sqlite_engine):
         worker = MaintenanceWorker(sqlite_engine)
         await worker.start()
-        
+
         import asyncio
         from unittest.mock import AsyncMock, patch
-        
+
         # Mock wait_for to raise TimeoutError, triggering the cancel block
         async def mock_wait_for(*args, **kwargs):
             raise asyncio.TimeoutError()
-            
+
         with patch("asyncio.wait_for", new_callable=AsyncMock) as m_wait_for:
             m_wait_for.side_effect = mock_wait_for
             await worker.stop()
-            
+
         assert not worker.is_running
-        
+
     @pytest.mark.asyncio
     async def test_scheduler_loop_grace_period_and_stop_event(self, sqlite_engine):
         worker = MaintenanceWorker(sqlite_engine)
-        
+
         import asyncio
         from unittest.mock import patch
-        
+
         # Test stop event being set during grace period
         worker._stop_event.set()
         await worker._scheduler_loop()
-        
+
         worker._stop_event.clear()
-        
+
         # Test stop event being set during sleep
         with patch.object(worker, "_seconds_until_next_window", return_value=0.1):
+
             async def trigger_stop():
                 await asyncio.sleep(0.01)
                 worker._stop_event.set()
-                
+
             asyncio.create_task(trigger_stop())
             await worker._scheduler_loop()
 
@@ -375,18 +376,22 @@ class TestMaintenanceMissingCoverage:
     async def test_run_cycle_exception(self, sqlite_engine):
         worker = MaintenanceWorker(sqlite_engine)
         from unittest.mock import patch
-        
-        with patch.object(worker, "_purge_sqlite_records", side_effect=Exception("Test Error")):
+
+        with patch.object(
+            worker, "_purge_sqlite_records", side_effect=Exception("Test Error")
+        ):
             await worker._run_cycle()
-            
+
         assert worker.metrics.cycles_failed == 1
 
     @pytest.mark.asyncio
     async def test_purge_sqlite_exception(self, sqlite_engine):
         worker = MaintenanceWorker(sqlite_engine)
         from unittest.mock import patch
-        
-        with patch.object(sqlite_engine, "connection", side_effect=Exception("DB Error")):
+
+        with patch.object(
+            sqlite_engine, "connection", side_effect=Exception("DB Error")
+        ):
             with pytest.raises(Exception, match="DB Error"):
                 await worker._purge_sqlite_records()
 
@@ -394,7 +399,7 @@ class TestMaintenanceMissingCoverage:
     async def test_vacuum_sqlite_missing_db(self, sqlite_engine):
         worker = MaintenanceWorker(sqlite_engine)
         from unittest.mock import patch
-        
+
         with patch("os.path.exists", return_value=False):
             await worker._vacuum_sqlite()
 
@@ -402,19 +407,25 @@ class TestMaintenanceMissingCoverage:
     async def test_vacuum_sqlite_exception(self, sqlite_engine):
         worker = MaintenanceWorker(sqlite_engine)
         from unittest.mock import patch
-        
-        with patch.object(sqlite_engine, "checkpoint", side_effect=Exception("Vacuum Error")):
+
+        with patch.object(
+            sqlite_engine, "checkpoint", side_effect=Exception("Vacuum Error")
+        ):
             await worker._vacuum_sqlite()
 
     @pytest.mark.asyncio
     async def test_purge_vector_records_exception(self, sqlite_engine):
         from unittest.mock import MagicMock
+
         mock_vec = MagicMock()
         worker = MaintenanceWorker(sqlite_engine, vector_engine=mock_vec)
-        
+
         from unittest.mock import patch
+
         with patch("asyncio.get_running_loop") as mock_loop:
-            mock_loop.return_value.run_in_executor.side_effect = Exception("Vector Purge Error")
+            mock_loop.return_value.run_in_executor.side_effect = Exception(
+                "Vector Purge Error"
+            )
             with pytest.raises(Exception, match="Vector Purge Error"):
                 await worker._purge_vector_records()
 
@@ -422,9 +433,10 @@ class TestMaintenanceMissingCoverage:
         worker = MaintenanceWorker(sqlite_engine)
         # 1. no vector engine
         assert worker._sync_purge_vectors("some_date") == 0
-        
+
         # 2. not initialized
         from unittest.mock import MagicMock
+
         mock_vec = MagicMock()
         mock_vec.is_initialized = False
         worker = MaintenanceWorker(sqlite_engine, vector_engine=mock_vec)
@@ -439,7 +451,7 @@ class TestMaintenanceMissingCoverage:
         mock_vec._db = MagicMock()
         mock_vec._list_table_names.return_value = ["ignore_this_table"]
         assert worker._sync_purge_vectors("some_date") == 0
-        
+
         # 5. exception during table operations
         mock_vec._list_table_names.return_value = ["mesa_vectors_8"]
         mock_vec._db.open_table.side_effect = Exception("Open table error")
@@ -449,12 +461,16 @@ class TestMaintenanceMissingCoverage:
     @pytest.mark.asyncio
     async def test_compact_vector_storage_exception(self, sqlite_engine):
         from unittest.mock import MagicMock
+
         mock_vec = MagicMock()
         worker = MaintenanceWorker(sqlite_engine, vector_engine=mock_vec)
-        
+
         from unittest.mock import patch
+
         with patch("asyncio.get_running_loop") as mock_loop:
-            mock_loop.return_value.run_in_executor.side_effect = Exception("Vector Compact Error")
+            mock_loop.return_value.run_in_executor.side_effect = Exception(
+                "Vector Compact Error"
+            )
             # Exception is caught and logged, doesn't raise
             await worker._compact_vector_storage()
 
@@ -462,9 +478,10 @@ class TestMaintenanceMissingCoverage:
         worker = MaintenanceWorker(sqlite_engine)
         # 1. no vector engine
         worker._sync_compact_vectors()
-        
+
         # 2. not initialized
         from unittest.mock import MagicMock
+
         mock_vec = MagicMock()
         mock_vec.is_initialized = False
         worker = MaintenanceWorker(sqlite_engine, vector_engine=mock_vec)
@@ -489,6 +506,8 @@ class TestMaintenanceMissingCoverage:
         # 6. ImportError
         mock_table_with_opt = MagicMock()
         mock_table_with_opt.optimize = MagicMock()
-        mock_table_with_opt.optimize.compact_files.side_effect = ImportError("pylance missing")
+        mock_table_with_opt.optimize.compact_files.side_effect = ImportError(
+            "pylance missing"
+        )
         mock_vec._db.open_table.return_value = mock_table_with_opt
         worker._sync_compact_vectors()

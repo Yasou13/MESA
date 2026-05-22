@@ -167,11 +167,11 @@ def test_query_analyzer_regex_all_stopwords():
 
     analyzer = QueryAnalyzer.__new__(QueryAnalyzer)
     analyzer.nlp = None
-    
+
     entities = analyzer.extract_entities("the is at")
     assert isinstance(entities, list)
     assert len(entities) >= 1
-    
+
 
 def test_normalize_query():
     from mesa_memory.retrieval.core import normalize_query

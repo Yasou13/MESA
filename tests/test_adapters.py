@@ -176,7 +176,9 @@ def test_count_tokens_ollama_fallback():
     from mesa_memory.adapter.tokenizer import count_tokens
 
     # Invalid model → falls back to word-count estimate
-    result = count_tokens("Hello world test", adapter_type="ollama", model_id="nonexistent/model")
+    result = count_tokens(
+        "Hello world test", adapter_type="ollama", model_id="nonexistent/model"
+    )
     assert isinstance(result, int)
     assert result > 0
 
