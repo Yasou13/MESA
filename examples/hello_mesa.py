@@ -25,6 +25,8 @@ import sys
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from mesa_memory.valence.fitness import calculate_fitness_score
+
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
@@ -33,7 +35,6 @@ from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.schema.cmb import CMB, ResourceCost
 from mesa_memory.storage import StorageFacade
-from mesa_memory.valence.fitness import calculate_fitness_score
 
 # Bypass the aggressive memory limit check for the tutorial
 config.lancedb_memory_limit_bytes = 100 * 1024 * 1024 * 1024

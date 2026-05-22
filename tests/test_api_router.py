@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mesa_api.router import create_memory_router
+from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import (
     get_active_nodes,
     initialize_schema,
@@ -79,8 +80,7 @@ def client(engines):
 
     app = FastAPI()
     router = create_memory_router(
-        sqlite_engine=sqlite_eng,
-        vector_engine=vec_eng,
+        dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
         embedder=_test_embedder,
     )
     app.include_router(router)
@@ -95,8 +95,7 @@ def client_no_vector(engines):
 
     app = FastAPI()
     router = create_memory_router(
-        sqlite_engine=sqlite_eng,
-        vector_engine=None,
+        dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=None),
         embedder=_test_embedder,
     )
     app.include_router(router)
@@ -550,8 +549,7 @@ class TestRouterFactory:
     def test_custom_prefix(self, engines):
         sqlite_eng, vec_eng, _ = engines
         router = create_memory_router(
-            sqlite_engine=sqlite_eng,
-            vector_engine=vec_eng,
+            dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
             prefix="/custom/api",
         )
         app = FastAPI()
@@ -571,8 +569,7 @@ class TestRouterFactory:
     def test_custom_tags(self, engines):
         sqlite_eng, vec_eng, _ = engines
         router = create_memory_router(
-            sqlite_engine=sqlite_eng,
-            vector_engine=vec_eng,
+            dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
             tags=["custom-tag"],
         )
         assert router.tags == ["custom-tag"]

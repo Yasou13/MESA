@@ -359,7 +359,7 @@ class MemoryDAO:
         agent_id: str,
         *,
         query: str,
-        limit: int = 20,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Lexical FTS5 search scoped exclusively to ``agent_id``.
 
@@ -370,7 +370,7 @@ class MemoryDAO:
         Args:
             agent_id: **Mandatory** tenant isolation key.
             query: FTS5 MATCH expression (AND, OR, NOT, prefix*).
-            limit: Maximum results.
+            limit: Maximum results (default 100 for broader pre-filter pool).
 
         Returns:
             List of matching node dicts ranked by FTS5 relevance.
@@ -382,6 +382,11 @@ class MemoryDAO:
 
         if not query or not query.strip():
             return []
+
+        # Convert strict AND to soft OR for broader BM25 matching
+        # e.g., "hello world" -> '"hello" OR "world"'
+        terms = query.replace('"', "").split()
+        parsed_query = " OR ".join([f'"{term}"' for term in terms]) if terms else query
 
         # RLS: `AND n.agent_id = ?` hardcoded into the JOIN predicate
         sql = (
@@ -398,14 +403,14 @@ class MemoryDAO:
 
         async with self._sql.connection() as db:
             try:
-                async with db.execute(sql, (query, agent_id, limit)) as cursor:
+                async with db.execute(sql, (parsed_query, agent_id, limit)) as cursor:
                     rows = await cursor.fetchall()
                     return [dict(row) for row in rows]
             except Exception as exc:
                 logger.warning(
                     "FTS5_SEARCH_ERROR | agent_id=%s query=%r error=%s",
                     agent_id,
-                    query,
+                    parsed_query,
                     exc,
                 )
                 return []
@@ -517,40 +522,58 @@ class MemoryDAO:
 
         affected_ids: list[str] = []
 
-        async with self._sql.transaction() as db:
-            # Collect IDs first
+        async with self._sql.connection() as db:
+            # Collect IDs first without holding a write transaction
             async with db.execute(select_sql, select_params) as cursor:
                 rows = await cursor.fetchall()
                 affected_ids = [row[0] for row in rows]
 
-            if not affected_ids:
-                await db.commit()
-                return 0
+        if not affected_ids:
+            return 0
 
-            # ---- 2. Soft-delete nodes: UPDATE SET deleted_at ---------
+        # ---- PHASE 1: VECTOR LAYER FIRST (Saga) ----------------------
+        for nid in affected_ids:
+            try:
+                # Vector deletion first to avoid zombie data if it fails
+                await self._vec.soft_delete(nid)
+            except Exception as exc:
+                logger.error(
+                    "CRITICAL_KVKK_FAILURE | agent_id=%s node_id=%s error=%s",
+                    agent_id,
+                    nid,
+                    exc,
+                )
+                # Rollback simulation: immediately raise and prevent SQLite transaction
+                raise
+
+        # ---- PHASE 2: RELATIONAL COMMIT ------------------------------
+        async with self._sql.transaction() as db:
+            # ---- 2a. Soft-delete nodes: UPDATE SET deleted_at ---------
             #      CRITICAL: No DELETE — UPDATE only.
             #      RLS: WHERE agent_id = ? hardcoded.
             if scope == "session":
                 update_sql = (
                     "UPDATE nodes "
-                    "SET deleted_at = CURRENT_TIMESTAMP "
+                    "SET invalid_at = CURRENT_TIMESTAMP "
                     "WHERE agent_id = ? "
                     "  AND session_id = ? "
                     "  AND invalid_at IS NULL "
                     "  AND deleted_at IS NULL"
                 )
-                await db.execute(update_sql, (agent_id, session_id))
+                node_cursor = await db.execute(update_sql, (agent_id, session_id))
             else:
                 update_sql = (
                     "UPDATE nodes "
-                    "SET deleted_at = CURRENT_TIMESTAMP "
+                    "SET invalid_at = CURRENT_TIMESTAMP "
                     "WHERE agent_id = ? "
                     "  AND invalid_at IS NULL "
                     "  AND deleted_at IS NULL"
                 )
-                await db.execute(update_sql, (agent_id,))
+                node_cursor = await db.execute(update_sql, (agent_id,))
 
-            # ---- 3. Cascade-invalidate connected edges ---------------
+            nodes_deleted = node_cursor.rowcount
+
+            # ---- 2b. Cascade-invalidate connected edges ---------------
             #      RLS: WHERE agent_id = ? hardcoded.
             placeholders = ",".join("?" for _ in affected_ids)
             edge_sql = (
@@ -562,30 +585,22 @@ class MemoryDAO:
                 "  AND invalid_at IS NULL"
             )
             edge_params: list[Any] = [agent_id, *affected_ids, *affected_ids]
-            await db.execute(edge_sql, edge_params)
+            edge_cursor = await db.execute(edge_sql, edge_params)
+            edges_deleted = edge_cursor.rowcount
 
             await db.commit()
 
-        # ---- 4. Soft-expire vector records ---------------------------
-        for nid in affected_ids:
-            try:
-                await self._vec.soft_delete(nid)
-            except Exception as exc:
-                # Log but do not fail the purge — SQLite is source of truth
-                logger.warning(
-                    "PURGE_VECTOR_EXPIRE_ERROR | agent_id=%s node_id=%s error=%s",
-                    agent_id,
-                    nid,
-                    exc,
-                )
+        total_deleted = nodes_deleted + edges_deleted
 
         logger.info(
-            "PURGE_MEMORY | agent_id=%s scope=%s affected=%d",
+            "PURGE_MEMORY | agent_id=%s scope=%s nodes_affected=%d edges_affected=%d total=%d",
             agent_id,
             scope,
-            len(affected_ids),
+            nodes_deleted,
+            edges_deleted,
+            total_deleted,
         )
-        return len(affected_ids)
+        return total_deleted
 
     # ==================================================================
     # MARK CONSOLIDATED — agent-scoped

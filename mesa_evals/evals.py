@@ -152,7 +152,7 @@ _EMBEDDING_DIM = 384
 
 def _mock_embed(text: str) -> list[float]:
     """SHA-256 seeded deterministic embedding."""
-    seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2 ** 32)
+    seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2**32)
     rng = random.Random(seed)
     raw = [rng.gauss(0, 1) for _ in range(_EMBEDDING_DIM)]
     norm = math.sqrt(sum(x * x for x in raw)) or 1.0

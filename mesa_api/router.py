@@ -41,7 +41,7 @@ import hashlib
 import logging
 import time
 import uuid
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, Sequence, runtime_checkable
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
@@ -51,69 +51,9 @@ from mesa_api.schemas import (
     MemoryPurgeRequest,
     MemorySearchRequest,
 )
+from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_API")
-
-
-# ---------------------------------------------------------------------------
-# Storage protocol — structural typing for engine dependencies
-# ---------------------------------------------------------------------------
-
-
-@runtime_checkable
-class SQLiteEngineProtocol(Protocol):
-    """Structural interface for the AsyncEngine dependency."""
-
-    @property
-    def db_path(self) -> str:
-        ...
-
-    @property
-    def is_initialized(self) -> bool:
-        ...
-
-    async def initialize(self) -> None:
-        ...
-
-    def connection(self) -> Any:
-        ...
-
-    def transaction(self) -> Any:
-        ...
-
-
-@runtime_checkable
-class VectorEngineProtocol(Protocol):
-    """Structural interface for the VectorEngine dependency."""
-
-    @property
-    def is_initialized(self) -> bool:
-        ...
-
-    async def initialize(self) -> None:
-        ...
-
-    async def upsert(
-        self,
-        node_id: str,
-        agent_id: str,
-        embedding: list[float],
-        content_hash: str | None = None,
-    ) -> None:
-        ...
-
-    async def search(
-        self,
-        query_vector: list[float],
-        *,
-        limit: int = 10,
-        agent_id: str | None = None,
-        include_expired: bool = False,
-    ) -> list[dict]:
-        ...
-
-    async def soft_delete(self, node_id: str) -> None:
-        ...
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +65,7 @@ class VectorEngineProtocol(Protocol):
 class EmbedderProtocol(Protocol):
     """Structural interface for an embedding function."""
 
-    def __call__(self, text: str) -> list[float]:
-        ...
+    def __call__(self, text: str) -> list[float]: ...
 
 
 def _noop_embedder(text: str) -> list[float]:
@@ -144,18 +83,16 @@ def _noop_embedder(text: str) -> list[float]:
 
 
 def create_memory_router(
-    sqlite_engine: SQLiteEngineProtocol,
-    vector_engine: VectorEngineProtocol | None = None,
+    dao: MemoryDAO,
     *,
     embedder: EmbedderProtocol = _noop_embedder,
     prefix: str = "/v3/memory",
-    tags: list[str] | None = None,
+    tags: Sequence[str] | None = None,
 ) -> APIRouter:
     """Create a FastAPI APIRouter with MESA v3 memory endpoints.
 
     Args:
-        sqlite_engine: Initialized AsyncEngine for graph operations.
-        vector_engine: Optional initialized VectorEngine for vector ops.
+        dao: Initialized MemoryDAO instance.
         embedder: Callable that converts text → float vector.
         prefix: URL prefix for all routes (default: /v3/memory).
         tags: OpenAPI tags for documentation grouping.
@@ -165,7 +102,7 @@ def create_memory_router(
     """
     router = APIRouter(
         prefix=prefix,
-        tags=tags or ["memory"],
+        tags=list(tags) if tags else ["memory"],
         responses={
             422: {"model": ErrorResponse, "description": "Validation Error"},
             500: {"model": ErrorResponse, "description": "Internal Error"},
@@ -201,8 +138,7 @@ def create_memory_router(
 
         background_tasks.add_task(
             _background_insert,
-            sqlite_engine=sqlite_engine,
-            vector_engine=vector_engine,
+            dao=dao,
             embedder=embedder,
             memory_id=memory_id,
             agent_id=request.agent_id,
@@ -238,12 +174,9 @@ def create_memory_router(
 
         try:
             # Phase 1: FTS5 lexical pre-filter (zero-VRAM)
-            from mesa_storage.schemas import fts5_search
-
-            fts_results = await fts5_search(
-                sqlite_engine,
-                request.query,
+            fts_results = await dao.search_memory_fts(
                 agent_id=request.agent_id,
+                query=request.query,
                 limit=request.limit,
             )
 
@@ -259,13 +192,18 @@ def create_memory_router(
                 )
                 context_parts.append(node["entity_name"])
 
+                # Bi-temporal read path logic
+                if not node.get("is_consolidated", True):
+                    context_parts[-1] += " [WARNING: UNCONSOLIDATED MEMORY]"
+
             # Phase 2: Vector similarity search (if engine is available)
-            if vector_engine is not None and vector_engine.is_initialized:
+            if dao.vector_engine is not None and dao.vector_engine.is_initialized:
                 query_embedding = embedder(request.query)
-                vec_results = await vector_engine.search(
+                vec_results = await dao.search_memory(
+                    agent_id=request.agent_id,
                     query_vector=query_embedding,
                     limit=request.limit,
-                    agent_id=request.agent_id,
+                    include_graph=False,
                 )
 
                 # Merge vector results, dedup by node_id
@@ -328,17 +266,12 @@ def create_memory_router(
         deleted_count = 0
 
         try:
-            if request.scope == "agent":
-                deleted_count = await _soft_delete_by_agent(
-                    sqlite_engine, vector_engine, request.agent_id
-                )
-            else:
-                deleted_count = await _soft_delete_by_session(
-                    sqlite_engine,
-                    vector_engine,
-                    request.agent_id,
-                    request.scope_id,
-                )
+            session_id = request.scope_id if request.scope == "session" else None
+            deleted_count = await dao.purge_memory(
+                agent_id=request.agent_id,
+                scope=request.scope,
+                session_id=session_id,
+            )
 
         except Exception as exc:
             logger.error(
@@ -368,8 +301,7 @@ def create_memory_router(
 
 async def _background_insert(
     *,
-    sqlite_engine: SQLiteEngineProtocol,
-    vector_engine: VectorEngineProtocol | None,
+    dao: MemoryDAO,
     embedder: EmbedderProtocol,
     memory_id: str,
     agent_id: str,
@@ -383,28 +315,20 @@ async def _background_insert(
     Failures are logged but do not affect the client response.
     """
     try:
-        # Step 1: Insert graph node into SQLite
-        from mesa_storage.schemas import insert_node
+        embedding = embedder(content)
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-        await insert_node(
-            sqlite_engine,
-            node_id=memory_id,
-            entity_name=content[:256],  # Truncate for entity_name column
-            node_type="MEMORY",
+        await dao.insert_memory(
             agent_id=agent_id,
+            node_id=memory_id,
+            entity_name=content[:256],
+            content=content,
+            embedding=embedding,
+            node_type="MEMORY",
             session_id=session_id,
+            content_hash=content_hash,
+            metadata=metadata,
         )
-
-        # Step 2: Compute embedding and upsert into vector store
-        if vector_engine is not None and vector_engine.is_initialized:
-            embedding = embedder(content)
-            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-            await vector_engine.upsert(
-                node_id=memory_id,
-                agent_id=agent_id,
-                embedding=embedding,
-                content_hash=content_hash,
-            )
 
         logger.info(
             "BACKGROUND_INSERT_OK | memory_id=%s agent_id=%s",
@@ -422,121 +346,3 @@ async def _background_insert(
             exc,
             exc_info=True,
         )
-
-
-# ---------------------------------------------------------------------------
-# Purge helpers — SOFT-DELETE ONLY
-# ---------------------------------------------------------------------------
-
-
-async def _soft_delete_by_agent(
-    sqlite_engine: SQLiteEngineProtocol,
-    vector_engine: VectorEngineProtocol | None,
-    agent_id: str,
-) -> int:
-    """Soft-delete ALL records for an agent. NO VACUUM. NO HARD-DELETE.
-
-    Returns:
-        Total number of records soft-deleted.
-    """
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc).isoformat()
-    deleted = 0
-
-    async with sqlite_engine.connection() as db:
-        # Soft-delete edges owned by this agent
-        cursor = await db.execute(
-            "UPDATE edges SET invalid_at = ? "
-            "WHERE agent_id = ? AND invalid_at IS NULL",
-            (now, agent_id),
-        )
-        deleted += cursor.rowcount
-
-        # Soft-delete nodes owned by this agent
-        cursor = await db.execute(
-            "UPDATE nodes SET invalid_at = ? "
-            "WHERE agent_id = ? AND invalid_at IS NULL",
-            (now, agent_id),
-        )
-        deleted += cursor.rowcount
-        await db.commit()
-
-    # Soft-delete vector records (mark as expired — NOT hard-delete)
-    if vector_engine is not None and vector_engine.is_initialized:
-        try:
-            active_ids = await vector_engine.get_active_node_ids(agent_id=agent_id)
-            for node_id in active_ids:
-                await vector_engine.soft_delete(node_id)
-                deleted += 1
-        except Exception as exc:
-            logger.warning(
-                "VECTOR_SOFT_DELETE_PARTIAL | agent_id=%s error=%s",
-                agent_id,
-                exc,
-            )
-
-    return deleted
-
-
-async def _soft_delete_by_session(
-    sqlite_engine: SQLiteEngineProtocol,
-    vector_engine: VectorEngineProtocol | None,
-    agent_id: str,
-    session_id: str,
-) -> int:
-    """Soft-delete records for a specific session. NO VACUUM. NO HARD-DELETE.
-
-    Returns:
-        Total number of records soft-deleted.
-    """
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc).isoformat()
-    deleted = 0
-
-    async with sqlite_engine.connection() as db:
-        # Get node IDs for this session to cascade to edges
-        async with db.execute(
-            "SELECT id FROM nodes "
-            "WHERE agent_id = ? AND session_id = ? AND invalid_at IS NULL",
-            (agent_id, session_id),
-        ) as cursor:
-            node_rows = await cursor.fetchall()
-            node_ids = [row[0] for row in node_rows]
-
-        if node_ids:
-            # Soft-delete edges connected to these nodes
-            placeholders = ",".join("?" for _ in node_ids)
-            cursor = await db.execute(
-                f"UPDATE edges SET invalid_at = ? "
-                f"WHERE (source_id IN ({placeholders}) "
-                f"OR target_id IN ({placeholders})) "
-                f"AND invalid_at IS NULL",
-                [now] + node_ids + node_ids,
-            )
-            deleted += cursor.rowcount
-
-        # Soft-delete the session's nodes
-        cursor = await db.execute(
-            "UPDATE nodes SET invalid_at = ? "
-            "WHERE agent_id = ? AND session_id = ? AND invalid_at IS NULL",
-            (now, agent_id, session_id),
-        )
-        deleted += cursor.rowcount
-        await db.commit()
-
-    # Soft-delete vector records for purged nodes
-    if vector_engine is not None and vector_engine.is_initialized and node_ids:
-        try:
-            for node_id in node_ids:
-                await vector_engine.soft_delete(node_id)
-                deleted += 1
-        except Exception as exc:
-            logger.warning(
-                "VECTOR_SOFT_DELETE_PARTIAL | session_id=%s error=%s",
-                session_id,
-                exc,
-            )
-
-    return deleted

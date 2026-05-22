@@ -1,6 +1,5 @@
-import sys
 import os
-import importlib.util
+import sys
 from pathlib import Path
 
 # Add original MESA dir to sys.path so unmutated packages can be found

@@ -4,92 +4,38 @@
 
 ---
 
-## `StorageFacade`
+## `MemoryDAO`
 
-**Module:** `mesa_memory.storage`
+**Module:** `mesa_storage.dao`
 
-Unified interface to the three-layer storage backend (SQLite raw log, LanceDB vector index, NetworkX knowledge graph). All write operations enforce RBAC and maintain cross-layer consistency via atomic commit/rollback.
-
-### Constructor
-
-```python
-StorageFacade(
-    raw_log_path: str = "./storage/raw_log.db",
-    vector_uri: str = "./storage/vector_index.lance",
-    graph_db_path: str = "./storage/knowledge_graph.db",
-    graph_rocks_path: str = "./storage/kg_history.rocks",
-    access_control: AccessControl | None = None,
-    graph_provider: BaseGraphProvider | None = None,
-)
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| `raw_log_path` | `str` | Path to the SQLite raw log database |
-| `vector_uri` | `str` | Path to the LanceDB vector index directory |
-| `graph_db_path` | `str` | Path to the SQLite-backed knowledge graph |
-| `graph_rocks_path` | `str` | Path to the RocksDB MVCC history archive |
-| `access_control` | `AccessControl \| None` | RBAC controller; auto-created if `None` |
-| `graph_provider` | `BaseGraphProvider \| None` | Custom graph backend; defaults to `NetworkXProvider` |
+The MemoryDAO is the isolated boundary responsible for synchronous data integrity across the dual-engine storage backend (SQLite WAL and LanceDB vector index). It enforces Row-Level Security via hardcoded `agent_id` requirements and removes the bottleneck of the legacy `StorageFacade`.
 
 ### Methods
 
-#### `async initialize_all(valence_motor=None) → None`
+#### `async insert_memory(agent_id: str, node_id: str, entity_name: str, content: str, embedding: list[float], ...) → None`
 
-Initialises all storage layers (creates tables, hydrates caches). If a `ValenceMotor` is provided, restores its cognitive state from the raw log database.
-
-**Must be called before any read/write operations.**
-
-```python
-facade = StorageFacade()
-await facade.initialize_all(valence_motor=motor)
-```
-
----
-
-#### `async persist_cmb(cmb: CMB, agent_id: str, session_id: str) → None`
-
-Persists a Cognitive Memory Block to both the raw log and vector index atomically. If the vector write fails, the raw log insert is automatically rolled back via soft-delete.
-
-| Parameter | Type | Description |
-|---|---|---|
-| `cmb` | `CMB` | Pydantic model containing content, embedding, metadata |
-| `agent_id` | `str` | Identity of the writing agent |
-| `session_id` | `str` | Session scope for RBAC check |
+Persists a Cognitive Memory Block (CMB) into both the relational graph and vector index.
 
 **Raises:**
-- `PermissionError` — Agent lacks `WRITE` access for the session
-- `RuntimeError` — Vector write failed (raw log is auto-reverted)
+- `ValueError` — If `agent_id` is invalid or unset.
 
 ---
 
-#### `async get_cmb(cmb_id: str, agent_id: str, session_id: str) → dict | None`
+#### `async search_memory(agent_id: str, query_vector: list[float], limit: int, ...) → list[dict]`
 
-Retrieves a single CMB record by ID from the raw log.
-
-**Raises:**
-- `PermissionError` — Agent lacks `READ` access for the session
+Performs a cosine similarity search on the LanceDB vector store, bounded by the required `agent_id`.
 
 ---
 
-#### `async soft_delete_all(cmb_id: str) → None`
+#### `async search_memory_fts(agent_id: str, query: str, limit: int = 100) → list[dict]`
 
-Purges a CMB record from all three storage layers in dependency order (raw_log → vector → graph). Partial failures are logged for manual reconciliation.
-
-**Raises:**
-- `RuntimeError` — Partial purge; includes list of completed layers
+Executes an ultra-fast zero-VRAM lexical pre-filter using SQLite's FTS5. Queries are internally converted to soft-OR boolean operations.
 
 ---
 
-#### `async reconcile_orphans() → int`
+#### `async purge_memory(agent_id: str, scope: str = "agent", session_id: str | None = None) → int`
 
-Finds raw log records with no matching vector entry (crash-between-stores scenario) and soft-deletes them. Returns the count of reconciled orphans.
-
----
-
-#### `load_embedding_cache(limit: int | None = None) → list[list[float]]`
-
-Synchronous convenience method that loads embeddings from the vector store for `ValenceMotor` hydration during initialisation.
+Executes an atomic Two-Phase Commit Saga pattern for soft-deletion. Vector entries are deleted first; if successful, the SQLite node is marked with `deleted_at = CURRENT_TIMESTAMP`. No hard-deletes (`DELETE` or `VACUUM`) are executed.
 
 ---
 
@@ -269,9 +215,17 @@ Returns `True` if the agent has sufficient permissions. `WRITE` satisfies both `
 | Error | Source | Cause | Recovery |
 |---|---|---|---|
 | `PermissionError` | `StorageFacade`, `HybridRetriever` | Agent lacks required RBAC access | Call `grant_access()` first |
-| `RuntimeError` | `StorageFacade.persist_cmb` | Vector write failed after raw log insert | Auto-reverted; retry the operation |
-| `RuntimeError` | `StorageFacade.soft_delete_all` | Partial purge across storage layers | Manual reconciliation required |
-| `MemoryError` | `VectorStorage` | LanceDB memory usage exceeds configured limit | Increase `lancedb_memory_limit_bytes` or `MESA_MAX_RAM_MB` |
+| `RuntimeError` | `MemoryDAO.purge_memory` | Partial purge across storage layers | Saga pattern prevents zombie data |
+| `MemoryError` | `VectorEngine` | LanceDB memory usage exceeds configured limit | Increase `lancedb_memory_limit_bytes` or `MESA_MAX_RAM_MB` |
 | `ImportError` | `RebelExtractor` | `transformers` library not installed | Install via `requirements-ml.txt` |
-| `NotImplementedError` | `MemgraphProvider` | Provider is a future roadmap stub | Use `NetworkXProvider` instead |
 | `ValueError` | `AdapterFactory` | Unknown LLM provider string | Use `openai_compatible`, `claude`, `ollama`, or `mock` |
+
+---
+
+## FastAPI Endpoints (v3)
+
+MESA exposes headless asynchronous endpoints:
+
+- `POST /v3/memory/insert`: Queues memory via `BackgroundTasks` for <150ms latency.
+- `POST /v3/memory/search`: Performs FTS5 lexical pre-filters + LanceDB vector similarity search.
+- `DELETE /v3/memory/purge`: Soft-deletes using Two-Phase Commit Saga to guarantee zero zombie data.

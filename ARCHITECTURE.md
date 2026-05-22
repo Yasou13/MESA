@@ -13,37 +13,38 @@ In v0.3.0, MESA transitioned from an importable library to a **headless FastAPI 
 
 ---
 
-## 2. Interface Abstraction Layer (P0-B)
+## 2. Epistemic Isolation Layer (MemoryDAO)
 
-To eliminate synchronous bottlenecks and vendor lock-in, MESA implements a strictly asynchronous Interface Abstraction Layer. The system is database-agnostic, interacting with storage exclusively through the `BaseGraphProvider` contract. This prevents abstraction leaks (e.g., exposing underlying `nx.MultiDiGraph` objects) and allows seamless migration to high-performance backends.
+To eliminate synchronous bottlenecks and legacy in-memory limitations, MESA v0.3.0 implements the strictly asynchronous `MemoryDAO`. The system interacts with storage exclusively through this Data Access Object, completely replacing the deprecated `StorageFacade`. 
 
 ```mermaid
 classDiagram
-    class BaseGraphProvider {
-        <<interface>>
-        +upsert_node(name: str, type: str, cmb_id: str, agent_id: str, session_id: str)*
-        +create_edge(source_id: str, target_id: str, relation: str, agent_id: str, session_id: str)*
-        +compute_pagerank(alpha: float, personalization: dict)*
-        +find_nodes_by_name(names: list, agent_id: str)*
-        +get_neighbors(node_id: str, agent_id: str, direction: str)*
-        +offload_expired()*
+    class MemoryDAO {
+        +sqlite_engine: AsyncEngine
+        +vector_engine: VectorEngine
+        +insert_memory(agent_id: str, ...)*
+        +search_memory(agent_id: str, ...)*
+        +search_memory_fts(agent_id: str, ...)*
+        +purge_memory(agent_id: str, scope: str)*
     }
 
-    class NetworkXProvider {
-        -graph: nx.MultiDiGraph
-        -access_control: AccessControl
-        +upsert_node()
-        +create_edge()
-        +compute_pagerank()
-        +find_nodes_by_name()
-        +get_neighbors()
-        +offload_expired()
+    class AsyncEngine {
+        -db_path: str
+        +transaction()
+        +connection()
     }
 
-    BaseGraphProvider <|-- NetworkXProvider
+    class VectorEngine {
+        -uri: str
+        +search()
+        +upsert()
+    }
+
+    MemoryDAO --> AsyncEngine
+    MemoryDAO --> VectorEngine
 ```
 
-Graph analytics (`compute_pagerank`) and cold-storage archival (`offload_expired`) are delegated to a stateless `analytics.py` module. This separation keeps the core provider focused on CRUD operations while allowing analytics to be independently tested and optimized.
+The `MemoryDAO` is responsible for unifying the relational graph operations (SQLite) and the semantic vector operations (LanceDB). It strictly enforces row-level security (RLS) by hardcoding `agent_id` into every underlying query, ensuring that multi-tenant boundaries are never breached by the application logic.
 
 ---
 
@@ -84,9 +85,9 @@ All LanceDB operations are offloaded from the event loop via `ThreadPoolExecutor
 - **Soft-delete** via `expired_at` timestamp (no physical removal in the hot path)
 - **Cosine similarity search** with mandatory `agent_id` filtering in the WHERE clause
 
-### 3.4 NetworkX — Knowledge Graph
+### 3.4 Relational Graph Layer
 
-The in-memory graph provider backs the structured knowledge layer. Nodes and edges are persisted to SQLite via the schema DDL and restored on startup. Graph analytics (Personalized PageRank, k-hop BFS traversal) operate on the in-memory representation for sub-millisecond latency.
+In v0.3.0, the legacy in-memory NetworkX graph has been completely deprecated in favor of a disk-based asynchronous relational schema within SQLite. Graph nodes and edges are persisted asynchronously via `aiosqlite`. Graph analytics and traversal (e.g., k-hop BFS) now operate directly on the SQLite database using recursive or bounded queries, providing massive scalability and sub-millisecond latency without the memory overhead of a persistent Python object graph.
 
 ---
 
@@ -115,7 +116,7 @@ The API layer and the maintenance layer have **strict, non-overlapping responsib
 ```mermaid
 graph LR
     subgraph "API Layer (mesa_api)"
-        A["DELETE /v3/memory/purge"] -->|"UPDATE SET deleted_at = NOW()"| B["Soft-Delete ONLY"]
+        A["DELETE /v3/memory/purge"] -->|"Atomic Saga"| B["Soft-Delete ONLY"]
     end
 
     subgraph "Background Worker (mesa_workers)"
@@ -134,13 +135,13 @@ graph LR
     style F fill:#3d0000,stroke:#e94560,color:#fff
 ```
 
-**Why this matters:** SQLite VACUUM requires an exclusive lock on the database file. If VACUUM were triggered from the API request path, it would cause catastrophic WAL reader starvation under concurrent load. By sequestering all destructive operations in the `MaintenanceWorker` — which runs on a **dedicated synchronous `sqlite3` connection** with `isolation_level=None` — the API's WAL readers are never blocked.
+**Why this matters:** SQLite VACUUM requires an exclusive lock on the database file. If VACUUM were triggered from the API request path, it would cause catastrophic WAL reader starvation under concurrent load. By sequestering all destructive operations in the `MaintenanceWorker` — which runs on a **dedicated synchronous `sqlite3` connection** with `isolation_level=None` — the API's WAL readers are never blocked. The `purge` API endpoint utilizes an atomic Two-Phase Commit Saga pattern to execute LanceDB soft-deletes prior to SQLite soft-deletes, avoiding "zombie data" if exceptions occur.
 
 ### 4.3 RBAC & Input Sanitisation
 
 - **Authentication:** `X-API-Key` header validated against `MESA_API_KEY` environment variable.
 - **Content Sanitisation:** `sanitize_cmb_content()` strips null bytes, ANSI escape sequences, dangerous HTML tags (script/style/iframe), shell metacharacters, and normalises whitespace. Prompt injection patterns are logged (advisory) but not hard-blocked to avoid false positives.
-- **Schema Validation:** All API payloads pass through strict Pydantic V2 schemas before reaching any storage logic.
+- **Schema Validation:** All API payloads pass through strict Pydantic V2 schemas (`MemoryInsertRequest`, `MemorySearchRequest`, etc.) before reaching any storage logic.
 
 ### 4.4 Epistemic Gating (Bi-Temporal Read Path)
 
@@ -185,12 +186,12 @@ sequenceDiagram
     Valence->>Valence: Evaluate EWMAD Novelty (Tier-2)
     alt Is Novel?
         Valence->>Fitness: calculate_fitness_score(content, token_count)
-        Fitness-->>StorageFacade: Scored CMB
-        StorageFacade->>RBAC: check_access(agent_id, session_id, "WRITE")
-        RBAC-->>StorageFacade: Access Granted
-        StorageFacade->>DB: Transactional Multi-write (Vector, Graph, Log)
-        DB-->>StorageFacade: ACK
-        StorageFacade-->>Valence: Success
+        Fitness-->>MemoryDAO: Scored CMB
+        MemoryDAO->>RBAC: check_access(agent_id, session_id, "WRITE")
+        RBAC-->>MemoryDAO: Access Granted
+        MemoryDAO->>DB: Transactional Multi-write (Vector, Graph) via BackgroundTask
+        DB-->>MemoryDAO: ACK
+        MemoryDAO-->>Valence: Success
     else Uncertain (Tier-3)
         Valence-->>Agent: DEFERRED (Staged to RawLog)
     else Redundant
@@ -244,7 +245,7 @@ Where `w` is a sigmoid function of `memory_count`, controlled by `drift_sigmoid_
 
 ## 9. Fitness Gate
 
-Before any CMB is persisted to the database, `calculate_fitness_score` evaluates whether the content carries sufficient information density to justify storage costs. This gate runs inside the `StorageFacade.persist_cmb()` lifecycle — scores are computed dynamically at the point of persistence, not pre-computed.
+Before any CMB is persisted to the database, `calculate_fitness_score` evaluates whether the content carries sufficient information density to justify storage costs. This gate runs dynamically at the point of persistence—scores are computed dynamically and not pre-computed.
 
 ### Scoring Formula
 
@@ -340,21 +341,38 @@ To guarantee deterministic extraction from non-deterministic LLMs, the pipeline 
 
 ---
 
-## 12. Deployment Architecture
+## 12. REM Cycle & Consolidation Worker
+
+The `rem_cycle.py` background worker handles asynchronous knowledge graph extraction and consolidation. It avoids blocking the API's hot path by consuming the backlog in idle cycles.
+
+- **Activation Thresholds:** The worker is strictly triggered when the queue of unconsolidated records exceeds **50 records**.
+- **Token-Budgeting Logic:** It respects predefined token limits per consolidation batch to ensure it does not overwhelm LLM rate limits or exceed operational cost boundaries. This token-budgeting governs the size of chunks processed concurrently.
+
+---
+
+## 13. Evaluation & Quality Gates (`mesa_evals`)
+
+MESA v0.3.0 enforces strict CI/CD quality assurance through its evaluation pipeline. The `gatekeeper.py` quality gate acts as the primary CI/CD enforcer. 
+
+- **Ablation Pipeline:** Evaluates algorithmic changes (e.g., FTS5 lexical candidate limits, RRF weight calibration) by isolating variables and running comprehensive synthetic benchmarks against a domain-specific Golden Dataset.
+- **Strict Enforcement Rules:** It balances **Recall vs. Cost**. Any pull request that drops Recall below the established baseline (e.g., `Base_Hybrid` < `0.344`) or exceeds maximum TTFT (Time To First Token) latency limits is immediately rejected by the CI runner.
+
+---
+
+## 14. Deployment Architecture
 
 ```mermaid
 graph LR
     subgraph "API Container"
         API["FastAPI v3 Server<br/>:8000"]
-        REM["REM Cycle Worker"]
+        REM["rem_cycle.py<br/>(REM Cycle Worker)"]
         MW["Maintenance Worker"]
-        API --> REM
+        API -.->|"BackgroundTasks"| REM
     end
 
     subgraph "Persistent Volume (/app/storage)"
         SQL[("SQLite WAL<br/>mesa.db")]
         VEC[("LanceDB<br/>vector store")]
-        KG[("SQLite<br/>knowledge_graph.db")]
     end
 
     API -->|"aiosqlite (async)"| SQL
@@ -362,13 +380,11 @@ graph LR
     REM -->|"aiosqlite (async)"| SQL
     MW -->|"sqlite3 (sync, dedicated)"| SQL
     MW -->|"Table.optimize()"| VEC
-    REM --> KG
 
     style API fill:#0f3460,stroke:#16213e,color:#fff
     style REM fill:#1a1a2e,stroke:#e94560,color:#fff
     style MW fill:#3d0000,stroke:#e94560,color:#fff
     style SQL fill:#16213e,stroke:#0f3460,color:#fff
-    style KG fill:#16213e,stroke:#0f3460,color:#fff
     style VEC fill:#16213e,stroke:#0f3460,color:#fff
 ```
 
@@ -379,6 +395,18 @@ graph LR
 - The `MESA_API_KEY` environment variable must be set for production authentication.
 - The `MaintenanceWorker` operates on a **separate synchronous `sqlite3` connection** with `isolation_level=None` to avoid WAL reader contention during VACUUM.
 - LanceDB disk I/O is offloaded from the asyncio event loop via `ThreadPoolExecutor`.
+
+---
+
+## 15. External Integration
+
+### Model Context Protocol (`mesa_mcp`)
+MESA natively implements an MCP (Model Context Protocol) server inside `mesa_mcp`. This allows ecosystem tools such as Claude Desktop and other MCP-compliant agents to directly interface with the MESA memory engine. Agents can query context and store memory natively without writing custom API wrappers.
+
+### Python Client SDK (`mesa_client`)
+The `mesa_client` module provides both synchronous and asynchronous `httpx`-based clients:
+- Includes strict Pydantic V2 validation and exponential backoff retries.
+- Features a native **LangChain retriever** extension (`MesaLangchainRetriever`), allowing seamless drop-in replacement in existing AI pipelines that use LangChain.
 
 ---
 

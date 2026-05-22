@@ -21,6 +21,7 @@ Public API::
     )
 """
 
+from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import (
     bulk_insert_nodes,
     find_nodes_by_name,
@@ -39,7 +40,6 @@ from mesa_storage.schemas import (
     upsert_edge,
     validate_schema,
 )
-from mesa_storage.dao import MemoryDAO
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 

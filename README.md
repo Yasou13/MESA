@@ -65,7 +65,7 @@ graph TB
     end
 
     subgraph "Retrieval Layer"
-        SCH --> O["HybridRetriever"]
+        SCH --> O["MemoryDAO Search"]
         O --> P["Vector Search"]
         O --> Q["Graph Search<br/>(PPR + k-hop)"]
         O --> R["FTS5 Lexical<br/>Pre-Filter"]
@@ -77,7 +77,7 @@ graph TB
 
     subgraph "Background Workers"
         MW["MaintenanceWorker<br/>(VACUUM, Hard-Delete)"]
-        REM["REM Cycle Worker<br/>(Consolidation)"]
+        REM["rem_cycle.py<br/>(Consolidation)"]
     end
 
     E -->|ADMIT| K
@@ -165,7 +165,14 @@ for r in results:
     print(r.content, r.score)
 ```
 
-### 6. Docker Deployment
+### 6. External Integration (MCP & LangChain)
+
+MESA provides deep integration with modern agent stacks:
+
+- **Model Context Protocol (MCP):** Connect to MESA using Claude Desktop or any MCP-compatible agent via the `mesa_mcp` package. This exposes memory retrieval as a standard context provider.
+- **LangChain:** Use the `MesaLangchainRetriever` found in the `mesa_client` package to embed MESA's asynchronous dual-engine memory straight into your LangChain pipelines.
+
+### 7. Docker Deployment
 
 ```bash
 docker compose up --build -d
@@ -249,9 +256,9 @@ MESA/
 │   ├── retrieval/        # Hybrid vector + graph retrieval
 │   ├── schema/           # Pydantic CMB schema
 │   ├── security/         # RBAC access control + input sanitisation
-│   └── storage/          # StorageFacade (graph provider abstraction)
-├── mesa_storage/         # Async SQLite engine, LanceDB vector engine, schema DDL
-├── mesa_workers/         # MaintenanceWorker, REM Cycle Worker
+├── mesa_mcp/             # Model Context Protocol external integration
+├── mesa_storage/         # MemoryDAO, AsyncEngine (SQLite WAL), LanceDB
+├── mesa_workers/         # MaintenanceWorker, rem_cycle.py
 ├── tests/                # pytest suite (409 tests + benchmarks)
 ├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)
 ├── Dockerfile            # Production container

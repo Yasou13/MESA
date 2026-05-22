@@ -1,25 +1,25 @@
-import asyncio
 import os
-import time
+from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version
 
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from pydantic import BaseModel
 
+from mesa_api.router import create_memory_router
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
-    start_tier3_deferred_worker,
 )
 from mesa_memory.observability.metrics import ObservabilityLayer
-from mesa_memory.retrieval.core import QueryAnalyzer
-from mesa_memory.retrieval.hybrid import HybridRetriever
-from mesa_memory.schema.cmb import CMB, ResourceCost
-from mesa_memory.storage import StorageFacade
-from mesa_memory.valence.core import ValenceMotor
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_storage.vector_engine import VectorEngine
 
-app = FastAPI(title="MESA API", version="0.2.0")
+try:
+    __version__ = version("mesa-memory")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 
 # ---------------------------------------------------------------------------
 # API Key Authentication
@@ -41,140 +41,66 @@ async def get_api_key(api_key: str = Depends(_API_KEY_HEADER)) -> str:
 
 
 class AppState:
-    facade: StorageFacade
-    motor: ValenceMotor
+    sqlite_engine: AsyncEngine
+    vector_engine: VectorEngine
+    dao: MemoryDAO
     obs_layer: ObservabilityLayer
-    retriever: HybridRetriever
     consolidation_loop: ConsolidationLoop
 
 
 state = AppState()
 
 
-class IngestRequest(BaseModel):
-    content: str
-    source: str
-    agent_id: str
-    session_id: str
-
-
-class QueryRequest(BaseModel):
-    query: str
-    max_results: int = 5
-    session_id: str
-    agent_id: str = "api_query_agent"
-
-
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ==================================================================
     state.obs_layer = ObservabilityLayer()
-    adapter = AdapterFactory.get_adapter()
 
-    state.facade = StorageFacade()
-    state.motor = ValenceMotor(
-        llm_adapter=adapter, obs_layer=state.obs_layer, storage=state.facade.vector
+    # Initialize asynchronous storage engines
+    state.sqlite_engine = AsyncEngine(db_path="./storage/mesa.db")
+    await state.sqlite_engine.initialize()
+
+    state.vector_engine = VectorEngine(uri="./storage/vector.lance")
+    await state.vector_engine.initialize()
+
+    # Wire the unified Data Access Object
+    state.dao = MemoryDAO(
+        sqlite_engine=state.sqlite_engine, vector_engine=state.vector_engine
     )
 
-    await state.facade.initialize_all(valence_motor=state.motor)
+    # Note: Consolidation loop and workers will be wired to DAO in next phases
+    # state.consolidation_loop = ConsolidationLoop(...)
+    # asyncio.create_task(start_tier3_deferred_worker(...))
 
-    analyzer = QueryAnalyzer()
-    state.retriever = HybridRetriever(
-        storage_facade=state.facade,
-        analyzer=analyzer,
-        embedder=adapter,
-        access_control=state.facade.access_control,
-    )
+    yield
 
-    state.consolidation_loop = ConsolidationLoop(
-        storage_facade=state.facade,
-        embedder=adapter,
-        llm_a=adapter,
-        llm_b=adapter,
-        obs_layer=state.obs_layer,
-    )
-    asyncio.create_task(
-        start_tier3_deferred_worker(state.facade, state.consolidation_loop)
-    )
+    # ==================================================================
+    # Shutdown
+    # ==================================================================
+    if state.sqlite_engine:
+        await state.sqlite_engine.close()
 
 
-@app.post("/ingest")
-async def ingest(request: IngestRequest, _api_key: str = Depends(get_api_key)):
-    if not await state.facade.access_control.check_access(
-        request.agent_id, request.session_id, "WRITE"
-    ):
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Insufficient RBAC privileges"
-        )
+app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
-    start_t = time.time()
-    embedding = state.motor.llm_adapter.embed(request.content)
-    latency = (time.time() - start_t) * 1000
-
-    token_count = state.motor.llm_adapter.get_token_count(request.content)
-
-    from mesa_memory.valence.core import calculate_fitness_score
-
-    fitness_score = calculate_fitness_score(request.content, token_count)
-
-    cmb = CMB(
-        content_payload=request.content,
-        source=request.source,
-        performative="INFORM",
-        resource_cost=ResourceCost(token_count=token_count, latency_ms=latency),
-        embedding=embedding,
-        fitness_score=fitness_score,
-    )
-
-    decision = await state.motor.evaluate(cmb.model_dump(), {"error": False})
-
-    if decision is False:
-        return {"status": "DISCARDED"}
-
-    if decision == "DEFERRED":
-        cmb.tier3_deferred = True
-
-    await state.facade.persist_cmb(cmb, request.agent_id, request.session_id)
-    return {
-        "status": "STORED" if decision is True else "DEFERRED",
-        "cmb_id": cmb.cmb_id,
-    }
-
-
-@app.post("/query")
-async def query(request: QueryRequest, _api_key: str = Depends(get_api_key)):
-    if not await state.facade.access_control.check_access(
-        request.agent_id, request.session_id, "READ"
-    ):
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Insufficient RBAC privileges"
-        )
-
-    results_ids = await state.retriever.retrieve(
-        query_text=request.query,
-        agent_id=request.agent_id,
-        session_id=request.session_id,
-        top_n=request.max_results,
-    )
-
-    results = []
-    for rid in results_ids:
-        cmb = await state.facade.get_cmb(rid, request.agent_id, request.session_id)
-        if cmb:
-            results.append(cmb)
-
-    return {"results": results}
+# Setup v3 API Router directly utilizing the MemoryDAO
+# Requires depends at the router level for auth
+router_dependencies = [Depends(get_api_key)]
+memory_router = create_memory_router(
+    dao=state.dao,
+    embedder=AdapterFactory.get_adapter().embed,
+    prefix="/v3/memory",
+)
+# We can't attach dependencies to the include_router directly if the router already defines some,
+# but it's simpler to inject them directly on include_router
+app.include_router(memory_router, dependencies=router_dependencies)
 
 
 @app.get("/health")
 async def health():
-    return state.obs_layer.get_health_status()
+    return await state.dao.health_check()
 
 
 @app.get("/metrics")
 async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await state.motor.save_state("./storage/valence_state.db")

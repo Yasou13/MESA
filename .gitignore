@@ -98,6 +98,8 @@ tmp/
 temp/
 scratch/
 storage_bench_tmp/
+eval_results.json
+*.jsonl
 
 # ------------------------------------------------------------------------------
 # 7. Jupyter Notebook Checkpoints

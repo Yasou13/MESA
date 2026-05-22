@@ -15,7 +15,7 @@ def run_legal_simulation(
     agent_id = f"legal-proxy-{uuid.uuid4().hex[:8]}"
     session_id = f"case-{uuid.uuid4().hex[:8]}"
 
-    print(f"--- Starting Legal Proxy Simulation ---")
+    print("--- Starting Legal Proxy Simulation ---")
     print(f"Agent ID: {agent_id}")
     print(f"Session ID: {session_id}\n")
 

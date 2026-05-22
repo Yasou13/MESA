@@ -75,7 +75,16 @@ class HybridRetriever:
                     r["cmb_id"] for r in self._cold_start_rerank(vector_results, top_n)
                 ]
         else:
-            fused_ids = self._apply_rrf(vector_results, graph_results, k=config.rrf_k)
+            # Expose weights as tunable parameters (fallback to 0.7/0.3 to favor vector)
+            w_vector = getattr(config, "rrf_w_vector", 0.7)
+            w_graph = getattr(config, "rrf_w_graph", 0.3)
+            fused_ids = self._apply_rrf(
+                vector_results,
+                graph_results,
+                k=getattr(config, "rrf_k", 60),
+                w_vector=w_vector,
+                w_graph=w_graph,
+            )
             cmb_ids = fused_ids[:top_n]
 
         if not enable_multi_hop:
@@ -133,8 +142,14 @@ class HybridRetriever:
         return await self._run_ppr(seed_ids)
 
     def _apply_rrf(
-        self, vector_ranks: list[dict], graph_ranks: list[dict], k: int = 60
+        self,
+        vector_ranks: list[dict],
+        graph_ranks: list[dict],
+        k: int = 60,
+        w_vector: float = 0.5,
+        w_graph: float = 0.5,
     ) -> list[str]:
+        """Apply Reciprocal Rank Fusion (RRF) with tunable weights."""
         rrf_scores: dict[str, float] = {}
 
         for item in vector_ranks:
@@ -142,24 +157,39 @@ class HybridRetriever:
             if not cmb_id:
                 continue
             rank = item.get("rank", len(vector_ranks))
-            rrf_scores[cmb_id] = rrf_scores.get(cmb_id, 0.0) + 1.0 / (k + rank)
+            rrf_scores[cmb_id] = rrf_scores.get(cmb_id, 0.0) + (w_vector / (k + rank))
 
         for item in graph_ranks:
             cmb_id = item.get("cmb_id", "")
             if not cmb_id:
                 continue
             rank = item.get("rank", len(graph_ranks))
-            rrf_scores[cmb_id] = rrf_scores.get(cmb_id, 0.0) + 1.0 / (k + rank)
+            rrf_scores[cmb_id] = rrf_scores.get(cmb_id, 0.0) + (w_graph / (k + rank))
 
         sorted_ids = sorted(
             rrf_scores.keys(), key=lambda cid: rrf_scores[cid], reverse=True
         )
         return sorted_ids
 
-    async def _run_ppr(self, seed_ids: list[str], top_k: int = 15) -> list[dict]:
+    async def _run_ppr(
+        self, seed_ids: list[str], top_k: int = 15, max_depth: int = 2
+    ) -> list[dict]:
         all_nodes = await self.storage.graph.get_all_active_nodes()
         if not seed_ids or len(all_nodes) == 0:
             return []
+
+        # Strict semantic bound: Calculate maximum depth from seeds to prevent drift
+        bounded_nodes: set[str] | None = set()
+        try:
+            graph_snapshot = self.storage.graph.get_active_graph()
+            for sid in seed_ids:
+                if sid in graph_snapshot:
+                    subgraph = nx.ego_graph(graph_snapshot, sid, radius=max_depth)
+                    if bounded_nodes is not None:
+                        bounded_nodes.update(subgraph.nodes())
+        except Exception as exc:
+            logger.warning("Failed to bound graph traversal: %s", exc)
+            bounded_nodes = None
 
         personalization = {node["node_id"]: 0.0 for node in all_nodes}
         weight = 1.0 / len(seed_ids)
@@ -178,11 +208,17 @@ class HybridRetriever:
             return []
 
         seed_set = set(seed_ids)
-        ranked = [
-            {"cmb_id": node, "score": score, "source": "graph"}
-            for node, score in ppr_scores.items()
-            if node not in seed_set and score > 0
-        ]
+        ranked = []
+        for node, score in ppr_scores.items():
+            if node in seed_set or score <= 0:
+                continue
+
+            # Apply graph noise reduction: reject nodes outside the max_depth bounds
+            if bounded_nodes is not None and node not in bounded_nodes:
+                continue
+
+            ranked.append({"cmb_id": node, "score": score, "source": "graph"})
+
         ranked.sort(key=lambda x: float(x["score"]), reverse=True)  # type: ignore[arg-type]
 
         for i, item in enumerate(ranked):
