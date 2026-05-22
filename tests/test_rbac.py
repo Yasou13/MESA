@@ -133,6 +133,7 @@ async def test_access_control_lifecycle_context_manager(tmp_path):
 def test_sanitize_cmb_content_prompt_injection(caplog):
     """Test that prompt injection heuristics trigger advisory logging."""
     import logging
+
     from mesa_memory.security.rbac import sanitize_cmb_content
 
     # The INJECTION_PATTERNS list includes 'ignore previous instructions'
