@@ -149,3 +149,60 @@ def test_ollama_token_count(mock_count):
     mock_count.return_value = 5
     adapter = OllamaAdapter()
     assert adapter.get_token_count("hello world") == 5
+
+
+# ===================================================================
+# Tokenizer Tests
+# ===================================================================
+
+
+def test_count_tokens_claude():
+    from mesa_memory.adapter.tokenizer import count_tokens
+
+    result = count_tokens("Hello, world!", adapter_type="claude")
+    assert isinstance(result, int)
+    assert result > 0
+
+
+def test_count_tokens_openai():
+    from mesa_memory.adapter.tokenizer import count_tokens
+
+    result = count_tokens("Hello, world!", adapter_type="openai")
+    assert isinstance(result, int)
+    assert result > 0
+
+
+def test_count_tokens_ollama_fallback():
+    from mesa_memory.adapter.tokenizer import count_tokens
+
+    # Invalid model → falls back to word-count estimate
+    result = count_tokens("Hello world test", adapter_type="ollama", model_id="nonexistent/model")
+    assert isinstance(result, int)
+    assert result > 0
+
+
+def test_count_tokens_unknown_adapter_raises():
+    from mesa_memory.adapter.tokenizer import count_tokens
+
+    with pytest.raises(ValueError, match="Unknown adapter_type"):
+        count_tokens("test", adapter_type="unknown")
+
+
+def test_enforce_context_limit_passes():
+    from mesa_memory.adapter.tokenizer import enforce_context_limit
+
+    # Short text, high limit → no error
+    enforce_context_limit("Hello", adapter_type="claude", model_id="", limit=1000)
+
+
+def test_enforce_context_limit_raises():
+    from mesa_memory.adapter.base import TokenBudgetExceededError
+    from mesa_memory.adapter.tokenizer import enforce_context_limit
+
+    with pytest.raises(TokenBudgetExceededError):
+        enforce_context_limit(
+            "word " * 5000,
+            adapter_type="claude",
+            model_id="",
+            limit=10,
+        )

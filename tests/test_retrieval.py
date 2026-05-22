@@ -144,3 +144,36 @@ async def test_rrf_ranking_logic():
     assert fused_ids[0] == "B"
     assert "A" in fused_ids
     assert "C" in fused_ids
+
+
+# ===================================================================
+# Missing Coverage Tests
+# ===================================================================
+
+
+def test_query_analyzer_regex_fallback():
+    from mesa_memory.retrieval.core import QueryAnalyzer
+
+    analyzer = QueryAnalyzer.__new__(QueryAnalyzer)
+    analyzer.nlp = None
+
+    entities = analyzer.extract_entities("Tesla acquires Twitter in major deal")
+    assert isinstance(entities, list)
+    assert len(entities) > 0
+
+
+def test_query_analyzer_regex_all_stopwords():
+    from mesa_memory.retrieval.core import QueryAnalyzer
+
+    analyzer = QueryAnalyzer.__new__(QueryAnalyzer)
+    analyzer.nlp = None
+    
+    entities = analyzer.extract_entities("the is at")
+    assert isinstance(entities, list)
+    assert len(entities) >= 1
+    
+
+def test_normalize_query():
+    from mesa_memory.retrieval.core import normalize_query
+
+    assert normalize_query("  Hello   World  ") == "hello world"

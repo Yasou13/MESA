@@ -54,3 +54,39 @@ async def test_calculate_novelty_steady_state(mock_config):
     res = await calculate_novelty_score([100.0, 100.0], train_set, 0.5)
     # ECOD will flag [100, 100] as highly anomalous (novel)
     assert res is True
+
+
+# ===================================================================
+# Missing Coverage Tests - Drift
+# ===================================================================
+
+
+def test_below_interval_returns_current():
+    from mesa_memory.valence.drift import recalibrate_threshold
+
+    # Fewer embeddings than recalibration_interval → unchanged
+    embeddings = [[0.1] * 8 for _ in range(5)]
+    result = recalibrate_threshold(0.75, embeddings)
+    assert result == 0.75
+
+
+def test_sufficient_data_recalibrates():
+    from mesa_memory.valence.drift import recalibrate_threshold
+    from mesa_memory.config import config
+
+    np.random.seed(42)
+    n = config.recalibration_interval * 2
+    embeddings = [np.random.rand(8).tolist() for _ in range(n)]
+    result = recalibrate_threshold(0.75, embeddings)
+    # Must be within configured clamp range
+    assert config.drift_clamp_min <= result <= config.drift_clamp_max
+
+
+def test_no_historical_data_returns_current():
+    from mesa_memory.valence.drift import recalibrate_threshold
+    from mesa_memory.config import config
+
+    # Exactly recalibration_interval → no historical data
+    embeddings = [[0.1] * 8 for _ in range(config.recalibration_interval)]
+    result = recalibrate_threshold(0.75, embeddings)
+    assert result == 0.75
