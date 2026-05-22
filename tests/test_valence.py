@@ -71,8 +71,8 @@ def test_below_interval_returns_current():
 
 
 def test_sufficient_data_recalibrates():
-    from mesa_memory.valence.drift import recalibrate_threshold
     from mesa_memory.config import config
+    from mesa_memory.valence.drift import recalibrate_threshold
 
     np.random.seed(42)
     n = config.recalibration_interval * 2
@@ -83,8 +83,8 @@ def test_sufficient_data_recalibrates():
 
 
 def test_no_historical_data_returns_current():
-    from mesa_memory.valence.drift import recalibrate_threshold
     from mesa_memory.config import config
+    from mesa_memory.valence.drift import recalibrate_threshold
 
     # Exactly recalibration_interval → no historical data
     embeddings = [[0.1] * 8 for _ in range(config.recalibration_interval)]
