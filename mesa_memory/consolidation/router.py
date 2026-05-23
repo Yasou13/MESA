@@ -103,7 +103,7 @@ class AdaptiveRouter:
         )
 
         # 1. Route to small model
-        raw_response = await self.small_llm.generate(prompt)
+        raw_response = str(await self.small_llm.acomplete(prompt))
 
         # 2. Simulate confidence calculation
         # In production this would use Temperature Scaling on raw logits.

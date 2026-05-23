@@ -939,7 +939,8 @@ class MemoryDAO:
                 "ORDER BY created_at DESC LIMIT ?",
                 (agent_id, limit),
             ) as cursor:
-                rows = await cursor.fetchall()
+                results = await cursor.fetchall()
+                rows = list(results)
                 
         total_audits = len(rows)
         hallucinations = sum(1 for row in rows if row[0] == 1)

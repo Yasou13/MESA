@@ -97,10 +97,10 @@ async def test_consolidation_divergence_paths():
     llm_b.complete.return_value = json.dumps(
         {"head": "X", "relation": "rel", "tail": "Y"}
     )
-    llm_a.generate = AsyncMock(
+    llm_a.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "STORE", "justification": "test"})
     )
-    llm_b.generate = AsyncMock(
+    llm_b.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "STORE", "justification": "test"})
     )
 
@@ -166,10 +166,10 @@ async def test_batch_processing_limit():
     llm_b.complete.return_value = json.dumps(
         {"head": "A", "relation": "r", "tail": "B"}
     )
-    llm_a.generate = AsyncMock(
+    llm_a.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "STORE", "justification": "test"})
     )
-    llm_b.generate = AsyncMock(
+    llm_b.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "STORE", "justification": "test"})
     )
 
@@ -210,10 +210,10 @@ async def test_rebel_extraction_fallback():
     llm_b.complete.return_value = json.dumps(
         {"head": "Alice", "relation": "likes", "tail": "Bob"}
     )
-    llm_a.generate = AsyncMock(
+    llm_a.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "STORE", "justification": "test"})
     )
-    llm_b.generate = AsyncMock(
+    llm_b.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "STORE", "justification": "test"})
     )
 
@@ -301,10 +301,10 @@ async def test_tier3_discard_calls_invalidate_node():
     llm_b.complete.return_value = json.dumps(
         {"decision": "DISCARD", "justification": "test"}
     )
-    llm_a.generate = AsyncMock(
+    llm_a.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "DISCARD", "justification": "test"})
     )
-    llm_b.generate = AsyncMock(
+    llm_b.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "DISCARD", "justification": "test"})
     )
 
