@@ -280,43 +280,52 @@ class TestRetrievalRBACEnforcement:
             await retriever.retrieve("test", "temp_agent", "temp_session")
 
 
-# --- RRF with empty inputs ---
+# --- Alpha-Reranking with empty inputs ---
 
 
-class TestRRFEdgeCases:
+class TestAlphaRerankingEdgeCases:
     @pytest.mark.asyncio
-    async def test_rrf_both_empty(self):
-        """RRF with empty vector and graph results → empty list."""
+    async def test_alpha_reranking_both_empty(self):
+        """Alpha-Reranking with empty vector and graph results → empty list."""
         storage = _make_mock_storage_facade()
         retriever = await _make_retriever(storage)
 
-        result = retriever._apply_rrf([], [], k=60)
+        result = retriever._apply_alpha_reranking([], [], [])
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_rrf_vector_only(self):
-        """RRF with vector results but no graph → ordered by vector rank."""
+    async def test_alpha_reranking_vector_only(self):
+        """Alpha-Reranking with vector results but no graph → ordered by vector rank."""
         storage = _make_mock_storage_facade()
         retriever = await _make_retriever(storage)
 
         vector = [
-            {"cmb_id": "v1", "rank": 1},
-            {"cmb_id": "v2", "rank": 2},
+            {"cmb_id": "v1", "score": 0.9},
+            {"cmb_id": "v2", "score": 0.5},
         ]
-        result = retriever._apply_rrf(vector, [], k=60)
-        assert "v1" in result
-        assert "v2" in result
+        result = retriever._apply_alpha_reranking(vector, [], [])
+        assert result[0] == "v1"
+        assert result[1] == "v2"
 
     @pytest.mark.asyncio
-    async def test_rrf_graph_only(self):
-        """RRF with graph results but no vector → ordered by graph rank."""
+    async def test_alpha_reranking_graph_only(self):
+        """Alpha-Reranking with graph results but no vector → ordered by graph rank."""
         storage = _make_mock_storage_facade()
         retriever = await _make_retriever(storage)
 
         graph = [
-            {"cmb_id": "g1", "rank": 1},
-            {"cmb_id": "g2", "rank": 2},
+            {"cmb_id": "g1", "score": 0.5},
+            {"cmb_id": "g2", "score": 0.01},
         ]
-        result = retriever._apply_rrf([], graph, k=60)
-        assert "g1" in result
-        assert "g2" in result
+
+        from mesa_memory.config import config
+
+        original_alpha = getattr(config, "hybrid_alpha", 0.0)
+        config.hybrid_alpha = 0.5
+
+        try:
+            result = retriever._apply_alpha_reranking([], graph, [])
+            assert result[0] == "g1"
+            assert result[1] == "g2"
+        finally:
+            config.hybrid_alpha = original_alpha

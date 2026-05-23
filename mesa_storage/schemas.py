@@ -152,6 +152,19 @@ BEGIN
 END;
 """
 
+_CREATE_ROUTING_TELEMETRY_TABLE = """\
+CREATE TABLE IF NOT EXISTS routing_telemetry (
+    id                     TEXT    PRIMARY KEY,
+    agent_id               TEXT    NOT NULL,
+    record_id              TEXT    NOT NULL,
+    small_model_decision   INTEGER NOT NULL,
+    small_model_confidence REAL    NOT NULL,
+    dual_llm_decision      INTEGER NOT NULL,
+    is_hallucination       INTEGER NOT NULL,
+    created_at             TEXT    NOT NULL
+);
+"""
+
 
 # ---------------------------------------------------------------------------
 # Schema manager — public API
@@ -171,6 +184,7 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         # 1. Core tables
         await db.execute(_CREATE_NODES_TABLE)
         await db.execute(_CREATE_EDGES_TABLE)
+        await db.execute(_CREATE_ROUTING_TELEMETRY_TABLE)
 
         # 2. Indexes
         for idx_sql in _CREATE_NODES_INDEXES:
@@ -200,7 +214,7 @@ async def validate_schema(engine: AsyncEngine) -> dict:
     Returns:
         Dict mapping object names to booleans indicating presence.
     """
-    expected_tables = {"nodes", "edges", "nodes_fts"}
+    expected_tables = {"nodes", "edges", "nodes_fts", "routing_telemetry"}
     expected_indexes = {
         "idx_nodes_active",
         "idx_nodes_entity_name",

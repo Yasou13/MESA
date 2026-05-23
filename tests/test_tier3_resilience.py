@@ -195,12 +195,13 @@ class TestConsensusLogic:
 class TestDeadLetterIntegration:
     @pytest.mark.asyncio
     async def test_tier3_error_dead_letters(self):
-        """Tier3ValidationError → dead_letter_queue, NOT soft_delete."""
+        """Tier3ValidationError → dead_letter_queue, NOT invalidate_node."""
         from mesa_memory.consolidation.loop import ConsolidationLoop
 
-        mock_storage = MagicMock()
-        mock_storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=[])
-        mock_storage.soft_delete_all = AsyncMock()
+        mock_dao = MagicMock()
+        mock_dao.get_memories = AsyncMock(return_value=[])
+        mock_dao.invalidate_node = AsyncMock()
+        mock_dao.mark_consolidated = AsyncMock()
 
         # LLM returns valid JSON but with an invalid decision value
         # → triggers Tier3ValidationError in _parse_decision
@@ -212,7 +213,7 @@ class TestDeadLetterIntegration:
         llm_b.complete = MagicMock(return_value=_valid_json("STORE"))
 
         loop = ConsolidationLoop(
-            storage_facade=mock_storage,
+            dao=mock_dao,
             embedder=MagicMock(),
             llm_a=llm_a,
             llm_b=llm_b,
@@ -224,16 +225,18 @@ class TestDeadLetterIntegration:
 
         assert len(loop.dead_letter_queue) == 1
         assert loop.dead_letter_queue[0]["cmb_id"] == "test-cmb-001"
-        mock_storage.soft_delete_all.assert_not_called()
+        # Infrastructure error → dead-lettered, NOT invalidated
+        mock_dao.invalidate_node.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_malformed_json_dead_letters(self):
         """Malformed JSON → dead-lettered, never silently DISCARDED."""
         from mesa_memory.consolidation.loop import ConsolidationLoop
 
-        mock_storage = MagicMock()
-        mock_storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=[])
-        mock_storage.soft_delete_all = AsyncMock()
+        mock_dao = MagicMock()
+        mock_dao.get_memories = AsyncMock(return_value=[])
+        mock_dao.invalidate_node = AsyncMock()
+        mock_dao.mark_consolidated = AsyncMock()
 
         llm_a = MagicMock()
         llm_a.complete = MagicMock(return_value="NOT_JSON")
@@ -241,7 +244,7 @@ class TestDeadLetterIntegration:
         llm_b.complete = MagicMock(return_value=_valid_json("STORE"))
 
         loop = ConsolidationLoop(
-            storage_facade=mock_storage,
+            dao=mock_dao,
             embedder=MagicMock(),
             llm_a=llm_a,
             llm_b=llm_b,
@@ -253,4 +256,5 @@ class TestDeadLetterIntegration:
 
         assert len(loop.dead_letter_queue) == 1
         assert "error" in loop.dead_letter_queue[0]
-        mock_storage.soft_delete_all.assert_not_called()
+        # Infrastructure error → dead-lettered, NOT invalidated
+        mock_dao.invalidate_node.assert_not_called()

@@ -158,7 +158,9 @@ class MesaConfig(BaseSettings):
     drift_clamp_max: float = 0.90
 
     # Hybrid retrieval parameters (Module 9)
-    rrf_k: int = 60
+    hybrid_alpha: float = Field(0.0, validation_alias="MESA_HYBRID_ALPHA")
+    hybrid_beta: float = Field(0.0, validation_alias="MESA_HYBRID_BETA")
+    t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
     cold_start_min_nodes: int = 10
     cold_start_fitness_weight: float = 0.5
     cold_start_distance_weight: float = 0.5
@@ -177,6 +179,15 @@ class MesaConfig(BaseSettings):
                 "Embeddings will use local model '%s' as fallback.",
                 self.local_embedding_model,
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_hard_constraints(self) -> "MesaConfig":
+        assert self.hybrid_alpha <= 0.5, "hybrid_alpha MUST be strictly <= 0.5"
+        assert self.hybrid_beta <= 0.5, "hybrid_beta MUST be strictly <= 0.5"
+        assert (
+            0.5 < self.t_route < 0.99
+        ), "t_route MUST be strictly between 0.5 and 0.99"
         return self
 
 

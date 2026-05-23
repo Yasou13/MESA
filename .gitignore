@@ -99,6 +99,7 @@ temp/
 scratch/
 storage_bench_tmp/
 eval_results.json
+sweep_results.json
 *.jsonl
 
 # ------------------------------------------------------------------------------

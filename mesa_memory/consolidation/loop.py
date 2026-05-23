@@ -1,6 +1,15 @@
 """
 Consolidation Loop — Batch orchestrator for the MESA knowledge pipeline.
 
+v0.3.1 P0 Hotfix: Wired directly to the asynchronous ``MemoryDAO``,
+replacing the deprecated ``StorageFacade`` and in-memory NetworkX layers.
+
+All storage I/O now flows through the DAO's agent-scoped, RLS-enforced
+async methods.  The Dual-LLM consensus path reads from
+``dao.get_memories(include_consolidated=False)`` and commits validated
+entities via ``dao.insert_memory`` / ``dao.insert_edge``.  Failed
+consensus records are invalidated via ``dao.invalidate_node``.
+
 Refactored into focused modules following the Single Responsibility Principle:
 
 - ``parser.py``: Prompt templates, JSON sanitization/salvage, response parsing.
@@ -14,8 +23,11 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import time
 from typing import Optional
+
+from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -30,11 +42,12 @@ from mesa_memory.consolidation.parser import (  # noqa: F401
     _salvage_truncated_json,
     _sanitize_llm_response,
 )
+from mesa_memory.consolidation.router import AdaptiveRouter
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 from mesa_memory.consolidation.writer import GraphWriter
 from mesa_memory.extraction.triplet_extractor import TripletExtractor
 from mesa_memory.observability.metrics import ObservabilityLayer
-from mesa_memory.storage import StorageFacade
+from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_Consolidation")
 
@@ -72,7 +85,7 @@ class PersistentQueue:
 
 
 # ---------------------------------------------------------------------------
-# ConsolidationLoop — Pure Orchestrator
+# ConsolidationLoop — Pure Orchestrator (v0.3.1 DAO-wired)
 # ---------------------------------------------------------------------------
 
 
@@ -80,10 +93,14 @@ class ConsolidationLoop:
     """Orchestrates batch processing of raw log records through the
     consolidation pipeline.
 
+    v0.3.1: Wired directly to ``MemoryDAO``, replacing the deprecated
+    ``StorageFacade``.  All I/O flows through agent-scoped DAO methods
+    with RLS enforcement.
+
     Delegates to:
     - ``TripletExtractor``: REBEL + LLM extraction with bisection retry.
     - ``Tier3Validator``: LLM consensus gate for deferred records.
-    - ``GraphWriter``: Cross-validation scoring and graph commits.
+    - ``GraphWriter``: Cross-validation scoring and graph commits via DAO.
     - ``BatchResponseParser``: Response parsing and recovery.
 
     Retains ownership of:
@@ -94,29 +111,40 @@ class ConsolidationLoop:
 
     def __init__(
         self,
-        storage_facade: StorageFacade,
+        dao: MemoryDAO,
         embedder: BaseUniversalLLMAdapter,
         llm_a: BaseUniversalLLMAdapter,
         llm_b: BaseUniversalLLMAdapter,
         obs_layer: ObservabilityLayer,
+        agent_id: str = "mesa_consolidation_system",
     ):
-        self.storage = storage_facade
+        self.dao = dao
         self.embedder = embedder
         self.llm_a = llm_a
         self.llm_b = llm_b
         self.obs_layer = obs_layer
+        self._agent_id = agent_id
         self._running = False
         self.human_review_queue = PersistentQueue("./storage/human_review_queue.jsonl")
         self.dead_letter_queue = PersistentQueue("./storage/dead_letter_queue.jsonl")
 
+        # Concurrency Control: Bound concurrent LLM API calls to prevent 429 Too Many Requests
+        self._llm_semaphore = asyncio.Semaphore(5)
+
         # Delegate modules
         self.triplet_extractor = TripletExtractor(llm_a=llm_a, llm_b=llm_b)
         self.validator = Tier3Validator(llm_a=llm_a, llm_b=llm_b)
+        self.router = AdaptiveRouter(
+            dao=dao,
+            small_llm=llm_a,
+            dual_llm_validator=self.validator,
+        )
         self.graph_writer = GraphWriter(
-            storage_facade=storage_facade,
+            dao=dao,
             embedder=embedder,
             human_review_queue=self.human_review_queue,
             similarity_fn=calculate_composite_similarity,
+            agent_id=agent_id,
         )
 
     # Expose rebel_extractor for backward compatibility
@@ -125,13 +153,27 @@ class ConsolidationLoop:
         return self.triplet_extractor.rebel_extractor
 
     async def start(self):
+        """Main consolidation loop — polls DAO for unconsolidated records."""
         self._running = True
         while self._running:
-            records = await self.storage.raw_log.fetch_unconsolidated(
-                limit=config.consolidation_batch_size,
-            )
-            if records:
-                await self.run_batch(records)
+            try:
+                # Read from the unconsolidated hot-path via MemoryDAO
+                records = await self.dao.get_memories(
+                    self._agent_id,
+                    include_consolidated=False,
+                    limit=config.consolidation_batch_size,
+                )
+                if records:
+                    await self.run_batch(records)
+            except asyncio.CancelledError:
+                logger.info("Consolidation loop cancelled, shutting down.")
+                break
+            except Exception as exc:
+                logger.error(
+                    "CONSOLIDATION_LOOP_ERROR | error=%s",
+                    exc,
+                    exc_info=True,
+                )
             await asyncio.sleep(config.consolidation_idle_timeout)
 
     async def stop(self):
@@ -177,6 +219,20 @@ class ConsolidationLoop:
         )
 
     # -------------------------------------------------------------------
+    # Extraction with retry and concurrency control
+    # -------------------------------------------------------------------
+
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
+    async def _extract_batch_with_retry(self, sorted_batch: list[dict]):
+        """Runs the extraction pipeline with semaphore limiting and retries."""
+        async with self._llm_semaphore:
+            return await self.triplet_extractor.extract_batch(sorted_batch)
+
+    # -------------------------------------------------------------------
     # Core batch orchestrator
     # -------------------------------------------------------------------
 
@@ -184,13 +240,17 @@ class ConsolidationLoop:
         """Process a batch of raw log records through the consolidation pipeline.
 
         P0-A compliant flow:
-        1. Tier-3 validation via ``Tier3Validator``.
+        1. Tier-3 validation via ``Tier3Validator`` (Dual-LLM consensus).
         2. Sort by salience (high-density records at edges, LitM Layer 2).
         3. Full extraction via ``TripletExtractor`` (REBEL → LLM → bisection).
-        4. Cross-validate and commit via ``GraphWriter``.
+        4. Cross-validate and commit via ``GraphWriter`` → ``MemoryDAO``.
+
+        Consensus failures are flagged via ``dao.invalidate_node``.
         """
         if batch is None:
-            batch = await self.storage.raw_log.fetch_unconsolidated(
+            batch = await self.dao.get_memories(
+                self._agent_id,
+                include_consolidated=False,
                 limit=config.consolidation_batch_size,
             )
 
@@ -202,18 +262,47 @@ class ConsolidationLoop:
         for record in batch:
             if record.get("tier3_deferred"):
                 try:
-                    is_valid = await self.validator.validate(record)
-                except Tier3ValidationError as exc:
-                    # Infrastructure error — do NOT treat as cognitive DISCARD
+                    is_valid = await self._validate_with_timeout(record)
+                except RetryError as exc:
+                    # Infrastructure error (retries exhausted) — do NOT treat as cognitive DISCARD
                     logger.error(
-                        "Tier-3 validation error for %s (will retry): %s",
-                        record.get("cmb_id", "?"),
+                        "Tier-3 validation retries exhausted for %s (API down): %s",
+                        record.get("cmb_id", record.get("id", "?")),
                         exc,
                     )
                     self.dead_letter_queue.append(
                         {
-                            "cmb_id": record.get("cmb_id", ""),
+                            "cmb_id": record.get("cmb_id", record.get("id", "")),
                             "error": str(exc),
+                        }
+                    )
+                    continue
+                except Tier3ValidationError as exc:
+                    # Infrastructure error — do NOT treat as cognitive DISCARD
+                    logger.error(
+                        "Tier-3 validation error for %s: %s",
+                        record.get("cmb_id", record.get("id", "?")),
+                        exc,
+                    )
+                    self.dead_letter_queue.append(
+                        {
+                            "cmb_id": record.get("cmb_id", record.get("id", "")),
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+                except (asyncio.TimeoutError, Exception) as exc:
+                    # LLM timeout or unexpected error — dead-letter, don't crash
+                    logger.error(
+                        "Tier-3 validation unexpected error for %s: %s",
+                        record.get("cmb_id", record.get("id", "?")),
+                        exc,
+                        exc_info=True,
+                    )
+                    self.dead_letter_queue.append(
+                        {
+                            "cmb_id": record.get("cmb_id", record.get("id", "")),
+                            "error": f"unexpected: {exc}",
                         }
                     )
                     continue
@@ -233,7 +322,28 @@ class ConsolidationLoop:
                         justification="Deferred Tier-3 validation failed in consolidation loop",
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
-                    await self.storage.soft_delete_all(record.get("cmb_id", ""))
+                    # Validation Rejection: Invalidate via DAO soft-invalidation (sets invalid_at)
+                    record_id = record.get("cmb_id", record.get("id", ""))
+                    agent_id = record.get("agent_id", self._agent_id)
+                    try:
+                        await self.dao.invalidate_node(agent_id, node_id=record_id)
+                    except sqlite3.OperationalError as db_exc:
+                        if "database is locked" in str(db_exc):
+                            # Infrastructure error (SQLite WAL lock) -> Do NOT mark as invalid, skip so it retries
+                            logger.error(
+                                "Database locked during invalidate_node for %s",
+                                record_id,
+                            )
+                        else:
+                            logger.error(
+                                "INVALIDATE_FAILED | id=%s error=%s", record_id, db_exc
+                            )
+                    except Exception as inv_exc:
+                        logger.error(
+                            "INVALIDATE_FAILED | id=%s error=%s",
+                            record_id,
+                            inv_exc,
+                        )
             else:
                 ready_batch.append(record)
 
@@ -247,8 +357,8 @@ class ConsolidationLoop:
         # --- Phase 2: Salience-first ordering (LitM Layer 2) ---
         sorted_batch = self.triplet_extractor.sort_by_salience(batch)
 
-        # --- Phase 3: Full extraction pipeline ---
-        indexed_a, indexed_b = await self.triplet_extractor.extract_batch(sorted_batch)
+        # --- Phase 3: Full extraction pipeline (Wrapped with semaphore + retries) ---
+        indexed_a, indexed_b = await self._extract_batch_with_retry(sorted_batch)
 
         # --- Phase 4: Pre-fetch embeddings & commit via GraphWriter ---
         embedding_cache = await self.graph_writer.prefetch_embeddings(
@@ -275,21 +385,55 @@ class ConsolidationLoop:
             duration_ms=duration_ms,
         )
 
+    # -------------------------------------------------------------------
+    # Async Dual-LLM validation with timeout protection
+    # -------------------------------------------------------------------
+
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
+    async def _validate_with_timeout(
+        self,
+        record: dict,
+        timeout_seconds: float = 30.0,
+    ) -> bool:
+        """Run Tier-3 Dual-LLM validation with a hard timeout and retry logic.
+
+        Wraps the validator call with ``asyncio.wait_for`` and limits
+        concurrent execution via semaphore. Automatically retries
+        on transient faults (API limits, network jitter).
+        """
+        async with self._llm_semaphore:
+            return await asyncio.wait_for(
+                self.router.validate(record),
+                timeout=timeout_seconds,
+            )
+
 
 async def start_tier3_deferred_worker(
-    storage: StorageFacade,
+    dao: MemoryDAO,
     consolidation_loop: ConsolidationLoop,
+    agent_id: str = "mesa_consolidation_system",
     sleep_interval: int = 5,
     batch_size: int = 10,
 ):
     """
     Background worker that continuously consumes and processes
     unconsolidated records flagged with tier3_deferred=True.
+
+    v0.3.1: Reads from MemoryDAO instead of the deprecated StorageFacade.
     """
     logger.info("Starting Tier-3 Deferred background worker...")
     while True:
         try:
-            records = await storage.raw_log.fetch_unconsolidated(limit=100)
+            # Read unconsolidated records from the DAO hot-path
+            records = await dao.get_memories(
+                agent_id,
+                include_consolidated=False,
+                limit=100,
+            )
             deferred_records = [r for r in records if r.get("tier3_deferred")]
 
             if deferred_records:
@@ -300,9 +444,19 @@ async def start_tier3_deferred_worker(
                 logger.info(f"Worker processing {len(batch)} deferred records.")
                 await consolidation_loop.run_batch(batch)
 
-                # Clear the tier3_deferred flag to prevent infinite loops on the same record
+                # Mark processed records as consolidated to prevent
+                # re-processing in subsequent polls
                 for record in batch:
-                    await storage.raw_log.clear_tier3_deferred(record["cmb_id"])
+                    record_id = record.get("cmb_id", record.get("id", ""))
+                    record_agent = record.get("agent_id", agent_id)
+                    try:
+                        await dao.mark_consolidated(record_agent, node_id=record_id)
+                    except Exception as mark_exc:
+                        logger.error(
+                            "Failed to mark deferred record %s: %s",
+                            record_id,
+                            mark_exc,
+                        )
             else:
                 await asyncio.sleep(sleep_interval)
 

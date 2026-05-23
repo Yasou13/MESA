@@ -68,9 +68,19 @@ async def lifespan(app: FastAPI):
         sqlite_engine=state.sqlite_engine, vector_engine=state.vector_engine
     )
 
-    # Note: Consolidation loop and workers will be wired to DAO in next phases
-    # state.consolidation_loop = ConsolidationLoop(...)
-    # asyncio.create_task(start_tier3_deferred_worker(...))
+    # Wire the Consolidation Loop to the DAO (v0.3.1 P0 Hotfix)
+    # ConsolidationLoop now accepts MemoryDAO directly — no StorageFacade.
+    # Uncomment and configure LLM adapters for production:
+    # llm_a = AdapterFactory.get_adapter("llm_a")
+    # llm_b = AdapterFactory.get_adapter("llm_b")
+    # state.consolidation_loop = ConsolidationLoop(
+    #     dao=state.dao,
+    #     embedder=AdapterFactory.get_adapter(),
+    #     llm_a=llm_a,
+    #     llm_b=llm_b,
+    #     obs_layer=state.obs_layer,
+    # )
+    # asyncio.create_task(state.consolidation_loop.start())
 
     yield
 

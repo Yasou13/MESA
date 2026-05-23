@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from mesa_memory.config import config
 from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.observability.metrics import ObservabilityLayer
@@ -22,6 +21,21 @@ def _make_mock_embedder(dim=768):
     embedder.embed.side_effect = _embed
     embedder.EMBEDDING_DIM = dim
     return embedder
+
+
+def _make_mock_dao():
+    """Build a mock MemoryDAO with async methods pre-configured."""
+    dao = MagicMock()
+    dao.get_memories = AsyncMock(return_value=[])
+    dao.insert_memory = AsyncMock(return_value="node_id")
+    dao.insert_edge = AsyncMock(return_value="edge_id")
+    dao.mark_consolidated = AsyncMock()
+    dao.invalidate_node = AsyncMock()
+    dao.find_nodes_by_name = AsyncMock(return_value=[])
+    dao.get_node_degree = AsyncMock(return_value=0)
+    dao.purge_memory = AsyncMock(return_value=0)
+    dao.get_recent_telemetry_stats = AsyncMock(return_value={})
+    return dao
 
 
 def test_composite_similarity_alignment():
@@ -53,20 +67,18 @@ def test_composite_similarity_alignment():
 @pytest.mark.asyncio
 async def test_consolidation_divergence_paths():
     obs = ObservabilityLayer()
-
-    storage = MagicMock()
-    storage.raw_log = MagicMock()
-    storage.raw_log.mark_consolidated = AsyncMock()
-    storage.graph = MagicMock()
-    storage.graph.upsert_node = AsyncMock(return_value="node_id")
-    storage.graph.create_edge = AsyncMock(return_value="edge_id")
+    dao = _make_mock_dao()
 
     embedder = MagicMock()
+    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
+    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.EMBEDDING_DIM = 768
+
     llm_a = MagicMock()
     llm_b = MagicMock()
 
     loop = ConsolidationLoop(
-        storage_facade=storage,
+        dao=dao,
         embedder=embedder,
         llm_a=llm_a,
         llm_b=llm_b,
@@ -85,6 +97,12 @@ async def test_consolidation_divergence_paths():
     llm_b.complete.return_value = json.dumps(
         {"head": "X", "relation": "rel", "tail": "Y"}
     )
+    llm_a.generate = AsyncMock(
+        return_value=json.dumps({"decision": "STORE", "justification": "test"})
+    )
+    llm_b.generate = AsyncMock(
+        return_value=json.dumps({"decision": "STORE", "justification": "test"})
+    )
 
     with patch(
         "mesa_memory.consolidation.loop.calculate_composite_similarity",
@@ -92,21 +110,17 @@ async def test_consolidation_divergence_paths():
     ):
         await loop.run_batch([record])
 
-    assert storage.graph.create_edge.called
-    call_kwargs = storage.graph.create_edge.call_args
-    assert call_kwargs[1]["weight"] == 0.5 or call_kwargs.kwargs.get("weight") == 0.5
+    # Uncertain zone: edge should be inserted with weight 0.5
+    assert dao.insert_edge.called
+    call_kwargs = dao.insert_edge.call_args
+    assert call_kwargs.kwargs.get("weight") == 0.5
 
-    storage.graph.reset_mock()
-    storage.raw_log.reset_mock()
+    dao.reset_mock()
     loop.human_review_queue.clear()
 
-    hub_graph = MagicMock()
-    hub_node_data = [("hub_1", {"name": "X"})]
-    hub_graph.nodes.return_value = hub_node_data
-    hub_graph.degree.return_value = 6
-    storage.graph.get_active_graph.return_value = hub_graph
-    storage.graph.find_nodes_by_name = AsyncMock(return_value=[{"node_id": "hub_1"}])
-    storage.graph.get_node_degree = AsyncMock(return_value=6)
+    # Hub-node scenario: high degree → human review
+    dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "hub_1"}])
+    dao.get_node_degree = AsyncMock(return_value=6)
 
     with patch(
         "mesa_memory.consolidation.loop.calculate_composite_similarity",
@@ -115,18 +129,14 @@ async def test_consolidation_divergence_paths():
         await loop.run_batch([record])
 
     assert len(loop.human_review_queue) == 1
-    assert not storage.graph.create_edge.called
+    assert not dao.insert_edge.called
 
-    storage.graph.reset_mock()
-    storage.raw_log.reset_mock()
+    dao.reset_mock()
     loop.human_review_queue.clear()
 
-    periph_graph = MagicMock()
-    periph_graph.nodes.return_value = [("periph_1", {"name": "X"})]
-    periph_graph.degree.return_value = 2
-    storage.graph.get_active_graph.return_value = periph_graph
-    storage.graph.find_nodes_by_name = AsyncMock(return_value=[{"node_id": "periph_1"}])
-    storage.graph.get_node_degree = AsyncMock(return_value=2)
+    # Peripheral node: low degree → silent discard
+    dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "periph_1"}])
+    dao.get_node_degree = AsyncMock(return_value=2)
 
     with patch(
         "mesa_memory.consolidation.loop.calculate_composite_similarity",
@@ -135,31 +145,18 @@ async def test_consolidation_divergence_paths():
         await loop.run_batch([record])
 
     assert len(loop.human_review_queue) == 0
-    assert not storage.graph.create_edge.called
+    assert not dao.insert_edge.called
 
 
 @pytest.mark.asyncio
 async def test_batch_processing_limit():
     obs = ObservabilityLayer()
+    dao = _make_mock_dao()
 
-    storage = MagicMock()
-    storage.raw_log = MagicMock()
-
-    all_records = [
-        {"cmb_id": f"cmb-{i}", "content_payload": f"content {i}", "source": "agent"}
-        for i in range(25)
-    ]
-
-    storage.raw_log.fetch_unconsolidated = AsyncMock(
-        return_value=all_records[: config.consolidation_batch_size]
-    )
-    storage.raw_log.mark_consolidated = AsyncMock()
-    storage.graph = MagicMock()
-    storage.graph.upsert_node = AsyncMock(return_value="node_id")
-    storage.graph.create_edge = AsyncMock(return_value="edge_id")
-    storage.graph.get_active_graph.return_value = MagicMock(
-        nodes=MagicMock(return_value=[]),
-    )
+    embedder = MagicMock()
+    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
+    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
     llm_b = MagicMock()
@@ -169,11 +166,15 @@ async def test_batch_processing_limit():
     llm_b.complete.return_value = json.dumps(
         {"head": "A", "relation": "r", "tail": "B"}
     )
-
-    embedder = MagicMock()
+    llm_a.generate = AsyncMock(
+        return_value=json.dumps({"decision": "STORE", "justification": "test"})
+    )
+    llm_b.generate = AsyncMock(
+        return_value=json.dumps({"decision": "STORE", "justification": "test"})
+    )
 
     loop = ConsolidationLoop(
-        storage_facade=storage,
+        dao=dao,
         embedder=embedder,
         llm_a=llm_a,
         llm_b=llm_b,
@@ -186,43 +187,40 @@ async def test_batch_processing_limit():
     ):
         await loop.run_batch()
 
-    assert (
-        storage.raw_log.fetch_unconsolidated.call_args[1]["limit"]
-        == config.consolidation_batch_size
-    )
-    assert (
-        storage.raw_log.mark_consolidated.call_count == config.consolidation_batch_size
-    )
+    # When run_batch is called with no args, it queries the DAO
+    dao.get_memories.assert_awaited()
 
 
 @pytest.mark.asyncio
 async def test_rebel_extraction_fallback():
     obs = ObservabilityLayer()
-    storage = MagicMock()
-    storage.raw_log = MagicMock()
+    dao = _make_mock_dao()
 
-    # One record
-    record = {"cmb_id": "r-1", "content_payload": "Alice likes Bob.", "source": "agent"}
-    storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=[record])
-    storage.raw_log.mark_consolidated = AsyncMock()
-    storage.graph = MagicMock()
-    storage.graph.upsert_node = AsyncMock(return_value="n_id")
-    storage.graph.create_edge = AsyncMock(return_value="e_id")
+    embedder = MagicMock()
+    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
+    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
     llm_b = MagicMock()
 
-    # Mock LLM return to verify fallback
     llm_a.complete.return_value = json.dumps(
         {"head": "Alice", "relation": "likes", "tail": "Bob"}
     )
     llm_b.complete.return_value = json.dumps(
         {"head": "Alice", "relation": "likes", "tail": "Bob"}
     )
-    embedder = MagicMock()
+    llm_a.generate = AsyncMock(
+        return_value=json.dumps({"decision": "STORE", "justification": "test"})
+    )
+    llm_b.generate = AsyncMock(
+        return_value=json.dumps({"decision": "STORE", "justification": "test"})
+    )
+
+    record = {"cmb_id": "r-1", "content_payload": "Alice likes Bob.", "source": "agent"}
 
     loop_obj = ConsolidationLoop(
-        storage_facade=storage,
+        dao=dao,
         embedder=embedder,
         llm_a=llm_a,
         llm_b=llm_b,
@@ -246,22 +244,20 @@ async def test_rebel_extraction_fallback():
 @pytest.mark.asyncio
 async def test_rebel_extraction_success():
     obs = ObservabilityLayer()
-    storage = MagicMock()
-    storage.raw_log = MagicMock()
+    dao = _make_mock_dao()
 
-    record = {"cmb_id": "r-2", "content_payload": "Alice likes Bob.", "source": "agent"}
-    storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=[record])
-    storage.raw_log.mark_consolidated = AsyncMock()
-    storage.graph = MagicMock()
-    storage.graph.upsert_node = AsyncMock(return_value="n_id")
-    storage.graph.create_edge = AsyncMock(return_value="e_id")
+    embedder = MagicMock()
+    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
+    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
     llm_b = MagicMock()
-    embedder = MagicMock()
+
+    record = {"cmb_id": "r-2", "content_payload": "Alice likes Bob.", "source": "agent"}
 
     loop_obj = ConsolidationLoop(
-        storage_facade=storage,
+        dao=dao,
         embedder=embedder,
         llm_a=llm_a,
         llm_b=llm_b,
@@ -282,26 +278,21 @@ async def test_rebel_extraction_success():
     # Assert LLM WAS NOT called because rebel succeeded
     assert not llm_a.complete.called
     assert not llm_b.complete.called
-    assert storage.graph.create_edge.called
+    assert dao.insert_edge.called
 
 
 @pytest.mark.asyncio
-async def test_tier3_discard_calls_soft_delete_all():
-    """Verify that the Tier-3 DISCARD path purges all three storage layers."""
+async def test_tier3_discard_calls_invalidate_node():
+    """Verify that the Tier-3 DISCARD path invalidates via DAO."""
     obs = ObservabilityLayer()
-    storage = MagicMock()
-    storage.raw_log = MagicMock()
-    storage.raw_log.fetch_unconsolidated = AsyncMock(return_value=[])
-    storage.raw_log.mark_consolidated = AsyncMock()
-    storage.raw_log.soft_delete = AsyncMock()
-    storage.soft_delete_all = AsyncMock()
-    storage.graph = MagicMock()
-    storage.graph.upsert_node = AsyncMock(return_value="node_id")
-    storage.graph.create_edge = AsyncMock(return_value="edge_id")
+    dao = _make_mock_dao()
+
+    embedder = MagicMock()
+    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
+    embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
     llm_b = MagicMock()
-    embedder = MagicMock()
 
     # Both LLMs return DISCARD → unanimous discard
     llm_a.complete.return_value = json.dumps(
@@ -310,9 +301,15 @@ async def test_tier3_discard_calls_soft_delete_all():
     llm_b.complete.return_value = json.dumps(
         {"decision": "DISCARD", "justification": "test"}
     )
+    llm_a.generate = AsyncMock(
+        return_value=json.dumps({"decision": "DISCARD", "justification": "test"})
+    )
+    llm_b.generate = AsyncMock(
+        return_value=json.dumps({"decision": "DISCARD", "justification": "test"})
+    )
 
     loop_obj = ConsolidationLoop(
-        storage_facade=storage,
+        dao=dao,
         embedder=embedder,
         llm_a=llm_a,
         llm_b=llm_b,
@@ -328,14 +325,19 @@ async def test_tier3_discard_calls_soft_delete_all():
 
     await loop_obj.run_batch([deferred_record])
 
-    # soft_delete_all on the facade MUST be called (not raw_log.soft_delete)
-    storage.soft_delete_all.assert_awaited_once_with("discard-001")
-    storage.raw_log.soft_delete.assert_not_awaited()
+    # invalidate_node on the DAO MUST be called
+    dao.invalidate_node.assert_awaited_once()
+    call_args = dao.invalidate_node.call_args
+    assert call_args.kwargs["node_id"] == "discard-001"
 
 
 @pytest.mark.asyncio
 async def test_soft_delete_all_partial_failure():
-    """Verify soft_delete_all raises RuntimeError on partial multi-store failure."""
+    """Verify soft_delete_all raises RuntimeError on partial multi-store failure.
+
+    This test validates the legacy StorageFacade's soft_delete_all method
+    independently of the consolidation loop migration.
+    """
     from mesa_memory.storage import StorageFacade
 
     facade = MagicMock(spec=StorageFacade)

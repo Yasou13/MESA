@@ -41,6 +41,10 @@ from mesa_memory.security.rbac import AccessControl
 from mesa_memory.storage import StorageFacade
 from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
 from mesa_memory.valence.core import ValenceMotor
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_storage.vector_engine import VectorEngine
 from tests.conftest import make_test_storage_dir
 
 # ---------------------------------------------------------------------------
@@ -116,6 +120,9 @@ class LocalTestAdapter(BaseUniversalLLMAdapter):
     async def acomplete(self, prompt, schema=None, **kwargs):
         return self.complete(prompt, schema, **kwargs)
 
+    async def generate(self, prompt: str) -> str:
+        return self.complete(prompt)
+
     def embed(self, text, **kwargs):
         return _local_embed(text)
 
@@ -190,6 +197,20 @@ async def storage_facade(access_control):
     return facade
 
 
+@pytest_asyncio.fixture
+async def dao():
+    """Build a MemoryDAO instance for ConsolidationLoop."""
+    sql = AsyncEngine(os.path.join(E2E_STORAGE_DIR, "dao_memory.sqlite"))
+    await sql.initialize()
+    await initialize_schema(sql)
+    vec = VectorEngine(os.path.join(E2E_STORAGE_DIR, "dao_vector.lance"))
+    await vec.initialize()
+
+    dao_instance = MemoryDAO(sql, vec)
+    yield dao_instance
+    await sql.close()
+
+
 # ---------------------------------------------------------------------------
 # Test data factory
 # ---------------------------------------------------------------------------
@@ -218,7 +239,9 @@ def _make_cmb(
 
 
 @pytest.mark.asyncio
-async def test_full_memory_lifecycle(storage_facade, local_adapter, access_control):
+async def test_full_memory_lifecycle(
+    storage_facade, dao, local_adapter, access_control
+):
     """E2E: Ingest data via persist_cmb, consolidate with ConsolidationLoop,
     then retrieve via HybridRetriever — all on real local dependencies.
 
@@ -247,7 +270,7 @@ async def test_full_memory_lifecycle(storage_facade, local_adapter, access_contr
 
     # --- Phase 2: Consolidation ---
     loop = ConsolidationLoop(
-        storage_facade=facade,
+        dao=dao,
         embedder=local_adapter,
         llm_a=local_adapter,
         llm_b=local_adapter,
@@ -264,12 +287,12 @@ async def test_full_memory_lifecycle(storage_facade, local_adapter, access_contr
 
     await loop.run_batch(records)
 
-    # Assert: Graph persistence (real NetworkX + SQLite)
-    all_nodes = await facade.graph.get_all_active_nodes()
+    # Assert: Graph persistence (real MemoryDAO)
+    all_nodes = await dao.get_memories("mesa_consolidation_system", limit=100)
     assert (
         len(all_nodes) >= 2
     ), f"Expected at least 2 graph nodes (head + tail), got {len(all_nodes)}"
-    node_names = {n["name"] for n in all_nodes}
+    node_names = {n["entity_name"] for n in all_nodes}
     assert (
         "Einstein" in node_names
     ), f"Head entity 'Einstein' not in graph nodes: {node_names}"
@@ -354,7 +377,7 @@ async def test_valence_motor_admits_with_tier3_deferred(local_adapter):
 
 @pytest.mark.asyncio
 async def test_multi_record_batch_consolidation(
-    storage_facade, local_adapter, access_control
+    storage_facade, dao, local_adapter, access_control
 ):
     """E2E: Ingest multiple records, consolidate as a batch, verify
     all records are persisted across all three stores.
@@ -386,7 +409,7 @@ async def test_multi_record_batch_consolidation(
 
     # Run consolidation
     loop = ConsolidationLoop(
-        storage_facade=facade,
+        dao=dao,
         embedder=local_adapter,
         llm_a=local_adapter,
         llm_b=local_adapter,
@@ -400,7 +423,7 @@ async def test_multi_record_batch_consolidation(
     await loop.run_batch(records)
 
     # Assert: Graph populated with entities from ALL records
-    all_nodes = await facade.graph.get_all_active_nodes()
+    all_nodes = await dao.get_memories("mesa_consolidation_system", limit=100)
     assert (
         len(all_nodes) >= 2
     ), f"Expected graph nodes from batch consolidation, got {len(all_nodes)}"

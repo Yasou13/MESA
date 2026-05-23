@@ -84,22 +84,33 @@ async def test_graph_concurrent_read_write(storage_facade):
 
 
 @pytest.mark.asyncio
-async def test_consolidation_batch_embedding_calls(storage_facade):
+async def test_consolidation_batch_embedding_calls():
     """Test N+1 Embedding Batching.
     Mock the embedder.aembed_batch method.
     Pass a mock batch of at least 3 records to ConsolidationLoop.run_batch().
     Assert that the mocked embedder was called exactly ONCE.
     """
-    await storage_facade.initialize_all()
+    dao = MagicMock()
+    dao.get_memories = AsyncMock(return_value=[])
+    dao.insert_memory = AsyncMock(return_value="node_id")
+    dao.insert_edge = AsyncMock(return_value="edge_id")
+    dao.mark_consolidated = AsyncMock()
+    dao.invalidate_node = AsyncMock()
+    dao.find_nodes_by_name = AsyncMock(return_value=[])
+    dao.get_node_degree = AsyncMock(return_value=0)
 
     embedder = AsyncMock(spec=BaseUniversalLLMAdapter)
     embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768 for _ in range(6)])
+    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
+    embedder.EMBEDDING_DIM = 768
 
     llm_a = AsyncMock(spec=BaseUniversalLLMAdapter)
     llm_b = AsyncMock(spec=BaseUniversalLLMAdapter)
     obs_layer = MagicMock()
 
-    loop = ConsolidationLoop(storage_facade, embedder, llm_a, llm_b, obs_layer)
+    loop = ConsolidationLoop(
+        dao=dao, embedder=embedder, llm_a=llm_a, llm_b=llm_b, obs_layer=obs_layer
+    )
 
     # Create 3 records
     batch = [

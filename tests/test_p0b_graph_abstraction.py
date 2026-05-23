@@ -456,8 +456,8 @@ class TestHybridRetrieverCompat:
         assert "vec_2" in results
 
     @pytest.mark.asyncio
-    async def test_rrf_with_populated_graph_via_provider(self):
-        """Populated graph: RRF fusion path with real provider data."""
+    async def test_populated_graph_via_provider(self):
+        """Populated graph: hybrid path with real provider data."""
         storage = MagicMock()
         provider = await _make_provider()
 
@@ -505,8 +505,8 @@ class TestHybridRetrieverCompat:
         assert len(matched) == 1, "Provider-backed graph must be searchable by name"
 
     @pytest.mark.asyncio
-    async def test_rrf_ranking_logic_unmodified(self):
-        """The RRF formula itself must not change under the new abstraction."""
+    async def test_alpha_reranking_logic(self):
+        """Verify the Alpha-Reranking formula and normalizations."""
         storage = MagicMock()
         provider = await _make_provider()
         storage.graph = provider
@@ -522,15 +522,42 @@ class TestHybridRetrieverCompat:
         )
 
         vector_ranks = [
-            {"cmb_id": "A", "rank": 1, "source": "vector"},
-            {"cmb_id": "B", "rank": 2, "source": "vector"},
+            {"cmb_id": "A", "score": 0.8},
+            {"cmb_id": "B", "score": 0.5},
+            {"cmb_id": "C", "score": 0.1},
         ]
         graph_ranks = [
-            {"cmb_id": "B", "rank": 1, "source": "graph"},
-            {"cmb_id": "C", "rank": 2, "source": "graph"},
+            {"cmb_id": "B", "score": 0.05},  # norm = min(0.05*10, 1.0) = 0.5
+            {"cmb_id": "C", "score": 0.20},  # norm = min(0.20*10, 1.0) = 1.0
+        ]
+        lexical_ranks = [
+            {"cmb_id": "A", "score": 5.0},  # norm = min(5.0/10, 1.0) = 0.5
+            {"cmb_id": "D", "score": 20.0},  # norm = min(20.0/10, 1.0) = 1.0
         ]
 
-        fused_ids = retriever._apply_rrf(vector_ranks, graph_ranks, k=60)
-        assert fused_ids[0] == "B", "B should rank first (present in both sources)"
-        assert "A" in fused_ids
-        assert "C" in fused_ids
+        from mesa_memory.config import config
+
+        original_alpha = getattr(config, "hybrid_alpha", 0.0)
+        original_beta = getattr(config, "hybrid_beta", 0.0)
+        config.hybrid_alpha = 0.5
+        config.hybrid_beta = 0.2
+
+        try:
+            fused_ids = retriever._apply_alpha_reranking(
+                vector_ranks, graph_ranks, lexical_ranks
+            )
+
+            # Final = S_vec + (alpha * S_graph_norm) + (beta * S_lex_norm)
+            # A: 0.8 + 0.5 * 0.0 + 0.2 * 0.5 = 0.90
+            # B: 0.5 + 0.5 * 0.5 + 0.2 * 0.0 = 0.75
+            # C: 0.1 + 0.5 * 1.0 + 0.2 * 0.0 = 0.60
+            # D: 0.0 + 0.5 * 0.0 + 0.2 * 1.0 = 0.20
+            assert fused_ids == [
+                "A",
+                "B",
+                "C",
+                "D",
+            ], f"Expected ['A', 'B', 'C', 'D'], got {fused_ids}"
+        finally:
+            config.hybrid_alpha = original_alpha
+            config.hybrid_beta = original_beta

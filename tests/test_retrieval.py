@@ -95,7 +95,7 @@ async def test_hybrid_retrieval_cold_start():
 
 
 @pytest.mark.asyncio
-async def test_rrf_ranking_logic():
+async def test_alpha_reranking_logic():
     storage = MagicMock()
 
     graph = nx.MultiDiGraph()
@@ -131,19 +131,41 @@ async def test_rrf_ranking_logic():
     )
 
     vector_ranks = [
-        {"cmb_id": "A", "rank": 1, "source": "vector"},
-        {"cmb_id": "B", "rank": 2, "source": "vector"},
+        {"cmb_id": "A", "score": 0.9},
+        {"cmb_id": "B", "score": 0.7},
     ]
     graph_ranks = [
-        {"cmb_id": "B", "rank": 1, "source": "graph"},
-        {"cmb_id": "C", "rank": 2, "source": "graph"},
+        {"cmb_id": "B", "score": 0.05},
+        {"cmb_id": "C", "score": 0.20},
+    ]
+    lexical_ranks = [
+        {"cmb_id": "D", "score": 20.0},
     ]
 
-    fused_ids = retriever._apply_rrf(vector_ranks, graph_ranks, k=60)
+    from mesa_memory.config import config
 
-    assert fused_ids[0] == "B"
-    assert "A" in fused_ids
-    assert "C" in fused_ids
+    original_alpha = getattr(config, "hybrid_alpha", 0.0)
+    original_beta = getattr(config, "hybrid_beta", 0.0)
+    config.hybrid_alpha = 0.5
+    config.hybrid_beta = 0.2
+
+    try:
+        fused_ids = retriever._apply_alpha_reranking(
+            vector_ranks, graph_ranks, lexical_ranks
+        )
+
+        # S_vec + (alpha * S_graph_norm) + (beta * S_lex_norm)
+        # A: 0.9 + 0 + 0 = 0.9
+        # B: 0.7 + 0.5 * min(0.05*10, 1) = 0.7 + 0.25 = 0.95
+        # C: 0.0 + 0.5 * min(0.2*10, 1) = 0.0 + 0.5 = 0.5
+        # D: 0.0 + 0 + 0.2 * min(20/10, 1) = 0.2
+        assert fused_ids[0] == "B"
+        assert fused_ids[1] == "A"
+        assert fused_ids[2] == "C"
+        assert fused_ids[3] == "D"
+    finally:
+        config.hybrid_alpha = original_alpha
+        config.hybrid_beta = original_beta
 
 
 # ===================================================================

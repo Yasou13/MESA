@@ -62,10 +62,15 @@ class HybridRetriever:
             len(seed_ids) == 0 or len(all_nodes) < config.cold_start_min_nodes
         )
 
-        vector_task = self.get_vector_results(normalized, k=top_n * 2)
+        vector_task = self.get_vector_results(
+            normalized, k=100
+        )  # Top-100 candidate pool
         graph_task = self.get_graph_results(entities)
 
+        # We assume get_lexical_results might be added later, for now we pass empty list
+        # if FTS5 is not directly wired into this legacy Facade class.
         vector_results, graph_results = await asyncio.gather(vector_task, graph_task)
+        lexical_results: list[dict] = []
 
         if is_cold_start or not graph_results:
             if not vector_results:
@@ -75,15 +80,10 @@ class HybridRetriever:
                     r["cmb_id"] for r in self._cold_start_rerank(vector_results, top_n)
                 ]
         else:
-            # Expose weights as tunable parameters (fallback to 0.7/0.3 to favor vector)
-            w_vector = getattr(config, "rrf_w_vector", 0.7)
-            w_graph = getattr(config, "rrf_w_graph", 0.3)
-            fused_ids = self._apply_rrf(
+            fused_ids = self._apply_alpha_reranking(
                 vector_results,
                 graph_results,
-                k=getattr(config, "rrf_k", 60),
-                w_vector=w_vector,
-                w_graph=w_graph,
+                lexical_results,
             )
             cmb_ids = fused_ids[:top_n]
 
@@ -141,33 +141,58 @@ class HybridRetriever:
 
         return await self._run_ppr(seed_ids)
 
-    def _apply_rrf(
+    def _apply_alpha_reranking(
         self,
         vector_ranks: list[dict],
         graph_ranks: list[dict],
-        k: int = 60,
-        w_vector: float = 0.5,
-        w_graph: float = 0.5,
+        lexical_ranks: list[dict],
     ) -> list[str]:
-        """Apply Reciprocal Rank Fusion (RRF) with tunable weights."""
-        rrf_scores: dict[str, float] = {}
+        """Apply Score-Based Bonus (Alpha-Reranking) with deterministic normalization."""
+        alpha = getattr(config, "hybrid_alpha", 0.0)
+        beta = getattr(config, "hybrid_beta", 0.0)
 
-        for item in vector_ranks:
-            cmb_id = item.get("cmb_id", "")
-            if not cmb_id:
-                continue
-            rank = item.get("rank", len(vector_ranks))
-            rrf_scores[cmb_id] = rrf_scores.get(cmb_id, 0.0) + (w_vector / (k + rank))
+        # Union Set Candidate Pool
+        union_ids = set()
+        for ranks in (vector_ranks, graph_ranks, lexical_ranks):
+            for item in ranks:
+                if cmb_id := item.get("cmb_id"):
+                    union_ids.add(cmb_id)
 
-        for item in graph_ranks:
-            cmb_id = item.get("cmb_id", "")
-            if not cmb_id:
-                continue
-            rank = item.get("rank", len(graph_ranks))
-            rrf_scores[cmb_id] = rrf_scores.get(cmb_id, 0.0) + (w_graph / (k + rank))
+        # Index raw scores by ID
+        vector_scores = {
+            item.get("cmb_id", ""): item.get("score", 0.0)
+            for item in vector_ranks
+            if item.get("cmb_id", "")
+        }
+        graph_scores = {
+            item.get("cmb_id", ""): item.get("score", 0.0)
+            for item in graph_ranks
+            if item.get("cmb_id", "")
+        }
+        lexical_scores = {
+            item.get("cmb_id", ""): item.get("score", 0.0)
+            for item in lexical_ranks
+            if item.get("cmb_id", "")
+        }
+
+        final_scores: dict[str, float] = {}
+
+        # Alpha Reranking Formula: S_vec + (alpha * S_graph_norm) + (beta * S_lex_norm)
+        for cmb_id in union_ids:
+            s_vec = vector_scores.get(cmb_id, 0.0)
+            s_graph_raw = graph_scores.get(cmb_id, 0.0)
+            s_lex_raw = lexical_scores.get(cmb_id, 0.0)
+
+            # Deterministic Normalization
+            # PPR scores are probabilities, cap at 1.0. Scaling by 10 to bring up sparse values.
+            s_graph_norm = min(s_graph_raw * 10.0, 1.0)
+            # FTS5 Lexical normalization via empirical constant
+            s_lex_norm = min(s_lex_raw / 10.0, 1.0)
+
+            final_scores[cmb_id] = s_vec + (alpha * s_graph_norm) + (beta * s_lex_norm)
 
         sorted_ids = sorted(
-            rrf_scores.keys(), key=lambda cid: rrf_scores[cid], reverse=True
+            final_scores.keys(), key=lambda cid: final_scores[cid], reverse=True
         )
         return sorted_ids
 

@@ -748,6 +748,208 @@ class MemoryDAO:
         return results
 
     # ==================================================================
+    # INVALIDATION — agent-scoped soft-invalidation
+    # ==================================================================
+
+    async def invalidate_node(
+        self,
+        agent_id: str,
+        *,
+        node_id: str,
+    ) -> None:
+        """Soft-invalidate a node by setting ``invalid_at``.
+
+        Also cascade-invalidates all connected edges.  No physical
+        DELETEs are issued.
+
+        Args:
+            agent_id: **Mandatory** tenant isolation key.
+            node_id: UUID of the node to invalidate.
+
+        Raises:
+            ValueError: If ``agent_id`` is invalid or reserved.
+        """
+        _assert_valid_agent_id(agent_id)
+
+        async with self._sql.transaction() as db:
+            # RLS: WHERE agent_id = ? hardcoded
+            await db.execute(
+                "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
+                "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
+                (node_id, agent_id),
+            )
+            # Cascade to connected edges
+            await db.execute(
+                "UPDATE edges SET invalid_at = CURRENT_TIMESTAMP "
+                "WHERE agent_id = ? "
+                "  AND (source_id = ? OR target_id = ?) "
+                "  AND invalid_at IS NULL",
+                (agent_id, node_id, node_id),
+            )
+            await db.commit()
+
+        logger.info(
+            "INVALIDATE_NODE | agent_id=%s node_id=%s",
+            agent_id,
+            node_id,
+        )
+
+    # ==================================================================
+    # FIND NODES — agent-scoped entity name lookup
+    # ==================================================================
+
+    async def find_nodes_by_name(
+        self,
+        agent_id: str,
+        *,
+        names: list[str],
+        case_insensitive: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Find active nodes whose ``entity_name`` matches any in ``names``.
+
+        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE clause.
+
+        Args:
+            agent_id: **Mandatory** tenant isolation key.
+            names: Entity names to match.
+            case_insensitive: If True, compare via ``LOWER()``.
+
+        Returns:
+            List of matching node dicts.
+
+        Raises:
+            ValueError: If ``agent_id`` is invalid or reserved.
+        """
+        _assert_valid_agent_id(agent_id)
+
+        if not names:
+            return []
+
+        if case_insensitive:
+            conditions = " OR ".join("LOWER(entity_name) = ?" for _ in names)
+            params: list[Any] = [agent_id] + [n.lower() for n in names]
+        else:
+            conditions = " OR ".join("entity_name = ?" for _ in names)
+            params = [agent_id] + list(names)
+
+        query = (
+            f"SELECT * FROM nodes WHERE agent_id = ? "
+            f"AND invalid_at IS NULL "
+            f"AND deleted_at IS NULL "
+            f"AND ({conditions})"
+        )
+
+        async with self._sql.connection() as db:
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    # ==================================================================
+    # NODE DEGREE — agent-scoped edge count
+    # ==================================================================
+
+    async def get_node_degree(
+        self,
+        agent_id: str,
+        *,
+        node_id: str,
+    ) -> int:
+        """Return the number of active edges connected to a node.
+
+        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE clause.
+
+        Args:
+            agent_id: **Mandatory** tenant isolation key.
+            node_id: UUID of the node.
+
+        Returns:
+            Total edge count (in + out).
+
+        Raises:
+            ValueError: If ``agent_id`` is invalid or reserved.
+        """
+        _assert_valid_agent_id(agent_id)
+
+        # RLS: WHERE agent_id = ? hardcoded
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM edges "
+                "WHERE agent_id = ? "
+                "  AND (source_id = ? OR target_id = ?) "
+                "  AND invalid_at IS NULL",
+                (agent_id, node_id, node_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+
+    # ==================================================================
+    # ROUTING TELEMETRY — audit logging
+    # ==================================================================
+
+    async def insert_routing_telemetry(
+        self,
+        agent_id: str,
+        *,
+        record_id: str,
+        small_model_decision: int,
+        small_model_confidence: float,
+        dual_llm_decision: int,
+        is_hallucination: bool,
+    ) -> str:
+        """Insert a telemetry record for adaptive LLM routing."""
+        _assert_valid_agent_id(agent_id)
+
+        telemetry_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+
+        async with self._sql.transaction() as db:
+            await db.execute(
+                "INSERT INTO routing_telemetry "
+                "(id, agent_id, record_id, small_model_decision, "
+                "small_model_confidence, dual_llm_decision, "
+                "is_hallucination, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    telemetry_id,
+                    agent_id,
+                    record_id,
+                    small_model_decision,
+                    small_model_confidence,
+                    dual_llm_decision,
+                    int(is_hallucination),
+                    now,
+                ),
+            )
+            await db.commit()
+
+        return telemetry_id
+
+    async def get_recent_telemetry_stats(
+        self,
+        agent_id: str,
+        limit: int = 100,
+    ) -> dict[str, int]:
+        """Fetch recent routing telemetry to calculate hallucination error rates."""
+        _assert_valid_agent_id(agent_id)
+
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT is_hallucination FROM routing_telemetry "
+                "WHERE agent_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (agent_id, limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                
+        total_audits = len(rows)
+        hallucinations = sum(1 for row in rows if row[0] == 1)
+        
+        return {
+            "total_audits": total_audits,
+            "hallucinations": hallucinations,
+        }
+
+    # ==================================================================
     # HEALTH — engine passthrough
     # ==================================================================
 

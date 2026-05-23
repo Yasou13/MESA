@@ -1,17 +1,20 @@
 """
 Graph Writer — Cross-validation and persistent graph commit logic.
 
-Extracted from the monolithic ``ConsolidationLoop`` to isolate storage
-concerns from batch orchestration.  ``GraphWriter`` owns:
+Refactored for MESA v0.3.1 to wire directly to the asynchronous
+``MemoryDAO`` layer, replacing the deprecated ``StorageFacade`` and
+in-memory NetworkX graph provider.  All writes now go through the
+DAO's agent-scoped, RLS-enforced methods.
+
+``GraphWriter`` owns:
 
 - Embedding pre-fetch (N+1 batching)
 - Cross-validation scoring (composite similarity)
-- Graph upsert (node + edge creation with weight tiers)
+- Graph upsert (node + edge creation with weight tiers) via MemoryDAO
 - Hub-node detection and human-review escalation
 """
 
 import asyncio
-import inspect
 import logging
 from typing import Any
 
@@ -19,33 +22,39 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.schemas import ExtractedTriplet
-from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
-from mesa_memory.storage import StorageFacade
+from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_GraphWriter")
 
+# Default agent_id for system-level consolidation operations.
+# Production deployments should inject the owning agent_id from the
+# batch records themselves.
+_CONSOLIDATION_AGENT_ID = "mesa_consolidation_system"
+
 
 class GraphWriter:
-    """Commits cross-validated triplets to the knowledge graph.
+    """Commits cross-validated triplets to the knowledge graph via MemoryDAO.
 
     Responsibilities:
     1. Pre-fetch embeddings in batch to solve the N+1 problem.
     2. Score triplet pairs via composite similarity.
-    3. Write to the graph at the appropriate weight tier.
+    3. Write to the graph at the appropriate weight tier via MemoryDAO.
     4. Detect hub-node divergences and escalate to human review.
     """
 
     def __init__(
         self,
-        storage_facade: StorageFacade,
+        dao: MemoryDAO,
         embedder: BaseUniversalLLMAdapter,
         human_review_queue: Any,
         similarity_fn=None,
+        agent_id: str = _CONSOLIDATION_AGENT_ID,
     ):
-        self.storage = storage_facade
+        self.dao = dao
         self.embedder = embedder
         self.human_review_queue = human_review_queue
         self._similarity_fn = similarity_fn or calculate_composite_similarity
+        self._agent_id = agent_id
 
     # -------------------------------------------------------------------
     # Embedding pre-fetch (solves N+1)
@@ -75,31 +84,12 @@ class GraphWriter:
         if not texts_list:
             return embedding_cache
 
-        aembed_batch = getattr(self.embedder, "aembed_batch", None)
-        embed_batch = getattr(self.embedder, "embed_batch", None)
-
-        if aembed_batch and (
-            inspect.iscoroutinefunction(aembed_batch)
-            or type(aembed_batch).__name__ == "AsyncMock"
-        ):
-            embs = await aembed_batch(texts_list)
-        elif embed_batch and type(embed_batch).__name__ != "MagicMock":
-            loop = asyncio.get_running_loop()
-            embs = await loop.run_in_executor(None, embed_batch, texts_list)
-        else:
-            aembed = getattr(self.embedder, "aembed", None)
-            if aembed and (
-                inspect.iscoroutinefunction(aembed)
-                or type(aembed).__name__ == "AsyncMock"
-            ):
-                embs = await asyncio.gather(*(aembed(t) for t in texts_list))
-            else:
-                loop = asyncio.get_running_loop()
-                embs = []
-                for t in texts_list:
-                    embs.append(
-                        await loop.run_in_executor(None, self.embedder.embed, t)
-                    )
+        # Prefer native async batch embedding
+        try:
+            embs = await self.embedder.aembed_batch(texts_list)
+        except (NotImplementedError, AttributeError):
+            # Fallback: individual async embeds via gather
+            embs = await asyncio.gather(*(self.embedder.aembed(t) for t in texts_list))
 
         for t, e in zip(texts_list, embs):
             embedding_cache[t] = e
@@ -134,6 +124,7 @@ class GraphWriter:
 
         for idx, record in enumerate(sorted_batch):
             cmb_id = record.get("cmb_id", "")
+            agent_id = record.get("agent_id", self._agent_id)
 
             triplet_a = indexed_a.get(idx)
             triplet_b = indexed_b.get(idx)
@@ -142,7 +133,8 @@ class GraphWriter:
             trip_b = self._to_dict(triplet_b)
 
             if not trip_a.get("head") or not trip_b.get("head"):
-                await self.storage.raw_log.mark_consolidated(cmb_id)
+                # Nothing to extract — mark consolidated and skip
+                await self._mark_record_consolidated(agent_id, cmb_id)
                 continue
 
             sim_score = _sim_fn(
@@ -153,7 +145,7 @@ class GraphWriter:
             )
 
             if sim_score >= config.relation_similarity_threshold:
-                await self._write_triplet(cmb_id, trip_a, weight=1.0)
+                await self._write_triplet(agent_id, cmb_id, trip_a, weight=1.0)
                 successful_writes += 1
 
             elif (
@@ -162,12 +154,13 @@ class GraphWriter:
                 < config.relation_similarity_threshold
             ):
                 divergence_count += 1
-                await self._write_triplet(cmb_id, trip_a, weight=0.5)
+                await self._write_triplet(agent_id, cmb_id, trip_a, weight=0.5)
                 successful_writes += 1
 
             else:
                 divergence_count += 1
                 is_hub = await self._check_hub_node(
+                    agent_id,
                     trip_a["head"],
                     trip_a["tail"],
                     trip_b["head"],
@@ -198,7 +191,7 @@ class GraphWriter:
                     )
 
             # Idempotency: mark ONLY after successful processing
-            await self.storage.raw_log.mark_consolidated(cmb_id)
+            await self._mark_record_consolidated(agent_id, cmb_id)
 
         return successful_writes, divergence_count
 
@@ -206,42 +199,88 @@ class GraphWriter:
     # Internal helpers
     # -------------------------------------------------------------------
 
-    async def _write_triplet(self, cmb_id: str, triplet: dict, weight: float):
-        """Upsert head/tail nodes and create an edge between them."""
-        node_head = await self.storage.graph.upsert_node(
-            name=triplet["head"],
-            type="ENTITY",
-            cmb_id=cmb_id,
-            agent_id=SYSTEM_AGENT_ID,
-            session_id=SYSTEM_SESSION_ID,
-        )
-        node_tail = await self.storage.graph.upsert_node(
-            name=triplet["tail"],
-            type="ENTITY",
-            cmb_id=cmb_id,
-            agent_id=SYSTEM_AGENT_ID,
-            session_id=SYSTEM_SESSION_ID,
-        )
-        await self.storage.graph.create_edge(
-            source_id=node_head,
-            target_id=node_tail,
-            relation=triplet["relation"],
-            weight=weight,
-            agent_id=SYSTEM_AGENT_ID,
-            session_id=SYSTEM_SESSION_ID,
+    async def _mark_record_consolidated(self, agent_id: str, cmb_id: str):
+        """Mark a raw record as consolidated via MemoryDAO."""
+        try:
+            await self.dao.mark_consolidated(agent_id, node_id=cmb_id)
+        except Exception as exc:
+            logger.error(
+                "MARK_CONSOLIDATED_FAILED | agent_id=%s cmb_id=%s error=%s",
+                agent_id,
+                cmb_id,
+                exc,
+            )
+
+    async def _write_triplet(
+        self, agent_id: str, cmb_id: str, triplet: dict, weight: float
+    ):
+        """Insert head/tail nodes and create an edge between them via MemoryDAO.
+
+        Uses ``dao.insert_memory`` for graph vertex creation and
+        ``dao.insert_edge`` for the relational link.  Both enforce
+        agent_id RLS at the DAO boundary.
+        """
+        # Generate placeholder embeddings for the graph entities.
+        # These are structural nodes — the real semantic vectors live in
+        # the LanceDB hot-path records already persisted during ingestion.
+        try:
+            head_emb, tail_emb = await asyncio.gather(
+                self.embedder.aembed(triplet["head"]),
+                self.embedder.aembed(triplet["tail"]),
+            )
+        except Exception as exc:
+            logger.warning(
+                "EMBED_FAILED | cmb_id=%s error=%s — using zero vectors",
+                cmb_id,
+                exc,
+            )
+            dim = self.embedder.EMBEDDING_DIM
+            head_emb = [0.0] * dim
+            tail_emb = [0.0] * dim
+
+        # Insert head entity node
+        head_node_id = await self.dao.insert_memory(
+            agent_id,
+            entity_name=triplet["head"],
+            content=f"[{cmb_id}] {triplet['head']}",
+            embedding=head_emb,
+            node_type="ENTITY",
         )
 
-    async def _check_hub_node(self, *entity_names: str) -> bool:
+        # Insert tail entity node
+        tail_node_id = await self.dao.insert_memory(
+            agent_id,
+            entity_name=triplet["tail"],
+            content=f"[{cmb_id}] {triplet['tail']}",
+            embedding=tail_emb,
+            node_type="ENTITY",
+        )
+
+        # Link head → tail via the extracted relation
+        await self.dao.insert_edge(
+            agent_id,
+            source_id=head_node_id,
+            target_id=tail_node_id,
+            relation_type=triplet["relation"],
+            weight=weight,
+        )
+
+    async def _check_hub_node(self, agent_id: str, *entity_names: str) -> bool:
         """Check if any of the given entities are hub nodes (high degree)."""
         valid_names = [n for n in entity_names if n]
         if not valid_names:
             return False
-        nodes = await self.storage.graph.find_nodes_by_name(
-            valid_names,
+
+        nodes = await self.dao.find_nodes_by_name(
+            agent_id,
+            names=valid_names,
             case_insensitive=True,
         )
         for node in nodes:
-            degree = await self.storage.graph.get_node_degree(node["node_id"])
+            degree = await self.dao.get_node_degree(
+                agent_id,
+                node_id=node["id"],
+            )
             if degree >= config.hub_degree_threshold:
                 return True
         return False
