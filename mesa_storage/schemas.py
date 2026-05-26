@@ -165,6 +165,15 @@ CREATE TABLE IF NOT EXISTS routing_telemetry (
 );
 """
 
+_CREATE_RAW_LOGS_TABLE = """\
+CREATE TABLE IF NOT EXISTS raw_logs (
+    id         INTEGER PRIMARY KEY,
+    payload    JSON    NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'queued',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 
 # ---------------------------------------------------------------------------
 # Schema manager — public API
@@ -185,6 +194,7 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         await db.execute(_CREATE_NODES_TABLE)
         await db.execute(_CREATE_EDGES_TABLE)
         await db.execute(_CREATE_ROUTING_TELEMETRY_TABLE)
+        await db.execute(_CREATE_RAW_LOGS_TABLE)
 
         # 2. Indexes
         for idx_sql in _CREATE_NODES_INDEXES:
@@ -203,7 +213,8 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         await db.commit()
 
     logger.info(
-        "SCHEMA_INIT | tables=[nodes, edges, nodes_fts] " "indexes=10 triggers=3 db=%s",
+        "SCHEMA_INIT | tables=[nodes, edges, nodes_fts, routing_telemetry, raw_logs] "
+        "indexes=10 triggers=3 db=%s",
         engine.db_path,
     )
 
@@ -214,7 +225,7 @@ async def validate_schema(engine: AsyncEngine) -> dict:
     Returns:
         Dict mapping object names to booleans indicating presence.
     """
-    expected_tables = {"nodes", "edges", "nodes_fts", "routing_telemetry"}
+    expected_tables = {"nodes", "edges", "nodes_fts", "routing_telemetry", "raw_logs"}
     expected_indexes = {
         "idx_nodes_active",
         "idx_nodes_entity_name",

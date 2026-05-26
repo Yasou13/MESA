@@ -123,3 +123,4 @@ data/raw/*
 
 # Test storage directories (dynamically created by conftest.py)
 .test_storage_tmp/
+*.sqlite

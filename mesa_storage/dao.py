@@ -43,6 +43,7 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -102,6 +103,24 @@ class MemoryDAO:
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
+
+    async def initialize(self) -> None:
+        """Initialize the database schema for the DAO.
+        
+        Creates necessary tables including the hot-path raw_logs table.
+        """
+        async with self._sql.transaction() as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS raw_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    payload JSON,
+                    status TEXT DEFAULT 'queued',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await db.commit()
 
     # ------------------------------------------------------------------
     # Properties
@@ -949,6 +968,96 @@ class MemoryDAO:
             "total_audits": total_audits,
             "hallucinations": hallucinations,
         }
+
+    # ==================================================================
+    # RAW LOG INSERT — hot-path ingestion (< 50ms, pure I/O)
+    # ==================================================================
+
+    async def insert_raw_log(self, payload: dict) -> int:
+        """Insert a raw payload into the ``raw_logs`` staging table.
+
+        This is the **hot-path write** for the v0.4.0 decoupled ingestion
+        architecture.  It performs a single async SQLite INSERT and returns
+        the auto-generated ``log_id`` immediately.
+
+        **No validation, ECOD, REBEL extraction, or LLM calls occur here.**
+        All heavy processing is deferred to the cold-path worker
+        (``process_cold_path``).
+
+        Args:
+            payload: Raw ingestion payload (serialised as JSON).
+
+        Returns:
+            The ``id`` (INTEGER PRIMARY KEY) of the newly inserted row.
+        """
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "INSERT INTO raw_logs (payload) VALUES (?)",
+                (json.dumps(payload),),
+            )
+            log_id = cursor.lastrowid
+            await db.commit()
+
+        logger.info("INSERT_RAW_LOG | log_id=%s", log_id)
+        return log_id or 0
+
+    async def get_raw_log(self, log_id: int) -> dict[str, Any] | None:
+        """Retrieve a single raw_logs row by primary key.
+
+        Args:
+            log_id: INTEGER primary key of the raw_logs row.
+
+        Returns:
+            A dict with keys ``id``, ``payload``, ``status``, ``created_at``,
+            or ``None`` if no row with that ID exists.
+        """
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT id, payload, status, created_at "
+                "FROM raw_logs WHERE id = ?",
+                (log_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                row_dict = dict(row)
+                # Deserialise the JSON payload back to a dict
+                if isinstance(row_dict.get("payload"), str):
+                    row_dict["payload"] = json.loads(row_dict["payload"])
+                return row_dict
+
+    async def update_raw_log_status(
+        self,
+        log_id: int,
+        status: str,
+        *,
+        error_reason: str | None = None,
+    ) -> None:
+        """Transition the status of a raw_logs row.
+
+        Valid transitions: ``queued → processing → processed | failed | rejected``.
+
+        Args:
+            log_id: INTEGER primary key of the raw_logs row.
+            status: New status string (``processing``, ``processed``,
+                    ``failed``, ``rejected``).
+            error_reason: Optional error message (stored in the ``status``
+                          field as ``failed:<reason>`` for traceability).
+        """
+        final_status = f"{status}:{error_reason}" if error_reason else status
+
+        async with self._sql.transaction() as db:
+            await db.execute(
+                "UPDATE raw_logs SET status = ? WHERE id = ?",
+                (final_status, log_id),
+            )
+            await db.commit()
+
+        logger.debug(
+            "UPDATE_RAW_LOG_STATUS | log_id=%d status=%s",
+            log_id,
+            final_status,
+        )
 
     # ==================================================================
     # HEALTH — engine passthrough

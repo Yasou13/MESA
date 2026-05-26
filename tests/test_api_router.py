@@ -80,8 +80,8 @@ def client(engines):
 
     app = FastAPI()
     router = create_memory_router(
-        dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
-        embedder=_test_embedder,
+        get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
+        get_embedder=lambda: _test_embedder,
     )
     app.include_router(router)
 
@@ -95,8 +95,8 @@ def client_no_vector(engines):
 
     app = FastAPI()
     router = create_memory_router(
-        dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=None),
-        embedder=_test_embedder,
+        get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=None),
+        get_embedder=lambda: _test_embedder,
     )
     app.include_router(router)
 
@@ -121,8 +121,8 @@ class TestInsertEndpoint:
         assert resp.status_code == 202
         body = resp.json()
         assert body["status"] == "queued"
-        assert "memory_id" in body
-        assert len(body["memory_id"]) == 32  # hex UUID
+        assert "log_id" in body
+        assert isinstance(body["log_id"], int)
 
     def test_insert_returns_unique_ids(self, client):
         ids = set()
@@ -135,7 +135,7 @@ class TestInsertEndpoint:
                     "content": "Content",
                 },
             )
-            ids.add(resp.json()["memory_id"])
+            ids.add(resp.json()["log_id"])
         assert len(ids) == 10
 
     def test_insert_rejects_empty_content(self, client):
@@ -192,15 +192,14 @@ class TestInsertEndpoint:
             },
         )
         assert resp.status_code == 202
-        memory_id = resp.json()["memory_id"]
+        assert resp.json()["log_id"] > 0
 
         # Background task runs during TestClient scope — verify the node
         nodes = loop.run_until_complete(
             get_active_nodes(sqlite_eng, agent_id="agent-bg")
         )
-        found = [n for n in nodes if n["id"] == memory_id]
-        assert len(found) == 1
-        assert found[0]["agent_id"] == "agent-bg"
+        found = [n for n in nodes if n["agent_id"] == "agent-bg"]
+        assert len(found) >= 1
 
     def test_insert_without_vector_engine(self, client_no_vector):
         resp = client_no_vector.post(
@@ -549,7 +548,7 @@ class TestRouterFactory:
     def test_custom_prefix(self, engines):
         sqlite_eng, vec_eng, _ = engines
         router = create_memory_router(
-            dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
+            get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
             prefix="/custom/api",
         )
         app = FastAPI()
@@ -569,7 +568,7 @@ class TestRouterFactory:
     def test_custom_tags(self, engines):
         sqlite_eng, vec_eng, _ = engines
         router = create_memory_router(
-            dao=MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
+            get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
             tags=["custom-tag"],
         )
         assert router.tags == ["custom-tag"]

@@ -166,6 +166,16 @@ class MesaConfig(BaseSettings):
     cold_start_distance_weight: float = 0.5
     ppr_alpha: float = 0.15
 
+    # -----------------------------------------------------------------------
+    # v0.4.0 Phase 3: Zero-Hallucination Legal Mode
+    # When True, the AdaptiveRouter bypasses the small-model confidence gate
+    # and ALWAYS routes to the Dual-LLM ConsolidationLoop.  This eliminates
+    # the risk of "confident hallucinations" from lightweight models when
+    # processing legal documents (statutes, case law, regulatory filings).
+    # Prioritises absolute accuracy over token cost optimisation.
+    # -----------------------------------------------------------------------
+    legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
+
     # Local embedding fallback model (used when OpenAI key is absent)
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 

@@ -1,0 +1,4602 @@
+[
+  {
+    "id": "711ecefe-288f-5de5-95ab-5f6cde6cb860",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-06-07 tarihli 2025/9955 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/9955",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "c6cc9852-fc5c-513b-97a7-2d00c6681ec1",
+    "domain": "legal",
+    "query": "Karar 2021/3706 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-09-22 tarihli 2021/3706 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/3706, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/3706",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "3eb89131-0900-5f38-a60b-221a90719122",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-02-03 tarihli 2020/7376 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, sözleşmenin feshi konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/7376",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "dca585d4-3938-5d84-b183-3ee2ce56842a",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-08-04 tarihli 2025/763 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/763",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "5727da76-6c4e-534b-b352-50b1019aec61",
+    "domain": "legal",
+    "query": "Karar 2021/4684 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-06-20 tarihli 2021/4684 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/4684, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/4684",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "ac4abd91-90c9-5e17-bc58-59feaa8b7b67",
+    "domain": "legal",
+    "query": "haksız fiilden doğan tazminat konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-08-08 tarihli 2025/9446 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, haksız fiilden doğan tazminat konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/9446",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "c0d6e030-1012-5530-96f1-8c890737aae2",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-08-15 tarihli 2022/4510 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/4510",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "5b99253f-8e19-5536-ac62-cf083517c440",
+    "domain": "legal",
+    "query": "Karar 2021/8300 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-11-05 tarihli 2021/8300 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/8300, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/8300",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "aad5045a-7304-5a1d-8c68-dac17439049a",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-12-05 tarihli 2025/4687 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, miras hukuku uyuşmazlığı konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/4687",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "a36909c9-f6b5-5cf0-b192-9eaec31b11ce",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-10-16 tarihli 2020/5251 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/5251",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "77dd5ab5-c0c9-5bf9-bca5-425dfe98bbb5",
+    "domain": "legal",
+    "query": "Karar 2023/3569 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2023-07-14 tarihli 2023/3569 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/3569, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/3569",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "0a32e053-78d3-58ac-b991-9fb988366782",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-05-12 tarihli 2023/3076 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, miras hukuku uyuşmazlığı konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/3076",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "c797e390-0e21-51ba-99df-59c347cbda9f",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-04-19 tarihli 2021/2193 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2193",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "8ea4f3f8-ac83-54e9-8e2f-06bc09e57d76",
+    "domain": "legal",
+    "query": "Karar 2020/3110 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-01-09 tarihli 2020/3110 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/3110, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/3110",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "87b82997-7c12-547f-ab87-856fa7f6001c",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-04-09 tarihli 2020/9321 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, ticari işletme devri konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/9321",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "b362dd94-32b5-5436-aa21-ffcbbe2a85f8",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-04-21 tarihli 2025/9308 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/9308",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "650cfdee-d5d3-58e3-a116-5be19ab28fd8",
+    "domain": "legal",
+    "query": "Karar 2022/5430 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-08-03 tarihli 2022/5430 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/5430, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/5430",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "068bd2ec-e4e9-5f5d-bb95-b2a034365ecb",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-09-25 tarihli 2020/9151 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, iş kazası tazminatı konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/9151",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "b85ecdcb-5a94-5e6e-a2ae-0cf63a9890e7",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-01-27 tarihli 2023/5352 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/5352",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "83ef95d2-d6c5-589f-9546-fd9a99aef2f6",
+    "domain": "legal",
+    "query": "Karar 2025/795 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-09-23 tarihli 2025/795 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/795, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/795",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "7b941e86-a046-57c4-8cc2-a7486daa2a87",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-11-07 tarihli 2024/2446 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, manevi tazminat talebi konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/2446",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "a119ced1-9978-531c-b4a9-38c9bd87b692",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-01-21 tarihli 2021/1050 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/1050",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "83927c49-a8ff-50aa-8f96-6e44636feafb",
+    "domain": "legal",
+    "query": "Karar 2022/6964 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-11-13 tarihli 2022/6964 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/6964, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/6964",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "6ee630fd-9ab8-5461-a298-253793de7df0",
+    "domain": "legal",
+    "query": "kira sözleşmesi ihlali konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-09-03 tarihli 2024/6837 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, kira sözleşmesi ihlali konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/6837",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "21cabe91-5020-5e77-b71f-4a96e0d2ffac",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-07-24 tarihli 2020/7550 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/7550",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "d6c0d408-1b07-5dce-a1a7-8ffd826f36ac",
+    "domain": "legal",
+    "query": "Karar 2023/201 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2023-09-04 tarihli 2023/201 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/201, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/201",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "e65704b9-8bc6-5526-ae6a-552632d5cecb",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-10-12 tarihli 2021/5298 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, manevi tazminat talebi konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/5298",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "847f12e6-b47c-521f-93f9-86234365476c",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-12-19 tarihli 2021/5835 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/5835",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "d74c5b1c-9620-503e-8dbf-b995c0fbe020",
+    "domain": "legal",
+    "query": "Karar 2024/2121 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2024-07-22 tarihli 2024/2121 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/2121, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/2121",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "4d5fc233-9faf-5b63-ada8-3d2774e77295",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-04-01 tarihli 2024/6944 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, miras hukuku uyuşmazlığı konusunda TCK m.157 (Dolandırıcılık suçu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/6944",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "94d327d6-5996-5763-8e82-fa90b9f1f0da",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-06-25 tarihli 2021/2724 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2724",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "def460e0-3cba-5be3-8c43-a2cbd005f923",
+    "domain": "legal",
+    "query": "Karar 2022/8253 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-08-26 tarihli 2022/8253 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/8253, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/8253",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "7a32f0e9-db4a-5bed-bbe3-5b6179b13327",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-01-21 tarihli 2021/8163 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, iş kazası tazminatı konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/8163",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "99e0b59d-842b-58df-97aa-47a1fed2f211",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-07-18 tarihli 2021/6372 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/6372",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "0e0b51af-904d-5adf-88d2-b5dfcccf8665",
+    "domain": "legal",
+    "query": "Karar 2022/3686 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-03-08 tarihli 2022/3686 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/3686, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/3686",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "73ccf5c2-af03-501b-b50c-9d47fe69a50f",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-10-22 tarihli 2020/7382 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, iş kazası tazminatı konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/7382",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "f62b4539-b9cd-54f1-a11c-aa267a10bc84",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-09-04 tarihli 2023/3210 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/3210",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "e8fedd87-6d44-5132-b44c-75abe1807c48",
+    "domain": "legal",
+    "query": "Karar 2022/8196 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-12-04 tarihli 2022/8196 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/8196, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/8196",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "d4d1da13-1916-50fa-b058-d827d7558123",
+    "domain": "legal",
+    "query": "haksız fiilden doğan tazminat konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2025-04-02 tarihli 2025/4834 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, haksız fiilden doğan tazminat konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/4834",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "7aa8bb80-e8f6-5131-a6c7-f14f9acb6119",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-05-13 tarihli 2020/7330 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/7330",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "834d3b62-a3a5-512a-babb-0a240eedbd14",
+    "domain": "legal",
+    "query": "Karar 2023/4744 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-10-01 tarihli 2023/4744 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/4744, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/4744",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "cb823153-5f16-5f96-b16f-e3fbead42141",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-09-25 tarihli 2022/1547 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, iş kazası tazminatı konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/1547",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "dcc16779-26eb-5b37-9c14-1b5ba55584ea",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TMK m.2' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-12-08 tarihli 2021/4359 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TMK m.2' atıfı Türk Medeni Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/4359",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "d617855c-1cc6-5519-abb0-f7440f09e608",
+    "domain": "legal",
+    "query": "Karar 2020/8359 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-05-17 tarihli 2020/8359 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/8359, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/8359",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "1940b611-50b6-5ded-82d4-e8d229a4a79f",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-09-25 tarihli 2021/5146 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, ticari işletme devri konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/5146",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "f6e61c10-153f-5138-996e-6000449532f0",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-12-17 tarihli 2022/8555 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/8555",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "8eca6f77-f92b-54a8-b7f7-132df8cc048f",
+    "domain": "legal",
+    "query": "Karar 2024/2548 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2024-10-21 tarihli 2024/2548 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/2548, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/2548",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "a9aca28f-be38-51b9-ba6f-9fce33d005a3",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-07-07 tarihli 2023/9545 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, ticari işletme devri konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/9545",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "fe22bed9-d343-5644-abe2-b273ba7dd682",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-05-19 tarihli 2021/1019 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/1019",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "cbebe70f-aee7-5e8a-9edc-778a5d8b1892",
+    "domain": "legal",
+    "query": "Karar 2021/5266 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-02-27 tarihli 2021/5266 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/5266, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/5266",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "fcaa3b14-e81a-5487-a74a-566bb2eb2d45",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-09-26 tarihli 2023/5361 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, iş kazası tazminatı konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/5361",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "74373b58-1b4f-594b-ab56-6e05096d6604",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-08-13 tarihli 2022/3726 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/3726",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "9ff4cdf0-a36a-59c4-892a-3ca8c3c674a8",
+    "domain": "legal",
+    "query": "Karar 2023/5032 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-10-20 tarihli 2023/5032 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/5032, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/5032",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "ec22555b-21df-5414-85bb-601851a25488",
+    "domain": "legal",
+    "query": "haksız fiilden doğan tazminat konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-03-03 tarihli 2021/929 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, haksız fiilden doğan tazminat konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/929",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "ebfdba27-f0e3-531d-9810-e9056738f351",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-12-24 tarihli 2021/2870 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2870",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "22bcb162-6f4b-50e9-9261-e71631fde00b",
+    "domain": "legal",
+    "query": "Karar 2024/3586 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-10-02 tarihli 2024/3586 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/3586, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/3586",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "c45e3079-24ed-5702-8143-4c84041169ce",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-08-09 tarihli 2020/6054 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, ticari işletme devri konusunda TCK m.157 (Dolandırıcılık suçu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/6054",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "1a3eb0e5-b4a2-56a4-8307-8aaeeb52f60b",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-01-03 tarihli 2023/5896 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/5896",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "de024a80-24a3-54e7-9f84-fc456bb86cf0",
+    "domain": "legal",
+    "query": "Karar 2024/1240 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-11-09 tarihli 2024/1240 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/1240, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/1240",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "b8881a7b-80e6-5afd-a559-04795efd2a36",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-09-10 tarihli 2024/7788 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, ticari işletme devri konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/7788",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "757825ea-78b3-5f26-bcb1-705cf9b5de7b",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-02-22 tarihli 2022/8462 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/8462",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "1ce5b36a-8f11-5a22-955f-e1e72dc6b93a",
+    "domain": "legal",
+    "query": "Karar 2020/5409 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-10-18 tarihli 2020/5409 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/5409, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/5409",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "94ce5176-2192-58a0-a20e-7d9bd561769e",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-09-08 tarihli 2022/752 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, sözleşmenin feshi konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/752",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "cb4e8d57-5bf9-581a-b926-333c4aa67834",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-04-25 tarihli 2024/8120 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/8120",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "a8f18e40-6a21-51b2-b48c-3303547c1719",
+    "domain": "legal",
+    "query": "Karar 2023/5329 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2023-10-24 tarihli 2023/5329 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/5329, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/5329",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "405189bb-fce8-5876-ae29-9692d62d10ae",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-01-02 tarihli 2025/4381 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, sözleşmenin feshi konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/4381",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "d910cc05-83f9-5e8a-8a9c-b62dd0932c56",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-05-19 tarihli 2025/5509 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/5509",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "dccaf45c-b800-5637-b1e4-b0d5b1fe4226",
+    "domain": "legal",
+    "query": "Karar 2025/4256 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-11-12 tarihli 2025/4256 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/4256, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/4256",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "561d2f0c-3e7e-5a3b-93d0-044b2511466c",
+    "domain": "legal",
+    "query": "haksız fiilden doğan tazminat konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-11-08 tarihli 2021/4538 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, haksız fiilden doğan tazminat konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/4538",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "fbae13ed-aa00-525c-ab04-541359d416b2",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TMK m.2' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-03-26 tarihli 2022/1219 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TMK m.2' atıfı Türk Medeni Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/1219",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "28d215a1-cb9d-5103-88f8-10cca677f5b0",
+    "domain": "legal",
+    "query": "Karar 2024/8401 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2024-08-02 tarihli 2024/8401 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/8401, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/8401",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "67133670-2ebf-53b4-bc3e-85c363007b05",
+    "domain": "legal",
+    "query": "kusursuz sorumluluk halleri konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-08-09 tarihli 2023/5761 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, kusursuz sorumluluk halleri konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/5761",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "0f8faea6-caa5-51dd-aefe-37c64bf0adfd",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-12-24 tarihli 2020/8613 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/8613",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "88d2039f-ab59-5ac9-bbc0-a41c97244f80",
+    "domain": "legal",
+    "query": "Karar 2021/6634 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-01-10 tarihli 2021/6634 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/6634, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/6634",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "279971d4-61f1-5448-ae4d-c5cf282eb777",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-06-01 tarihli 2024/5233 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, sözleşmenin feshi konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/5233",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "a3b69fff-2d9a-5c3c-89fe-0f0b14ba769d",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-08-08 tarihli 2025/6754 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/6754",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "8df2803b-f04c-52dc-951e-5f3a6c09dcc5",
+    "domain": "legal",
+    "query": "Karar 2021/1161 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-10-03 tarihli 2021/1161 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/1161, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/1161",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "aa3d5eba-2571-50c9-b02a-9aa9ecabe2d1",
+    "domain": "legal",
+    "query": "haksız fiilden doğan tazminat konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-03-18 tarihli 2025/9454 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, haksız fiilden doğan tazminat konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/9454",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "2a9620c9-ffe5-5c62-a112-85b1827674cf",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-03-15 tarihli 2024/3956 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/3956",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "ddac95fd-dde3-5190-b8ac-8724efd068bc",
+    "domain": "legal",
+    "query": "Karar 2025/8122 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-11-18 tarihli 2025/8122 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/8122, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/8122",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "a03e0d21-7a39-5da8-8d86-9a61ccbebca3",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-01-25 tarihli 2024/7690 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, iş kazası tazminatı konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/7690",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "b3f807fb-2d2d-5d8c-8837-209498068d29",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-10-18 tarihli 2024/1873 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/1873",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "1510e891-8987-58d0-aea7-4dbcb710a9ca",
+    "domain": "legal",
+    "query": "Karar 2024/174 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-05-22 tarihli 2024/174 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/174, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/174",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "2a348ff0-26df-5325-89b7-6206fc0bd5a8",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-04-08 tarihli 2022/185 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, manevi tazminat talebi konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/185",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "7458e594-65cd-54a3-bf9b-84e4dbaab7ec",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-03-10 tarihli 2020/5329 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/5329",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "cb366f8e-f2ef-5d1e-b817-4fbc81a63a9a",
+    "domain": "legal",
+    "query": "Karar 2023/1485 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-04-27 tarihli 2023/1485 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/1485, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/1485",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "af099b49-769b-5210-85da-4d7626e0f4a6",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-10-01 tarihli 2022/1080 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, iş kazası tazminatı konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/1080",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "7e468a11-db6b-5d60-b86e-66f7a36cce2c",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-05-19 tarihli 2021/8517 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/8517",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "64fa5af0-6eae-580a-92f0-b1aff2d3b610",
+    "domain": "legal",
+    "query": "Karar 2021/6524 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-11-16 tarihli 2021/6524 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/6524, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/6524",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "132e7dcc-2608-5863-9f2b-ccefc2bc69ea",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-03-17 tarihli 2024/2214 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, sözleşmenin feshi konusunda TCK m.157 (Dolandırıcılık suçu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/2214",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "c50d3e6e-0a60-507c-a959-93f15336db02",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-03-15 tarihli 2025/4359 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/4359",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "9f26d573-450d-54d3-8870-b08dac269e6b",
+    "domain": "legal",
+    "query": "Karar 2022/1017 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-08-27 tarihli 2022/1017 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/1017, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/1017",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "06866033-8289-5a05-ac9e-9447b4deea54",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-06-26 tarihli 2025/5984 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, sözleşmenin feshi konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/5984",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "d7acb172-38b0-5f18-a864-f27558ada71b",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TMK m.2' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-05-10 tarihli 2022/3073 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TMK m.2' atıfı Türk Medeni Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/3073",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "e409b472-26a8-513c-a17e-f0c07d929d78",
+    "domain": "legal",
+    "query": "Karar 2021/927 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-09-21 tarihli 2021/927 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/927, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/927",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "05bcdb1f-8c55-5084-b246-5ad9dc8f213e",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-12-27 tarihli 2022/4838 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, ticari işletme devri konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/4838",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "d9cbb944-59e9-56f8-9efd-46763a7a689f",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-09-12 tarihli 2022/3193 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/3193",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "adeb5fe4-c0ff-50fa-923a-406edfffc335",
+    "domain": "legal",
+    "query": "Karar 2022/6384 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-02-27 tarihli 2022/6384 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/6384, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/6384",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "6c81e03c-57aa-5c0e-923d-21a9c8a9b100",
+    "domain": "legal",
+    "query": "haksız fiilden doğan tazminat konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-10-21 tarihli 2022/5751 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, haksız fiilden doğan tazminat konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/5751",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "e59b3fa1-698b-51bc-b65b-4bd04ee1e3ce",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-01-05 tarihli 2024/9537 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/9537",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "519b1899-112b-56fa-96b2-21af67093a34",
+    "domain": "legal",
+    "query": "Karar 2025/885 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-07-19 tarihli 2025/885 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/885, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/885",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "fd8f8819-a443-5a53-9a42-9a1e988383f8",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2025-02-18 tarihli 2025/386 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, sözleşmenin feshi konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/386",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "7aec900d-aa9c-565b-ad46-f2d071e6bc89",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-11-03 tarihli 2020/5503 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/5503",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "08a5747d-c654-5215-96b6-f2295e977e70",
+    "domain": "legal",
+    "query": "Karar 2022/2582 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-05-28 tarihli 2022/2582 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/2582, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/2582",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "40cf38c9-aa9f-55e9-afd8-8ae8cbd9493e",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-11-23 tarihli 2021/8595 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, iş kazası tazminatı konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/8595",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "9111a6e1-e173-5db3-be7b-1ef676e9d10f",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TMK m.2' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-08-05 tarihli 2020/7183 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TMK m.2' atıfı Türk Medeni Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/7183",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "b25bc86c-1e51-5213-9b50-742a5a5168d6",
+    "domain": "legal",
+    "query": "Karar 2024/8465 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-03-15 tarihli 2024/8465 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/8465, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/8465",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "bd4b6a38-926c-5598-9bb2-6a7cc3216fa7",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-10-04 tarihli 2020/2784 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, sözleşmenin feshi konusunda TCK m.157 (Dolandırıcılık suçu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/2784",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "6903cd3f-1621-532f-9eca-3fb962d5b3fb",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-06-15 tarihli 2023/3912 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/3912",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "1d69e56c-d1d3-5a09-acc5-645f6db77d16",
+    "domain": "legal",
+    "query": "Karar 2020/5987 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-06-10 tarihli 2020/5987 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/5987, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/5987",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "c97ed100-1c7f-5ff6-8fdd-7e0a42eb92ff",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-02-27 tarihli 2024/9488 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, miras hukuku uyuşmazlığı konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/9488",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "99ea295c-87b0-5b99-bf91-d3639e91fc59",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TMK m.2' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-10-11 tarihli 2025/6329 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TMK m.2' atıfı Türk Medeni Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/6329",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "6aa14265-de13-5699-81e2-a6c98a55f5d0",
+    "domain": "legal",
+    "query": "Karar 2020/3050 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-04-27 tarihli 2020/3050 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/3050, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/3050",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "886d2c4a-6317-542f-95ea-1432b2ad0a4a",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-02-02 tarihli 2022/5727 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, iş kazası tazminatı konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/5727",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "18925136-c87c-53cc-8951-f01061024192",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-10-13 tarihli 2023/9378 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/9378",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "eb63faf2-3b2a-5869-a418-a121761fa0d0",
+    "domain": "legal",
+    "query": "Karar 2025/2833 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2025-04-09 tarihli 2025/2833 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/2833, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/2833",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "d50a4e7d-bd43-53b5-876e-423f6d2c6c7b",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-07-27 tarihli 2024/7072 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, iş kazası tazminatı konusunda TCK m.157 (Dolandırıcılık suçu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/7072",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "754ebcbb-da8b-5d6b-afca-b61aea207929",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-04-09 tarihli 2023/4109 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/4109",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "2f6d93ae-116d-534c-af24-3e426de599f7",
+    "domain": "legal",
+    "query": "Karar 2025/7997 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-07-18 tarihli 2025/7997 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/7997, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/7997",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "2c3afd45-d47d-57d8-9490-004a13199082",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-05-26 tarihli 2020/2154 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, iş kazası tazminatı konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/2154",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "eb1cbaa4-78ce-536d-8b06-90866dc2c8fb",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-02-25 tarihli 2020/2158 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/2158",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "bc7ff185-d596-5128-8d2a-aa550b8b9c94",
+    "domain": "legal",
+    "query": "Karar 2023/3457 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2023-11-02 tarihli 2023/3457 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/3457, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/3457",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "97f0acaf-ea5d-5d99-a13b-a3a60a5aa4d3",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-07-27 tarihli 2021/1658 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, ticari işletme devri konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/1658",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "1cb4930d-2d64-57f9-b5ba-7762aad42278",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-10-20 tarihli 2022/6426 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/6426",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "de1e3eb5-9a66-5948-b0c5-3124d1c679d0",
+    "domain": "legal",
+    "query": "Karar 2020/456 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-02-14 tarihli 2020/456 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/456, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/456",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "223f9ca9-f772-5d98-a2e5-7b8e3af0f036",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-05-27 tarihli 2021/8510 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, manevi tazminat talebi konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/8510",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "f08df3ce-59f6-5edb-8eff-9a4733eb60b5",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-07-10 tarihli 2020/6649 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/6649",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "a5508791-bad1-5907-b71a-be247183aae3",
+    "domain": "legal",
+    "query": "Karar 2020/6530 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-01-13 tarihli 2020/6530 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/6530, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/6530",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "7900e4e7-2cd6-52db-8deb-96155cc4160a",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-05-27 tarihli 2022/1126 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, ticari işletme devri konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/1126",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "aae03ff5-05cb-57ba-8a1b-81d77f7f1407",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-07-18 tarihli 2021/2506 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2506",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "702156c1-abdf-5274-92b0-a22b9b5a6ec6",
+    "domain": "legal",
+    "query": "Karar 2024/2532 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-02-01 tarihli 2024/2532 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/2532, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/2532",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "535d74a0-841c-52c7-b372-f3b7785e63cf",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-01-01 tarihli 2023/7791 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, manevi tazminat talebi konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/7791",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "ba22aac3-1217-5960-9ea0-6eefa3ca0673",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-03-09 tarihli 2025/2090 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/2090",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "1d8f9b73-5b7f-5488-94d7-04845c364bd3",
+    "domain": "legal",
+    "query": "Karar 2020/3033 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-11-14 tarihli 2020/3033 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/3033, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/3033",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "4905ea6e-8f14-5c0c-a81a-1f75a855e84a",
+    "domain": "legal",
+    "query": "kira sözleşmesi ihlali konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-09-18 tarihli 2020/1925 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, kira sözleşmesi ihlali konusunda TCK m.157 (Dolandırıcılık suçu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/1925",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "9296f973-8cea-512d-bff9-70290174df92",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-09-28 tarihli 2023/9112 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/9112",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "8134160b-d599-513a-8b49-ec3332b7100a",
+    "domain": "legal",
+    "query": "Karar 2023/2269 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2023-08-17 tarihli 2023/2269 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/2269, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/2269",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "89422341-17d1-5d8f-ba55-3bfeab9e14a1",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-07-21 tarihli 2021/732 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, manevi tazminat talebi konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/732",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "fb704132-6149-5938-bca7-193349d50068",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-01-07 tarihli 2023/3084 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/3084",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "f90a91f0-e7a8-5b58-b095-ba5e996edb1e",
+    "domain": "legal",
+    "query": "Karar 2022/3596 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-11-04 tarihli 2022/3596 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/3596, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/3596",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "f17ea1fc-4621-5f31-9555-b000dad784bf",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-09-11 tarihli 2020/7188 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, miras hukuku uyuşmazlığı konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/7188",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "dda94335-c742-5274-923f-a4e5ef84b01a",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TMK m.2' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-07-10 tarihli 2020/1599 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TMK m.2' atıfı Türk Medeni Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/1599",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "e1009701-a3f6-5077-838f-e9443c2eb65c",
+    "domain": "legal",
+    "query": "Karar 2024/5476 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-09-25 tarihli 2024/5476 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/5476, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/5476",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "c678519d-ed55-5ae9-a13b-088bd2281580",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-12-16 tarihli 2020/1332 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, ticari işletme devri konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/1332",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "ba595282-8c3c-5e92-9ddd-233c5001f13a",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TMK m.2' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-10-07 tarihli 2024/2717 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TMK m.2' atıfı Türk Medeni Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/2717",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "0a3d6072-d523-540f-a02b-101c0368ac4d",
+    "domain": "legal",
+    "query": "Karar 2020/773 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-05-11 tarihli 2020/773 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/773, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/773",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "3d90008f-28a5-5762-80a3-0d4f9e188bdd",
+    "domain": "legal",
+    "query": "ticari işletme devri konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-03-16 tarihli 2022/1626 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, ticari işletme devri konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/1626",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "97b8725c-919c-571e-86cc-adc7c05fb15f",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TTK m.18' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2023-08-03 tarihli 2023/9830 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TTK m.18' atıfı Türk Ticaret Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/9830",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "4d21ef21-17f5-528d-b3e8-dc5c3e33250a",
+    "domain": "legal",
+    "query": "Karar 2022/120 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-12-07 tarihli 2022/120 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/120, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/120",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "6648affd-9dcd-5df0-941c-7163f9f2e129",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-01-13 tarihli 2023/7242 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, miras hukuku uyuşmazlığı konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/7242",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "28c964fd-b481-58a9-bf8c-24f641bef43a",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-06-16 tarihli 2021/6511 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/6511",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "9a4f7758-705f-54dc-95dd-6064b04724b1",
+    "domain": "legal",
+    "query": "Karar 2020/9639 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2020-09-28 tarihli 2020/9639 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/9639, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/9639",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "814202d7-6c24-53b0-bbd2-f8d0af8f9661",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-01-13 tarihli 2021/647 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, miras hukuku uyuşmazlığı konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/647",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "a01a0d9a-a251-5d6c-bea4-056ad1d887f7",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2023-03-11 tarihli 2023/7758 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/7758",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "74a00a22-8182-54d7-b480-df521f7f190b",
+    "domain": "legal",
+    "query": "Karar 2024/3310 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-03-10 tarihli 2024/3310 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/3310, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/3310",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "58188d33-b8e4-5eae-beca-5d5fea85b479",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-03-05 tarihli 2021/2062 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, iş kazası tazminatı konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2062",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "c9829bb9-4804-5fe8-90fa-561ad914a06d",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-01-12 tarihli 2020/5082 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/5082",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "61b592e4-2812-5bf9-95af-7a16fef6a44b",
+    "domain": "legal",
+    "query": "Karar 2020/2058 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-03-24 tarihli 2020/2058 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/2058, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/2058",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "32517bcc-36bf-5328-a4a5-5d82fa4a8e41",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-05-26 tarihli 2021/2527 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, iş kazası tazminatı konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2527",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "7a2dead7-f9f4-5b76-8fd6-639b5f80afd2",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2024-07-25 tarihli 2024/4014 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/4014",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "ddfddfc8-caf6-5fff-bac9-180bd8f2a716",
+    "domain": "legal",
+    "query": "Karar 2022/9929 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-09-13 tarihli 2022/9929 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2022/9929, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/9929",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "41326b13-d7ff-5006-8ce8-45d919b90817",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-03-20 tarihli 2024/5126 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, iş kazası tazminatı konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/5126",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "bce4dcb1-a172-5380-8852-29dfc902d647",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2021-08-26 tarihli 2021/2765 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2765",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "1340b2b3-739c-5f9d-85dd-651734193de4",
+    "domain": "legal",
+    "query": "Karar 2023/3774 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-05-03 tarihli 2023/3774 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/3774, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/3774",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "00c298b2-ca45-5add-b377-fc3e7434dbd5",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-09-25 tarihli 2025/2869 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, iş kazası tazminatı konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/2869",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "54cc3542-23c3-5982-aed3-6059fe496fc9",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-11-13 tarihli 2023/1152 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/1152",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "5b9c3107-7078-5e58-a442-f16f206e5f13",
+    "domain": "legal",
+    "query": "Karar 2021/9924 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-01-19 tarihli 2021/9924 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/9924, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/9924",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "2b0cf284-5c31-5e48-bb98-723e4b4b6b97",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2025-04-09 tarihli 2025/5690 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, manevi tazminat talebi konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/5690",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "84710895-72d1-5101-9422-a37e9f6ae0ee",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-05-22 tarihli 2021/4786 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/4786",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "b9d32c44-8ad3-53bd-8d98-9b2cbd132155",
+    "domain": "legal",
+    "query": "Karar 2024/1200 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2024-04-09 tarihli 2024/1200 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/1200, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/1200",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "e0effb09-8f70-584d-98a6-5953a3e8b508",
+    "domain": "legal",
+    "query": "miras hukuku uyuşmazlığı konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-07-23 tarihli 2022/2308 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, miras hukuku uyuşmazlığı konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/2308",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "6d54d485-977b-579c-bc3b-53fd1a3d0c3c",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-09-04 tarihli 2020/2039 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/2039",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "bb6a6884-c338-5a6c-ab61-1c790b0fa425",
+    "domain": "legal",
+    "query": "Karar 2025/9598 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-10-05 tarihli 2025/9598 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/9598, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/9598",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "deac07e9-4b24-581d-b776-7b8025c46ae1",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-02-10 tarihli 2022/6526 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, iş kazası tazminatı konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/6526",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "54c14e5c-aac0-5237-9af7-830028c27f0e",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-06-15 tarihli 2022/7271 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/7271",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "88c7e66d-42d0-57d9-aa6d-ecaa48d40445",
+    "domain": "legal",
+    "query": "Karar 2025/6257 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2025-07-26 tarihli 2025/6257 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/6257, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/6257",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "146dcd53-4a0f-55b9-92e4-fbf7f2d446b5",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2023-12-07 tarihli 2023/7553 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, iş kazası tazminatı konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/7553",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "14801947-a73e-5af6-9c88-5c45e497a305",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TCK m.157' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-03-16 tarihli 2021/2373 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TCK m.157' atıfı Türk Ceza Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/2373",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "cbfa0696-703d-5656-b1e0-05ad95936cbb",
+    "domain": "legal",
+    "query": "Karar 2020/2636 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-10-24 tarihli 2020/2636 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2020/2636, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/2636",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "0c3410de-c909-581a-82c3-60c4b2afc191",
+    "domain": "legal",
+    "query": "iş kazası tazminatı konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2022-05-12 tarihli 2022/3390 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, iş kazası tazminatı konusunda TMK m.2 (Dürüstlük kuralı ve hakkın kötüye kullanılması) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/3390",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "45219b38-793a-50c8-a27c-ef9454c06f58",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-02-28 tarihli 2021/7128 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/7128",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "bbac149d-ba3b-5d1d-9fda-06cd3abb4787",
+    "domain": "legal",
+    "query": "Karar 2025/3709 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2025-12-01 tarihli 2025/3709 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/3709, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/3709",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "04a63f0e-0f7a-503f-a886-b93ccf432876",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-06-08 tarihli 2022/1019 sayılı kararında, Türk Ceza Kanunu (TCK) m.157 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TCK m.157 kapsamında Dolandırıcılık suçu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, manevi tazminat talebi konusunda TCK m.157 (Dolandırıcılık suçu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/1019",
+        "relation": "DAYANIR",
+        "target": "TCK m.157"
+      }
+    ]
+  },
+  {
+    "id": "243eaece-35c5-5108-a913-4deb27f1a088",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-03-19 tarihli 2021/4415 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak kusursuz sorumluluk halleri konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/4415",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "a044bd0f-ebe5-5fbc-87ef-957998f15687",
+    "domain": "legal",
+    "query": "Karar 2024/7581 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-04-17 tarihli 2024/7581 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/7581, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/7581",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "44bf142d-bc8a-517b-83cf-a654fd668bce",
+    "domain": "legal",
+    "query": "sözleşmenin feshi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2024-02-26 tarihli 2024/6444 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, sözleşmenin feshi konusunda TTK m.18 (Tacir olmanın hükümleri) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/6444",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "49878d90-0477-5ec7-b7b9-beaa0e2f41a0",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-09-01 tarihli 2025/6714 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak ticari işletme devri konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/6714",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "ad0551f3-7ada-57d1-8cea-6afa5f97f1b0",
+    "domain": "legal",
+    "query": "Karar 2021/949 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2021-05-09 tarihli 2021/949 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2021/949, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/949",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "f54e598d-e197-54fd-86ea-9b4d2f7a8c7b",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay Hukuk Genel Kurulu kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2022-07-18 tarihli 2022/5384 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay Hukuk Genel Kurulu, manevi tazminat talebi konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/5384",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "fcfde3f1-f5a5-58f3-9558-c0330491539c",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-09-08 tarihli 2022/4596 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/4596",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "7a01b0c7-258a-5305-aaea-dcc8393b12d8",
+    "domain": "legal",
+    "query": "Karar 2025/2948 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2025-04-28 tarihli 2025/2948 sayılı kararında, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TTK m.18 kapsamında Tacir olmanın hükümleri ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/2948, Türk Ticaret Kanunu (TTK) m.18 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/2948",
+        "relation": "DAYANIR",
+        "target": "TTK m.18"
+      }
+    ]
+  },
+  {
+    "id": "24bd2136-181b-593f-b69d-da767cf6b84f",
+    "domain": "legal",
+    "query": "haksız fiilden doğan tazminat konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-05-09 tarihli 2022/5371 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, haksız fiilden doğan tazminat konusunda HMK m.107 (Belirsiz alacak davası) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/5371",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "8683d0b6-d326-588a-9469-4a3725fd271b",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'HMK m.107' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2022-10-08 tarihli 2022/8384 sayılı kararında, Hukuk Muhakemeleri Kanunu (HMK) m.107 hükmüne dayanarak miras hukuku uyuşmazlığı konusunda hüküm kurmuştur. Mahkeme, HMK m.107 kapsamında Belirsiz alacak davası ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'HMK m.107' atıfı Hukuk Muhakemeleri Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2022/8384",
+        "relation": "DAYANIR",
+        "target": "HMK m.107"
+      }
+    ]
+  },
+  {
+    "id": "d507b34d-3e8c-57f6-bd55-5231cfed932a",
+    "domain": "legal",
+    "query": "Karar 2023/8633 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2023-04-03 tarihli 2023/8633 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2023/8633, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2023/8633",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  },
+  {
+    "id": "b8d54301-64d1-5082-98fd-faec42fbbb71",
+    "domain": "legal",
+    "query": "kira sözleşmesi ihlali konusunda Yargıtay 11. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2020-08-09 tarihli 2020/3636 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 11. Hukuk Dairesi, kira sözleşmesi ihlali konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/3636",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "f1cf614d-0db5-59dc-b797-385f80a296d5",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2020-10-10 tarihli 2020/1224 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak sözleşmenin feshi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": true,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2020/1224",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "6ad0428e-9b4d-566d-811a-088cfbd9e912",
+    "domain": "legal",
+    "query": "Karar 2025/2043 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2025-09-16 tarihli 2025/2043 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak haksız fiilden doğan tazminat konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2025/2043, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": true,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2025/2043",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "3772661d-87de-5d6d-b327-993d2ad51a14",
+    "domain": "legal",
+    "query": "manevi tazminat talebi konusunda Yargıtay 4. Hukuk Dairesi kararlarının dayandığı yasa maddeleri nelerdir?",
+    "context_fragments": [
+      "Yargıtay 4. Hukuk Dairesi, 2021-01-02 tarihli 2021/5042 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak manevi tazminat talebi konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Yargıtay 4. Hukuk Dairesi, manevi tazminat talebi konusunda TBK m.49 (Haksız fiil sorumluluğu) maddesine dayanmaktadır.",
+    "required_reasoning_hops": 3,
+    "metadata": {
+      "complexity_tier": 3,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2021/5042",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "cd74d957-fd14-5a60-9aa5-a39706566114",
+    "domain": "legal",
+    "query": "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?",
+    "context_fragments": [
+      "Yargıtay Hukuk Genel Kurulu, 2024-07-24 tarihli 2024/6943 sayılı kararında, Türk Borçlar Kanunu (TBK) m.49 hükmüne dayanarak kira sözleşmesi ihlali konusunda hüküm kurmuştur. Mahkeme, TBK m.49 kapsamında Haksız fiil sorumluluğu ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "'TBK m.49' atıfı Türk Borçlar Kanunu'na aittir.",
+    "required_reasoning_hops": 1,
+    "metadata": {
+      "complexity_tier": 1,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/6943",
+        "relation": "DAYANIR",
+        "target": "TBK m.49"
+      }
+    ]
+  },
+  {
+    "id": "68a49146-7692-5445-91f1-f691fc93eca6",
+    "domain": "legal",
+    "query": "Karar 2024/1228 hangi kanun maddesine dayanarak hüküm kurmuştur?",
+    "context_fragments": [
+      "Yargıtay 11. Hukuk Dairesi, 2024-12-13 tarihli 2024/1228 sayılı kararında, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanarak iş kazası tazminatı konusunda hüküm kurmuştur. Mahkeme, TMK m.2 kapsamında Dürüstlük kuralı ve hakkın kötüye kullanılması ilkesini uygulamıştır."
+    ],
+    "ground_truth_answer": "Karar 2024/1228, Türk Medeni Kanunu (TMK) m.2 hükmüne dayanmaktadır.",
+    "required_reasoning_hops": 2,
+    "metadata": {
+      "complexity_tier": 2,
+      "requires_chronology": false,
+      "is_contradictory": false,
+      "is_synthetic": true
+    },
+    "expected_triplets": [
+      {
+        "source": "Yargıtay Kararı 2024/1228",
+        "relation": "DAYANIR",
+        "target": "TMK m.2"
+      }
+    ]
+  }
+]

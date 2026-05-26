@@ -67,6 +67,7 @@ async def lifespan(app: FastAPI):
     state.dao = MemoryDAO(
         sqlite_engine=state.sqlite_engine, vector_engine=state.vector_engine
     )
+    await state.dao.initialize()
 
     # Wire the Consolidation Loop to the DAO (v0.3.1 P0 Hotfix)
     # ConsolidationLoop now accepts MemoryDAO directly — no StorageFacade.
@@ -93,12 +94,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
-# Setup v3 API Router directly utilizing the MemoryDAO
+
+def get_dao() -> MemoryDAO:
+    """Dependency injection for the MemoryDAO."""
+    if not hasattr(state, "dao") or state.dao is None:
+        raise HTTPException(status_code=503, detail="Storage not initialized")
+    return state.dao
+
+
+def get_embedder():
+    """Dependency injection for the embedder function."""
+    return AdapterFactory.get_adapter().embed
+
+
+# Setup v3 API Router utilizing Dependency Injection
 # Requires depends at the router level for auth
 router_dependencies = [Depends(get_api_key)]
 memory_router = create_memory_router(
-    dao=state.dao,
-    embedder=AdapterFactory.get_adapter().embed,
+    get_dao=get_dao,
+    get_embedder=get_embedder,
     prefix="/v3/memory",
 )
 # We can't attach dependencies to the include_router directly if the router already defines some,

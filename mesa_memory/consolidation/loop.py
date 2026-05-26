@@ -25,7 +25,7 @@ import logging
 import os
 import sqlite3
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
@@ -307,7 +307,16 @@ class ConsolidationLoop:
                     )
                     continue
 
-                if is_valid:
+                is_pass = False
+                if isinstance(is_valid, dict):
+                    if "decision" in is_valid:
+                        is_pass = is_valid["decision"] in (True, "STORE", "ADMIT")
+                    elif is_valid.get("route") == "dual_llm":
+                        is_pass = await self.validator.validate(record)
+                else:
+                    is_pass = bool(is_valid)
+
+                if is_pass:
                     self.obs_layer.log_valence_decision(
                         tier=3,
                         decision="ADMIT",
@@ -398,7 +407,7 @@ class ConsolidationLoop:
         self,
         record: dict,
         timeout_seconds: float = 30.0,
-    ) -> bool:
+    ) -> Any:
         """Run Tier-3 Dual-LLM validation with a hard timeout and retry logic.
 
         Wraps the validator call with ``asyncio.wait_for`` and limits

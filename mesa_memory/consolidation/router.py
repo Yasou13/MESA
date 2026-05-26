@@ -14,8 +14,10 @@ Features:
 import logging
 import random
 import time
+from typing import Any
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
+from mesa_memory.config import config
 from mesa_memory.consolidation.validator import (
     VALENCE_PROMPT_A_TEMPLATE,
     Tier3ValidationError,
@@ -85,14 +87,32 @@ class AdaptiveRouter:
                 "DYNAMIC_THRESHOLD | Failed to update dynamic threshold: %s", e
             )
 
-    async def validate(self, record: dict) -> bool:
+    async def validate(self, record: dict) -> dict[str, Any]:
         """Adaptive validation logic.
 
         1. Route to small model.
         2. Calculate calibrated confidence_score.
         3. If >= T_route: Accept (unless audited).
         4. Else: Fallback to Dual-LLM.
+
+        v0.4.0 Phase 3: When LEGAL_DOMAIN_MODE is active, steps 1-3 are
+        entirely bypassed. Every record is routed to the Dual-LLM to
+        guarantee zero-hallucination consensus on legal data.
         """
+        # -----------------------------------------------------------------
+        # GUARDRAIL: Zero-Hallucination Legal Mode
+        # When active, the small-model confidence gate is unconditionally
+        # bypassed.  The dynamic T_route threshold is irrelevant; every
+        # payload is forced through the heavy Dual-LLM ConsolidationLoop.
+        # -----------------------------------------------------------------
+        if getattr(config, "legal_domain_mode", False):
+            logger.info(
+                "LEGAL_DOMAIN_STRICT_MODE | Bypassing small-model gate. "
+                "Routing directly to Dual-LLM for record: %s",
+                record.get("cmb_id", record.get("id", "unknown")),
+            )
+            return {"route": "dual_llm", "reason": "legal_domain_strict_mode"}
+
         agent_id = record.get("agent_id", "mesa_consolidation_system")
         await self.update_dynamic_threshold(agent_id)
 
@@ -105,6 +125,7 @@ class AdaptiveRouter:
         # 1. Route to small model
         raw_response = str(await self.small_llm.acomplete(prompt))
 
+        # TODO: Implement Real Temperature Scaling via raw logit extraction. The current pseudo-entropy is a placeholder. For zero-hallucination legal domains, fallback to LEGAL_DOMAIN_MODE (T_route = 1.0).
         # 2. Simulate confidence calculation
         # In production this would use Temperature Scaling on raw logits.
         # Since BaseUniversalLLMAdapter returns strings, we simulate a calibrated proxy:
@@ -139,7 +160,7 @@ class AdaptiveRouter:
 
         if not requires_fallback and not is_audit:
             # Accepted by small model, no audit triggered
-            return small_model_decision
+            return {"decision": small_model_decision, "justification": "small_model"}
 
         # Dual-LLM Fallback or Audit Execution
         logger.debug(
@@ -179,4 +200,4 @@ class AdaptiveRouter:
                 logger.error("Failed to log routing telemetry: %s", e)
 
         # The Dual-LLM is the ground truth
-        return dual_llm_decision
+        return {"decision": dual_llm_decision, "justification": "dual_llm"}

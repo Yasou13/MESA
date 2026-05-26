@@ -1,12 +1,16 @@
-# MESA v0.3.0 — Phase 1: Headless API Routers
-# Asynchronous FastAPI router with three endpoints for the v3 API surface.
+# MESA v0.4.0 — Phase 1: Hot Path Architecture
+# Asynchronous FastAPI router with decoupled ingestion pipeline.
 #
 # Architecture:
-#   - POST /v3/memory/insert  → fire-and-forget via BackgroundTasks (<150ms)
+#   - POST /v3/memory/insert  → hot-path: raw_logs INSERT + cold-path BG task (<50ms)
 #   - POST /v3/memory/search  → synchronous await on DAO retrieval
 #   - DELETE /v3/memory/purge → soft-delete ONLY — NO VACUUM, NO hard-delete
 #
 # Critical constraint:
+#   The insert endpoint MUST NOT perform any LLM validation, ECOD, or REBEL
+#   extraction on the hot path. All heavy processing is deferred to
+#   process_cold_path via BackgroundTasks.
+#
 #   The purge endpoint MUST NOT trigger VACUUM or hard-delete operations.
 #   Physical removal is exclusively handled by the MaintenanceWorker.
 #   Violating this invariant causes catastrophic WAL locks under load.
@@ -15,12 +19,13 @@ Headless FastAPI v3 API routers for the MESA memory system.
 
 All endpoints enforce strict Pydantic V2 validation via the schemas
 in ``mesa_api.schemas``.  The insert endpoint is optimised for hot-path
-latency by deferring the actual write to a ``BackgroundTasks`` queue
-and returning immediately with a pre-generated UUID.
+latency (< 50ms) by writing raw payloads to a staging table
+(``raw_logs``) and deferring heavy LLM processing to a cold-path
+background task.
 
 Endpoints::
 
-    POST   /v3/memory/insert  — Queue memory ingestion (< 150ms response)
+    POST   /v3/memory/insert  — Hot-path INSERT + cold-path BG task (< 50ms)
     POST   /v3/memory/search  — Synchronous retrieval with latency metrics
     DELETE /v3/memory/purge   — Soft-delete ONLY (no VACUUM, no hard-delete)
 
@@ -29,21 +34,18 @@ Usage::
     from mesa_api.router import create_memory_router
 
     router = create_memory_router(
-        sqlite_engine=engine,
-        vector_engine=vec_engine,
+        dao=dao,
     )
     app.include_router(router)
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import time
-import uuid
-from typing import Protocol, Sequence, runtime_checkable
+from typing import Callable, Protocol, Sequence, runtime_checkable
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 
 from mesa_api.schemas import (
     ErrorResponse,
@@ -52,6 +54,7 @@ from mesa_api.schemas import (
     MemorySearchRequest,
 )
 from mesa_storage.dao import MemoryDAO
+from mesa_workers.ingestion_worker import process_cold_path  # Cold-path worker (Phase 1 Part 2)
 
 logger = logging.getLogger("MESA_API")
 
@@ -83,9 +86,9 @@ def _noop_embedder(text: str) -> list[float]:
 
 
 def create_memory_router(
-    dao: MemoryDAO,
+    get_dao: Callable[[], MemoryDAO],
     *,
-    embedder: EmbedderProtocol = _noop_embedder,
+    get_embedder: Callable[[], EmbedderProtocol] = lambda: _noop_embedder,
     prefix: str = "/v3/memory",
     tags: Sequence[str] | None = None,
 ) -> APIRouter:
@@ -110,44 +113,44 @@ def create_memory_router(
     )
 
     # ==================================================================
-    # POST /v3/memory/insert
+    # POST /v3/memory/insert  —  HOT PATH (< 50ms)
     # ==================================================================
 
     @router.post(
         "/insert",
         status_code=202,
-        summary="Queue memory insertion",
-        response_description="Acknowledged with pre-generated memory_id",
+        summary="Queue memory insertion (hot path)",
+        response_description="Acknowledged with log_id for tracking",
     )
     async def insert_memory(
         request: MemoryInsertRequest,
         background_tasks: BackgroundTasks,
+        dao: MemoryDAO = Depends(get_dao),
     ) -> dict:
-        """Queue a memory record for asynchronous ingestion.
+        """Queue a memory record for asynchronous cold-path processing.
 
-        **Hot-path optimisation**: Returns immediately with a pre-generated
-        UUID.  The actual database write is offloaded to FastAPI's
-        ``BackgroundTasks`` queue to guarantee < 150ms response latency.
+        **Hot-path architecture (v0.4.0)**: The endpoint performs a single
+        async INSERT into the ``raw_logs`` staging table and returns
+        immediately with the generated ``log_id``.
 
-        The background task:
-          1. Computes the content embedding via the configured embedder.
-          2. Inserts a graph node into SQLite.
-          3. Upserts the embedding vector into LanceDB (if configured).
+        All heavy processing (ECOD, REBEL extraction, LLM validation,
+        embedding, graph insertion) is deferred to ``process_cold_path``
+        via ``BackgroundTasks``.
+
+        Target latency: **< 50ms**.
         """
-        memory_id = uuid.uuid4().hex
+        payload = {
+            "agent_id": request.agent_id,
+            "session_id": request.session_id,
+            "content": request.content,
+            "metadata": request.metadata,
+        }
 
-        background_tasks.add_task(
-            _background_insert,
-            dao=dao,
-            embedder=embedder,
-            memory_id=memory_id,
-            agent_id=request.agent_id,
-            session_id=request.session_id,
-            content=request.content,
-            metadata=request.metadata,
-        )
+        log_id = await dao.insert_raw_log(payload)
 
-        return {"status": "queued", "memory_id": memory_id}
+        background_tasks.add_task(process_cold_path, log_id, dao)
+
+        return {"status": "queued", "log_id": log_id}
 
     # ==================================================================
     # POST /v3/memory/search
@@ -158,7 +161,11 @@ def create_memory_router(
         summary="Search memory",
         response_description="Retrieved context with latency metrics",
     )
-    async def search_memory(request: MemorySearchRequest) -> dict:
+    async def search_memory(
+        request: MemorySearchRequest,
+        dao: MemoryDAO = Depends(get_dao),
+        embedder: EmbedderProtocol = Depends(get_embedder),
+    ) -> dict:
         """Execute a synchronous memory search and return results.
 
         Performs a two-phase retrieval:
@@ -252,7 +259,10 @@ def create_memory_router(
         summary="Soft-delete memory records",
         response_description="Purge result with affected record count",
     )
-    async def purge_memory(request: MemoryPurgeRequest) -> dict:
+    async def purge_memory(
+        request: MemoryPurgeRequest,
+        dao: MemoryDAO = Depends(get_dao),
+    ) -> dict:
         """Soft-delete memory records by agent or session scope.
 
         **CRITICAL**: This endpoint performs ONLY soft-deletes.
@@ -293,56 +303,3 @@ def create_memory_router(
 
     return router
 
-
-# ---------------------------------------------------------------------------
-# Background task: deferred insert
-# ---------------------------------------------------------------------------
-
-
-async def _background_insert(
-    *,
-    dao: MemoryDAO,
-    embedder: EmbedderProtocol,
-    memory_id: str,
-    agent_id: str,
-    session_id: str,
-    content: str,
-    metadata: dict,
-) -> None:
-    """Execute the actual database write in the background.
-
-    This runs after the HTTP response has already been sent.
-    Failures are logged but do not affect the client response.
-    """
-    try:
-        embedding = embedder(content)
-        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-        await dao.insert_memory(
-            agent_id=agent_id,
-            node_id=memory_id,
-            entity_name=content[:256],
-            content=content,
-            embedding=embedding,
-            node_type="MEMORY",
-            session_id=session_id,
-            content_hash=content_hash,
-            metadata=metadata,
-        )
-
-        logger.info(
-            "BACKGROUND_INSERT_OK | memory_id=%s agent_id=%s",
-            memory_id,
-            agent_id,
-        )
-
-    except Exception as exc:
-        # Background task failure — log but do NOT propagate.
-        # The client already received 202 Accepted.
-        logger.error(
-            "BACKGROUND_INSERT_FAILED | memory_id=%s agent_id=%s error=%s",
-            memory_id,
-            agent_id,
-            exc,
-            exc_info=True,
-        )
