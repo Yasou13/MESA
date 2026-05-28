@@ -15,7 +15,7 @@ Features:
 import logging
 import random
 import time
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
