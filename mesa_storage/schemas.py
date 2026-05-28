@@ -210,7 +210,24 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         await db.execute(_FTS5_TRIGGER_DELETE)
         await db.execute(_FTS5_TRIGGER_UPDATE)
 
+        # 5. B-6 FIX: Recover orphaned jobs — any raw_logs entries stuck
+        #    in 'processing' for >5 minutes are reset to 'queued'.
+        #    This handles unclean shutdowns where workers died mid-flight.
+        cursor = await db.execute(
+            "UPDATE raw_logs SET status = 'queued' "
+            "WHERE status = 'processing' "
+            "AND created_at < datetime('now', '-5 minutes')"
+        )
+        recovered = cursor.rowcount
+
         await db.commit()
+
+    if recovered:
+        logger.warning(
+            "SCHEMA_INIT | recovered %d orphaned raw_logs jobs "
+            "(processing > 5 min → queued)",
+            recovered,
+        )
 
     logger.info(
         "SCHEMA_INIT | tables=[nodes, edges, nodes_fts, routing_telemetry, raw_logs] "

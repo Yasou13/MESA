@@ -41,6 +41,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Callable, Protocol, Sequence, runtime_checkable
@@ -205,7 +206,8 @@ def create_memory_router(
 
             # Phase 2: Vector similarity search (if engine is available)
             if dao.vector_engine is not None and dao.vector_engine.is_initialized:
-                query_embedding = embedder(request.query)
+                loop = asyncio.get_running_loop()
+                query_embedding = await loop.run_in_executor(None, embedder, request.query)
                 vec_results = await dao.search_memory(
                     agent_id=request.agent_id,
                     query_vector=query_embedding,

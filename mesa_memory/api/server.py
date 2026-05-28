@@ -13,6 +13,7 @@ from mesa_memory.consolidation.loop import (
 )
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -59,6 +60,9 @@ async def lifespan(app: FastAPI):
     # Initialize asynchronous storage engines
     state.sqlite_engine = AsyncEngine(db_path="./storage/mesa.db")
     await state.sqlite_engine.initialize()
+
+    # Schema DDL — single source of truth (B-1 fix)
+    await initialize_schema(state.sqlite_engine)
 
     state.vector_engine = VectorEngine(uri="./storage/vector.lance")
     await state.vector_engine.initialize()

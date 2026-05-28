@@ -105,22 +105,14 @@ class MemoryDAO:
         self._vec = vector_engine
 
     async def initialize(self) -> None:
-        """Initialize the database schema for the DAO.
-        
-        Creates necessary tables including the hot-path raw_logs table.
+        """Initialize the DAO layer.
+
+        DDL ownership lives exclusively in ``schemas.py`` which MUST be
+        called via ``initialize_schema(engine)`` before this method.
+        This method is retained for any future DAO-specific runtime
+        setup (connection pool warm-up, prepared statements, etc.).
         """
-        async with self._sql.transaction() as db:
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS raw_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    payload JSON,
-                    status TEXT DEFAULT 'queued',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            await db.commit()
+        logger.info("MemoryDAO.initialize() — schema owned by schemas.py")
 
     # ------------------------------------------------------------------
     # Properties
@@ -186,7 +178,9 @@ class MemoryDAO:
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # ---- 1. SQLite INSERT (parameterised, agent_id bound) --------
+        # ---- ATOMIC SAGA: SQLite + LanceDB (B-7 pattern) ----------
+        # DO NOT commit SQLite until LanceDB succeeds.  On vector
+        # failure, ROLLBACK SQLite to prevent orphaned relational records.
         async with self._sql.transaction() as db:
             await db.execute(
                 "INSERT INTO nodes "
@@ -195,15 +189,28 @@ class MemoryDAO:
                 "VALUES (?, ?, ?, 0, ?, ?, ?)",
                 (node_id, entity_name, node_type, now, agent_id, session_id),
             )
-            await db.commit()
 
-        # ---- 2. LanceDB upsert (agent_id embedded in record) --------
-        await self._vec.upsert(
-            node_id=node_id,
-            agent_id=agent_id,
-            embedding=embedding,
-            content_hash=content_hash,
-        )
+            # ---- LanceDB upsert (compensating rollback on fail) ------
+            try:
+                await self._vec.upsert(
+                    node_id=node_id,
+                    agent_id=agent_id,
+                    embedding=embedding,
+                    content_hash=content_hash,
+                )
+            except Exception as vec_exc:
+                await db.rollback()
+                logger.error(
+                    "INSERT_SAGA_ROLLBACK | agent_id=%s node_id=%s "
+                    "vector_error=%s — SQL changes rolled back",
+                    agent_id,
+                    node_id,
+                    vec_exc,
+                )
+                raise
+
+            # Both layers succeeded — commit the SQL transaction
+            await db.commit()
 
         logger.info(
             "INSERT_MEMORY | agent_id=%s node_id=%s entity=%s dim=%d",
@@ -273,7 +280,7 @@ class MemoryDAO:
                 }
             )
 
-        # ---- SQLite batch INSERT ------------------------------------
+        # ---- ATOMIC SAGA: SQLite + LanceDB (B-7 pattern) ----------
         async with self._sql.transaction() as db:
             await db.executemany(
                 "INSERT INTO nodes "
@@ -282,10 +289,23 @@ class MemoryDAO:
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 sql_rows,
             )
-            await db.commit()
 
-        # ---- LanceDB batch upsert -----------------------------------
-        await self._vec.bulk_upsert(vec_rows)
+            # ---- LanceDB batch upsert (compensating rollback on fail)
+            try:
+                await self._vec.bulk_upsert(vec_rows)
+            except Exception as vec_exc:
+                await db.rollback()
+                logger.error(
+                    "BULK_INSERT_SAGA_ROLLBACK | agent_id=%s count=%d "
+                    "vector_error=%s — SQL changes rolled back",
+                    agent_id,
+                    len(records),
+                    vec_exc,
+                )
+                raise
+
+            # Both layers succeeded — commit
+            await db.commit()
 
         logger.info(
             "BULK_INSERT_MEMORY | agent_id=%s count=%d",
@@ -550,24 +570,13 @@ class MemoryDAO:
         if not affected_ids:
             return 0
 
-        # ---- PHASE 1: VECTOR LAYER FIRST (Saga) ----------------------
-        for nid in affected_ids:
-            try:
-                # Vector deletion first to avoid zombie data if it fails
-                await self._vec.soft_delete(nid)
-            except Exception as exc:
-                logger.error(
-                    "CRITICAL_KVKK_FAILURE | agent_id=%s node_id=%s error=%s",
-                    agent_id,
-                    nid,
-                    exc,
-                )
-                # Rollback simulation: immediately raise and prevent SQLite transaction
-                raise
-
-        # ---- PHASE 2: RELATIONAL COMMIT ------------------------------
+        # ---- PHASE 1: RELATIONAL SOFT-DELETE FIRST (B-7 Saga Fix) -----
+        # Execute SQLite soft-delete first inside a transaction. If the
+        # subsequent vector layer fails, we can compensate by rolling
+        # back the relational changes, preventing dangling SQL records
+        # that reference live vector data.
         async with self._sql.transaction() as db:
-            # ---- 2a. Soft-delete nodes: UPDATE SET deleted_at ---------
+            # ---- 1a. Soft-delete nodes: UPDATE SET invalid_at ----------
             #      CRITICAL: No DELETE — UPDATE only.
             #      RLS: WHERE agent_id = ? hardcoded.
             if scope == "session":
@@ -592,7 +601,7 @@ class MemoryDAO:
 
             nodes_deleted = node_cursor.rowcount
 
-            # ---- 2b. Cascade-invalidate connected edges ---------------
+            # ---- 1b. Cascade-invalidate connected edges ----------------
             #      RLS: WHERE agent_id = ? hardcoded.
             placeholders = ",".join("?" for _ in affected_ids)
             edge_sql = (
@@ -607,6 +616,24 @@ class MemoryDAO:
             edge_cursor = await db.execute(edge_sql, edge_params)
             edges_deleted = edge_cursor.rowcount
 
+            # DO NOT commit yet — wait for vector layer success
+            # ---- PHASE 2: VECTOR LAYER (compensating rollback on fail) -
+            try:
+                for nid in affected_ids:
+                    await self._vec.soft_delete(nid)
+            except Exception as vec_exc:
+                # Vector deletion failed — ROLLBACK the SQL transaction
+                # to prevent dangling relational records.
+                await db.rollback()
+                logger.error(
+                    "PURGE_SAGA_ROLLBACK | agent_id=%s "
+                    "vector_error=%s — SQL changes rolled back",
+                    agent_id,
+                    vec_exc,
+                )
+                raise
+
+            # Both layers succeeded — commit the SQL transaction
             await db.commit()
 
         total_deleted = nodes_deleted + edges_deleted

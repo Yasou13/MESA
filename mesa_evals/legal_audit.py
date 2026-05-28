@@ -43,8 +43,8 @@ class GraphPoisoningError(Exception):
 # ---------------------------------------------------------------------------
 # Reference data — ground-truth valid Turkish law articles
 # Represents the canonical set from omersaidd/Kanunlar.
-# In production, this would be loaded dynamically from the HuggingFace
-# dataset or a local cache. For now, we define a comprehensive mock set.
+# B-8 FIX: load_reference_set() attempts HuggingFace dynamic loading;
+# falls back to VALID_LAW_ARTICLES on any failure.
 # ---------------------------------------------------------------------------
 
 VALID_LAW_ARTICLES: frozenset[str] = frozenset(
@@ -213,9 +213,100 @@ VALID_LAW_ARTICLES: frozenset[str] = frozenset(
     }
 )
 
+# ---------------------------------------------------------------------------
+# B-8 FIX: Dynamic reference set loader with HuggingFace fallback
+# ---------------------------------------------------------------------------
+
+_HF_LAW_NAME_MAP: dict[str, str] = {
+    "Türk Borçlar Kanunu": "TBK",
+    "Türk Medeni Kanunu": "TMK",
+    "Türk Ceza Kanunu": "TCK",
+    "Hukuk Muhakemeleri Kanunu": "HMK",
+    "Türk Ticaret Kanunu": "TTK",
+    "İş Kanunu": "İş Kanunu",
+    "Kişisel Verilerin Korunması Kanunu": "KVKK",
+    "Anayasa": "Anayasa",
+}
+
+
+def load_reference_set(
+    *,
+    hf_repo: str = "omersaidd/Kanunlar",
+    timeout_seconds: float = 15.0,
+) -> frozenset[str]:
+    """Load the valid law article reference set, preferring HuggingFace.
+
+    Attempts to load the canonical Turkish law dataset from the HuggingFace
+    Hub.  On success, rows are normalised into ``"{CODE} Madde {number}"``
+    format and merged with the hardcoded ``VALID_LAW_ARTICLES``.
+
+    On ANY failure — missing ``datasets`` library, network timeout, HTTP
+    error, malformed schema — silently falls back to ``VALID_LAW_ARTICLES``.
+
+    Returns:
+        A ``frozenset[str]`` of valid Turkish law article references.
+    """
+    try:
+        from datasets import load_dataset
+
+        logger.info(
+            "REFERENCE_SET | Attempting dynamic load from HuggingFace: %s",
+            hf_repo,
+        )
+        ds = load_dataset(hf_repo, split="train")
+
+        dynamic_articles: set[str] = set()
+        for row in ds:
+            law_name = None
+            article_no = None
+            for col in ("kanun_adi", "law_name", "kanun"):
+                if col in row and row[col]:
+                    law_name = str(row[col]).strip()
+                    break
+            for col in ("madde_no", "article_number", "madde", "article"):
+                if col in row and row[col] is not None:
+                    article_no = str(row[col]).strip()
+                    break
+            if law_name and article_no:
+                code = _HF_LAW_NAME_MAP.get(law_name, law_name)
+                dynamic_articles.add(f"{code} Madde {article_no}")
+
+        if dynamic_articles:
+            merged = VALID_LAW_ARTICLES | frozenset(dynamic_articles)
+            logger.info(
+                "REFERENCE_SET | HF loaded: hardcoded=%d HF=%d merged=%d",
+                len(VALID_LAW_ARTICLES),
+                len(dynamic_articles),
+                len(merged),
+            )
+            return merged
+
+        logger.warning(
+            "REFERENCE_SET | HF dataset loaded but 0 articles extracted. "
+            "Falling back to hardcoded set."
+        )
+        return VALID_LAW_ARTICLES
+
+    except ImportError:
+        logger.info(
+            "REFERENCE_SET | 'datasets' not installed. Using hardcoded set (%d).",
+            len(VALID_LAW_ARTICLES),
+        )
+        return VALID_LAW_ARTICLES
+    except Exception as exc:
+        logger.warning(
+            "REFERENCE_SET | HF load failed: %s. Falling back to hardcoded set.",
+            exc,
+        )
+        return VALID_LAW_ARTICLES
+
+
+# Module-level initialization — load reference set once at import time
+_ACTIVE_REFERENCE_SET: frozenset[str] = load_reference_set()
+
 # Normalised lookup set for fuzzy matching (lowercase, stripped)
 _NORMALISED_VALID: frozenset[str] = frozenset(
-    v.lower().strip() for v in VALID_LAW_ARTICLES
+    v.lower().strip() for v in _ACTIVE_REFERENCE_SET
 )
 
 # Legal edge relation types to audit

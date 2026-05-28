@@ -126,11 +126,14 @@ class Tier3Validator:
 
         loop = asyncio.get_running_loop()
 
-        # Run both LLM calls — let infrastructure errors propagate
-        raw_a = await loop.run_in_executor(None, self.llm_a.complete, prompt_a)
+        # B-3 FIX: Run both LLM calls concurrently via asyncio.gather()
+        # to halve Tier-3 validation latency. Infrastructure errors
+        # propagate immediately thanks to gather's default behaviour.
+        raw_a, raw_b = await asyncio.gather(
+            loop.run_in_executor(None, self.llm_a.complete, prompt_a),
+            loop.run_in_executor(None, self.llm_b.complete, prompt_b),
+        )
         decision_a = self._parse_decision(raw_a, "LLM_A")
-
-        raw_b = await loop.run_in_executor(None, self.llm_b.complete, prompt_b)
         decision_b = self._parse_decision(raw_b, "LLM_B")
 
         if decision_a == "STORE" and decision_b == "STORE":

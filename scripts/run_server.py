@@ -40,6 +40,7 @@ from fastapi.responses import JSONResponse  # noqa: E402
 
 from mesa_api.router import create_memory_router  # noqa: E402
 from mesa_storage.dao import MemoryDAO  # noqa: E402
+from mesa_storage.schemas import initialize_schema  # noqa: E402
 from mesa_storage.sqlite_engine import AsyncEngine  # noqa: E402
 from mesa_storage.vector_engine import VectorEngine  # noqa: E402
 
@@ -112,6 +113,10 @@ async def lifespan(app: FastAPI):
     _state.sqlite_engine = AsyncEngine(db_path="./storage/mesa.db")
     await _state.sqlite_engine.initialize()
     logger.info("SQLite engine initialized: ./storage/mesa.db")
+
+    # --- Schema DDL (single source of truth) ---
+    await initialize_schema(_state.sqlite_engine)
+    logger.info("Schema initialized via schemas.py")
 
     # --- LanceDB vector engine ---
     _state.vector_engine = VectorEngine(uri="./storage/vector.lance")

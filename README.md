@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.3.0-green.svg)
+![Version](https://img.shields.io/badge/Version-0.4.1-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
 Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
@@ -238,6 +238,10 @@ When using Groq's free tier as the LLM backend, you may hit **30 requests/minute
 The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per record on CPU**. For high-throughput workloads:
 - Set `MESA_REBEL_DEVICE=cuda` if a GPU is available.
 - The system automatically falls back to LLM-based extraction when REBEL fails, so extraction never blocks the pipeline.
+
+### Current Status
+
+As of v0.4.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization — tested and validated for production evaluation.
 
 ---
 

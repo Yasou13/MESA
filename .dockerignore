@@ -40,3 +40,12 @@ temp/
 scratch/
 Dockerfile
 docker-compose.yml
+
+# Ephemeral benchmark & evaluation artifacts
+*.sqlite
+bench_*.sqlite
+bench_*.db
+eval_results.json
+sweep_results.json
+legal_golden.json
+.coverage.*

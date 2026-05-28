@@ -49,6 +49,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import re
 import logging
 import threading
 import time
@@ -70,6 +71,24 @@ logger = logging.getLogger("MESA_Storage")
 _DEFAULT_METRIC = "cosine"
 _DEFAULT_TABLE_PREFIX = "mesa_vectors_"
 _MAX_WORKERS = 4
+
+# Strict allowlist for values interpolated into LanceDB WHERE clauses.
+# LanceDB does not support parameterised binding, so all filter values
+# must be sanitised against injection at the engine boundary.
+_SAFE_FILTER_VALUE_RE = re.compile(r"^[a-zA-Z0-9_\-\.@:]+$")
+
+
+def _validate_filter_value(value: str, field_name: str) -> None:
+    """Reject values that could manipulate LanceDB filter expressions.
+
+    Raises:
+        ValueError: If the value contains characters outside the strict
+                    allowlist (alphanumeric, underscore, hyphen, dot, @, colon).
+    """
+    if not _SAFE_FILTER_VALUE_RE.match(value):
+        raise ValueError(
+            f"{field_name} contains unsafe characters for LanceDB filter: {value!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +478,7 @@ class VectorEngine:
         if not include_expired:
             filters.append("expired_at IS NULL")
         if agent_id is not None:
+            _validate_filter_value(agent_id, "agent_id")
             filters.append(f"agent_id = '{agent_id}'")
 
         if filters:
@@ -510,6 +530,7 @@ class VectorEngine:
                 continue
             try:
                 table = self._db.open_table(table_name)
+                _validate_filter_value(node_id, "node_id")
                 table.update(
                     where=f"node_id = '{node_id}'",
                     values={"expired_at": now},
@@ -551,6 +572,7 @@ class VectorEngine:
                 continue
             try:
                 table = self._db.open_table(table_name)
+                _validate_filter_value(node_id, "node_id")
                 table.delete(f"node_id = '{node_id}'")
                 # Invalidate cached handle — stale after mutation
                 with self._table_lock:
@@ -596,6 +618,7 @@ class VectorEngine:
                 table = self._db.open_table(table_name)
                 where = "expired_at IS NULL"
                 if agent_id:
+                    _validate_filter_value(agent_id, "agent_id")
                     where += f" AND agent_id = '{agent_id}'"
                 arrow_table = (
                     table.search()

@@ -280,13 +280,19 @@ async def _run_ecod_gate(
             )
             return True
 
-        # Generate a lightweight content hash embedding proxy
-        # In production, this would use the configured embedder model.
-        # For the cold-path, we use a deterministic hash-based proxy
-        # to avoid loading the full embedding model in the BG worker.
-        content_embedding = np.array(_hash_embedding(content, dim=8))
-        existing_embeddings = np.array(
-            [_hash_embedding(m.get("entity_name", ""), dim=8) for m in existing_memories]
+        # B-2 FIX: Offload CPU-bound hashing + numpy construction to
+        # a thread-pool executor to prevent event loop starvation.
+        loop = asyncio.get_running_loop()
+
+        def _build_embeddings():
+            content_emb = np.array(_hash_embedding_sync(content, dim=8))
+            existing_embs = np.array(
+                [_hash_embedding_sync(m.get("entity_name", ""), dim=8) for m in existing_memories]
+            )
+            return content_emb, existing_embs
+
+        content_embedding, existing_embeddings = await loop.run_in_executor(
+            None, _build_embeddings
         )
 
         is_novel = await calculate_novelty_score(
@@ -310,12 +316,16 @@ async def _run_ecod_gate(
         return True
 
 
-def _hash_embedding(text: str, dim: int = 8) -> list[float]:
+def _hash_embedding_sync(text: str, dim: int = 8) -> list[float]:
     """Generate a deterministic pseudo-embedding from text via hashing.
 
     This is a lightweight proxy for the full embedding model, used in
     the cold-path ECOD gate where loading a transformer is too expensive.
     The hash is spread across ``dim`` float channels via modular arithmetic.
+
+    **Must be called inside ``run_in_executor``** — the ``hashlib.sha256``
+    call and list construction are CPU-bound and will starve the event loop
+    if invoked on the main thread under high concurrency (B-2 fix).
     """
     import hashlib
 

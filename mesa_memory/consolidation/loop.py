@@ -309,10 +309,12 @@ class ConsolidationLoop:
 
                 is_pass = False
                 if isinstance(is_valid, dict):
-                    if "decision" in is_valid:
-                        is_pass = is_valid["decision"] in (True, "STORE", "ADMIT")
-                    elif is_valid.get("route") == "dual_llm":
+                    decision_val = is_valid.get("decision")
+                    if decision_val is None and is_valid.get("route") == "dual_llm":
+                        # B-5: Legal-domain bypass — decision deferred, forward to Dual-LLM
                         is_pass = await self.validator.validate(record)
+                    elif decision_val is not None:
+                        is_pass = decision_val in (True, "STORE", "ADMIT")
                 else:
                     is_pass = bool(is_valid)
 

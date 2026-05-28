@@ -1,7 +1,7 @@
 # MESA Memory Layer: Architecture Whitepaper
 
-> **Version:** 0.3.0
-> **Last Updated:** 2026-05-22
+> **Version:** 0.4.1
+> **Last Updated:** 2026-05-28
 
 ---
 
@@ -85,7 +85,24 @@ All LanceDB operations are offloaded from the event loop via `ThreadPoolExecutor
 - **Soft-delete** via `expired_at` timestamp (no physical removal in the hot path)
 - **Cosine similarity search** with mandatory `agent_id` filtering in the WHERE clause
 
-### 3.4 Relational Graph Layer
+### 3.4 Dual-Write Atomicity (Saga Pattern)
+
+MESA persists every memory record to **two** independent stores — SQLite (relational metadata, graph edges, FTS5) and LanceDB (vector embeddings). A partial write to only one store creates a **split-brain orphan**: a record that exists relationally but has no embedding, or vice versa. This is a data-integrity P0.
+
+To prevent split-brain, all dual-write paths implement an **atomic Saga**:
+
+1. **Begin** a SQLite transaction (`BEGIN DEFERRED`).
+2. **Execute** the SQLite `INSERT`/`UPDATE` statements — but do **not** commit.
+3. **Upsert** the vector embedding into LanceDB.
+4. **On LanceDB success →** `COMMIT` the SQLite transaction.
+5. **On LanceDB failure →** `ROLLBACK` the SQLite transaction; no partial state persists.
+
+This guarantees that both stores are always consistent: either the full record is present in both, or in neither. The pattern is enforced in `MemoryDAO.insert_memory()` and `MemoryDAO.purge_memory()`.
+
+> [!IMPORTANT]
+> The SQLite `COMMIT` is **never** issued before LanceDB confirms the upsert. This ordering is load-bearing — reversing it would re-introduce the split-brain window.
+
+### 3.5 Relational Graph Layer
 
 In v0.3.0, the legacy in-memory NetworkX graph has been completely deprecated in favor of a disk-based asynchronous relational schema within SQLite. Graph nodes and edges are persisted asynchronously via `aiosqlite`. Graph analytics and traversal (e.g., k-hop BFS) now operate directly on the SQLite database using recursive or bounded queries, providing massive scalability and sub-millisecond latency without the memory overhead of a persistent Python object graph.
 

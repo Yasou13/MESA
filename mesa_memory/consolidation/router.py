@@ -9,12 +9,13 @@ Features:
 - Temperature Scaling for Expected Calibration Error (ECE) minimization.
 - 5% Audit Sampling for continuous telemetry and feedback loops.
 - Dynamic Thresholding to adapt to model hallucination rates.
+- Unified ``RoutingDecision`` return contract (B-5 fix).
 """
 
 import logging
 import random
 import time
-from typing import Any
+from typing import Any, TypedDict
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -26,6 +27,34 @@ from mesa_memory.consolidation.validator import (
 from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_Router")
+
+
+# ---------------------------------------------------------------------------
+# B-5 FIX: Canonical return type for all AdaptiveRouter.validate() paths
+# ---------------------------------------------------------------------------
+
+
+class RoutingDecision(TypedDict):
+    """Unified return contract for ``AdaptiveRouter.validate()``.
+
+    Every execution path — normal accept, legal-domain bypass, and
+    dual-LLM fallback — MUST return this exact shape.  Downstream
+    consumers (``ConsolidationLoop.run_batch``) rely on ``decision``
+    to gate admission and ``route`` to detect forwarding intent.
+
+    Fields:
+        route:    Which model produced the decision.
+                  One of ``"small_model"``, ``"dual_llm"``.
+        decision: ``True`` (STORE), ``False`` (DISCARD), or ``None``
+                  when the decision is deferred to a downstream gate
+                  (e.g. legal-domain bypass routes to dual_llm without
+                  evaluating here).
+        reason:   Human-readable justification for observability.
+    """
+
+    route: str
+    decision: bool | None
+    reason: str
 
 
 class AdaptiveRouter:
@@ -87,20 +116,22 @@ class AdaptiveRouter:
                 "DYNAMIC_THRESHOLD | Failed to update dynamic threshold: %s", e
             )
 
-    async def validate(self, record: dict) -> dict[str, Any]:
+    async def validate(self, record: dict) -> RoutingDecision:
         """Adaptive validation logic.
 
-        1. Route to small model.
-        2. Calculate calibrated confidence_score.
-        3. If >= T_route: Accept (unless audited).
-        4. Else: Fallback to Dual-LLM.
+        Returns a ``RoutingDecision`` across **all** execution paths:
+
+        1. **Legal-domain bypass** → ``decision=None, route="dual_llm"``
+           (caller must forward to Dual-LLM gate).
+        2. **Small-model accept** → ``decision=bool, route="small_model"``.
+        3. **Dual-LLM fallback/audit** → ``decision=bool, route="dual_llm"``.
 
         v0.4.0 Phase 3: When LEGAL_DOMAIN_MODE is active, steps 1-3 are
         entirely bypassed. Every record is routed to the Dual-LLM to
         guarantee zero-hallucination consensus on legal data.
         """
         # -----------------------------------------------------------------
-        # GUARDRAIL: Zero-Hallucination Legal Mode
+        # PATH 1 — GUARDRAIL: Zero-Hallucination Legal Mode
         # When active, the small-model confidence gate is unconditionally
         # bypassed.  The dynamic T_route threshold is irrelevant; every
         # payload is forced through the heavy Dual-LLM ConsolidationLoop.
@@ -111,7 +142,11 @@ class AdaptiveRouter:
                 "Routing directly to Dual-LLM for record: %s",
                 record.get("cmb_id", record.get("id", "unknown")),
             )
-            return {"route": "dual_llm", "reason": "legal_domain_strict_mode"}
+            return RoutingDecision(
+                route="dual_llm",
+                decision=None,
+                reason="legal_domain_strict_mode",
+            )
 
         agent_id = record.get("agent_id", "mesa_consolidation_system")
         await self.update_dynamic_threshold(agent_id)
@@ -158,11 +193,19 @@ class AdaptiveRouter:
 
         is_audit = random.random() < self.audit_probability
 
+        # -----------------------------------------------------------------
+        # PATH 2 — Small-model accepted, no audit required
+        # -----------------------------------------------------------------
         if not requires_fallback and not is_audit:
-            # Accepted by small model, no audit triggered
-            return {"decision": small_model_decision, "justification": "small_model"}
+            return RoutingDecision(
+                route="small_model",
+                decision=small_model_decision,
+                reason="small_model_confident",
+            )
 
-        # Dual-LLM Fallback or Audit Execution
+        # -----------------------------------------------------------------
+        # PATH 3 — Dual-LLM Fallback or Audit Execution
+        # -----------------------------------------------------------------
         logger.debug(
             "ROUTER | fallback=%s audit=%s confidence=%.2f",
             requires_fallback,
@@ -200,4 +243,8 @@ class AdaptiveRouter:
                 logger.error("Failed to log routing telemetry: %s", e)
 
         # The Dual-LLM is the ground truth
-        return {"decision": dual_llm_decision, "justification": "dual_llm"}
+        return RoutingDecision(
+            route="dual_llm",
+            decision=dual_llm_decision,
+            reason="dual_llm_fallback" if requires_fallback else "dual_llm_audit",
+        )

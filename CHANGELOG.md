@@ -5,6 +5,16 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-05-28
+
+### Fixed
+
+- **Split-Brain Dual-Write Atomicity (P0):** Implemented an atomic Saga pattern for SQLite/LanceDB dual-writes. SQLite `COMMIT` is now strictly deferred until the LanceDB `upsert` succeeds; on failure, the transaction falls back to a SQL `ROLLBACK`, eliminating split-brain orphan records across the relational and vector stores.
+- **Async Embedder Event Loop Starvation (P0):** Offloaded synchronous `embedder()` calls on the search hot-path to `asyncio` thread-pool executors (`run_in_executor`), preventing event loop starvation under concurrent query load.
+- **LanceDB Filter Injection (P0):** Enforced strict regex sanitization (`^[a-zA-Z0-9_-]+$`) on `agent_id` values before interpolation into LanceDB `WHERE` clause filters, closing a filter injection vector in the vector search path.
+
+---
+
 ## [0.3.0] - 2026-05-22
 
 ### 🔴 Critical Security Fix
@@ -109,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.4.1]: https://github.com/Yasou13/MESA/compare/v0.3.0...v0.4.1
 [0.3.0]: https://github.com/Yasou13/MESA/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Yasou13/MESA/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Yasou13/MESA/releases/tag/v0.1.0
