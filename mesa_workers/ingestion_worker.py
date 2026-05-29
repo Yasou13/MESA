@@ -474,8 +474,16 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
             temperature=0.0,
         )
 
+        # Type narrowing: acomplete() returns Union[str, BaseModel].
+        # We never pass a schema, so the response is always str at runtime,
+        # but mypy cannot infer that — narrow explicitly.
+        if isinstance(raw_response, str):
+            response_text = raw_response
+        else:
+            response_text = raw_response.model_dump_json()
+
         # Parse the JSON array from the LLM response
-        triplets = _parse_llm_triplet_response(raw_response)
+        triplets = _parse_llm_triplet_response(response_text)
 
         logger.debug(
             "LLM_TRIPLET_EXTRACT | content_len=%d triplets=%d",
