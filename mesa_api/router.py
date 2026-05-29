@@ -154,6 +154,40 @@ def create_memory_router(
         return {"status": "queued", "log_id": log_id}
 
     # ==================================================================
+    # GET /v3/memory/status/{log_id}  —  Cold-path status query
+    # ==================================================================
+
+    @router.get(
+        "/status/{log_id}",
+        summary="Query cold-path processing status for a raw_log entry",
+        response_description="Current processing status of the log entry",
+    )
+    async def get_status(
+        log_id: int,
+        dao: MemoryDAO = Depends(get_dao),
+    ) -> dict:
+        """Return the current processing status of a queued raw_log entry.
+
+        Used by the evaluation harness (``recall_harness.py``) to poll for
+        cold-path completion instead of relying on fragile time-based
+        heuristics.
+
+        Terminal states: ``processed``, ``failed``, ``rejected``.
+        """
+        raw_log = await dao.get_raw_log(log_id)
+
+        if raw_log is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"raw_log {log_id} not found",
+            )
+
+        return {
+            "log_id": log_id,
+            "status": raw_log.get("status", "unknown"),
+        }
+
+    # ==================================================================
     # POST /v3/memory/search
     # ==================================================================
 

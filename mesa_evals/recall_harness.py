@@ -62,6 +62,15 @@ class EntryResult:
     retrieved_entities: list[str]
     hit: bool  # True if any expected entity was found in top-K
     recall_at_k: float  # fraction of expected entities found in top-K
+    proxy_faithfulness: float = (
+        0.0  # Entity IoU: expected entities found as substrings in retrieved chunks
+    )
+    context_precision: float = (
+        0.0  # Fraction of top-K chunks containing ≥1 ground-truth entity
+    )
+    answer_relevance: float = (
+        0.0  # Jaccard token overlap between query and retrieved text
+    )
 
 
 @dataclass
@@ -76,6 +85,9 @@ class HarnessReport:
     k: int = DEFAULT_K
     recall_at_k: float = 0.0
     hit_rate: float = 0.0
+    proxy_faithfulness: float = 0.0
+    context_precision: float = 0.0
+    answer_relevance: float = 0.0
     mean_latency_ms: float = 0.0
     entry_results: list[EntryResult] = field(default_factory=list)
     errors: list[dict[str, str]] = field(default_factory=list)
@@ -85,7 +97,7 @@ class HarnessReport:
         """Serialize to a strict JSON-safe dict."""
         return {
             "harness": "MESA_Recall@K",
-            "version": "0.4.0",
+            "version": "0.4.1",
             "golden_path": self.golden_path,
             "k": self.k,
             "total_entries": self.total_entries,
@@ -94,6 +106,9 @@ class HarnessReport:
             "searched": self.searched,
             "recall_at_k": round(self.recall_at_k, 6),
             "hit_rate": round(self.hit_rate, 6),
+            "proxy_faithfulness": round(self.proxy_faithfulness, 6),
+            "context_precision": round(self.context_precision, 6),
+            "answer_relevance": round(self.answer_relevance, 6),
             "mean_latency_ms": round(self.mean_latency_ms, 2),
             "elapsed_total_s": round(self.elapsed_total_s, 2),
             "errors": self.errors,
@@ -105,6 +120,9 @@ class HarnessReport:
                     "retrieved": er.retrieved_entities,
                     "hit": er.hit,
                     "recall_at_k": round(er.recall_at_k, 6),
+                    "proxy_faithfulness": round(er.proxy_faithfulness, 6),
+                    "context_precision": round(er.context_precision, 6),
+                    "answer_relevance": round(er.answer_relevance, 6),
                 }
                 for er in self.entry_results
             ],
@@ -137,9 +155,7 @@ def load_golden_dataset(path: str) -> list[dict]:
     for i, entry in enumerate(data):
         missing = required_keys - set(entry.keys())
         if missing:
-            raise ValueError(
-                f"Entry {i} missing required keys: {missing}"
-            )
+            raise ValueError(f"Entry {i} missing required keys: {missing}")
 
     logger.info("GOLDEN_LOADED | path=%s entries=%d", path, len(data))
     return data
@@ -216,6 +232,9 @@ async def ingest_entries(
 # ---------------------------------------------------------------------------
 
 
+TERMINAL_STATES = frozenset({"processed", "failed", "rejected"})
+
+
 async def poll_until_processed(
     session: aiohttp.ClientSession,
     log_ids: list[int],
@@ -225,63 +244,231 @@ async def poll_until_processed(
     poll_interval: float,
     poll_timeout: float,
 ) -> int:
-    """Poll the health/API endpoint until all raw_logs are processed.
+    """Poll ``GET /v3/memory/status/{log_id}`` until all entries reach a terminal state.
 
-    Since the cold-path runs as a BackgroundTask, we poll the health
-    endpoint repeatedly and check via a heuristic delay. In a real
-    production setup, this would query the raw_logs status directly.
+    Terminal states: ``processed``, ``failed``, ``rejected``.
 
-    Returns the count of log_ids that we waited for.
+    Returns the count of log_ids that reached a terminal state before
+    the timeout expired.
     """
     if not log_ids:
         return 0
 
-    # Simple time-based wait — the cold-path BackgroundTasks run
-    # asynchronously in the server process. We wait with periodic
-    # health checks to confirm the server is still alive.
     headers = {"X-API-Key": api_key}
+    pending: set[int] = set(log_ids)
     start = time.monotonic()
-    processed_count = 0
 
-    while (time.monotonic() - start) < poll_timeout:
-        try:
-            async with session.get(
-                f"{base_url}/health", headers=headers
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning("POLL | health check returned %d", resp.status)
-        except Exception as exc:
-            logger.warning("POLL | health check failed: %s", exc)
+    while pending and (time.monotonic() - start) < poll_timeout:
+        still_pending: set[int] = set()
 
-        # Heuristic: wait proportional to batch size, with a floor
-        elapsed = time.monotonic() - start
-        expected_time = max(len(log_ids) * 0.5, 10.0)  # ~0.5s per entry
+        for log_id in pending:
+            try:
+                async with session.get(
+                    f"{base_url}/v3/memory/status/{log_id}",
+                    headers=headers,
+                ) as resp:
+                    if resp.status == 200:
+                        body = await resp.json()
+                        status = body.get("status", "unknown")
+                        if status not in TERMINAL_STATES:
+                            still_pending.add(log_id)
+                    elif resp.status == 404:
+                        # Entry vanished — treat as terminal
+                        logger.warning(
+                            "POLL | log_id=%d not found (404) — skipping",
+                            log_id,
+                        )
+                    else:
+                        still_pending.add(log_id)
+            except Exception as exc:
+                logger.warning(
+                    "POLL | status check failed for log_id=%d: %s",
+                    log_id,
+                    exc,
+                )
+                still_pending.add(log_id)
 
-        if elapsed >= expected_time:
-            processed_count = len(log_ids)
-            logger.info(
-                "POLL | waited %.1fs for %d entries — proceeding to search",
-                elapsed,
+        pending = still_pending
+
+        if pending:
+            logger.debug(
+                "POLL | %d/%d still pending, sleeping %.1fs...",
+                len(pending),
                 len(log_ids),
+                poll_interval,
             )
-            break
+            await asyncio.sleep(poll_interval)
 
-        await asyncio.sleep(poll_interval)
+    completed = len(log_ids) - len(pending)
+    elapsed = time.monotonic() - start
 
-    if processed_count == 0:
+    if pending:
         logger.warning(
-            "POLL | timeout after %.0fs waiting for %d entries",
-            poll_timeout,
+            "POLL | timeout after %.0fs — %d/%d entries still pending",
+            elapsed,
+            len(pending),
             len(log_ids),
         )
-        processed_count = len(log_ids)  # proceed anyway
+    else:
+        logger.info(
+            "POLL | all %d entries reached terminal state in %.1fs",
+            len(log_ids),
+            elapsed,
+        )
 
-    return processed_count
+    return completed
 
 
 # ---------------------------------------------------------------------------
 # Step 4 & 5: Search and calculate Recall@K
 # ---------------------------------------------------------------------------
+
+
+def _compute_proxy_faithfulness(
+    expected_entities: set[str],
+    retrieved_names: list[str],
+    context_text: str,
+) -> float:
+    """Compute Proxy Faithfulness via entity substring matching.
+
+    For each expected entity (from ``expected_triplets``), check whether it
+    appears as a normalised substring anywhere in the concatenated retrieved
+    chunk text.  This avoids expensive LLM evaluator calls while still
+    measuring how much of the ground-truth knowledge the retrieval surface
+    actually contains.
+
+    Returns a score in [0.0, 1.0] representing the fraction of expected
+    entities that are physically present in the retrieved context.
+    """
+    if not expected_entities:
+        return 0.0
+
+    # Build a single normalised haystack from all retrieved content
+    haystack = context_text.lower()
+    # Also include entity names as fallback surface
+    haystack_names = " ".join(name.lower().strip() for name in retrieved_names)
+    combined_haystack = f"{haystack} {haystack_names}"
+
+    found = 0
+    for entity in expected_entities:
+        needle = entity.lower().strip()
+        if not needle:
+            continue
+        if needle in combined_haystack:
+            found += 1
+
+    return found / len(expected_entities)
+
+
+def _compute_context_precision(
+    expected_entities: set[str],
+    retrieved_nodes: list[dict],
+    k: int,
+) -> float:
+    """Compute Proxy Context Precision.
+
+    Measures the fraction of retrieved chunks (top-K) that contain at
+    least one ground-truth entity from ``expected_triplets``.  A score
+    of 1.0 means every retrieved chunk was relevant; lower scores
+    indicate retrieval noise.
+
+    This is a deterministic, zero-LLM-cost proxy for the RAGAS
+    Context Precision metric.
+
+    Args:
+        expected_entities: Normalised set of ground-truth entity names.
+        retrieved_nodes: Raw list of node dicts from the search response.
+        k: Number of top results to evaluate.
+
+    Returns:
+        Score in [0.0, 1.0].
+    """
+    if not retrieved_nodes or not expected_entities:
+        return 0.0
+
+    top_k_nodes = retrieved_nodes[:k]
+    relevant_count = 0
+
+    for node in top_k_nodes:
+        # Build a searchable surface from all text fields in this chunk
+        chunk_text = " ".join(
+            str(v).lower()
+            for v in [
+                node.get("entity_name", ""),
+                node.get("content", ""),
+                node.get("context", ""),
+            ]
+            if v
+        )
+        # A chunk is "relevant" if any expected entity appears in it
+        for entity in expected_entities:
+            if entity in chunk_text:
+                relevant_count += 1
+                break  # one hit per chunk is sufficient
+
+    return relevant_count / len(top_k_nodes)
+
+
+def _compute_answer_relevance(
+    query: str,
+    retrieved_nodes: list[dict],
+    k: int,
+) -> float:
+    """Compute Proxy Answer Relevance via Jaccard token overlap.
+
+    Measures the lexical overlap between the query tokens and the
+    tokens present in the retrieved chunks.  Uses Jaccard similarity:
+    ``|Q ∩ R| / |Q ∪ R|``.  A score of 1.0 means perfect token
+    overlap; 0.0 means no shared tokens.
+
+    This is a deterministic, zero-LLM-cost proxy for the RAGAS
+    Answer Relevance metric.
+
+    Args:
+        query: The original search query string.
+        retrieved_nodes: Raw list of node dicts from the search response.
+        k: Number of top results to evaluate.
+
+    Returns:
+        Jaccard similarity score in [0.0, 1.0].
+    """
+    if not query or not retrieved_nodes:
+        return 0.0
+
+    # Tokenise query — simple whitespace + lowercase, strip punctuation
+    query_tokens = set(_tokenize(query))
+    if not query_tokens:
+        return 0.0
+
+    # Build token set from all retrieved chunks
+    retrieved_text_parts: list[str] = []
+    for node in retrieved_nodes[:k]:
+        for field in ("entity_name", "content", "context"):
+            val = node.get(field)
+            if val:
+                retrieved_text_parts.append(str(val))
+
+    retrieved_tokens = set(_tokenize(" ".join(retrieved_text_parts)))
+    if not retrieved_tokens:
+        return 0.0
+
+    intersection = query_tokens & retrieved_tokens
+    union = query_tokens | retrieved_tokens
+
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _tokenize(text: str) -> set[str]:
+    """Normalise and tokenise text into a set of lowercase tokens.
+
+    Strips common Turkish and English punctuation, splits on whitespace,
+    and filters out single-character tokens to reduce noise.
+    """
+    import re
+
+    # Remove punctuation, keep alphanumeric and Turkish chars
+    cleaned = re.sub(r"[^\w\s]", " ", text.lower())
+    return {tok for tok in cleaned.split() if len(tok) > 1}
 
 
 async def evaluate_recall(
@@ -319,14 +506,20 @@ async def evaluate_recall(
                     latency = (time.monotonic() - t0) * 1000
 
                     if resp.status != 200:
-                        return EntryResult(
-                            entry_id=entry["id"],
-                            query=entry["query"],
-                            expected_entities=[],
-                            retrieved_entities=[],
-                            hit=False,
-                            recall_at_k=0.0,
-                        ), latency
+                        return (
+                            EntryResult(
+                                entry_id=entry["id"],
+                                query=entry["query"],
+                                expected_entities=[],
+                                retrieved_entities=[],
+                                hit=False,
+                                recall_at_k=0.0,
+                                proxy_faithfulness=0.0,
+                                context_precision=0.0,
+                                answer_relevance=0.0,
+                            ),
+                            latency,
+                        )
 
                     # Extract retrieved entity names from the response
                     retrieved_nodes = body.get("retrieved_nodes", [])
@@ -345,38 +538,65 @@ async def evaluate_recall(
                             expected.add(triplet["target"].lower().strip())
 
                     # Calculate recall: fraction of expected entities
-                    # found in the retrieved set
-                    retrieved_lower = {
-                        name.lower().strip() for name in retrieved_names
-                    }
+                    # found in the retrieved set (exact match)
+                    retrieved_lower = {name.lower().strip() for name in retrieved_names}
                     if expected:
                         hits = expected & retrieved_lower
                         recall = len(hits) / len(expected)
                     else:
                         recall = 0.0
 
-                    return EntryResult(
-                        entry_id=entry["id"],
-                        query=entry["query"],
-                        expected_entities=sorted(expected),
-                        retrieved_entities=retrieved_names,
-                        hit=recall > 0.0,
-                        recall_at_k=recall,
-                    ), latency
+                    # Calculate Proxy Faithfulness: entity substring IoU
+                    # against the full retrieved context surface
+                    context_text = body.get("context", "")
+                    faithfulness = _compute_proxy_faithfulness(
+                        expected, retrieved_names, context_text
+                    )
+
+                    # Calculate Proxy Context Precision: fraction of
+                    # retrieved chunks containing ≥1 ground-truth entity
+                    ctx_precision = _compute_context_precision(
+                        expected, retrieved_nodes, k
+                    )
+
+                    # Calculate Proxy Answer Relevance: Jaccard token
+                    # overlap between query and retrieved chunk text
+                    ans_relevance = _compute_answer_relevance(
+                        entry["query"], retrieved_nodes, k
+                    )
+
+                    return (
+                        EntryResult(
+                            entry_id=entry["id"],
+                            query=entry["query"],
+                            expected_entities=sorted(expected),
+                            retrieved_entities=retrieved_names,
+                            hit=recall > 0.0,
+                            recall_at_k=recall,
+                            proxy_faithfulness=faithfulness,
+                            context_precision=ctx_precision,
+                            answer_relevance=ans_relevance,
+                        ),
+                        latency,
+                    )
 
             except Exception as exc:
                 latency = (time.monotonic() - t0) * 1000
-                logger.warning(
-                    "SEARCH_ERROR | entry_id=%s error=%s", entry["id"], exc
+                logger.warning("SEARCH_ERROR | entry_id=%s error=%s", entry["id"], exc)
+                return (
+                    EntryResult(
+                        entry_id=entry["id"],
+                        query=entry["query"],
+                        expected_entities=[],
+                        retrieved_entities=[],
+                        hit=False,
+                        recall_at_k=0.0,
+                        proxy_faithfulness=0.0,
+                        context_precision=0.0,
+                        answer_relevance=0.0,
+                    ),
+                    latency,
                 )
-                return EntryResult(
-                    entry_id=entry["id"],
-                    query=entry["query"],
-                    expected_entities=[],
-                    retrieved_entities=[],
-                    hit=False,
-                    recall_at_k=0.0,
-                ), latency
 
     tasks = [_search_one(entry) for entry in entries]
     raw_results = await asyncio.gather(*tasks)
@@ -411,7 +631,11 @@ async def run_harness(
     entries = load_golden_dataset(golden_path)
     report.total_entries = len(entries)
 
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(
+        limit=concurrency,
+        enable_cleanup_closed=True,
+    )
+    async with aiohttp.ClientSession(connector=connector) as session:
         # Step 2: Ingest all entries
         logger.info("INGEST | Starting ingestion of %d entries...", len(entries))
         ingest_results = await ingest_entries(
@@ -430,11 +654,13 @@ async def run_harness(
                 report.ingested += 1
                 successful_ids.append(ir["log_id"])
             elif ir["status"] == "error":
-                report.errors.append({
-                    "phase": "ingest",
-                    "entry_id": ir["entry_id"],
-                    "error": ir.get("error", "unknown"),
-                })
+                report.errors.append(
+                    {
+                        "phase": "ingest",
+                        "entry_id": ir["entry_id"],
+                        "error": ir.get("error", "unknown"),
+                    }
+                )
 
         logger.info(
             "INGEST | Done: %d/%d queued, %d errors",
@@ -477,10 +703,14 @@ async def run_harness(
 
     # Compute aggregate metrics
     if entry_results:
-        recalls = [er.recall_at_k for er in entry_results]
-        hits = [1.0 if er.hit else 0.0 for er in entry_results]
-        report.recall_at_k = sum(recalls) / len(recalls)
-        report.hit_rate = sum(hits) / len(hits)
+        n = len(entry_results)
+        report.recall_at_k = sum(er.recall_at_k for er in entry_results) / n
+        report.hit_rate = sum(1.0 if er.hit else 0.0 for er in entry_results) / n
+        report.proxy_faithfulness = (
+            sum(er.proxy_faithfulness for er in entry_results) / n
+        )
+        report.context_precision = sum(er.context_precision for er in entry_results) / n
+        report.answer_relevance = sum(er.answer_relevance for er in entry_results) / n
 
     if latencies:
         report.mean_latency_ms = sum(latencies) / len(latencies)
@@ -561,9 +791,7 @@ def main() -> None:
     )
 
     if not args.api_key:
-        logger.error(
-            "MESA_API_KEY not set. Pass --api-key or set the env variable."
-        )
+        logger.error("MESA_API_KEY not set. Pass --api-key or set the env variable.")
         sys.exit(1)
 
     report = asyncio.run(
@@ -592,15 +820,23 @@ def main() -> None:
     # Exit code: 0 if recall > 0, 1 otherwise
     if report.recall_at_k > 0:
         logger.info(
-            "HARNESS_PASS | Recall@%d = %.4f, Hit Rate = %.4f",
+            "HARNESS_PASS | Recall@%d = %.4f | Hit Rate = %.4f | "
+            "Faithfulness = %.4f | Ctx Precision = %.4f | Ans Relevance = %.4f",
             report.k,
             report.recall_at_k,
             report.hit_rate,
+            report.proxy_faithfulness,
+            report.context_precision,
+            report.answer_relevance,
         )
     else:
         logger.warning(
-            "HARNESS_WARN | Recall@%d = 0.0 — no expected entities retrieved",
+            "HARNESS_WARN | Recall@%d = 0.0 | "
+            "Faithfulness = %.4f | Ctx Precision = %.4f | Ans Relevance = %.4f",
             report.k,
+            report.proxy_faithfulness,
+            report.context_precision,
+            report.answer_relevance,
         )
 
 

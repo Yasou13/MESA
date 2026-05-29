@@ -1,11 +1,17 @@
-"""MESA v0.4.0 — Phase 2 (Part 1): Legal Golden Dataset Generator.
+"""MESA v0.4.1 — Phase 3A: Legal Golden Dataset Generator with Adversarial Traps.
 
-Generates 200 highly complex, multi-hop legal evaluation entries based on
-Turkish Supreme Court (Yargıtay) decisions and Turkish Law (Kanunlar).
+Generates multi-hop legal evaluation entries based on Turkish Supreme Court
+(Yargıtay) decisions and Turkish Law (Kanunlar), with adversarial traps for
+measuring Context Precision and Faithfulness.
+
+Distribution:
+  70% Standard queries   — entity, relational, semantic (valid expected_triplets)
+  15% Hard Negatives     — valid law article + wrong legal context (expected_triplets=[])
+  15% Out of Domain      — non-legal queries: recipes, sports, etc. (expected_triplets=[])
 
 Data Relationship: (Yargıtay_Kararı) -[DAYANIR]-> (Kanun_Maddesi)
 
-Question Types:
+Question Types (standard):
   1. Entity Resolution:   "Bu kararda geçen 'TBK m.49' atıfı hangi kanuna aittir?"
   2. Relational Accuracy:  "Karar 2023/154 hangi kanun maddesine dayanarak hüküm kurmuştur?"
   3. Semantic Search:       "Kusursuz sorumluluk hallerine atıf yapan ... kararlarının dayandığı yasa maddeleri nelerdir?"
@@ -65,6 +71,87 @@ SUBJECTS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Hard Negative templates — valid article reference + WRONG legal context
+# Each tuple: (law_short, article, misleading_subject)
+# The misleading_subject is deliberately unrelated to the actual article.
+# ---------------------------------------------------------------------------
+
+HARD_NEGATIVE_TRAPS = [
+    ("TBK", "49", "kira bedelinin hesaplanması"),  # m.49 = torts, NOT rent
+    ("TBK", "49", "iş sözleşmesinin feshi"),  # m.49 = torts, NOT employment
+    ("TMK", "2", "velayet hakkının değiştirilmesi"),  # m.2 = good faith, NOT custody
+    ("TMK", "2", "tapu sicilinin düzeltilmesi"),  # m.2 = good faith, NOT land registry
+    ("TCK", "157", "trafik güvenliğini tehlikeye sokma"),  # m.157 = fraud, NOT traffic
+    ("TCK", "157", "hakaret suçunun unsurları"),  # m.157 = fraud, NOT defamation
+    (
+        "HMK",
+        "107",
+        "delil tespiti prosedürü",
+    ),  # m.107 = indeterminate claims, NOT evidence
+    (
+        "HMK",
+        "107",
+        "ihtiyati tedbir şartları",
+    ),  # m.107 = indeterminate claims, NOT injunctions
+    (
+        "TTK",
+        "18",
+        "anonim şirketin kuruluş işlemleri",
+    ),  # m.18 = merchant duties, NOT incorporation
+    (
+        "TTK",
+        "18",
+        "kambiyo senetlerinde zamanaşımı",
+    ),  # m.18 = merchant duties, NOT negotiable instruments
+]
+
+HARD_NEGATIVE_QUERY_TEMPLATES = [
+    "{law_short} m.{article} kapsamında {wrong_subject} hakkında Yargıtay'ın görüşü nedir?",
+    "{law_short} m.{article} hükmü {wrong_subject} davalarında nasıl uygulanmaktadır?",
+    "{wrong_subject} konusunda {law_short} m.{article} maddesinin yeri nedir?",
+]
+
+# ---------------------------------------------------------------------------
+# Out-of-Domain templates — non-legal queries (recipes, sports, trivia)
+# ---------------------------------------------------------------------------
+
+OUT_OF_DOMAIN_QUERIES = [
+    "Ev yapımı mercimek çorbasının tarifi nedir?",
+    "2026 Dünya Kupası hangi ülkede düzenleniyor?",
+    "Bir maraton kaç kilometredir?",
+    "Python'da dictionary comprehension nasıl yazılır?",
+    "Güneş sistemimizdeki en büyük gezegen hangisidir?",
+    "Lahmacun hamuru nasıl açılır?",
+    "Beşiktaş'ın 2024-2025 sezon kadrosunda kaç yabancı oyuncu var?",
+    "Türkiye'nin en yüksek dağı hangisidir ve rakımı kaçtır?",
+    "Yapay zekâ ile görüntü sınıflandırma için hangi CNN mimarileri kullanılır?",
+    "İstanbul'dan Ankara'ya hızlı trenle kaç saat sürer?",
+    "Baklava kaç derecede ve kaç dakika pişirilmelidir?",
+    "Futbolda ofsayt kuralı nasıl işler?",
+    "Bir kilovat-saat kaç joule'dür?",
+    "En iyi espresso makinesi markaları hangileridir?",
+    "Mars'a ilk insanlı uçuş ne zaman planlanıyor?",
+]
+
+OUT_OF_DOMAIN_CONTEXTS = [
+    "Mercimek çorbası, Türk mutfağının en temel yemeklerinden biridir.",
+    "FIFA Dünya Kupası, dört yılda bir düzenlenen uluslararası futbol turnuvasıdır.",
+    "Bir maraton yarışı resmi olarak 42.195 metre mesafeyi kapsar.",
+    "Python, yüksek seviyeli, yorumlanabilir bir programlama dilidir.",
+    "Jüpiter, Güneş Sistemi'ndeki en büyük gezegendir.",
+    "Lahmacun, ince hamurun üzerine kıymalı harç sürülerek fırında pişirilir.",
+    "Beşiktaş JK, İstanbul merkezli bir profesyonel futbol kulübüdür.",
+    "Ağrı Dağı, 5.137 metre yüksekliği ile Türkiye'nin en yüksek dağıdır.",
+    "CNN (Convolutional Neural Network), görüntü işleme için yaygın kullanılan bir derin öğrenme mimarisidir.",
+    "YHT, Türkiye'deki yüksek hızlı tren hizmetidir.",
+    "Baklava, ince yufka katları arasına ceviz veya fıstık konularak yapılır.",
+    "Futbolda ofsayt kuralı, hücum oyuncusunun pozisyonunu düzenler.",
+    "Bir kilovat-saat, 3.6 milyon joule'e eşittir.",
+    "Espresso, yüksek basınç altında ince çekilmiş kahveden elde edilen bir içecektir.",
+    "NASA ve SpaceX, Mars'a insanlı görevler için çalışmalar yürütmektedir.",
+]
+
+# ---------------------------------------------------------------------------
 # Query templates — one per question type
 # ---------------------------------------------------------------------------
 Q_ENTITY = "Bu kararda geçen '{law_short} m.{article}' atıfı hangi kanuna aittir?"
@@ -88,10 +175,16 @@ CTX_TEMPLATE = (
 
 
 def generate_legal_dataset(count: int = 200) -> list[dict]:
-    """Generate `count` legal evaluation entries with deterministic seeding.
+    """Generate `count` legal evaluation entries with adversarial traps.
+
+    Distribution:
+      - 70% standard queries (entity / relational / semantic)
+      - 15% hard_negative (valid article + wrong context, expected_triplets=[])
+      - 15% out_of_domain (non-legal queries, expected_triplets=[])
 
     Each entry models the relationship:
         (Yargıtay_Kararı) -[DAYANIR]-> (Kanun_Maddesi)
+    except adversarial entries which carry empty expected_triplets.
 
     Returns a list of dicts compatible with mesa_evals.dataset.DatasetEntry.
     """
@@ -99,7 +192,15 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
     entries: list[dict] = []
     qtypes = ["entity", "relational", "semantic"]
 
-    for i in range(count):
+    # --- Compute split sizes ---
+    n_standard = int(count * 0.70)
+    n_hard_neg = int(count * 0.15)
+    n_ood = count - n_standard - n_hard_neg  # remainder goes to OOD
+
+    # ===================================================================
+    # Phase 1: Standard queries (70%)
+    # ===================================================================
+    for i in range(n_standard):
         law_short, article, law_full, desc = random.choice(LAWS)
         court = random.choice(COURTS)
         year = random.randint(2020, 2025)
@@ -140,6 +241,7 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
             {
                 "id": str(uuid.uuid5(uuid.NAMESPACE_DNS, f"legal-{i}-{case_no}")),
                 "domain": "legal",
+                "category": "standard",
                 "query": query,
                 "context_fragments": [ctx],
                 "ground_truth_answer": answer,
@@ -149,6 +251,7 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
                     "requires_chronology": i % 5 == 0,
                     "is_contradictory": i % 7 == 0,
                     "is_synthetic": True,
+                    "category": "standard",
                 },
                 "expected_triplets": [
                     {
@@ -159,6 +262,93 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
                 ],
             }
         )
+
+    # ===================================================================
+    # Phase 2: Hard Negative traps (15%)
+    # Valid law article + deliberately WRONG legal context.
+    # Expected: system must NOT return related triplets.
+    # ===================================================================
+    for j in range(n_hard_neg):
+        trap = HARD_NEGATIVE_TRAPS[j % len(HARD_NEGATIVE_TRAPS)]
+        law_short, article, wrong_subject = trap
+        template = HARD_NEGATIVE_QUERY_TEMPLATES[j % len(HARD_NEGATIVE_QUERY_TEMPLATES)]
+        query = template.format(
+            law_short=law_short,
+            article=article,
+            wrong_subject=wrong_subject,
+        )
+
+        # Context is intentionally empty — no supporting evidence should exist
+        ctx = (
+            f"{wrong_subject} konusu, {law_short} m.{article} kapsamında "
+            f"değerlendirilmesi talep edilmiştir. Ancak bu madde doğrudan "
+            f"bu konuyu düzenlememektedir."
+        )
+
+        entries.append(
+            {
+                "id": str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_DNS, f"hard-neg-{j}-{law_short}-{article}"
+                    )
+                ),
+                "domain": "legal",
+                "category": "hard_negative",
+                "query": query,
+                "context_fragments": [ctx],
+                "ground_truth_answer": (
+                    f"{law_short} m.{article} maddesi {wrong_subject} "
+                    f"konusunu doğrudan düzenlememektedir."
+                ),
+                "required_reasoning_hops": 0,
+                "metadata": {
+                    "complexity_tier": 0,
+                    "requires_chronology": False,
+                    "is_contradictory": True,
+                    "is_synthetic": True,
+                    "category": "hard_negative",
+                    "trap_type": "wrong_context_for_valid_article",
+                    "actual_article_topic": {l[0]: l[3] for l in LAWS}.get(
+                        law_short, "unknown"
+                    ),
+                    "misleading_subject": wrong_subject,
+                },
+                "expected_triplets": [],  # Ground truth: system MUST return empty
+            }
+        )
+
+    # ===================================================================
+    # Phase 3: Out-of-Domain traps (15%)
+    # Non-legal queries: recipes, sports, trivia.
+    # Expected: system must NOT return any legal triplets.
+    # ===================================================================
+    for k in range(n_ood):
+        query = OUT_OF_DOMAIN_QUERIES[k % len(OUT_OF_DOMAIN_QUERIES)]
+        ctx = OUT_OF_DOMAIN_CONTEXTS[k % len(OUT_OF_DOMAIN_CONTEXTS)]
+
+        entries.append(
+            {
+                "id": str(uuid.uuid5(uuid.NAMESPACE_DNS, f"ood-{k}-{query[:30]}")),
+                "domain": "out_of_domain",
+                "category": "out_of_domain",
+                "query": query,
+                "context_fragments": [ctx],
+                "ground_truth_answer": "Bu soru hukuki bir konu değildir.",
+                "required_reasoning_hops": 0,
+                "metadata": {
+                    "complexity_tier": 0,
+                    "requires_chronology": False,
+                    "is_contradictory": False,
+                    "is_synthetic": True,
+                    "category": "out_of_domain",
+                    "trap_type": "non_legal_domain",
+                },
+                "expected_triplets": [],  # Ground truth: system MUST return empty
+            }
+        )
+
+    # Shuffle to avoid clustering by category during ingestion
+    random.shuffle(entries)
 
     assert len(entries) == count, f"Expected {count}, got {len(entries)}"
     return entries
@@ -172,7 +362,7 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
 def main() -> None:
     """CLI entrypoint for the Legal Golden Dataset generator."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.4.0 Phase 2 — Legal Golden Dataset Generator",
+        description="MESA v0.4.1 Phase 3A — Legal Golden Dataset Generator with Adversarial Traps",
     )
     parser.add_argument(
         "--out",
