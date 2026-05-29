@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
@@ -21,6 +23,8 @@ try:
     __version__ = version("mesa-memory")
 except PackageNotFoundError:
     __version__ = "0.0.0"
+
+logger = logging.getLogger("MESA_Server")
 
 # ---------------------------------------------------------------------------
 # API Key Authentication
@@ -75,23 +79,44 @@ async def lifespan(app: FastAPI):
 
     # Wire the Consolidation Loop to the DAO (v0.3.1 P0 Hotfix)
     # ConsolidationLoop now accepts MemoryDAO directly — no StorageFacade.
-    # Uncomment and configure LLM adapters for production:
-    # llm_a = AdapterFactory.get_adapter("llm_a")
-    # llm_b = AdapterFactory.get_adapter("llm_b")
-    # state.consolidation_loop = ConsolidationLoop(
-    #     dao=state.dao,
-    #     embedder=AdapterFactory.get_adapter(),
-    #     llm_a=llm_a,
-    #     llm_b=llm_b,
-    #     obs_layer=state.obs_layer,
-    # )
-    # asyncio.create_task(state.consolidation_loop.start())
+    llm_a = AdapterFactory.get_adapter("llm_a")
+    llm_b = AdapterFactory.get_adapter("llm_b")
+    state.consolidation_loop = ConsolidationLoop(
+        dao=state.dao,
+        embedder=AdapterFactory.get_adapter(),
+        llm_a=llm_a,
+        llm_b=llm_b,
+        obs_layer=state.obs_layer,
+    )
+    asyncio.create_task(state.consolidation_loop.start())
 
     yield
 
     # ==================================================================
     # Shutdown
     # ==================================================================
+    # Stop the consolidation loop before flushing state
+    if hasattr(state, "consolidation_loop") and state.consolidation_loop:
+        await state.consolidation_loop.stop()
+
+    # v0.4.1 FIX: Persist valence cognitive state to prevent amnesia.
+    # The load path in mesa_memory/storage/__init__.py reads from this
+    # exact path — without this save, the EWMAD threshold and memory
+    # count are lost on every restart, causing threshold regression.
+    try:
+        from mesa_memory.valence.core import ValenceMotor
+
+        if hasattr(state, "consolidation_loop") and state.consolidation_loop:
+            # Walk the consolidation → router → validator chain to find
+            # any ValenceMotor instance that may hold live state.
+            _router = getattr(state.consolidation_loop, "router", None)
+            _valence = getattr(_router, "valence_motor", None)
+            if _valence and isinstance(_valence, ValenceMotor):
+                await _valence.save_state("./storage/valence_state.db")
+                logger.info("Valence state persisted to ./storage/valence_state.db")
+    except Exception as exc:
+        logger.warning("Failed to persist valence state on shutdown: %s", exc)
+
     if state.sqlite_engine:
         await state.sqlite_engine.close()
 

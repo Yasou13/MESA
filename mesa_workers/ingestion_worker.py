@@ -48,6 +48,7 @@ import traceback
 import uuid
 from typing import Any
 
+from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
 from mesa_memory.valence.novelty import calculate_novelty_score
 from mesa_storage.dao import MemoryDAO
@@ -61,6 +62,8 @@ logger = logging.getLogger("MESA_ColdPath")
 
 _rebel_extractor: RebelExtractor | None = None
 MAX_CONCURRENT_WORKERS = asyncio.Semaphore(10)
+MAX_TIER3_CONCURRENT = 3
+_tier3_semaphore = asyncio.Semaphore(MAX_TIER3_CONCURRENT)
 
 
 def _get_rebel_extractor() -> RebelExtractor:
@@ -76,7 +79,11 @@ def _get_rebel_extractor() -> RebelExtractor:
 # ---------------------------------------------------------------------------
 
 
-async def process_cold_path(log_id: int, dao: MemoryDAO) -> None:
+async def process_cold_path(
+    log_id: int,
+    dao: MemoryDAO,
+    consolidation_loop: ConsolidationLoop | None = None,
+) -> None:
     """Process a queued raw_logs entry through the full validation pipeline.
 
     This is the **cold-path worker** invoked as a ``BackgroundTask`` after
@@ -190,6 +197,33 @@ async def process_cold_path(log_id: int, dao: MemoryDAO) -> None:
                     content=content,
                     log_id=log_id,
                 )
+
+            # ==============================================================
+            # 5b. TIER-3: DUAL-LLM CONSENSUS (Backpressure-gated)
+            # ==============================================================
+            if consolidation_loop is not None:
+                record = {
+                    "id": str(log_id),
+                    "agent_id": agent_id,
+                    "session_id": session_id,
+                    "content": content,
+                    "metadata": metadata,
+                }
+                try:
+                    async with _tier3_semaphore:
+                        await consolidation_loop.run_batch([record])
+                    logger.debug(
+                        "TIER3_CONSENSUS_DONE | log_id=%d agent_id=%s",
+                        log_id,
+                        agent_id,
+                    )
+                except Exception as t3_exc:
+                    # Tier-3 failure must NOT block cold-path commit
+                    logger.warning(
+                        "TIER3_CONSENSUS_FAILED | log_id=%d error=%s",
+                        log_id,
+                        t3_exc,
+                    )
 
             # ==============================================================
             # 6. STATUS → processed
