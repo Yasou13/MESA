@@ -5,7 +5,14 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.1] - 2026-05-28
+## [0.4.1] - 2026-05-29
+
+### Added
+
+- **feat(dx): Optional REBEL Model (`MESA_REBEL_ENABLED`):** The 1.8 GB `Babelscape/rebel-large` model is now gated behind a boolean config flag (`MESA_REBEL_ENABLED`, default `true`). Setting to `false` completely skips model download and initialization, eliminating Docker build timeouts and reducing cold-start from ~5 min to <10 s for development and CI environments.
+- **feat(dx): LLM-Fallback Triplet Extraction:** When REBEL is disabled, triple extraction falls back to a zero-shot prompt via the configured Tier-3 LLM provider (Groq/Llama-3). The fallback produces the identical `{head, relation, tail}` dict format consumed by `_commit_triplets`, requiring zero downstream changes. Includes a robust JSON parser that handles markdown fences, `subject/predicate/object` key aliases, and malformed LLM output.
+- **docs(readme): Docker-First Quickstart Overhaul:** README now opens with a 60-second copy-paste Docker quickstart block. All API examples updated to v3 endpoints (`/v3/memory/insert`, `/v3/memory/search`, `/v3/memory/status/{log_id}`, `/v3/memory/purge`) with correct `X-API-Key` headers. Added environment variables reference table.
+- **docs(mcp): Claude Desktop MCP Integration Guide:** New dedicated section with the exact `claude_desktop_config.json` snippet required to connect Claude Desktop to a local MESA instance via the `mesa_mcp.server` stdio transport. Documents both `record_memory` and `search_memory` MCP tools.
 
 ### Fixed
 

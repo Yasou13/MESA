@@ -179,6 +179,16 @@ class MesaConfig(BaseSettings):
     # Local embedding fallback model (used when OpenAI key is absent)
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
+    # -----------------------------------------------------------------------
+    # v0.4.1 DX Patch: Optional REBEL Model
+    # When False, the 1.8 GB Babelscape/rebel-large model is NOT downloaded
+    # or loaded.  Triple extraction falls back to an LLM-only zero-shot
+    # prompt via the configured Tier-3 provider (Groq/Llama-3).
+    # Set to False in CI, Docker builds, or low-resource dev environments
+    # to cut cold-start time from ~5 min to < 10 s.
+    # -----------------------------------------------------------------------
+    rebel_enabled: bool = Field(True, validation_alias="MESA_REBEL_ENABLED")
+
     @model_validator(mode="after")
     def validate_embedding_fallback(self) -> "MesaConfig":
         if self.llm_provider.lower() == "claude" and not self.openai_api_key:

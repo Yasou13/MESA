@@ -42,12 +42,14 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import traceback
 import uuid
 from typing import Any
 
+from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
 from mesa_memory.valence.novelty import calculate_novelty_score
@@ -66,8 +68,16 @@ MAX_TIER3_CONCURRENT = 3
 _tier3_semaphore = asyncio.Semaphore(MAX_TIER3_CONCURRENT)
 
 
-def _get_rebel_extractor() -> RebelExtractor:
-    """Lazy-init the REBEL singleton to avoid loading the 1.8 GB model at import."""
+def _get_rebel_extractor() -> RebelExtractor | None:
+    """Lazy-init the REBEL singleton.
+
+    Returns ``None`` when ``MESA_REBEL_ENABLED`` is ``False``, preventing
+    the 1.8 GB model download and eliminating Docker timeout / slow
+    onboarding issues.
+    """
+    if not config.rebel_enabled:
+        return None
+
     global _rebel_extractor
     if _rebel_extractor is None:
         _rebel_extractor = RebelExtractor()
@@ -372,18 +382,33 @@ def _hash_embedding_sync(text: str, dim: int = 8) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
-# Stage 4: REBEL Triple Extraction
+# Stage 4: Triple Extraction (REBEL or LLM fallback)
 # ---------------------------------------------------------------------------
+
+# -- Zero-shot prompt for LLM-only triple extraction -----------------------
+_LLM_TRIPLET_PROMPT = """Extract all factual relationships from the text below as (subject, predicate, object) triplets.
+
+Rules:
+- Output ONLY a JSON array of objects with keys "head", "relation", "tail".
+- Each value must be a short noun phrase or verb phrase — no full sentences.
+- If no relationships can be extracted, return an empty array [].
+- Do NOT include any explanation, markdown fences, or commentary.
+
+Text:
+{text}
+
+JSON:"""
 
 
 async def _run_rebel_extraction(content: str) -> list[dict[str, str]]:
-    """Run REBEL zero-cost triple extraction in a thread pool.
+    """Dispatch triple extraction to REBEL or LLM fallback.
 
-    REBEL is a synchronous HuggingFace pipeline. We offload it to
-    ``run_in_executor`` to avoid blocking the async event loop.
+    Strategy:
+        * ``MESA_REBEL_ENABLED=True``  → REBEL HF pipeline (thread-pool)
+        * ``MESA_REBEL_ENABLED=False`` → LLM zero-shot via Tier-3 adapter
 
-    Falls back gracefully if the REBEL model is not installed or
-    the extraction fails — returns an empty list.
+    Both paths return the identical ``[{head, relation, tail}, ...]`` format
+    consumed by ``_commit_triplets``.
 
     Args:
         content: Raw text content to extract triples from.
@@ -391,8 +416,20 @@ async def _run_rebel_extraction(content: str) -> list[dict[str, str]]:
     Returns:
         List of ``{head, relation, tail}`` dicts.
     """
+    extractor = _get_rebel_extractor()
+
+    if extractor is not None:
+        return await _run_rebel_extraction_impl(extractor, content)
+
+    # REBEL disabled — use LLM fallback
+    return await _run_llm_triplet_extraction(content)
+
+
+async def _run_rebel_extraction_impl(
+    extractor: RebelExtractor, content: str
+) -> list[dict[str, str]]:
+    """Execute the REBEL HF pipeline in a thread-pool executor."""
     try:
-        extractor = _get_rebel_extractor()
         loop = asyncio.get_running_loop()
         triplets = await loop.run_in_executor(
             None, extractor.extract_triplets, content
@@ -410,6 +447,84 @@ async def _run_rebel_extraction(content: str) -> list[dict[str, str]]:
     except Exception as exc:
         logger.warning("REBEL_EXTRACT_ERROR | error=%s — skipping", exc)
         return []
+
+
+async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
+    """LLM-only fallback: extract triplets via zero-shot Tier-3 prompt.
+
+    Uses the existing ``AdapterFactory`` (Groq / Llama-3 / Ollama) to call
+    the configured LLM with a structured JSON extraction prompt.  Output is
+    normalised to the same ``{head, relation, tail}`` dict format that
+    ``_commit_triplets`` expects.
+
+    This path avoids downloading the 1.8 GB REBEL model entirely.
+    """
+    try:
+        from mesa_memory.adapter.factory import AdapterFactory
+
+        adapter = AdapterFactory.get_adapter()
+
+        # Truncate to ~2000 chars to stay within Tier-3 context window
+        truncated = content[:2000]
+        prompt = _LLM_TRIPLET_PROMPT.format(text=truncated)
+
+        raw_response = await adapter.acomplete(
+            prompt,
+            max_tokens=512,
+            temperature=0.0,
+        )
+
+        # Parse the JSON array from the LLM response
+        triplets = _parse_llm_triplet_response(raw_response)
+
+        logger.debug(
+            "LLM_TRIPLET_EXTRACT | content_len=%d triplets=%d",
+            len(content),
+            len(triplets),
+        )
+        return triplets
+
+    except Exception as exc:
+        logger.warning(
+            "LLM_TRIPLET_EXTRACT_ERROR | error=%s — returning empty", exc
+        )
+        return []
+
+
+def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
+    """Parse and validate the LLM JSON response into normalised triplets.
+
+    Handles common LLM output quirks: markdown fences, trailing commas,
+    extra prose around the JSON array.
+
+    Returns:
+        List of ``{head, relation, tail}`` dicts.  Invalid entries are
+        silently dropped.
+    """
+    from mesa_memory.adapter.live import OpenAICompatibleAdapter
+
+    cleaned = OpenAICompatibleAdapter._sanitize_json(raw)
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning("LLM_TRIPLET_PARSE_FAILED | raw=%s", raw[:200])
+        return []
+
+    if not isinstance(parsed, list):
+        parsed = [parsed]
+
+    triplets: list[dict[str, str]] = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        head = str(entry.get("head", entry.get("subject", ""))).strip()
+        relation = str(entry.get("relation", entry.get("predicate", ""))).strip()
+        tail = str(entry.get("tail", entry.get("object", ""))).strip()
+        if head and relation and tail:
+            triplets.append({"head": head, "relation": relation, "tail": tail})
+
+    return triplets
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,158 @@ Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consens
 
 ---
 
+## ⚡ Quickstart (Docker) — 60 Seconds
+
+Copy-paste this to get a running MESA instance with zero local dependencies:
+
+```bash
+git clone https://github.com/Yasou13/MESA.git
+cd MESA
+echo "LLM_API_KEY=your_llm_key_here" > .env
+echo "MESA_API_KEY=local-dev-key" >> .env
+echo "MESA_REBEL_ENABLED=false" >> .env  # Skips 1.8GB download for quick testing
+docker-compose up -d
+```
+
+> **Why `MESA_REBEL_ENABLED=false`?**  The default REBEL extraction model (`Babelscape/rebel-large`) is 1.8 GB. Setting this to `false` uses an LLM-only zero-shot fallback for triple extraction — identical output format, no model download, and container builds that finish in seconds instead of minutes. Set to `true` for production workloads where offline extraction accuracy matters.
+
+Verify it's running:
+
+```bash
+curl http://localhost:8000/health
+# → {"status": "ok", ...}
+```
+
+MESA is now live at **`http://localhost:8000`** with Swagger docs at [`/docs`](http://localhost:8000/docs).
+
+---
+
+## 🔑 API Examples (v3)
+
+All endpoints require the `X-API-Key` header. This must match the `MESA_API_KEY` value in your `.env` file.
+
+### Insert a Memory
+
+```bash
+curl -X POST http://localhost:8000/v3/memory/insert \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: local-dev-key" \
+  -d '{
+    "agent_id": "analyst_1",
+    "session_id": "session_001",
+    "content": "Tesla Q4 2025 revenue exceeded $25B, up 12% YoY."
+  }'
+# → {"status": "queued", "log_id": 1}
+```
+
+The insert endpoint returns **202 Accepted** in <50ms. Heavy processing (ECOD anomaly detection, triple extraction, dual-LLM consensus) happens asynchronously on the cold path.
+
+### Check Ingestion Status
+
+```bash
+curl http://localhost:8000/v3/memory/status/1 \
+  -H "X-API-Key: local-dev-key"
+# → {"log_id": 1, "status": "processed"}
+```
+
+### Search Memories
+
+```bash
+curl -X POST http://localhost:8000/v3/memory/search \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: local-dev-key" \
+  -d '{
+    "agent_id": "analyst_1",
+    "query": "What was Tesla Q4 revenue?",
+    "limit": 5
+  }'
+# → {"context": "...", "retrieved_nodes": [...], "metrics": {"latency_ms": 12}}
+```
+
+### Purge Memories (Soft-Delete)
+
+```bash
+curl -X DELETE http://localhost:8000/v3/memory/purge \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: local-dev-key" \
+  -d '{
+    "agent_id": "analyst_1",
+    "scope": "agent"
+  }'
+# → {"status": "purged", "deleted_records_count": 42}
+```
+
+---
+
+## 🐍 Python SDK
+
+```python
+from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
+from mesa_client.client import MesaClient
+
+client = MesaClient(base_url="http://localhost:8000", api_key="local-dev-key")
+
+# Insert
+response = client.insert(MemoryInsertRequest(
+    agent_id="analyst_1",
+    session_id="s1",
+    content="Tesla Q4 revenue: $25B, up 12% YoY.",
+))
+print(f"Queued: log_id={response.log_id}")
+
+# Search
+results = client.search(MemorySearchRequest(
+    agent_id="analyst_1",
+    query="Tesla revenue",
+    limit=5,
+))
+print(f"Found {results.total} results")
+for r in results.results:
+    print(f"  {r.entity_name} (score: {r.score:.4f})")
+```
+
+---
+
+## 🤖 Integrations: Claude Desktop (MCP)
+
+MESA includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server (`mesa_mcp.server`) that exposes memory insert and search as MCP tools. This lets Claude Desktop read from and write to your local MESA instance natively.
+
+### Setup
+
+1. **Start MESA** (Docker or local — must be running on `localhost:8000`).
+
+2. **Add to your Claude Desktop config** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "mesa-memory": {
+      "command": "python",
+      "args": ["-m", "mesa_mcp.server"],
+      "cwd": "/absolute/path/to/MESA",
+      "env": {
+        "MESA_BASE_URL": "http://localhost:8000/v3",
+        "MESA_API_KEY": "local-dev-key"
+      }
+    }
+  }
+}
+```
+
+3. **Restart Claude Desktop.** You'll see two new tools available:
+
+| MCP Tool | Description |
+|---|---|
+| `record_memory` | Store a new memory (maps to `POST /v3/memory/insert`) |
+| `search_memory` | Retrieve relevant memories (maps to `POST /v3/memory/search`) |
+
+Claude can now persist facts across conversations and recall them on demand through your local MESA instance.
+
+> [!TIP]
+> Set the `agent_id` to `"claude-desktop"` for clean tenant isolation. Each conversation can use its own `session_id` for scoped retrieval.
+
+---
+
 ## Why MESA?
 
 Traditional agent memory is a flat buffer of text. MESA replaces that with a **multi-module pipeline** that gates every incoming record through statistical novelty checks, anomaly detection, and asymmetric dual-LLM cross-validation before committing structured knowledge triplets to a persistent graph. The result: agents that remember *accurately*, not just *recently*.
@@ -93,7 +245,7 @@ graph TB
 
 ---
 
-## 5-Minute Quickstart
+## Local Development (without Docker)
 
 ### 1. Install
 
@@ -110,74 +262,18 @@ pip install -r requirements-core.txt
 
 ```bash
 cp .env.example .env
-# Edit .env with your provider credentials, or use mock mode:
-# MESA_LLM_PROVIDER=mock
-# MESA_API_KEY=your-secret-key
+# Edit .env with your credentials:
+#   LLM_API_KEY=gsk_your_groq_key
+#   MESA_API_KEY=local-dev-key
+#   MESA_REBEL_ENABLED=false    # Optional: skip 1.8GB model download
 ```
 
-### 3. Launch the API Server (Daemon Mode)
-
-MESA v0.3.0 runs as a **headless FastAPI daemon**. All interaction flows through the REST API:
+### 3. Launch
 
 ```bash
-uvicorn mesa_api.router:app --host 0.0.0.0 --port 8000 --reload
+uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 # → http://127.0.0.1:8000/docs  (Swagger UI)
 # → http://127.0.0.1:8000/health
-```
-
-### 4. Insert & Search via cURL
-
-```bash
-# Insert a memory
-curl -X POST http://localhost:8000/v3/memory/insert \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your-secret-key" \
-  -d '{
-    "agent_id": "analyst_1",
-    "session_id": "session_001",
-    "content": "Tesla Q4 2025 revenue exceeded $25B, up 12% YoY."
-  }'
-
-# Search memories
-curl -X POST http://localhost:8000/v3/memory/search \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your-secret-key" \
-  -d '{
-    "agent_id": "analyst_1",
-    "query": "What was Tesla Q4 revenue?",
-    "limit": 5
-  }'
-```
-
-### 5. Use the Python SDK
-
-```python
-from mesa_client.client import MesaClient
-
-client = MesaClient(base_url="http://localhost:8000", api_key="your-secret-key")
-
-# Insert
-client.insert(agent_id="analyst_1", session_id="s1", content="Tesla Q4 revenue: $25B")
-
-# Search
-results = client.search(agent_id="analyst_1", query="Tesla revenue")
-for r in results:
-    print(r.content, r.score)
-```
-
-### 6. External Integration (MCP & LangChain)
-
-MESA provides deep integration with modern agent stacks:
-
-- **Model Context Protocol (MCP):** Connect to MESA using Claude Desktop or any MCP-compatible agent via the `mesa_mcp` package. This exposes memory retrieval as a standard context provider.
-- **LangChain:** Use the `MesaLangchainRetriever` found in the `mesa_client` package to embed MESA's asynchronous dual-engine memory straight into your LangChain pipelines.
-
-### 7. Docker Deployment
-
-```bash
-docker compose up --build -d
-# API available at http://localhost:8000
-# Storage persisted to ./storage/
 ```
 
 ---
@@ -186,18 +282,34 @@ docker compose up --build -d
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v3/memory/insert` | Queue memory ingestion (fire-and-forget, <150ms) |
+| `POST` | `/v3/memory/insert` | Queue memory ingestion (fire-and-forget, <50ms) |
 | `POST` | `/v3/memory/search` | Hybrid vector + graph + FTS5 retrieval |
+| `GET` | `/v3/memory/status/{log_id}` | Query cold-path processing status |
 | `DELETE` | `/v3/memory/purge` | Soft-delete only (hard-delete is background-only) |
 | `GET` | `/health` | System status and readiness check |
 | `GET` | `/metrics` | Prometheus scrape endpoint |
 
 ---
 
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `MESA_API_KEY` | *(required)* | API authentication key (sent via `X-API-Key` header) |
+| `LLM_API_KEY` | *(required)* | LLM provider API key (e.g., Groq `gsk_...`) |
+| `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | OpenAI-compatible endpoint |
+| `LLM_MODEL_NAME` | `llama-3.1-8b-instant` | Model identifier |
+| `MESA_LLM_PROVIDER` | `openai_compatible` | LLM backend: `openai_compatible`, `claude`, `ollama`, `mock` |
+| `MESA_REBEL_ENABLED` | `true` | Set to `false` to skip the 1.8GB REBEL model (uses LLM fallback) |
+| `MESA_LEGAL_DOMAIN_MODE` | `false` | Force all routing through Dual-LLM consensus for legal docs |
+| `MESA_MAX_RAM_MB` | *(auto-detected)* | Override system RAM detection for memory limits |
+
+---
+
 ## Running Tests
 
 ```bash
-# Full test suite (409 tests)
+# Full test suite
 pytest tests/ -q
 
 # With coverage
@@ -237,6 +349,7 @@ When using Groq's free tier as the LLM backend, you may hit **30 requests/minute
 
 The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per record on CPU**. For high-throughput workloads:
 - Set `MESA_REBEL_DEVICE=cuda` if a GPU is available.
+- Set `MESA_REBEL_ENABLED=false` to use the LLM-only fallback (zero model download, uses your configured Tier-3 provider).
 - The system automatically falls back to LLM-based extraction when REBEL fails, so extraction never blocks the pipeline.
 
 ### Current Status
@@ -254,16 +367,18 @@ MESA/
 ├── mesa_evals/           # Golden Dataset, evaluation runner, CI/CD gatekeeper
 ├── mesa_memory/
 │   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
+│   ├── api/              # FastAPI server entrypoint + auth middleware
 │   ├── consolidation/    # Batch orchestration + graph writing
 │   ├── extraction/       # REBEL triplet extraction pipeline
 │   ├── observability/    # Prometheus metrics + structured logging
 │   ├── retrieval/        # Hybrid vector + graph retrieval
 │   ├── schema/           # Pydantic CMB schema
 │   ├── security/         # RBAC access control + input sanitisation
-├── mesa_mcp/             # Model Context Protocol external integration
+│   └── valence/          # ECOD anomaly detection + novelty scoring
+├── mesa_mcp/             # Model Context Protocol server (Claude Desktop)
 ├── mesa_storage/         # MemoryDAO, AsyncEngine (SQLite WAL), LanceDB
-├── mesa_workers/         # MaintenanceWorker, rem_cycle.py
-├── tests/                # pytest suite (409 tests + benchmarks)
+├── mesa_workers/         # Cold-path ingestion worker, MaintenanceWorker, rem_cycle.py
+├── tests/                # pytest suite + benchmarks
 ├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)
 ├── Dockerfile            # Production container
 ├── docker-compose.yml    # Single-command deployment
