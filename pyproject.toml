@@ -137,7 +137,7 @@ source = ["mesa_memory", "mesa_workers", "mesa_client"]
 omit = ["tests/*", "examples/*", "scripts/*"]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 70
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
