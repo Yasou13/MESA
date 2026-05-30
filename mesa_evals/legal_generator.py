@@ -308,9 +308,9 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
                     "is_synthetic": True,
                     "category": "hard_negative",
                     "trap_type": "wrong_context_for_valid_article",
-                    "actual_article_topic": {l[0]: l[3] for l in LAWS}.get(
-                        law_short, "unknown"
-                    ),
+                    "actual_article_topic": {
+                        law_item[0]: law_item[3] for law_item in LAWS
+                    }.get(law_short, "unknown"),
                     "misleading_subject": wrong_subject,
                 },
                 "expected_triplets": [],  # Ground truth: system MUST return empty

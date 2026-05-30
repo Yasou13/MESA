@@ -48,7 +48,9 @@ The `MemoryDAO` is responsible for unifying the relational graph operations (SQL
 
 ---
 
-## 3. Storage Layer
+## 3. Storage Layer (MemoryDAO)
+
+The legacy split-brain storage (`mesa_memory/storage`) has been completely eliminated in Phase 1. MESA now unifies all relational graph operations (SQLite) and semantic vector operations (LanceDB) directly under a single interface: `MemoryDAO`. It strictly enforces row-level security (RLS) by hardcoding `agent_id` into every underlying query, ensuring that multi-tenant boundaries are never breached by the application logic.
 
 ### 3.1 SQLite — Relational Store (aiosqlite + WAL)
 
@@ -106,9 +108,30 @@ This guarantees that both stores are always consistent: either the full record i
 
 In v0.3.0, the legacy in-memory NetworkX graph has been completely deprecated in favor of a disk-based asynchronous relational schema within SQLite. Graph nodes and edges are persisted asynchronously via `aiosqlite`. Graph analytics and traversal (e.g., k-hop BFS) now operate directly on the SQLite database using recursive or bounded queries, providing massive scalability and sub-millisecond latency without the memory overhead of a persistent Python object graph.
 
+### 3.6 Semantic Conflict Resolution (Check-Then-Act)
+
+During dual-write insertions, `MemoryDAO` implements a "Check-Then-Act" semantic conflict resolution protocol. Before inserting a new memory record, the vector index is queried for highly similar existing entities. 
+
+If a contradiction or semantic update is detected (e.g., highly similar cosine distance combined with an exact entity match), the older conflicting records are explicitly marked via a **soft-delete** (`invalid_at` timestamp) prior to the new record's insertion. This ensures the cognitive pool does not degrade over time due to hallucination loops or factual contradictions, resolving semantic corruption dynamically.
+
 ---
 
-## 4. Security & Tenant Isolation
+## 4. Resilience & Fault Tolerance
+
+MESA operates within an inherently noisy LLM environment where API rate limits (HTTP 429) and service outages (HTTP 503) are common. The consolidation pipeline is fortified with a dedicated Resilience Engine:
+
+### 4.1 Exponential Backoff
+All LLM integration pathways (Triplet Extraction and Tier-3 Validation) utilize the `tenacity` library to manage transient faults. Failed external API calls are retried automatically using configurable exponential backoff (`MESA_RETRY_MIN_WAIT_SEC` and `MESA_RETRY_MAX_WAIT_SEC`).
+
+### 4.2 LLM Circuit Breaker
+If the external LLM provider consistently fails (exceeding `MESA_CIRCUIT_BREAKER_THRESHOLD`), a global `CircuitBreaker` dynamically opens. This halts further calls to the degraded provider, preventing cascading failures and prolonged pipeline starvation.
+
+### 4.3 Dead Letter Queue (DLQ)
+When records exhaust all retry budgets or fail while the Circuit Breaker is open, they are gracefully routed to a Dead Letter Queue. The background worker safely commits these failures to the SQLite `raw_logs` table with a `failed` status, ensuring operational observability without halting the main ingestion loop.
+
+---
+
+## 5. Security & Tenant Isolation
 
 ### 4.1 Epistemic Isolation (Row-Level Security)
 
@@ -322,19 +345,21 @@ Owns all LLM interaction formatting and response recovery:
 | 2 | Bracket-depth partial salvage | Layer 1 fails (truncated JSON) |
 | 3 | Bisection retry (in `TripletExtractor`) | All parsing layers fail |
 
-### `triplet_extractor.py` — REBEL Pipeline & LLM Fallback
+### `triplet_extractor.py` — Native LLM Extraction & Optional REBEL
 
 Manages the full extraction lifecycle:
 
-1. **REBEL Zero-Cost Extraction:** Every record is first processed through the `RebelExtractor` (Babelscape/rebel-large), a transformer-based triplet extraction model. This is the preferred path — zero LLM API cost.
+1. **Primary LLM Extraction (Zero-Shot Turkish):** By default (`MESA_REBEL_ENABLED=false`), records are processed via the primary LLM adapter using a highly optimized, zero-shot Turkish legal triplet extraction prompt (`MESA_EXTRACTION_LANG=tr`). This completely eliminates the 1.8GB transformer model overhead for standard API deployments.
 
-2. **LLM Fallback:** Records that REBEL cannot handle are batched and sent to dual LLMs (LLM_A and LLM_B) with positionally-tagged prompts (Lost-in-the-Middle mitigation):
+2. **Optional REBEL Zero-Cost Extraction:** If `MESA_REBEL_ENABLED=true` is explicitly set (and the `[rebel]` poetry extra is installed), records are first processed through the `RebelExtractor` (Babelscape/rebel-large). This provides zero API cost at the expense of local memory and CPU/GPU compute. Records that REBEL cannot handle fall back to the primary LLM.
+
+3. **LLM Fallback & Lost-in-the-Middle:** For LLM extraction, records are batched and sent to dual LLMs (LLM_A and LLM_B) with positionally-tagged prompts:
    - **Layer 1 — Positional Tagging:** Explicit `=== RECORD N ===` / `=== END RECORD N ===` delimiters.
    - **Layer 4 — Anchor Tokens:** Attention-reset checkpoints every `anchor_interval` records.
 
-3. **Bisection Retry (Layer 3):** When a sub-batch produces irrecoverable JSON, the batch is split in half recursively. At max retry depth (`truncation_max_retries`), individual records fall back to 1:1 single-record prompts.
+4. **Bisection Retry (Layer 3):** When a sub-batch produces irrecoverable JSON, the batch is split in half recursively. At max retry depth (`truncation_max_retries`), individual records fall back to 1:1 single-record prompts.
 
-4. **Salience-First Ordering (Layer 2):** Before prompting, records are sorted by information density and interleaved so that high-salience items occupy batch edges (primacy/recency positions), mitigating Lost-in-the-Middle degradation.
+5. **Salience-First Ordering (Layer 2):** Before prompting, records are sorted by information density and interleaved so that high-salience items occupy batch edges (primacy/recency positions), mitigating Lost-in-the-Middle degradation.
 
 ### `validator.py` — Tier-3 Consensus Gate
 

@@ -5,6 +5,31 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-05-30
+
+### Added
+
+- **Session Lifecycle APIs**: New `/v3/session/start`, `/v3/session/{session_id}/context`, and `/v3/session/{session_id}/end` endpoints for comprehensive, isolated session management.
+- **Resilience Engine**: Circuit Breaker and Exponential Backoff patterns implemented via `tenacity` in the consolidation pipeline to elegantly handle LLM provider rate limits (429) and outages (503).
+- **Turkish Extraction Prompt**: Native zero-shot Turkish legal triplet extraction (`MESA_EXTRACTION_LANG=tr`) replacing heavy local transformer requirements.
+- **LLM-as-a-judge Adaptive Routing**: Replaced naive pseudo-entropy scoring with a robust, LLM-driven confidence scorer to direct high-ambiguity records through dual-LLM cross-validation.
+
+### Changed
+
+- **Heavy ML Dependencies Isolated**: PyTorch and REBEL models moved to `[project.optional-dependencies]` under `rebel`. The base MESA image is now purely API-driven and lightweight.
+- **Default Extraction Config**: `MESA_REBEL_ENABLED` defaults to `false` and `MESA_EXTRACTION_LANG` defaults to `tr` for optimized onboarding.
+
+### Fixed
+
+- **Semantic Conflict Resolution (Check-Then-Act)**: Resolved vector index hallucination loops by querying the index before insertion. `MemoryDAO` now explicitly soft-deletes contradictions or stale triplet updates, maintaining high cognitive pool integrity.
+
+### Removed
+
+- **Legacy Split-Brain Storage**: `StorageFacade` and the entire `mesa_memory/storage` module were deleted. All persistent writes are now exclusively managed by `MemoryDAO`.
+- **Invalid Metrics**: Removed the mathematically invalid `pseudo_entropy` calculation.
+
+---
+
 ## [0.4.1] - 2026-05-29
 
 ### Added
@@ -126,6 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.4.2]: https://github.com/Yasou13/MESA/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Yasou13/MESA/compare/v0.3.0...v0.4.1
 [0.3.0]: https://github.com/Yasou13/MESA/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Yasou13/MESA/compare/v0.1.0...v0.2.0

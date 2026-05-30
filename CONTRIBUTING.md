@@ -23,6 +23,8 @@ Please strictly adhere to the following workflow when contributing to MESA:
    ```bash
    pytest tests/ -v
    ```
+   > **Note on Testing Architecture:** Testing the routing or storage modules requires mocking the `LLM-as-a-judge` adaptive logic and intercepting the `MemoryDAO` dual-write saga to prevent unwanted database state mutation.
+
    Ensure all tests pass before proceeding.
 
 5. **Submit a Pull Request**

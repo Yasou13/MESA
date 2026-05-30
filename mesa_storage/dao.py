@@ -145,12 +145,15 @@ class MemoryDAO:
         content_hash: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> str:
-        """Insert a memory record scoped exclusively to ``agent_id``.
+        """Insert a memory record scoped exclusively to ``agent_id`` with Check-Then-Act semantic conflict resolution.
 
         Performs a dual-write:
             1. SQLite ``nodes`` table — relational graph vertex.
             2. LanceDB vector table — embedding for similarity search.
 
+        Before insertion, it evaluates existing vectors for high semantic similarity.
+        If a contradiction or update is detected, the older conflicting records are
+        soft-deleted to prevent data corruption.
         Both writes carry the same ``agent_id`` to maintain referential
         parity across storage backends.
 
@@ -178,10 +181,60 @@ class MemoryDAO:
 
         now = datetime.now(timezone.utc).isoformat()
 
+        # ---- Check-Then-Act: Semantic Conflict Resolution --------
+        # Query vector index for highly similar existing triplets
+        similar_memories = await self.search_memory(
+            agent_id=agent_id,
+            query_vector=embedding,
+            limit=5,
+            include_graph=True,
+        )
+
+        conflicting_node_ids = []
+        for mem in similar_memories:
+            distance = mem.get("_distance", 1.0)
+            graph_data = mem.get("graph")
+            if not graph_data:
+                continue
+
+            # Semantic similarity heuristic:
+            # - Exact subject match (entity_name)
+            # - High semantic similarity (distance < 0.15) -> UPDATE or CONTRADICTION
+            if graph_data.get("entity_name") == entity_name and distance < 0.15:
+                conflicting_node_ids.append(mem["node_id"])
+
         # ---- ATOMIC SAGA: SQLite + LanceDB (B-7 pattern) ----------
         # DO NOT commit SQLite until LanceDB succeeds.  On vector
         # failure, ROLLBACK SQLite to prevent orphaned relational records.
         async with self._sql.transaction() as db:
+            # PHASE 1: Soft-delete conflicting nodes in SQLite
+            if conflicting_node_ids:
+                placeholders = ",".join("?" for _ in conflicting_node_ids)
+                # Soft-delete nodes
+                await db.execute(
+                    f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
+                    f"WHERE id IN ({placeholders}) AND agent_id = ? "
+                    f"AND invalid_at IS NULL",
+                    (*conflicting_node_ids, agent_id),
+                )
+                # Cascade to connected edges
+                await db.execute(
+                    f"UPDATE edges SET invalid_at = CURRENT_TIMESTAMP "
+                    f"WHERE agent_id = ? "
+                    f"  AND (source_id IN ({placeholders}) OR target_id IN ({placeholders})) "
+                    f"  AND invalid_at IS NULL",
+                    (agent_id, *conflicting_node_ids, *conflicting_node_ids),
+                )
+                logger.info(
+                    "SEMANTIC_CONFLICT_RESOLUTION | agent_id=%s new_node_id=%s "
+                    "resolved_conflicts=%d soft_deleted=%s",
+                    agent_id,
+                    node_id,
+                    len(conflicting_node_ids),
+                    conflicting_node_ids,
+                )
+
+            # PHASE 2: Insert new node
             await db.execute(
                 "INSERT INTO nodes "
                 "(id, entity_name, type, is_consolidated, created_at, "
@@ -192,6 +245,10 @@ class MemoryDAO:
 
             # ---- LanceDB upsert (compensating rollback on fail) ------
             try:
+                # Apply soft-delete in LanceDB for conflicts
+                for cid in conflicting_node_ids:
+                    await self._vec.soft_delete(cid)
+
                 await self._vec.upsert(
                     node_id=node_id,
                     agent_id=agent_id,
@@ -987,10 +1044,10 @@ class MemoryDAO:
             ) as cursor:
                 results = await cursor.fetchall()
                 rows = list(results)
-                
+
         total_audits = len(rows)
         hallucinations = sum(1 for row in rows if row[0] == 1)
-        
+
         return {
             "total_audits": total_audits,
             "hallucinations": hallucinations,

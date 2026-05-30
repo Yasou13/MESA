@@ -82,3 +82,12 @@ def deterministic_embedding(text: str, dim: int = 768) -> list[float]:
     if magnitude == 0:
         return [0.0] * dim
     return [x / magnitude for x in raw_floats]
+
+
+@pytest.fixture(autouse=True)
+def reset_circuit_breaker():
+    """Ensure the global circuit breaker is reset before every test to prevent state leakage."""
+    from mesa_memory.consolidation.loop import llm_circuit_breaker
+
+    llm_circuit_breaker.failures = 0
+    llm_circuit_breaker.last_failure_time = 0.0

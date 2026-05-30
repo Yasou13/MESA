@@ -175,8 +175,10 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 |---|---|---|---|
 | **Hallucination Mitigation** | Dual-LLM Consensus + Fail-safe Discard | Prompt-based | Self-correction |
 | **Validation Architecture** | 3-Tier Statistical + LLM Pipeline | None | Prompt-based |
-| **Knowledge Graph** | Automated REBEL + LLM Triplet Extraction | Manual | None |
+| **Knowledge Graph** | Automated REBEL + LLM Triplet Extraction (Turkish/English) | Manual | None |
 | **Tenant Isolation** | Mandatory `agent_id` RLS on every query | None | None |
+| **Session Lifecycle APIs** | Native `/session/start`, `/context`, `/end` endpoints | None | Implicit |
+| **Fault Tolerance** | Circuit Breaker + DLQ + Exponential Backoff | Try/Catch | Retry Decorator |
 | **Local-First** | Yes (SQLite WAL, LanceDB, NetworkX) | Cloud-dependent | Cloud-dependent |
 | **Observability** | Prometheus + structured JSON logs | Basic logging | Basic logging |
 
@@ -249,6 +251,8 @@ graph TB
 
 ### 1. Install
 
+MESA has been refactored for a lightweight base install. The core package avoids heavy ML dependencies unless explicitly requested.
+
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
@@ -257,6 +261,12 @@ pip install -r requirements-core.txt
 ```
 
 > **Core dependencies installed:** `aiosqlite`, `fastapi`, `lancedb`, `httpx`, `pydantic`, `uvicorn`, `networkx`, `pyarrow`, and all supporting packages. See `requirements-core.txt` for the full manifest or `pyproject.toml` for version ranges.
+
+**Optional Heavy ML Models:** If you need the local REBEL transformer model for English-only offline triplet extraction, install the optional package:
+```bash
+pip install -r requirements-ml.txt
+# or pip install .[rebel] if using pyproject.toml package definition
+```
 
 ### 2. Configure
 
@@ -286,6 +296,9 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 | `POST` | `/v3/memory/search` | Hybrid vector + graph + FTS5 retrieval |
 | `GET` | `/v3/memory/status/{log_id}` | Query cold-path processing status |
 | `DELETE` | `/v3/memory/purge` | Soft-delete only (hard-delete is background-only) |
+| `POST` | `/v3/session/start` | Generate a new session with tenant isolation |
+| `GET` | `/v3/session/{session_id}/context` | Retrieve episodic + graph context scoped to session |
+| `POST` | `/v3/session/{session_id}/end` | Terminate session and trigger final consolidation |
 | `GET` | `/health` | System status and readiness check |
 | `GET` | `/metrics` | Prometheus scrape endpoint |
 

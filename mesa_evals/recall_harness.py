@@ -443,8 +443,8 @@ def _compute_answer_relevance(
     # Build token set from all retrieved chunks
     retrieved_text_parts: list[str] = []
     for node in retrieved_nodes[:k]:
-        for field in ("entity_name", "content", "context"):
-            val = node.get(field)
+        for node_field in ("entity_name", "content", "context"):
+            val = node.get(node_field)
             if val:
                 retrieved_text_parts.append(str(val))
 

@@ -1,10 +1,8 @@
 """
 Graph Writer — Cross-validation and persistent graph commit logic.
 
-Refactored for MESA v0.3.1 to wire directly to the asynchronous
-``MemoryDAO`` layer, replacing the deprecated ``StorageFacade`` and
-in-memory NetworkX graph provider.  All writes now go through the
-DAO's agent-scoped, RLS-enforced methods.
+All writes flow exclusively through the ``MemoryDAO``'s agent-scoped,
+RLS-enforced methods.  ``MemoryDAO`` is the single source of truth.
 
 ``GraphWriter`` owns:
 

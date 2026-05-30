@@ -147,20 +147,48 @@ class TestBatchCapacity:
         loop, dao, llm_a, llm_b = _build_consolidation_loop()
         records = _make_records(8)  # Single sub-batch
 
-        def _llm_complete_side_effect(prompt, schema=None):
-            count = prompt.count("=== RECORD ")
+        async def _llm_complete_side_effect(prompt, *args, **kwargs):
+            prompt_str = str(prompt)
+            count = prompt_str.count("=== RECORD ")
+            count = count if count > 0 else 1
             return _make_batch_json_response(count)
 
-        llm_a.complete.side_effect = _llm_complete_side_effect
-        llm_b.complete.side_effect = _llm_complete_side_effect
+        def _sync_side_effect(prompt, *args, **kwargs):
+            prompt_str = str(prompt)
+            count = prompt_str.count("=== RECORD ")
+            count = count if count > 0 else 1
+            return _make_batch_json_response(count)
 
-        with patch(
-            "mesa_memory.consolidation.loop.calculate_composite_similarity",
-            return_value=0.9,
+        mock_adapter = MagicMock()
+        mock_adapter.acomplete = AsyncMock(side_effect=_llm_complete_side_effect)
+        mock_adapter.complete.side_effect = _sync_side_effect
+
+        llm_a.acomplete.side_effect = _llm_complete_side_effect
+        llm_a.complete.side_effect = _sync_side_effect
+        llm_b.acomplete.side_effect = _llm_complete_side_effect
+        llm_b.complete.side_effect = _sync_side_effect
+
+        with (
+            patch(
+                "mesa_memory.adapter.factory.AdapterFactory.get_adapter",
+                return_value=mock_adapter,
+            ),
+            patch(
+                "mesa_memory.extraction.rebel_pipeline.RebelExtractor.extract_triplets",
+                return_value=[],
+            ),
+            patch(
+                "mesa_memory.consolidation.loop.calculate_composite_similarity",
+                return_value=0.9,
+            ),
         ):
             await loop.run_batch(records)
 
-        prompt = llm_a.complete.call_args_list[0].args[0]
+        prompt = str(
+            llm_a.complete.call_args_list[0].args[0]
+            if llm_a.complete.call_count > 0
+            else llm_a.acomplete.call_args_list[0].args[0]
+        )
         for i in range(8):
             assert f"=== RECORD {i} ===" in prompt, f"Missing RECORD {i} tag"
             assert f"=== END RECORD {i} ===" in prompt, f"Missing END RECORD {i} tag"
@@ -171,20 +199,48 @@ class TestBatchCapacity:
         loop, dao, llm_a, llm_b = _build_consolidation_loop()
         records = _make_records(7)
 
-        def _llm_complete_side_effect(prompt, schema=None):
-            count = prompt.count("=== RECORD ")
+        async def _llm_complete_side_effect(prompt, *args, **kwargs):
+            prompt_str = str(prompt)
+            count = prompt_str.count("=== RECORD ")
+            count = count if count > 0 else 1
             return _make_batch_json_response(count)
 
-        llm_a.complete.side_effect = _llm_complete_side_effect
-        llm_b.complete.side_effect = _llm_complete_side_effect
+        def _sync_side_effect(prompt, *args, **kwargs):
+            prompt_str = str(prompt)
+            count = prompt_str.count("=== RECORD ")
+            count = count if count > 0 else 1
+            return _make_batch_json_response(count)
 
-        with patch(
-            "mesa_memory.consolidation.loop.calculate_composite_similarity",
-            return_value=0.9,
+        mock_adapter = MagicMock()
+        mock_adapter.acomplete = AsyncMock(side_effect=_llm_complete_side_effect)
+        mock_adapter.complete.side_effect = _sync_side_effect
+
+        llm_a.acomplete.side_effect = _llm_complete_side_effect
+        llm_a.complete.side_effect = _sync_side_effect
+        llm_b.acomplete.side_effect = _llm_complete_side_effect
+        llm_b.complete.side_effect = _sync_side_effect
+
+        with (
+            patch(
+                "mesa_memory.adapter.factory.AdapterFactory.get_adapter",
+                return_value=mock_adapter,
+            ),
+            patch(
+                "mesa_memory.extraction.rebel_pipeline.RebelExtractor.extract_triplets",
+                return_value=[],
+            ),
+            patch(
+                "mesa_memory.consolidation.loop.calculate_composite_similarity",
+                return_value=0.9,
+            ),
         ):
             await loop.run_batch(records)
 
-        prompt = llm_a.complete.call_args_list[0].args[0]
+        prompt = str(
+            llm_a.complete.call_args_list[0].args[0]
+            if llm_a.complete.call_count > 0
+            else llm_a.acomplete.call_args_list[0].args[0]
+        )
         # At i=3 and i=6, checkpoints should be injected
         assert "CHECKPOINT" in prompt, "No CHECKPOINT anchor found in prompt"
         assert "Continue with record 3" in prompt
@@ -380,7 +436,7 @@ class TestFaultTolerance:
         # For 1:1 fallback calls (indices 3 and 4), return valid single-record JSON
         call_count_a = {"n": 0}
 
-        def _llm_a_side_effect(prompt, schema=None):
+        def _llm_a_side_effect(prompt, *args, **kwargs):
             call_count_a["n"] += 1
             if call_count_a["n"] == 1:
                 # First call: batch prompt → truncated response
@@ -390,20 +446,42 @@ class TestFaultTolerance:
                 {"head": "FallbackA", "relation": "fr", "tail": "FallbackT"}
             )
 
-        llm_a.complete.side_effect = _llm_a_side_effect
+        async def _allm_a_side_effect(prompt, *args, **kwargs):
+            return _llm_a_side_effect(prompt, *args, **kwargs)
 
         # --- Mock LLM_B: returns perfect response for all 5 ---
-        def _llm_b_side_effect(prompt, schema=None):
-            count = prompt.count("=== RECORD ")
+        def _llm_b_side_effect(prompt, *args, **kwargs):
+            prompt_str = str(prompt)
+            count = prompt_str.count("=== RECORD ")
             if count > 0:
                 return _make_batch_json_response(count)
             return json.dumps({"head": "B", "relation": "r", "tail": "T"})
 
+        async def _allm_b_side_effect(prompt, *args, **kwargs):
+            return _llm_b_side_effect(prompt, *args, **kwargs)
+
+        mock_adapter = MagicMock()
+        mock_adapter.acomplete = AsyncMock(side_effect=_allm_a_side_effect)
+        mock_adapter.complete.side_effect = _llm_a_side_effect
+
+        llm_a.acomplete.side_effect = _allm_a_side_effect
+        llm_a.complete.side_effect = _llm_a_side_effect
+        llm_b.acomplete.side_effect = _allm_b_side_effect
         llm_b.complete.side_effect = _llm_b_side_effect
 
-        with patch(
-            "mesa_memory.consolidation.loop.calculate_composite_similarity",
-            return_value=0.9,
+        with (
+            patch(
+                "mesa_memory.adapter.factory.AdapterFactory.get_adapter",
+                return_value=mock_adapter,
+            ),
+            patch(
+                "mesa_memory.extraction.rebel_pipeline.RebelExtractor.extract_triplets",
+                return_value=[],
+            ),
+            patch(
+                "mesa_memory.consolidation.loop.calculate_composite_similarity",
+                return_value=0.9,
+            ),
         ):
             await loop.run_batch(records)
 
@@ -421,30 +499,53 @@ class TestFaultTolerance:
 
         call_count_a = {"n": 0}
 
-        def _llm_a_side_effect(prompt, schema=None):
+        def _llm_a_side_effect(prompt, *args, **kwargs):
             call_count_a["n"] += 1
             if call_count_a["n"] == 1:
                 # First call: total garbage
                 return "NOT JSON AT ALL [[[ broken"
             # All subsequent calls (bisection retries + 1:1 fallback): valid
-            count = prompt.count("=== RECORD ")
+            prompt_str = str(prompt)
+            count = prompt_str.count("=== RECORD ")
             if count > 0:
                 return _make_batch_json_response(count)
             return json.dumps({"head": "R", "relation": "r", "tail": "T"})
 
+        async def _allm_a_side_effect(prompt, *args, **kwargs):
+            return _llm_a_side_effect(prompt, *args, **kwargs)
+
+        def _llm_b_side_effect(prompt, *args, **kwargs):
+            prompt_str = str(prompt)
+            count = prompt_str.count("=== RECORD ")
+            if count > 0:
+                return _make_batch_json_response(count)
+            return json.dumps({"head": "R", "relation": "r", "tail": "T"})
+
+        async def _allm_b_side_effect(prompt, *args, **kwargs):
+            return _llm_b_side_effect(prompt, *args, **kwargs)
+
+        mock_adapter = MagicMock()
+        mock_adapter.acomplete = AsyncMock(side_effect=_allm_a_side_effect)
+        mock_adapter.complete.side_effect = _llm_a_side_effect
+
+        llm_a.acomplete.side_effect = _allm_a_side_effect
         llm_a.complete.side_effect = _llm_a_side_effect
-
-        def _llm_b_side_effect(prompt, schema=None):
-            count = prompt.count("=== RECORD ")
-            if count > 0:
-                return _make_batch_json_response(count)
-            return json.dumps({"head": "R", "relation": "r", "tail": "T"})
-
+        llm_b.acomplete.side_effect = _allm_b_side_effect
         llm_b.complete.side_effect = _llm_b_side_effect
 
-        with patch(
-            "mesa_memory.consolidation.loop.calculate_composite_similarity",
-            return_value=0.9,
+        with (
+            patch(
+                "mesa_memory.adapter.factory.AdapterFactory.get_adapter",
+                return_value=mock_adapter,
+            ),
+            patch(
+                "mesa_memory.extraction.rebel_pipeline.RebelExtractor.extract_triplets",
+                return_value=[],
+            ),
+            patch(
+                "mesa_memory.consolidation.loop.calculate_composite_similarity",
+                return_value=0.9,
+            ),
         ):
             await loop.run_batch(records)
 
@@ -456,7 +557,7 @@ class TestFaultTolerance:
 
         # LLM_A should have been called more than once (initial + retries)
         assert (
-            llm_a.complete.call_count > 1
+            llm_a.complete.call_count > 1 or llm_a.acomplete.call_count > 1
         ), "Bisection should have triggered additional LLM calls"
 
 

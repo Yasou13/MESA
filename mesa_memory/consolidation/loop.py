@@ -1,14 +1,11 @@
 """
 Consolidation Loop — Batch orchestrator for the MESA knowledge pipeline.
 
-v0.3.1 P0 Hotfix: Wired directly to the asynchronous ``MemoryDAO``,
-replacing the deprecated ``StorageFacade`` and in-memory NetworkX layers.
-
-All storage I/O now flows through the DAO's agent-scoped, RLS-enforced
-async methods.  The Dual-LLM consensus path reads from
-``dao.get_memories(include_consolidated=False)`` and commits validated
-entities via ``dao.insert_memory`` / ``dao.insert_edge``.  Failed
-consensus records are invalidated via ``dao.invalidate_node``.
+All storage I/O flows exclusively through the ``MemoryDAO``'s
+agent-scoped, RLS-enforced async methods.  The Dual-LLM consensus path
+reads from ``dao.get_memories(include_consolidated=False)`` and commits
+validated entities via ``dao.insert_memory`` / ``dao.insert_edge``.
+Failed consensus records are invalidated via ``dao.invalidate_node``.
 
 Refactored into focused modules following the Single Responsibility Principle:
 
@@ -85,6 +82,46 @@ class PersistentQueue:
 
 
 # ---------------------------------------------------------------------------
+# Resilience: Circuit Breaker
+# ---------------------------------------------------------------------------
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 10, cooldown_period: float = 60.0):
+        self.failure_threshold = failure_threshold
+        self.cooldown_period = cooldown_period
+        self.failures = 0
+        self.last_failure_time = 0.0
+
+    def record_failure(self):
+        self.failures += 1
+        self.last_failure_time = time.time()
+        if self.failures >= self.failure_threshold:
+            logger.critical(
+                "CIRCUIT BREAKER OPENED: %d consecutive failures.", self.failures
+            )
+
+    def record_success(self):
+        if self.failures >= self.failure_threshold:
+            logger.info("CIRCUIT BREAKER CLOSED: Connection recovered.")
+        self.failures = 0
+
+    @property
+    def is_open(self) -> bool:
+        if self.failures >= self.failure_threshold:
+            if time.time() - self.last_failure_time < self.cooldown_period:
+                return True
+            else:
+                return False
+        return False
+
+
+# Global circuit breaker instance
+llm_circuit_breaker = CircuitBreaker(
+    failure_threshold=config.circuit_breaker_threshold,
+    cooldown_period=config.circuit_breaker_cooldown_sec,
+)
+
+
+# ---------------------------------------------------------------------------
 # ConsolidationLoop — Pure Orchestrator (v0.3.1 DAO-wired)
 # ---------------------------------------------------------------------------
 
@@ -93,9 +130,9 @@ class ConsolidationLoop:
     """Orchestrates batch processing of raw log records through the
     consolidation pipeline.
 
-    v0.3.1: Wired directly to ``MemoryDAO``, replacing the deprecated
-    ``StorageFacade``.  All I/O flows through agent-scoped DAO methods
-    with RLS enforcement.
+    All I/O flows through ``MemoryDAO``'s agent-scoped methods with
+    RLS enforcement.  ``MemoryDAO`` is the single source of truth
+    for all read/write operations.
 
     Delegates to:
     - ``TripletExtractor``: REBEL + LLM extraction with bisection retry.
@@ -223,14 +260,23 @@ class ConsolidationLoop:
     # -------------------------------------------------------------------
 
     @retry(
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        stop=stop_after_attempt(3),
-        reraise=True,
+        wait=wait_exponential(
+            multiplier=1, min=config.retry_min_wait_sec, max=config.retry_max_wait_sec
+        ),
+        stop=stop_after_attempt(config.retry_max_attempts),
     )
     async def _extract_batch_with_retry(self, sorted_batch: list[dict]):
         """Runs the extraction pipeline with semaphore limiting and retries."""
+        if llm_circuit_breaker.is_open:
+            raise Exception("Circuit breaker is OPEN. Failing fast.")
         async with self._llm_semaphore:
-            return await self.triplet_extractor.extract_batch(sorted_batch)
+            try:
+                res = await self.triplet_extractor.extract_batch(sorted_batch)
+                llm_circuit_breaker.record_success()
+                return res
+            except Exception:
+                llm_circuit_breaker.record_failure()
+                raise
 
     # -------------------------------------------------------------------
     # Core batch orchestrator
@@ -369,7 +415,28 @@ class ConsolidationLoop:
         sorted_batch = self.triplet_extractor.sort_by_salience(batch)
 
         # --- Phase 3: Full extraction pipeline (Wrapped with semaphore + retries) ---
-        indexed_a, indexed_b = await self._extract_batch_with_retry(sorted_batch)
+        try:
+            indexed_a, indexed_b = await self._extract_batch_with_retry(sorted_batch)
+        except RetryError as exc:
+            logger.error("Extraction retries exhausted: %s", exc)
+            for record in sorted_batch:
+                self.dead_letter_queue.append(
+                    {
+                        "cmb_id": record.get("cmb_id", record.get("id", "")),
+                        "error": "Extraction failed after retries: " + str(exc),
+                    }
+                )
+            return
+        except Exception as exc:
+            logger.error("Extraction unexpected error: %s", exc)
+            for record in sorted_batch:
+                self.dead_letter_queue.append(
+                    {
+                        "cmb_id": record.get("cmb_id", record.get("id", "")),
+                        "error": "Extraction unexpected error: " + str(exc),
+                    }
+                )
+            return
 
         # --- Phase 4: Pre-fetch embeddings & commit via GraphWriter ---
         embedding_cache = await self.graph_writer.prefetch_embeddings(
@@ -401,9 +468,10 @@ class ConsolidationLoop:
     # -------------------------------------------------------------------
 
     @retry(
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        stop=stop_after_attempt(3),
-        reraise=True,
+        wait=wait_exponential(
+            multiplier=1, min=config.retry_min_wait_sec, max=config.retry_max_wait_sec
+        ),
+        stop=stop_after_attempt(config.retry_max_attempts),
     )
     async def _validate_with_timeout(
         self,
@@ -416,11 +484,19 @@ class ConsolidationLoop:
         concurrent execution via semaphore. Automatically retries
         on transient faults (API limits, network jitter).
         """
+        if llm_circuit_breaker.is_open:
+            raise Exception("Circuit breaker is OPEN. Failing fast.")
         async with self._llm_semaphore:
-            return await asyncio.wait_for(
-                self.router.validate(record),
-                timeout=timeout_seconds,
-            )
+            try:
+                res = await asyncio.wait_for(
+                    self.router.validate(record),
+                    timeout=timeout_seconds,
+                )
+                llm_circuit_breaker.record_success()
+                return res
+            except Exception:
+                llm_circuit_breaker.record_failure()
+                raise
 
 
 async def start_tier3_deferred_worker(
@@ -434,7 +510,7 @@ async def start_tier3_deferred_worker(
     Background worker that continuously consumes and processes
     unconsolidated records flagged with tier3_deferred=True.
 
-    v0.3.1: Reads from MemoryDAO instead of the deprecated StorageFacade.
+    Reads exclusively from ``MemoryDAO`` — the single source of truth.
     """
     logger.info("Starting Tier-3 Deferred background worker...")
     while True:

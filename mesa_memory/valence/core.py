@@ -103,19 +103,17 @@ class ValenceMotor:
         - No storage was injected (unit-test / standalone mode).
         - The storage layer raises any exception (cold-start).
 
-        Supports both ``StorageFacade`` (preferred, via ``load_embedding_cache``)
-        and raw ``VectorStorage`` (via ``get_all_embeddings``) for flexibility.
+        Uses duck-typed interface: any storage backend exposing
+        ``load_embedding_cache`` or ``get_all_embeddings`` is supported.
         """
         if self.storage is None:
             return []
 
         try:
-            # Prefer the StorageFacade convenience method
             if hasattr(self.storage, "load_embedding_cache"):
                 return self.storage.load_embedding_cache(
                     limit=config.max_embedding_history,
                 )
-            # Fallback: direct VectorStorage access
             if hasattr(self.storage, "get_all_embeddings"):
                 return self.storage.get_all_embeddings(
                     limit=config.max_embedding_history,

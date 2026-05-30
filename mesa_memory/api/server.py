@@ -77,8 +77,7 @@ async def lifespan(app: FastAPI):
     )
     await state.dao.initialize()
 
-    # Wire the Consolidation Loop to the DAO (v0.3.1 P0 Hotfix)
-    # ConsolidationLoop now accepts MemoryDAO directly — no StorageFacade.
+    # Wire the Consolidation Loop directly to the DAO
     llm_a = AdapterFactory.get_adapter("llm_a")
     llm_b = AdapterFactory.get_adapter("llm_b")
     state.consolidation_loop = ConsolidationLoop(
@@ -100,9 +99,8 @@ async def lifespan(app: FastAPI):
         await state.consolidation_loop.stop()
 
     # v0.4.1 FIX: Persist valence cognitive state to prevent amnesia.
-    # The load path in mesa_memory/storage/__init__.py reads from this
-    # exact path — without this save, the EWMAD threshold and memory
-    # count are lost on every restart, causing threshold regression.
+    # Without this save, the EWMAD threshold and memory count are lost
+    # on every restart, causing threshold regression.
     try:
         from mesa_memory.valence.core import ValenceMotor
 

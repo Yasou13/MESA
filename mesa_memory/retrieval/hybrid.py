@@ -7,7 +7,7 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
 from mesa_memory.security.rbac import AccessControl
-from mesa_memory.storage import StorageFacade
+from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_Retrieval")
 
@@ -26,17 +26,27 @@ def find_path(
 
 
 class HybridRetriever:
+    """Hybrid retriever combining vector, lexical, and graph search.
+
+    All storage I/O is routed exclusively through ``MemoryDAO`` —
+    the single source of truth for the MESA system.  Graph traversal
+    (PPR, multi-hop) is performed over an in-memory NetworkX snapshot
+    constructed from DAO edge data.
+    """
+
     def __init__(
         self,
-        storage_facade: StorageFacade,
+        dao: MemoryDAO,
         analyzer: QueryAnalyzer,
         embedder: BaseUniversalLLMAdapter,
         access_control: AccessControl | None = None,
+        agent_id: str = "__unset__",
     ):
-        self.storage = storage_facade
+        self.dao = dao
         self.analyzer = analyzer
         self.embedder = embedder
         self.access_control = access_control or AccessControl()
+        self._agent_id = agent_id
 
     async def retrieve(
         self,
@@ -53,24 +63,42 @@ class HybridRetriever:
         normalized = normalize_query(query_text)
         entities = self.analyzer.extract_entities(normalized)
 
-        seed_nodes = await self.storage.graph.find_nodes_by_name(
-            entities, case_insensitive=True
+        # Graph node lookup via DAO
+        seed_nodes = await self.dao.find_nodes_by_name(
+            agent_id, names=entities, case_insensitive=True
         )
-        seed_ids = [n["node_id"] for n in seed_nodes]
-        all_nodes = await self.storage.graph.get_all_active_nodes()
+        seed_ids = [n["id"] for n in seed_nodes]
+
+        # Cold-start detection via DAO
+        all_nodes = await self.dao.get_memories(agent_id)
         is_cold_start = (
             len(seed_ids) == 0 or len(all_nodes) < config.cold_start_min_nodes
         )
 
-        vector_task = self.get_vector_results(
-            normalized, k=100
-        )  # Top-100 candidate pool
-        graph_task = self.get_graph_results(entities)
+        vector_task = self.get_vector_results(agent_id, normalized, k=100)
+        graph_task = self.get_graph_results(agent_id, entities)
 
-        # We assume get_lexical_results might be added later, for now we pass empty list
-        # if FTS5 is not directly wired into this legacy Facade class.
         vector_results, graph_results = await asyncio.gather(vector_task, graph_task)
         lexical_results: list[dict] = []
+
+        # Try FTS5 lexical search via DAO if available
+        try:
+            lexical_results = await self.dao.search_memory_fts(
+                agent_id, query=normalized, limit=100
+            )
+            # Normalize to ranking format
+            lexical_results = [
+                {
+                    "cmb_id": r.get("id", ""),
+                    "content_payload": r.get("entity_name", ""),
+                    "score": abs(r.get("rank", 0.0)),
+                    "source": "lexical",
+                    "rank": i + 1,
+                }
+                for i, r in enumerate(lexical_results)
+            ]
+        except Exception:
+            lexical_results = []
 
         if is_cold_start or not graph_results:
             if not vector_results:
@@ -93,10 +121,10 @@ class HybridRetriever:
         # --- Multi-hop graph traversal between top 2 seed entities ---
         multi_hop_path: list[str] = []
         if len(seed_nodes) >= 2:
-            source_id = seed_nodes[0]["node_id"]
-            target_id = seed_nodes[1]["node_id"]
+            source_id = seed_nodes[0]["id"]
+            target_id = seed_nodes[1]["id"]
             try:
-                graph_snapshot = self.storage.graph.get_active_graph()
+                graph_snapshot = await self._build_graph_snapshot(agent_id)
                 multi_hop_path = find_path(graph_snapshot, source_id, target_id)
             except Exception:
                 logger.warning(
@@ -108,21 +136,24 @@ class HybridRetriever:
 
         return {"cmb_ids": cmb_ids, "multi_hop_path": multi_hop_path}
 
-    async def get_vector_results(self, query_text: str, k: int = 10) -> list[dict]:
+    async def get_vector_results(
+        self, agent_id: str, query_text: str, k: int = 10
+    ) -> list[dict]:
+        """Search via MemoryDAO vector search (LanceDB + RLS)."""
         loop = asyncio.get_running_loop()
         embedding = await loop.run_in_executor(None, self.embedder.embed, query_text)
 
-        raw_results = await asyncio.to_thread(
-            self.storage.vector.search, embedding, limit=k
+        raw_results = await self.dao.search_memory(
+            agent_id, query_vector=embedding, limit=k
         )
 
         results = []
         for i, r in enumerate(raw_results):
             results.append(
                 {
-                    "cmb_id": r.get("cmb_id", ""),
-                    "content_payload": r.get("content_payload", ""),
-                    "fitness_score": r.get("fitness_score", 0.0),
+                    "cmb_id": r.get("node_id", ""),
+                    "content_payload": r.get("content_hash", ""),
+                    "fitness_score": 0.0,
                     "score": 1.0 / (1.0 + r.get("_distance", 0.0)),
                     "source": "vector",
                     "rank": i + 1,
@@ -130,16 +161,17 @@ class HybridRetriever:
             )
         return results
 
-    async def get_graph_results(self, entities: list[str]) -> list[dict]:
-        seed_nodes = await self.storage.graph.find_nodes_by_name(
-            entities, case_insensitive=True
+    async def get_graph_results(self, agent_id: str, entities: list[str]) -> list[dict]:
+        """Look up graph neighbours via MemoryDAO."""
+        seed_nodes = await self.dao.find_nodes_by_name(
+            agent_id, names=entities, case_insensitive=True
         )
-        seed_ids = [n["node_id"] for n in seed_nodes]
+        seed_ids = [n["id"] for n in seed_nodes]
 
         if not seed_ids:
             return []
 
-        return await self._run_ppr(seed_ids)
+        return await self._run_ppr(agent_id, seed_ids)
 
     def _apply_alpha_reranking(
         self,
@@ -196,17 +228,52 @@ class HybridRetriever:
         )
         return sorted_ids
 
+    async def _build_graph_snapshot(self, agent_id: str) -> nx.DiGraph:
+        """Construct a NetworkX directed graph from DAO node/edge data.
+
+        This constructs the graph on-demand from the DAO's relational layer
+        to enable multi-hop traversal and PPR without external graph providers.
+        """
+        G = nx.DiGraph()
+
+        # Add all active nodes
+        nodes = await self.dao.get_memories(agent_id)
+        for node in nodes:
+            G.add_node(
+                node["id"],
+                **{
+                    "entity_name": node.get("entity_name", ""),
+                    "type": node.get("type", "ENTITY"),
+                },
+            )
+
+        # Add edges for each node
+        for node in nodes:
+            edges = await self.dao.get_neighbors(
+                agent_id, node_id=node["id"], direction="out"
+            )
+            for edge in edges:
+                G.add_edge(
+                    edge["source_id"],
+                    edge["target_id"],
+                    relation_type=edge.get("relation_type", "RELATED_TO"),
+                    weight=edge.get("weight", 1.0),
+                )
+
+        return G
+
     async def _run_ppr(
-        self, seed_ids: list[str], top_k: int = 15, max_depth: int = 2
+        self, agent_id: str, seed_ids: list[str], top_k: int = 15, max_depth: int = 2
     ) -> list[dict]:
-        all_nodes = await self.storage.graph.get_all_active_nodes()
-        if not seed_ids or len(all_nodes) == 0:
+        """Personalized PageRank via DAO-constructed graph snapshot."""
+        graph_snapshot = await self._build_graph_snapshot(agent_id)
+
+        if not seed_ids or len(graph_snapshot.nodes) == 0:
             return []
 
         # Strict semantic bound: Calculate maximum depth from seeds to prevent drift
         bounded_nodes: set[str] | None = set()
         try:
-            graph_snapshot = self.storage.graph.get_active_graph()
             for sid in seed_ids:
                 if sid in graph_snapshot:
                     subgraph = nx.ego_graph(graph_snapshot, sid, radius=max_depth)
@@ -216,18 +283,23 @@ class HybridRetriever:
             logger.warning("Failed to bound graph traversal: %s", exc)
             bounded_nodes = None
 
-        personalization = {node["node_id"]: 0.0 for node in all_nodes}
+        personalization = {node: 0.0 for node in graph_snapshot.nodes()}
         weight = 1.0 / len(seed_ids)
         for sid in seed_ids:
             if sid in personalization:
                 personalization[sid] = weight
 
-        ppr_scores = await self.storage.graph.compute_pagerank(
-            alpha=config.ppr_alpha,
-            personalization=personalization,
-            max_iter=100,
-            tol=1e-6,
-        )
+        try:
+            ppr_scores = nx.pagerank(
+                graph_snapshot,
+                alpha=config.ppr_alpha,
+                personalization=personalization,
+                max_iter=100,
+                tol=1e-6,
+            )
+        except nx.PowerIterationFailedConvergence:
+            logger.warning("PageRank failed to converge, returning empty results")
+            return []
 
         if not ppr_scores:
             return []

@@ -332,6 +332,40 @@ class MemoryPurgeRequest(BaseModel):
         return self
 
 
+class SessionStartRequest(BaseModel):
+    """Schema for starting a new session."""
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    agent_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Tenant identifier",
+    )
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_agent_id(cls, v: str) -> str:
+        return _validate_identifier(v, "agent_id")
+
+
+class SessionEndRequest(BaseModel):
+    """Schema for ending an existing session."""
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    agent_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Tenant identifier",
+    )
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_agent_id(cls, v: str) -> str:
+        return _validate_identifier(v, "agent_id")
+
+
 # ---------------------------------------------------------------------------
 # Response schemas — frozen output models
 # ---------------------------------------------------------------------------
@@ -422,3 +456,23 @@ class HealthResponse(BaseModel):
     sqlite: str = Field(default="unknown", description="SQLite engine status")
     vector: str = Field(default="unknown", description="Vector engine status")
     version: str = Field(default="0.3.0", description="MESA version")
+
+
+class SessionStartResponse(BaseModel):
+    """Response returned after starting a session."""
+    model_config = ConfigDict(frozen=True)
+
+    session_id: str = Field(..., description="Unique generated session identifier")
+    agent_id: str = Field(..., description="Echo of the tenant identifier")
+    status: Literal["started"] = Field(default="started", description="Session status")
+
+
+class SessionContextResponse(BaseModel):
+    """Response returned when fetching context for a session."""
+    model_config = ConfigDict(frozen=True)
+
+    session_id: str = Field(..., description="The session identifier")
+    agent_id: str = Field(..., description="The tenant identifier")
+    context: str = Field(..., description="Formatted textual context for the session")
+    recent_logs: list[dict] = Field(default_factory=list, description="Recent episodic logs")
+

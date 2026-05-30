@@ -58,7 +58,39 @@ class RoutingDecision(TypedDict):
 
 
 class AdaptiveRouter:
-    """Routes validation requests between a small LLM and Dual-LLM gate."""
+    """Routes validation requests between a small LLM and Dual-LLM gate.
+
+    Confidence scoring uses the **LLM-as-a-Judge** pattern: the Tier-1
+    response is evaluated by a lightweight judge prompt that returns a
+    strict float in [0.0, 1.0] representing logical consistency and
+    factual grounding.  This replaces the previous pseudo-entropy
+    placeholder that was mathematically invalid.
+    """
+
+    # ------------------------------------------------------------------
+    # LLM-as-a-Judge evaluator prompt
+    # ------------------------------------------------------------------
+
+    _JUDGE_PROMPT = """\
+You are a strict quality evaluator for an AI memory system.
+
+TASK: Evaluate how well the RESPONSE answers the QUERY.
+Score on two axes:
+  1. Logical consistency — is the response internally coherent?
+  2. Factual grounding — does it make claims supported by the query context?
+
+QUERY:
+{query}
+
+RESPONSE:
+{response}
+
+Return ONLY a single float between 0.0 and 1.0 (inclusive).
+- 0.0 = completely incoherent or fabricated
+- 0.5 = partially correct but uncertain
+- 1.0 = fully consistent and well-grounded
+
+Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
     def __init__(
         self,
@@ -116,6 +148,88 @@ class AdaptiveRouter:
                 "DYNAMIC_THRESHOLD | Failed to update dynamic threshold: %s", e
             )
 
+    # ------------------------------------------------------------------
+    # LLM-as-a-Judge confidence evaluation
+    # ------------------------------------------------------------------
+
+    async def _llm_judge_confidence(self, query: str, response: str) -> float:
+        """Evaluate the Tier-1 response quality via LLM-as-a-Judge.
+
+        Sends the original query and the small-model response to a
+        lightweight evaluator prompt.  The judge returns a strict float
+        in [0.0, 1.0] representing logical consistency and factual
+        grounding.
+
+        Parse cascade (4 layers):
+            1. Direct ``float()`` on stripped output.
+            2. JSON extraction (``{"score": 0.85}`` format).
+            3. Regex float extraction from prose.
+            4. Fallback to ``0.0`` (forces Dual-LLM escalation).
+
+        Args:
+            query: The original validation prompt sent to the small model.
+            response: The raw string response from the small model.
+
+        Returns:
+            Float in [0.0, 1.0].  Clamped if the LLM returns out-of-range.
+            Returns 0.0 on any failure (conservative — triggers fallback).
+        """
+        import json as _json
+        import re
+
+        try:
+            judge_prompt = self._JUDGE_PROMPT.format(
+                query=query[:1000],  # Truncate to prevent token overflow
+                response=response[:500],
+            )
+
+            raw_score = await self.small_llm.acomplete(
+                judge_prompt,
+                max_tokens=16,
+                temperature=0.0,
+            )
+
+            score_text = str(raw_score).strip()
+
+            # Layer 1: Direct float parse
+            try:
+                score = float(score_text)
+                return max(0.0, min(1.0, score))
+            except ValueError:
+                pass
+
+            # Layer 2: JSON extraction (e.g., {"score": 0.85})
+            try:
+                parsed = _json.loads(score_text)
+                if isinstance(parsed, dict):
+                    for key in ("score", "confidence", "value"):
+                        if key in parsed:
+                            score = float(parsed[key])
+                            return max(0.0, min(1.0, score))
+            except (_json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+            # Layer 3: Regex float extraction from prose
+            float_match = re.search(r"\b(0(?:\.\d+)?|1(?:\.0+)?)\b", score_text)
+            if float_match:
+                score = float(float_match.group(1))
+                return max(0.0, min(1.0, score))
+
+            # Layer 4: Fallback — force Dual-LLM escalation
+            logger.warning(
+                "LLM_JUDGE_PARSE_FAILED | raw=%r — defaulting to 0.0",
+                score_text[:100],
+            )
+            return 0.0
+
+        except Exception as exc:
+            logger.warning("LLM_JUDGE_ERROR | error=%s — defaulting to 0.0", exc)
+            return 0.0
+
+    # ------------------------------------------------------------------
+    # Main routing logic
+    # ------------------------------------------------------------------
+
     async def validate(self, record: dict) -> RoutingDecision:
         """Adaptive validation logic.
 
@@ -129,6 +243,9 @@ class AdaptiveRouter:
         v0.4.0 Phase 3: When LEGAL_DOMAIN_MODE is active, steps 1-3 are
         entirely bypassed. Every record is routed to the Dual-LLM to
         guarantee zero-hallucination consensus on legal data.
+
+        v0.5.0 Phase 1.2: Confidence scoring now uses LLM-as-a-Judge
+        instead of the mathematically invalid pseudo-entropy placeholder.
         """
         # -----------------------------------------------------------------
         # PATH 1 — GUARDRAIL: Zero-Hallucination Legal Mode
@@ -160,12 +277,11 @@ class AdaptiveRouter:
         # 1. Route to small model
         raw_response = str(await self.small_llm.acomplete(prompt))
 
-        # TODO: Implement Real Temperature Scaling via raw logit extraction. The current pseudo-entropy is a placeholder. For zero-hallucination legal domains, fallback to LEGAL_DOMAIN_MODE (T_route = 1.0).
-        # 2. Simulate confidence calculation
-        # In production this would use Temperature Scaling on raw logits.
-        # Since BaseUniversalLLMAdapter returns strings, we simulate a calibrated proxy:
-        pseudo_entropy = len(raw_response) % 100 / 100.0
-        confidence_score = 0.5 + (0.5 * pseudo_entropy)  # Range [0.5, 1.0]
+        # 2. LLM-as-a-Judge confidence evaluation
+        #    Replaces the deleted pseudo-entropy placeholder.
+        #    The judge assesses logical consistency and factual grounding
+        #    of the small-model response, returning a float in [0.0, 1.0].
+        confidence_score = await self._llm_judge_confidence(prompt, raw_response)
 
         requires_fallback = False
         small_model_decision = False

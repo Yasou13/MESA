@@ -329,32 +329,3 @@ async def test_tier3_discard_calls_invalidate_node():
     dao.invalidate_node.assert_awaited_once()
     call_args = dao.invalidate_node.call_args
     assert call_args.kwargs["node_id"] == "discard-001"
-
-
-@pytest.mark.asyncio
-async def test_soft_delete_all_partial_failure():
-    """Verify soft_delete_all raises RuntimeError on partial multi-store failure.
-
-    This test validates the legacy StorageFacade's soft_delete_all method
-    independently of the consolidation loop migration.
-    """
-    from mesa_memory.storage import StorageFacade
-
-    facade = MagicMock(spec=StorageFacade)
-    facade.raw_log = MagicMock()
-    facade.raw_log.soft_delete = AsyncMock()
-    facade.vector = MagicMock()
-    facade.vector.soft_delete = MagicMock(side_effect=Exception("LanceDB offline"))
-    facade.graph = MagicMock()
-    facade.graph.soft_delete_by_cmb = AsyncMock()
-
-    # Call the real implementation on the mock
-    facade.soft_delete_all = StorageFacade.soft_delete_all.__get__(facade)
-
-    with pytest.raises(RuntimeError, match="soft_delete_all failed at 'vector'"):
-        await facade.soft_delete_all("fail-001")
-
-    # raw_log succeeded before the failure
-    facade.raw_log.soft_delete.assert_awaited_once_with("fail-001")
-    # graph should NOT have been called since vector failed first
-    facade.graph.soft_delete_by_cmb.assert_not_awaited()

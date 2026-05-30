@@ -214,10 +214,10 @@ def main() -> None:
 
     auth_status = "DISABLED (--no-auth)" if _cli_args.no_auth else "ENABLED"
     print(f"\n{'=' * 60}")
-    print(f"  MESA v0.4.0 Dev Server")
+    print("  MESA v0.4.0 Dev Server")
     print(f"  Bind:    {_cli_args.host}:{_cli_args.port}")
     print(f"  Auth:    {auth_status}")
-    print(f"  Storage: ./storage/mesa.db + ./storage/vector.lance")
+    print("  Storage: ./storage/mesa.db + ./storage/vector.lance")
     print(f"{'=' * 60}\n")
 
     uvicorn.run(

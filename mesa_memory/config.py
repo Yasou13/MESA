@@ -181,13 +181,38 @@ class MesaConfig(BaseSettings):
 
     # -----------------------------------------------------------------------
     # v0.4.1 DX Patch: Optional REBEL Model
-    # When False, the 1.8 GB Babelscape/rebel-large model is NOT downloaded
-    # or loaded.  Triple extraction falls back to an LLM-only zero-shot
-    # prompt via the configured Tier-3 provider (Groq/Llama-3).
-    # Set to False in CI, Docker builds, or low-resource dev environments
-    # to cut cold-start time from ~5 min to < 10 s.
+    # Default: DISABLED.  The 1.8 GB Babelscape/rebel-large model is NOT
+    # downloaded or loaded unless explicitly opted-in via env var.
+    # Triple extraction uses the LLM zero-shot prompt (Groq/Llama-3) which
+    # supports domain-specific, language-aware extraction (e.g., Turkish
+    # legal text) without any local model overhead.
+    # Set MESA_REBEL_ENABLED=true ONLY in GPU-equipped environments where
+    # the transformer pipeline is required for English-only workloads.
     # -----------------------------------------------------------------------
-    rebel_enabled: bool = Field(True, validation_alias="MESA_REBEL_ENABLED")
+    rebel_enabled: bool = Field(False, validation_alias="MESA_REBEL_ENABLED")
+
+    # -----------------------------------------------------------------------
+    # v0.5.0 Phase 1.3: Domain-Specific Extraction Language
+    # Controls which zero-shot extraction prompt template is used when
+    # REBEL is disabled.  Supported values: "en" (English), "tr" (Turkish).
+    # Turkish mode uses a specialised legal/formal prompt optimised for
+    # extracting (özne, yüklem, nesne) triplets from mevzuat, kanun, and
+    # yönetmelik texts.
+    # -----------------------------------------------------------------------
+    extraction_lang: str = Field("tr", validation_alias="MESA_EXTRACTION_LANG")
+
+    # -----------------------------------------------------------------------
+    # Resilience & Circuit Breaker (Phase 2.3)
+    # -----------------------------------------------------------------------
+    retry_max_attempts: int = Field(5, validation_alias="MESA_RETRY_MAX_ATTEMPTS")
+    retry_min_wait_sec: int = Field(2, validation_alias="MESA_RETRY_MIN_WAIT_SEC")
+    retry_max_wait_sec: int = Field(60, validation_alias="MESA_RETRY_MAX_WAIT_SEC")
+    circuit_breaker_threshold: int = Field(
+        10, validation_alias="MESA_CIRCUIT_BREAKER_THRESHOLD"
+    )
+    circuit_breaker_cooldown_sec: float = Field(
+        60.0, validation_alias="MESA_CIRCUIT_BREAKER_COOLDOWN"
+    )
 
     @model_validator(mode="after")
     def validate_embedding_fallback(self) -> "MesaConfig":

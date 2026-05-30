@@ -50,15 +50,15 @@ def _make_mock_storage_facade(
     storage = MagicMock()
 
     # Graph mock
-    storage.graph = MagicMock()
-    storage.graph.find_nodes_by_name = AsyncMock(return_value=graph_nodes or [])
-    storage.graph.get_all_active_nodes = AsyncMock(return_value=graph_nodes or [])
-    storage.graph.compute_pagerank = AsyncMock(return_value={})
-    storage.graph.get_neighbors = AsyncMock(return_value=[])
+    storage.find_nodes_by_name = AsyncMock(return_value=graph_nodes or [])
+    storage.get_memories = AsyncMock(return_value=graph_nodes or [])
+    storage.get_neighbors = AsyncMock(return_value=[])
+
+    # FTS Mock
+    storage.search_memory_fts = AsyncMock(return_value=[])
 
     # Vector mock
-    storage.vector = MagicMock()
-    storage.vector.search = MagicMock(return_value=vector_results or [])
+    storage.search_memory = AsyncMock(return_value=vector_results or [])
 
     return storage
 
@@ -72,7 +72,7 @@ async def _make_retriever(storage, ac=None, embedder=None):
     analyzer = MagicMock(spec=QueryAnalyzer)
     analyzer.extract_entities = MagicMock(return_value=["test_entity"])
     return HybridRetriever(
-        storage_facade=storage,
+        dao=storage,
         analyzer=analyzer,
         embedder=embedder or _make_mock_embedder(),
         access_control=ac,
@@ -100,7 +100,9 @@ class TestEmptyGraph:
         storage = _make_mock_storage_facade(graph_nodes=[], vector_results=[])
         retriever = await _make_retriever(storage)
 
-        result = await retriever.get_graph_results(["CompanyX", "CompanyY"])
+        result = await retriever.get_graph_results(
+            "test_agent", ["CompanyX", "CompanyY"]
+        )
         assert result == []
 
     @pytest.mark.asyncio
@@ -109,7 +111,7 @@ class TestEmptyGraph:
         storage = _make_mock_storage_facade(graph_nodes=[])
         retriever = await _make_retriever(storage)
 
-        result = await retriever._run_ppr(seed_ids=["nonexistent_node"])
+        result = await retriever._run_ppr("test_agent", seed_ids=["nonexistent_node"])
         assert result == []
 
 
@@ -123,7 +125,7 @@ class TestEmptyVectorStore:
         storage = _make_mock_storage_facade(vector_results=[])
         retriever = await _make_retriever(storage)
 
-        result = await retriever.get_vector_results("test query", k=10)
+        result = await retriever.get_vector_results("test_agent", "test query", k=10)
         assert result == []
 
     @pytest.mark.asyncio
@@ -171,8 +173,8 @@ class TestColdStartVectorOnly:
         """With graph empty but vectors present → cold-start rerank path."""
         vector_data = [
             {
-                "cmb_id": f"vec-{i}",
-                "content_payload": f"Content {i}",
+                "node_id": f"vec-{i}",
+                "content_hash": f"Content {i}",
                 "fitness_score": 0.5 + i * 0.05,
                 "_distance": 0.1 * i,
             }

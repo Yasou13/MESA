@@ -46,8 +46,9 @@ import json
 import logging
 import time
 import traceback
-import uuid
 from typing import Any
+
+from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
@@ -385,11 +386,15 @@ def _hash_embedding_sync(text: str, dim: int = 8) -> list[float]:
 # Stage 4: Triple Extraction (REBEL or LLM fallback)
 # ---------------------------------------------------------------------------
 
-# -- Zero-shot prompt for LLM-only triple extraction -----------------------
-_LLM_TRIPLET_PROMPT = """Extract all factual relationships from the text below as (subject, predicate, object) triplets.
+# ---------------------------------------------------------------------------
+# Zero-shot prompt templates — language-aware extraction
+# ---------------------------------------------------------------------------
+
+_ENGLISH_TRIPLET_PROMPT = """\
+Extract all factual relationships from the text below as (subject, predicate, object) triplets.
 
 Rules:
-- Output ONLY a JSON array of objects with keys "head", "relation", "tail".
+- Output ONLY a JSON array of objects with keys "subject", "predicate", "object".
 - Each value must be a short noun phrase or verb phrase — no full sentences.
 - If no relationships can be extracted, return an empty array [].
 - Do NOT include any explanation, markdown fences, or commentary.
@@ -399,6 +404,59 @@ Text:
 
 JSON:"""
 
+_TURKISH_TRIPLET_PROMPT = """\
+Aşağıdaki Türkçe metinden tüm olgusal ilişkileri (özne, yüklem, nesne) üçlüleri olarak çıkar.
+
+### Kurallar:
+1. YALNIZCA aşağıdaki formatta bir JSON dizisi üret:
+   [{{"subject": "...", "predicate": "...", "object": "..."}}]
+2. "subject" → özne (kişi, kurum, kanun maddesi, kavram).
+3. "predicate" → yüklem (eylem veya ilişki: "düzenler", "yürürlüğe girer", "kapsar", "bağlıdır", "öngörür", "yasaklar" vb.).
+4. "object" → nesne (etkilenen varlık, konu, hüküm).
+5. Her değer kısa bir isim veya fiil öbeği olmalı — tam cümle YAZMA.
+6. Türkçe karakterleri (ç, ğ, ı, ö, ş, ü) koru — ASCII'ye dönüştürme.
+7. Eğer hiçbir ilişki çıkarılamıyorsa boş dizi döndür: []
+8. JSON dışında AÇIKLAMA, markdown bloğu veya yorum EKLEME.
+
+### Örnekler:
+Metin: "6698 sayılı Kişisel Verilerin Korunması Kanunu, veri sorumlularının yükümlülüklerini düzenler."
+Çıktı: [{{"subject": "6698 sayılı KVKK", "predicate": "düzenler", "object": "veri sorumlusu yükümlülükleri"}}]
+
+Metin: "Anayasa Mahkemesi, bireysel başvuruları inceler ve karara bağlar."
+Çıktı: [{{"subject": "Anayasa Mahkemesi", "predicate": "inceler", "object": "bireysel başvurular"}}, {{"subject": "Anayasa Mahkemesi", "predicate": "karara bağlar", "object": "bireysel başvurular"}}]
+
+### Metin:
+{text}
+
+### JSON:"""
+
+# Prompt registry — keyed by MESA_EXTRACTION_LANG
+_PROMPT_REGISTRY: dict[str, str] = {
+    "en": _ENGLISH_TRIPLET_PROMPT,
+    "tr": _TURKISH_TRIPLET_PROMPT,
+}
+
+
+def _get_extraction_prompt(text: str) -> str:
+    """Select the language-appropriate extraction prompt and inject the text.
+
+    Falls back to English if ``config.extraction_lang`` is not in the
+    registry.  Truncates input to ~2000 chars to stay within Tier-3
+    context windows.
+    """
+    lang = config.extraction_lang.lower().strip()
+    template = _PROMPT_REGISTRY.get(lang, _ENGLISH_TRIPLET_PROMPT)
+
+    if lang not in _PROMPT_REGISTRY:
+        logger.warning(
+            "EXTRACTION_LANG_UNKNOWN | lang=%r — falling back to English prompt",
+            lang,
+        )
+
+    # Truncate to ~2000 chars to stay within Tier-3 context window
+    truncated = text[:2000]
+    return template.format(text=truncated)
+
 
 async def _run_rebel_extraction(content: str) -> list[dict[str, str]]:
     """Dispatch triple extraction to REBEL or LLM fallback.
@@ -406,6 +464,7 @@ async def _run_rebel_extraction(content: str) -> list[dict[str, str]]:
     Strategy:
         * ``MESA_REBEL_ENABLED=True``  → REBEL HF pipeline (thread-pool)
         * ``MESA_REBEL_ENABLED=False`` → LLM zero-shot via Tier-3 adapter
+          with language-aware prompt (Turkish or English).
 
     Both paths return the identical ``[{head, relation, tail}, ...]`` format
     consumed by ``_commit_triplets``.
@@ -421,7 +480,7 @@ async def _run_rebel_extraction(content: str) -> list[dict[str, str]]:
     if extractor is not None:
         return await _run_rebel_extraction_impl(extractor, content)
 
-    # REBEL disabled — use LLM fallback
+    # REBEL disabled — use language-aware LLM extraction
     return await _run_llm_triplet_extraction(content)
 
 
@@ -450,12 +509,15 @@ async def _run_rebel_extraction_impl(
 
 
 async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
-    """LLM-only fallback: extract triplets via zero-shot Tier-3 prompt.
+    """LLM-only extraction: extract triplets via language-aware zero-shot prompt.
 
-    Uses the existing ``AdapterFactory`` (Groq / Llama-3 / Ollama) to call
-    the configured LLM with a structured JSON extraction prompt.  Output is
-    normalised to the same ``{head, relation, tail}`` dict format that
-    ``_commit_triplets`` expects.
+    Uses the ``AdapterFactory`` (Groq / Llama-3 / Ollama) to call the
+    configured LLM with a structured JSON extraction prompt.  The prompt
+    is selected based on ``config.extraction_lang`` — currently supports
+    ``"tr"`` (Turkish legal/formal) and ``"en"`` (English general).
+
+    Output is normalised to the canonical ``{head, relation, tail}`` dict
+    format consumed by ``_commit_triplets``.
 
     This path avoids downloading the 1.8 GB REBEL model entirely.
     """
@@ -464,15 +526,29 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
 
         adapter = AdapterFactory.get_adapter()
 
-        # Truncate to ~2000 chars to stay within Tier-3 context window
-        truncated = content[:2000]
-        prompt = _LLM_TRIPLET_PROMPT.format(text=truncated)
+        prompt = _get_extraction_prompt(content)
 
-        raw_response = await adapter.acomplete(
-            prompt,
-            max_tokens=512,
-            temperature=0.0,
+        @retry(
+            wait=wait_exponential(multiplier=1, min=config.retry_min_wait_sec, max=config.retry_max_wait_sec),
+            stop=stop_after_attempt(config.retry_max_attempts),
         )
+        async def _acomplete_with_retry():
+            from mesa_memory.consolidation.loop import llm_circuit_breaker
+            if llm_circuit_breaker.is_open:
+                raise Exception("Circuit breaker is OPEN. Failing fast.")
+            try:
+                res = await adapter.acomplete(
+                    prompt,
+                    max_tokens=512,
+                    temperature=0.0,
+                )
+                llm_circuit_breaker.record_success()
+                return res
+            except Exception:
+                llm_circuit_breaker.record_failure()
+                raise
+
+        raw_response = await _acomplete_with_retry()
 
         # Type narrowing: acomplete() returns Union[str, BaseModel].
         # We never pass a schema, so the response is always str at runtime,
@@ -486,7 +562,8 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
         triplets = _parse_llm_triplet_response(response_text)
 
         logger.debug(
-            "LLM_TRIPLET_EXTRACT | content_len=%d triplets=%d",
+            "LLM_TRIPLET_EXTRACT | lang=%s content_len=%d triplets=%d",
+            config.extraction_lang,
             len(content),
             len(triplets),
         )
@@ -496,22 +573,94 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
         logger.warning(
             "LLM_TRIPLET_EXTRACT_ERROR | error=%s — returning empty", exc
         )
+        if isinstance(exc, RetryError) or "Circuit breaker is OPEN" in str(exc):
+            raise
         return []
+
+
+# ---------------------------------------------------------------------------
+# JSON sanitisation — standalone, no adapter dependency
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_llm_json(raw: str) -> str:
+    """Extract clean JSON from LLM output that may contain markdown fences,
+    prose, trailing commas, or other common LLM output quirks.
+
+    4-layer sanitisation pipeline:
+        1. **Markdown fence extraction**: ``````json ... `````` → inner content.
+        2. **Outermost JSON detection**: Find the first ``[`` or ``{`` and
+           the last ``]`` or ``}`` to isolate the JSON structure.
+        3. **Trailing comma repair**: Remove commas before ``]`` or ``}``.
+        4. **Passthrough**: Return the original text if no JSON structure
+           is detected (will fail at json.loads and be handled upstream).
+
+    This is a standalone function with zero external dependencies.
+    """
+    import re
+
+    text = raw.strip()
+
+    # Layer 1: Extract from markdown code fences (```json ... ``` or ``` ... ```)
+    fence_match = re.search(
+        r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE
+    )
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    # Layer 2: Find the outermost JSON structure (array or object)
+    arr_start = text.find("[")
+    obj_start = text.find("{")
+
+    if arr_start == -1 and obj_start == -1:
+        return text  # No JSON structure — passthrough
+
+    # Pick the earlier start delimiter
+    if arr_start == -1:
+        start_idx = obj_start
+    elif obj_start == -1:
+        start_idx = arr_start
+    else:
+        start_idx = min(arr_start, obj_start)
+
+    arr_end = text.rfind("]")
+    obj_end = text.rfind("}")
+
+    if arr_end == -1 and obj_end == -1:
+        return text  # No closing delimiter — passthrough
+
+    # Pick the later end delimiter
+    end_idx = max(arr_end, obj_end)
+
+    if end_idx > start_idx:
+        text = text[start_idx : end_idx + 1]
+
+    # Layer 3: Repair trailing commas (e.g., [{"a": 1},] → [{"a": 1}])
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+
+    return text
 
 
 def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
     """Parse and validate the LLM JSON response into normalised triplets.
 
-    Handles common LLM output quirks: markdown fences, trailing commas,
-    extra prose around the JSON array.
+    Handles both key formats:
+        - ``{subject, predicate, object}`` (Turkish/new prompt format)
+        - ``{head, relation, tail}`` (REBEL/legacy prompt format)
+
+    Both are normalised to the canonical ``{head, relation, tail}`` output
+    consumed by ``_commit_triplets``.
+
+    Sanitisation pipeline:
+        1. Markdown fence stripping + outermost JSON detection.
+        2. Trailing comma repair.
+        3. JSON parsing with graceful degradation.
+        4. Per-entry validation — invalid entries silently dropped.
 
     Returns:
-        List of ``{head, relation, tail}`` dicts.  Invalid entries are
-        silently dropped.
+        List of ``{head, relation, tail}`` dicts.
     """
-    from mesa_memory.adapter.live import OpenAICompatibleAdapter
-
-    cleaned = OpenAICompatibleAdapter._sanitize_json(raw)
+    cleaned = _sanitize_llm_json(raw)
 
     try:
         parsed = json.loads(cleaned)
@@ -526,13 +675,19 @@ def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
     for entry in parsed:
         if not isinstance(entry, dict):
             continue
+
+        # Normalise both key formats to canonical {head, relation, tail}
         head = str(entry.get("head", entry.get("subject", ""))).strip()
-        relation = str(entry.get("relation", entry.get("predicate", ""))).strip()
+        relation = str(
+            entry.get("relation", entry.get("predicate", ""))
+        ).strip()
         tail = str(entry.get("tail", entry.get("object", ""))).strip()
+
         if head and relation and tail:
             triplets.append({"head": head, "relation": relation, "tail": tail})
 
     return triplets
+
 
 
 # ---------------------------------------------------------------------------

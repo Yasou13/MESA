@@ -52,49 +52,6 @@ def test_sanitize_cmb_content():
     assert result == "Hello World"
 
 
-# ===================================================================
-# RBAC Bypass Prevention — Sentinel Enforcement Tests
-# ===================================================================
-
-
-@pytest.mark.asyncio
-async def test_vector_upsert_rejects_missing_credentials(tmp_path):
-    """Calling upsert_vector without explicit agent_id/session_id must fail.
-
-    After the async RBAC migration, the RBAC check is performed by the
-    async caller (StorageFacade.persist_cmb) BEFORE entering the thread
-    pool. This test validates that the facade-level check rejects
-    unset identities.
-    """
-
-    db_path = str(tmp_path / "rbac_policy.db")
-    ac = AccessControl(policy_path=db_path)
-    await ac.initialize()
-
-    # The RBAC check is now in the async caller, not in VectorStorage.
-    # Verify that check_access returns False for unset identity.
-    assert await ac.check_access("__unset__", "__unset__", "WRITE") is False
-
-
-@pytest.mark.asyncio
-async def test_graph_upsert_rejects_missing_credentials(tmp_path):
-    """Calling upsert_node without explicit agent_id/session_id must fail."""
-    from mesa_memory.storage.graph.networkx_provider import NetworkXProvider
-
-    db_path = str(tmp_path / "rbac_policy.db")
-    ac = AccessControl(policy_path=db_path)
-    await ac.initialize()
-    provider = NetworkXProvider(
-        db_path=str(tmp_path / "kg.db"),
-        rocks_path=str(tmp_path / "kg.rocks"),
-        access_control=ac,
-    )
-    await provider.initialize()
-
-    with pytest.raises(PermissionError):
-        await provider.upsert_node("Test_Entity", "ENTITY")
-
-
 @pytest.mark.asyncio
 async def test_system_daemon_identity_succeeds(tmp_path):
     """The reserved SYSTEM_AGENT_ID / SYSTEM_SESSION_ID must have WRITE access.

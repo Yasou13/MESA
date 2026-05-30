@@ -43,25 +43,26 @@ def test_query_analyzer_fallback():
 async def test_hybrid_retrieval_cold_start():
     storage = MagicMock()
 
-    empty_graph = nx.MultiDiGraph()
-    storage.graph.get_active_graph.return_value = empty_graph
-    storage.graph.find_nodes_by_name = AsyncMock(return_value=[])
-    storage.graph.get_all_active_nodes = AsyncMock(return_value=[])
+    storage.get_memories = AsyncMock(return_value=[])
+    storage.find_nodes_by_name = AsyncMock(return_value=[])
+    storage.get_neighbors = AsyncMock(return_value=[])
 
-    storage.vector.search.return_value = [
-        {
-            "cmb_id": "vec_1",
-            "content_payload": "content 1",
-            "fitness_score": 0.8,
-            "_distance": 0.1,
-        },
-        {
-            "cmb_id": "vec_2",
-            "content_payload": "content 2",
-            "fitness_score": 0.5,
-            "_distance": 0.3,
-        },
-    ]
+    storage.search_memory = AsyncMock(
+        return_value=[
+            {
+                "node_id": "vec_1",
+                "content_hash": "content 1",
+                "fitness_score": 0.8,
+                "_distance": 0.1,
+            },
+            {
+                "node_id": "vec_2",
+                "content_hash": "content 2",
+                "fitness_score": 0.5,
+                "_distance": 0.3,
+            },
+        ]
+    )
 
     analyzer = MagicMock()
     analyzer.extract_entities.return_value = ["unknown_entity"]
@@ -76,7 +77,7 @@ async def test_hybrid_retrieval_cold_start():
     await ac.grant_access("test_agent", "test_session", "READ")
 
     retriever = HybridRetriever(
-        storage_facade=storage,
+        dao=storage,
         analyzer=analyzer,
         embedder=embedder,
         access_control=ac,
@@ -101,18 +102,18 @@ async def test_alpha_reranking_logic():
     graph = nx.MultiDiGraph()
     graph.add_node("node_b", name="B_entity", type="ENTITY")
     graph.add_node("node_c", name="C_entity", type="ENTITY")
-    storage.graph.get_active_graph.return_value = graph
+    storage.get_memories.return_value = graph
 
-    storage.vector.search.return_value = [
+    storage.search_memory.return_value = [
         {
-            "cmb_id": "A",
-            "content_payload": "a",
+            "node_id": "A",
+            "content_hash": "a",
             "fitness_score": 0.9,
             "_distance": 0.05,
         },
         {
-            "cmb_id": "B",
-            "content_payload": "b",
+            "node_id": "B",
+            "content_hash": "b",
             "fitness_score": 0.7,
             "_distance": 0.15,
         },
@@ -125,7 +126,7 @@ async def test_alpha_reranking_logic():
     embedder.embed.side_effect = lambda text: deterministic_embedding(text, 768)
 
     retriever = HybridRetriever(
-        storage_facade=storage,
+        dao=storage,
         analyzer=analyzer,
         embedder=embedder,
     )

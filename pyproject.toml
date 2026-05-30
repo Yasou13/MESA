@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesa-memory"
-version = "0.4.1"
+version = "0.4.2"
 description = "Enterprise-grade cognitive memory engine for autonomous AI agents"
 readme = "README.md"
 license = {text = "MIT"}
@@ -69,7 +69,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-full = [
+rebel = [
     # PyTorch (CPU — users should install CUDA variant manually if needed)
     "torch>=2.11.0",
     # Hugging Face / Transformers
@@ -78,6 +78,8 @@ full = [
     "safetensors>=0.7.0",
     "huggingface_hub>=1.14.0",
     "sentence-transformers>=3.0.0",
+]
+full = [
     # Structured generation
     "outlines>=1.2.0",
     # spaCy NLP pipeline

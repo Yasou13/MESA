@@ -5,7 +5,9 @@ FROM python:3.10-slim
 
 # Prevent Python from writing .pyc files and enable unbuffered stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    MESA_REBEL_ENABLED=false \
+    MESA_EXTRACTION_LANG=tr
 
 WORKDIR /app
 
@@ -14,15 +16,17 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-# ── Python dependencies (cached layer — only rebuilds when requirements change) ──
-COPY requirements-core.txt .
-RUN pip install --no-cache-dir -r requirements-core.txt
+# ── Python dependencies ──
+ARG INSTALL_REBEL=false
+COPY . .
+RUN if [ "$INSTALL_REBEL" = "true" ] ; then \
+        pip install --no-cache-dir .[rebel] ; \
+    else \
+        pip install --no-cache-dir . ; \
+    fi
 
 # ── Pre-download spaCy language model (prevents runtime downloads in air-gapped envs) ──
 RUN python -m spacy download xx_ent_wiki_sm
-
-# ── Application code ──
-COPY mesa_memory/ ./mesa_memory/
 COPY .env.example .env.example
 
 # ── Persistent storage mount point ──

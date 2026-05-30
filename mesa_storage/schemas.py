@@ -174,6 +174,13 @@ CREATE TABLE IF NOT EXISTS raw_logs (
 );
 """
 
+_CREATE_RAW_LOGS_INDEXES = [
+    """\
+    CREATE INDEX IF NOT EXISTS idx_raw_logs_session
+    ON raw_logs(json_extract(payload, '$.agent_id'), json_extract(payload, '$.session_id'));
+    """,
+]
+
 
 # ---------------------------------------------------------------------------
 # Schema manager — public API
@@ -200,6 +207,8 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         for idx_sql in _CREATE_NODES_INDEXES:
             await db.execute(idx_sql)
         for idx_sql in _CREATE_EDGES_INDEXES:
+            await db.execute(idx_sql)
+        for idx_sql in _CREATE_RAW_LOGS_INDEXES:
             await db.execute(idx_sql)
 
         # 3. FTS5 virtual table
@@ -260,6 +269,8 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "trg_nodes_fts_delete",
         "trg_nodes_fts_update",
     }
+
+    expected_indexes.add("idx_raw_logs_session")
 
     result: dict = {"tables": {}, "indexes": {}, "triggers": {}, "valid": True}
 

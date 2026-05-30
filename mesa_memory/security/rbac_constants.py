@@ -5,9 +5,9 @@ used when callers omit credentials.  All storage write methods default to
 ``_UNSET_IDENTITY`` — any call that doesn't explicitly pass an agent_id /
 session_id will fail the RBAC check with a ``PermissionError``.
 
-Internal daemons (``ConsolidationLoop``, ``StorageFacade.reconcile_orphans``,
-``StorageFacade.soft_delete_all``) must pass ``SYSTEM_AGENT_ID`` /
-``SYSTEM_SESSION_ID`` to authenticate as the system process.
+Internal daemons (``ConsolidationLoop``, ``MemoryDAO.purge_memory``)
+must pass ``SYSTEM_AGENT_ID`` / ``SYSTEM_SESSION_ID`` to authenticate
+as the system process.
 """
 
 import secrets
