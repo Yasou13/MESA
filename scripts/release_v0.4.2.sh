@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MESA v0.4.1 — Release Script
+# MESA v0.4.2 — Release Script
 # Phase 4D: Tag, push, and create GitHub Release
 # =============================================================================
 set -euo pipefail
 
-TAG="v0.4.1"
-MSG="MESA v0.4.1: Atomic dual-writes, Tier-3 backpressure, Chaos testing, and full RAGAS evaluation harness"
+TAG="v0.4.2"
+MSG="MESA v0.4.2: Enterprise standards, 85% coverage barrier restored, missing tests"
 
 echo "=========================================="
-echo "  MESA v0.4.1 — Release Pipeline"
+echo "  MESA v0.4.2 — Release Pipeline"
 echo "=========================================="
 
 # ------------------------------------------------------------------
 # Step 1: Stage and commit all v0.4.1 changes
 # ------------------------------------------------------------------
 echo ""
-echo "[1/5] Staging all v0.4.1 changes..."
+echo "[1/5] Staging all v0.4.2 changes..."
 
 git add \
   .github/workflows/python-app.yml \
@@ -27,7 +27,7 @@ git add \
   tests/test_chaos.py \
   tests/test_rbac_leak.py
 
-git commit -m "feat(v0.4.1): ${MSG}
+git commit -m "feat(v0.4.2): ${MSG}
 
 - Zero-Trust RBAC isolation tests (test_rbac_leak.py)
 - Chaos Saga rollback resilience tests (test_chaos.py)

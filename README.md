@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.4.1-green.svg)
+![Version](https://img.shields.io/badge/Version-0.4.2-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
 Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
