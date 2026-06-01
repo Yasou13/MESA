@@ -135,7 +135,7 @@ class GraphWriter:
                 await self._mark_record_consolidated(agent_id, cmb_id)
                 continue
 
-            sim_score = _sim_fn(
+            sim_score = await _sim_fn(
                 trip_a,
                 trip_b,
                 self.embedder,
@@ -166,7 +166,7 @@ class GraphWriter:
                 )
 
                 if is_hub:
-                    self.human_review_queue.append(
+                    await self.human_review_queue.aappend(
                         {
                             "batch_id": batch_id,
                             "cmb_id": cmb_id,

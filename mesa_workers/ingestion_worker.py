@@ -92,6 +92,7 @@ def _get_rebel_extractor() -> RebelExtractor | None:
 
 async def process_cold_path(
     log_id: int,
+    agent_id: str,
     dao: MemoryDAO,
     consolidation_loop: ConsolidationLoop | None = None,
 ) -> None:
@@ -123,7 +124,7 @@ async def process_cold_path(
             # ==============================================================
             # 1. RETRIEVE PAYLOAD + STATUS GUARD
             # ==============================================================
-            raw_log = await dao.get_raw_log(log_id)
+            raw_log = await dao.get_raw_log(agent_id, log_id)
 
             if raw_log is None:
                 logger.warning(
@@ -147,7 +148,7 @@ async def process_cold_path(
 
             if not agent_id or not content:
                 await dao.update_raw_log_status(
-                    log_id, "rejected", error_reason="missing_agent_id_or_content"
+                    agent_id, log_id, "rejected", error_reason="missing_agent_id_or_content"
                 )
                 logger.warning(
                     "COLD_PATH_REJECTED | log_id=%d reason=missing_required_fields",
@@ -158,7 +159,7 @@ async def process_cold_path(
             # ==============================================================
             # 2. STATUS → processing
             # ==============================================================
-            await dao.update_raw_log_status(log_id, "processing")
+            await dao.update_raw_log_status(agent_id, log_id, "processing")
 
             logger.info(
                 "COLD_PATH_START | log_id=%d agent_id=%s content_len=%d",
@@ -174,7 +175,7 @@ async def process_cold_path(
 
             if not ecod_passed:
                 await dao.update_raw_log_status(
-                    log_id, "rejected", error_reason="ecod_novelty_below_threshold"
+                    agent_id, log_id, "rejected", error_reason="ecod_novelty_below_threshold"
                 )
                 logger.info(
                     "COLD_PATH_REJECTED | log_id=%d reason=ecod_novelty_gate",
@@ -239,7 +240,7 @@ async def process_cold_path(
             # ==============================================================
             # 6. STATUS → processed
             # ==============================================================
-            await dao.update_raw_log_status(log_id, "processed")
+            await dao.update_raw_log_status(agent_id, log_id, "processed")
 
             elapsed_ms = int((time.monotonic() - t_start) * 1000)
             logger.info(
@@ -262,7 +263,7 @@ async def process_cold_path(
 
         try:
             await dao.update_raw_log_status(
-                log_id, "failed", error_reason=truncated_reason
+                agent_id, log_id, "failed", error_reason=truncated_reason
             )
         except Exception as status_exc:
             # Even the status update failed — log but never raise

@@ -79,11 +79,11 @@ async def test_exponential_backoff_success_on_4th_try():
             with patch(
                 "mesa_workers.ingestion_worker._run_ecod_gate", return_value=True
             ):
-                await process_cold_path(1, dao=dao)
+                await process_cold_path(1, agent_id="test_agent", dao=dao)
 
     assert call_count == 4
-    dao.update_raw_log_status.assert_any_await(1, "processing")
-    dao.update_raw_log_status.assert_any_await(1, "processed")
+    dao.update_raw_log_status.assert_any_await("test_agent", 1, "processing")
+    dao.update_raw_log_status.assert_any_await("test_agent", 1, "processed")
     assert not llm_circuit_breaker.is_open
     assert llm_circuit_breaker.failures == 0
 
@@ -110,17 +110,17 @@ async def test_circuit_breaker_trips_on_continuous_503():
                 "mesa_workers.ingestion_worker._run_ecod_gate", return_value=True
             ):
                 # 1st run: 5 failures
-                await process_cold_path(1, dao=dao)
+                await process_cold_path(1, agent_id="test_agent", dao=dao)
                 assert llm_circuit_breaker.failures == 5
 
                 # 2nd run: 5 failures -> total 10 -> breaker opens
-                await process_cold_path(2, dao=dao)
+                await process_cold_path(2, agent_id="test_agent", dao=dao)
                 assert llm_circuit_breaker.failures == 10
                 assert llm_circuit_breaker.is_open
 
                 # 3rd run: should fail fast without calling the adapter
                 call_count_before = mock_adapter.acomplete.call_count
-                await process_cold_path(3, dao=dao)
+                await process_cold_path(3, agent_id="test_agent", dao=dao)
                 call_count_after = mock_adapter.acomplete.call_count
 
                 assert (
@@ -131,7 +131,7 @@ async def test_circuit_breaker_trips_on_continuous_503():
     failed_calls = [
         call
         for call in dao.update_raw_log_status.call_args_list
-        if call.args[1] == "failed"
+        if call.args[2] == "failed"
     ]
     assert len(failed_calls) == 3  # 3 runs failed
     assert "RetryError" in failed_calls[0].kwargs.get(

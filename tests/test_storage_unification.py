@@ -52,7 +52,7 @@ def _make_mock_dao() -> MagicMock:
     dao.get_node_degree = AsyncMock(return_value=0)
     dao.search_memory = AsyncMock(return_value=[])
     dao.search_memory_fts = AsyncMock(return_value=[])
-    dao.get_neighbors = AsyncMock(return_value=[])
+    dao.get_all_edges = AsyncMock(return_value=[])
     dao.insert_raw_log = AsyncMock(return_value=1)
     dao.health_check = AsyncMock(return_value={"sqlite": "ok", "vector": "ok"})
     return dao
@@ -185,13 +185,13 @@ class TestColdPathRoutesToDAO:
                 return_value=[],
             ),
         ):
-            await process_cold_path(log_id=1, dao=dao)
+            await process_cold_path(log_id=1, agent_id="test_agent", dao=dao)
 
         # Assert: get_raw_log was called to retrieve the payload
-        dao.get_raw_log.assert_awaited_once_with(1)
+        dao.get_raw_log.assert_awaited_once_with("test_agent", 1)
 
         # Assert: status was transitioned to processing
-        dao.update_raw_log_status.assert_any_await(1, "processing")
+        dao.update_raw_log_status.assert_any_await("test_agent", 1, "processing")
 
         # Assert: insert_memory was called EXACTLY once (raw memory node)
         assert dao.insert_memory.await_count == 1, (
@@ -200,7 +200,7 @@ class TestColdPathRoutesToDAO:
         )
 
         # Assert: status was finalized to processed
-        dao.update_raw_log_status.assert_any_await(1, "processed")
+        dao.update_raw_log_status.assert_any_await("test_agent", 1, "processed")
 
     @pytest.mark.asyncio
     async def test_cold_path_calls_dao_insert_memory_and_edge_with_triplets(self):
@@ -225,7 +225,7 @@ class TestColdPathRoutesToDAO:
                 return_value=fake_triplets,
             ),
         ):
-            await process_cold_path(log_id=1, dao=dao)
+            await process_cold_path(log_id=1, agent_id="test_agent", dao=dao)
 
         # Assert: insert_memory called for head + tail = 2 calls
         assert dao.insert_memory.await_count == 2, (
@@ -239,7 +239,7 @@ class TestColdPathRoutesToDAO:
         )
 
         # Assert: finalized
-        dao.update_raw_log_status.assert_any_await(1, "processed")
+        dao.update_raw_log_status.assert_any_await("test_agent", 1, "processed")
 
     @pytest.mark.asyncio
     async def test_cold_path_rejects_missing_fields(self):
@@ -259,11 +259,11 @@ class TestColdPathRoutesToDAO:
             }
         )
 
-        await process_cold_path(log_id=1, dao=dao)
+        await process_cold_path(log_id=1, agent_id="", dao=dao)
 
         # Assert: rejected status with error reason
         dao.update_raw_log_status.assert_awaited_once_with(
-            1, "rejected", error_reason="missing_agent_id_or_content"
+            "", 1, "rejected", error_reason="missing_agent_id_or_content"
         )
 
         # Assert: insert_memory was NEVER called (pipeline short-circuited)
@@ -284,7 +284,7 @@ class TestColdPathRoutesToDAO:
             }
         )
 
-        await process_cold_path(log_id=1, dao=dao)
+        await process_cold_path(log_id=1, agent_id="a", dao=dao)
 
         # Assert: no status update, no insert
         dao.update_raw_log_status.assert_not_awaited()

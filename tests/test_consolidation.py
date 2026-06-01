@@ -1,4 +1,5 @@
 import json
+from tests.fixtures.vectors import VEC_MATCH, VEC_NEAR, VEC_BASE
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -19,6 +20,7 @@ def _make_mock_embedder(dim=768):
         return np.random.rand(dim).tolist()
 
     embedder.embed.side_effect = _embed
+    embedder.aembed = AsyncMock(side_effect=_embed)
     embedder.EMBEDDING_DIM = dim
     return embedder
 
@@ -38,30 +40,32 @@ def _make_mock_dao():
     return dao
 
 
-def test_composite_similarity_alignment():
+@pytest.mark.asyncio
+async def test_composite_similarity_alignment():
     embedder = MagicMock()
-
-    vec_a = np.random.RandomState(1).rand(768).tolist()
-    vec_b = np.random.RandomState(2).rand(768).tolist()
-    vec_rel = np.random.RandomState(3).rand(768).tolist()
 
     def _embed(text, **kwargs):
         t = text.strip().lower()
-        if t == "alice":
-            return vec_a
-        elif t == "bob":
-            return vec_b
-        elif t in ("likes", "is liked by"):
-            return vec_rel
-        return np.zeros(768).tolist()
+        if t == "match":
+            return VEC_MATCH
+        elif t == "near":
+            return VEC_NEAR
+        return VEC_BASE
 
     embedder.embed.side_effect = _embed
+    embedder.aembed = AsyncMock(side_effect=_embed)
 
-    trip_a = {"head": "Alice", "relation": "likes", "tail": "Bob"}
-    trip_b = {"head": "Bob", "relation": "is liked by", "tail": "Alice"}
+    trip_base = {"head": "base", "relation": "base", "tail": "base"}
+    trip_match = {"head": "match", "relation": "match", "tail": "match"}
+    trip_near = {"head": "near", "relation": "near", "tail": "near"}
 
-    score = calculate_composite_similarity(trip_a, trip_b, embedder)
-    assert score >= 0.70
+    # VEC_MATCH cos_sim(VEC_BASE, VEC_MATCH) = 0.95 (>= 0.80 merge threshold)
+    score_match = await calculate_composite_similarity(trip_base, trip_match, embedder)
+    assert score_match >= 0.80
+
+    # VEC_NEAR cos_sim(VEC_BASE, VEC_NEAR) = 0.79 (< 0.80 merge threshold)
+    score_near = await calculate_composite_similarity(trip_base, trip_near, embedder)
+    assert score_near < 0.80
 
 
 @pytest.mark.asyncio
@@ -70,8 +74,8 @@ async def test_consolidation_divergence_paths():
     dao = _make_mock_dao()
 
     embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
-    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
+    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
     embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
@@ -116,7 +120,7 @@ async def test_consolidation_divergence_paths():
     assert call_kwargs.kwargs.get("weight") == 0.5
 
     dao.reset_mock()
-    loop.human_review_queue.clear()
+    await loop.human_review_queue.clear()
 
     # Hub-node scenario: high degree → human review
     dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "hub_1"}])
@@ -128,11 +132,11 @@ async def test_consolidation_divergence_paths():
     ):
         await loop.run_batch([record])
 
-    assert len(loop.human_review_queue) == 1
+    assert await loop.human_review_queue.alen() == 1
     assert not dao.insert_edge.called
 
     dao.reset_mock()
-    loop.human_review_queue.clear()
+    await loop.human_review_queue.clear()
 
     # Peripheral node: low degree → silent discard
     dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "periph_1"}])
@@ -144,7 +148,7 @@ async def test_consolidation_divergence_paths():
     ):
         await loop.run_batch([record])
 
-    assert len(loop.human_review_queue) == 0
+    assert await loop.human_review_queue.alen() == 0
     assert not dao.insert_edge.called
 
 
@@ -154,8 +158,8 @@ async def test_batch_processing_limit():
     dao = _make_mock_dao()
 
     embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
-    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
+    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
     embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
@@ -197,8 +201,8 @@ async def test_rebel_extraction_fallback():
     dao = _make_mock_dao()
 
     embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
-    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
+    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
     embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
@@ -247,8 +251,8 @@ async def test_rebel_extraction_success():
     dao = _make_mock_dao()
 
     embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
-    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
+    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
     embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
@@ -288,7 +292,7 @@ async def test_tier3_discard_calls_invalidate_node():
     dao = _make_mock_dao()
 
     embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
+    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
     embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()

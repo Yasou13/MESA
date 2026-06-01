@@ -52,7 +52,7 @@ def _make_mock_storage_facade(
     # Graph mock
     storage.find_nodes_by_name = AsyncMock(return_value=graph_nodes or [])
     storage.get_memories = AsyncMock(return_value=graph_nodes or [])
-    storage.get_neighbors = AsyncMock(return_value=[])
+    storage.get_all_edges = AsyncMock(return_value=[])
 
     # FTS Mock
     storage.search_memory_fts = AsyncMock(return_value=[])

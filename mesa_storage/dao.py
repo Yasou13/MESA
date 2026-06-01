@@ -787,6 +787,28 @@ class MemoryDAO:
 
         return edge_id
 
+    async def get_all_edges(
+        self,
+        agent_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return all active edges scoped to ``agent_id``."""
+        _assert_valid_agent_id(agent_id)
+
+        results: list[dict[str, Any]] = []
+
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT e.* "
+                "FROM edges e "
+                "WHERE e.agent_id = ? "
+                "  AND e.invalid_at IS NULL",
+                (agent_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                results.extend(dict(row) for row in rows)
+
+        return results
+
     async def get_neighbors(
         self,
         agent_id: str,
@@ -1057,7 +1079,7 @@ class MemoryDAO:
     # RAW LOG INSERT — hot-path ingestion (< 50ms, pure I/O)
     # ==================================================================
 
-    async def insert_raw_log(self, payload: dict) -> int:
+    async def insert_raw_log(self, agent_id: str, payload: dict) -> int:
         """Insert a raw payload into the ``raw_logs`` staging table.
 
         This is the **hot-path write** for the v0.4.0 decoupled ingestion
@@ -1069,37 +1091,41 @@ class MemoryDAO:
         (``process_cold_path``).
 
         Args:
+            agent_id: **Mandatory** tenant isolation key.
             payload: Raw ingestion payload (serialised as JSON).
 
         Returns:
             The ``id`` (INTEGER PRIMARY KEY) of the newly inserted row.
         """
+        _assert_valid_agent_id(agent_id)
         async with self._sql.transaction() as db:
             cursor = await db.execute(
-                "INSERT INTO raw_logs (payload) VALUES (?)",
-                (json.dumps(payload),),
+                "INSERT INTO raw_logs (agent_id, payload) VALUES (?, ?)",
+                (agent_id, json.dumps(payload)),
             )
             log_id = cursor.lastrowid
             await db.commit()
 
-        logger.info("INSERT_RAW_LOG | log_id=%s", log_id)
+        logger.info("INSERT_RAW_LOG | agent_id=%s log_id=%s", agent_id, log_id)
         return log_id or 0
 
-    async def get_raw_log(self, log_id: int) -> dict[str, Any] | None:
+    async def get_raw_log(self, agent_id: str, log_id: int) -> dict[str, Any] | None:
         """Retrieve a single raw_logs row by primary key.
 
         Args:
+            agent_id: **Mandatory** tenant isolation key.
             log_id: INTEGER primary key of the raw_logs row.
 
         Returns:
             A dict with keys ``id``, ``payload``, ``status``, ``created_at``,
             or ``None`` if no row with that ID exists.
         """
+        _assert_valid_agent_id(agent_id)
         async with self._sql.connection() as db:
             async with db.execute(
-                "SELECT id, payload, status, created_at "
-                "FROM raw_logs WHERE id = ?",
-                (log_id,),
+                "SELECT id, agent_id, payload, status, created_at "
+                "FROM raw_logs WHERE id = ? AND agent_id = ?",
+                (log_id, agent_id),
             ) as cursor:
                 row = await cursor.fetchone()
                 if row is None:
@@ -1112,6 +1138,7 @@ class MemoryDAO:
 
     async def update_raw_log_status(
         self,
+        agent_id: str,
         log_id: int,
         status: str,
         *,
@@ -1122,23 +1149,26 @@ class MemoryDAO:
         Valid transitions: ``queued → processing → processed | failed | rejected``.
 
         Args:
+            agent_id: **Mandatory** tenant isolation key.
             log_id: INTEGER primary key of the raw_logs row.
             status: New status string (``processing``, ``processed``,
                     ``failed``, ``rejected``).
             error_reason: Optional error message (stored in the ``status``
                           field as ``failed:<reason>`` for traceability).
         """
+        _assert_valid_agent_id(agent_id)
         final_status = f"{status}:{error_reason}" if error_reason else status
 
         async with self._sql.transaction() as db:
             await db.execute(
-                "UPDATE raw_logs SET status = ? WHERE id = ?",
-                (final_status, log_id),
+                "UPDATE raw_logs SET status = ? WHERE id = ? AND agent_id = ?",
+                (final_status, log_id, agent_id),
             )
             await db.commit()
 
         logger.debug(
-            "UPDATE_RAW_LOG_STATUS | log_id=%d status=%s",
+            "UPDATE_RAW_LOG_STATUS | agent_id=%s log_id=%d status=%s",
+            agent_id,
             log_id,
             final_status,
         )

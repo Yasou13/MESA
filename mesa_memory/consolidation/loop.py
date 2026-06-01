@@ -57,28 +57,41 @@ class PersistentQueue:
         self.filepath = filepath
         os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
 
+    async def aappend(self, item: dict):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.append, item)
+
     def append(self, item: dict):
         with open(self.filepath, "a") as f:
             f.write(json.dumps(item) + "\n")
 
-    def clear(self):
-        with open(self.filepath, "w") as f:  # noqa: F841
-            pass
+    async def clear(self):
+        def _clear():
+            with open(self.filepath, "w") as f:  # noqa: F841
+                pass
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _clear)
 
-    def __len__(self):
-        try:
-            with open(self.filepath, "r") as f:
-                return sum(1 for line in f if line.strip())
-        except FileNotFoundError:
-            return 0
+    async def alen(self):
+        def _len():
+            try:
+                with open(self.filepath, "r") as f:
+                    return sum(1 for line in f if line.strip())
+            except FileNotFoundError:
+                return 0
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _len)
 
-    def __getitem__(self, index):
-        try:
-            with open(self.filepath, "r") as f:
-                lines = [json.loads(line) for line in f if line.strip()]
-            return lines[index]
-        except FileNotFoundError:
-            raise IndexError("Queue is empty")
+    async def agetitem(self, index):
+        def _getitem(idx):
+            try:
+                with open(self.filepath, "r") as f:
+                    lines = [json.loads(line) for line in f if line.strip()]
+                return lines[idx]
+            except FileNotFoundError:
+                raise IndexError("Queue is empty")
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _getitem, index)
 
 
 # ---------------------------------------------------------------------------
@@ -220,9 +233,7 @@ class ConsolidationLoop:
     # Backward-compatible delegation wrappers
     # -------------------------------------------------------------------
 
-    def _sort_by_salience(self, records: list[dict]) -> list[dict]:
-        """Delegate to TripletExtractor.sort_by_salience."""
-        return self.triplet_extractor.sort_by_salience(records)
+
 
     @staticmethod
     def _build_records_block(sub_batch: list[dict]) -> str:
@@ -316,7 +327,7 @@ class ConsolidationLoop:
                         record.get("cmb_id", record.get("id", "?")),
                         exc,
                     )
-                    self.dead_letter_queue.append(
+                    await self.dead_letter_queue.aappend(
                         {
                             "cmb_id": record.get("cmb_id", record.get("id", "")),
                             "error": str(exc),
@@ -330,7 +341,7 @@ class ConsolidationLoop:
                         record.get("cmb_id", record.get("id", "?")),
                         exc,
                     )
-                    self.dead_letter_queue.append(
+                    await self.dead_letter_queue.aappend(
                         {
                             "cmb_id": record.get("cmb_id", record.get("id", "")),
                             "error": str(exc),
@@ -345,7 +356,7 @@ class ConsolidationLoop:
                         exc,
                         exc_info=True,
                     )
-                    self.dead_letter_queue.append(
+                    await self.dead_letter_queue.aappend(
                         {
                             "cmb_id": record.get("cmb_id", record.get("id", "")),
                             "error": f"unexpected: {exc}",
@@ -420,7 +431,7 @@ class ConsolidationLoop:
         except RetryError as exc:
             logger.error("Extraction retries exhausted: %s", exc)
             for record in sorted_batch:
-                self.dead_letter_queue.append(
+                await self.dead_letter_queue.aappend(
                     {
                         "cmb_id": record.get("cmb_id", record.get("id", "")),
                         "error": "Extraction failed after retries: " + str(exc),
@@ -430,7 +441,7 @@ class ConsolidationLoop:
         except Exception as exc:
             logger.error("Extraction unexpected error: %s", exc)
             for record in sorted_batch:
-                self.dead_letter_queue.append(
+                await self.dead_letter_queue.aappend(
                     {
                         "cmb_id": record.get("cmb_id", record.get("id", "")),
                         "error": "Extraction unexpected error: " + str(exc),

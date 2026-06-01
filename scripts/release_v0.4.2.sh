@@ -13,7 +13,7 @@ echo "  MESA v0.4.2 — Release Pipeline"
 echo "=========================================="
 
 # ------------------------------------------------------------------
-# Step 1: Stage and commit all v0.4.1 changes
+# Step 1: Stage and commit all v0.4.2 changes
 # ------------------------------------------------------------------
 echo ""
 echo "[1/5] Staging all v0.4.2 changes..."

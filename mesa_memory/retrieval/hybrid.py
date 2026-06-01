@@ -238,6 +238,21 @@ class HybridRetriever:
 
         # Add all active nodes
         nodes = await self.dao.get_memories(agent_id)
+
+        MAX_GRAPH_NODES = 50000
+        if len(nodes) > MAX_GRAPH_NODES:
+            logger.warning(
+                "Graph size (%d) exceeds MAX_GRAPH_NODES (%d). "
+                "Sampling top %d nodes by newest created_at.",
+                len(nodes),
+                MAX_GRAPH_NODES,
+                MAX_GRAPH_NODES,
+            )
+            nodes.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            nodes = nodes[:MAX_GRAPH_NODES]
+
+        node_ids = {n["id"] for n in nodes}
+
         for node in nodes:
             G.add_node(
                 node["id"],
@@ -247,12 +262,10 @@ class HybridRetriever:
                 },
             )
 
-        # Add edges for each node
-        for node in nodes:
-            edges = await self.dao.get_neighbors(
-                agent_id, node_id=node["id"], direction="out"
-            )
-            for edge in edges:
+        # Add edges for all nodes
+        edges = await self.dao.get_all_edges(agent_id)
+        for edge in edges:
+            if edge["source_id"] in node_ids and edge["target_id"] in node_ids:
                 G.add_edge(
                     edge["source_id"],
                     edge["target_id"],

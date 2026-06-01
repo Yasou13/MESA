@@ -45,7 +45,7 @@ async def test_hybrid_retrieval_cold_start():
 
     storage.get_memories = AsyncMock(return_value=[])
     storage.find_nodes_by_name = AsyncMock(return_value=[])
-    storage.get_neighbors = AsyncMock(return_value=[])
+    storage.get_all_edges = AsyncMock(return_value=[])
 
     storage.search_memory = AsyncMock(
         return_value=[

@@ -154,9 +154,9 @@ def create_memory_router(
             "metadata": request.metadata,
         }
 
-        log_id = await dao.insert_raw_log(payload)
+        log_id = await dao.insert_raw_log(request.agent_id, payload)
 
-        background_tasks.add_task(process_cold_path, log_id, dao)
+        background_tasks.add_task(process_cold_path, log_id, request.agent_id, dao)
 
         return {"status": "queued", "log_id": log_id}
 
@@ -171,6 +171,7 @@ def create_memory_router(
     )
     async def get_status(
         log_id: int,
+        agent_id: str,
         dao: MemoryDAO = Depends(get_dao),
     ) -> dict:
         """Return the current processing status of a queued raw_log entry.
@@ -181,7 +182,7 @@ def create_memory_router(
 
         Terminal states: ``processed``, ``failed``, ``rejected``.
         """
-        raw_log = await dao.get_raw_log(log_id)
+        raw_log = await dao.get_raw_log(agent_id, log_id)
 
         if raw_log is None:
             raise HTTPException(

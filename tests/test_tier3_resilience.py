@@ -219,12 +219,13 @@ class TestDeadLetterIntegration:
             llm_b=llm_b,
             obs_layer=MagicMock(),
         )
-        loop.dead_letter_queue.clear()
+        await loop.dead_letter_queue.clear()
 
         await loop.run_batch([_make_record(tier3=True)])
 
-        assert len(loop.dead_letter_queue) == 1
-        assert loop.dead_letter_queue[0]["cmb_id"] == "test-cmb-001"
+        assert await loop.dead_letter_queue.alen() == 1
+        item = await loop.dead_letter_queue.agetitem(0)
+        assert item["cmb_id"] == "test-cmb-001"
         # Infrastructure error → dead-lettered, NOT invalidated
         mock_dao.invalidate_node.assert_not_called()
 
@@ -250,11 +251,12 @@ class TestDeadLetterIntegration:
             llm_b=llm_b,
             obs_layer=MagicMock(),
         )
-        loop.dead_letter_queue.clear()
+        await loop.dead_letter_queue.clear()
 
         await loop.run_batch([_make_record(tier3=True)])
 
-        assert len(loop.dead_letter_queue) == 1
-        assert "error" in loop.dead_letter_queue[0]
+        assert await loop.dead_letter_queue.alen() == 1
+        item = await loop.dead_letter_queue.agetitem(0)
+        assert "error" in item
         # Infrastructure error → dead-lettered, NOT invalidated
         mock_dao.invalidate_node.assert_not_called()

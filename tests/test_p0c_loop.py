@@ -154,7 +154,7 @@ async def test_run_ppr_with_graph():
 async def test_build_graph_snapshot():
     dao = AsyncMock()
     dao.get_memories.return_value = [{"id": "A", "entity_name": "TestA"}, {"id": "B"}]
-    dao.get_neighbors.return_value = [
+    dao.get_all_edges.return_value = [
         {"source_id": "A", "target_id": "B", "relation_type": "REL"}
     ]
 
@@ -165,19 +165,20 @@ async def test_build_graph_snapshot():
     assert ("A", "B") in g.edges
 
 
-def test_persistent_queue():
+@pytest.mark.asyncio
+async def test_persistent_queue():
     q = PersistentQueue("./storage/test_queue.jsonl")
-    q.clear()
-    assert len(q) == 0
-    q.append({"a": 1})
-    assert len(q) == 1
-    assert q[0] == {"a": 1}
+    await q.clear()
+    assert await q.alen() == 0
+    await q.aappend({"a": 1})
+    assert await q.alen() == 1
+    assert await q.agetitem(0) == {"a": 1}
     with pytest.raises(IndexError):
-        _ = q[1]
+        _ = await q.agetitem(1)
     os.remove("./storage/test_queue.jsonl")
-    assert len(q) == 0
+    assert await q.alen() == 0
     with pytest.raises(IndexError):
-        _ = q[0]
+        _ = await q.agetitem(0)
 
 
 def test_circuit_breaker():

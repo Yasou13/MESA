@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS routing_telemetry (
 _CREATE_RAW_LOGS_TABLE = """\
 CREATE TABLE IF NOT EXISTS raw_logs (
     id         INTEGER PRIMARY KEY,
+    agent_id   TEXT    NOT NULL,
     payload    JSON    NOT NULL,
     status     TEXT    NOT NULL DEFAULT 'queued',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

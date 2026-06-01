@@ -20,6 +20,7 @@ services:
       - LLM_MODEL_NAME=${LLM_MODEL_NAME:-}
       - MESA_REBEL_ENABLED=${MESA_REBEL_ENABLED:-false}
       - MESA_EXTRACTION_LANG=${MESA_EXTRACTION_LANG:-tr}
+      - MESA_API_KEY=${MESA_API_KEY:-}
     env_file:
       - .env
     restart: unless-stopped

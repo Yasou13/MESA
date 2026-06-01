@@ -10,6 +10,7 @@ v0.3.1: Migrated from StorageFacade mocks to MemoryDAO mocks.
 """
 
 import json
+from tests.fixtures.vectors import VEC_MATCH, VEC_NEAR, VEC_BASE
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -79,8 +80,8 @@ def _build_consolidation_loop() -> (
     dao = _make_mock_dao()
 
     embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=[0.1] * 768)
-    embedder.aembed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
+    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
     embedder.EMBEDDING_DIM = 768
 
     llm_a = MagicMock()
@@ -626,7 +627,7 @@ class TestSalienceSorting:
             },  # high salience
             {"content_payload": "b", "source": "s", "cmb_id": "low2"},  # low salience
         ]
-        sorted_records = loop._sort_by_salience(records)
+        sorted_records = loop.triplet_extractor.sort_by_salience(records)
         # Highest salience record should be at position 0 or last position
         edge_ids = {sorted_records[0]["cmb_id"], sorted_records[-1]["cmb_id"]}
         assert "high" in edge_ids, "Highest-salience record must be at a batch edge"

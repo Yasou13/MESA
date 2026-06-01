@@ -5,8 +5,13 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 
 
-def _embed_text(text: str, embedder: BaseUniversalLLMAdapter) -> np.ndarray:
-    vec = embedder.embed(text)
+async def _embed_text(text: str, embedder: BaseUniversalLLMAdapter) -> np.ndarray:
+    if hasattr(embedder, "aembed"):
+        vec = await embedder.aembed(text)
+    else:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        vec = await loop.run_in_executor(None, embedder.embed, text)
     return np.array(vec).reshape(1, -1)
 
 
@@ -14,26 +19,31 @@ def _cosine_sim(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
     return float(cosine_similarity(vec_a, vec_b)[0][0])
 
 
-def calculate_composite_similarity(
+async def calculate_composite_similarity(
     trip_a: dict,
     trip_b: dict,
     embedder: BaseUniversalLLMAdapter,
     cache: dict | None = None,
 ) -> float:
-    def _get_emb(text: str) -> np.ndarray:
+    async def _get_emb(text: str) -> np.ndarray:
         if cache is not None and text in cache:
             vec = cache[text]
         else:
-            vec = embedder.embed(text)
+            if hasattr(embedder, "aembed"):
+                vec = await embedder.aembed(text)
+            else:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                vec = await loop.run_in_executor(None, embedder.embed, text)
         return np.array(vec).reshape(1, -1)
 
-    emb_head_a = _get_emb(trip_a["head"])
-    emb_tail_a = _get_emb(trip_a["tail"])
-    emb_rel_a = _get_emb(trip_a["relation"])
+    emb_head_a = await _get_emb(trip_a["head"])
+    emb_tail_a = await _get_emb(trip_a["tail"])
+    emb_rel_a = await _get_emb(trip_a["relation"])
 
-    emb_head_b = _get_emb(trip_b["head"])
-    emb_tail_b = _get_emb(trip_b["tail"])
-    emb_rel_b = _get_emb(trip_b["relation"])
+    emb_head_b = await _get_emb(trip_b["head"])
+    emb_tail_b = await _get_emb(trip_b["tail"])
+    emb_rel_b = await _get_emb(trip_b["relation"])
 
     sim_head = _cosine_sim(emb_head_a, emb_head_b)
     sim_tail = _cosine_sim(emb_tail_a, emb_tail_b)
