@@ -127,9 +127,7 @@ async def process_cold_path(
             raw_log = await dao.get_raw_log(agent_id, log_id)
 
             if raw_log is None:
-                logger.warning(
-                    "COLD_PATH_SKIP | log_id=%d reason=not_found", log_id
-                )
+                logger.warning("COLD_PATH_SKIP | log_id=%d reason=not_found", log_id)
                 return
 
             if raw_log["status"] != "queued":
@@ -141,14 +139,17 @@ async def process_cold_path(
                 return
 
             payload: dict[str, Any] = raw_log["payload"]
-            agent_id: str = payload.get("agent_id", "")
+            payload_agent_id: str = payload.get("agent_id", "")
             session_id: str = payload.get("session_id", "__unset__")
             content: str = payload.get("content", "")
             metadata: dict = payload.get("metadata", {})
 
-            if not agent_id or not content:
+            if not payload_agent_id or not content:
                 await dao.update_raw_log_status(
-                    agent_id, log_id, "rejected", error_reason="missing_agent_id_or_content"
+                    payload_agent_id,
+                    log_id,
+                    "rejected",
+                    error_reason="missing_agent_id_or_content",
                 )
                 logger.warning(
                     "COLD_PATH_REJECTED | log_id=%d reason=missing_required_fields",
@@ -159,23 +160,26 @@ async def process_cold_path(
             # ==============================================================
             # 2. STATUS → processing
             # ==============================================================
-            await dao.update_raw_log_status(agent_id, log_id, "processing")
+            await dao.update_raw_log_status(payload_agent_id, log_id, "processing")
 
             logger.info(
                 "COLD_PATH_START | log_id=%d agent_id=%s content_len=%d",
                 log_id,
-                agent_id,
+                payload_agent_id,
                 len(content),
             )
 
             # ==============================================================
             # 3. TIER-1: ECOD ANOMALY DETECTION (Novelty Gate)
             # ==============================================================
-            ecod_passed = await _run_ecod_gate(dao, agent_id, content)
+            ecod_passed = await _run_ecod_gate(dao, payload_agent_id, content)
 
             if not ecod_passed:
                 await dao.update_raw_log_status(
-                    agent_id, log_id, "rejected", error_reason="ecod_novelty_below_threshold"
+                    payload_agent_id,
+                    log_id,
+                    "rejected",
+                    error_reason="ecod_novelty_below_threshold",
                 )
                 logger.info(
                     "COLD_PATH_REJECTED | log_id=%d reason=ecod_novelty_gate",
@@ -194,7 +198,7 @@ async def process_cold_path(
             if triplets:
                 await _commit_triplets(
                     dao=dao,
-                    agent_id=agent_id,
+                    agent_id=payload_agent_id,
                     session_id=session_id,
                     content=content,
                     triplets=triplets,
@@ -204,7 +208,7 @@ async def process_cold_path(
                 # No triplets extracted — still commit as a raw memory node
                 await _commit_raw_memory(
                     dao=dao,
-                    agent_id=agent_id,
+                    agent_id=payload_agent_id,
                     session_id=session_id,
                     content=content,
                     log_id=log_id,
@@ -216,7 +220,7 @@ async def process_cold_path(
             if consolidation_loop is not None:
                 record = {
                     "id": str(log_id),
-                    "agent_id": agent_id,
+                    "agent_id": payload_agent_id,
                     "session_id": session_id,
                     "content": content,
                     "metadata": metadata,
@@ -227,7 +231,7 @@ async def process_cold_path(
                     logger.debug(
                         "TIER3_CONSENSUS_DONE | log_id=%d agent_id=%s",
                         log_id,
-                        agent_id,
+                        payload_agent_id,
                     )
                 except Exception as t3_exc:
                     # Tier-3 failure must NOT block cold-path commit
@@ -240,13 +244,13 @@ async def process_cold_path(
             # ==============================================================
             # 6. STATUS → processed
             # ==============================================================
-            await dao.update_raw_log_status(agent_id, log_id, "processed")
+            await dao.update_raw_log_status(payload_agent_id, log_id, "processed")
 
             elapsed_ms = int((time.monotonic() - t_start) * 1000)
             logger.info(
                 "COLD_PATH_DONE | log_id=%d agent_id=%s triplets=%d elapsed_ms=%d",
                 log_id,
-                agent_id,
+                payload_agent_id,
                 len(triplets),
                 elapsed_ms,
             )
@@ -333,7 +337,10 @@ async def _run_ecod_gate(
         def _build_embeddings():
             content_emb = np.array(_hash_embedding_sync(content, dim=8))
             existing_embs = np.array(
-                [_hash_embedding_sync(m.get("entity_name", ""), dim=8) for m in existing_memories]
+                [
+                    _hash_embedding_sync(m.get("entity_name", ""), dim=8)
+                    for m in existing_memories
+                ]
             )
             return content_emb, existing_embs
 
@@ -491,9 +498,7 @@ async def _run_rebel_extraction_impl(
     """Execute the REBEL HF pipeline in a thread-pool executor."""
     try:
         loop = asyncio.get_running_loop()
-        triplets = await loop.run_in_executor(
-            None, extractor.extract_triplets, content
-        )
+        triplets = await loop.run_in_executor(None, extractor.extract_triplets, content)
         logger.debug(
             "REBEL_EXTRACT | content_len=%d triplets=%d",
             len(content),
@@ -530,11 +535,16 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
         prompt = _get_extraction_prompt(content)
 
         @retry(
-            wait=wait_exponential(multiplier=1, min=config.retry_min_wait_sec, max=config.retry_max_wait_sec),
+            wait=wait_exponential(
+                multiplier=1,
+                min=config.retry_min_wait_sec,
+                max=config.retry_max_wait_sec,
+            ),
             stop=stop_after_attempt(config.retry_max_attempts),
         )
         async def _acomplete_with_retry():
             from mesa_memory.consolidation.loop import llm_circuit_breaker
+
             if llm_circuit_breaker.is_open:
                 raise Exception("Circuit breaker is OPEN. Failing fast.")
             try:
@@ -571,9 +581,7 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
         return triplets
 
     except Exception as exc:
-        logger.warning(
-            "LLM_TRIPLET_EXTRACT_ERROR | error=%s — returning empty", exc
-        )
+        logger.warning("LLM_TRIPLET_EXTRACT_ERROR | error=%s — returning empty", exc)
         if isinstance(exc, RetryError) or "Circuit breaker is OPEN" in str(exc):
             raise
         return []
@@ -679,16 +687,13 @@ def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
 
         # Normalise both key formats to canonical {head, relation, tail}
         head = str(entry.get("head", entry.get("subject", ""))).strip()
-        relation = str(
-            entry.get("relation", entry.get("predicate", ""))
-        ).strip()
+        relation = str(entry.get("relation", entry.get("predicate", ""))).strip()
         tail = str(entry.get("tail", entry.get("object", ""))).strip()
 
         if head and relation and tail:
             triplets.append({"head": head, "relation": relation, "tail": tail})
 
     return triplets
-
 
 
 # ---------------------------------------------------------------------------

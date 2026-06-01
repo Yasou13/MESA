@@ -1,7 +1,9 @@
 import math
 
+
 def _pad(v, dim=768):
     return v + [0.0] * (dim - len(v))
+
 
 VEC_BASE = _pad([1.0, 0.0])
 VEC_ORTHOGONAL = _pad([0.0, 1.0])

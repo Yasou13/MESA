@@ -1,5 +1,4 @@
 import json
-from tests.fixtures.vectors import VEC_MATCH, VEC_NEAR, VEC_BASE
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -8,6 +7,7 @@ import pytest
 from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.observability.metrics import ObservabilityLayer
+from tests.fixtures.vectors import VEC_BASE, VEC_MATCH, VEC_NEAR
 
 
 def _make_mock_embedder(dim=768):

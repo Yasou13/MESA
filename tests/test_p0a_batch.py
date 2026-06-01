@@ -10,7 +10,6 @@ v0.3.1: Migrated from StorageFacade mocks to MemoryDAO mocks.
 """
 
 import json
-from tests.fixtures.vectors import VEC_MATCH, VEC_NEAR, VEC_BASE
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,6 +21,7 @@ from mesa_memory.consolidation.loop import (
 )
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
 from mesa_memory.observability.metrics import ObservabilityLayer
+from tests.fixtures.vectors import VEC_MATCH
 
 # ---------------------------------------------------------------------------
 # Fixtures

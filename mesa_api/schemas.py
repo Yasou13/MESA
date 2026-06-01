@@ -334,6 +334,7 @@ class MemoryPurgeRequest(BaseModel):
 
 class SessionStartRequest(BaseModel):
     """Schema for starting a new session."""
+
     model_config = ConfigDict(strict=True, frozen=True)
 
     agent_id: str = Field(
@@ -351,6 +352,7 @@ class SessionStartRequest(BaseModel):
 
 class SessionEndRequest(BaseModel):
     """Schema for ending an existing session."""
+
     model_config = ConfigDict(strict=True, frozen=True)
 
     agent_id: str = Field(
@@ -460,6 +462,7 @@ class HealthResponse(BaseModel):
 
 class SessionStartResponse(BaseModel):
     """Response returned after starting a session."""
+
     model_config = ConfigDict(frozen=True)
 
     session_id: str = Field(..., description="Unique generated session identifier")
@@ -469,10 +472,12 @@ class SessionStartResponse(BaseModel):
 
 class SessionContextResponse(BaseModel):
     """Response returned when fetching context for a session."""
+
     model_config = ConfigDict(frozen=True)
 
     session_id: str = Field(..., description="The session identifier")
     agent_id: str = Field(..., description="The tenant identifier")
     context: str = Field(..., description="Formatted textual context for the session")
-    recent_logs: list[dict] = Field(default_factory=list, description="Recent episodic logs")
-
+    recent_logs: list[dict] = Field(
+        default_factory=list, description="Recent episodic logs"
+    )

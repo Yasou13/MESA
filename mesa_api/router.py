@@ -249,7 +249,9 @@ def create_memory_router(
             # Phase 2: Vector similarity search (if engine is available)
             if dao.vector_engine is not None and dao.vector_engine.is_initialized:
                 loop = asyncio.get_running_loop()
-                query_embedding = await loop.run_in_executor(None, embedder, request.query)
+                query_embedding = await loop.run_in_executor(
+                    None, embedder, request.query
+                )
                 vec_results = await dao.search_memory(
                     agent_id=request.agent_id,
                     query_vector=query_embedding,
@@ -364,7 +366,9 @@ def create_memory_router(
         Enforces strict RBAC: requires a valid ``agent_id`` in the request payload.
         """
         session_id = f"sess_{uuid.uuid4().hex}"
-        logger.info("SESSION_START | agent_id=%s session_id=%s", request.agent_id, session_id)
+        logger.info(
+            "SESSION_START | agent_id=%s session_id=%s", request.agent_id, session_id
+        )
         return SessionStartResponse(session_id=session_id, agent_id=request.agent_id)
 
     # ==================================================================
@@ -395,11 +399,12 @@ def create_memory_router(
                 async with db.execute(
                     "SELECT payload FROM raw_logs WHERE json_extract(payload, '$.agent_id') = ? "
                     "AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT 10",
-                    (agent_id, session_id)
+                    (agent_id, session_id),
                 ) as cur:
                     rows = await cur.fetchall()
                     for row in rows:
                         import json
+
                         payload = json.loads(row[0])
                         if "content" in payload:
                             recent_logs.append({"content": payload["content"]})
@@ -408,7 +413,7 @@ def create_memory_router(
                 async with db.execute(
                     "SELECT entity_name, type FROM nodes WHERE agent_id = ? AND session_id = ? "
                     "AND invalid_at IS NULL AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50",
-                    (agent_id, session_id)
+                    (agent_id, session_id),
                 ) as cur:
                     node_rows = await cur.fetchall()
                     nodes_content = [f"{r[0]} ({r[1]})" for r in node_rows]
@@ -424,7 +429,10 @@ def create_memory_router(
         except Exception as exc:
             logger.error(
                 "SESSION_CONTEXT_ERROR | session_id=%s agent_id=%s error=%s",
-                session_id, agent_id, exc, exc_info=True
+                session_id,
+                agent_id,
+                exc,
+                exc_info=True,
             )
             raise HTTPException(
                 status_code=500,
@@ -455,12 +463,19 @@ def create_memory_router(
         try:
             # Here we would enqueue a final consolidation pass for this specific session.
             # For now, we log the termination which could trigger the orchestrator.
-            logger.info("SESSION_END | agent_id=%s session_id=%s triggered final consolidation.", request.agent_id, session_id)
+            logger.info(
+                "SESSION_END | agent_id=%s session_id=%s triggered final consolidation.",
+                request.agent_id,
+                session_id,
+            )
             return {"status": "ended", "session_id": session_id}
         except Exception as exc:
             logger.error(
                 "SESSION_END_ERROR | session_id=%s agent_id=%s error=%s",
-                session_id, request.agent_id, exc, exc_info=True
+                session_id,
+                request.agent_id,
+                exc,
+                exc_info=True,
             )
             raise HTTPException(
                 status_code=500,
@@ -468,4 +483,3 @@ def create_memory_router(
             )
 
     return router
-

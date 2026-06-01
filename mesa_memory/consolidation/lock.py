@@ -10,6 +10,7 @@ async def _embed_text(text: str, embedder: BaseUniversalLLMAdapter) -> np.ndarra
         vec = await embedder.aembed(text)
     else:
         import asyncio
+
         loop = asyncio.get_running_loop()
         vec = await loop.run_in_executor(None, embedder.embed, text)
     return np.array(vec).reshape(1, -1)
@@ -33,6 +34,7 @@ async def calculate_composite_similarity(
                 vec = await embedder.aembed(text)
             else:
                 import asyncio
+
                 loop = asyncio.get_running_loop()
                 vec = await loop.run_in_executor(None, embedder.embed, text)
         return np.array(vec).reshape(1, -1)

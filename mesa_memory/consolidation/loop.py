@@ -69,6 +69,7 @@ class PersistentQueue:
         def _clear():
             with open(self.filepath, "w") as f:  # noqa: F841
                 pass
+
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _clear)
 
@@ -79,6 +80,7 @@ class PersistentQueue:
                     return sum(1 for line in f if line.strip())
             except FileNotFoundError:
                 return 0
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _len)
 
@@ -90,6 +92,7 @@ class PersistentQueue:
                 return lines[idx]
             except FileNotFoundError:
                 raise IndexError("Queue is empty")
+
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _getitem, index)
 
@@ -232,8 +235,6 @@ class ConsolidationLoop:
     # -------------------------------------------------------------------
     # Backward-compatible delegation wrappers
     # -------------------------------------------------------------------
-
-
 
     @staticmethod
     def _build_records_block(sub_batch: list[dict]) -> str:

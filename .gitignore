@@ -133,5 +133,8 @@ data/raw/*
 bench_*.sqlite
 bench_*.db
 legal_golden.json
+soak_test_*.jsonl
+temp_*.py
+temp_*.md
 .coverage
 .coverage.*

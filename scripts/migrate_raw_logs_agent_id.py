@@ -1,7 +1,8 @@
-import sqlite3
 import json
 import os
+import sqlite3
 import sys
+
 
 def migrate_raw_logs(db_path: str):
     """
@@ -22,26 +23,26 @@ def migrate_raw_logs(db_path: str):
         print("Fetching rows from raw_logs...")
         cursor.execute("SELECT id, payload FROM raw_logs")
         rows = cursor.fetchall()
-        
+
         migrated_count = 0
         error_count = 0
 
         for row in rows:
             row_id = row["id"]
             payload_str = row["payload"]
-            
+
             try:
                 payload_data = json.loads(payload_str)
                 # Default to '__unset__' if not found, matching schema defaults for other tables
                 agent_id = payload_data.get("agent_id", "__unset__")
-                
+
                 # Execute an UPDATE statement to write the extracted agent_id
                 cursor.execute(
                     "UPDATE raw_logs SET agent_id = ? WHERE id = ?",
                     (agent_id, row_id)
                 )
                 migrated_count += 1
-                
+
             except json.JSONDecodeError:
                 print(f"Error decoding JSON for row ID {row_id}. Skipping.")
                 error_count += 1
