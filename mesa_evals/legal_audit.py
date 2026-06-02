@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 
 import aiosqlite
 
+from mesa_storage.kuzu_provider import KuzuGraphProvider
+
 logger = logging.getLogger("MESA_LegalAudit")
 
 # ---------------------------------------------------------------------------
@@ -406,15 +408,15 @@ async def audit_graph(
     *,
     threshold: float = DEFAULT_THRESHOLD,
 ) -> AuditResult:
-    """Run the graph poisoning audit against a live SQLite database.
+    """Run the graph poisoning audit against a live KùzuDB database.
 
-    Connects directly to the SQLite database file, queries all legal
-    edges (DAYANIR / ATIF_YAPAR), resolves target node entity names,
-    and validates them against the canonical Turkish law reference set.
+    Connects to the KùzuDB database directory (derived from db_path), queries
+    all Observed edges, resolves target node entity names, and validates them
+    against the canonical Turkish law reference set.
 
     Args:
-        db_path: Path to the MESA SQLite database file.
-        agent_id: Agent ID to scope the audit (RLS).
+        db_path: Path to the MESA SQLite database file (Kuzu path derived by replacing .db with _graph).
+        agent_id: Agent ID to scope the audit (RLS / Zero-Trust).
         threshold: Maximum acceptable poisoning rate (default 0.05).
 
     Returns:
@@ -422,49 +424,45 @@ async def audit_graph(
     """
     result = AuditResult(agent_id=agent_id)
 
-    # Build the IN clause for legal relation types
-    rel_placeholders = ",".join("?" for _ in LEGAL_RELATIONS)
+    # Derive KuzuDB path from the SQLite db path
+    graph_path = db_path.replace(".db", "_graph")
+    
+    # Initialize KuzuGraphProvider
+    graph_provider = KuzuGraphProvider(graph_path)
+    await graph_provider.initialize()
 
-    async with aiosqlite.connect(db_path) as db:
-        db.row_factory = aiosqlite.Row
-
-        # Query all active legal edges with resolved entity names
-        sql = (
-            "SELECT e.id AS edge_id, "
-            "       e.relation_type, "
-            "       e.agent_id, "
-            "       src.entity_name AS source_entity, "
-            "       tgt.entity_name AS target_entity "
-            "FROM edges e "
-            "JOIN nodes src ON src.id = e.source_id "
-            "JOIN nodes tgt ON tgt.id = e.target_id "
-            "WHERE e.agent_id = ? "
-            f"  AND e.relation_type IN ({rel_placeholders}) "
-            "  AND e.invalid_at IS NULL "
-            "  AND src.invalid_at IS NULL "
-            "  AND tgt.invalid_at IS NULL"
+    try:
+        # Query all active legal edges using Cypher
+        # Zero-Trust isolation enforced via agent_id properties
+        cypher = (
+            "MATCH (src:Entity)-[e:Observed]->(tgt:Entity) "
+            "WHERE src.agent_id = $agent_id "
+            "  AND tgt.agent_id = $agent_id "
+            "  AND e.agent_id = $agent_id "
+            "RETURN src.name, tgt.name"
         )
-        params = [agent_id, *LEGAL_RELATIONS]
-
-        async with db.execute(sql, params) as cursor:
-            rows = await cursor.fetchall()
-
+        
+        rows = await graph_provider.execute_query(cypher, {"agent_id": agent_id})
+        
         result.total_legal_edges = len(rows)
 
         for row in rows:
-            target_name = row["target_entity"]
+            source_name = row[0]
+            target_name = row[1]
             if is_valid_law(target_name):
                 result.valid_edges += 1
             else:
                 result.poisoned_edges.append(
                     PoisonedEdge(
-                        edge_id=row["edge_id"],
-                        source_entity=row["source_entity"],
+                        edge_id="kuzu-edge", # Legacy ID field no longer explicitly stored in Kuzu
+                        source_entity=source_name,
                         target_entity=target_name,
-                        relation_type=row["relation_type"],
-                        agent_id=row["agent_id"],
+                        relation_type="Observed", # Unified relation type in Kuzu
+                        agent_id=agent_id,
                     )
                 )
+    finally:
+        await graph_provider.close()
 
     return result
 
