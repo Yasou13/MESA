@@ -63,6 +63,3 @@ def test_ollama_adapter_embed():
         assert isinstance(result, list)
         assert len(result) == 768
         assert all(isinstance(v, float) for v in result)
-
-
-
