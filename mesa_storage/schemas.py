@@ -70,45 +70,6 @@ _CREATE_NODES_INDEXES = [
     """,
 ]
 
-_CREATE_EDGES_TABLE = """\
-CREATE TABLE IF NOT EXISTS edges (
-    id            TEXT    PRIMARY KEY,
-    source_id     TEXT    NOT NULL,
-    target_id     TEXT    NOT NULL,
-    relation_type TEXT    NOT NULL,
-    weight        REAL    NOT NULL DEFAULT 1.0,
-    created_at    TEXT    NOT NULL,
-    invalid_at    TEXT    DEFAULT NULL,
-    agent_id      TEXT    NOT NULL DEFAULT '__unset__',
-    FOREIGN KEY (source_id) REFERENCES nodes(id),
-    FOREIGN KEY (target_id) REFERENCES nodes(id)
-);
-"""
-
-_CREATE_EDGES_INDEXES = [
-    """\
-    CREATE INDEX IF NOT EXISTS idx_edges_active
-    ON edges(invalid_at) WHERE invalid_at IS NULL;
-    """,
-    """\
-    CREATE INDEX IF NOT EXISTS idx_edges_source
-    ON edges(source_id) WHERE invalid_at IS NULL;
-    """,
-    """\
-    CREATE INDEX IF NOT EXISTS idx_edges_target
-    ON edges(target_id) WHERE invalid_at IS NULL;
-    """,
-    """\
-    CREATE INDEX IF NOT EXISTS idx_edges_relation
-    ON edges(relation_type) WHERE invalid_at IS NULL;
-    """,
-    """\
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_edges_unique_active
-    ON edges(source_id, target_id, relation_type)
-    WHERE invalid_at IS NULL;
-    """,
-]
-
 # ---------------------------------------------------------------------------
 # FTS5 virtual table — zero-VRAM lexical pre-filtering
 # ---------------------------------------------------------------------------
@@ -200,14 +161,11 @@ async def initialize_schema(engine: AsyncEngine) -> None:
     async with engine.connection() as db:
         # 1. Core tables
         await db.execute(_CREATE_NODES_TABLE)
-        await db.execute(_CREATE_EDGES_TABLE)
         await db.execute(_CREATE_ROUTING_TELEMETRY_TABLE)
         await db.execute(_CREATE_RAW_LOGS_TABLE)
 
         # 2. Indexes
         for idx_sql in _CREATE_NODES_INDEXES:
-            await db.execute(idx_sql)
-        for idx_sql in _CREATE_EDGES_INDEXES:
             await db.execute(idx_sql)
         for idx_sql in _CREATE_RAW_LOGS_INDEXES:
             await db.execute(idx_sql)
@@ -240,8 +198,8 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         )
 
     logger.info(
-        "SCHEMA_INIT | tables=[nodes, edges, nodes_fts, routing_telemetry, raw_logs] "
-        "indexes=10 triggers=3 db=%s",
+        "SCHEMA_INIT | tables=[nodes, nodes_fts, routing_telemetry, raw_logs] "
+        "indexes=6 triggers=3 db=%s",
         engine.db_path,
     )
 
@@ -252,18 +210,14 @@ async def validate_schema(engine: AsyncEngine) -> dict:
     Returns:
         Dict mapping object names to booleans indicating presence.
     """
-    expected_tables = {"nodes", "edges", "nodes_fts", "routing_telemetry", "raw_logs"}
+    expected_tables = {"nodes", "nodes_fts", "routing_telemetry", "raw_logs"}
     expected_indexes = {
         "idx_nodes_active",
         "idx_nodes_entity_name",
         "idx_nodes_agent",
         "idx_nodes_unconsolidated",
         "idx_nodes_soft_deleted",
-        "idx_edges_active",
-        "idx_edges_source",
-        "idx_edges_target",
-        "idx_edges_relation",
-        "idx_edges_unique_active",
+        "idx_raw_logs_session",
     }
     expected_triggers = {
         "trg_nodes_fts_insert",
@@ -271,7 +225,6 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "trg_nodes_fts_update",
     }
 
-    expected_indexes.add("idx_raw_logs_session")
 
     result: dict = {"tables": {}, "indexes": {}, "triggers": {}, "valid": True}
 
@@ -413,13 +366,6 @@ async def soft_delete_node(engine: AsyncEngine, node_id: str, *, agent_id: str) 
             "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
             (now, node_id, agent_id),
         )
-        # Cascade soft-delete to connected edges
-        await db.execute(
-            "UPDATE edges SET invalid_at = ? "
-            "WHERE agent_id = ? "
-            "AND (source_id = ? OR target_id = ?) AND invalid_at IS NULL",
-            (now, agent_id, node_id, node_id),
-        )
         await db.commit()
 
 
@@ -502,238 +448,6 @@ async def find_nodes_by_name(
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
-
-# ---------------------------------------------------------------------------
-# Edge operations
-# ---------------------------------------------------------------------------
-
-
-async def insert_edge(
-    engine: AsyncEngine,
-    edge_id: str,
-    source_id: str,
-    target_id: str,
-    relation_type: str,
-    weight: float = 1.0,
-    agent_id: str = "__unset__",
-) -> str:
-    """Insert a directed edge between two nodes.
-
-    Returns:
-        The edge_id of the inserted edge.
-    """
-    now = datetime.now(timezone.utc).isoformat()
-
-    async with engine.transaction() as db:
-        await db.execute(
-            "INSERT INTO edges (id, source_id, target_id, relation_type, "
-            "weight, created_at, agent_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (edge_id, source_id, target_id, relation_type, weight, now, agent_id),
-        )
-        await db.commit()
-
-    return edge_id
-
-
-async def upsert_edge(
-    engine: AsyncEngine,
-    edge_id: str,
-    source_id: str,
-    target_id: str,
-    relation_type: str,
-    weight: float = 1.0,
-    agent_id: str = "__unset__",
-) -> str:
-    """Insert or update an edge's weight if the active triple already exists.
-
-    Uses the unique index on (source_id, target_id, relation_type) WHERE
-    invalid_at IS NULL to detect duplicates.  On conflict, the weight is
-    updated additively.
-
-    Returns:
-        The edge_id used.
-    """
-    now = datetime.now(timezone.utc).isoformat()
-
-    async with engine.transaction() as db:
-        # Check for existing active edge with same triple
-        # RLS: agent_id hardcoded into SELECT to prevent cross-tenant reads
-        async with db.execute(
-            "SELECT id, weight FROM edges "
-            "WHERE source_id = ? AND target_id = ? AND relation_type = ? "
-            "AND agent_id = ? AND invalid_at IS NULL",
-            (source_id, target_id, relation_type, agent_id),
-        ) as cursor:
-            existing = await cursor.fetchone()
-
-        if existing:
-            # Merge: update weight additively
-            # RLS: agent_id hardcoded into UPDATE
-            await db.execute(
-                "UPDATE edges SET weight = weight + ? " "WHERE id = ? AND agent_id = ?",
-                (weight, existing[0], agent_id),
-            )
-            await db.commit()
-            return str(existing[0])
-        else:
-            await db.execute(
-                "INSERT INTO edges (id, source_id, target_id, relation_type, "
-                "weight, created_at, agent_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (edge_id, source_id, target_id, relation_type, weight, now, agent_id),
-            )
-            await db.commit()
-            return edge_id
-
-
-async def soft_delete_edge(engine: AsyncEngine, edge_id: str, *, agent_id: str) -> None:
-    """Soft-delete a single edge by its ID.
-
-    RLS: agent_id is mandatory and hardcoded into the WHERE clause.
-    """
-    now = datetime.now(timezone.utc).isoformat()
-
-    async with engine.connection() as db:
-        await db.execute(
-            "UPDATE edges SET invalid_at = ? "
-            "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
-            (now, edge_id, agent_id),
-        )
-        await db.commit()
-
-
-async def get_neighbors(
-    engine: AsyncEngine,
-    node_id: str,
-    *,
-    agent_id: str,
-    direction: str = "both",
-) -> list[dict]:
-    """Return edges connected to a node.
-
-    RLS: agent_id is mandatory and hardcoded into every WHERE clause.
-
-    Args:
-        agent_id: Mandatory tenant isolation key.
-        direction: "out" (outgoing), "in" (incoming), or "both".
-
-    Returns:
-        List of edge dicts with target/source node info.
-    """
-    results: list[dict] = []
-
-    async with engine.connection() as db:
-        if direction in ("out", "both"):
-            async with db.execute(
-                "SELECT e.*, n.entity_name AS target_name, n.type AS target_type "
-                "FROM edges e "
-                "JOIN nodes n ON n.id = e.target_id AND n.invalid_at IS NULL "
-                "WHERE e.source_id = ? AND e.agent_id = ? AND e.invalid_at IS NULL",
-                (node_id, agent_id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-                results.extend(dict(row) for row in rows)
-
-        if direction in ("in", "both"):
-            async with db.execute(
-                "SELECT e.*, n.entity_name AS source_name, n.type AS source_type "
-                "FROM edges e "
-                "JOIN nodes n ON n.id = e.source_id AND n.invalid_at IS NULL "
-                "WHERE e.target_id = ? AND e.agent_id = ? AND e.invalid_at IS NULL",
-                (node_id, agent_id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-                results.extend(dict(row) for row in rows)
-
-    return results
-
-
-async def get_active_edges(engine: AsyncEngine, *, agent_id: str) -> list[dict]:
-    """Return all active (non-invalidated) edges.
-
-    RLS: agent_id is mandatory and hardcoded into the WHERE clause.
-    """
-    async with engine.connection() as db:
-        async with db.execute(
-            "SELECT * FROM edges WHERE agent_id = ? "
-            "AND invalid_at IS NULL ORDER BY created_at ASC",
-            (agent_id,),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
-
-
-async def k_hop_neighbors(
-    engine: AsyncEngine,
-    node_id: str,
-    *,
-    agent_id: str,
-    k: int = 2,
-    direction: str = "both",
-) -> list[dict]:
-    """Return all nodes reachable within k hops via BFS traversal.
-
-    RLS: agent_id is mandatory and hardcoded into every query.
-
-    Args:
-        node_id: Starting node UUID.
-        agent_id: Mandatory tenant isolation key.
-        k: Maximum hop depth (default 2).
-        direction: "out", "in", or "both".
-
-    Returns:
-        List of node dicts with an added 'depth' key.
-    """
-    visited: set[str] = {node_id}
-    frontier: set[str] = {node_id}
-    results: list[dict] = []
-
-    for depth in range(1, k + 1):
-        next_frontier: set[str] = set()
-
-        for fid in frontier:
-            neighbors = await get_neighbors(
-                engine, fid, agent_id=agent_id, direction=direction
-            )
-            for edge in neighbors:
-                # Determine the neighbor ID based on direction
-                if direction == "out":
-                    neighbor_id = edge["target_id"]
-                elif direction == "in":
-                    neighbor_id = edge["source_id"]
-                else:
-                    neighbor_id = (
-                        edge["target_id"]
-                        if edge["source_id"] == fid
-                        else edge["source_id"]
-                    )
-
-                if neighbor_id not in visited:
-                    visited.add(neighbor_id)
-                    next_frontier.add(neighbor_id)
-
-        if not next_frontier:
-            break
-
-        # Fetch node details for this depth layer
-        # RLS: agent_id hardcoded into WHERE clause
-        async with engine.connection() as db:
-            placeholders = ",".join("?" for _ in next_frontier)
-            async with db.execute(
-                f"SELECT * FROM nodes WHERE id IN ({placeholders}) "
-                "AND agent_id = ? AND invalid_at IS NULL",
-                list(next_frontier) + [agent_id],
-            ) as cursor:
-                rows = await cursor.fetchall()
-                for row in rows:
-                    node_dict = dict(row)
-                    node_dict["depth"] = depth
-                    results.append(node_dict)
-
-        frontier = next_frontier
-
-    return results
 
 
 # ---------------------------------------------------------------------------

@@ -331,15 +331,14 @@ async def resolve_conflict(
             "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
             (existing_id, agent_id),
         )
-        # Also cascade-invalidate edges connected to the old node
-        await db.execute(
-            "UPDATE edges SET invalid_at = CURRENT_TIMESTAMP "
-            "WHERE agent_id = ? "
-            "  AND (source_id = ? OR target_id = ?) "
-            "  AND invalid_at IS NULL",
-            (agent_id, existing_id, existing_id),
-        )
         await db.commit()
+
+    # Also cascade-delete edges connected to the old node via KùzuDB
+    if dao.graph_provider:
+        await dao.graph_provider.execute_write(
+            "MATCH (n:Entity {id: $existing_id, agent_id: $agent_id})-[r:Observed]-() DELETE r",
+            {"existing_id": existing_id, "agent_id": agent_id},
+        )
 
     logger.info(
         "CONFLICT_INVALIDATE | agent_id=%s old_node=%s",

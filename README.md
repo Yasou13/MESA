@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.4.2-green.svg)
+![Version](https://img.shields.io/badge/Version-0.5.0-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
 Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
@@ -179,7 +179,7 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 | **Tenant Isolation** | Mandatory `agent_id` RLS on every query | None | None |
 | **Session Lifecycle APIs** | Native `/session/start`, `/context`, `/end` endpoints | None | Implicit |
 | **Fault Tolerance** | Circuit Breaker + DLQ + Exponential Backoff | Try/Catch | Retry Decorator |
-| **Local-First** | Yes (SQLite WAL, LanceDB, NetworkX) | Cloud-dependent | Cloud-dependent |
+| **Local-First** | Yes (SQLite WAL, LanceDB, KùzuDB) | Cloud-dependent | Cloud-dependent |
 | **Observability** | Prometheus + structured JSON logs | Basic logging | Basic logging |
 
 ---
@@ -215,7 +215,7 @@ graph TB
     subgraph "Storage Layer"
         J --> K["SQLite WAL<br/>+ FTS5"]
         J --> L["LanceDB<br/>Vector Index"]
-        J --> M["NetworkX<br/>Knowledge Graph"]
+        J --> M["KùzuDB<br/>Knowledge Graph"]
     end
 
     subgraph "Retrieval Layer"
@@ -260,7 +260,7 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements-core.txt
 ```
 
-> **Core dependencies installed:** `aiosqlite`, `fastapi`, `lancedb`, `httpx`, `pydantic`, `uvicorn`, `networkx`, `pyarrow`, and all supporting packages. See `requirements-core.txt` for the full manifest or `pyproject.toml` for version ranges.
+> **Core dependencies installed:** `aiosqlite`, `fastapi`, `lancedb`, `httpx`, `pydantic`, `uvicorn`, `kuzu`, `pyarrow`, and all supporting packages. See `requirements-core.txt` for the full manifest or `pyproject.toml` for version ranges.
 
 **Optional Heavy ML Models:** If you need the local REBEL transformer model for English-only offline triplet extraction, install the optional package:
 ```bash
@@ -347,9 +347,9 @@ python -m mesa_evals.gatekeeper   # CI/CD gate (exit 0 = PASS)
 > [!WARNING]
 > **Understand these constraints before deploying to production.**
 
-### NetworkX Graph Scalability
+### KùzuDB Graph Scalability
 
-The default graph provider uses **in-memory NetworkX** backed by SQLite persistence. This works well for graphs up to ~100K nodes. For larger knowledge bases, a dedicated graph database backend is recommended.
+The legacy NetworkX graph provider has been fully deprecated. MESA now exclusively leverages **KùzuDB** for graph topology, enabling infinite out-of-core scaling and entirely eliminating node-related RAM exhaustion.
 
 ### LLM Provider Rate Limits
 
@@ -367,7 +367,7 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 
 ### Current Status
 
-As of v0.4.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization — tested and validated for production evaluation.
+As of v0.5.0, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization — tested and validated for production evaluation.
 
 ---
 

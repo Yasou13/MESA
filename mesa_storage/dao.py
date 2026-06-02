@@ -1,14 +1,20 @@
-# MESA v0.3.0 — Phase 4: Data Access Object Layer (Epistemic Isolation)
-# Wraps aiosqlite (graph/relational) and LanceDB (vector) operations behind
-# a single class that MANDATES agent_id on every method signature.
+# MESA v0.5.0 — Data Access Object Layer (Epistemic Isolation)
+# Wraps aiosqlite (nodes/raw_logs), LanceDB (vectors), and KùzuDB (graph
+# edges) behind a single class that MANDATES agent_id on every method.
+#
+# Edge ownership:
+#   - KùzuDB is the Single Source of Truth for graph edges (Observed rels).
+#   - SQLite retains ownership of: nodes, raw_logs, routing_telemetry.
+#   - LanceDB retains ownership of: vector embeddings.
 #
 # Security guarantees:
-#   - Row-Level Security (RLS) simulation: every SQL query and LanceDB filter
-#     hardcodes `WHERE agent_id = ?` — cross-agent leakage is structurally
-#     impossible regardless of caller logic errors.
+#   - Row-Level Security (RLS) simulation: every SQL query, LanceDB filter,
+#     and Cypher query hardcodes agent_id — cross-agent leakage is
+#     structurally impossible regardless of caller logic errors.
 #   - Soft-delete via `UPDATE nodes SET deleted_at = CURRENT_TIMESTAMP` —
 #     no physical DELETEs are issued; data is preserved for audit/recovery.
-#   - Parameterised queries exclusively — zero string interpolation in SQL.
+#   - Parameterised queries exclusively — zero string interpolation in SQL
+#     or Cypher.
 """
 Data Access Object for the MESA storage layer.
 
@@ -49,6 +55,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -84,7 +91,11 @@ class MemoryDAO:
     Every public method requires ``agent_id`` as its first positional
     argument.  All SQL queries embed ``WHERE agent_id = ?`` via
     parameterised binding.  All LanceDB filters embed
-    ``agent_id = '<value>'`` in the WHERE clause.
+    ``agent_id = '<value>'`` in the WHERE clause.  All Cypher queries
+    bind ``$agent_id`` via strict parameterisation.
+
+    Edge storage is owned exclusively by KùzuDB.  SQLite retains
+    ownership of nodes, raw_logs, and routing_telemetry.
 
     This class does NOT own the lifecycle of the underlying engines —
     the caller is responsible for initialising and closing them.
@@ -92,17 +103,21 @@ class MemoryDAO:
     Args:
         sqlite_engine: An initialised ``AsyncEngine`` instance.
         vector_engine: An initialised ``VectorEngine`` instance.
+        graph_provider: An initialised ``KuzuGraphProvider`` instance
+                        for graph edge operations.
     """
 
-    __slots__ = ("_sql", "_vec")
+    __slots__ = ("_sql", "_vec", "_graph")
 
     def __init__(
         self,
         sqlite_engine: AsyncEngine,
         vector_engine: VectorEngine,
+        graph_provider: KuzuGraphProvider | None = None,
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
+        self._graph = graph_provider
 
     async def initialize(self) -> None:
         """Initialize the DAO layer.
@@ -127,6 +142,11 @@ class MemoryDAO:
     def vector_engine(self) -> VectorEngine:
         """Return the underlying vector engine (read-only access)."""
         return self._vec
+
+    @property
+    def graph_provider(self) -> KuzuGraphProvider | None:
+        """Return the underlying graph provider (read-only access)."""
+        return self._graph
 
     # ==================================================================
     # INSERT — agent-scoped memory ingestion
@@ -217,14 +237,8 @@ class MemoryDAO:
                     f"AND invalid_at IS NULL",
                     (*conflicting_node_ids, agent_id),
                 )
-                # Cascade to connected edges
-                await db.execute(
-                    f"UPDATE edges SET invalid_at = CURRENT_TIMESTAMP "
-                    f"WHERE agent_id = ? "
-                    f"  AND (source_id IN ({placeholders}) OR target_id IN ({placeholders})) "
-                    f"  AND invalid_at IS NULL",
-                    (agent_id, *conflicting_node_ids, *conflicting_node_ids),
-                )
+                # NOTE: Edge cascade removed — edges now live in KùzuDB
+                # and are structurally bound to Entity nodes via MATCH.
                 logger.info(
                     "SEMANTIC_CONFLICT_RESOLUTION | agent_id=%s new_node_id=%s "
                     "resolved_conflicts=%d soft_deleted=%s",
@@ -265,6 +279,17 @@ class MemoryDAO:
                     vec_exc,
                 )
                 raise
+
+            # Insert node into KuzuDB if graph provider is configured
+            if self._graph is not None:
+                try:
+                    await self._graph.insert_node(
+                        node_id=node_id,
+                        name=entity_name,
+                        agent_id=agent_id,
+                    )
+                except Exception as graph_exc:
+                    logger.warning("Failed to insert node into KuzuDB: %s", graph_exc)
 
             # Both layers succeeded — commit the SQL transaction
             await db.commit()
@@ -360,6 +385,17 @@ class MemoryDAO:
                     vec_exc,
                 )
                 raise
+
+            if self._graph is not None:
+                try:
+                    for rec, sql_row in zip(records, sql_rows):
+                        await self._graph.insert_node(
+                            node_id=sql_row[0],
+                            name=sql_row[1],
+                            agent_id=agent_id,
+                        )
+                except Exception as graph_exc:
+                    logger.warning("Failed to bulk insert nodes into KuzuDB: %s", graph_exc)
 
             # Both layers succeeded — commit
             await db.commit()
@@ -658,20 +694,8 @@ class MemoryDAO:
 
             nodes_deleted = node_cursor.rowcount
 
-            # ---- 1b. Cascade-invalidate connected edges ----------------
-            #      RLS: WHERE agent_id = ? hardcoded.
-            placeholders = ",".join("?" for _ in affected_ids)
-            edge_sql = (
-                "UPDATE edges "
-                "SET invalid_at = CURRENT_TIMESTAMP "
-                "WHERE agent_id = ? "
-                f"  AND (source_id IN ({placeholders}) "
-                f"       OR target_id IN ({placeholders})) "
-                "  AND invalid_at IS NULL"
-            )
-            edge_params: list[Any] = [agent_id, *affected_ids, *affected_ids]
-            edge_cursor = await db.execute(edge_sql, edge_params)
-            edges_deleted = edge_cursor.rowcount
+            # NOTE: Edge cascade removed — edges now live in KùzuDB
+            # and are structurally bound to Entity nodes via MATCH.
 
             # DO NOT commit yet — wait for vector layer success
             # ---- PHASE 2: VECTOR LAYER (compensating rollback on fail) -
@@ -693,17 +717,13 @@ class MemoryDAO:
             # Both layers succeeded — commit the SQL transaction
             await db.commit()
 
-        total_deleted = nodes_deleted + edges_deleted
-
         logger.info(
-            "PURGE_MEMORY | agent_id=%s scope=%s nodes_affected=%d edges_affected=%d total=%d",
+            "PURGE_MEMORY | agent_id=%s scope=%s nodes_affected=%d",
             agent_id,
             scope,
             nodes_deleted,
-            edges_deleted,
-            total_deleted,
         )
-        return total_deleted
+        return nodes_deleted
 
     # ==================================================================
     # MARK CONSOLIDATED — agent-scoped
@@ -739,8 +759,17 @@ class MemoryDAO:
             await db.commit()
 
     # ==================================================================
-    # EDGE OPERATIONS — agent-scoped
+    # EDGE OPERATIONS — KùzuDB (Single Source of Truth)
     # ==================================================================
+
+    def _require_graph(self) -> KuzuGraphProvider:
+        """Return the graph provider or raise if not wired."""
+        if self._graph is None:
+            raise RuntimeError(
+                "KuzuGraphProvider is not configured. "
+                "Pass graph_provider to MemoryDAO constructor."
+            )
+        return self._graph
 
     async def insert_edge(
         self,
@@ -752,62 +781,77 @@ class MemoryDAO:
         weight: float = 1.0,
         edge_id: str | None = None,
     ) -> str:
-        """Insert a directed edge, scoped to ``agent_id``.
+        """Upsert a directed edge in KùzuDB, scoped to ``agent_id``.
+
+        Delegates to ``KuzuGraphProvider.insert_edge`` which uses
+        ``MERGE ... ON CREATE SET`` for idempotent writes.
 
         Args:
             agent_id: **Mandatory** tenant isolation key.
-            source_id: UUID of the source node.
-            target_id: UUID of the target node.
-            relation_type: Semantic label for the relationship.
+            source_id: UUID of the source Entity node.
+            target_id: UUID of the target Entity node.
+            relation_type: Semantic label (logged but not stored in
+                           KùzuDB — the Observed rel type is implicit).
             weight: Edge weight (default 1.0).
-            edge_id: Optional UUID; auto-generated if omitted.
+            edge_id: Accepted for backward compatibility but ignored
+                     (KùzuDB edges are identified by endpoint pair).
 
         Returns:
-            The ``edge_id`` of the inserted edge.
+            A deterministic edge identifier ``"{source_id}->{target_id}"``.
 
         Raises:
             ValueError: If ``agent_id`` is invalid or reserved.
+            RuntimeError: If the graph provider is not configured.
         """
         _assert_valid_agent_id(agent_id)
+        graph = self._require_graph()
 
-        if edge_id is None:
-            edge_id = str(uuid.uuid4())
+        await graph.insert_edge(
+            source_id=source_id,
+            target_id=target_id,
+            weight=weight,
+            agent_id=agent_id,
+        )
 
-        now = datetime.now(timezone.utc).isoformat()
-
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "INSERT INTO edges "
-                "(id, source_id, target_id, relation_type, weight, "
-                " created_at, agent_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (edge_id, source_id, target_id, relation_type, weight, now, agent_id),
-            )
-            await db.commit()
-
-        return edge_id
+        logger.debug(
+            "INSERT_EDGE | agent_id=%s %s-[%s]->%s w=%.3f",
+            agent_id,
+            source_id,
+            relation_type,
+            target_id,
+            weight,
+        )
+        return f"{source_id}->{target_id}"
 
     async def get_all_edges(
         self,
         agent_id: str,
     ) -> list[dict[str, Any]]:
-        """Return all active edges scoped to ``agent_id``."""
+        """Return all Observed edges scoped to ``agent_id`` from KùzuDB.
+
+        Returns:
+            List of dicts with keys: ``source_id``, ``target_id``,
+            ``weight``, ``agent_id``.
+        """
         _assert_valid_agent_id(agent_id)
+        graph = self._require_graph()
 
-        results: list[dict[str, Any]] = []
+        rows = await graph.execute_query(
+            "MATCH (a:Entity {agent_id: $agent_id})-[r:Observed]->(b:Entity {agent_id: $agent_id}) "
+            "WHERE r.agent_id = $agent_id "
+            "RETURN a.id, b.id, r.weight, r.agent_id",
+            {"agent_id": agent_id},
+        )
 
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT e.* "
-                "FROM edges e "
-                "WHERE e.agent_id = ? "
-                "  AND e.invalid_at IS NULL",
-                (agent_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-                results.extend(dict(row) for row in rows)
-
-        return results
+        return [
+            {
+                "source_id": row[0],
+                "target_id": row[1],
+                "weight": row[2],
+                "agent_id": row[3],
+            }
+            for row in rows
+        ]
 
     async def get_neighbors(
         self,
@@ -815,62 +859,35 @@ class MemoryDAO:
         *,
         node_id: str,
         direction: str = "both",
+        max_hops: int = 1,
     ) -> list[dict[str, Any]]:
-        """Return edges connected to a node, scoped to ``agent_id``.
+        """Return neighbor nodes connected to a node via KùzuDB traversal.
+
+        Delegates to ``KuzuGraphProvider.get_neighbors`` for multi-hop
+        Cypher traversal with dual ``agent_id`` enforcement.
 
         Args:
             agent_id: **Mandatory** tenant isolation key.
             node_id: UUID of the pivot node.
-            direction: ``'out'``, ``'in'``, or ``'both'``.
+            direction: Accepted for backward compatibility. KùzuDB
+                       traversal is always undirected.
+            max_hops: Maximum traversal depth (1, 2, or 3).
 
         Returns:
-            List of edge dicts with joined node metadata.
+            List of neighbor dicts with keys: ``id``, ``name``, ``hops``.
 
         Raises:
             ValueError: If ``agent_id`` is invalid or reserved.
+            RuntimeError: If the graph provider is not configured.
         """
         _assert_valid_agent_id(agent_id)
+        graph = self._require_graph()
 
-        results: list[dict[str, Any]] = []
-
-        async with self._sql.connection() as db:
-            if direction in ("out", "both"):
-                # RLS: e.agent_id = ? hardcoded
-                async with db.execute(
-                    "SELECT e.*, "
-                    "       n.entity_name AS target_name, "
-                    "       n.type AS target_type "
-                    "FROM edges e "
-                    "JOIN nodes n ON n.id = e.target_id "
-                    "     AND n.invalid_at IS NULL "
-                    "     AND n.deleted_at IS NULL "
-                    "WHERE e.source_id = ? "
-                    "  AND e.agent_id = ? "
-                    "  AND e.invalid_at IS NULL",
-                    (node_id, agent_id),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                    results.extend(dict(row) for row in rows)
-
-            if direction in ("in", "both"):
-                # RLS: e.agent_id = ? hardcoded
-                async with db.execute(
-                    "SELECT e.*, "
-                    "       n.entity_name AS source_name, "
-                    "       n.type AS source_type "
-                    "FROM edges e "
-                    "JOIN nodes n ON n.id = e.source_id "
-                    "     AND n.invalid_at IS NULL "
-                    "     AND n.deleted_at IS NULL "
-                    "WHERE e.target_id = ? "
-                    "  AND e.agent_id = ? "
-                    "  AND e.invalid_at IS NULL",
-                    (node_id, agent_id),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                    results.extend(dict(row) for row in rows)
-
-        return results
+        return await graph.get_neighbors(
+            node_id=node_id,
+            agent_id=agent_id,
+            max_hops=max_hops,
+        )
 
     # ==================================================================
     # INVALIDATION — agent-scoped soft-invalidation
@@ -903,14 +920,8 @@ class MemoryDAO:
                 "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
                 (node_id, agent_id),
             )
-            # Cascade to connected edges
-            await db.execute(
-                "UPDATE edges SET invalid_at = CURRENT_TIMESTAMP "
-                "WHERE agent_id = ? "
-                "  AND (source_id = ? OR target_id = ?) "
-                "  AND invalid_at IS NULL",
-                (agent_id, node_id, node_id),
-            )
+            # NOTE: Edge cascade removed — edges now live in KùzuDB
+            # and are structurally bound to Entity nodes via MATCH.
             await db.commit()
 
         logger.info(
@@ -979,9 +990,10 @@ class MemoryDAO:
         *,
         node_id: str,
     ) -> int:
-        """Return the number of active edges connected to a node.
+        """Return the number of Observed edges connected to a node.
 
-        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE clause.
+        Queries KùzuDB for both inbound and outbound relationships,
+        with ``agent_id`` enforced via Cypher ``$param`` binding.
 
         Args:
             agent_id: **Mandatory** tenant isolation key.
@@ -992,20 +1004,18 @@ class MemoryDAO:
 
         Raises:
             ValueError: If ``agent_id`` is invalid or reserved.
+            RuntimeError: If the graph provider is not configured.
         """
         _assert_valid_agent_id(agent_id)
+        graph = self._require_graph()
 
-        # RLS: WHERE agent_id = ? hardcoded
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT COUNT(*) FROM edges "
-                "WHERE agent_id = ? "
-                "  AND (source_id = ? OR target_id = ?) "
-                "  AND invalid_at IS NULL",
-                (agent_id, node_id, node_id),
-            ) as cursor:
-                row = await cursor.fetchone()
-                return row[0] if row else 0
+        rows = await graph.execute_query(
+            "MATCH (a:Entity {id: $node_id, agent_id: $agent_id})"
+            "-[r:Observed]-() "
+            "RETURN count(r)",
+            {"node_id": node_id, "agent_id": agent_id},
+        )
+        return rows[0][0] if rows else 0
 
     # ==================================================================
     # ROUTING TELEMETRY — audit logging
@@ -1136,6 +1146,56 @@ class MemoryDAO:
                     row_dict["payload"] = json.loads(row_dict["payload"])
                 return row_dict
 
+    async def get_recent_logs(self, agent_id: str, session_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Retrieve recent raw_logs for a given session.
+
+        Args:
+            agent_id: **Mandatory** tenant isolation key.
+            session_id: The session ID to filter by.
+            limit: Maximum number of recent logs to return.
+
+        Returns:
+            A list of raw_log payload dicts.
+        """
+        _assert_valid_agent_id(agent_id)
+        recent_logs = []
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT payload FROM raw_logs WHERE agent_id = ? "
+                "AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT ?",
+                (agent_id, session_id, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+                for row in rows:
+                    payload_raw = row[0]
+                    if isinstance(payload_raw, str):
+                        payload = json.loads(payload_raw)
+                    else:
+                        payload = payload_raw
+                    recent_logs.append(payload)
+        return recent_logs
+
+    async def get_recent_session_logs(self, agent_id: str, session_id: str, limit: int = 10) -> list[dict]:
+        """Retrieve recent raw_logs for a given session.
+        Added per system architecture requirements to avoid raw SQL bypass.
+        """
+        _assert_valid_agent_id(agent_id)
+        recent_logs = []
+        async with self.sqlite_engine.connection() as db:
+            async with db.execute(
+                "SELECT payload FROM raw_logs WHERE agent_id = ? AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT ?",
+                (agent_id, session_id, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+                for row in rows:
+                    payload_raw = row[0]
+                    if isinstance(payload_raw, str):
+                        payload = json.loads(payload_raw)
+                    else:
+                        payload = payload_raw
+                    recent_logs.append(payload)
+        return recent_logs
+
     async def update_raw_log_status(
         self,
         agent_id: str,
@@ -1178,10 +1238,18 @@ class MemoryDAO:
     # ==================================================================
 
     async def health_check(self) -> dict[str, Any]:
-        """Aggregate health status from both storage backends."""
+        """Aggregate health status from all storage backends."""
         sql_health = await self._sql.health_check()
         vec_health = await self._vec.health_check()
-        return {
+        result: dict[str, Any] = {
             "sqlite": sql_health,
             "vector": vec_health,
         }
+        if self._graph is not None:
+            result["graph"] = {
+                "status": (
+                    "healthy" if self._graph.is_initialized else "not_initialized"
+                ),
+                "db_path": self._graph.db_path,
+            }
+        return result

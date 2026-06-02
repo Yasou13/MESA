@@ -395,28 +395,13 @@ def create_memory_router(
         try:
             # Fetch recent episodic logs (raw_logs) for the session
             recent_logs = []
-            async with dao._sql.connection() as db:
-                async with db.execute(
-                    "SELECT payload FROM raw_logs WHERE json_extract(payload, '$.agent_id') = ? "
-                    "AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT 10",
-                    (agent_id, session_id),
-                ) as cur:
-                    rows = await cur.fetchall()
-                    for row in rows:
-                        import json
+            raw_logs_data = await dao.get_recent_logs(agent_id, session_id, limit=10)
+            for payload in raw_logs_data:
+                if "content" in payload:
+                    recent_logs.append({"content": payload["content"]})
 
-                        payload = json.loads(row[0])
-                        if "content" in payload:
-                            recent_logs.append({"content": payload["content"]})
-
-                # Fetch consolidated memory (nodes) for the session
-                async with db.execute(
-                    "SELECT entity_name, type FROM nodes WHERE agent_id = ? AND session_id = ? "
-                    "AND invalid_at IS NULL AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50",
-                    (agent_id, session_id),
-                ) as cur:
-                    node_rows = await cur.fetchall()
-                    nodes_content = [f"{r[0]} ({r[1]})" for r in node_rows]
+            await dao.get_recent_session_logs(agent_id, session_id)
+            nodes_content = []
 
             context = "\\n".join(nodes_content)
 

@@ -2,7 +2,6 @@ import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import networkx as nx
 import pytest
 
 from mesa_memory.consolidation.loop import (
@@ -106,7 +105,7 @@ async def test_hybrid_retrieve_full():
         return_value=[{"cmb_id": "2", "score": 0.9}]
     )
 
-    retriever._run_ppr = AsyncMock(return_value=["2"])
+    retriever._run_graph_spreading = AsyncMock(return_value=["2"])
     res = await retriever.retrieve("query", "agent1", "session1", enable_multi_hop=True)
     assert len(res) >= 0
 
@@ -138,31 +137,28 @@ async def test_valence_evaluate_full():
 
 
 @pytest.mark.asyncio
-async def test_run_ppr_with_graph():
-    retriever = HybridRetriever(AsyncMock(), MagicMock(), MagicMock())
-    g = nx.DiGraph()
-    g.add_node("A")
-    g.add_node("B")
-    g.add_edge("A", "B", weight=1.0)
-    retriever._build_graph_snapshot = AsyncMock(return_value=g)
+async def test_run_graph_spreading():
+    dao = AsyncMock()
+    # Simulate KùzuDB neighbor results
+    dao.get_neighbors.return_value = [
+        {"id": "B", "name": "NodeB", "hops": 1},
+    ]
+    retriever = HybridRetriever(dao, MagicMock(), MagicMock())
 
-    res = await retriever._run_ppr("agent1", ["A"])
-    assert len(res) >= 0
+    res = await retriever._run_graph_spreading("agent1", ["A"])
+    assert len(res) >= 1
+    assert res[0]["cmb_id"] == "B"
+    assert res[0]["source"] == "graph"
 
 
 @pytest.mark.asyncio
-async def test_build_graph_snapshot():
+async def test_graph_spreading_no_results():
     dao = AsyncMock()
-    dao.get_memories.return_value = [{"id": "A", "entity_name": "TestA"}, {"id": "B"}]
-    dao.get_all_edges.return_value = [
-        {"source_id": "A", "target_id": "B", "relation_type": "REL"}
-    ]
+    dao.get_neighbors.return_value = []
 
     retriever = HybridRetriever(dao, MagicMock(), MagicMock())
-    g = await retriever._build_graph_snapshot("agent1")
-    assert "A" in g.nodes
-    assert "B" in g.nodes
-    assert ("A", "B") in g.edges
+    res = await retriever._run_graph_spreading("agent1", ["A"])
+    assert res == []
 
 
 @pytest.mark.asyncio

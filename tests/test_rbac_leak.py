@@ -20,6 +20,8 @@ import uuid
 import pytest
 
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -45,16 +47,21 @@ def dao_env():
     uid = uuid.uuid4().hex[:8]
     db_path = os.path.join(TEST_DIR, f"rbac_{uid}.db")
     vec_path = os.path.join(TEST_DIR, f"vec_{uid}.lance")
+    graph_path = os.path.join(TEST_DIR, f"graph_{uid}.kuzu")
     sql = AsyncEngine(db_path, max_connections=2)
     vec = VectorEngine(vec_path, max_workers=1)
+    init_kuzu_schema(graph_path)
+    graph_eng = KuzuGraphProvider(db_path=graph_path)
     loop = asyncio.new_event_loop()
     loop.run_until_complete(sql.initialize())
     loop.run_until_complete(initialize_schema(sql))
     loop.run_until_complete(vec.initialize())
-    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vec)
+    loop.run_until_complete(graph_eng.initialize())
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vec, graph_provider=graph_eng)
     yield dao, sql, vec, loop
     loop.run_until_complete(sql.close())
     loop.run_until_complete(vec.close())
+    loop.run_until_complete(graph_eng.close())
     loop.close()
 
 

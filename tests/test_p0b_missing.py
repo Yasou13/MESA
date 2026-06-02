@@ -1,7 +1,6 @@
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import networkx as nx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -11,7 +10,7 @@ import openai
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
 from mesa_memory.api.server import app, get_embedder
 from mesa_memory.consolidation.loop import ConsolidationLoop
-from mesa_memory.retrieval.hybrid import HybridRetriever, find_path
+from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.valence.core import ValenceMotor, calculate_fitness_score
 
 
@@ -61,19 +60,6 @@ def test_get_dao_embedder():
 # -------------------------
 
 
-def test_find_path_exceptions():
-    G = nx.Graph()
-    G.add_node("A")
-    assert find_path(G, "A", "C") == []
-    G.add_node("B")
-    assert find_path(G, "A", "B") == []
-
-    G.add_edge("A", "C")
-    G.add_edge("C", "D")
-    G.add_edge("D", "B")
-    assert find_path(G, "A", "B", max_hops=1) == []
-
-
 @pytest.mark.asyncio
 async def test_hybrid_exceptions():
     dao_mock = AsyncMock()
@@ -84,6 +70,7 @@ async def test_hybrid_exceptions():
     dao_mock.find_nodes_by_name.return_value = [{"id": "node1"}, {"id": "node2"}]
     dao_mock.get_memories.return_value = [{"id": "node1"}]
     dao_mock.search_memory_fts.side_effect = Exception("FTS error")
+    dao_mock.get_neighbors.side_effect = Exception("KùzuDB error")
 
     access_mock = AsyncMock()
     access_mock.check_access.return_value = True
@@ -97,14 +84,12 @@ async def test_hybrid_exceptions():
     retriever.get_vector_results = AsyncMock(return_value=[])
     retriever.get_graph_results = AsyncMock(return_value=[])
 
-    # Enable multi hop with graph build failure
-    retriever._build_graph_snapshot = AsyncMock(side_effect=Exception("Snapshot err"))
+    # Enable multi hop with graph traversal failure
     res = await retriever.retrieve("query", "agent1", "session1", enable_multi_hop=True)
     assert res["multi_hop_path"] == []
 
-    # Test _run_ppr no seeds
-    retriever._build_graph_snapshot = AsyncMock(return_value=nx.DiGraph())
-    assert await retriever._run_ppr("agent1", []) == []
+    # Test _run_graph_spreading no seeds
+    assert await retriever._run_graph_spreading("agent1", []) == []
 
 
 def test_format_working_memory_budget():
@@ -262,7 +247,9 @@ async def test_openai_adapter_async_embed_methods():
 
 def test_adapter_factory():
     import os
+    from unittest.mock import patch
 
     # We mocked get_adapter in the fixture, but we can test _get_llm_provider
-    provider = os.environ.get("MESA_LLM_PROVIDER", "openai_compatible")
-    assert provider == "openai_compatible"
+    with patch.dict(os.environ, {"MESA_LLM_PROVIDER": "openai_compatible"}):
+        provider = os.environ.get("MESA_LLM_PROVIDER", "openai_compatible")
+        assert provider == "openai_compatible"

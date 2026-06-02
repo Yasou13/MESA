@@ -19,17 +19,11 @@ from mesa_storage.schemas import (
     find_nodes_by_name,
     fts5_rebuild,
     fts5_search,
-    get_active_edges,
     get_active_nodes,
-    get_neighbors,
     initialize_schema,
-    insert_edge,
     insert_node,
-    k_hop_neighbors,
     mark_consolidated,
-    soft_delete_edge,
     soft_delete_node,
-    upsert_edge,
     validate_schema,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -260,17 +254,6 @@ class TestNodeCRUD:
         assert not any(n["id"] == nid for n in nodes)
 
     @pytest.mark.asyncio
-    async def test_soft_delete_cascades_to_edges(self, engine):
-        n1, n2 = uuid.uuid4().hex, uuid.uuid4().hex
-        await insert_node(engine, n1, "Source")
-        await insert_node(engine, n2, "Target")
-        await insert_edge(engine, uuid.uuid4().hex, n1, n2, "RELATES_TO")
-
-        await soft_delete_node(engine, n1, agent_id=_DEFAULT_AGENT)
-        edges = await get_active_edges(engine, agent_id=_DEFAULT_AGENT)
-        assert len(edges) == 0
-
-    @pytest.mark.asyncio
     async def test_mark_consolidated(self, engine):
         nid = uuid.uuid4().hex
         await insert_node(engine, nid, "ConsolidateMe")
@@ -325,80 +308,6 @@ class TestNodeCRUD:
         nodes = await get_active_nodes(engine, agent_id="agent_a")
         assert len(nodes) == 1
         assert nodes[0]["agent_id"] == "agent_a"
-
-
-# ===================================================================
-# Edge CRUD
-# ===================================================================
-
-
-class TestEdgeCRUD:
-    @pytest.mark.asyncio
-    async def test_insert_edge(self, engine):
-        n1, n2 = uuid.uuid4().hex, uuid.uuid4().hex
-        await insert_node(engine, n1, "A")
-        await insert_node(engine, n2, "B")
-        eid = await insert_edge(engine, uuid.uuid4().hex, n1, n2, "LINKED")
-        edges = await get_active_edges(engine, agent_id=_DEFAULT_AGENT)
-        assert any(e["id"] == eid for e in edges)
-
-    @pytest.mark.asyncio
-    async def test_soft_delete_edge(self, engine):
-        n1, n2 = uuid.uuid4().hex, uuid.uuid4().hex
-        await insert_node(engine, n1, "X")
-        await insert_node(engine, n2, "Y")
-        eid = uuid.uuid4().hex
-        await insert_edge(engine, eid, n1, n2, "TEMP")
-        await soft_delete_edge(engine, eid, agent_id=_DEFAULT_AGENT)
-        edges = await get_active_edges(engine, agent_id=_DEFAULT_AGENT)
-        assert not any(e["id"] == eid for e in edges)
-
-    @pytest.mark.asyncio
-    async def test_upsert_edge_creates_new(self, engine):
-        n1, n2 = uuid.uuid4().hex, uuid.uuid4().hex
-        await insert_node(engine, n1, "Src")
-        await insert_node(engine, n2, "Tgt")
-        eid = await upsert_edge(engine, uuid.uuid4().hex, n1, n2, "KNOWS", weight=1.0)
-        edges = await get_active_edges(engine, agent_id=_DEFAULT_AGENT)
-        assert any(e["id"] == eid for e in edges)
-
-    @pytest.mark.asyncio
-    async def test_upsert_edge_merges_weight(self, engine):
-        n1, n2 = uuid.uuid4().hex, uuid.uuid4().hex
-        await insert_node(engine, n1, "Src")
-        await insert_node(engine, n2, "Tgt")
-        eid1 = await upsert_edge(engine, uuid.uuid4().hex, n1, n2, "KNOWS", weight=1.0)
-        eid2 = await upsert_edge(engine, uuid.uuid4().hex, n1, n2, "KNOWS", weight=2.5)
-        # Same edge returned
-        assert eid1 == eid2
-
-        edges = await get_active_edges(engine, agent_id=_DEFAULT_AGENT)
-        edge = [e for e in edges if e["id"] == eid1][0]
-        assert edge["weight"] == pytest.approx(3.5)
-
-    @pytest.mark.asyncio
-    async def test_get_neighbors_outgoing(self, engine):
-        n1, n2, n3 = uuid.uuid4().hex, uuid.uuid4().hex, uuid.uuid4().hex
-        await insert_node(engine, n1, "Center")
-        await insert_node(engine, n2, "Right")
-        await insert_node(engine, n3, "Left")
-        await insert_edge(engine, uuid.uuid4().hex, n1, n2, "POINTS_TO")
-        await insert_edge(engine, uuid.uuid4().hex, n3, n1, "POINTS_TO")
-
-        out = await get_neighbors(engine, n1, agent_id=_DEFAULT_AGENT, direction="out")
-        assert len(out) == 1
-        assert out[0]["target_id"] == n2
-
-    @pytest.mark.asyncio
-    async def test_get_neighbors_incoming(self, engine):
-        n1, n2 = uuid.uuid4().hex, uuid.uuid4().hex
-        await insert_node(engine, n1, "A")
-        await insert_node(engine, n2, "B")
-        await insert_edge(engine, uuid.uuid4().hex, n2, n1, "REF")
-
-        inc = await get_neighbors(engine, n1, agent_id=_DEFAULT_AGENT, direction="in")
-        assert len(inc) == 1
-        assert inc[0]["source_id"] == n2
 
 
 # ===================================================================
@@ -484,56 +393,3 @@ class TestFTS5:
         await fts5_rebuild(engine)  # Should not raise
         results = await fts5_search(engine, "RebuildTest", agent_id=_DEFAULT_AGENT)
         assert len(results) == 1
-
-
-# ===================================================================
-# k-hop graph traversal
-# ===================================================================
-
-
-class TestKHopTraversal:
-    @pytest.mark.asyncio
-    async def test_k_hop_linear_chain(self, engine):
-        # A -> B -> C -> D
-        ids = [uuid.uuid4().hex for _ in range(4)]
-        names = ["A", "B", "C", "D"]
-        for nid, name in zip(ids, names):
-            await insert_node(engine, nid, name)
-        for i in range(3):
-            await insert_edge(engine, uuid.uuid4().hex, ids[i], ids[i + 1], "NEXT")
-
-        # 1-hop from A should find B only
-        hop1 = await k_hop_neighbors(
-            engine, ids[0], agent_id=_DEFAULT_AGENT, k=1, direction="out"
-        )
-        assert len(hop1) == 1
-        assert hop1[0]["entity_name"] == "B"
-
-        # 2-hop from A should find B and C
-        hop2 = await k_hop_neighbors(
-            engine, ids[0], agent_id=_DEFAULT_AGENT, k=2, direction="out"
-        )
-        assert len(hop2) == 2
-        hop_names = {n["entity_name"] for n in hop2}
-        assert hop_names == {"B", "C"}
-
-    @pytest.mark.asyncio
-    async def test_k_hop_bidirectional(self, engine):
-        # A <-> B <-> C
-        ids = [uuid.uuid4().hex for _ in range(3)]
-        for nid, name in zip(ids, ["X", "Y", "Z"]):
-            await insert_node(engine, nid, name)
-        await insert_edge(engine, uuid.uuid4().hex, ids[0], ids[1], "BI")
-        await insert_edge(engine, uuid.uuid4().hex, ids[1], ids[2], "BI")
-
-        hop2 = await k_hop_neighbors(
-            engine, ids[0], agent_id=_DEFAULT_AGENT, k=2, direction="both"
-        )
-        assert len(hop2) == 2
-
-    @pytest.mark.asyncio
-    async def test_k_hop_no_neighbors(self, engine):
-        nid = uuid.uuid4().hex
-        await insert_node(engine, nid, "Isolated")
-        result = await k_hop_neighbors(engine, nid, agent_id=_DEFAULT_AGENT, k=3)
-        assert result == []

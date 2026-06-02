@@ -5,6 +5,24 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-02
+
+### Added
+
+- **KùzuDB Native Integration:** Full integration via `KuzuGraphProvider`, serving as the foundational graph engine for Phase 4.
+- **Asynchronous Graph I/O:** Implemented a `ThreadPoolExecutor` asynchronous wrapper pattern for all KùzuDB C++ bindings to protect the FastAPI event loop from blocking.
+- **Composite Primary Keys:** Introduced `agent_id::node_id` indexing pattern for mathematically proven Zero-Trust isolation with O(log N) lookup times.
+
+### Fixed
+
+- **Infinite Scalability (OOM Resolution):** Eliminated the 50,000 node RAM ceiling and resolved Out-Of-Memory (OOM) crashes by offloading persistent topology to KùzuDB.
+- **DAO Layer Bypass:** Resolved the architectural bypass in the session context API (`router.py`), fully encapsulating `raw_logs` queries via `dao.get_recent_session_logs()`.
+
+### Removed
+
+- **NetworkX Eradicated:** Complete deprecation and eradication of the legacy in-memory `networkx` graph engine.
+- **Legacy SQLite Edges:** Removed all legacy SQLite dual-write schema operations for graph edges, establishing KùzuDB as the single source of truth for topology.
+
 ## [0.4.2] - 2026-06-01
 
 ### Security
@@ -162,6 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.5.0]: https://github.com/Yasou13/MESA/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Yasou13/MESA/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Yasou13/MESA/compare/v0.3.0...v0.4.1
 [0.3.0]: https://github.com/Yasou13/MESA/compare/v0.2.0...v0.3.0

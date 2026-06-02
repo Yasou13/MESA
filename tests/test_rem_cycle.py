@@ -57,6 +57,8 @@ def _make_mock_dao() -> MagicMock:
     dao.get_memories = AsyncMock(return_value=[])
     dao.mark_consolidated = AsyncMock()
     dao.insert_edge = AsyncMock(return_value="edge-id")
+    dao.graph_provider = MagicMock()
+    dao.graph_provider.execute_write = AsyncMock()
     dao.sqlite_engine = MagicMock()
     # For resolve_conflict — need a transaction context manager
     tx_cm = AsyncMock()
@@ -230,8 +232,8 @@ class TestResolveConflict:
         # Verify the transaction was used to invalidate old node
         tx_ctx = dao.sqlite_engine.transaction.return_value
         tx_db = tx_ctx.__aenter__.return_value
-        # Two execute calls: one for node invalidation, one for edge cascade
-        assert tx_db.execute.await_count == 2
+        # One execute call for node invalidation (edge cascade is in KuzuDB)
+        assert tx_db.execute.await_count == 1
         tx_db.commit.assert_awaited_once()
 
 

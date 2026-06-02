@@ -1,6 +1,6 @@
 # MESA Memory Layer: Architecture Whitepaper
 
-> **Version:** 0.4.2
+> **Version:** 0.5.0
 > **Last Updated:** 2026-06-01
 
 ---
@@ -53,7 +53,7 @@ The `MemoryDAO` is responsible for unifying the relational graph operations (SQL
 The legacy split-brain storage (`mesa_memory/storage`) has been completely eliminated in Phase 1. MESA now unifies all relational graph operations (SQLite) and semantic vector operations (LanceDB) directly under a single interface: `MemoryDAO`. It strictly enforces row-level security (RLS) by hardcoding `agent_id` into every underlying query — including the `raw_logs` ingestion table — ensuring that multi-tenant boundaries are never breached by the application logic.
 
 > [!IMPORTANT]
-> As of v0.4.2, the `raw_logs` table includes an explicit `agent_id` column with mandatory `WHERE agent_id = ?` predicates on all `INSERT`, `SELECT`, and `UPDATE` queries. Every `MemoryDAO` method that touches `raw_logs` (`insert_raw_log`, `get_raw_log`, `update_raw_log_status`) calls `_assert_valid_agent_id(agent_id)` at entry, guaranteeing zero-trust tenant isolation across the entire ingestion path.
+> As of v0.5.0, the `raw_logs` table includes an explicit `agent_id` column with mandatory `WHERE agent_id = ?` predicates on all `INSERT`, `SELECT`, and `UPDATE` queries. Every `MemoryDAO` method that touches `raw_logs` (`insert_raw_log`, `get_raw_log`, `update_raw_log_status`) calls `_assert_valid_agent_id(agent_id)` at entry, guaranteeing zero-trust tenant isolation across the entire ingestion path.
 
 ### 3.1 SQLite — Relational Store (aiosqlite + WAL)
 
@@ -107,23 +107,21 @@ This guarantees that both stores are always consistent: either the full record i
 > [!IMPORTANT]
 > The SQLite `COMMIT` is **never** issued before LanceDB confirms the upsert. This ordering is load-bearing — reversing it would re-introduce the split-brain window.
 
-### 3.5 Relational Graph Layer
+### 3.5 KùzuDB — Graph Engine
 
-In v0.3.0, the legacy in-memory NetworkX graph has been completely deprecated in favor of a disk-based asynchronous relational schema within SQLite. Graph nodes and edges are persisted asynchronously via `aiosqlite`. Graph analytics and traversal (e.g., k-hop BFS) now operate directly on the SQLite database using recursive or bounded queries, providing massive scalability and sub-millisecond latency without the memory overhead of a persistent Python object graph.
+In Phase 3 (v0.5.0), the legacy in-memory NetworkX graph and intermediate SQLite relational graph schema were completely deprecated in favor of **KùzuDB**, an embedded, highly optimized property graph database. KùzuDB manages all node topology and relationship persistence, enabling **infinite out-of-core scaling**. This architectural migration entirely eliminates the 50,000 node RAM exhaustion and OOM (Out-Of-Memory) crashes that previously affected the system at extreme scale.
 
-#### OOM Prevention: MAX_GRAPH_NODES Cap
+#### Composite Primary Keys & Zero-Trust Isolation
 
-The `HybridRetriever._build_graph_snapshot()` method constructs a transient NetworkX `DiGraph` for Personalized PageRank scoring. At extreme scale (>66,000 nodes), this graph can exhaust container RAM.
+Because KùzuDB does not natively support secondary indexing on non-Primary Key properties via Cypher DDL, MESA implements a **Composite Primary Key** pattern to guarantee O(log N) lookup times and absolute tenant isolation. 
 
-To prevent OOM crashes, a strict `MAX_GRAPH_NODES = 50,000` limit is enforced:
+- All graph nodes are uniquely identified and stored using the structure: `agent_id::node_id`.
+- This enforces strict Zero-Trust segregation structurally at the disk level. Cypher queries dynamically strip this prefix when returning data, ensuring the abstraction does not leak to the application layer, while simultaneously defending against multi-tenant data contamination via mandatory `{agent_id: $agent_id}` Cypher bindings.
 
-1. All active nodes for the given `agent_id` are fetched in a single bulk query.
-2. If the node count exceeds 50,000, nodes are sorted by `updated_at` (newest first) and sliced to exactly 50,000.
-3. All edges for the retained node set are fetched in a single bulk query (eliminating the previous N+1 per-node `get_neighbors()` loop).
-4. The NetworkX graph is constructed in-memory from this bounded result set.
-5. An explicit `WARNING` is logged when the cap is triggered, including the original and capped node counts.
+#### Asynchronous Execution Wrapper
 
-This guarantees deterministic RAM usage (verified peak: 899.5 MB under sustained 20 req/s load) while preserving retrieval quality by retaining the most temporally relevant nodes.
+KùzuDB's Python API operates synchronously via C++ bindings. To integrate this seamlessly into MESA's asynchronous FastAPI architecture without blocking the event loop, all KùzuDB interactions are funneled through the `KuzuGraphProvider`. 
+This provider utilizes a dedicated `ThreadPoolExecutor` and the `asyncio.run_in_executor()` pattern to fully offload heavy graph traversals (like multi-hop BFS) to background threads. This guarantees zero event-loop blocking under high-concurrency loads.
 
 ### 3.6 Semantic Conflict Resolution (Check-Then-Act)
 

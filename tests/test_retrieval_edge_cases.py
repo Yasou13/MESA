@@ -106,12 +106,15 @@ class TestEmptyGraph:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_ppr_on_empty_graph(self):
-        """PPR with no active nodes → empty result, no exception."""
+    async def test_graph_spreading_on_empty_graph(self):
+        """Graph spreading with no neighbors → empty result, no exception."""
         storage = _make_mock_storage_facade(graph_nodes=[])
+        storage.get_neighbors = AsyncMock(return_value=[])
         retriever = await _make_retriever(storage)
 
-        result = await retriever._run_ppr("test_agent", seed_ids=["nonexistent_node"])
+        result = await retriever._run_graph_spreading(
+            "test_agent", seed_ids=["nonexistent_node"]
+        )
         assert result == []
 
 

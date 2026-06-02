@@ -408,14 +408,6 @@ class MaintenanceWorker:
 
         try:
             async with self._sqlite_engine.connection() as db:
-                # Delete expired edges first (FK constraint)
-                cursor = await db.execute(
-                    "DELETE FROM edges WHERE invalid_at IS NOT NULL "
-                    "AND invalid_at < ?",
-                    (cutoff,),
-                )
-                edges_deleted = cursor.rowcount
-
                 # Delete expired nodes
                 cursor = await db.execute(
                     "DELETE FROM nodes WHERE invalid_at IS NOT NULL "

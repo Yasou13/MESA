@@ -23,7 +23,6 @@ from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import (
     get_active_nodes,
     initialize_schema,
-    insert_edge,
     insert_node,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -487,56 +486,6 @@ class TestPurgeEndpoint:
             },
         )
         assert resp.status_code == 422
-
-    def test_purge_cascades_to_edges(self, client, engines):
-        """Purge should also soft-delete edges connected to purged nodes."""
-        sqlite_eng, _, loop = engines
-
-        n1 = uuid.uuid4().hex
-        n2 = uuid.uuid4().hex
-        e1 = uuid.uuid4().hex
-
-        loop.run_until_complete(
-            insert_node(
-                sqlite_eng,
-                n1,
-                "A",
-                agent_id="agent-edge",
-                session_id="sess-001",
-            )
-        )
-        loop.run_until_complete(
-            insert_node(
-                sqlite_eng,
-                n2,
-                "B",
-                agent_id="agent-edge",
-                session_id="sess-001",
-            )
-        )
-        loop.run_until_complete(
-            insert_edge(
-                sqlite_eng,
-                e1,
-                n1,
-                n2,
-                "RELATED",
-                agent_id="agent-edge",
-            )
-        )
-
-        resp = client.request(
-            "DELETE",
-            "/v3/memory/purge",
-            json={
-                "agent_id": "agent-edge",
-                "scope": "agent",
-                "scope_id": "agent-edge",
-            },
-        )
-        body = resp.json()
-        # Should delete: 1 edge + 2 nodes = 3 minimum
-        assert body["deleted_records_count"] >= 3
 
 
 # ===================================================================

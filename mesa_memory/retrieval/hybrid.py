@@ -1,8 +1,6 @@
 import asyncio
 import logging
 
-import networkx as nx
-
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
@@ -12,26 +10,15 @@ from mesa_storage.dao import MemoryDAO
 logger = logging.getLogger("MESA_Retrieval")
 
 
-def find_path(
-    graph: nx.Graph, source_entity: str, target_entity: str, max_hops: int = 3
-) -> list:
-    """Find the shortest path between two entities in the knowledge graph."""
-    try:
-        path = nx.shortest_path(graph, source=source_entity, target=target_entity)
-        if len(path) - 1 <= max_hops:
-            return path
-        return []
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
-        return []
-
-
 class HybridRetriever:
     """Hybrid retriever combining vector, lexical, and graph search.
 
     All storage I/O is routed exclusively through ``MemoryDAO`` —
     the single source of truth for the MESA system.  Graph traversal
-    (PPR, multi-hop) is performed over an in-memory NetworkX snapshot
-    constructed from DAO edge data.
+    (multi-hop spreading activation) is performed via KùzuDB through
+    the DAO's ``get_neighbors`` and ``get_node_degree`` methods,
+    eliminating the in-memory NetworkX snapshot and its OOM
+    vulnerability.
     """
 
     def __init__(
@@ -119,18 +106,40 @@ class HybridRetriever:
             return cmb_ids
 
         # --- Multi-hop graph traversal between top 2 seed entities ---
+        # Uses KùzuDB's variable-length path traversal via DAO instead
+        # of the legacy NetworkX snapshot.  Zero OOM risk.
         multi_hop_path: list[str] = []
         if len(seed_nodes) >= 2:
             source_id = seed_nodes[0]["id"]
-            target_id = seed_nodes[1]["id"]
             try:
-                graph_snapshot = await self._build_graph_snapshot(agent_id)
-                multi_hop_path = find_path(graph_snapshot, source_id, target_id)
+                neighbors = await self.dao.get_neighbors(
+                    agent_id,
+                    node_id=source_id,
+                    max_hops=3,
+                )
+                # Build the path: source → all reachable neighbors sorted by hops
+                target_id = seed_nodes[1]["id"]
+                # Check if target is reachable within the neighbor set
+                target_neighbors = [n for n in neighbors if n["id"] == target_id]
+                if target_neighbors:
+                    # Reconstruct a path-like list: source + intermediate + target
+                    hop_depth = target_neighbors[0]["hops"]
+                    intermediates = sorted(
+                        [n for n in neighbors if n["hops"] < hop_depth],
+                        key=lambda x: x["hops"],
+                    )
+                    multi_hop_path = (
+                        [source_id] + [n["id"] for n in intermediates] + [target_id]
+                    )
+                else:
+                    # Target not reachable — return source + sorted neighbors
+                    multi_hop_path = [source_id] + [
+                        n["id"] for n in sorted(neighbors, key=lambda x: x["hops"])
+                    ]
             except Exception:
                 logger.warning(
-                    "Multi-hop traversal failed between %s and %s",
+                    "Multi-hop traversal failed from %s",
                     source_id,
-                    target_id,
                     exc_info=True,
                 )
 
@@ -162,7 +171,7 @@ class HybridRetriever:
         return results
 
     async def get_graph_results(self, agent_id: str, entities: list[str]) -> list[dict]:
-        """Look up graph neighbours via MemoryDAO."""
+        """Look up graph neighbours via KùzuDB through the DAO."""
         seed_nodes = await self.dao.find_nodes_by_name(
             agent_id, names=entities, case_insensitive=True
         )
@@ -171,7 +180,7 @@ class HybridRetriever:
         if not seed_ids:
             return []
 
-        return await self._run_ppr(agent_id, seed_ids)
+        return await self._run_graph_spreading(agent_id, seed_ids)
 
     def _apply_alpha_reranking(
         self,
@@ -216,7 +225,7 @@ class HybridRetriever:
             s_lex_raw = lexical_scores.get(cmb_id, 0.0)
 
             # Deterministic Normalization
-            # PPR scores are probabilities, cap at 1.0. Scaling by 10 to bring up sparse values.
+            # Graph scores from spreading activation, cap at 1.0.
             s_graph_norm = min(s_graph_raw * 10.0, 1.0)
             # FTS5 Lexical normalization via empirical constant
             s_lex_norm = min(s_lex_raw / 10.0, 1.0)
@@ -228,113 +237,75 @@ class HybridRetriever:
         )
         return sorted_ids
 
-    async def _build_graph_snapshot(self, agent_id: str) -> nx.DiGraph:
-        """Construct a NetworkX directed graph from DAO node/edge data.
-
-        This constructs the graph on-demand from the DAO's relational layer
-        to enable multi-hop traversal and PPR without external graph providers.
-        """
-        G = nx.DiGraph()
-
-        # Add all active nodes
-        nodes = await self.dao.get_memories(agent_id)
-
-        MAX_GRAPH_NODES = 50000
-        if len(nodes) > MAX_GRAPH_NODES:
-            logger.warning(
-                "Graph size (%d) exceeds MAX_GRAPH_NODES (%d). "
-                "Sampling top %d nodes by newest created_at.",
-                len(nodes),
-                MAX_GRAPH_NODES,
-                MAX_GRAPH_NODES,
-            )
-            nodes.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-            nodes = nodes[:MAX_GRAPH_NODES]
-
-        node_ids = {n["id"] for n in nodes}
-
-        for node in nodes:
-            G.add_node(
-                node["id"],
-                **{
-                    "entity_name": node.get("entity_name", ""),
-                    "type": node.get("type", "ENTITY"),
-                },
-            )
-
-        # Add edges for all nodes
-        edges = await self.dao.get_all_edges(agent_id)
-        for edge in edges:
-            if edge["source_id"] in node_ids and edge["target_id"] in node_ids:
-                G.add_edge(
-                    edge["source_id"],
-                    edge["target_id"],
-                    relation_type=edge.get("relation_type", "RELATED_TO"),
-                    weight=edge.get("weight", 1.0),
-                )
-
-        return G
-
-    async def _run_ppr(
-        self, agent_id: str, seed_ids: list[str], top_k: int = 15, max_depth: int = 2
+    async def _run_graph_spreading(
+        self,
+        agent_id: str,
+        seed_ids: list[str],
+        top_k: int = 15,
+        max_depth: int = 2,
     ) -> list[dict]:
-        """Personalized PageRank via DAO-constructed graph snapshot."""
-        graph_snapshot = await self._build_graph_snapshot(agent_id)
+        """KùzuDB-backed spreading activation — replaces NetworkX PPR.
 
-        if not seed_ids or len(graph_snapshot.nodes) == 0:
+        For each seed node, performs a multi-hop neighbor traversal via
+        the DAO's ``get_neighbors`` method (which delegates to
+        ``KuzuGraphProvider.get_neighbors`` with Cypher variable-length
+        paths).
+
+        Scoring heuristic:
+            ``score = 1.0 / hops``
+        This approximates PPR's distance-decay property without loading
+        the entire graph into memory.  Nodes closer to seeds rank higher.
+
+        Returns:
+            Ranked list of ``{cmb_id, score, source, rank}`` dicts,
+            compatible with ``_apply_alpha_reranking``.
+        """
+        if not seed_ids:
             return []
 
-        # Strict semantic bound: Calculate maximum depth from seeds to prevent drift
-        bounded_nodes: set[str] | None = set()
-        try:
-            for sid in seed_ids:
-                if sid in graph_snapshot:
-                    subgraph = nx.ego_graph(graph_snapshot, sid, radius=max_depth)
-                    if bounded_nodes is not None:
-                        bounded_nodes.update(subgraph.nodes())
-        except Exception as exc:
-            logger.warning("Failed to bound graph traversal: %s", exc)
-            bounded_nodes = None
-
-        personalization = {node: 0.0 for node in graph_snapshot.nodes()}
-        weight = 1.0 / len(seed_ids)
-        for sid in seed_ids:
-            if sid in personalization:
-                personalization[sid] = weight
-
-        try:
-            ppr_scores = nx.pagerank(
-                graph_snapshot,
-                alpha=config.ppr_alpha,
-                personalization=personalization,
-                max_iter=100,
-                tol=1e-6,
-            )
-        except nx.PowerIterationFailedConvergence:
-            logger.warning("PageRank failed to converge, returning empty results")
-            return []
-
-        if not ppr_scores:
-            return []
-
+        # Collect neighbors from all seeds
+        all_neighbors: dict[str, float] = {}
         seed_set = set(seed_ids)
-        ranked = []
-        for node, score in ppr_scores.items():
-            if node in seed_set or score <= 0:
+
+        for sid in seed_ids:
+            try:
+                neighbors = await self.dao.get_neighbors(
+                    agent_id, node_id=sid, max_hops=max_depth
+                )
+            except Exception as exc:
+                logger.warning("Graph spreading failed for seed %s: %s", sid, exc)
                 continue
 
-            # Apply graph noise reduction: reject nodes outside the max_depth bounds
-            if bounded_nodes is not None and node not in bounded_nodes:
-                continue
+            for n in neighbors:
+                nid = n["id"]
+                # Exclude seeds from results (same as PPR behaviour)
+                if nid in seed_set:
+                    continue
 
-            ranked.append({"cmb_id": node, "score": score, "source": "graph"})
+                # Distance-decay score: closer nodes score higher
+                hop_score = 1.0 / n["hops"]
 
-        ranked.sort(key=lambda x: float(x["score"]), reverse=True)  # type: ignore[arg-type]
+                # Keep the highest score if a node is reachable from
+                # multiple seeds (max fusion, not sum)
+                if nid not in all_neighbors or hop_score > all_neighbors[nid]:
+                    all_neighbors[nid] = hop_score
 
+        if not all_neighbors:
+            return []
+
+        # Sort by score descending, truncate to top_k
+        ranked = [
+            {"cmb_id": nid, "score": score, "source": "graph"}
+            for nid, score in sorted(
+                all_neighbors.items(), key=lambda x: x[1], reverse=True
+            )
+        ][:top_k]
+
+        # Assign ranks
         for i, item in enumerate(ranked):
             item["rank"] = i + 1
 
-        return ranked[:top_k]
+        return ranked
 
     def _cold_start_rerank(self, vector_results: list[dict], top_k: int) -> list[dict]:
         reranked = []

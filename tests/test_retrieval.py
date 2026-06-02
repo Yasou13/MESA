@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import networkx as nx
 import pytest
 
 from mesa_memory.retrieval.hybrid import HybridRetriever
@@ -99,10 +98,10 @@ async def test_hybrid_retrieval_cold_start():
 async def test_alpha_reranking_logic():
     storage = MagicMock()
 
-    graph = nx.MultiDiGraph()
-    graph.add_node("node_b", name="B_entity", type="ENTITY")
-    graph.add_node("node_c", name="C_entity", type="ENTITY")
-    storage.get_memories.return_value = graph
+    storage.get_memories.return_value = [
+        {"id": "node_b", "entity_name": "B_entity", "type": "ENTITY"},
+        {"id": "node_c", "entity_name": "C_entity", "type": "ENTITY"},
+    ]
 
     storage.search_memory.return_value = [
         {

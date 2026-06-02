@@ -17,9 +17,7 @@ import pytest_asyncio
 
 from mesa_storage.schemas import (
     initialize_schema,
-    insert_edge,
     insert_node,
-    soft_delete_edge,
     soft_delete_node,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -145,31 +143,6 @@ class TestSQLitePurge:
 
             async with db.execute("SELECT id FROM nodes WHERE id = ?", (n2,)) as cur:
                 assert await cur.fetchone() is not None
-
-    @pytest.mark.asyncio
-    async def test_purge_removes_expired_edges(self, sqlite_engine):
-        """Edges past retention are purged."""
-        n1 = uuid.uuid4().hex
-        n2 = uuid.uuid4().hex
-        e1 = uuid.uuid4().hex
-        await insert_node(sqlite_engine, n1, "A")
-        await insert_node(sqlite_engine, n2, "B")
-        await insert_edge(sqlite_engine, e1, n1, n2, "REL")
-        await soft_delete_edge(sqlite_engine, e1, agent_id="__unset__")
-
-        # Backdate edge
-        old_ts = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
-        async with sqlite_engine.connection() as db:
-            await db.execute(
-                "UPDATE edges SET invalid_at = ? WHERE id = ?",
-                (old_ts, e1),
-            )
-            await db.commit()
-
-        worker = MaintenanceWorker(sqlite_engine, retention_hours=24)
-        result = await worker.run_now()
-
-        assert result["edges_purged"] >= 1
 
     @pytest.mark.asyncio
     async def test_purge_respects_retention_window(self, sqlite_engine):
