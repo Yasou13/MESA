@@ -401,7 +401,7 @@ def create_memory_router(
                     recent_logs.append({"content": payload["content"]})
 
             await dao.get_recent_session_logs(agent_id, session_id)
-            nodes_content = []
+            nodes_content: list[str] = []
 
             context = "\\n".join(nodes_content)
 

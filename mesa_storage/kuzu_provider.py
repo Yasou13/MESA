@@ -482,6 +482,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         parameters: dict[str, Any],
     ) -> list[list[Any]]:
         """Run a Cypher query and drain all rows (executor thread)."""
+        import typing
         with self._conn_lock:
             assert self._conn is not None, "Connection not initialised"
             result = self._conn.execute(query, parameters=parameters)
@@ -494,10 +495,15 @@ class KuzuGraphProvider(BaseGraphProvider):
             while result.has_next(): # type: ignore
                 row = result.get_next() # type: ignore
                 if prefix:
-                    for i in range(len(row)):
-                        if isinstance(row[i], str) and row[i].startswith(prefix):
-                            row[i] = row[i][len(prefix):]
-                rows.append(row)
+                    if isinstance(row, dict):
+                        for k, v in row.items():
+                            if isinstance(v, str) and v.startswith(prefix):
+                                row[k] = v[len(prefix):]
+                    elif isinstance(row, list):
+                        for i in range(len(row)):
+                            if isinstance(row[i], str) and row[i].startswith(prefix):
+                                row[i] = row[i][len(prefix):]
+                rows.append(typing.cast(list[Any], row))
         return rows
 
     def _sync_execute_write(
