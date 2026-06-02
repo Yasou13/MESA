@@ -30,8 +30,8 @@ RUN python -m spacy download xx_ent_wiki_sm
 COPY .env.example .env.example
 
 # ── Persistent storage mount point ──
-RUN mkdir -p /app/storage
-VOLUME ["/app/storage"]
+RUN mkdir -p /app/storage /app/.kuzu
+VOLUME ["/app/storage", "/app/.kuzu"]
 
 EXPOSE 8000
 

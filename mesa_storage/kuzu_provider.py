@@ -107,6 +107,7 @@ class BaseGraphProvider(abc.ABC):
         target_id: str,
         weight: float,
         agent_id: str,
+        epistemic_uncertainty: float = 0.0,
     ) -> None:
         """Upsert an Observed relationship between two Entity nodes."""
 
@@ -118,6 +119,16 @@ class BaseGraphProvider(abc.ABC):
         max_hops: int = 2,
     ) -> list[dict[str, Any]]:
         """Return distinct neighbor nodes within max_hops, scoped by agent_id."""
+
+    @abc.abstractmethod
+    async def get_cognitive_salience(
+        self,
+        seed_id: str,
+        agent_id: str,
+        max_hops: int = 3,
+        limit: int = 15,
+    ) -> list[dict[str, Any]]:
+        """Compute cognitive salience via spreading activation from a seed node."""
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +332,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         "MERGE (a)-[r:Observed]->(b) "
         "ON CREATE SET r.weight = $weight, "
         "r.agent_id = $agent_id, "
-        "r.updated_at = current_timestamp()"
+        "r.updated_at = current_timestamp(), "
+        "r.epistemic_uncertainty = $epistemic_uncertainty"
     )
 
     async def insert_node(
@@ -358,13 +370,14 @@ class KuzuGraphProvider(BaseGraphProvider):
         target_id: str,
         weight: float,
         agent_id: str,
+        epistemic_uncertainty: float = 0.0,
     ) -> None:
         """Upsert an Observed relationship between two Entity nodes.
 
         Uses ``MATCH`` + ``MERGE`` so that:
           - Both endpoints must already exist (no dangling edges).
           - First call creates the relationship with weight, agent_id,
-            and a server-side ``current_timestamp()``.
+            epistemic_uncertainty, and a server-side ``current_timestamp()``.
           - Subsequent calls with the same (source, target) pair are
             no-ops (idempotent).
 
@@ -377,6 +390,11 @@ class KuzuGraphProvider(BaseGraphProvider):
             target_id: UUID of the target Entity node.
             weight: Relationship strength / confidence score.
             agent_id: Tenant isolation key (mandatory).
+            epistemic_uncertainty: Uncertainty score (0.0 = certain,
+                1.0 = fully uncertain).  Calculated as
+                ``1.0 - consensus_score`` during ingestion.  Used by
+                the Damped PageRank quarantine scanner to penalise
+                edges with low epistemic confidence.
 
         Note:
             If either ``source_id`` or ``target_id`` does not exist in
@@ -392,6 +410,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 "target_id": comp_target_id,
                 "weight": weight,
                 "agent_id": agent_id,
+                "epistemic_uncertainty": epistemic_uncertainty,
             },
         )
 
@@ -467,10 +486,132 @@ class KuzuGraphProvider(BaseGraphProvider):
         result = []
         for row in rows:
             raw_id = row[0]
-            parsed_id = raw_id[len(prefix):] if raw_id.startswith(prefix) else raw_id
+            parsed_id = raw_id[len(prefix) :] if raw_id.startswith(prefix) else raw_id
             result.append({"id": parsed_id, "name": row[1], "hops": row[2]})
 
         return result
+
+    # ------------------------------------------------------------------
+    # Phase 4.2 — Cognitive Salience via Spreading Activation
+    # ------------------------------------------------------------------
+
+    async def get_cognitive_salience(
+        self,
+        seed_id: str,
+        agent_id: str,
+        max_hops: int = 3,
+        limit: int = 15,
+    ) -> list[dict[str, Any]]:
+        """Compute cognitive salience scores via in-engine spreading activation.
+
+        Executes a **single Cypher query** that simulates energy spreading
+        from a seed Entity node across the graph.  The salience score for
+        each reachable node is calculated as::
+
+            salience = (1.0 / hops) / (fan_out + 1)
+
+        Where:
+          - ``hops`` is the minimum path length from the seed node.
+          - ``fan_out`` is the outgoing edge count of the candidate node.
+          - The ``+ 1`` prevents division-by-zero for leaf nodes and
+            penalises high-fan-out hubs (information dilution).
+
+        **ADR 001 compliance**: The entire computation is pushed into the
+        KùzuDB engine via a single Cypher traversal.  No N+1 Python
+        round-trips, no intermediate materialisation.
+
+        **Phase 4.1 integration**: Quarantined nodes
+        (``is_quarantined = true``) are excluded from results, ensuring
+        self-healing graph hygiene propagates into retrieval.
+
+        **Zero-Trust**: Both the seed node MATCH and the traversal
+        destination enforce ``agent_id`` via parameterised binding.
+
+        **Error handling**: KùzuDB ``RuntimeError`` exceptions (e.g.
+        malformed graph state, engine failures) are caught, logged,
+        and degraded to an empty result set — never crash the caller.
+
+        Args:
+            seed_id: UUID of the seed Entity node (activation source).
+            agent_id: Tenant isolation key (mandatory).
+            max_hops: Maximum traversal depth (1, 2, or 3).  Defaults
+                      to 3 for deep cognitive spreading.
+            limit: Maximum results returned, ordered by descending
+                   salience.  Defaults to 15.
+
+        Returns:
+            List of dicts ordered by descending salience::
+
+                [
+                    {
+                        "node_id": str,   # Entity UUID
+                        "score":   float,  # Cognitive salience
+                    },
+                    ...
+                ]
+
+            Empty list if the seed node doesn't exist, no reachable
+            non-quarantined nodes are found, or the query fails.
+
+        Raises:
+            ValueError: If *max_hops* is not in the allowed set {1, 2, 3}.
+            RuntimeError: If the provider has not been initialised.
+        """
+        if max_hops not in self._ALLOWED_MAX_HOPS:
+            raise ValueError(
+                f"max_hops must be one of {sorted(self._ALLOWED_MAX_HOPS)}, "
+                f"got {max_hops}"
+            )
+        self._ensure_initialized()
+
+        comp_seed_id = self._composite_id(agent_id, seed_id)
+
+        # Build Cypher with literal hop bound (safe — validated int).
+        # The entire spreading activation runs inside the KùzuDB engine
+        # in a single query — zero N+1 context switches.
+        cypher = (
+            f"MATCH (seed:Entity {{id: $seed_id, agent_id: $agent_id}}) "
+            f"MATCH (seed)-[r*1..{max_hops}]-(n:Entity {{agent_id: $agent_id}}) "
+            f"WHERE n.is_quarantined = false "
+            f"WITH n, min(length(r)) AS hops "
+            f"OPTIONAL MATCH (n)-[:Observed]->(m:Entity) "
+            f"WITH n, hops, count(m) AS fan "
+            f"RETURN n.id AS node_id, "
+            f"       (1.0 / hops) / CAST(fan + 1 AS FLOAT) AS salience_score "
+            f"ORDER BY salience_score DESC "
+            f"LIMIT $limit"
+        )
+
+        try:
+            rows = await self.execute_query(
+                cypher,
+                {
+                    "seed_id": comp_seed_id,
+                    "agent_id": agent_id,
+                    "limit": limit,
+                },
+            )
+        except RuntimeError as exc:
+            logger.error(
+                "COGNITIVE_SALIENCE_FAILED | agent_id=%s seed_id=%s error=%s",
+                agent_id,
+                seed_id,
+                exc,
+            )
+            return []
+
+        prefix = f"{agent_id}::"
+        return [
+            {
+                "node_id": (
+                    row[0][len(prefix) :]
+                    if isinstance(row[0], str) and row[0].startswith(prefix)
+                    else row[0]
+                ),
+                "score": float(row[1]) if row[1] is not None else 0.0,
+            }
+            for row in rows
+        ]
 
     # ------------------------------------------------------------------
     # Synchronous internals (run inside executor threads)
@@ -483,6 +624,7 @@ class KuzuGraphProvider(BaseGraphProvider):
     ) -> list[list[Any]]:
         """Run a Cypher query and drain all rows (executor thread)."""
         import typing
+
         with self._conn_lock:
             assert self._conn is not None, "Connection not initialised"
             result = self._conn.execute(query, parameters=parameters)
@@ -491,18 +633,18 @@ class KuzuGraphProvider(BaseGraphProvider):
         if hasattr(result, "has_next"):
             agent_id = parameters.get("agent_id") if parameters else None
             prefix = f"{agent_id}::" if agent_id else None
-            
-            while result.has_next(): # type: ignore
-                row = result.get_next() # type: ignore
+
+            while result.has_next():  # type: ignore
+                row = result.get_next()  # type: ignore
                 if prefix:
                     if isinstance(row, dict):
                         for k, v in row.items():
                             if isinstance(v, str) and v.startswith(prefix):
-                                row[k] = v[len(prefix):]
+                                row[k] = v[len(prefix) :]
                     elif isinstance(row, list):
                         for i in range(len(row)):
                             if isinstance(row[i], str) and row[i].startswith(prefix):
-                                row[i] = row[i][len(prefix):]
+                                row[i] = row[i][len(prefix) :]
                 rows.append(typing.cast(list[Any], row))
         return rows
 

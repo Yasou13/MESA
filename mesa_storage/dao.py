@@ -149,6 +149,120 @@ class MemoryDAO:
         return self._graph
 
     # ==================================================================
+    # Migration State Polling
+    # ==================================================================
+
+    async def _is_lancedb_migrating(self) -> bool:
+        """Check if LanceDB is currently undergoing Blue/Green alignment.
+
+        If true, new vectors must be queued in the SQLite WAL table to
+        prevent phantom writes to a table that is about to be dropped.
+        """
+        try:
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT value FROM system_config WHERE key = 'lancedb_is_migrating'"
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        return row[0].lower() == "true"
+        except Exception as exc:
+            logger.warning("IS_MIGRATING_CHECK_FAILED | error=%s", exc)
+        return False
+
+    async def align_memory_space(
+        self,
+        transformation_matrix: Any,  # numpy.ndarray
+        golden_dataset: list[dict[str, Any]],
+    ) -> bool:
+        """Orchestrate the Blue/Green vector alignment and WAL flush.
+
+        Args:
+            transformation_matrix: Orthogonal rotation matrix (R*).
+            golden_dataset: Evaluation dataset for Recall@5 verification.
+
+        Returns:
+            True if alignment was successful and promoted, False otherwise.
+        """
+        success = False
+
+        # ACTION 1 (LOCK)
+        try:
+            async with self._sql.transaction() as db:
+                await db.execute(
+                    "UPDATE system_config SET value = 'true' WHERE key = 'lancedb_is_migrating'"
+                )
+                await db.commit()
+            logger.info("MIGRATION_LOCK_ACQUIRED | lancedb_is_migrating='true'")
+        except Exception as exc:
+            logger.error("Failed to acquire migration lock: %s", exc)
+            return False
+
+        try:
+            # ACTION 2 (TRANSFORM)
+            success = await self._vec.apply_procrustes_and_switch(
+                transformation_matrix, golden_dataset
+            )
+
+            # ACTION 3 (FLUSH)
+            if success:
+                import json
+
+                import numpy as np
+
+                async with self._sql.transaction() as db:
+                    async with db.execute(
+                        "SELECT id, agent_id, vector, metadata FROM lancedb_wal"
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+
+                    if rows:
+                        flush_records = []
+                        for row in rows:
+                            r_agent_id = row[1]
+                            vector_bytes = row[2]
+                            meta_str = row[3]
+
+                            embedding = np.frombuffer(
+                                vector_bytes, dtype=np.float32
+                            ).tolist()
+                            metadata = json.loads(meta_str)
+
+                            flush_records.append(
+                                {
+                                    "node_id": metadata["node_id"],
+                                    "agent_id": r_agent_id,
+                                    "embedding": embedding,
+                                    "content_hash": metadata.get("content_hash"),
+                                }
+                            )
+
+                        # Process bulk upsert into newly promoted table
+                        await self._vec.bulk_upsert(flush_records)
+                        logger.info("WAL_FLUSHED | count=%d", len(flush_records))
+
+                    await db.execute("DELETE FROM lancedb_wal")
+                    await db.commit()
+
+        except Exception as exc:
+            logger.error("ALIGNMENT_ORCHESTRATION_ERROR | error=%s", exc)
+            success = False
+
+        finally:
+            # ACTION 4 (UNLOCK)
+            try:
+                async with self._sql.transaction() as db:
+                    await db.execute(
+                        "UPDATE system_config SET value = 'false' WHERE key = 'lancedb_is_migrating'"
+                    )
+                    await db.commit()
+                logger.info("MIGRATION_LOCK_RELEASED | lancedb_is_migrating='false'")
+            except Exception as exc:
+                logger.critical("Failed to release migration lock: %s", exc)
+
+        return success
+
+    # ==================================================================
     # INSERT — agent-scoped memory ingestion
     # ==================================================================
 
@@ -263,12 +377,30 @@ class MemoryDAO:
                 for cid in conflicting_node_ids:
                     await self._vec.soft_delete(cid)
 
-                await self._vec.upsert(
-                    node_id=node_id,
-                    agent_id=agent_id,
-                    embedding=embedding,
-                    content_hash=content_hash,
-                )
+                if await self._is_lancedb_migrating():
+                    import json
+
+                    import numpy as np
+
+                    vector_bytes = np.array(embedding, dtype=np.float32).tobytes()
+                    wal_metadata = json.dumps(
+                        {"node_id": node_id, "content_hash": content_hash}
+                    )
+                    wal_record_id = str(uuid.uuid4())
+
+                    await db.execute(
+                        "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
+                        "VALUES (?, ?, ?, ?)",
+                        (wal_record_id, agent_id, vector_bytes, wal_metadata),
+                    )
+                    logger.info("UPSERT_QUEUED_IN_WAL | node_id=%s", node_id)
+                else:
+                    await self._vec.upsert(
+                        node_id=node_id,
+                        agent_id=agent_id,
+                        embedding=embedding,
+                        content_hash=content_hash,
+                    )
             except Exception as vec_exc:
                 await db.rollback()
                 logger.error(
@@ -374,7 +506,36 @@ class MemoryDAO:
 
             # ---- LanceDB batch upsert (compensating rollback on fail)
             try:
-                await self._vec.bulk_upsert(vec_rows)
+                if await self._is_lancedb_migrating():
+                    import json
+
+                    import numpy as np
+
+                    wal_records = []
+                    for r in vec_rows:
+                        vector_bytes = np.array(
+                            r["embedding"], dtype=np.float32
+                        ).tobytes()
+                        wal_metadata = json.dumps(
+                            {
+                                "node_id": r["node_id"],
+                                "content_hash": r.get("content_hash"),
+                            }
+                        )
+                        wal_records.append(
+                            (str(uuid.uuid4()), agent_id, vector_bytes, wal_metadata)
+                        )
+
+                    await db.executemany(
+                        "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
+                        "VALUES (?, ?, ?, ?)",
+                        wal_records,
+                    )
+                    logger.info(
+                        "BULK_UPSERT_QUEUED_IN_WAL | count=%d", len(wal_records)
+                    )
+                else:
+                    await self._vec.bulk_upsert(vec_rows)
             except Exception as vec_exc:
                 await db.rollback()
                 logger.error(
@@ -395,7 +556,9 @@ class MemoryDAO:
                             agent_id=agent_id,
                         )
                 except Exception as graph_exc:
-                    logger.warning("Failed to bulk insert nodes into KuzuDB: %s", graph_exc)
+                    logger.warning(
+                        "Failed to bulk insert nodes into KuzuDB: %s", graph_exc
+                    )
 
             # Both layers succeeded — commit
             await db.commit()
@@ -780,6 +943,7 @@ class MemoryDAO:
         relation_type: str,
         weight: float = 1.0,
         edge_id: str | None = None,
+        epistemic_uncertainty: float = 0.0,
     ) -> str:
         """Upsert a directed edge in KùzuDB, scoped to ``agent_id``.
 
@@ -795,6 +959,9 @@ class MemoryDAO:
             weight: Edge weight (default 1.0).
             edge_id: Accepted for backward compatibility but ignored
                      (KùzuDB edges are identified by endpoint pair).
+            epistemic_uncertainty: Uncertainty score (0.0 = certain,
+                1.0 = fully uncertain).  Propagated to the Observed
+                relationship for Damped PageRank quarantine analysis.
 
         Returns:
             A deterministic edge identifier ``"{source_id}->{target_id}"``.
@@ -811,15 +978,17 @@ class MemoryDAO:
             target_id=target_id,
             weight=weight,
             agent_id=agent_id,
+            epistemic_uncertainty=epistemic_uncertainty,
         )
 
         logger.debug(
-            "INSERT_EDGE | agent_id=%s %s-[%s]->%s w=%.3f",
+            "INSERT_EDGE | agent_id=%s %s-[%s]->%s w=%.3f eu=%.3f",
             agent_id,
             source_id,
             relation_type,
             target_id,
             weight,
+            epistemic_uncertainty,
         )
         return f"{source_id}->{target_id}"
 
@@ -831,7 +1000,7 @@ class MemoryDAO:
 
         Returns:
             List of dicts with keys: ``source_id``, ``target_id``,
-            ``weight``, ``agent_id``.
+            ``weight``, ``agent_id``, ``epistemic_uncertainty``.
         """
         _assert_valid_agent_id(agent_id)
         graph = self._require_graph()
@@ -839,7 +1008,7 @@ class MemoryDAO:
         rows = await graph.execute_query(
             "MATCH (a:Entity {agent_id: $agent_id})-[r:Observed]->(b:Entity {agent_id: $agent_id}) "
             "WHERE r.agent_id = $agent_id "
-            "RETURN a.id, b.id, r.weight, r.agent_id",
+            "RETURN a.id, b.id, r.weight, r.agent_id, r.epistemic_uncertainty",
             {"agent_id": agent_id},
         )
 
@@ -849,6 +1018,7 @@ class MemoryDAO:
                 "target_id": row[1],
                 "weight": row[2],
                 "agent_id": row[3],
+                "epistemic_uncertainty": row[4] if len(row) > 4 else 0.0,
             }
             for row in rows
         ]
@@ -1146,7 +1316,9 @@ class MemoryDAO:
                     row_dict["payload"] = json.loads(row_dict["payload"])
                 return row_dict
 
-    async def get_recent_logs(self, agent_id: str, session_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    async def get_recent_logs(
+        self, agent_id: str, session_id: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
         """Retrieve recent raw_logs for a given session.
 
         Args:
@@ -1175,7 +1347,9 @@ class MemoryDAO:
                     recent_logs.append(payload)
         return recent_logs
 
-    async def get_recent_session_logs(self, agent_id: str, session_id: str, limit: int = 10) -> list[dict]:
+    async def get_recent_session_logs(
+        self, agent_id: str, session_id: str, limit: int = 10
+    ) -> list[dict]:
         """Retrieve recent raw_logs for a given session.
         Added per system architecture requirements to avoid raw SQL bypass.
         """

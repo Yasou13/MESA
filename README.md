@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.5.0-green.svg)
+![Version](https://img.shields.io/badge/Version-0.5.1-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
 Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
@@ -185,6 +185,11 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 ---
 
 ## Architecture Overview
+
+MESA is designed around a **Triple Storage Engine** architecture to maximize scalability and guarantee data integrity:
+1. **SQLite:** Handles relational metadata and multi-worker Write-Ahead Log (WAL) orchestration.
+2. **LanceDB:** Handles vector embeddings with Blue/Green deployment and Procrustes alignment.
+3. **KuzuDB:** Handles the Knowledge Graph and Cognitive Salience routing (Spreading Activation).
 
 ```mermaid
 graph TB
@@ -367,7 +372,7 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 
 ### Current Status
 
-As of v0.5.0, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization — tested and validated for production evaluation.
+As of v0.5.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization — tested and validated for production evaluation. Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, preventing phantom writes during vector table alignments.
 
 ---
 

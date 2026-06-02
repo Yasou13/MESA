@@ -185,6 +185,7 @@ class VectorEngine:
         self._db: lancedb.db.LanceDBConnection | None = None
         self._tables: dict[str, Any] = {}
         self._table_lock = threading.Lock()
+        self._mutation_lock = asyncio.Lock()
         self._initialized = False
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
@@ -300,14 +301,15 @@ class VectorEngine:
             )
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._sync_upsert,
-            node_id,
-            agent_id,
-            embedding,
-            content_hash,
-        )
+        async with self._mutation_lock:
+            await loop.run_in_executor(
+                self._executor,
+                self._sync_upsert,
+                node_id,
+                agent_id,
+                embedding,
+                content_hash,
+            )
 
     def _sync_upsert(
         self,
@@ -363,9 +365,10 @@ class VectorEngine:
             raise RuntimeError("VectorEngine has not been initialized.")
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, self._sync_bulk_upsert, records
-        )
+        async with self._mutation_lock:
+            return await loop.run_in_executor(
+                self._executor, self._sync_bulk_upsert, records
+            )
 
     def _sync_bulk_upsert(self, records: list[dict]) -> int:
         """Synchronous bulk upsert (runs in executor thread)."""
@@ -517,7 +520,8 @@ class VectorEngine:
             raise RuntimeError("VectorEngine has not been initialized.")
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._sync_soft_delete, node_id)
+        async with self._mutation_lock:
+            await loop.run_in_executor(self._executor, self._sync_soft_delete, node_id)
 
     def _sync_soft_delete(self, node_id: str) -> None:
         """Synchronous soft-delete (runs in executor thread)."""
@@ -561,7 +565,8 @@ class VectorEngine:
             raise RuntimeError("VectorEngine has not been initialized.")
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._executor, self._sync_hard_delete, node_id)
+        async with self._mutation_lock:
+            await loop.run_in_executor(self._executor, self._sync_hard_delete, node_id)
 
     def _sync_hard_delete(self, node_id: str) -> None:
         """Synchronous hard delete (runs in executor thread)."""
@@ -723,6 +728,436 @@ class VectorEngine:
         self._tables.clear()
         self._db = None
         self._initialized = False
+
+    # ------------------------------------------------------------------
+    # Phase 4.3 — Blue/Green Vector Space Alignment
+    # ------------------------------------------------------------------
+
+    async def apply_procrustes_and_switch(
+        self,
+        transformation_matrix: Any,  # numpy.ndarray — imported at runtime
+        golden_dataset: list[dict[str, Any]],
+        threshold: float = 0.85,
+    ) -> bool:
+        """Align the vector space using Orthogonal Procrustes rotation.
+
+        Applies ``transformation_matrix`` (R* = U V^T) to all active
+        embeddings via a **Blue/Green rollback protocol** that protects
+        against LanceDB's lack of ACID transactions:
+
+        1. **ISOLATE**: Deep-copy the active table to ``<name>_backup``.
+        2. **TRANSFORM**: Apply ``np.dot(embedding, R*)`` to every
+           active vector and write to ``<name>_new``.
+        3. **VERIFY**: Evaluate ``Recall@5`` against ``golden_dataset``
+           on the new table.
+        4. **SWITCH or ROLLBACK**:
+           - ``Recall@5 >= threshold`` → promote ``_new``, drop backup.
+           - ``Recall@5 < threshold`` or exception → drop ``_new``,
+             keep original intact.
+
+        **Non-blocking**: All ``np.dot`` matrix multiplications and
+        synchronous LanceDB I/O are offloaded to ``run_in_executor``.
+
+        Args:
+            transformation_matrix: Orthogonal rotation matrix (R*) from
+                Procrustes analysis.  Shape must be ``(dim, dim)`` where
+                dim matches the embedding dimension.
+            golden_dataset: List of evaluation dicts::
+
+                    [
+                        {
+                            "query_vector": [float, ...],
+                            "expected_node_id": "uuid-string",
+                        },
+                        ...
+                    ]
+
+            threshold: Minimum ``Recall@5`` score (0.0–1.0) required
+                to promote the transformed table.  Default 0.85.
+
+        Returns:
+            ``True`` if the alignment was accepted and promoted.
+            ``False`` if the alignment was rolled back.
+
+        Raises:
+            RuntimeError: If the engine has not been initialised.
+        """
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+
+        assert self._db is not None
+
+        loop = asyncio.get_running_loop()
+
+        # Discover the active table (use first dimension-partitioned table)
+        table_names: list[str] = await loop.run_in_executor(
+            self._executor, self._list_table_names
+        )
+        active_tables: list[str] = [
+            t
+            for t in table_names
+            if t.startswith(_DEFAULT_TABLE_PREFIX)
+            and not t.endswith("_backup")
+            and not t.endswith("_new")
+        ]
+
+        if not active_tables:
+            logger.warning("ALIGN_SKIP | reason=no_active_tables uri=%s", self._uri)
+            return False
+
+        # Process each dimension-partitioned table
+        all_succeeded: bool = True
+        for active_name in active_tables:
+            backup_name: str = f"{active_name}_backup"
+            new_name: str = f"{active_name}_new"
+
+            try:
+                # ==================================================
+                # PHASE 1: ISOLATE — deep-copy active → backup
+                # ==================================================
+                logger.info(
+                    "ALIGN_ISOLATE | table=%s backup=%s",
+                    active_name,
+                    backup_name,
+                )
+                await loop.run_in_executor(
+                    self._executor,
+                    self._sync_copy_table,
+                    active_name,
+                    backup_name,
+                )
+
+                # ==================================================
+                # PHASE 2: TRANSFORM — apply R* to all embeddings
+                # ==================================================
+                logger.info(
+                    "ALIGN_TRANSFORM | table=%s new=%s matrix_shape=%s",
+                    active_name,
+                    new_name,
+                    transformation_matrix.shape,
+                )
+                await loop.run_in_executor(
+                    self._executor,
+                    self._sync_transform_table,
+                    active_name,
+                    new_name,
+                    transformation_matrix,
+                )
+
+                # ==================================================
+                # PHASE 3: VERIFY — Recall@5 against golden dataset
+                # ==================================================
+                recall: float = await loop.run_in_executor(
+                    self._executor,
+                    self._sync_verify_recall,
+                    new_name,
+                    golden_dataset,
+                )
+                logger.info(
+                    "ALIGN_VERIFY | table=%s recall@5=%.4f threshold=%.4f",
+                    new_name,
+                    recall,
+                    threshold,
+                )
+
+                # ==================================================
+                # PHASE 4: SWITCH or ROLLBACK
+                # ==================================================
+                if recall >= threshold:
+                    # --- SWITCH: promote _new, drop backup + old ---
+                    async with self._mutation_lock:
+                        await loop.run_in_executor(
+                            self._executor,
+                            self._sync_promote_table,
+                            active_name,
+                            new_name,
+                            backup_name,
+                        )
+                    logger.info(
+                        "ALIGN_SWITCH_SUCCESS | table=%s recall@5=%.4f "
+                        "new_table=%s promoted=true",
+                        active_name,
+                        recall,
+                        new_name,
+                    )
+                else:
+                    # --- ROLLBACK: drop _new, keep original ---
+                    await loop.run_in_executor(
+                        self._executor,
+                        self._sync_rollback_table,
+                        new_name,
+                        backup_name,
+                    )
+                    logger.critical(
+                        "ALIGN_ROLLBACK | table=%s recall@5=%.4f < threshold=%.4f "
+                        "— new table dropped, original preserved",
+                        active_name,
+                        recall,
+                        threshold,
+                    )
+                    all_succeeded = False
+
+            except Exception as exc:
+                # --- EXCEPTION ROLLBACK: drop _new, keep original ---
+                logger.critical(
+                    "ALIGN_EXCEPTION_ROLLBACK | table=%s error=%s "
+                    "— dropping _new, preserving original",
+                    active_name,
+                    exc,
+                )
+                try:
+                    await loop.run_in_executor(
+                        self._executor,
+                        self._sync_rollback_table,
+                        new_name,
+                        backup_name,
+                    )
+                except Exception as cleanup_exc:
+                    logger.error(
+                        "ALIGN_CLEANUP_FAILED | table=%s error=%s",
+                        active_name,
+                        cleanup_exc,
+                    )
+                all_succeeded = False
+
+        return all_succeeded
+
+    # ------------------------------------------------------------------
+    # Blue/Green sync helpers (run inside executor threads)
+    # ------------------------------------------------------------------
+
+    def _sync_copy_table(
+        self,
+        source_name: str,
+        dest_name: str,
+    ) -> None:
+        """Deep-copy a LanceDB table for backup (runs in executor).
+
+        Reads all rows from the source table and inserts them into a
+        new table with the same schema.
+        """
+        assert self._db is not None
+
+        # Drop destination if it already exists (stale from previous run)
+        existing: list[str] = self._list_table_names()
+        if dest_name in existing:
+            self._db.drop_table(dest_name)
+
+        source_table = self._db.open_table(source_name)
+        arrow_data: pa.Table = source_table.to_arrow()
+
+        if arrow_data.num_rows == 0:
+            self._db.create_table(dest_name, schema=arrow_data.schema)
+        else:
+            self._db.create_table(dest_name, data=arrow_data)
+
+        logger.debug(
+            "TABLE_COPIED | src=%s dest=%s rows=%d",
+            source_name,
+            dest_name,
+            arrow_data.num_rows,
+        )
+
+    def _sync_transform_table(
+        self,
+        source_name: str,
+        new_name: str,
+        transformation_matrix: Any,  # numpy.ndarray — imported at runtime
+    ) -> None:
+        """Apply Procrustes rotation to all embeddings (runs in executor).
+
+        Reads all active (non-expired) embeddings from the source table,
+        applies ``np.dot(embedding, R*)`` to each vector, and writes the
+        transformed records to a new table.
+
+        The ``np.dot`` call operates on the full matrix at once (batched)
+        to leverage BLAS acceleration.
+        """
+        import numpy as np
+
+        assert self._db is not None
+
+        # Drop _new if stale from a previous failed run
+        existing: list[str] = self._list_table_names()
+        if new_name in existing:
+            self._db.drop_table(new_name)
+
+        source_table = self._db.open_table(source_name)
+        arrow_data: pa.Table = source_table.to_arrow()
+
+        if arrow_data.num_rows == 0:
+            self._db.create_table(new_name, schema=arrow_data.schema)
+            return
+
+        # Extract embeddings as numpy matrix for batched dot product
+        embedding_col = arrow_data.column("embedding")
+        embeddings_list: list[list[float]] = embedding_col.to_pylist()
+        embeddings_np: np.ndarray = np.array(embeddings_list, dtype=np.float32)
+
+        # Batched matrix multiplication: (N, D) @ (D, D) → (N, D)
+        transformed_np: np.ndarray = np.dot(
+            embeddings_np, transformation_matrix.astype(np.float32)
+        )
+
+        # Rebuild the Arrow table with transformed embeddings
+        dim: int = transformed_np.shape[1]
+        transformed_lists: list[list[float]] = transformed_np.tolist()
+
+        new_embedding_array = pa.array(
+            transformed_lists,
+            type=pa.list_(pa.float32(), dim),
+        )
+
+        # Replace the embedding column
+        col_idx: int = arrow_data.schema.get_field_index("embedding")
+        new_arrow: pa.Table = arrow_data.set_column(
+            col_idx, arrow_data.schema.field(col_idx), new_embedding_array
+        )
+
+        self._db.create_table(new_name, data=new_arrow)
+
+        logger.debug(
+            "TABLE_TRANSFORMED | src=%s new=%s rows=%d dim=%d",
+            source_name,
+            new_name,
+            new_arrow.num_rows,
+            dim,
+        )
+
+    def _sync_verify_recall(
+        self,
+        table_name: str,
+        golden_dataset: list[dict[str, Any]],
+    ) -> float:
+        """Compute Recall@5 on the golden dataset (runs in executor).
+
+        For each entry in golden_dataset, searches the specified table
+        for the top 5 nearest neighbors and checks if
+        ``expected_node_id`` is present.
+
+        Returns:
+            Recall@5 as a float between 0.0 and 1.0.
+        """
+        assert self._db is not None
+
+        if not golden_dataset:
+            logger.warning("RECALL_VERIFY_SKIP | reason=empty_golden_dataset")
+            return 0.0
+
+        table = self._db.open_table(table_name)
+
+        hits: int = 0
+        total: int = len(golden_dataset)
+
+        for entry in golden_dataset:
+            query_vector: list[float] = entry["query_vector"]
+            expected_id: str = entry["expected_node_id"]
+
+            try:
+                results = (
+                    table.search(query_vector)
+                    .metric(self._metric)
+                    .where("expired_at IS NULL")
+                    .limit(5)
+                    .select(["node_id"])
+                    .to_list()
+                )
+                result_ids: list[str] = [r["node_id"] for r in results]
+                if expected_id in result_ids:
+                    hits += 1
+            except Exception as exc:
+                logger.warning(
+                    "RECALL_QUERY_FAILED | table=%s expected_id=%s error=%s",
+                    table_name,
+                    expected_id,
+                    exc,
+                )
+
+        recall: float = hits / total if total > 0 else 0.0
+        return recall
+
+    def _sync_promote_table(
+        self,
+        active_name: str,
+        new_name: str,
+        backup_name: str,
+    ) -> None:
+        """Promote _new to active and clean up (runs in executor).
+
+        Sequence:
+        1. Drop the backup table (no longer needed).
+        2. Drop the old active table.
+        3. Rename _new → active.
+        4. Invalidate cached table handles.
+        """
+        assert self._db is not None
+
+        # 1. Drop backup
+        try:
+            self._db.drop_table(backup_name)
+        except Exception as exc:
+            logger.warning("DROP_BACKUP_FAILED | table=%s error=%s", backup_name, exc)
+
+        # 2. Drop old active
+        try:
+            self._db.drop_table(active_name)
+        except Exception as exc:
+            logger.warning("DROP_ACTIVE_FAILED | table=%s error=%s", active_name, exc)
+
+        # 3. Rename _new → active
+        try:
+            self._db.rename_table(new_name, active_name)
+        except (AttributeError, Exception):
+            # LanceDB may not support rename_table in all versions.
+            # Fallback: copy _new → active, then drop _new.
+            self._sync_copy_table(new_name, active_name)
+            try:
+                self._db.drop_table(new_name)
+            except Exception:
+                pass
+
+        # 4. Invalidate cached table handles
+        with self._table_lock:
+            self._tables.pop(active_name, None)
+            self._tables.pop(new_name, None)
+            self._tables.pop(backup_name, None)
+
+    def _sync_rollback_table(
+        self,
+        new_name: str,
+        backup_name: str,
+    ) -> None:
+        """Drop the _new table and clean up backup (runs in executor).
+
+        The original active table is untouched — this is the safety
+        guarantee of the Blue/Green protocol.
+        """
+        assert self._db is not None
+
+        # Drop the failed _new table
+        try:
+            existing: list[str] = self._list_table_names()
+            if new_name in existing:
+                self._db.drop_table(new_name)
+        except Exception as exc:
+            logger.error("ROLLBACK_DROP_NEW_FAILED | table=%s error=%s", new_name, exc)
+
+        # Drop the backup (original is still intact)
+        try:
+            existing = self._list_table_names()
+            if backup_name in existing:
+                self._db.drop_table(backup_name)
+        except Exception as exc:
+            logger.warning(
+                "ROLLBACK_DROP_BACKUP_FAILED | table=%s error=%s",
+                backup_name,
+                exc,
+            )
+
+        # Invalidate cached handles
+        with self._table_lock:
+            self._tables.pop(new_name, None)
+            self._tables.pop(backup_name, None)
 
     # ------------------------------------------------------------------
     # Internal helpers

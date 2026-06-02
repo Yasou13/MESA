@@ -2,6 +2,9 @@ import asyncio
 import os
 import time
 import uuid
+from typing import Any
+
+from pydantic import BaseModel
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.consolidation.loop import ConsolidationLoop
@@ -20,31 +23,35 @@ class MockLLMAdapter(BaseUniversalLLMAdapter):
         self.success_count = 0
         self.error_count = 0
 
-    async def acomplete(self, prompt: str, **kwargs) -> str:
+    async def acomplete(
+        self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: Any
+    ) -> str | BaseModel:
         await asyncio.sleep(self.latency)
         self.success_count += 1
         return '{"decision": "STORE", "justification": "Mock"}'
 
     async def generate(self, prompt: str) -> str:
-        return await self.acomplete(prompt)
+        return await self.acomplete(prompt)  # type: ignore
 
-    async def aembed(self, text: str) -> list[float]:
+    async def aembed(self, text: str, **kwargs: Any) -> list[float]:
         return [0.0] * 1536
 
     async def get_embedding(self, text: str) -> list[float]:
         return await self.aembed(text)
 
-    async def aembed_batch(self, texts: list[str]) -> list[list[float]]:
+    async def aembed_batch(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         return [[0.0] * 1536 for _ in texts]
 
-    def complete(self, prompt: str, **kwargs) -> str:
+    def complete(
+        self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: Any
+    ) -> str | BaseModel:
         self.success_count += 1
         return '{"decision": "STORE", "justification": "Mock"}'
 
-    def embed(self, text: str) -> list[float]:
+    def embed(self, text: str, **kwargs: Any) -> list[float]:
         return [0.0] * 1536
 
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+    def embed_batch(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         return [[0.0] * 1536 for _ in texts]
 
     def get_token_count(self, text: str) -> int:

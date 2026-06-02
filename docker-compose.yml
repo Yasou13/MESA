@@ -13,6 +13,7 @@ services:
       - "8000:8000"
     volumes:
       - ./storage:/app/storage
+      - ./.kuzu:/app/.kuzu
     environment:
       - MESA_LLM_PROVIDER=${MESA_LLM_PROVIDER:-mock}
       - LLM_BASE_URL=${LLM_BASE_URL:-}

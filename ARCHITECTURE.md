@@ -1,7 +1,7 @@
 # MESA Memory Layer: Architecture Whitepaper
 
-> **Version:** 0.5.0
-> **Last Updated:** 2026-06-01
+> **Version:** 0.5.1
+> **Last Updated:** 2026-06-03
 
 ---
 
@@ -89,6 +89,17 @@ All LanceDB operations are offloaded from the event loop via `ThreadPoolExecutor
 - **Upsert** with mandatory `agent_id` and optional `session_id`
 - **Soft-delete** via `expired_at` timestamp (no physical removal in the hot path)
 - **Cosine similarity search** with mandatory `agent_id` filtering in the WHERE clause
+
+#### Write-Ahead Log (WAL) Orchestration
+
+To support continuous learning and dynamic Procrustes alignments without dropping writes or corrupting data, MESA implements a persistent SQLite-based Write-Ahead Log (WAL). 
+
+**Architectural Invariant:** The `VectorEngine` must remain completely decoupled from SQLite and stateless. It knows nothing about locks or queues. All WAL queueing is orchestrated strictly by the `MemoryDAO` layer to handle LanceDB's lack of ACID transactions. 
+
+During a Blue/Green deployment alignment, the `MemoryDAO`:
+1. Acquires a lock by setting `lancedb_is_migrating = 'true'` in SQLite.
+2. Intercepts incoming vector upserts and writes them safely to the `lancedb_wal` SQLite table instead of LanceDB.
+3. Once the LanceDB Procrustes transformation is verified and promoted, `MemoryDAO` flushes the `lancedb_wal` records into the new LanceDB table and truncates the queue.
 
 ### 3.4 Dual-Write Atomicity (Saga Pattern)
 

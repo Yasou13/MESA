@@ -38,8 +38,7 @@ def migrate_raw_logs(db_path: str):
 
                 # Execute an UPDATE statement to write the extracted agent_id
                 cursor.execute(
-                    "UPDATE raw_logs SET agent_id = ? WHERE id = ?",
-                    (agent_id, row_id)
+                    "UPDATE raw_logs SET agent_id = ? WHERE id = ?", (agent_id, row_id)
                 )
                 migrated_count += 1
 
@@ -51,7 +50,9 @@ def migrate_raw_logs(db_path: str):
         # Commit the transaction
         print("Committing transaction...")
         conn.commit()
-        print(f"Migration successful. Migrated {migrated_count} rows. Errors: {error_count}.")
+        print(
+            f"Migration successful. Migrated {migrated_count} rows. Errors: {error_count}."
+        )
 
     except Exception as e:
         print("Error during migration. Rolling back transaction.")
@@ -59,6 +60,7 @@ def migrate_raw_logs(db_path: str):
         raise e
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     # Allow passing db path as an argument or using MESA_DB_PATH env var

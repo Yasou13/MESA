@@ -27,8 +27,6 @@ import logging
 import sys
 from dataclasses import dataclass, field
 
-import aiosqlite
-
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 
 logger = logging.getLogger("MESA_LegalAudit")
@@ -426,7 +424,7 @@ async def audit_graph(
 
     # Derive KuzuDB path from the SQLite db path
     graph_path = db_path.replace(".db", "_graph")
-    
+
     # Initialize KuzuGraphProvider
     graph_provider = KuzuGraphProvider(graph_path)
     await graph_provider.initialize()
@@ -441,9 +439,9 @@ async def audit_graph(
             "  AND e.agent_id = $agent_id "
             "RETURN src.name, tgt.name"
         )
-        
+
         rows = await graph_provider.execute_query(cypher, {"agent_id": agent_id})
-        
+
         result.total_legal_edges = len(rows)
 
         for row in rows:
@@ -454,10 +452,10 @@ async def audit_graph(
             else:
                 result.poisoned_edges.append(
                     PoisonedEdge(
-                        edge_id="kuzu-edge", # Legacy ID field no longer explicitly stored in Kuzu
+                        edge_id="kuzu-edge",  # Legacy ID field no longer explicitly stored in Kuzu
                         source_entity=source_name,
                         target_entity=target_name,
-                        relation_type="Observed", # Unified relation type in Kuzu
+                        relation_type="Observed",  # Unified relation type in Kuzu
                         agent_id=agent_id,
                     )
                 )

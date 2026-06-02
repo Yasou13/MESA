@@ -142,3 +142,10 @@ temp_*.md
 # KuzuDB Storage Files
 storage/kuzu_db*
 storage/*.kuzu
+
+# Test Databases
+test_db/
+test_db_*/
+*.db
+*.lance/
+.kuzu/

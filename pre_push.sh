@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+# Herhangi bir komut sıfırdan farklı bir çıkış kodu (exit code) üretirse betiği derhal durdur.
+set -e
+
+echo "[1/4] Black - Kod formatlama işlemi başlatıldı..."
+black .
+
+echo "[2/4] Ruff - Linting ve import doğrulama (auto-fix) işlemi başlatıldı..."
+ruff check . --fix
+
+echo "[3/4] Mypy - Statik tip kontrolü işlemi başlatıldı..."
+mypy .
+
+echo "[4/4] Pytest - Birim testleri çalıştırılıyor..."
+pytest tests/
+
+echo "Tüm kontroller sıfır (0) hata ile tamamlandı. Kod dağıtıma/push işlemine hazır."

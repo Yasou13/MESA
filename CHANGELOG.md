@@ -5,6 +5,25 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-06-03
+
+### Added
+
+- **Phase 4.1 - Self-Healing Graphs**: Implemented Async Damped PageRank algorithm in the background to detect and quarantine hallucinated nodes based on `epistemic_uncertainty`.
+- **Phase 4.2 - Spreading Activation**: Integrated Cognitive Salience calculations natively on KuzuDB to simulate energy spreading across the graph without Python bottlenecking.
+- **Phase 4.3 - Continuous Learning**: Added Orthogonal Procrustes alignment for vector space rotations in LanceDB, enabling dynamic continuous learning.
+- **Persistent WAL Queue**: Added a persistent SQLite-based WAL queue mechanism for LanceDB migrations, intercepting and queueing incoming vectors to ensure multi-worker safety during Blue/Green deployment alignment.
+
+### Changed
+
+- **Cypher Optimization**: Upgraded KuzuDB Cypher queries for Spreading Activation from Neo4j-specific inline `COUNT { ... }` subqueries to standard KuzuDB `OPTIONAL MATCH` and `count()` aggregation with explicit float casting.
+- **DAO Orchestration**: Decoupled `VectorEngine` (`lancedb_provider`) from SQLite. All WAL queue orchestration (`lancedb_is_migrating` lock, queue insertions, and flushing) is now centralized entirely in the `MemoryDAO` layer to maintain architectural boundaries.
+
+### Fixed
+
+- **Phantom Write Vulnerability**: Fully remediated Phantom Writes during LanceDB Blue/Green deployments by utilizing the atomic SQLite WAL queue.
+- **Global Lock Bottleneck**: Resolved the Global Lock bottleneck during table promotion by replacing thread-blocking locking mechanisms with efficient async execution wrapping.
+
 ## [0.5.0] - 2026-06-02
 
 ### Added

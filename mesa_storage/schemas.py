@@ -145,6 +145,32 @@ _CREATE_RAW_LOGS_INDEXES = [
 
 
 # ---------------------------------------------------------------------------
+# Migration state and LanceDB WAL
+# ---------------------------------------------------------------------------
+
+_CREATE_SYSTEM_CONFIG_TABLE = """\
+CREATE TABLE IF NOT EXISTS system_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+_INIT_MIGRATION_LOCK = """\
+INSERT OR IGNORE INTO system_config (key, value) VALUES ('lancedb_is_migrating', 'false');
+"""
+
+_CREATE_LANCEDB_WAL_TABLE = """\
+CREATE TABLE IF NOT EXISTS lancedb_wal (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    metadata JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+
+# ---------------------------------------------------------------------------
 # Schema manager — public API
 # ---------------------------------------------------------------------------
 
@@ -163,6 +189,11 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         await db.execute(_CREATE_NODES_TABLE)
         await db.execute(_CREATE_ROUTING_TELEMETRY_TABLE)
         await db.execute(_CREATE_RAW_LOGS_TABLE)
+        await db.execute(_CREATE_SYSTEM_CONFIG_TABLE)
+        await db.execute(_CREATE_LANCEDB_WAL_TABLE)
+
+        # 1.1 Init config
+        await db.execute(_INIT_MIGRATION_LOCK)
 
         # 2. Indexes
         for idx_sql in _CREATE_NODES_INDEXES:
@@ -210,7 +241,14 @@ async def validate_schema(engine: AsyncEngine) -> dict:
     Returns:
         Dict mapping object names to booleans indicating presence.
     """
-    expected_tables = {"nodes", "nodes_fts", "routing_telemetry", "raw_logs"}
+    expected_tables = {
+        "nodes",
+        "nodes_fts",
+        "routing_telemetry",
+        "raw_logs",
+        "system_config",
+        "lancedb_wal",
+    }
     expected_indexes = {
         "idx_nodes_active",
         "idx_nodes_entity_name",
@@ -224,7 +262,6 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "trg_nodes_fts_delete",
         "trg_nodes_fts_update",
     }
-
 
     result: dict = {"tables": {}, "indexes": {}, "triggers": {}, "valid": True}
 
@@ -447,7 +484,6 @@ async def find_nodes_by_name(
         async with db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
-
 
 
 # ---------------------------------------------------------------------------

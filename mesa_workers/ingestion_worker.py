@@ -744,6 +744,14 @@ async def _commit_triplets(
             )
             continue
 
+        # Phase 4.1: Epistemic uncertainty from extraction confidence.
+        # The triplet weight (1.0 default) is the implicit consensus score.
+        # epistemic_uncertainty = 1.0 - confidence — higher values indicate
+        # lower trust.  When Dual-LLM consensus scoring is wired in,
+        # triplet["confidence"] will carry real values.
+        confidence = float(triplet.get("confidence", 1.0))
+        epistemic_uncertainty = max(0.0, min(1.0, 1.0 - confidence))
+
         try:
             # Insert head entity node
             head_node_id = await dao.insert_memory(
@@ -771,15 +779,17 @@ async def _commit_triplets(
                 source_id=head_node_id,
                 target_id=tail_node_id,
                 relation_type=relation or "RELATED_TO",
-                weight=1.0,
+                weight=confidence,
+                epistemic_uncertainty=epistemic_uncertainty,
             )
 
             logger.debug(
-                "TRIPLET_COMMITTED | log_id=%d head=%s rel=%s tail=%s",
+                "TRIPLET_COMMITTED | log_id=%d head=%s rel=%s tail=%s eu=%.3f",
                 log_id,
                 head,
                 relation,
                 tail,
+                epistemic_uncertainty,
             )
 
         except Exception as exc:

@@ -51,6 +51,7 @@ logger = logging.getLogger("MESA_DevServer")
 # Application state container
 # ---------------------------------------------------------------------------
 
+
 class _AppState:
     sqlite_engine: AsyncEngine | None = None
     vector_engine: VectorEngine | None = None
@@ -64,13 +65,15 @@ _state = _AppState()
 # Parse CLI args early (needed for --no-auth flag at app creation time)
 # ---------------------------------------------------------------------------
 
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="run_server",
         description="MESA v0.4.0 — Dev/Load-Test Server",
     )
     parser.add_argument(
-        "--port", "-p",
+        "--port",
+        "-p",
         type=int,
         default=int(os.environ.get("MESA_PORT", "8000")),
         help="Port to bind (default: 8000)",
@@ -104,6 +107,7 @@ _cli_args = _parse_args()
 # Lifespan: boot storage engines
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize async storage engines on startup, tear down on shutdown."""
@@ -132,6 +136,8 @@ async def lifespan(app: FastAPI):
     logger.info("MemoryDAO wired")
 
     def get_dao() -> MemoryDAO:
+        if _state.dao is None:
+            raise RuntimeError("DAO not initialized")
         return _state.dao
 
     # --- Mount v3 memory router ---
@@ -173,13 +179,22 @@ if not _cli_args.no_auth:
     @app.middleware("http")
     async def api_key_middleware(request: Request, call_next):
         # Skip auth for health/metrics/docs endpoints
-        if request.url.path in ("/health", "/metrics", "/docs", "/openapi.json", "/redoc"):
+        if request.url.path in (
+            "/health",
+            "/metrics",
+            "/docs",
+            "/openapi.json",
+            "/redoc",
+        ):
             return await call_next(request)
         api_key = request.headers.get("X-API-Key", "")
         if api_key != _MESA_API_KEY:
             return JSONResponse(
                 status_code=401,
-                content={"error": "unauthorized", "detail": "Invalid or missing API Key"},
+                content={
+                    "error": "unauthorized",
+                    "detail": "Invalid or missing API Key",
+                },
             )
         return await call_next(request)
 
@@ -187,6 +202,7 @@ if not _cli_args.no_auth:
 # ---------------------------------------------------------------------------
 # Utility endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/health")
 async def health():
@@ -202,6 +218,7 @@ async def health():
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     import uvicorn

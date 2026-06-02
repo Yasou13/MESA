@@ -131,16 +131,16 @@ async def call_tool(
                         )
                     ]
 
-                request = MemorySearchRequest(
+                req = MemorySearchRequest(
                     agent_id=agent_id,
                     session_id=session_id,
                     query=query,
                     limit=limit,
                 )
 
-                response = await client.search(request)
+                resp = await client.search(req)
 
-                if not response.results:
+                if not resp.results:
                     return [
                         types.TextContent(
                             type="text", text="No relevant memories found."
@@ -148,7 +148,7 @@ async def call_tool(
                     ]
 
                 formatted_results = []
-                for i, res in enumerate(response.results, 1):
+                for i, res in enumerate(resp.results, 1):
                     formatted_results.append(
                         f"Result {i} (Score: {res.score:.4f}):\n{res.entity_name}"
                     )
@@ -157,7 +157,7 @@ async def call_tool(
                 return [
                     types.TextContent(
                         type="text",
-                        text=f"Found {response.total} results:\n\n{result_text}",
+                        text=f"Found {resp.total} results:\n\n{result_text}",
                     )
                 ]
 

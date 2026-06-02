@@ -223,14 +223,22 @@ def bulk_import(
 
         # --- Verify row counts ---
         node_count_result = conn.execute("MATCH (n:Entity) RETURN count(n)")
+        if isinstance(node_count_result, list):
+            node_count_result = node_count_result[0]
+
         node_count = 0
         while node_count_result.has_next():
-            node_count = node_count_result.get_next()[0]
+            row = node_count_result.get_next()
+            node_count = row["count(n)"] if isinstance(row, dict) else row[0]
 
         edge_count_result = conn.execute("MATCH ()-[r:Observed]->() RETURN count(r)")
+        if isinstance(edge_count_result, list):
+            edge_count_result = edge_count_result[0]
+
         edge_count = 0
         while edge_count_result.has_next():
-            edge_count = edge_count_result.get_next()[0]
+            row = edge_count_result.get_next()
+            edge_count = row["count(r)"] if isinstance(row, dict) else row[0]
 
         logger.info(
             "VERIFICATION | Entity nodes: %d, Observed edges: %d",
