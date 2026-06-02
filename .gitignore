@@ -138,3 +138,7 @@ temp_*.py
 temp_*.md
 .coverage
 .coverage.*
+
+# KuzuDB Storage Files
+storage/kuzu_db*
+storage/*.kuzu
