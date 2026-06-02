@@ -121,18 +121,19 @@ jobs:
         python -c "
         import asyncio, os
         from mesa_storage.sqlite_engine import AsyncEngine
-        from mesa_storage.schemas import initialize_schema
+        from mesa_storage.schemas import initialize_schema as init_sqlite_schema
+        from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema
+        from mesa_storage.kuzu_provider import KuzuGraphProvider
+        import aiosqlite
 
         async def seed():
             os.makedirs('.ci_storage', exist_ok=True)
             engine = AsyncEngine('.ci_storage/ci_test.db', max_connections=2)
             await engine.initialize()
-            await initialize_schema(engine)
+            await init_sqlite_schema(engine)
 
-            # Insert minimal valid edges for audit to evaluate
-            import aiosqlite
             async with aiosqlite.connect('.ci_storage/ci_test.db') as db:
-                # Create two valid nodes
+                # Create two valid nodes in SQLite for metadata
                 await db.execute(
                     \"\"\"INSERT INTO nodes (id, entity_name, type, is_consolidated, created_at, agent_id, session_id)
                        VALUES ('node-src', 'Dava Konusu', 'ENTITY', 0, datetime('now'), 'ci-agent', 'ci-session')\"\"\"
@@ -141,13 +142,17 @@ jobs:
                     \"\"\"INSERT INTO nodes (id, entity_name, type, is_consolidated, created_at, agent_id, session_id)
                        VALUES ('node-tgt', 'TBK Madde 49', 'ENTITY', 0, datetime('now'), 'ci-agent', 'ci-session')\"\"\"
                 )
-                # Create a valid legal edge
-                await db.execute(
-                    \"\"\"INSERT INTO edges (id, source_id, target_id, relation_type, weight, created_at, agent_id)
-                       VALUES ('edge-1', 'node-src', 'node-tgt', 'DAYANIR', 1.0, datetime('now'), 'ci-agent')\"\"\"
-                )
                 await db.commit()
             await engine.close()
+
+            # Create edges in KuzuDB
+            init_kuzu_schema('.ci_storage/ci_test_graph')
+            kuzu = KuzuGraphProvider('.ci_storage/ci_test_graph')
+            await kuzu.initialize()
+            await kuzu.insert_node('node-src', 'Dava Konusu', 'ci-agent')
+            await kuzu.insert_node('node-tgt', 'TBK Madde 49', 'ci-agent')
+            await kuzu.insert_edge('node-src', 'node-tgt', 1.0, 'ci-agent')
+            
             print('CI test database seeded successfully')
 
         asyncio.run(seed())
