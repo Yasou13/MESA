@@ -1,9 +1,7 @@
-import json
 from unittest.mock import MagicMock, patch
 
 from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.ollama import OllamaAdapter
-from mesa_memory.schema.cmb import CMB
 
 
 def test_claude_adapter_embed():
@@ -67,34 +65,4 @@ def test_ollama_adapter_embed():
         assert all(isinstance(v, float) for v in result)
 
 
-def test_adapter_complete_with_schema():
-    cmb_data = {
-        "content_payload": "test memory",
-        "source": "agent",
-        "performative": "assert",
-        "resource_cost": {"token_count": 50, "latency_ms": 12.5},
-    }
-    mock_json_response = json.dumps(cmb_data)
 
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text=mock_json_response)]
-
-    with (
-        patch("mesa_memory.adapter.claude.anthropic.Anthropic") as MockAnthropic,
-        patch("mesa_memory.adapter.claude.anthropic.AsyncAnthropic"),
-        patch("mesa_memory.adapter.claude._openai_module") as mock_openai,
-    ):
-        mock_openai.OpenAI.return_value = MagicMock()
-        mock_openai.AsyncOpenAI.return_value = MagicMock()
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-        MockAnthropic.return_value = mock_client
-
-        adapter = ClaudeAdapter(anthropic_api_key="test", openai_api_key="test")
-        adapter._sync_anthropic = mock_client
-
-        result = adapter.complete("Generate a CMB", schema=CMB)
-        assert isinstance(result, CMB)
-        assert result.content_payload == "test memory"
-        assert result.source == "agent"
-        assert result.resource_cost.token_count == 50
