@@ -183,14 +183,22 @@ class TestInsertEndpoint:
         """After insert, the background task writes to SQLite."""
         sqlite_eng, vec_eng, loop = engines
 
-        resp = client.post(
-            "/v3/memory/insert",
-            json={
-                "agent_id": "agent-bg",
-                "session_id": "sess-bg",
-                "content": "Background insert test",
-            },
-        )
+        mock_adapter = MagicMock()
+        mock_adapter.aembed = AsyncMock(return_value=[0.1] * 1536)
+        mock_adapter.acomplete = AsyncMock(return_value="[]")
+
+        with patch(
+            "mesa_workers.ingestion_worker.AdapterFactory.get_adapter",
+            return_value=mock_adapter,
+        ):
+            resp = client.post(
+                "/v3/memory/insert",
+                json={
+                    "agent_id": "agent-bg",
+                    "session_id": "sess-bg",
+                    "content": "Background insert test",
+                },
+            )
         assert resp.status_code == 202
         assert resp.json()["log_id"] > 0
 
