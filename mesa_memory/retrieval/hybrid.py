@@ -171,7 +171,11 @@ class HybridRetriever:
         return results
 
     async def get_graph_results(self, agent_id: str, entities: list[str]) -> list[dict]:
-        """Look up graph neighbours via KùzuDB through the DAO."""
+        """Compute cognitive salience directly via KùzuDB through the DAO.
+        
+        Delegates completely to the database engine via `get_cognitive_salience`,
+        eliminating legacy Python spreading activation math.
+        """
         seed_nodes = await self.dao.find_nodes_by_name(
             agent_id, names=entities, case_insensitive=True
         )
@@ -180,7 +184,48 @@ class HybridRetriever:
         if not seed_ids:
             return []
 
-        return await self._run_graph_spreading(agent_id, seed_ids)
+        if not self.dao.graph_provider:
+            return []
+
+        # Collect cognitive salience from all seeds (max score fusion)
+        all_salience: dict[str, float] = {}
+        for sid in seed_ids:
+            try:
+                # Direct KuzuDB Cypher query inside get_cognitive_salience
+                salience_results = await self.dao.graph_provider.get_cognitive_salience(
+                    seed_id=sid,
+                    agent_id=agent_id,
+                    max_hops=3,
+                    limit=15,
+                )
+                for item in salience_results:
+                    nid = item["node_id"]
+                    # Exclude seeds from results (same as PPR behaviour)
+                    if nid in seed_ids:
+                        continue
+                    
+                    score = item["score"]
+                    if nid not in all_salience or score > all_salience[nid]:
+                        all_salience[nid] = score
+            except Exception as exc:
+                logger.warning("Cognitive salience query failed for seed %s: %s", sid, exc)
+
+        if not all_salience:
+            return []
+
+        # Sort by score descending, truncate to top_k (15)
+        ranked = [
+            {"cmb_id": nid, "score": score, "source": "graph"}
+            for nid, score in sorted(
+                all_salience.items(), key=lambda x: x[1], reverse=True
+            )
+        ][:15]
+
+        # Assign ranks
+        for i, item in enumerate(ranked):
+            item["rank"] = i + 1
+
+        return ranked
 
     def _apply_alpha_reranking(
         self,
@@ -237,75 +282,7 @@ class HybridRetriever:
         )
         return sorted_ids
 
-    async def _run_graph_spreading(
-        self,
-        agent_id: str,
-        seed_ids: list[str],
-        top_k: int = 15,
-        max_depth: int = 2,
-    ) -> list[dict]:
-        """KùzuDB-backed spreading activation — replaces NetworkX PPR.
 
-        For each seed node, performs a multi-hop neighbor traversal via
-        the DAO's ``get_neighbors`` method (which delegates to
-        ``KuzuGraphProvider.get_neighbors`` with Cypher variable-length
-        paths).
-
-        Scoring heuristic:
-            ``score = 1.0 / hops``
-        This approximates PPR's distance-decay property without loading
-        the entire graph into memory.  Nodes closer to seeds rank higher.
-
-        Returns:
-            Ranked list of ``{cmb_id, score, source, rank}`` dicts,
-            compatible with ``_apply_alpha_reranking``.
-        """
-        if not seed_ids:
-            return []
-
-        # Collect neighbors from all seeds
-        all_neighbors: dict[str, float] = {}
-        seed_set = set(seed_ids)
-
-        for sid in seed_ids:
-            try:
-                neighbors = await self.dao.get_neighbors(
-                    agent_id, node_id=sid, max_hops=max_depth
-                )
-            except Exception as exc:
-                logger.warning("Graph spreading failed for seed %s: %s", sid, exc)
-                continue
-
-            for n in neighbors:
-                nid = n["id"]
-                # Exclude seeds from results (same as PPR behaviour)
-                if nid in seed_set:
-                    continue
-
-                # Distance-decay score: closer nodes score higher
-                hop_score = 1.0 / n["hops"]
-
-                # Keep the highest score if a node is reachable from
-                # multiple seeds (max fusion, not sum)
-                if nid not in all_neighbors or hop_score > all_neighbors[nid]:
-                    all_neighbors[nid] = hop_score
-
-        if not all_neighbors:
-            return []
-
-        # Sort by score descending, truncate to top_k
-        ranked = [
-            {"cmb_id": nid, "score": score, "source": "graph"}
-            for nid, score in sorted(
-                all_neighbors.items(), key=lambda x: x[1], reverse=True
-            )
-        ][:top_k]
-
-        # Assign ranks
-        for i, item in enumerate(ranked):
-            item["rank"] = i + 1
-
-        return ranked
 
     def _cold_start_rerank(self, vector_results: list[dict], top_k: int) -> list[dict]:
         reranked = []

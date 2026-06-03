@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_workers.maintenance_pagerank import schedule_pagerank_worker
 
 try:
     __version__ = version("mesa-memory")
@@ -109,7 +110,20 @@ async def lifespan(app: FastAPI):
     )
     asyncio.create_task(state.consolidation_loop.start())
 
+    pagerank_task = None
+    try:
+        pagerank_task = asyncio.create_task(schedule_pagerank_worker(dao=state.dao))
+        logger.info("PageRank worker scheduled successfully.")
+    except Exception as exc:
+        logger.error("Failed to schedule PageRank worker: %s", exc)
+
     yield
+
+    # Cancel the PageRank worker gracefully
+    if pagerank_task is not None:
+        pagerank_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await pagerank_task
 
     # ==================================================================
     # Shutdown

@@ -399,3 +399,56 @@ async def _quarantine_nodes(
                 node_id,
                 exc,
             )
+
+# ---------------------------------------------------------------------------
+# Background Worker Execution
+# ---------------------------------------------------------------------------
+
+def _fetch_agent_ids_sync(db_path: str) -> list[str]:
+    import sqlite3
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT agent_id FROM nodes WHERE agent_id IS NOT NULL")
+            rows = cursor.fetchall()
+            return [row[0] for row in rows if row[0]]
+    except Exception as exc:
+        logger.error("Failed to fetch agent_ids synchronously: %s", exc)
+        return []
+
+async def schedule_pagerank_worker(dao: Any, interval_sec: int = 3600) -> None:
+    """Background loop to periodically run quarantine scans across all agents.
+    
+    Runs continuously in the background, querying all distinct agent_ids
+    and running the quarantine scan for each via run_quarantine_scan.
+    """
+    logger.info("PageRank quarantine worker scheduled (interval=%ds)", interval_sec)
+    
+    # Try to extract the DB path from the DAO's sqlite engine
+    db_path = "./storage/mesa.db"
+    if hasattr(dao, "sqlite_engine") and hasattr(dao.sqlite_engine, "_db_path"):
+        db_path = dao.sqlite_engine._db_path
+    
+    while True:
+        try:
+            loop = asyncio.get_running_loop()
+            agent_ids = await loop.run_in_executor(None, _fetch_agent_ids_sync, db_path)
+            
+            for agent_id in agent_ids:
+                if dao.graph_provider is None:
+                    continue
+                try:
+                    await run_quarantine_scan(
+                        agent_id=agent_id,
+                        graph_provider=dao.graph_provider,
+                    )
+                except Exception as exc:
+                    logger.error("PageRank scan failed for agent %s: %s", agent_id, exc)
+                    
+        except asyncio.CancelledError:
+            logger.info("PageRank worker cancelled.")
+            break
+        except Exception as exc:
+            logger.error("PageRank worker encountered an error: %s", exc)
+            
+        await asyncio.sleep(interval_sec)
