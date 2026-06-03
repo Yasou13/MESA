@@ -71,6 +71,10 @@ async def test_hybrid_exceptions():
     dao_mock.get_memories.return_value = [{"id": "node1"}]
     dao_mock.search_memory_fts.side_effect = Exception("FTS error")
     dao_mock.get_neighbors.side_effect = Exception("KùzuDB error")
+    dao_mock.graph_provider = AsyncMock()
+    dao_mock.graph_provider.get_cognitive_salience.side_effect = Exception(
+        "KùzuDB error"
+    )
 
     access_mock = AsyncMock()
     access_mock.check_access.return_value = True
@@ -88,8 +92,13 @@ async def test_hybrid_exceptions():
     res = await retriever.retrieve("query", "agent1", "session1", enable_multi_hop=True)
     assert res["multi_hop_path"] == []
 
-    # Test _run_graph_spreading no seeds
-    assert await retriever._run_graph_spreading("agent1", []) == []
+    # Test get_graph_results no seeds
+    assert await retriever.get_graph_results("agent1", []) == []
+
+    # Test get_graph_results exceptions caught gracefully
+    dao_mock.find_nodes_by_name.return_value = [{"id": "seed1"}]
+    res = await retriever.get_graph_results("agent1", ["seed1"])
+    assert res == []
 
 
 def test_format_working_memory_budget():

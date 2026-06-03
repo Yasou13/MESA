@@ -108,13 +108,12 @@ class TestEmptyGraph:
     @pytest.mark.asyncio
     async def test_graph_spreading_on_empty_graph(self):
         """Graph spreading with no neighbors → empty result, no exception."""
-        storage = _make_mock_storage_facade(graph_nodes=[])
-        storage.get_neighbors = AsyncMock(return_value=[])
+        storage = _make_mock_storage_facade(graph_nodes=[{"id": "seed1"}])
+        storage.graph_provider = AsyncMock()
+        storage.graph_provider.get_cognitive_salience = AsyncMock(return_value=[])
         retriever = await _make_retriever(storage)
 
-        result = await retriever._run_graph_spreading(
-            "test_agent", seed_ids=["nonexistent_node"]
-        )
+        result = await retriever.get_graph_results("test_agent", entities=["seed1"])
         assert result == []
 
 

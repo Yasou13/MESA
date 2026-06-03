@@ -172,7 +172,7 @@ class HybridRetriever:
 
     async def get_graph_results(self, agent_id: str, entities: list[str]) -> list[dict]:
         """Compute cognitive salience directly via KùzuDB through the DAO.
-        
+
         Delegates completely to the database engine via `get_cognitive_salience`,
         eliminating legacy Python spreading activation math.
         """
@@ -203,12 +203,14 @@ class HybridRetriever:
                     # Exclude seeds from results (same as PPR behaviour)
                     if nid in seed_ids:
                         continue
-                    
+
                     score = item["score"]
                     if nid not in all_salience or score > all_salience[nid]:
                         all_salience[nid] = score
             except Exception as exc:
-                logger.warning("Cognitive salience query failed for seed %s: %s", sid, exc)
+                logger.warning(
+                    "Cognitive salience query failed for seed %s: %s", sid, exc
+                )
 
         if not all_salience:
             return []
@@ -281,8 +283,6 @@ class HybridRetriever:
             final_scores.keys(), key=lambda cid: final_scores[cid], reverse=True
         )
         return sorted_ids
-
-
 
     def _cold_start_rerank(self, vector_results: list[dict], top_k: int) -> list[dict]:
         reranked = []
