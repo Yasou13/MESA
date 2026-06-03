@@ -459,7 +459,7 @@ class TestResponseSchemas:
             sqlite="ok",
             vector="ok",
         )
-        assert resp.version == "0.3.0"
+        assert isinstance(resp.version, str)
 
 
 # ===================================================================

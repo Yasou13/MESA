@@ -56,18 +56,11 @@ def _make_mock_dao() -> MagicMock:
     dao = MagicMock()
     dao.get_memories = AsyncMock(return_value=[])
     dao.mark_consolidated = AsyncMock()
+    dao.invalidate_node = AsyncMock()
     dao.insert_edge = AsyncMock(return_value="edge-id")
+    dao.find_consolidated_nodes_by_name = AsyncMock(return_value=[])
     dao.graph_provider = MagicMock()
     dao.graph_provider.execute_write = AsyncMock()
-    dao.sqlite_engine = MagicMock()
-    # For resolve_conflict — need a transaction context manager
-    tx_cm = AsyncMock()
-    tx_db = AsyncMock()
-    tx_db.execute = AsyncMock()
-    tx_db.commit = AsyncMock()
-    tx_cm.__aenter__ = AsyncMock(return_value=tx_db)
-    tx_cm.__aexit__ = AsyncMock(return_value=False)
-    dao.sqlite_engine.transaction = MagicMock(return_value=tx_cm)
     return dao
 
 
@@ -222,19 +215,14 @@ class TestResolveConflict:
         )
 
     @pytest.mark.asyncio
-    async def test_executes_sql_invalidation(self):
+    async def test_invalidates_old_node_via_dao(self):
         dao = _make_mock_dao()
         existing = _make_node("old-id", is_consolidated=1)
         new = _make_node("new-id", is_consolidated=0)
 
         await resolve_conflict(dao, "agent-test", existing, new)
 
-        # Verify the transaction was used to invalidate old node
-        tx_ctx = dao.sqlite_engine.transaction.return_value
-        tx_db = tx_ctx.__aenter__.return_value
-        # One execute call for node invalidation (edge cascade is in KuzuDB)
-        assert tx_db.execute.await_count == 1
-        tx_db.commit.assert_awaited_once()
+        dao.invalidate_node.assert_awaited_once_with("agent-test", node_id="old-id")
 
 
 # ===================================================================
@@ -562,19 +550,8 @@ class TestFindConsolidatedMatches:
 
     @pytest.mark.asyncio
     async def test_queries_with_correct_agent_id(self):
-        """Verify the SQL query binds agent_id for RLS."""
+        """Verify the DAO is called with the correct agent_id."""
         dao = _make_mock_dao()
-        # Set up connection context manager to return rows
-        conn_cm = AsyncMock()
-        mock_db = AsyncMock()
-        cursor_cm = AsyncMock()
-        cursor_cm.fetchall = AsyncMock(return_value=[])
-        cursor_cm.__aenter__ = AsyncMock(return_value=cursor_cm)
-        cursor_cm.__aexit__ = AsyncMock(return_value=False)
-        mock_db.execute = MagicMock(return_value=cursor_cm)
-        conn_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        conn_cm.__aexit__ = AsyncMock(return_value=False)
-        dao.sqlite_engine.connection = MagicMock(return_value=conn_cm)
 
         worker = REMCycleWorker(
             dao=dao,
@@ -583,7 +560,7 @@ class TestFindConsolidatedMatches:
         )
         result = await worker._find_consolidated_matches("agent-test", "SomeEntity")
         assert result == []
-        # Verify execute was called with agent_id in params
-        mock_db.execute.assert_called_once()
-        call_args = mock_db.execute.call_args
-        assert "agent-test" in call_args[0][1]
+        # Verify dao.find_consolidated_nodes_by_name was called with agent-test
+        dao.find_consolidated_nodes_by_name.assert_awaited_once_with(
+            "agent-test", entity_name="SomeEntity"
+        )

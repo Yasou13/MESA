@@ -134,8 +134,8 @@ class MemoryDAO:
     # ------------------------------------------------------------------
 
     @property
-    def sqlite_engine(self) -> AsyncEngine:
-        """Return the underlying SQLite engine (read-only access)."""
+    def _sqlite_engine(self) -> AsyncEngine:
+        """Internal SQLite engine — private to prevent DAO bypass."""
         return self._sql
 
     @property
@@ -1094,6 +1094,23 @@ class MemoryDAO:
             # and are structurally bound to Entity nodes via MATCH.
             await db.commit()
 
+        # Cascade-delete edges in KùzuDB if graph provider is attached
+        if self._graph:
+            try:
+                await self._graph.execute_write(
+                    "MATCH (n:Entity {id: $node_id, agent_id: $agent_id})"
+                    "-[r:Observed]-() DELETE r",
+                    {"node_id": node_id, "agent_id": agent_id},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "INVALIDATE_NODE_EDGE_CASCADE_FAILED | agent_id=%s "
+                    "node_id=%s error=%s",
+                    agent_id,
+                    node_id,
+                    exc,
+                )
+
         logger.info(
             "INVALIDATE_NODE | agent_id=%s node_id=%s",
             agent_id,
@@ -1149,6 +1166,76 @@ class MemoryDAO:
             async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
+
+    async def find_consolidated_nodes_by_name(
+        self,
+        agent_id: str,
+        *,
+        entity_name: str,
+        case_insensitive: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Find active *consolidated* nodes matching ``entity_name``.
+
+        Like ``find_nodes_by_name`` but additionally filters on
+        ``is_consolidated = 1``.  Used by the REM cycle worker to
+        detect contradictions against existing consolidated knowledge.
+
+        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE.
+
+        Args:
+            agent_id: **Mandatory** tenant isolation key.
+            entity_name: Single entity name to match.
+            case_insensitive: If True, compare via ``LOWER()``.
+
+        Returns:
+            List of matching consolidated node dicts.
+        """
+        _assert_valid_agent_id(agent_id)
+
+        if not entity_name:
+            return []
+
+        if case_insensitive:
+            name_clause = "LOWER(entity_name) = LOWER(?)"
+        else:
+            name_clause = "entity_name = ?"
+
+        query = (
+            f"SELECT * FROM nodes WHERE agent_id = ? "
+            f"AND {name_clause} "
+            f"AND is_consolidated = 1 "
+            f"AND invalid_at IS NULL "
+            f"AND deleted_at IS NULL"
+        )
+
+        async with self._sql.connection() as db:
+            async with db.execute(query, (agent_id, entity_name)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    # ==================================================================
+    # GET ALL ACTIVE AGENT IDS — unscoped (system-level query)
+    # ==================================================================
+
+    async def get_all_active_agent_ids(self) -> list[str]:
+        """Return a deduplicated list of all ``agent_id`` values in the graph.
+
+        This is a **system-level** query used by background workers
+        (PageRank, REM cycle) that need to iterate across all tenants.
+        No RLS filtering is applied — the caller is trusted.
+
+        Returns:
+            Sorted list of unique, non-null agent_id strings.
+        """
+        query = (
+            "SELECT DISTINCT agent_id FROM nodes "
+            "WHERE agent_id IS NOT NULL "
+            "ORDER BY agent_id"
+        )
+        async with self._sql.connection() as db:
+            async with db.execute(query) as cursor:
+                rows = await cursor.fetchall()
+                return [row[0] for row in rows if row[0]]
 
     # ==================================================================
     # GET MEMORY BY ID — agent-scoped single-node lookup
@@ -1375,29 +1462,6 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT payload FROM raw_logs WHERE agent_id = ? "
                 "AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT ?",
-                (agent_id, session_id, limit),
-            ) as cur:
-                rows = await cur.fetchall()
-                for row in rows:
-                    payload_raw = row[0]
-                    if isinstance(payload_raw, str):
-                        payload = json.loads(payload_raw)
-                    else:
-                        payload = payload_raw
-                    recent_logs.append(payload)
-        return recent_logs
-
-    async def get_recent_session_logs(
-        self, agent_id: str, session_id: str, limit: int = 10
-    ) -> list[dict]:
-        """Retrieve recent raw_logs for a given session.
-        Added per system architecture requirements to avoid raw SQL bypass.
-        """
-        _assert_valid_agent_id(agent_id)
-        recent_logs = []
-        async with self.sqlite_engine.connection() as db:
-            async with db.execute(
-                "SELECT payload FROM raw_logs WHERE agent_id = ? AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT ?",
                 (agent_id, session_id, limit),
             ) as cur:
                 rows = await cur.fetchall()

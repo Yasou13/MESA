@@ -450,10 +450,12 @@ def create_memory_router(
                 if "content" in payload:
                     recent_logs.append({"content": payload["content"]})
 
-            await dao.get_recent_session_logs(agent_id, session_id)
-            nodes_content: list[str] = []
+            # Build context from retrieved episodic logs
+            nodes_content: list[str] = [
+                payload["content"] for payload in raw_logs_data if "content" in payload
+            ]
 
-            context = "\\n".join(nodes_content)
+            context = "\n".join(nodes_content)
 
             return SessionContextResponse(
                 session_id=session_id,

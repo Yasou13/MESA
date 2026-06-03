@@ -14,15 +14,13 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import sqlite3
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from mesa_workers.maintenance_pagerank import (
     _compute_damped_pagerank,
     _extract_subgraph,
-    _fetch_agent_ids_sync,
     _quarantine_nodes,
     run_quarantine_scan,
     schedule_pagerank_worker,
@@ -289,43 +287,6 @@ class TestRunQuarantineScan:
 
 
 # ===================================================================
-# _fetch_agent_ids_sync — sync SQLite query
-# ===================================================================
-
-
-class TestFetchAgentIdsSync:
-    def test_returns_agent_ids(self, tmp_path):
-        db_path = str(tmp_path / "test.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE nodes (id TEXT, agent_id TEXT, entity_name TEXT)")
-        conn.execute("INSERT INTO nodes VALUES ('1', 'agent-a', 'e1')")
-        conn.execute("INSERT INTO nodes VALUES ('2', 'agent-b', 'e2')")
-        conn.execute("INSERT INTO nodes VALUES ('3', 'agent-a', 'e3')")
-        conn.commit()
-        conn.close()
-
-        result = _fetch_agent_ids_sync(db_path)
-        assert set(result) == {"agent-a", "agent-b"}
-
-    def test_returns_empty_for_missing_db(self, tmp_path):
-        result = _fetch_agent_ids_sync(str(tmp_path / "nonexistent.db"))
-        # sqlite3.connect creates the file but without the table → error → []
-        assert isinstance(result, list)
-
-    def test_filters_null_agent_ids(self, tmp_path):
-        db_path = str(tmp_path / "nulls.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE nodes (id TEXT, agent_id TEXT)")
-        conn.execute("INSERT INTO nodes VALUES ('1', NULL)")
-        conn.execute("INSERT INTO nodes VALUES ('2', 'agent-x')")
-        conn.commit()
-        conn.close()
-
-        result = _fetch_agent_ids_sync(db_path)
-        assert result == ["agent-x"]
-
-
-# ===================================================================
 # schedule_pagerank_worker — tested with cancellation
 # ===================================================================
 
@@ -339,17 +300,15 @@ class TestSchedulePageRankWorker:
         mock_dao.sqlite_engine = MagicMock()
         mock_dao.sqlite_engine._db_path = "/tmp/test.db"
 
-        with patch(
-            "mesa_workers.maintenance_pagerank._fetch_agent_ids_sync",
-            return_value=[],
-        ):
-            task = asyncio.create_task(
-                schedule_pagerank_worker(mock_dao, interval_sec=3600)
-            )
-            await asyncio.sleep(0.1)
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass  # Expected — worker may or may not catch it
-            assert task.done()
+        mock_dao.get_all_active_agent_ids = AsyncMock(return_value=[])
+
+        task = asyncio.create_task(
+            schedule_pagerank_worker(mock_dao, interval_sec=3600)
+        )
+        await asyncio.sleep(0.1)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass  # Expected — worker may or may not catch it
+        assert task.done()

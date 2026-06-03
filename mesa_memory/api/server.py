@@ -36,12 +36,20 @@ logger = logging.getLogger("MESA_Server")
 # API Key Authentication
 # ---------------------------------------------------------------------------
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
-_MESA_API_KEY = os.environ.get("MESA_API_KEY")
+_MESA_API_KEY: str | None = os.environ.get("MESA_API_KEY")
 
-if not _MESA_API_KEY:
-    raise RuntimeError(
-        "MESA_API_KEY environment variable must be set. No local fallback allowed."
-    )
+
+def _require_api_key() -> None:
+    """Raise at startup if the API key is missing.
+
+    Called inside ``lifespan`` so test imports don't crash at module level
+    while the production server still refuses to start without a key.
+    """
+    if not _MESA_API_KEY:
+        raise RuntimeError(
+            "MESA_API_KEY environment variable must be set. "
+            "No local fallback allowed."
+        )
 
 
 async def get_api_key(api_key: str = Depends(_API_KEY_HEADER)) -> str:
@@ -77,6 +85,9 @@ _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ==================================================================
+    # Fail-fast: refuse to start without a valid API key
+    _require_api_key()
+
     # Ensure the base storage directory exists before any DB initialization
     _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
 

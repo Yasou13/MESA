@@ -22,6 +22,7 @@ import logging
 import os
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
@@ -178,8 +179,14 @@ class ConsolidationLoop:
         self.obs_layer = obs_layer
         self._agent_id = agent_id
         self._running = False
-        self.human_review_queue = PersistentQueue("./storage/human_review_queue.jsonl")
-        self.dead_letter_queue = PersistentQueue("./storage/dead_letter_queue.jsonl")
+
+        # Persistent queues — paths sourced from central config (P7 fix)
+        _hr_path = Path(config.human_review_queue_path)
+        _dl_path = Path(config.dead_letter_queue_path)
+        _hr_path.parent.mkdir(parents=True, exist_ok=True)
+        _dl_path.parent.mkdir(parents=True, exist_ok=True)
+        self.human_review_queue = PersistentQueue(str(_hr_path))
+        self.dead_letter_queue = PersistentQueue(str(_dl_path))
 
         # Concurrency Control: Bound concurrent LLM API calls to prevent 429 Too Many Requests
         self._llm_semaphore = asyncio.Semaphore(5)

@@ -345,10 +345,6 @@ class TestHealthCheck:
 
 # === Properties ===
 class TestDAOProperties:
-    def test_sqlite_engine(self, dao_env):
-        dao, sql, _, _ = dao_env
-        assert dao.sqlite_engine is sql
-
     def test_vector_engine(self, dao_env):
         dao, _, vec, _ = dao_env
         assert dao.vector_engine is vec

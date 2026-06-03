@@ -40,6 +40,21 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
+# Version helper — reads from installed package metadata
+# ---------------------------------------------------------------------------
+
+
+def _get_mesa_version() -> str:
+    """Return the installed MESA version from package metadata."""
+    try:
+        from importlib.metadata import version
+
+        return version("mesa-memory")
+    except Exception:
+        return "0.0.0-dev"
+
+
+# ---------------------------------------------------------------------------
 # Constants — security boundaries
 # ---------------------------------------------------------------------------
 
@@ -457,7 +472,10 @@ class HealthResponse(BaseModel):
     )
     sqlite: str = Field(default="unknown", description="SQLite engine status")
     vector: str = Field(default="unknown", description="Vector engine status")
-    version: str = Field(default="0.3.0", description="MESA version")
+    version: str = Field(
+        default_factory=lambda: _get_mesa_version(),
+        description="MESA version",
+    )
 
 
 class SessionStartResponse(BaseModel):

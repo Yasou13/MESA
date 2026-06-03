@@ -324,21 +324,9 @@ async def resolve_conflict(
     existing_id = existing_node["id"]
     new_id = new_node.get("id", new_node.get("node_id", ""))
 
-    # Step 1: Invalidate old node (UPDATE invalid_at — NOT DELETE)
-    async with dao.sqlite_engine.transaction() as db:
-        await db.execute(
-            "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
-            "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
-            (existing_id, agent_id),
-        )
-        await db.commit()
-
-    # Also cascade-delete edges connected to the old node via KùzuDB
-    if dao.graph_provider:
-        await dao.graph_provider.execute_write(
-            "MATCH (n:Entity {id: $existing_id, agent_id: $agent_id})-[r:Observed]-() DELETE r",
-            {"existing_id": existing_id, "agent_id": agent_id},
-        )
+    # Step 1: Invalidate old node via DAO (UPDATE invalid_at — NOT DELETE)
+    # Also cascade-deletes connected KùzuDB edges internally.
+    await dao.invalidate_node(agent_id, node_id=existing_id)
 
     logger.info(
         "CONFLICT_INVALIDATE | agent_id=%s old_node=%s",
@@ -741,8 +729,8 @@ class REMCycleWorker:
     ) -> list[dict[str, Any]]:
         """Find existing consolidated nodes matching the entity name.
 
-        Uses direct SQL through the DAO's engine for entity-name matching
-        with agent_id RLS enforcement.
+        Delegates to the DAO's ``find_consolidated_nodes_by_name``
+        method, which enforces agent_id RLS internally.
 
         Args:
             agent_id: Tenant isolation key.
@@ -754,20 +742,9 @@ class REMCycleWorker:
         if not entity_name:
             return []
 
-        # RLS: WHERE agent_id = ? hardcoded
-        sql = (
-            "SELECT * FROM nodes "
-            "WHERE agent_id = ? "
-            "  AND LOWER(entity_name) = LOWER(?) "
-            "  AND is_consolidated = 1 "
-            "  AND invalid_at IS NULL "
-            "  AND deleted_at IS NULL"
+        return await self._dao.find_consolidated_nodes_by_name(
+            agent_id, entity_name=entity_name
         )
-
-        async with self._dao.sqlite_engine.connection() as db:
-            async with db.execute(sql, (agent_id, entity_name)) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Manual trigger (for testing and ops CLI)

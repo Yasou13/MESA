@@ -53,9 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -403,45 +401,17 @@ async def _quarantine_nodes(
             )
 
 
-# ---------------------------------------------------------------------------
-# Background Worker Execution
-# ---------------------------------------------------------------------------
-
-
-def _fetch_agent_ids_sync(db_path: str) -> list[str]:
-    import sqlite3
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT DISTINCT agent_id FROM nodes WHERE agent_id IS NOT NULL"
-            )
-            rows = cursor.fetchall()
-            return [row[0] for row in rows if row[0]]
-    except Exception as exc:
-        logger.error("Failed to fetch agent_ids synchronously: %s", exc)
-        return []
-
-
 async def schedule_pagerank_worker(dao: Any, interval_sec: int = 3600) -> None:
     """Background loop to periodically run quarantine scans across all agents.
 
     Runs continuously in the background, querying all distinct agent_ids
-    and running the quarantine scan for each via run_quarantine_scan.
+    via the DAO layer and running the quarantine scan for each.
     """
     logger.info("PageRank quarantine worker scheduled (interval=%ds)", interval_sec)
 
-    # Resolve the DB path from env or DAO — identical to main server
-    _storage_base = Path(os.environ.get("MESA_STORAGE_PATH", "./storage"))
-    db_path = str(_storage_base / "mesa.db")
-    if hasattr(dao, "sqlite_engine") and hasattr(dao.sqlite_engine, "_db_path"):
-        db_path = dao.sqlite_engine._db_path
-
     while True:
         try:
-            loop = asyncio.get_running_loop()
-            agent_ids = await loop.run_in_executor(None, _fetch_agent_ids_sync, db_path)
+            agent_ids = await dao.get_all_active_agent_ids()
 
             for agent_id in agent_ids:
                 if dao.graph_provider is None:

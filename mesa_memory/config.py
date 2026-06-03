@@ -214,6 +214,19 @@ class MesaConfig(BaseSettings):
         60.0, validation_alias="MESA_CIRCUIT_BREAKER_COOLDOWN"
     )
 
+    # -----------------------------------------------------------------------
+    # Persistent Queue Paths (Phase 5.1 — P7 remediation)
+    # Configurable via env vars. Defaults match the original hardcoded paths.
+    # -----------------------------------------------------------------------
+    human_review_queue_path: str = Field(
+        "./storage/human_review_queue.jsonl",
+        validation_alias="MESA_HUMAN_REVIEW_QUEUE_PATH",
+    )
+    dead_letter_queue_path: str = Field(
+        "./storage/dead_letter_queue.jsonl",
+        validation_alias="MESA_DEAD_LETTER_QUEUE_PATH",
+    )
+
     @model_validator(mode="after")
     def validate_embedding_fallback(self) -> "MesaConfig":
         if self.llm_provider.lower() == "claude" and not self.openai_api_key:
