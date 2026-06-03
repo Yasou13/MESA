@@ -29,9 +29,15 @@ RUN if [ "$INSTALL_REBEL" = "true" ] ; then \
 RUN python -m spacy download xx_ent_wiki_sm
 COPY .env.example .env.example
 
+# ── E5 FIX: Non-root user for container security hardening ──
+# Limits the blast radius of any container escape vulnerability.
+RUN useradd -m -r -s /bin/false mesa
+
 # ── Persistent storage mount point ──
-RUN mkdir -p /app/storage /app/.kuzu
+RUN mkdir -p /app/storage /app/.kuzu && chown -R mesa:mesa /app/storage /app/.kuzu
 VOLUME ["/app/storage", "/app/.kuzu"]
+
+USER mesa
 
 EXPOSE 8000
 

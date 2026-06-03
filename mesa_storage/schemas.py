@@ -1,10 +1,10 @@
 # MESA v0.3.0 — Phase 3: Graph & FTS5 Schema Initialization
-# Creates and manages the `nodes`, `edges`, and `nodes_fts` (FTS5) tables
+# Creates and manages the `nodes` and `nodes_fts` (FTS5) tables
 # for the MESA knowledge graph storage layer.
 #
 # Design:
 #   - `nodes` table: UUID-identified graph vertices with soft-delete support
-#   - `edges` table: Weighted directed edges with FK integrity to nodes
+#   - Edge storage: Migrated to KùzuDB (see kuzu_provider.py)
 #   - `nodes_fts`: FTS5 virtual table synchronised to nodes via triggers
 #     for zero-VRAM lexical pre-filtering
 #
@@ -392,8 +392,13 @@ async def bulk_insert_nodes(
 async def soft_delete_node(engine: AsyncEngine, node_id: str, *, agent_id: str) -> None:
     """Soft-delete a node by setting its invalid_at timestamp.
 
-    Also soft-deletes all edges connected to this node (source or target).
     RLS: agent_id is mandatory and hardcoded into every WHERE clause.
+
+    .. warning::
+       This function does NOT cascade to KùzuDB graph edges.
+       Use ``MemoryDAO.invalidate_node()`` instead, which correctly
+       cascades the soft-delete to both SQLite and KùzuDB.
+       This function is retained for backward compatibility only.
     """
     now = datetime.now(timezone.utc).isoformat()
 

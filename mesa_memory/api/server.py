@@ -317,11 +317,11 @@ memory_router = create_memory_router(
 app.include_router(memory_router, dependencies=router_dependencies)
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[Depends(get_api_key)])
 async def health():
     return await state.dao.health_check()
 
 
-@app.get("/metrics")
+@app.get("/metrics", dependencies=[Depends(get_api_key)])
 async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

@@ -520,7 +520,13 @@ class REMCycleWorker:
     # ------------------------------------------------------------------
 
     async def _poll_loop(self) -> None:
-        """Sleep-poll loop that checks queue depth at regular intervals."""
+        """Sleep-poll loop that checks queue depth at regular intervals.
+
+        E2 FIX: Dynamically discovers active agent_ids from the DAO on
+        each poll cycle, merging with any statically registered agents.
+        This ensures the REM worker operates correctly even when started
+        with an empty ``agent_ids`` list (the default in server.py).
+        """
         # Startup grace period
         try:
             await asyncio.wait_for(
@@ -532,7 +538,20 @@ class REMCycleWorker:
             pass
 
         while not self._stop_event.is_set():
-            for agent_id in self._agent_ids:
+            # E2 FIX: Dynamic agent discovery — merge static + discovered
+            active_agents: list[str] = list(self._agent_ids)
+            try:
+                discovered = await self._dao.get_all_active_agent_ids()
+                for aid in discovered:
+                    if aid not in active_agents:
+                        active_agents.append(aid)
+            except Exception as exc:
+                logger.warning(
+                    "REM_AGENT_DISCOVERY_FAILED | error=%s — using static list",
+                    exc,
+                )
+
+            for agent_id in active_agents:
                 if self._stop_event.is_set():
                     break
                 try:

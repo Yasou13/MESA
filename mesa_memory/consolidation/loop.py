@@ -54,6 +54,17 @@ logger = logging.getLogger("MESA_Consolidation")
 # Persistent Queue
 # ---------------------------------------------------------------------------
 class PersistentQueue:
+    """Append-only JSONL queue with automatic file rotation.
+
+    E3 FIX: Implements a max file size cap to prevent disk exhaustion
+    under sustained failure conditions.  When the queue file exceeds
+    ``_MAX_QUEUE_BYTES``, it is rotated: the current file is renamed
+    with a ``.bak`` suffix and a fresh file is started.
+    """
+
+    # 100 MB rotation threshold — enough for ~500K DLQ entries
+    _MAX_QUEUE_BYTES = 100 * 1024 * 1024
+
     def __init__(self, filepath: str):
         self.filepath = filepath
         os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
@@ -63,6 +74,25 @@ class PersistentQueue:
         await loop.run_in_executor(None, self.append, item)
 
     def append(self, item: dict):
+        # E3 FIX: Rotate if file exceeds size cap
+        try:
+            if (
+                os.path.exists(self.filepath)
+                and os.path.getsize(self.filepath) > self._MAX_QUEUE_BYTES
+            ):
+                bak_path = self.filepath + ".bak"
+                # Overwrite any existing .bak — keep only one generation
+                if os.path.exists(bak_path):
+                    os.remove(bak_path)
+                os.rename(self.filepath, bak_path)
+                logger.info(
+                    "QUEUE_ROTATED | file=%s size_exceeded=%d",
+                    self.filepath,
+                    self._MAX_QUEUE_BYTES,
+                )
+        except OSError as exc:
+            logger.warning("QUEUE_ROTATION_FAILED | error=%s", exc)
+
         with open(self.filepath, "a") as f:
             f.write(json.dumps(item) + "\n")
 

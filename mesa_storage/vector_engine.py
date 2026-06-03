@@ -412,6 +412,85 @@ class VectorEngine:
         return total
 
     # ------------------------------------------------------------------
+    # E1 FIX: Orphan reconciliation support
+    # ------------------------------------------------------------------
+
+    async def get_existing_node_ids(
+        self,
+        agent_id: str,
+        node_ids: list[str],
+    ) -> set[str]:
+        """Return the subset of ``node_ids`` that have vector entries.
+
+        Used by the DAO startup reconciliation scan to detect orphaned
+        SQLite nodes that were never written to LanceDB (SIGKILL mid-saga).
+
+        LanceDB tables are dimension-partitioned (``mesa_vectors_{dim}``),
+        not agent-partitioned, so this method scans all ``mesa_vectors_*``
+        tables and filters by ``agent_id`` in the WHERE clause.
+
+        Args:
+            agent_id: Tenant isolation key (used in WHERE filter).
+            node_ids: List of node IDs to check.
+
+        Returns:
+            Set of node_ids that have at least one vector entry.
+        """
+        if not node_ids or not self.is_initialized:
+            return set()
+
+        _validate_filter_value(agent_id, "agent_id")
+        loop = asyncio.get_running_loop()
+
+        def _check() -> set[str]:
+            if self._db is None:
+                return set()
+            try:
+                table_names = self._list_table_names()
+            except Exception:
+                return set()
+
+            found: set[str] = set()
+            for table_name in table_names:
+                if not table_name.startswith(_DEFAULT_TABLE_PREFIX):
+                    continue
+                try:
+                    table = self._db.open_table(table_name)
+                except (FileNotFoundError, ValueError, OSError):
+                    continue
+
+                # Query for existing node_ids in batches to avoid
+                # oversized filter expressions
+                batch_size = 100
+                for i in range(0, len(node_ids), batch_size):
+                    batch = node_ids[i : i + batch_size]
+                    # Build a safe OR filter scoped to agent_id
+                    id_conditions = " OR ".join(
+                        f"node_id = '{nid}'"
+                        for nid in batch
+                        if _SAFE_FILTER_VALUE_RE.match(nid)
+                    )
+                    if not id_conditions:
+                        continue
+                    where = f"agent_id = '{agent_id}' AND ({id_conditions})"
+                    try:
+                        result = (
+                            table.search()
+                            .where(where)
+                            .select(["node_id"])
+                            .limit(batch_size)
+                            .to_arrow()
+                        )
+                        for row_idx in range(result.num_rows):
+                            found.add(str(result.column("node_id")[row_idx]))
+                    except Exception:
+                        pass  # Table may be empty or schema mismatch
+
+            return found
+
+        return await loop.run_in_executor(self._executor, _check)
+
+    # ------------------------------------------------------------------
     # Search operations
     # ------------------------------------------------------------------
 

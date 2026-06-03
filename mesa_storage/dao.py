@@ -124,10 +124,16 @@ class MemoryDAO:
 
         DDL ownership lives exclusively in ``schemas.py`` which MUST be
         called via ``initialize_schema(engine)`` before this method.
-        This method is retained for any future DAO-specific runtime
-        setup (connection pool warm-up, prepared statements, etc.).
+
+        E1 FIX: Runs a startup reconciliation scan that detects SQLite
+        nodes with no corresponding LanceDB vector entry (orphans from
+        a SIGKILL mid-saga).  Orphaned nodes are stamped ``invalid_at``
+        to remove them from active queries.
         """
         logger.info("MemoryDAO.initialize() — schema owned by schemas.py")
+
+        # E1 FIX: Reconcile orphaned nodes from interrupted dual-write sagas
+        await self._reconcile_orphaned_nodes()
 
     # ------------------------------------------------------------------
     # Properties
@@ -147,6 +153,97 @@ class MemoryDAO:
     def graph_provider(self) -> KuzuGraphProvider | None:
         """Return the underlying graph provider (read-only access)."""
         return self._graph
+
+    # ------------------------------------------------------------------
+    # E1 FIX: Startup orphan reconciliation
+    # ------------------------------------------------------------------
+
+    async def _reconcile_orphaned_nodes(self) -> None:
+        """Detect and invalidate SQLite nodes with no LanceDB vector.
+
+        This handles the SIGKILL atomicity gap: if the process is killed
+        between the SQLite INSERT and LanceDB upsert steps of the dual-write
+        saga, the SQLite node exists but has no vector representation.
+
+        These orphans appear in ``get_memories()`` but produce zero vector
+        search hits, causing silent data inconsistency.  Stamping them
+        ``invalid_at`` removes them from active queries while preserving
+        them for audit recovery.
+
+        Bounded to 500 recent nodes to keep startup latency acceptable.
+        """
+        try:
+            # Fetch all distinct agent_ids with active nodes
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT DISTINCT agent_id FROM nodes "
+                    "WHERE invalid_at IS NULL AND deleted_at IS NULL "
+                    "LIMIT 100"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                    agent_ids = [row[0] for row in rows]
+
+            if not agent_ids:
+                return
+
+            orphan_count = 0
+            for agent_id in agent_ids:
+                if agent_id in _FORBIDDEN_AGENT_IDS:
+                    continue
+
+                # Fetch recent active nodes for this agent
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT id FROM nodes "
+                        "WHERE agent_id = ? AND invalid_at IS NULL "
+                        "AND deleted_at IS NULL "
+                        "ORDER BY created_at DESC LIMIT 500",
+                        (agent_id,),
+                    ) as cursor:
+                        node_rows = await cursor.fetchall()
+
+                if not node_rows:
+                    continue
+
+                node_ids = [r[0] for r in node_rows]
+
+                # Check which node_ids have vector entries
+                try:
+                    existing_vector_ids = await self._vec.get_existing_node_ids(
+                        agent_id, node_ids
+                    )
+                except Exception:
+                    # Vector engine may not have this method or table yet
+                    # — skip reconciliation for this agent
+                    continue
+
+                orphans = [nid for nid in node_ids if nid not in existing_vector_ids]
+
+                if orphans:
+                    now = datetime.now(timezone.utc).isoformat()
+                    async with self._sql.connection() as db:
+                        for orphan_id in orphans:
+                            await db.execute(
+                                "UPDATE nodes SET invalid_at = ? "
+                                "WHERE id = ? AND agent_id = ? "
+                                "AND invalid_at IS NULL",
+                                (now, orphan_id, agent_id),
+                            )
+                        await db.commit()
+                    orphan_count += len(orphans)
+
+            if orphan_count:
+                logger.warning(
+                    "ORPHAN_RECONCILIATION | invalidated %d orphaned nodes "
+                    "(SQLite nodes with no LanceDB vector — likely SIGKILL mid-saga)",
+                    orphan_count,
+                )
+            else:
+                logger.debug("ORPHAN_RECONCILIATION | no orphans detected")
+
+        except Exception as exc:
+            # Reconciliation failure is non-fatal — log and continue startup
+            logger.warning("ORPHAN_RECONCILIATION_FAILED | error=%s — skipping", exc)
 
     # ==================================================================
     # Migration State Polling

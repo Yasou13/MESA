@@ -51,6 +51,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -74,6 +75,14 @@ _MIN_CYCLE_INTERVAL_SECONDS = 3600  # 1 hour
 
 # Maximum age for soft-deleted records before physical removal (hours)
 _DEFAULT_RETENTION_HOURS = 24
+
+# B2 FIX: Strict ISO 8601 timestamp validation for LanceDB filter values.
+# LanceDB does not support parameterised bindings in WHERE/DELETE clauses,
+# so timestamp values must be validated before interpolation to prevent
+# latent SQL injection if the source is ever changed.
+_ISO8601_SAFE_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(\+\d{2}:\d{2}|Z)?$"
+)
 
 # VACUUM requires exclusive access — use a separate connection with
 # extended busy timeout to wait for WAL readers to drain
@@ -390,21 +399,24 @@ class MaintenanceWorker:
     # ------------------------------------------------------------------
 
     async def _purge_sqlite_records(self) -> tuple[int, int]:
-        """Physically DELETE soft-deleted nodes and edges past retention.
+        """Physically DELETE soft-deleted nodes past retention window.
 
         Only removes records where ``invalid_at`` is older than the
         configured retention window.  This ensures audit trail data is
         preserved for the required period before physical removal.
 
+        Edge storage is owned by KùzuDB — edge purge is handled
+        implicitly when KùzuDB nodes are removed.
+
         Returns:
             Tuple of (nodes_deleted, edges_deleted).
+            ``edges_deleted`` is always 0 (edge storage migrated to KùzuDB).
         """
         cutoff = (
             datetime.now(timezone.utc) - timedelta(hours=self._retention_hours)
         ).isoformat()
 
         nodes_deleted = 0
-        edges_deleted = 0
 
         try:
             async with self._sqlite_engine.connection() as db:
@@ -422,7 +434,8 @@ class MaintenanceWorker:
             logger.error("SQLITE_PURGE_FAILED | error=%s", exc, exc_info=True)
             raise
 
-        return nodes_deleted, edges_deleted
+        # edges_deleted is always 0 — edge storage migrated to KùzuDB
+        return nodes_deleted, 0
 
     # ------------------------------------------------------------------
     # Phase 2: SQLite VACUUM
@@ -520,12 +533,26 @@ class MaintenanceWorker:
 
         Deletes records where expired_at is non-null and older than
         the cutoff timestamp.
+
+        B2 FIX: ``cutoff_iso`` is validated against a strict ISO 8601
+        regex before interpolation into LanceDB SQL filters, enforcing
+        the system-wide "zero unvalidated interpolation" invariant.
         """
         if self._vector_engine is None or not self._vector_engine.is_initialized:
             return 0
 
         db = self._vector_engine._db
         if db is None:
+            return 0
+
+        # B2 FIX: Validate cutoff_iso before string interpolation.
+        # LanceDB does not support parameterised bindings, so this is
+        # the defence-in-depth gate against SQL injection.
+        if not _ISO8601_SAFE_RE.match(cutoff_iso):
+            logger.error(
+                "VECTOR_PURGE_REJECTED | cutoff=%r failed ISO 8601 validation",
+                cutoff_iso,
+            )
             return 0
 
         purged = 0

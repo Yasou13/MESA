@@ -28,8 +28,15 @@ def mock_adapter():
 # -------------------------
 def test_server_lifespan_health_metrics():
     with TestClient(app) as client:
-        assert client.get("/health").status_code == 200
-        assert client.get("/metrics").status_code == 200
+        # B1 FIX: /health and /metrics now require API key
+        assert client.get("/health").status_code == 401
+        assert client.get("/metrics").status_code == 401
+        assert (
+            client.get("/health", headers={"X-API-Key": "test_key"}).status_code == 200
+        )
+        assert (
+            client.get("/metrics", headers={"X-API-Key": "test_key"}).status_code == 200
+        )
         assert (
             client.get(
                 "/v3/memory/session/test/context?agent_id=1",
