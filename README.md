@@ -25,6 +25,9 @@ cd MESA
 echo "LLM_API_KEY=your_llm_key_here" > .env
 echo "MESA_API_KEY=local-dev-key" >> .env
 echo "MESA_REBEL_ENABLED=false" >> .env  # Skips 1.8GB download for quick testing
+
+> **Data Persistence:** You MUST map the `.kuzu/` directory as a Docker volume in your `docker-compose.yml` or run command to prevent ephemeral data loss of the knowledge graph.
+
 docker-compose up -d
 ```
 
@@ -83,7 +86,7 @@ curl -X POST http://localhost:8000/v3/memory/search \
 # → {"context": "...", "retrieved_nodes": [...], "metrics": {"latency_ms": 12}}
 ```
 
-### Purge Memories (Soft-Delete)
+### Purge Memories (Tombstoning)
 
 ```bash
 curl -X DELETE http://localhost:8000/v3/memory/purge \
@@ -181,6 +184,15 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 | **Fault Tolerance** | Circuit Breaker + DLQ + Exponential Backoff | Try/Catch | Retry Decorator |
 | **Local-First** | Yes (SQLite WAL, LanceDB, KùzuDB) | Cloud-dependent | Cloud-dependent |
 | **Observability** | Prometheus + structured JSON logs | Basic logging | Basic logging |
+
+---
+
+## Features & Capabilities
+
+MESA v0.5.1 introduces advanced cognitive memory features:
+1. **Phase 4.1: Self-Healing Graphs**: Async Damped PageRank for hallucination quarantine.
+2. **Phase 4.2: Cognitive Salience**: Spreading Activation routed through KuzuDB using `OPTIONAL MATCH`.
+3. **Phase 4.3: Continuous Learning**: Blue/Green Procrustes vector alignment with persistent SQLite WAL to prevent phantom writes.
 
 ---
 
@@ -300,7 +312,7 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 | `POST` | `/v3/memory/insert` | Queue memory ingestion (fire-and-forget, <50ms) |
 | `POST` | `/v3/memory/search` | Hybrid vector + graph + FTS5 retrieval |
 | `GET` | `/v3/memory/status/{log_id}` | Query cold-path processing status |
-| `DELETE` | `/v3/memory/purge` | Soft-delete only (hard-delete is background-only) |
+| `DELETE` | `/v3/memory/purge` | Tombstoning only (hard-delete is background-only) |
 | `POST` | `/v3/session/start` | Generate a new session with tenant isolation |
 | `GET` | `/v3/session/{session_id}/context` | Retrieve episodic + graph context scoped to session |
 | `POST` | `/v3/session/{session_id}/end` | Terminate session and trigger final consolidation |
@@ -354,7 +366,7 @@ python -m mesa_evals.gatekeeper   # CI/CD gate (exit 0 = PASS)
 
 ### KùzuDB Graph Scalability
 
-The legacy NetworkX graph provider has been fully deprecated. MESA now exclusively leverages **KùzuDB** for graph topology, enabling infinite out-of-core scaling and entirely eliminating node-related RAM exhaustion.
+MESA exclusively leverages **KùzuDB** for graph topology, enabling infinite out-of-core scaling and entirely eliminating node-related RAM exhaustion.
 
 ### LLM Provider Rate Limits
 
@@ -380,6 +392,7 @@ As of v0.5.1, Hot Path (API ingestion/search) and Cold Path (consolidation worke
 
 ```
 MESA/
+├── .kuzu/                # Mandatory local volume for KuzuDB persistent graph storage
 ├── mesa_api/             # Headless FastAPI v3 REST server + Pydantic schemas
 ├── mesa_client/          # Python SDK (sync/async) + LangChain adapter
 ├── mesa_evals/           # Golden Dataset, evaluation runner, CI/CD gatekeeper
@@ -394,7 +407,10 @@ MESA/
 │   ├── security/         # RBAC access control + input sanitisation
 │   └── valence/          # ECOD anomaly detection + novelty scoring
 ├── mesa_mcp/             # Model Context Protocol server (Claude Desktop)
-├── mesa_storage/         # MemoryDAO, AsyncEngine (SQLite WAL), LanceDB
+├── mesa_storage/         # Triple Storage Engine
+│   ├── dao.py            # Orchestration & WAL queueing
+│   ├── kuzu_provider.py  # Graph Storage
+│   └── vector_engine.py  # Vector Storage
 ├── mesa_workers/         # Cold-path ingestion worker, MaintenanceWorker, rem_cycle.py
 ├── tests/                # pytest suite + benchmarks
 ├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)

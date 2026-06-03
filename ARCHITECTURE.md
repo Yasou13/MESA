@@ -9,13 +9,13 @@
 
 MESA is fundamentally architected as a high-throughput, asynchronous cognitive memory engine. The core design principle is **"Integrity over Velocity."** While the system leverages non-blocking `asyncio` routines and decoupled storage layers to achieve high scalability, it deliberately introduces computational bottlenecks (via the Valence Motor) to aggressively validate data before persistence.
 
-In v0.3.0, MESA transitioned from an importable library to a **headless FastAPI daemon** (API-first architecture). All client interaction flows through versioned REST endpoints (`/v3/memory/*`) or the Python SDK (`mesa_client`). This architectural shift enables deployment as a standalone service with strict process-level isolation between API request handling and background maintenance operations.
+In v0.5.1, MESA acts as a **headless FastAPI daemon** (API-first architecture). All client interaction flows through versioned REST endpoints (`/v3/memory/*`) or the Python SDK (`mesa_client`). This architecture enables deployment as a standalone service with strict process-level isolation between API request handling and background maintenance operations.
 
 ---
 
 ## 2. Epistemic Isolation Layer (MemoryDAO)
 
-To eliminate synchronous bottlenecks and legacy in-memory limitations, MESA v0.3.0 implements the strictly asynchronous `MemoryDAO`. The system interacts with storage exclusively through this Data Access Object, completely replacing the deprecated `StorageFacade`. 
+To eliminate synchronous bottlenecks, MESA implements the strictly asynchronous `MemoryDAO`. The system interacts with storage exclusively through this Data Access Object, completely replacing the deprecated `StorageFacade`. 
 
 ```mermaid
 classDiagram
@@ -50,10 +50,10 @@ The `MemoryDAO` is responsible for unifying the relational graph operations (SQL
 
 ## 3. Storage Layer (MemoryDAO)
 
-The legacy split-brain storage (`mesa_memory/storage`) has been completely eliminated in Phase 1. MESA now unifies all relational graph operations (SQLite) and semantic vector operations (LanceDB) directly under a single interface: `MemoryDAO`. It strictly enforces row-level security (RLS) by hardcoding `agent_id` into every underlying query — including the `raw_logs` ingestion table — ensuring that multi-tenant boundaries are never breached by the application logic.
+MESA now unifies all relational operations (SQLite), semantic vector operations (LanceDB), and graph operations (KuzuDB) directly under a single interface: `MemoryDAO`. It strictly enforces row-level security (RLS) by hardcoding `agent_id` into every underlying query — including the `raw_logs` ingestion table — ensuring that multi-tenant boundaries are never breached by the application logic.
 
 > [!IMPORTANT]
-> As of v0.5.0, the `raw_logs` table includes an explicit `agent_id` column with mandatory `WHERE agent_id = ?` predicates on all `INSERT`, `SELECT`, and `UPDATE` queries. Every `MemoryDAO` method that touches `raw_logs` (`insert_raw_log`, `get_raw_log`, `update_raw_log_status`) calls `_assert_valid_agent_id(agent_id)` at entry, guaranteeing zero-trust tenant isolation across the entire ingestion path.
+> As of v0.5.1, the `raw_logs` table includes an explicit `agent_id` column with mandatory `WHERE agent_id = ?` predicates on all `INSERT`, `SELECT`, and `UPDATE` queries. Every `MemoryDAO` method that touches `raw_logs` (`insert_raw_log`, `get_raw_log`, `update_raw_log_status`) calls `_assert_valid_agent_id(agent_id)` at entry, guaranteeing zero-trust tenant isolation across the entire ingestion path.
 
 ### 3.1 SQLite — Relational Store (aiosqlite + WAL)
 
@@ -87,18 +87,18 @@ Vector embeddings are stored in LanceDB with **multi-dimensional table routing**
 All LanceDB operations are offloaded from the event loop via `ThreadPoolExecutor` + `asyncio.run_in_executor()`. The vector engine supports:
 
 - **Upsert** with mandatory `agent_id` and optional `session_id`
-- **Soft-delete** via `expired_at` timestamp (no physical removal in the hot path)
+- **Tombstoning** via `expired_at` timestamp (no physical removal in the hot path)
 - **Cosine similarity search** with mandatory `agent_id` filtering in the WHERE clause
 
 #### Write-Ahead Log (WAL) Orchestration
 
-To support continuous learning and dynamic Procrustes alignments without dropping writes or corrupting data, MESA implements a persistent SQLite-based Write-Ahead Log (WAL). 
+To support continuous learning and dynamic Procrustes alignments without dropping writes or corrupting data, MESA implements a persistent SQLite-based Write-Ahead Log (WAL). MESA achieves eventual consistency and prevents data loss via the SQLite WAL queue, not via native LanceDB ACID guarantees.
 
-**Architectural Invariant:** The `VectorEngine` must remain completely decoupled from SQLite and stateless. It knows nothing about locks or queues. All WAL queueing is orchestrated strictly by the `MemoryDAO` layer to handle LanceDB's lack of ACID transactions. 
+**Architectural Invariant:** The `VectorEngine` must remain completely decoupled from SQLite and strictly stateless. It knows nothing about locks or queues. All WAL queueing is orchestrated strictly by the `MemoryDAO` layer, which acts as the router.
 
 During a Blue/Green deployment alignment, the `MemoryDAO`:
 1. Acquires a lock by setting `lancedb_is_migrating = 'true'` in SQLite.
-2. Intercepts incoming vector upserts and writes them safely to the `lancedb_wal` SQLite table instead of LanceDB.
+2. Intercepts incoming asynchronous writes and safely queues them to the `lancedb_wal` SQLite table instead of LanceDB to guarantee multi-worker safety.
 3. Once the LanceDB Procrustes transformation is verified and promoted, `MemoryDAO` flushes the `lancedb_wal` records into the new LanceDB table and truncates the queue.
 
 ### 3.4 Dual-Write Atomicity (Saga Pattern)
@@ -120,7 +120,7 @@ This guarantees that both stores are always consistent: either the full record i
 
 ### 3.5 KùzuDB — Graph Engine
 
-In Phase 3 (v0.5.0), the legacy in-memory NetworkX graph and intermediate SQLite relational graph schema were completely deprecated in favor of **KùzuDB**, an embedded, highly optimized property graph database. KùzuDB manages all node topology and relationship persistence, enabling **infinite out-of-core scaling**. This architectural migration entirely eliminates the 50,000 node RAM exhaustion and OOM (Out-Of-Memory) crashes that previously affected the system at extreme scale.
+MESA utilizes **KùzuDB**, an embedded, highly optimized property graph database. KùzuDB manages all node topology and relationship persistence, enabling **infinite out-of-core scaling** and eliminating RAM exhaustion.
 
 #### Composite Primary Keys & Zero-Trust Isolation
 
@@ -132,13 +132,13 @@ Because KùzuDB does not natively support secondary indexing on non-Primary Key 
 #### Asynchronous Execution Wrapper
 
 KùzuDB's Python API operates synchronously via C++ bindings. To integrate this seamlessly into MESA's asynchronous FastAPI architecture without blocking the event loop, all KùzuDB interactions are funneled through the `KuzuGraphProvider`. 
-This provider utilizes a dedicated `ThreadPoolExecutor` and the `asyncio.run_in_executor()` pattern to fully offload heavy graph traversals (like multi-hop BFS) to background threads. This guarantees zero event-loop blocking under high-concurrency loads.
+This provider utilizes `asyncio.get_running_loop().run_in_executor()` to strictly isolate all heavy mathematical operations (matrix dot products) and synchronous KùzuDB calls from the FastAPI event loop. This guarantees zero event-loop blocking under high-concurrency loads.
 
 ### 3.6 Semantic Conflict Resolution (Check-Then-Act)
 
 During dual-write insertions, `MemoryDAO` implements a "Check-Then-Act" semantic conflict resolution protocol. Before inserting a new memory record, the vector index is queried for highly similar existing entities. 
 
-If a contradiction or semantic update is detected (e.g., highly similar cosine distance combined with an exact entity match), the older conflicting records are explicitly marked via a **soft-delete** (`invalid_at` timestamp) prior to the new record's insertion. This ensures the cognitive pool does not degrade over time due to hallucination loops or factual contradictions, resolving semantic corruption dynamically.
+If a contradiction or semantic update is detected (e.g., highly similar cosine distance combined with an exact entity match), the older conflicting records are explicitly marked via **tombstoning** (`invalid_at` timestamp) prior to the new record's insertion. This ensures the cognitive pool does not degrade over time due to hallucination loops or factual contradictions, resolving semantic corruption dynamically.
 
 ---
 
@@ -175,14 +175,14 @@ This rule guarantees **mathematical row-level security**: Agent A can never read
 | `mesa_storage/vector_engine.py` | `agent_id` filter injected into every LanceDB `WHERE` clause |
 | `mesa_memory/retrieval/hybrid.py` | Retrieval path passes `agent_id` through all sub-queries |
 
-### 4.2 Soft-Delete vs. Hard-Delete Separation
+### 4.2 Tombstoning vs. Hard-Delete Separation
 
 The API layer and the maintenance layer have **strict, non-overlapping responsibilities**:
 
 ```mermaid
 graph LR
     subgraph "API Layer (mesa_api)"
-        A["DELETE /v3/memory/purge"] -->|"Atomic Saga"| B["Soft-Delete ONLY"]
+        A["DELETE /v3/memory/purge"] -->|"Atomic Saga"| B["Tombstoning ONLY"]
     end
 
     subgraph "Background Worker (mesa_workers)"
@@ -201,7 +201,7 @@ graph LR
     style F fill:#3d0000,stroke:#e94560,color:#fff
 ```
 
-**Why this matters:** SQLite VACUUM requires an exclusive lock on the database file. If VACUUM were triggered from the API request path, it would cause catastrophic WAL reader starvation under concurrent load. By sequestering all destructive operations in the `MaintenanceWorker` — which runs on a **dedicated synchronous `sqlite3` connection** with `isolation_level=None` — the API's WAL readers are never blocked. The `purge` API endpoint utilizes an atomic Two-Phase Commit Saga pattern to execute LanceDB soft-deletes prior to SQLite soft-deletes, avoiding "zombie data" if exceptions occur.
+**Why this matters:** SQLite VACUUM requires an exclusive lock on the database file. If VACUUM were triggered from the API request path, it would cause catastrophic WAL reader starvation under concurrent load. By sequestering all destructive operations in the `MaintenanceWorker` — which runs on a **dedicated synchronous `sqlite3` connection** with `isolation_level=None` — the API's WAL readers are never blocked. The `purge` API endpoint utilizes an atomic Two-Phase Commit Saga pattern to execute LanceDB tombstoning prior to SQLite tombstoning, avoiding "zombie data" if exceptions occur.
 
 ### 4.3 RBAC & Input Sanitisation
 
@@ -420,7 +420,7 @@ The `rem_cycle.py` background worker handles asynchronous knowledge graph extrac
 
 ## 13. Evaluation & Quality Gates (`mesa_evals`)
 
-MESA v0.3.0 enforces strict CI/CD quality assurance through its evaluation pipeline. The `gatekeeper.py` quality gate acts as the primary CI/CD enforcer. 
+MESA v0.5.1 enforces strict CI/CD quality assurance through its evaluation pipeline. The `gatekeeper.py` quality gate acts as the primary CI/CD enforcer. 
 
 - **Ablation Pipeline:** Evaluates algorithmic changes (e.g., FTS5 lexical candidate limits, RRF weight calibration) by isolating variables and running comprehensive synthetic benchmarks against a domain-specific Golden Dataset.
 - **Strict Enforcement Rules:** It balances **Recall vs. Cost**. Any pull request that drops Recall below the established baseline (e.g., `Base_Hybrid` < `0.344`) or exceeds maximum TTFT (Time To First Token) latency limits is immediately rejected by the CI runner.

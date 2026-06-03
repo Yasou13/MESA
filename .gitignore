@@ -149,3 +149,8 @@ test_db_*/
 *.db
 *.lance/
 .kuzu/
+.ci_storage_test/
+test_db
+test_db_2
+test_db_3
+test_kuzu_db
