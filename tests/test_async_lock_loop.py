@@ -13,11 +13,30 @@ from mesa_memory.consolidation.loop import (
     start_tier3_deferred_worker,
 )
 from mesa_memory.consolidation.validator import Tier3ValidationError
+from tests.fixtures.vectors import (
+    VEC_BASE_384,
+    VEC_MATCH_384,
+    VEC_NEAR_384,
+    VEC_ORTHOGONAL_384,
+)
 
 
 class SyncEmbedder:
-    def embed(self, text):
-        return [0.1] * 384
+    """Mock embedder returning deterministic, text-dependent 384-dim vectors.
+
+    Different input texts produce vectors with distinct angular directions,
+    preventing the degenerate case where all pairwise cosine similarities
+    collapse to 1.0 (which was the flaw with ``[0.1] * 384``).
+    """
+
+    _VECTOR_MAP = {
+        "h": VEC_BASE_384,
+        "t": VEC_NEAR_384,
+        "r": VEC_MATCH_384,
+    }
+
+    def embed(self, text: str) -> list[float]:
+        return self._VECTOR_MAP.get(text, VEC_ORTHOGONAL_384)
 
 
 @pytest.mark.asyncio
@@ -39,7 +58,11 @@ async def test_calculate_composite_similarity_sync_embedder():
 @pytest.mark.asyncio
 async def test_calculate_composite_similarity_cache():
     emb = SyncEmbedder()
-    cache = {"h": [0.2] * 384, "t": [0.2] * 384, "r": [0.2] * 384}
+    cache = {
+        "h": VEC_BASE_384,
+        "t": VEC_NEAR_384,
+        "r": VEC_MATCH_384,
+    }
     trip_a = {"head": "h", "tail": "t", "relation": "r"}
     trip_b = {"head": "h", "tail": "t", "relation": "r"}
     sim = await calculate_composite_similarity(trip_a, trip_b, emb, cache=cache)

@@ -53,7 +53,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -430,8 +432,9 @@ async def schedule_pagerank_worker(dao: Any, interval_sec: int = 3600) -> None:
     """
     logger.info("PageRank quarantine worker scheduled (interval=%ds)", interval_sec)
 
-    # Try to extract the DB path from the DAO's sqlite engine
-    db_path = "./storage/mesa.db"
+    # Resolve the DB path from env or DAO — identical to main server
+    _storage_base = Path(os.environ.get("MESA_STORAGE_PATH", "./storage"))
+    db_path = str(_storage_base / "mesa.db")
     if hasattr(dao, "sqlite_engine") and hasattr(dao.sqlite_engine, "_db_path"):
         db_path = dao.sqlite_engine._db_path
 

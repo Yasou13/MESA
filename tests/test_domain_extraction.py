@@ -263,8 +263,12 @@ class TestParseLlmTripletResponse:
         )
         result = funcs["parse"](raw)
         assert len(result) == 2
-        assert result[0] == {"head": "A", "relation": "B", "tail": "C"}
-        assert result[1] == {"head": "X", "relation": "Y", "tail": "Z"}
+        assert result[0]["head"] == "A"
+        assert result[0]["relation"] == "B"
+        assert result[0]["tail"] == "C"
+        assert result[1]["head"] == "X"
+        assert result[1]["relation"] == "Y"
+        assert result[1]["tail"] == "Z"
 
     def test_invalid_entries_silently_dropped(self):
         """Entries missing required fields are dropped, not errored."""

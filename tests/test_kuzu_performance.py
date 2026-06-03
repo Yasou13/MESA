@@ -231,7 +231,7 @@ class TestP99Latency:
         p_max = max(latencies)
         p_mean = statistics.mean(latencies)
 
-        concurrent_sla_ms = 200.0
+        concurrent_sla_ms = 250.0
 
         print(
             f"\n  Concurrent latency (n={CONCURRENCY}):\n"

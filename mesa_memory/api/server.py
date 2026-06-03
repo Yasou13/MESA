@@ -21,7 +21,9 @@ from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_workers.maintenance import MaintenanceWorker
 from mesa_workers.maintenance_pagerank import schedule_pagerank_worker
+from mesa_workers.rem_cycle import REMCycleWorker
 
 try:
     __version__ = version("mesa-memory")
@@ -57,37 +59,50 @@ class AppState:
     dao: MemoryDAO
     obs_layer: ObservabilityLayer
     consolidation_loop: ConsolidationLoop
+    background_tasks: set[asyncio.Task]
 
 
 state = AppState()
+
+# ---------------------------------------------------------------------------
+# Storage path resolution — configurable via MESA_STORAGE_PATH env var
+# ---------------------------------------------------------------------------
+_STORAGE_BASE = Path(os.environ.get("MESA_STORAGE_PATH", "./storage"))
+_SQLITE_PATH = _STORAGE_BASE / "mesa.db"
+_VECTOR_PATH = _STORAGE_BASE / "vector.lance"
+_KUZU_PATH = _STORAGE_BASE / "kuzu_db"
+_VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ==================================================================
+    # Ensure the base storage directory exists before any DB initialization
+    _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
+
     state.obs_layer = ObservabilityLayer()
+    state.background_tasks = set()
 
     # Initialize asynchronous storage engines
-    state.sqlite_engine = AsyncEngine(db_path="./storage/mesa.db")
+    state.sqlite_engine = AsyncEngine(db_path=str(_SQLITE_PATH))
     await state.sqlite_engine.initialize()
 
     # Schema DDL — single source of truth (B-1 fix)
     await initialize_schema(state.sqlite_engine)
 
-    state.vector_engine = VectorEngine(uri="./storage/vector.lance")
+    state.vector_engine = VectorEngine(uri=str(_VECTOR_PATH))
     await state.vector_engine.initialize()
 
     # Initialize KùzuDB embedded graph database (disk-backed)
     # NOTE: Only the Database handle is created here. kuzu.Connection
     # instances must be created per-thread to avoid file-lock contention.
-    _kuzu_path = Path("./storage/kuzu_db")
-    _kuzu_path.parent.mkdir(parents=True, exist_ok=True)
+    _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
     loop = asyncio.get_running_loop()
-    state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_kuzu_path))
-    logger.info("KùzuDB initialised at %s", _kuzu_path)
+    state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
+    logger.info("KùzuDB initialised at %s", _KUZU_PATH)
 
     # Initialize the async-safe KuzuGraphProvider for edge operations
-    state.graph_provider = KuzuGraphProvider(db_path=str(_kuzu_path))
+    state.graph_provider = KuzuGraphProvider(db_path=str(_KUZU_PATH))
     await state.graph_provider.initialize()
 
     # Wire the unified Data Access Object
@@ -110,24 +125,107 @@ async def lifespan(app: FastAPI):
     )
     asyncio.create_task(state.consolidation_loop.start())
 
+    # ------------------------------------------------------------------
+    # Valence state restoration (prevents threshold amnesia on restart)
+    # ------------------------------------------------------------------
+    _valence_db = str(_VALENCE_PATH)
+    try:
+        if Path(_valence_db).exists():
+            _router = getattr(state.consolidation_loop, "router", None)
+            _valence = getattr(_router, "valence_motor", None)
+            if _valence is not None:
+                await _valence.load_state(_valence_db)
+                logger.info("Valence state restored from %s", _valence_db)
+            else:
+                logger.debug(
+                    "VALENCE_LOAD_SKIP | ValenceMotor not found on "
+                    "consolidation_loop.router — skipping state restore"
+                )
+        else:
+            logger.debug(
+                "VALENCE_LOAD_SKIP | %s does not exist — cold start",
+                _valence_db,
+            )
+    except (FileNotFoundError, OSError) as fs_exc:
+        logger.warning(
+            "VALENCE_LOAD_FAILED | filesystem error=%s — starting with defaults",
+            fs_exc,
+        )
+    except Exception as exc:
+        logger.warning(
+            "VALENCE_LOAD_FAILED | error=%s — starting with defaults",
+            exc,
+        )
+
+    # ------------------------------------------------------------------
+    # Background workers: PageRank, Maintenance, REM Cycle
+    # ------------------------------------------------------------------
     pagerank_task = None
     try:
         pagerank_task = asyncio.create_task(schedule_pagerank_worker(dao=state.dao))
+        state.background_tasks.add(pagerank_task)
         logger.info("PageRank worker scheduled successfully.")
     except Exception as exc:
         logger.error("Failed to schedule PageRank worker: %s", exc)
 
+    maintenance_worker = MaintenanceWorker(
+        sqlite_engine=state.sqlite_engine,
+        vector_engine=state.vector_engine,
+    )
+    try:
+        await maintenance_worker.start()
+        if maintenance_worker._task:
+            state.background_tasks.add(maintenance_worker._task)
+        logger.info("MaintenanceWorker started successfully.")
+    except Exception as exc:
+        logger.error("Failed to start MaintenanceWorker: %s", exc)
+
+    rem_llm_a = AdapterFactory.get_adapter()
+    rem_llm_b = AdapterFactory.get_adapter()
+    rem_worker = REMCycleWorker(
+        dao=state.dao,
+        llm_a=rem_llm_a,
+        llm_b=rem_llm_b,
+    )
+    try:
+        await rem_worker.start()
+        if rem_worker._task:
+            state.background_tasks.add(rem_worker._task)
+        logger.info("REMCycleWorker started successfully.")
+    except Exception as exc:
+        logger.error("Failed to start REMCycleWorker: %s", exc)
+
     yield
 
-    # Cancel the PageRank worker gracefully
+    # ==================================================================
+    # Teardown — cancel all background workers
+    # ==================================================================
+
+    # Stop REMCycleWorker gracefully
+    try:
+        await rem_worker.stop()
+    except Exception as exc:
+        logger.warning("Failed to stop REMCycleWorker: %s", exc)
+    if rem_worker._task is not None:
+        rem_worker._task.cancel()
+        with suppress(asyncio.CancelledError):
+            await rem_worker._task
+
+    # Stop MaintenanceWorker gracefully
+    try:
+        await maintenance_worker.stop()
+    except Exception as exc:
+        logger.warning("Failed to stop MaintenanceWorker: %s", exc)
+    if maintenance_worker._task is not None:
+        maintenance_worker._task.cancel()
+        with suppress(asyncio.CancelledError):
+            await maintenance_worker._task
+
+    # Cancel the PageRank worker
     if pagerank_task is not None:
         pagerank_task.cancel()
         with suppress(asyncio.CancelledError):
             await pagerank_task
-
-    # ==================================================================
-    # Shutdown
-    # ==================================================================
     # Stop the consolidation loop before flushing state
     if hasattr(state, "consolidation_loop") and state.consolidation_loop:
         await state.consolidation_loop.stop()
@@ -144,8 +242,9 @@ async def lifespan(app: FastAPI):
             _router = getattr(state.consolidation_loop, "router", None)
             _valence = getattr(_router, "valence_motor", None)
             if _valence and isinstance(_valence, ValenceMotor):
-                await _valence.save_state("./storage/valence_state.db")
-                logger.info("Valence state persisted to ./storage/valence_state.db")
+                _valence_save_path = str(_VALENCE_PATH)
+                await _valence.save_state(_valence_save_path)
+                logger.info("Valence state persisted to %s", _valence_save_path)
     except Exception as exc:
         logger.warning("Failed to persist valence state on shutdown: %s", exc)
 
@@ -184,12 +283,22 @@ def get_embedder():
     return AdapterFactory.get_adapter().embed
 
 
+def get_consolidation_loop() -> ConsolidationLoop | None:
+    """Dependency injection for the ConsolidationLoop.
+
+    Returns ``None`` before the lifespan has initialised the loop,
+    which safely disables Tier-3 consensus during startup.
+    """
+    return getattr(state, "consolidation_loop", None)
+
+
 # Setup v3 API Router utilizing Dependency Injection
 # Requires depends at the router level for auth
 router_dependencies = [Depends(get_api_key)]
 memory_router = create_memory_router(
     get_dao=get_dao,
     get_embedder=get_embedder,
+    get_consolidation_loop=get_consolidation_loop,
     prefix="/v3/memory",
 )
 # We can't attach dependencies to the include_router directly if the router already defines some,

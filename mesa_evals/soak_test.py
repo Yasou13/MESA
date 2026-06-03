@@ -1,8 +1,15 @@
-"""MESA v0.4.1 — Phase 4B: Soak Test — Memory Leak & Queue Stability Monitor.
+"""MESA v0.5.1 — Phase 4B: Soak Test — Memory Leak & Queue Stability Monitor.
 
 Sends a constant, moderate load to ``POST /v3/memory/insert`` over a
 configurable duration (default: 12 hours) and monitors system health via
 periodic telemetry snapshots.
+
+.. warning::
+
+    Soak tests under 12 hours (43,200 seconds) are **invalid** for
+    production certification.  Memory leaks and queue drift often
+    manifest only after 4–8 hours of sustained load.  Short runs
+    provide false confidence.
 
 Architecture:
     ┌──────────────┐    20 req/s    ┌──────────────────┐
@@ -22,6 +29,8 @@ Metrics tracked:
     - P50 / P99 insert latency
     - Health endpoint status
     - Process RSS memory (via /proc/self/status if available)
+    - Detailed memory profile (via psutil) every 30 minutes:
+      RSS, VMS, USS, shared memory, open file descriptors, thread count
 
 Output:
     - Structured JSON-lines log to ``soak_test_YYYYMMDD_HHMMSS.jsonl``
@@ -65,6 +74,13 @@ DEFAULT_CONCURRENCY = 30
 DEFAULT_AGENT_ID = "soak-test-agent"
 DEFAULT_SESSION_ID = "soak-test-session"
 QUEUE_SAMPLE_SIZE = 50  # number of recent log_ids to sample for queue depth
+DEFAULT_MEMORY_PROFILE_INTERVAL = 1800  # 30 minutes — detailed psutil snapshot
+
+# ---------------------------------------------------------------------------
+# Production certification threshold
+# ---------------------------------------------------------------------------
+
+_MIN_PRODUCTION_DURATION = 43_200  # 12 hours — minimum for valid certification
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +389,100 @@ async def telemetry_collector(
 
 
 # ---------------------------------------------------------------------------
+# Memory profiler — psutil-based deep snapshot every 30 minutes
+# ---------------------------------------------------------------------------
+
+
+def _get_memory_profile() -> dict[str, Any]:
+    """Return a detailed memory profile via psutil.
+
+    Captures current (not peak) RSS, VMS, USS, shared memory, open
+    file descriptors, and thread count.  Essential for detecting slow
+    memory leaks over 12-hour soak runs that ``resource.getrusage()``
+    (peak RSS only) would miss.
+
+    Returns:
+        Dict with memory statistics.  All sizes in MB.
+    """
+    try:
+        import psutil
+
+        proc = psutil.Process()
+        mem = proc.memory_full_info()
+        return {
+            "rss_mb": round(mem.rss / (1024 * 1024), 2),
+            "vms_mb": round(mem.vms / (1024 * 1024), 2),
+            "uss_mb": round(getattr(mem, "uss", 0) / (1024 * 1024), 2),
+            "shared_mb": round(getattr(mem, "shared", 0) / (1024 * 1024), 2),
+            "open_fds": proc.num_fds() if hasattr(proc, "num_fds") else -1,
+            "threads": proc.num_threads(),
+            "cpu_percent": proc.cpu_percent(interval=0.1),
+        }
+    except ImportError:
+        logger.warning("psutil not installed — memory profiling unavailable")
+        return {"error": "psutil_not_installed"}
+    except Exception as exc:
+        logger.warning("Memory profile failed: %s", exc)
+        return {"error": str(exc)}
+
+
+async def memory_profiler(
+    *,
+    interval: float,
+    log_file: Path,
+    stop_event: asyncio.Event,
+) -> None:
+    """Emit a detailed psutil memory snapshot at fixed intervals.
+
+    Runs independently of the telemetry collector to provide coarse-
+    grained but deep memory visibility over the full 12-hour window.
+    """
+    tick = 0
+    t_start = time.monotonic()
+
+    logger.info(
+        "MEMORY_PROFILER | Starting (interval=%ds / %.1f min)",
+        int(interval),
+        interval / 60,
+    )
+
+    while not stop_event.is_set():
+        await asyncio.sleep(interval)
+        tick += 1
+
+        loop = asyncio.get_running_loop()
+        profile = await loop.run_in_executor(None, _get_memory_profile)
+
+        elapsed = time.monotonic() - t_start
+        record = {
+            "_type": "memory_profile",
+            "tick": tick,
+            "elapsed_s": round(elapsed, 1),
+            "elapsed_hours": round(elapsed / 3600, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **profile,
+        }
+
+        # Append to the same log file
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        logger.info(
+            "MEMORY_PROFILE [%03d] | elapsed=%.1fh | rss=%.1fMB | "
+            "vms=%.1fMB | uss=%.1fMB | fds=%s | threads=%s",
+            tick,
+            elapsed / 3600,
+            profile.get("rss_mb", -1),
+            profile.get("vms_mb", -1),
+            profile.get("uss_mb", -1),
+            profile.get("open_fds", "?"),
+            profile.get("threads", "?"),
+        )
+
+    logger.info("MEMORY_PROFILER | Stopped after %d snapshots", tick)
+
+
+# ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
@@ -439,6 +549,13 @@ async def run_soak(
                 stop_event=stop_event,
             )
         )
+        memory_task = asyncio.create_task(
+            memory_profiler(
+                interval=DEFAULT_MEMORY_PROFILE_INTERVAL,
+                log_file=log_file,
+                stop_event=stop_event,
+            )
+        )
 
         try:
             # Wait for the load driver to finish (it runs for `duration` seconds)
@@ -452,8 +569,13 @@ async def run_soak(
             # Give telemetry one last tick to flush
             await asyncio.sleep(2)
             telemetry_task.cancel()
+            memory_task.cancel()
             try:
                 await telemetry_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await memory_task
             except asyncio.CancelledError:
                 pass
 
@@ -544,6 +666,16 @@ def main() -> None:
         int(args.telemetry_interval),
         log_file,
     )
+
+    # Production certification gate
+    if args.duration < _MIN_PRODUCTION_DURATION:
+        logger.warning(
+            "⚠ DURATION_WARNING | %ds < %ds (12h minimum). "
+            "This run is INVALID for production certification. "
+            "Memory leaks and queue drift manifest after 4-8 hours.",
+            args.duration,
+            _MIN_PRODUCTION_DURATION,
+        )
 
     try:
         final_report = asyncio.run(

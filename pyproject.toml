@@ -133,8 +133,8 @@ asyncio_mode = "strict"
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["mesa_memory", "mesa_workers", "mesa_client"]
-omit = ["tests/*", "examples/*", "scripts/*"]
+source = ["mesa_memory", "mesa_workers", "mesa_client", "mesa_storage", "mesa_api"]
+omit = ["tests/*", "examples/*", "scripts/*", "mesa_client/*"]
 
 [tool.coverage.report]
 fail_under = 85

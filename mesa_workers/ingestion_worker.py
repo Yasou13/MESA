@@ -50,6 +50,7 @@ from typing import Any
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
+from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
@@ -402,8 +403,9 @@ _ENGLISH_TRIPLET_PROMPT = """\
 Extract all factual relationships from the text below as (subject, predicate, object) triplets.
 
 Rules:
-- Output ONLY a JSON array of objects with keys "subject", "predicate", "object".
-- Each value must be a short noun phrase or verb phrase — no full sentences.
+- Output ONLY a JSON array of objects with keys "subject", "predicate", "object", "confidence".
+- "confidence" is a float between 0.0 and 1.0 indicating how certain you are that the relationship is factually correct and clearly stated in the text. Use 0.9-1.0 for explicit statements, 0.5-0.8 for inferred or ambiguous relationships, and below 0.5 for speculative or weakly supported claims.
+- Each value for subject/predicate/object must be a short noun phrase or verb phrase — no full sentences.
 - If no relationships can be extracted, return an empty array [].
 - Do NOT include any explanation, markdown fences, or commentary.
 
@@ -417,21 +419,22 @@ Aşağıdaki Türkçe metinden tüm olgusal ilişkileri (özne, yüklem, nesne) 
 
 ### Kurallar:
 1. YALNIZCA aşağıdaki formatta bir JSON dizisi üret:
-   [{{"subject": "...", "predicate": "...", "object": "..."}}]
+   [{{"subject": "...", "predicate": "...", "object": "...", "confidence": 0.95}}]
 2. "subject" → özne (kişi, kurum, kanun maddesi, kavram).
 3. "predicate" → yüklem (eylem veya ilişki: "düzenler", "yürürlüğe girer", "kapsar", "bağlıdır", "öngörür", "yasaklar" vb.).
 4. "object" → nesne (etkilenen varlık, konu, hüküm).
-5. Her değer kısa bir isim veya fiil öbeği olmalı — tam cümle YAZMA.
-6. Türkçe karakterleri (ç, ğ, ı, ö, ş, ü) koru — ASCII'ye dönüştürme.
-7. Eğer hiçbir ilişki çıkarılamıyorsa boş dizi döndür: []
-8. JSON dışında AÇIKLAMA, markdown bloğu veya yorum EKLEME.
+5. "confidence" → 0.0 ile 1.0 arasında bir ondalık sayı. İlişkinin metinde ne kadar açık ve kesin ifade edildiğini belirtir. Açık ifadeler için 0.9-1.0, çıkarımsal veya belirsiz ilişkiler için 0.5-0.8, spekülatif veya zayıf destekli iddialar için 0.5'in altında kullan.
+6. Her değer kısa bir isim veya fiil öbeği olmalı — tam cümle YAZMA.
+7. Türkçe karakterleri (ç, ğ, ı, ö, ş, ü) koru — ASCII'ye dönüştürme.
+8. Eğer hiçbir ilişki çıkarılamıyorsa boş dizi döndür: []
+9. JSON dışında AÇIKLAMA, markdown bloğu veya yorum EKLEME.
 
 ### Örnekler:
 Metin: "6698 sayılı Kişisel Verilerin Korunması Kanunu, veri sorumlularının yükümlülüklerini düzenler."
-Çıktı: [{{"subject": "6698 sayılı KVKK", "predicate": "düzenler", "object": "veri sorumlusu yükümlülükleri"}}]
+Çıktı: [{{"subject": "6698 sayılı KVKK", "predicate": "düzenler", "object": "veri sorumlusu yükümlülükleri", "confidence": 0.97}}]
 
 Metin: "Anayasa Mahkemesi, bireysel başvuruları inceler ve karara bağlar."
-Çıktı: [{{"subject": "Anayasa Mahkemesi", "predicate": "inceler", "object": "bireysel başvurular"}}, {{"subject": "Anayasa Mahkemesi", "predicate": "karara bağlar", "object": "bireysel başvurular"}}]
+Çıktı: [{{"subject": "Anayasa Mahkemesi", "predicate": "inceler", "object": "bireysel başvurular", "confidence": 0.95}}, {{"subject": "Anayasa Mahkemesi", "predicate": "karara bağlar", "object": "bireysel başvurular", "confidence": 0.95}}]
 
 ### Metin:
 {text}
@@ -654,11 +657,11 @@ def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
     """Parse and validate the LLM JSON response into normalised triplets.
 
     Handles both key formats:
-        - ``{subject, predicate, object}`` (Turkish/new prompt format)
+        - ``{subject, predicate, object, confidence}`` (Turkish/new prompt format)
         - ``{head, relation, tail}`` (REBEL/legacy prompt format)
 
-    Both are normalised to the canonical ``{head, relation, tail}`` output
-    consumed by ``_commit_triplets``.
+    Both are normalised to the canonical ``{head, relation, tail, confidence}``
+    output consumed by ``_commit_triplets``.
 
     Sanitisation pipeline:
         1. Markdown fence stripping + outermost JSON detection.
@@ -667,7 +670,7 @@ def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
         4. Per-entry validation — invalid entries silently dropped.
 
     Returns:
-        List of ``{head, relation, tail}`` dicts.
+        List of ``{head, relation, tail, confidence}`` dicts.
     """
     cleaned = _sanitize_llm_json(raw)
 
@@ -690,8 +693,26 @@ def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
         relation = str(entry.get("relation", entry.get("predicate", ""))).strip()
         tail = str(entry.get("tail", entry.get("object", ""))).strip()
 
+        # Extract confidence — default to 1.0 only if the key is
+        # entirely absent or unparseable (strict fallback policy).
+        raw_conf = entry.get("confidence")
+        if raw_conf is not None:
+            try:
+                confidence = max(0.0, min(1.0, float(raw_conf)))
+            except (ValueError, TypeError):
+                confidence = 1.0
+        else:
+            confidence = 1.0
+
         if head and relation and tail:
-            triplets.append({"head": head, "relation": relation, "tail": tail})
+            triplets.append(
+                {
+                    "head": head,
+                    "relation": relation,
+                    "tail": tail,
+                    "confidence": str(confidence),
+                }
+            )
 
     return triplets
 
@@ -717,8 +738,9 @@ async def _commit_triplets(
         2. Insert tail entity as a graph node via ``dao.insert_memory``.
         3. Link head → tail via ``dao.insert_edge``.
 
-    Uses zero-vectors for embeddings since the hot-path semantic vectors
-    are stored separately in LanceDB during the full embedding pass.
+    Generates real semantic embeddings via ``AdapterFactory.get_adapter().aembed()``
+    for each entity before insertion, ensuring correct dimensionality for
+    production embedding models (e.g., 1536-dim OpenAI, 768-dim Ollama).
 
     Args:
         dao: Initialised MemoryDAO instance.
@@ -728,7 +750,7 @@ async def _commit_triplets(
         triplets: List of ``{head, relation, tail}`` dicts from REBEL.
         log_id: raw_logs primary key (used for node context tagging).
     """
-    zero_embedding = [0.0] * 8  # Placeholder — real embeddings via cold-path Phase 2
+    adapter = AdapterFactory.get_adapter()
 
     for triplet in triplets:
         head = triplet.get("head", "").strip()
@@ -745,20 +767,31 @@ async def _commit_triplets(
             continue
 
         # Phase 4.1: Epistemic uncertainty from extraction confidence.
-        # The triplet weight (1.0 default) is the implicit consensus score.
+        # LLM prompts now require a "confidence" float (0.0–1.0) per triplet.
         # epistemic_uncertainty = 1.0 - confidence — higher values indicate
-        # lower trust.  When Dual-LLM consensus scoring is wired in,
-        # triplet["confidence"] will carry real values.
-        confidence = float(triplet.get("confidence", 1.0))
+        # lower trust, triggering PageRank quarantine for low-confidence
+        # extractions.  Falls back to 1.0 (eu=0.0) only if parsing failed.
+        raw_conf = triplet.get("confidence")
+        if raw_conf is not None:
+            try:
+                confidence = max(0.0, min(1.0, float(raw_conf)))
+            except (ValueError, TypeError):
+                confidence = 1.0
+        else:
+            confidence = 1.0
         epistemic_uncertainty = max(0.0, min(1.0, 1.0 - confidence))
 
         try:
+            # Generate real embeddings for head and tail entities
+            head_embedding = await adapter.aembed(head[:512])
+            tail_embedding = await adapter.aembed(tail[:512])
+
             # Insert head entity node
             head_node_id = await dao.insert_memory(
                 agent_id,
                 entity_name=head,
                 content=f"[raw_log:{log_id}] {head}",
-                embedding=zero_embedding,
+                embedding=head_embedding,
                 node_type="ENTITY",
                 session_id=session_id,
             )
@@ -768,7 +801,7 @@ async def _commit_triplets(
                 agent_id,
                 entity_name=tail,
                 content=f"[raw_log:{log_id}] {tail}",
-                embedding=zero_embedding,
+                embedding=tail_embedding,
                 node_type="ENTITY",
                 session_id=session_id,
             )
@@ -821,6 +854,9 @@ async def _commit_raw_memory(
     This ensures every ingested payload has at least one searchable node
     in the graph, even if no structured relations were extracted.
 
+    Generates a real semantic embedding via ``AdapterFactory.get_adapter().aembed()``
+    to ensure correct dimensionality for production models.
+
     Args:
         dao: Initialised MemoryDAO instance.
         agent_id: Agent scope for RLS enforcement.
@@ -828,13 +864,14 @@ async def _commit_raw_memory(
         content: Original content text.
         log_id: raw_logs primary key.
     """
-    zero_embedding = [0.0] * 8
+    adapter = AdapterFactory.get_adapter()
+    embedding = await adapter.aembed(content[:512])
 
     node_id = await dao.insert_memory(
         agent_id,
         entity_name=content[:256],
         content=content,
-        embedding=zero_embedding,
+        embedding=embedding,
         node_type="MEMORY",
         session_id=session_id,
         content_hash=None,

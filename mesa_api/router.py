@@ -41,7 +41,6 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
@@ -59,6 +58,11 @@ from mesa_api.schemas import (
     SessionStartRequest,
     SessionStartResponse,
 )
+from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.consolidation.loop import ConsolidationLoop
+from mesa_memory.retrieval.core import QueryAnalyzer
+from mesa_memory.retrieval.hybrid import HybridRetriever
+from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_workers.ingestion_worker import (
     process_cold_path,  # Cold-path worker (Phase 1 Part 2)
@@ -93,18 +97,53 @@ def _noop_embedder(text: str) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Lazy singletons — constructed once per process, reused across requests
+# ---------------------------------------------------------------------------
+
+_query_analyzer: QueryAnalyzer | None = None
+_access_control: AccessControl | None = None
+
+
+def _get_query_analyzer() -> QueryAnalyzer:
+    """Lazy-init the QueryAnalyzer singleton."""
+    global _query_analyzer
+    if _query_analyzer is None:
+        _query_analyzer = QueryAnalyzer()
+    return _query_analyzer
+
+
+def _get_access_control() -> AccessControl:
+    """Lazy-init the AccessControl singleton."""
+    global _access_control
+    if _access_control is None:
+        _access_control = AccessControl()
+    return _access_control
+
+
+# ---------------------------------------------------------------------------
+# Router factory
+# ---------------------------------------------------------------------------
+
+
 def create_memory_router(
     get_dao: Callable[[], MemoryDAO],
     *,
     get_embedder: Callable[[], EmbedderProtocol] = lambda: _noop_embedder,
+    get_consolidation_loop: Callable[[], ConsolidationLoop | None] = lambda: None,
     prefix: str = "/v3/memory",
     tags: Sequence[str] | None = None,
 ) -> APIRouter:
     """Create a FastAPI APIRouter with MESA v3 memory endpoints.
 
     Args:
-        dao: Initialized MemoryDAO instance.
-        embedder: Callable that converts text → float vector.
+        get_dao: Dependency factory returning an initialised MemoryDAO.
+        get_embedder: Callable that converts text → float vector.
+        get_consolidation_loop: Callable returning the active
+            ``ConsolidationLoop`` instance (or ``None`` if Tier-3
+            consensus is disabled).  Deferred via callable because
+            the loop is initialised in the async lifespan, after
+            router construction at module-load time.
         prefix: URL prefix for all routes (default: /v3/memory).
         tags: OpenAPI tags for documentation grouping.
 
@@ -156,7 +195,13 @@ def create_memory_router(
 
         log_id = await dao.insert_raw_log(request.agent_id, payload)
 
-        background_tasks.add_task(process_cold_path, log_id, request.agent_id, dao)
+        background_tasks.add_task(
+            process_cold_path,
+            log_id,
+            request.agent_id,
+            dao,
+            consolidation_loop=get_consolidation_loop(),
+        )
 
         return {"status": "queued", "log_id": log_id}
 
@@ -207,72 +252,77 @@ def create_memory_router(
     async def search_memory(
         request: MemorySearchRequest,
         dao: MemoryDAO = Depends(get_dao),
-        embedder: EmbedderProtocol = Depends(get_embedder),
     ) -> dict:
-        """Execute a synchronous memory search and return results.
+        """Execute a hybrid memory search via the production HybridRetriever.
 
-        Performs a two-phase retrieval:
-          1. FTS5 lexical pre-filter on the SQLite graph (zero-VRAM).
-          2. Cosine similarity search on the LanceDB vector index.
+        Performs ranked retrieval through the full fusion pipeline:
+          1. Vector similarity (LanceDB) — cosine distance scoring.
+          2. Lexical pre-filter (FTS5) — BM25-normalised scoring.
+          3. Graph traversal (KùzuDB) — cognitive salience scoring.
+          4. Alpha-reranking fusion across all three signal sources.
 
-        Results are merged and returned with server-side latency metrics.
+        Results are returned in the canonical response schema:
+        ``{context, retrieved_nodes, metrics}``.
         """
         t_start = time.monotonic()
 
-        retrieved_nodes: list[dict] = []
-        context_parts: list[str] = []
-
         try:
-            # Phase 1: FTS5 lexical pre-filter (zero-VRAM)
-            fts_results = await dao.search_memory_fts(
-                agent_id=request.agent_id,
-                query=request.query,
-                limit=request.limit,
+            # Build the HybridRetriever with per-request DAO + shared singletons
+            retriever = HybridRetriever(
+                dao=dao,
+                analyzer=_get_query_analyzer(),
+                embedder=AdapterFactory.get_adapter(),
+                access_control=_get_access_control(),
             )
 
-            for node in fts_results:
+            result = await retriever.retrieve(
+                query_text=request.query,
+                agent_id=request.agent_id,
+                session_id=request.session_id,
+                top_n=request.limit,
+            )
+
+            # Normalise retriever output — retrieve() returns list[str] (cmb_ids)
+            # when multi_hop is disabled (default), or dict when enabled.
+            if isinstance(result, dict):
+                cmb_ids: list[str] = result.get("cmb_ids", [])
+            else:
+                cmb_ids = result
+
+            # Hydrate node metadata from the DAO for the response contract
+            retrieved_nodes: list[dict] = []
+            context_parts: list[str] = []
+
+            for cmb_id in cmb_ids:
+                node = await dao.get_memory_by_id(request.agent_id, cmb_id)
+                if node is None:
+                    # Node may have been purged between retrieval and hydration
+                    retrieved_nodes.append(
+                        {
+                            "node_id": cmb_id,
+                            "agent_id": request.agent_id,
+                            "source": "hybrid",
+                        }
+                    )
+                    continue
+
+                entity_name = node.get("entity_name", "")
                 retrieved_nodes.append(
                     {
-                        "node_id": node["id"],
-                        "entity_name": node["entity_name"],
-                        "type": node.get("type", "ENTITY"),
-                        "source": "fts5",
-                        "agent_id": node.get("agent_id", ""),
+                        "node_id": cmb_id,
+                        "entity_name": entity_name,
+                        "type": node.get("node_type", "ENTITY"),
+                        "source": "hybrid",
+                        "agent_id": node.get("agent_id", request.agent_id),
                     }
                 )
-                context_parts.append(node["entity_name"])
-
-                # Bi-temporal read path logic
+                ctx = entity_name
                 if not node.get("is_consolidated", True):
-                    context_parts[-1] += " [WARNING: UNCONSOLIDATED MEMORY]"
+                    ctx += " [WARNING: UNCONSOLIDATED MEMORY]"
+                context_parts.append(ctx)
 
-            # Phase 2: Vector similarity search (if engine is available)
-            if dao.vector_engine is not None and dao.vector_engine.is_initialized:
-                loop = asyncio.get_running_loop()
-                query_embedding = await loop.run_in_executor(
-                    None, embedder, request.query
-                )
-                vec_results = await dao.search_memory(
-                    agent_id=request.agent_id,
-                    query_vector=query_embedding,
-                    limit=request.limit,
-                    include_graph=False,
-                )
-
-                # Merge vector results, dedup by node_id
-                seen_ids = {n["node_id"] for n in retrieved_nodes}
-                for vr in vec_results:
-                    if vr["node_id"] not in seen_ids:
-                        retrieved_nodes.append(
-                            {
-                                "node_id": vr["node_id"],
-                                "agent_id": vr.get("agent_id", ""),
-                                "score": vr.get("_distance", 0.0),
-                                "source": "vector",
-                                "content_hash": vr.get("content_hash"),
-                            }
-                        )
-                        seen_ids.add(vr["node_id"])
+        except PermissionError as perm_exc:
+            raise HTTPException(status_code=403, detail=str(perm_exc))
 
         except Exception as exc:
             logger.error(

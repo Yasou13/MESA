@@ -13,6 +13,7 @@ import asyncio
 import os
 import shutil
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -222,24 +223,34 @@ class TestSearchEndpoint:
         sqlite_eng, _, loop = engines
 
         # Seed a node for search
+        node_id = uuid.uuid4().hex
         loop.run_until_complete(
             insert_node(
                 sqlite_eng,
-                node_id=uuid.uuid4().hex,
+                node_id=node_id,
                 entity_name="SearchTestNode",
                 agent_id="agent-search",
                 session_id="sess-001",
             )
         )
 
-        resp = client.post(
-            "/v3/memory/search",
-            json={
-                "agent_id": "agent-search",
-                "session_id": "sess-001",
-                "query": "SearchTestNode",
-            },
-        )
+        # Mock HybridRetriever to return known node IDs (bypass RBAC/adapter)
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve = AsyncMock(return_value=[node_id])
+
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_api.router._get_access_control"),
+        ):
+            resp = client.post(
+                "/v3/memory/search",
+                json={
+                    "agent_id": "agent-search",
+                    "session_id": "sess-001",
+                    "query": "SearchTestNode",
+                },
+            )
         assert resp.status_code == 200
         body = resp.json()
         assert "context" in body
@@ -251,38 +262,55 @@ class TestSearchEndpoint:
     def test_search_returns_fts_matches(self, client, engines):
         sqlite_eng, _, loop = engines
 
+        node_id = uuid.uuid4().hex
         loop.run_until_complete(
             insert_node(
                 sqlite_eng,
-                node_id=uuid.uuid4().hex,
+                node_id=node_id,
                 entity_name="QuantumComputing",
                 agent_id="agent-fts",
                 session_id="sess-001",
             )
         )
 
-        resp = client.post(
-            "/v3/memory/search",
-            json={
-                "agent_id": "agent-fts",
-                "session_id": "sess-001",
-                "query": "QuantumComputing",
-                "limit": 5,
-            },
-        )
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve = AsyncMock(return_value=[node_id])
+
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_api.router._get_access_control"),
+        ):
+            resp = client.post(
+                "/v3/memory/search",
+                json={
+                    "agent_id": "agent-fts",
+                    "session_id": "sess-001",
+                    "query": "QuantumComputing",
+                    "limit": 5,
+                },
+            )
         body = resp.json()
         assert len(body["retrieved_nodes"]) >= 1
         assert body["retrieved_nodes"][0]["entity_name"] == "QuantumComputing"
 
     def test_search_empty_results(self, client):
-        resp = client.post(
-            "/v3/memory/search",
-            json={
-                "agent_id": "agent-empty",
-                "session_id": "sess-001",
-                "query": "nonexistent_entity_xyz",
-            },
-        )
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve = AsyncMock(return_value=[])
+
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_api.router._get_access_control"),
+        ):
+            resp = client.post(
+                "/v3/memory/search",
+                json={
+                    "agent_id": "agent-empty",
+                    "session_id": "sess-001",
+                    "query": "nonexistent_entity_xyz",
+                },
+            )
         assert resp.status_code == 200
         body = resp.json()
         assert body["retrieved_nodes"] == []
@@ -314,26 +342,38 @@ class TestSearchEndpoint:
     def test_search_respects_limit(self, client, engines):
         sqlite_eng, _, loop = engines
 
+        node_ids = []
         for i in range(10):
+            nid = uuid.uuid4().hex
+            node_ids.append(nid)
             loop.run_until_complete(
                 insert_node(
                     sqlite_eng,
-                    node_id=uuid.uuid4().hex,
+                    node_id=nid,
                     entity_name=f"LimitNode{i}",
                     agent_id="agent-limit",
                     session_id="sess-001",
                 )
             )
 
-        resp = client.post(
-            "/v3/memory/search",
-            json={
-                "agent_id": "agent-limit",
-                "session_id": "sess-001",
-                "query": "LimitNode*",
-                "limit": 3,
-            },
-        )
+        # Mock retriever returns all 10 IDs — endpoint limit should truncate
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve = AsyncMock(return_value=node_ids)
+
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_api.router._get_access_control"),
+        ):
+            resp = client.post(
+                "/v3/memory/search",
+                json={
+                    "agent_id": "agent-limit",
+                    "session_id": "sess-001",
+                    "query": "LimitNode*",
+                    "limit": 3,
+                },
+            )
         body = resp.json()
         assert len(body["retrieved_nodes"]) <= 3
 

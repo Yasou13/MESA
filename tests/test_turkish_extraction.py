@@ -614,11 +614,14 @@ class TestOutputContract:
     def _assert_triplet_contract(self, triplet: dict) -> None:
         """Assert a single triplet conforms to the contract."""
         assert isinstance(triplet, dict), f"Triplet must be dict, got {type(triplet)}"
-        assert set(triplet.keys()) == {
-            "head",
-            "relation",
-            "tail",
-        }, f"Keys must be exactly {{head, relation, tail}}, got {set(triplet.keys())}"
+        required_keys = {"head", "relation", "tail"}
+        allowed_keys = required_keys | {"confidence"}
+        assert required_keys <= set(
+            triplet.keys()
+        ), f"Missing required keys: {required_keys - set(triplet.keys())}"
+        assert (
+            set(triplet.keys()) <= allowed_keys
+        ), f"Unexpected keys: {set(triplet.keys()) - allowed_keys}"
         for key in ("head", "relation", "tail"):
             assert isinstance(
                 triplet[key], str
@@ -627,6 +630,9 @@ class TestOutputContract:
             assert (
                 triplet[key] == triplet[key].strip()
             ), f"triplet[{key!r}] must be stripped, got {triplet[key]!r}"
+        if "confidence" in triplet:
+            # confidence must be a parseable float string
+            float(triplet["confidence"])  # raises ValueError if not
 
     def test_yargitay_contract(self):
         for t in _parse_llm_triplet_response(YARGITAY_LLM_RESPONSE):

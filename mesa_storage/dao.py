@@ -1151,6 +1151,46 @@ class MemoryDAO:
                 return [dict(row) for row in rows]
 
     # ==================================================================
+    # GET MEMORY BY ID — agent-scoped single-node lookup
+    # ==================================================================
+
+    async def get_memory_by_id(
+        self,
+        agent_id: str,
+        node_id: str,
+    ) -> dict[str, Any] | None:
+        """Retrieve a single memory node by its primary key.
+
+        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE
+        clause — a node belonging to a different agent will never be
+        returned, even if the caller knows the ``node_id``.
+
+        Args:
+            agent_id: **Mandatory** tenant isolation key.
+            node_id: UUID primary key of the node.
+
+        Returns:
+            Node dict if found and active, ``None`` otherwise.
+
+        Raises:
+            ValueError: If ``agent_id`` is invalid or reserved.
+        """
+        _assert_valid_agent_id(agent_id)
+
+        query = (
+            "SELECT * FROM nodes "
+            "WHERE id = ? "
+            "  AND agent_id = ? "
+            "  AND invalid_at IS NULL "
+            "  AND deleted_at IS NULL"
+        )
+
+        async with self._sql.connection() as db:
+            async with db.execute(query, (node_id, agent_id)) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    # ==================================================================
     # NODE DEGREE — agent-scoped edge count
     # ==================================================================
 

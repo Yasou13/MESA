@@ -37,7 +37,7 @@ async def test_consolidation_loop_full():
 
     # ADMIT
     loop.router.validate.return_value = {"decision": "ADMIT"}
-    loop.triplet_extractor = AsyncMock()
+    loop.triplet_extractor = MagicMock()
     loop.triplet_extractor.sort_by_salience.return_value = [
         {"id": 1, "content": "test", "tier3_deferred": True}
     ]
@@ -130,6 +130,7 @@ async def test_valence_evaluate_full():
         mock_novelty.return_value = False
         res = await motor.evaluate({"content_payload": "test", "embedding": [0.1]}, {})
         assert res == "DEFERRED"
+        mock_novelty.assert_awaited()
 
     motor._recalibrate()
     assert motor._records_since_recalibration == 0

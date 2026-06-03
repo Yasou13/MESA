@@ -2,10 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.ollama import OllamaAdapter
+from tests.fixtures.vectors import VEC_BASE, VEC_BASE_384, VEC_BASE_1536
 
 
 def test_claude_adapter_embed():
-    mock_embedding = [0.1] * 1536
+    mock_embedding = VEC_BASE_1536
     mock_response = MagicMock()
     mock_response.data = [MagicMock(embedding=mock_embedding)]
 
@@ -30,7 +31,7 @@ def test_claude_adapter_embed():
 
 def test_claude_adapter_local_embed_fallback():
     """When no OpenAI key is provided, embed() should fall back to local model."""
-    mock_embedding = [0.05] * 384  # all-MiniLM-L6-v2 produces 384-dim vectors
+    mock_embedding = VEC_BASE_384  # all-MiniLM-L6-v2 produces 384-dim vectors
 
     with (
         patch(
@@ -50,7 +51,7 @@ def test_claude_adapter_local_embed_fallback():
 
 
 def test_ollama_adapter_embed():
-    mock_embedding = [0.2] * 768
+    mock_embedding = VEC_BASE
 
     with patch("mesa_memory.adapter.ollama.ollama.Client") as MockClient:
         mock_client = MagicMock()

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from mesa_memory.valence.novelty import _normalize_ecod_score, calculate_novelty_score
+from tests.fixtures.vectors import make_diverse_vectors
 
 
 def test_normalize_ecod_score():
@@ -64,8 +65,9 @@ async def test_calculate_novelty_steady_state(mock_config):
 def test_below_interval_returns_current():
     from mesa_memory.valence.drift import recalibrate_threshold
 
-    # Fewer embeddings than recalibration_interval → unchanged
-    embeddings = [[0.1] * 8 for _ in range(5)]
+    # Diverse non-degenerate vectors (not uniform [0.1]*N which gives
+    # trivial cosine similarity = 1.0 for all pairs)
+    embeddings = make_diverse_vectors(5)
     result = recalibrate_threshold(0.75, embeddings)
     assert result == 0.75
 
@@ -74,9 +76,8 @@ def test_sufficient_data_recalibrates():
     from mesa_memory.config import config
     from mesa_memory.valence.drift import recalibrate_threshold
 
-    np.random.seed(42)
     n = config.recalibration_interval * 2
-    embeddings = [np.random.rand(8).tolist() for _ in range(n)]
+    embeddings = make_diverse_vectors(n)
     result = recalibrate_threshold(0.75, embeddings)
     # Must be within configured clamp range
     assert config.drift_clamp_min <= result <= config.drift_clamp_max
@@ -86,7 +87,7 @@ def test_no_historical_data_returns_current():
     from mesa_memory.config import config
     from mesa_memory.valence.drift import recalibrate_threshold
 
-    # Exactly recalibration_interval → no historical data
-    embeddings = [[0.1] * 8 for _ in range(config.recalibration_interval)]
+    # Exactly recalibration_interval → no historical data to compare
+    embeddings = make_diverse_vectors(config.recalibration_interval)
     result = recalibrate_threshold(0.75, embeddings)
     assert result == 0.75
