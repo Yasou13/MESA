@@ -127,6 +127,113 @@ ignore = ["E501"]
 python_version = "3.10"
 ignore_missing_imports = true
 explicit_package_bases = true
+plugins = ["pydantic.mypy"]
+
+# ---- Strict enforcement flags (v0.5.1 hardening) ----
+# Individual flags instead of `strict = true` so per-module overrides
+# can cleanly disable specific checks without fighting the macro.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_reexport = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+
+# ---- Progressive overrides for modules not yet remediated ----
+# Each module listed here is temporarily exempt from strict typing.
+# Remove entries as modules are remediated. Track in CHANGELOG.
+#
+# Error counts at time of enforcement (210 total across 33 files):
+#   loop.py(33) > vector_engine.py(12) > valence/core.py(12)
+#   > observability/metrics.py(11) > lock.py(11) > hybrid.py(9)
+#   > adapters(~29) > extraction(~13) > writers/parsers(~13)
+
+[[tool.mypy.overrides]]
+module = [
+    "mesa_memory.consolidation.loop",
+    "mesa_memory.consolidation.lock",
+    "mesa_memory.consolidation.writer",
+    "mesa_memory.consolidation.parser",
+    "mesa_memory.consolidation.router",
+    "mesa_memory.consolidation.validator",
+    "mesa_memory.valence.*",
+    "mesa_memory.observability.metrics",
+    "mesa_memory.retrieval.*",
+    "mesa_memory.adapter.*",
+    "mesa_memory.extraction.*",
+    "mesa_memory.security.rbac",
+    "mesa_memory.api.server",
+    "mesa_api.router",
+    "mesa_api.schemas",
+    "mesa_storage.dao",
+    "mesa_storage.vector_engine",
+    "mesa_storage.schemas",
+    "mesa_storage.sqlite_engine",
+    "mesa_storage.kuzu_provider",
+    "mesa_workers.*",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+warn_return_any = false
+disallow_untyped_decorators = false
+warn_unused_ignores = false
+
+# ---- Test directory: relax strict typing for test functions ----
+# Test functions rarely benefit from return type annotations.
+# check_untyped_defs = true ensures the bodies are still type-checked.
+# disable_error_code suppresses errors endemic to test patterns:
+#   method-assign — mock attribute patching (obj.method = Mock())
+#   arg-type      — passing lists where numpy arrays are expected
+#   attr-defined  — importing private helpers for whitebox testing
+#   union-attr    — mock return types not fully typed
+#   assignment    — Literal type mutations in negative tests
+#   override      — bench stubs with simplified signatures
+#   call-overload — test helpers with different overloads
+#   index         — Row | None indexing in async storage tests
+#   var-annotated — bench script accumulators
+[[tool.mypy.overrides]]
+module = [
+    "tests.*",
+    "conftest",
+    "tests.bench.*",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+warn_return_any = false
+warn_unused_ignores = false
+check_untyped_defs = true
+disable_error_code = [
+    "method-assign",
+    "arg-type",
+    "attr-defined",
+    "union-attr",
+    "assignment",
+    "override",
+    "call-overload",
+    "index",
+    "var-annotated",
+]
+
+# ---- Auxiliary packages: not part of the strict-typed core ----
+# These are CLI scripts, evaluation tooling, MCP server, and the
+# client SDK — useful but not on the critical ingestion/retrieval path.
+# Relax strict typing to avoid blocking pre-push on non-core code.
+[[tool.mypy.overrides]]
+module = [
+    "mesa_client.*",
+    "mesa_mcp.*",
+    "mesa_evals.*",
+    "scripts.*",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+warn_return_any = false
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"

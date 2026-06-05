@@ -24,6 +24,8 @@ from mesa_memory.consolidation.validator import (
     Tier3ValidationError,
     Tier3Validator,
 )
+from mesa_memory.observability.metrics import ObservabilityLayer
+from mesa_memory.valence.core import ValenceMotor
 from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_Router")
@@ -99,12 +101,22 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         dual_llm_validator: Tier3Validator,
         t_route: float = 0.85,
         audit_probability: float = 0.05,
+        obs_layer: ObservabilityLayer | None = None,
     ):
         self.dao = dao
         self.small_llm = small_llm
         self.validator = dual_llm_validator
         self.t_route = t_route
         self.audit_probability = audit_probability
+
+        # Valence Motor — persists adaptive novelty thresholds (EWMAD).
+        # Must be assigned here so server.py lifespan hooks can access
+        # it via getattr(router, "valence_motor") for save/load_state.
+        _obs = obs_layer or ObservabilityLayer()
+        self.valence_motor = ValenceMotor(
+            llm_adapter=self.small_llm,
+            obs_layer=_obs,
+        )
 
         # Dynamic Thresholding Cache
         self._last_update_time = 0.0

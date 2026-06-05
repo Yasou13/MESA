@@ -183,7 +183,7 @@ class MaintenanceWorker:
         self._retention_hours = retention_hours
         self._enabled = enabled
         self._running = False
-        self._task: asyncio.Task | None = None  # type: ignore[type-arg]
+        self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._metrics = MaintenanceMetrics()
 
@@ -216,7 +216,7 @@ class MaintenanceWorker:
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.stop()
 
     # ------------------------------------------------------------------

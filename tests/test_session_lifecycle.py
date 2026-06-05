@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -56,7 +57,16 @@ def engines():
 
 
 @pytest.fixture
-def client(engines):
+def _mock_rbac():
+    """Patch the RBAC singleton so insert tests get WRITE access."""
+    ac_mock = MagicMock()
+    ac_mock.check_access = AsyncMock(return_value=True)
+    with patch("mesa_api.router._get_access_control", return_value=ac_mock):
+        yield ac_mock
+
+
+@pytest.fixture
+def client(engines, _mock_rbac):
     """Create a FastAPI TestClient with the router mounted."""
     sqlite_eng, vec_eng, _ = engines
 

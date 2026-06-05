@@ -26,7 +26,7 @@ class SystemState(str, Enum):
 
 class MetricsRegistry:
     def __init__(self):
-        self.counters = Counter()
+        self.counters: Counter[str] = Counter()
         self.gauges = {}
         self.histograms = {}
 

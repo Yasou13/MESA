@@ -200,7 +200,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
 
     # ------------------------------------------------------------------
@@ -634,8 +634,8 @@ class KuzuGraphProvider(BaseGraphProvider):
             agent_id = parameters.get("agent_id") if parameters else None
             prefix = f"{agent_id}::" if agent_id else None
 
-            while result.has_next():  # type: ignore
-                row = result.get_next()  # type: ignore
+            while result.has_next():  # type: ignore[union-attr]
+                row = result.get_next()  # type: ignore[union-attr]
                 if prefix:
                     if isinstance(row, dict):
                         for k, v in row.items():

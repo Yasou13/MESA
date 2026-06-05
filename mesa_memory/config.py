@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 import psutil
@@ -99,7 +100,10 @@ def _read_cgroup_ram_limit() -> Optional[int]:
 
 class MesaConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
     )
 
     llm_provider: str = "claude"
@@ -215,15 +219,26 @@ class MesaConfig(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
+    # Central storage base directory (Phase 5.1 — P7 remediation)
+    # All persistent data paths are derived from this root unless
+    # explicitly overridden via their own env vars.  Matches the
+    # MESA_STORAGE_PATH convention used by server.py lifespan.
+    # -----------------------------------------------------------------------
+    storage_path: str = Field(
+        "./storage",
+        validation_alias="MESA_STORAGE_PATH",
+    )
+
+    # -----------------------------------------------------------------------
     # Persistent Queue Paths (Phase 5.1 — P7 remediation)
-    # Configurable via env vars. Defaults match the original hardcoded paths.
+    # Configurable via env vars. When empty, derived from storage_path.
     # -----------------------------------------------------------------------
     human_review_queue_path: str = Field(
-        "./storage/human_review_queue.jsonl",
+        "",
         validation_alias="MESA_HUMAN_REVIEW_QUEUE_PATH",
     )
     dead_letter_queue_path: str = Field(
-        "./storage/dead_letter_queue.jsonl",
+        "",
         validation_alias="MESA_DEAD_LETTER_QUEUE_PATH",
     )
 
@@ -236,6 +251,27 @@ class MesaConfig(BaseSettings):
                 "OPENAI_API_KEY not set for Claude provider. "
                 "Embeddings will use local model '%s' as fallback.",
                 self.local_embedding_model,
+            )
+        return self
+
+    @model_validator(mode="after")
+    def derive_queue_paths(self) -> "MesaConfig":
+        """Derive queue file paths from ``storage_path`` when not set explicitly.
+
+        Uses ``pathlib.Path`` for cross-platform concatenation.
+        """
+        base = Path(self.storage_path)
+        if not self.human_review_queue_path:
+            object.__setattr__(
+                self,
+                "human_review_queue_path",
+                str(base / "human_review_queue.jsonl"),
+            )
+        if not self.dead_letter_queue_path:
+            object.__setattr__(
+                self,
+                "dead_letter_queue_path",
+                str(base / "dead_letter_queue.jsonl"),
             )
         return self
 
@@ -293,4 +329,4 @@ def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:
     return config
 
 
-config = calculate_dynamic_limits(MesaConfig())  # type: ignore[call-arg]
+config = calculate_dynamic_limits(MesaConfig())

@@ -214,7 +214,7 @@ class VectorEngine:
         await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
 
     # ------------------------------------------------------------------

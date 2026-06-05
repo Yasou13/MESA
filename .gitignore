@@ -97,6 +97,8 @@ desktop.ini
 tmp/
 temp/
 scratch/
+scratch*.py
+test_minimal*.py
 storage_bench_tmp/
 eval_results.json
 sweep_results.json

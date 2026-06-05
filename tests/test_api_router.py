@@ -74,7 +74,16 @@ def engines():
 
 
 @pytest.fixture
-def client(engines):
+def _mock_rbac():
+    """Patch the RBAC singleton so insert tests get WRITE access."""
+    ac_mock = MagicMock()
+    ac_mock.check_access = AsyncMock(return_value=True)
+    with patch("mesa_api.router._get_access_control", return_value=ac_mock):
+        yield ac_mock
+
+
+@pytest.fixture
+def client(engines, _mock_rbac):
     """Create a FastAPI TestClient with the router mounted."""
     sqlite_eng, vec_eng, _ = engines
 
@@ -89,7 +98,7 @@ def client(engines):
 
 
 @pytest.fixture
-def client_no_vector(engines):
+def client_no_vector(engines, _mock_rbac):
     """TestClient without vector engine."""
     sqlite_eng, _, _ = engines
 
@@ -542,7 +551,7 @@ class TestPurgeEndpoint:
 
 
 class TestRouterFactory:
-    def test_custom_prefix(self, engines):
+    def test_custom_prefix(self, engines, _mock_rbac):
         sqlite_eng, vec_eng, _ = engines
         router = create_memory_router(
             get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),

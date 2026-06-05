@@ -57,7 +57,7 @@ import time
 from typing import Any
 
 import numpy as np
-from scipy import sparse  # type: ignore[import-untyped]
+from scipy import sparse
 
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 

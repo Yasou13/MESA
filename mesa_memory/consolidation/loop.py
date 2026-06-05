@@ -228,6 +228,7 @@ class ConsolidationLoop:
             dao=dao,
             small_llm=llm_a,
             dual_llm_validator=self.validator,
+            obs_layer=obs_layer,
         )
         self.graph_writer = GraphWriter(
             dao=dao,

@@ -66,7 +66,16 @@ def engines():
 
 
 @pytest.fixture
-def client(engines):
+def _mock_rbac():
+    """Patch the RBAC singleton so insert tests get WRITE access."""
+    ac_mock = MagicMock()
+    ac_mock.check_access = AsyncMock(return_value=True)
+    with patch("mesa_api.router._get_access_control", return_value=ac_mock):
+        yield ac_mock
+
+
+@pytest.fixture
+def client(engines, _mock_rbac):
     sql, vec, _ = engines
     app = FastAPI()
     router = create_memory_router(

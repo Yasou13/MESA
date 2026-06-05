@@ -168,6 +168,9 @@ def create_memory_router(
         status_code=202,
         summary="Queue memory insertion (hot path)",
         response_description="Acknowledged with log_id for tracking",
+        responses={
+            403: {"model": ErrorResponse, "description": "RBAC Access Denied"},
+        },
     )
     async def insert_memory(
         request: MemoryInsertRequest,
@@ -186,6 +189,26 @@ def create_memory_router(
 
         Target latency: **< 50ms**.
         """
+        # ---------------------------------------------------------------
+        # RBAC Gate: Verify WRITE permission for this agent/session pair.
+        # This is a secondary security layer that operates alongside the
+        # API Key authentication enforced at the router dependency level.
+        # ---------------------------------------------------------------
+        try:
+            ac = _get_access_control()
+            has_write = await ac.check_access(
+                request.agent_id,
+                request.session_id,
+                "WRITE",
+            )
+            if not has_write:
+                raise PermissionError(
+                    f"Agent '{request.agent_id}' lacks WRITE access "
+                    f"for session '{request.session_id}'"
+                )
+        except PermissionError as perm_exc:
+            raise HTTPException(status_code=403, detail=str(perm_exc))
+
         payload = {
             "agent_id": request.agent_id,
             "session_id": request.session_id,
