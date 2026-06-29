@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     id               TEXT    PRIMARY KEY,
     entity_name      TEXT    NOT NULL,
     type             TEXT    NOT NULL DEFAULT 'ENTITY',
+    content_payload  TEXT    NOT NULL DEFAULT '',
     is_consolidated  INTEGER NOT NULL DEFAULT 0,
     created_at       TEXT    NOT NULL,
     invalid_at       TEXT    DEFAULT NULL,
@@ -318,6 +319,7 @@ async def insert_node(
     node_id: str,
     entity_name: str,
     node_type: str = "ENTITY",
+    content_payload: str = "",
     agent_id: str = "__unset__",
     session_id: str = "__unset__",
     is_consolidated: bool = False,
@@ -331,13 +333,14 @@ async def insert_node(
 
     async with engine.transaction() as db:
         await db.execute(
-            "INSERT INTO nodes (id, entity_name, type, is_consolidated, "
+            "INSERT INTO nodes (id, entity_name, type, content_payload, is_consolidated, "
             "created_at, agent_id, session_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 node_id,
                 entity_name,
                 node_type,
+                content_payload,
                 int(is_consolidated),
                 now,
                 agent_id,
@@ -368,14 +371,15 @@ async def bulk_insert_nodes(
 
     async with engine.transaction() as db:
         await db.executemany(
-            "INSERT INTO nodes (id, entity_name, type, is_consolidated, "
+            "INSERT INTO nodes (id, entity_name, type, content_payload, is_consolidated, "
             "created_at, agent_id, session_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     n["id"],
                     n["entity_name"],
                     n.get("type", "ENTITY"),
+                    n.get("content_payload", ""),
                     int(n.get("is_consolidated", False)),
                     now,
                     n.get("agent_id", "__unset__"),

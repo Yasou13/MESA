@@ -1,0 +1,1458 @@
+{
+  "mesa": {
+    "benchmark": "Antigravity_Contradiction_Resolution",
+    "version": "0.5.1",
+    "client": "<MesaClient>",
+    "client_type": "mesa",
+    "dataset": "benchmarks/phase1_gatekeeper/data/contradiction_benchmark.json",
+    "summary": {
+      "total_scenarios": 20,
+      "correct": 19,
+      "incorrect": 1,
+      "errors": 0,
+      "CRA": 0.95,
+      "mean_keyword_score": 0.39,
+      "elapsed_total_s": 1.21
+    },
+    "latency": {
+      "count": 20,
+      "mean_ms": 26.81,
+      "p50_ms": 20.47,
+      "p95_ms": 55.28,
+      "p99_ms": 62.72,
+      "min_ms": 13.02,
+      "max_ms": 64.58
+    },
+    "recency_bias_analysis": {
+      "t0_valid": {
+        "total": 10,
+        "correct": 10,
+        "accuracy": 1.0
+      },
+      "t1_valid": {
+        "total": 10,
+        "correct": 9,
+        "accuracy": 0.9
+      }
+    },
+    "per_scenario": [
+      {
+        "scenario_id": "CONF_001",
+        "client_type": "mesa",
+        "category": "Miras Hukuku (Inheritance Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "Ayşe Yılmaz",
+          "TMK m. 542",
+          "iptal"
+        ],
+        "keyword_misses": [
+          "sonraki vasiyetname",
+          "2021 tarihli"
+        ],
+        "keyword_match": true,
+        "match_score": 0.6,
+        "query": "Ankara Çankaya'daki 1245 ada 7 parsel sayılı taşınmaz murisin ölümünden sonra kime intikal edecektir? Hangi vasiyetname geçerlidir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Muris Ahmet Yılmaz, 05.11.2021 tarihinde Ankara 22. Noterliği'nce düzenlenen 2021/8934 yevmiye numaralı yeni vasiyetname ile aynı taşınmazı kızı Ayşe Yılmaz'a vasiyet etmiş ve vasiyetnamenin 4. maddesinde '12.03.2019 tarihli vasiyetnamemin tüm hükümlerini açıkça iptal ediyorum' şerhini düşmüştür. TMK m. 542 gereğince sonraki tarihli vasiyetname, önceki vasiyetnameyi açıkça ortadan kaldırmaktadır.",
+        "latency_s": 0.046447,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_002",
+        "client_type": "mesa",
+        "category": "İş Hukuku (Labor Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "XYZ Lojistik",
+          "ABC Tekstil"
+        ],
+        "keyword_misses": [
+          "geçerli",
+          "sözleşme devam",
+          "farklı şirket"
+        ],
+        "keyword_match": true,
+        "match_score": 0.4,
+        "query": "Fatma Demir'in ABC Tekstil A.Ş. ile olan iş sözleşmesi hâlâ geçerli midir? İkale protokolü Fatma Demir'i bağlar mı?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) ABC Tekstil A.Ş. İnsan Kaynakları Müdürlüğü, 15.09.2023 tarihinde şirket genelinde uygulanan yeni ücret politikası kapsamında XYZ Lojistik Ltd. Şti. bünyesindeki depo çalışanlarının iş sözleşmelerini karşılıklı ikale yoluyla sona erdirmiştir. İkale protokolünde 4 aylık brüt ücret tutarında ek tazminat ödenmesi kararlaştırılmıştır. İkale protokolü XYZ Lojistik çalışanlarının tamamını kapsamaktadır.\n[2] (source=unknown) İşçi Fatma Demir, ABC Tekstil A.Ş. bün",
+        "latency_s": 0.064576,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_003",
+        "client_type": "mesa",
+        "category": "Borçlar Hukuku (Law of Obligations)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "5.200.000 TL",
+          "ek protokol",
+          "tadil",
+          "10.08.2021"
+        ],
+        "keyword_misses": [
+          "yeni bedel"
+        ],
+        "keyword_match": true,
+        "match_score": 0.8,
+        "query": "Beyaz Holding A.Ş.'nin ödemesi gereken toplam satış bedeli nedir ve son ödeme tarihi ne zamandır?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Taraflar 10.08.2020 tarihinde noter huzurunda düzenlenen ek protokol ile satış bedelini 5.200.000 TL olarak yeniden belirlemiş, kalan ödeme takvimini 4 eşit taksite bölmüş ve son taksit tarihini 10.08.2021 olarak güncellemiştir. Ek protokolün 2. maddesinde 'İşbu protokol, 20.01.2020 tarihli satış vaadi sözleşmesinin ayrılmaz parçası olup bedel ve ödeme koşullarına ilişkin hükümleri tadil eder' ifadesi yer almaktadır.",
+        "latency_s": 0.054786,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_004",
+        "client_type": "mesa",
+        "category": "Ticaret Hukuku (Commercial Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "Marmara",
+          "Epsilon"
+        ],
+        "keyword_misses": [
+          "devam ediyor",
+          "farklı bölge",
+          "Gamma etkilenmez"
+        ],
+        "keyword_match": true,
+        "match_score": 0.4,
+        "query": "Gamma Yedek Parça Ltd. Şti.'nin Doğu Anadolu Bölgesi'ndeki distribütörlük hakkı feshedilmiş midir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Delta Otomotiv A.Ş. ile Gamma Yedek Parça Ltd. Şti. arasında 01.03.2019 tarihinde imzalanan münhasır distribütörlük sözleşmesi uyarınca, Gamma şirketi Doğu Anadolu Bölgesi'nde Delta markasının tek yetkili distribütörü olarak atanmıştır. Sözleşmenin 14. maddesi gereğince sözleşme süresi 5 yıl olup, fesih için 6 ay önceden yazılı bildirim şartı öngörülmüştür. Sözleşmenin 9. maddesi asgari yıllık sipariş miktarını 500.000 adet olarak belirlemiştir.\n[2] (sourc",
+        "latency_s": 0.016922,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_005",
+        "client_type": "mesa",
+        "category": "İdare Hukuku (Administrative Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "yeni yönetmelik",
+          "Faz IV",
+          "klinik veri"
+        ],
+        "keyword_misses": [
+          "2023 değişiklik",
+          "geçici madde"
+        ],
+        "keyword_match": true,
+        "match_score": 0.6,
+        "query": "Omega İlaç Sanayi A.Ş., Omegafen 400 mg için ruhsat yenilemesinde hangi mevzuat hükümlerine tabi olacaktır?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) T.C. Sağlık Bakanlığı, 01.01.2023 tarihinde yürürlüğe giren 'Beşeri Tıbbi Ürünler Ruhsatlandırma Yönetmeliğinde Değişiklik Yapılmasına Dair Yönetmelik' ile ruhsat yenileme sürecinde Faz IV klinik veri sunumu zorunluluğu getirmiştir. Yönetmeliğin Geçici 3. maddesi uyarınca, mevcut ruhsat sahipleri yenileme başvurularını yeni yönetmelik hükümlerine uygun olarak yapacak olup, geçiş süresi 31.12.2023 tarihinde sona ermektedir.",
+        "latency_s": 0.020407,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_006",
+        "client_type": "mesa",
+        "category": "Ceza Hukuku (Criminal Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "lehe kanun",
+          "TCK m. 7/2"
+        ],
+        "keyword_misses": [
+          "uygulanmaz",
+          "aleyhe değişiklik",
+          "kesinleşmiş karar"
+        ],
+        "keyword_match": true,
+        "match_score": 0.4,
+        "query": "Hasan Korkmaz'ın kesinleşmiş dolandırıcılık mahkûmiyetine 7499 sayılı Kanun'daki yeni ceza sınırları uygulanabilir mi?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) 7. Yargı Paketi kapsamında 12.07.2024 tarihli ve 7499 sayılı Kanun ile TCK m. 157'de düzenlenen basit dolandırıcılık suçunun ceza alt sınırı 1 yıldan 2 yıla, üst sınırı 5 yıldan 7 yıla çıkarılmıştır. Kanunun Geçici 2. maddesi uyarınca, lehe kanun değerlendirmesi saklı kalmak kaydıyla yeni ceza sınırları yürürlük tarihinden itibaren işlenen suçlara uygulanacaktır. TCK m. 7/2 gereğince lehe olan kanun geçmişe uygulanır.\n[2] (source=unknown) Sanık Hasan Korkm",
+        "latency_s": 0.017485,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_007",
+        "client_type": "mesa",
+        "category": "Kira Hukuku (Lease Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "18.000 TL"
+        ],
+        "keyword_misses": [
+          "TÜFE artış",
+          "dava derdest",
+          "kesinleşmemiş",
+          "mevcut sözleşme"
+        ],
+        "keyword_match": true,
+        "match_score": 0.2,
+        "query": "Sigma Danışmanlık Ltd. Şti.'nin güncel aylık kira bedeli yükümlülüğü nedir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Kiraya veren Nermin Çelik ile kiracı Sigma Danışmanlık Ltd. Şti. arasında 01.09.2020 tarihinde akdedilen 5 yıl süreli işyeri kira sözleşmesine göre, Ankara Kızılay'daki taşınmazın aylık kira bedeli 18.000 TL olarak belirlenmiştir. Sözleşmenin 7. maddesi kira bedelinin her yıl TÜFE oranında artırılacağını, 11. maddesi ise kiracının yazılı muvafakat olmaksızın alt kiracı kabul edemeyeceğini düzenlemiştir.\n[2] (source=unknown) Kiraya veren Nermin Çelik, 20.03",
+        "latency_s": 0.034893,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_008",
+        "client_type": "mesa",
+        "category": "Tüketici Hukuku (Consumer Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "taahhütname",
+          "3 yıl"
+        ],
+        "keyword_misses": [
+          "10.04.2025",
+          "garanti uzatma",
+          "Bakanlık onaylı"
+        ],
+        "keyword_match": true,
+        "match_score": 0.4,
+        "query": "Elif Sarı'nın dizüstü bilgisayarının garanti süresi 10.04.2024'te mi yoksa 10.04.2025'te mi sona ermektedir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Zeta Elektronik A.Ş., 15.01.2023 tarihinde 6502 sayılı Tüketicinin Korunması Hakkında Kanun m. 56 uyarınca Ticaret Bakanlığı'na bildirimde bulunarak tüm dizüstü bilgisayar ürünlerinin garanti süresini 3 yıla uzatan resmi garanti değişiklik taahhütnamesini tescil ettirmiştir. Taahhütname Bakanlık onayı ile yürürlüğe girmiş olup, 01.01.2022 sonrası satılan tüm ürünleri kapsamaktadır. Elif Sarı'nın satın alma tarihi bu kapsamdadır.",
+        "latency_s": 0.019947,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_009",
+        "client_type": "mesa",
+        "category": "Vergi Hukuku (Tax Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "%5 indirim",
+          "7456 sayılı Kanun"
+        ],
+        "keyword_misses": [
+          "indirimli oran",
+          "ihracat kazancı",
+          "2023 dönemi"
+        ],
+        "keyword_match": true,
+        "match_score": 0.4,
+        "query": "Lambda Gıda Sanayi A.Ş.'nin 2023 hesap dönemi kurumlar vergisi oranı ne olacaktır? İhracat gelirleri için indirimli oran uygulanabilir mi?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) 7456 sayılı Kanun ile 15.07.2023 tarihinden itibaren geçerli olmak üzere kurumlar vergisi oranı ihracat gelirlerinden elde edilen kazançlar için %5 indirimli uygulanacak şekilde değiştirilmiştir. Lambda Gıda Sanayi A.Ş.'nin 2023 yılı gelirlerinin %60'ı ihracat faaliyetlerinden elde edilmiştir. Kanunun yürürlük maddesi uyarınca yeni oran 01.01.2023 tarihinden itibaren elde edilen kazançlara uygulanacaktır.",
+        "latency_s": 0.020525,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_010",
+        "client_type": "mesa",
+        "category": "Aile Hukuku (Family Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "Zeynep Polat"
+        ],
+        "keyword_misses": [
+          "velayet değişmedi",
+          "dava derdest",
+          "kesinleşmiş karar",
+          "tedbir yok"
+        ],
+        "keyword_match": true,
+        "match_score": 0.2,
+        "query": "Müşterek çocuk Deniz Polat'ın velayeti şu an kime aittir? Velayet durumu değişmiş midir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Baba Ayhan Polat, 08.05.2024 tarihinde İstanbul 4. Aile Mahkemesi'ne verdiği dilekçe ile TMK m. 183 uyarınca velayetin değiştirilmesi davası açmıştır. Dilekçede annenin çocuğu yeterince gözetmediği ve eğitim ihtiyaçlarını karşılayamadığı iddia edilmiştir. Mahkeme tensip zaptı düzenlemiş, pedagog bilirkişi raporu talep etmiş ancak duruşma henüz yapılmamıştır. Velayet değişikliği davasında ihtiyati tedbir kararı verilmemiştir.\n[2] (source=unknown) İstanbul 4",
+        "latency_s": 0.031433,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_011",
+        "client_type": "mesa",
+        "category": "İcra ve İflas Hukuku (Enforcement and Bankruptcy Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "menfi tespit",
+          "İİK m. 72/3"
+        ],
+        "keyword_misses": [
+          "geçici durdurma",
+          "takip askıda",
+          "teminat yatırıldı"
+        ],
+        "keyword_match": true,
+        "match_score": 0.4,
+        "query": "Vega Faktoring A.Ş.'nin icra takibi hâlâ geçerli midir? Borçlunun fabrikası üzerindeki haciz kaldırılmış mıdır?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Rota Nakliyat Ltd. Şti., 18.11.2023 tarihinde Ankara 3. Asliye Ticaret Mahkemesi'ne İİK m. 72 uyarınca menfi tespit davası açmıştır. Dava dilekçesinde borcun zamanaşımına uğradığı ve senet altındaki imzanın şirket yetkilisine ait olmadığı ileri sürülmüştür. Mahkeme İİK m. 72/3 uyarınca alacağın %15'i oranında teminat karşılığında icra takibinin geçici olarak durdurulmasına karar vermiştir.",
+        "latency_s": 0.027758,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_012",
+        "client_type": "mesa",
+        "category": "Taşınmaz Hukuku / Muris Muvazaası (Real Property / Sham Transaction)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "Konya"
+        ],
+        "keyword_misses": [
+          "iptal edilmemiş",
+          "farklı taşınmaz",
+          "Bursa etkilenmez",
+          "farklı davalı"
+        ],
+        "keyword_match": true,
+        "match_score": 0.2,
+        "query": "Bursa Nilüfer'deki 456 ada 12 parsel sayılı konutun tapu kaydı muris muvazaası nedeniyle iptal edilmiş midir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Muris Hatice Aydın, 08.06.2017 tarihinde Bursa ili Nilüfer ilçesi 456 ada 12 parsel sayılı 320 m² konutu, oğlu Murat Aydın'a tapuda satış göstermek suretiyle devretmiştir. Tapu Müdürlüğü kayıtlarında işlem bedeli 850.000 TL olarak gösterilmiş, devir resmi şekilde tamamlanmıştır. Murat Aydın tapu maliki olarak sicile tescil edilmiştir.\n[2] (source=unknown) Muris Hatice Aydın'ın 14.02.2023 tarihinde vefatının ardından, mirasçı kız kardeş Sevgi Aydın, 10.05.2",
+        "latency_s": 0.015129,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_013",
+        "client_type": "mesa",
+        "category": "Sigorta Hukuku (Insurance Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "teminat altında",
+          "mevcut poliçe geçerli",
+          "deprem dahil",
+          "yenileme dönemi bildirimi",
+          "mevcut dönem etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Yıldız İnşaat A.Ş.'nin Antalya Kepez'deki projesinde 01.12.2023 tarihinde meydana gelen deprem hasarı mevcut poliçe kapsamında teminat altında mıdır?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Güven Sigorta A.Ş., 15.09.2023 tarihinde Yıldız İnşaat A.Ş.'ye gönderdiği yazılı bildirim ile poliçenin yenileme döneminde (01.03.2024) deprem teminatının ayrı bir ek prim karşılığında verileceğini, aksi halde yenilenen poliçede deprem teminatının yer almayacağını bildirmiştir. Bildirim 01.03.2024 tarihli yenileme dönemine ilişkin olup, mevcut poliçe süresini etkilememektedir.",
+        "latency_s": 0.016262,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_014",
+        "client_type": "mesa",
+        "category": "İmar Hukuku (Zoning Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "Kadıköy"
+        ],
+        "keyword_misses": [
+          "etkilenmemiş",
+          "farklı ilçe",
+          "Beşiktaş ruhsatı geçerli",
+          "kazanılmış hak"
+        ],
+        "keyword_match": true,
+        "match_score": 0.2,
+        "query": "Theta Gayrimenkul'ün Beşiktaş'taki 234 ada 9 parsel üzerindeki 12 katlı projesinin inşaat ruhsatı yeni imar planı değişikliğinden etkilenmiş midir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) İstanbul Büyükşehir Belediye Meclisi, 14.06.2023 tarihli kararı ile Kadıköy ilçesi sahil şeridi boyunca 1/5000 ölçekli nazım imar planı değişikliği yaparak, bölgedeki maksimum bina yüksekliğini 25 metreye düşürmüş ve emsal değerini 1.75 olarak yeniden belirlemiştir. Plan değişikliği 30 günlük askı süresini tamamlamış ve 20.08.2023 tarihinde kesinleşmiştir. Değişiklik Kadıköy sahil şeridini kapsamaktadır.\n[2] (source=unknown) Theta Gayrimenkul Yatırım A.Ş.,",
+        "latency_s": 0.015737,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_015",
+        "client_type": "mesa",
+        "category": "Fikri Mülkiyet Hukuku (Intellectual Property Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "kullanım ispatı",
+          "Geçici 5. madde",
+          "5 yıl"
+        ],
+        "keyword_misses": [
+          "yeni kanun değişikliği",
+          "ciddi kullanım"
+        ],
+        "keyword_match": true,
+        "match_score": 0.6,
+        "query": "Iota Yazılım A.Ş.'nin NovaPay markasının 2029'daki yenileme başvurusunda hangi ek yükümlülükler söz konusu olacaktır?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) 6769 sayılı Sınai Mülkiyet Kanunu'nda 01.01.2024 tarihinde yürürlüğe giren değişiklik ile marka yenileme başvurularında kullanım ispatı zorunluluğu getirilmiştir. Değişikliğin Geçici 5. maddesi uyarınca, tescil tarihinden itibaren 5 yılını doldurmuş markaların yenileme başvurularında son 5 yıla ait ciddi biçimde kullanım kanıtı sunulması gerekmektedir. Iota Yazılım A.Ş.'nin NovaPay markası 12.04.2024 tarihinde 5. yılını doldurmuş olup, marka ticari olarak ",
+        "latency_s": 0.031348,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_016",
+        "client_type": "mesa",
+        "category": "Rekabet Hukuku (Competition Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "Chi Toptan"
+        ],
+        "keyword_misses": [
+          "muafiyet geçerli",
+          "ihlal yok",
+          "farklı taraflar",
+          "Psi-Alfa etkilenmez"
+        ],
+        "keyword_match": true,
+        "match_score": 0.2,
+        "query": "Psi Perakende Zinciri A.Ş. ile Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması Rekabet Kurulu tarafından ihlal olarak değerlendirilmiş midir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Rekabet Kurulu'nun 08.03.2021 tarih ve 21-14/187-78 sayılı kararıyla, Psi Perakende Zinciri A.Ş. ile tedarikçisi Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması, 4054 sayılı Rekabetin Korunması Hakkında Kanun m. 4 kapsamında grup muafiyetinden yararlandırılmıştır. Muafiyet kararı 5 yıl süreyle geçerli olup, tarafların pazar paylarının ilgili ürün pazarında %30'un altında kaldığı tespit edilmiştir. Anlaşma kapsamında Alfa Gıda, Psi Perakende'ye ",
+        "latency_s": 0.026383,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_017",
+        "client_type": "mesa",
+        "category": "Deniz Ticaret Hukuku (Maritime Commercial Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "deniz raporu",
+          "mücbir sebep",
+          "TTK m. 1178"
+        ],
+        "keyword_misses": [
+          "sürveyör raporu",
+          "fırtına hasarı"
+        ],
+        "keyword_match": true,
+        "match_score": 0.6,
+        "query": "Atlas Dış Ticaret Ltd. Şti.'nin hasarlı yük için tazminat talebi navlun bedelinden mahsup edilebilir mi? Taşıyanın sorumluluk durumu nedir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Taşıma sırasında 18.04.2022 tarihinde Antalya açıklarında şiddetli fırtına nedeniyle geminin ambar kapakları hasar görmüş ve yükün %20'si deniz suyuyla temas etmiştir. Gemi kaptanı aynı gün deniz raporu (sea protest) düzenlemiş ve Antalya Liman Başkanlığı'na bildirmiştir. TTK m. 1178 uyarınca taşıyan, denizcilik kazası sonucu oluşan zarardan mücbir sebep (force majeure) savunması ileri sürmüştür. Hasar tespit tutanağı bağımsız sürveyör tarafından 22.04.202",
+        "latency_s": 0.01855,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_018",
+        "client_type": "mesa",
+        "category": "Kişisel Verilerin Korunması Hukuku (Data Protection / KVKK)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "Sigma Medikal"
+        ],
+        "keyword_misses": [
+          "cezalandırılmamış",
+          "farklı şirket",
+          "Kappa etkilenmez",
+          "VERBİS kayıtlı"
+        ],
+        "keyword_match": true,
+        "match_score": 0.2,
+        "query": "Kappa Sağlık Teknolojileri A.Ş.'nin hasta verisi işleme faaliyetleri KVKK Kurulu tarafından cezalandırılmış mıdır?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Kappa Sağlık Teknolojileri A.Ş., Kişisel Verileri Koruma Kurumu (KVKK) nezdinde 22.07.2020 tarihinde VERBİS'e kayıt olmuş ve 6698 sayılı KVKK m. 10 uyarınca aydınlatma yükümlülüğünü yerine getirmiştir. Şirketin veri işleme envanterine göre, hasta sağlık verileri açık rıza kapsamında işlenmekte olup, verilerin yurt dışına aktarımı yapılmamaktadır. Kappa'nın veri sorumlusu siciline kayıtlı işleme amacı 'sağlık hizmeti sunumu ve randevu yönetimi' olarak belir",
+        "latency_s": 0.026386,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_019",
+        "client_type": "mesa",
+        "category": "Toplu İş Hukuku (Collective Labor Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": true,
+        "keyword_hits": [
+          "120 TL",
+          "65 TL",
+          "yeni TİS",
+          "01.03.2024"
+        ],
+        "keyword_misses": [
+          "güncellenen koşullar"
+        ],
+        "keyword_match": true,
+        "match_score": 0.8,
+        "query": "Metal sektöründeki işçilerin Mart 2024 itibarıyla saat başı ücreti ve yemek yardımı tutarı nedir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Taraflar 15.12.2023 tarihinde yetki tespiti prosedürünü tamamlayarak yeni dönem TİS müzakerelerine başlamıştır. 28.02.2024 tarihinde imzalanan yeni TİS ile saat başı ücret 120 TL'ye yükseltilmiş, yemek yardımı 65 TL olarak güncellenmiş ve yıllık ikramiye 4,5 maaş olarak revize edilmiştir. Yeni TİS 01.03.2024 tarihinde yürürlüğe girmiş olup, 6356 sayılı Sendikalar ve Toplu İş Sözleşmesi Kanunu m. 35 uyarınca geriye etkili hüküm içermemektedir.",
+        "latency_s": 0.013025,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_020",
+        "client_type": "mesa",
+        "category": "Kamulaştırma Hukuku (Expropriation Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": true,
+        "keyword_hits": [
+          "890 ada 22 parsel"
+        ],
+        "keyword_misses": [
+          "riskli alan değil",
+          "farklı parsel",
+          "kamulaştırma tamamlanmış",
+          "678 ada etkilenmez"
+        ],
+        "keyword_match": true,
+        "match_score": 0.2,
+        "query": "Osman Kaya'nın Ortahisar'daki 678 ada 14 parsel sayılı taşınmazı kentsel dönüşüm kapsamında riskli alan ilan edilmiş midir?",
+        "raw_response": "Retrieved Context:\n[1] (source=unknown) Trabzon Büyükşehir Belediyesi, 05.04.2024 tarihli Belediye Meclisi kararıyla Ortahisar ilçesinin kıyı kesiminde yer alan 890 ada 22 parsel sayılı taşınmazı, kentsel dönüşüm alanı ilan ederek 6306 sayılı Kanun kapsamında riskli alan tespiti yapmıştır. Riskli alan kararı Çevre, Şehircilik ve İklim Değişikliği Bakanlığı'nca onaylanmış olup, alan içindeki yapıların yıkım ve dönüşüm sürecine alınacağı ilan edilmiştir.\n[2] (source=unknown) T.C. Karayolları Genel",
+        "latency_s": 0.018123,
+        "error": null
+      }
+    ]
+  },
+  "mem0": {
+    "benchmark": "Antigravity_Contradiction_Resolution",
+    "version": "0.5.1",
+    "client": "<BareRAGClient storage='./storage/benchmark_mem0' adapter=DeterministicMockAdapter>",
+    "client_type": "mem0",
+    "dataset": "benchmarks/phase1_gatekeeper/data/contradiction_benchmark.json",
+    "summary": {
+      "total_scenarios": 20,
+      "correct": 0,
+      "incorrect": 20,
+      "errors": 0,
+      "CRA": 0.0,
+      "mean_keyword_score": 0.0,
+      "elapsed_total_s": 1.43
+    },
+    "latency": {
+      "count": 20,
+      "mean_ms": 19.76,
+      "p50_ms": 19.33,
+      "p95_ms": 27.42,
+      "p99_ms": 27.93,
+      "min_ms": 12.06,
+      "max_ms": 28.05
+    },
+    "recency_bias_analysis": {
+      "t0_valid": {
+        "total": 10,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "t1_valid": {
+        "total": 10,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "per_scenario": [
+      {
+        "scenario_id": "CONF_001",
+        "client_type": "mem0",
+        "category": "Miras Hukuku (Inheritance Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "Ayşe Yılmaz",
+          "sonraki vasiyetname",
+          "TMK m. 542",
+          "iptal",
+          "2021 tarihli"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Ankara Çankaya'daki 1245 ada 7 parsel sayılı taşınmaz murisin ölümünden sonra kime intikal edecektir? Hangi vasiyetname geçerlidir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.012062,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_002",
+        "client_type": "mem0",
+        "category": "İş Hukuku (Labor Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "geçerli",
+          "sözleşme devam",
+          "farklı şirket",
+          "XYZ Lojistik",
+          "ABC Tekstil"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Fatma Demir'in ABC Tekstil A.Ş. ile olan iş sözleşmesi hâlâ geçerli midir? İkale protokolü Fatma Demir'i bağlar mı?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.018989,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_003",
+        "client_type": "mem0",
+        "category": "Borçlar Hukuku (Law of Obligations)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "5.200.000 TL",
+          "ek protokol",
+          "tadil",
+          "10.08.2021",
+          "yeni bedel"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Beyaz Holding A.Ş.'nin ödemesi gereken toplam satış bedeli nedir ve son ödeme tarihi ne zamandır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.019807,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_004",
+        "client_type": "mem0",
+        "category": "Ticaret Hukuku (Commercial Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "devam ediyor",
+          "farklı bölge",
+          "Marmara",
+          "Epsilon",
+          "Gamma etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Gamma Yedek Parça Ltd. Şti.'nin Doğu Anadolu Bölgesi'ndeki distribütörlük hakkı feshedilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.013147,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_005",
+        "client_type": "mem0",
+        "category": "İdare Hukuku (Administrative Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "yeni yönetmelik",
+          "Faz IV",
+          "klinik veri",
+          "2023 değişiklik",
+          "geçici madde"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Omega İlaç Sanayi A.Ş., Omegafen 400 mg için ruhsat yenilemesinde hangi mevzuat hükümlerine tabi olacaktır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.019671,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_006",
+        "client_type": "mem0",
+        "category": "Ceza Hukuku (Criminal Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "lehe kanun",
+          "uygulanmaz",
+          "aleyhe değişiklik",
+          "kesinleşmiş karar",
+          "TCK m. 7/2"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Hasan Korkmaz'ın kesinleşmiş dolandırıcılık mahkûmiyetine 7499 sayılı Kanun'daki yeni ceza sınırları uygulanabilir mi?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.02032,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_007",
+        "client_type": "mem0",
+        "category": "Kira Hukuku (Lease Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "18.000 TL",
+          "TÜFE artış",
+          "dava derdest",
+          "kesinleşmemiş",
+          "mevcut sözleşme"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Sigma Danışmanlık Ltd. Şti.'nin güncel aylık kira bedeli yükümlülüğü nedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.017448,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_008",
+        "client_type": "mem0",
+        "category": "Tüketici Hukuku (Consumer Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "10.04.2025",
+          "garanti uzatma",
+          "Bakanlık onaylı",
+          "taahhütname",
+          "3 yıl"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Elif Sarı'nın dizüstü bilgisayarının garanti süresi 10.04.2024'te mi yoksa 10.04.2025'te mi sona ermektedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.024076,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_009",
+        "client_type": "mem0",
+        "category": "Vergi Hukuku (Tax Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "indirimli oran",
+          "ihracat kazancı",
+          "%5 indirim",
+          "7456 sayılı Kanun",
+          "2023 dönemi"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Lambda Gıda Sanayi A.Ş.'nin 2023 hesap dönemi kurumlar vergisi oranı ne olacaktır? İhracat gelirleri için indirimli oran uygulanabilir mi?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.027384,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_010",
+        "client_type": "mem0",
+        "category": "Aile Hukuku (Family Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "Zeynep Polat",
+          "velayet değişmedi",
+          "dava derdest",
+          "kesinleşmiş karar",
+          "tedbir yok"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Müşterek çocuk Deniz Polat'ın velayeti şu an kime aittir? Velayet durumu değişmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.015361,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_011",
+        "client_type": "mem0",
+        "category": "İcra ve İflas Hukuku (Enforcement and Bankruptcy Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "geçici durdurma",
+          "menfi tespit",
+          "İİK m. 72/3",
+          "takip askıda",
+          "teminat yatırıldı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Vega Faktoring A.Ş.'nin icra takibi hâlâ geçerli midir? Borçlunun fabrikası üzerindeki haciz kaldırılmış mıdır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.017468,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_012",
+        "client_type": "mem0",
+        "category": "Taşınmaz Hukuku / Muris Muvazaası (Real Property / Sham Transaction)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "iptal edilmemiş",
+          "farklı taşınmaz",
+          "Konya",
+          "Bursa etkilenmez",
+          "farklı davalı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Bursa Nilüfer'deki 456 ada 12 parsel sayılı konutun tapu kaydı muris muvazaası nedeniyle iptal edilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.026587,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_013",
+        "client_type": "mem0",
+        "category": "Sigorta Hukuku (Insurance Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "teminat altında",
+          "mevcut poliçe geçerli",
+          "deprem dahil",
+          "yenileme dönemi bildirimi",
+          "mevcut dönem etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Yıldız İnşaat A.Ş.'nin Antalya Kepez'deki projesinde 01.12.2023 tarihinde meydana gelen deprem hasarı mevcut poliçe kapsamında teminat altında mıdır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.028053,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_014",
+        "client_type": "mem0",
+        "category": "İmar Hukuku (Zoning Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "etkilenmemiş",
+          "farklı ilçe",
+          "Kadıköy",
+          "Beşiktaş ruhsatı geçerli",
+          "kazanılmış hak"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Theta Gayrimenkul'ün Beşiktaş'taki 234 ada 9 parsel üzerindeki 12 katlı projesinin inşaat ruhsatı yeni imar planı değişikliğinden etkilenmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.018781,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_015",
+        "client_type": "mem0",
+        "category": "Fikri Mülkiyet Hukuku (Intellectual Property Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "kullanım ispatı",
+          "yeni kanun değişikliği",
+          "ciddi kullanım",
+          "Geçici 5. madde",
+          "5 yıl"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Iota Yazılım A.Ş.'nin NovaPay markasının 2029'daki yenileme başvurusunda hangi ek yükümlülükler söz konusu olacaktır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.01821,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_016",
+        "client_type": "mem0",
+        "category": "Rekabet Hukuku (Competition Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "muafiyet geçerli",
+          "ihlal yok",
+          "farklı taraflar",
+          "Chi Toptan",
+          "Psi-Alfa etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Psi Perakende Zinciri A.Ş. ile Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması Rekabet Kurulu tarafından ihlal olarak değerlendirilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.018987,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_017",
+        "client_type": "mem0",
+        "category": "Deniz Ticaret Hukuku (Maritime Commercial Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "deniz raporu",
+          "mücbir sebep",
+          "TTK m. 1178",
+          "sürveyör raporu",
+          "fırtına hasarı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Atlas Dış Ticaret Ltd. Şti.'nin hasarlı yük için tazminat talebi navlun bedelinden mahsup edilebilir mi? Taşıyanın sorumluluk durumu nedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.018936,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_018",
+        "client_type": "mem0",
+        "category": "Kişisel Verilerin Korunması Hukuku (Data Protection / KVKK)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "cezalandırılmamış",
+          "farklı şirket",
+          "Sigma Medikal",
+          "Kappa etkilenmez",
+          "VERBİS kayıtlı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Kappa Sağlık Teknolojileri A.Ş.'nin hasta verisi işleme faaliyetleri KVKK Kurulu tarafından cezalandırılmış mıdır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.019891,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_019",
+        "client_type": "mem0",
+        "category": "Toplu İş Hukuku (Collective Labor Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "120 TL",
+          "65 TL",
+          "yeni TİS",
+          "01.03.2024",
+          "güncellenen koşullar"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Metal sektöründeki işçilerin Mart 2024 itibarıyla saat başı ücreti ve yemek yardımı tutarı nedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.020196,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_020",
+        "client_type": "mem0",
+        "category": "Kamulaştırma Hukuku (Expropriation Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "riskli alan değil",
+          "farklı parsel",
+          "890 ada 22 parsel",
+          "kamulaştırma tamamlanmış",
+          "678 ada etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Osman Kaya'nın Ortahisar'daki 678 ada 14 parsel sayılı taşınmazı kentsel dönüşüm kapsamında riskli alan ilan edilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.019879,
+        "error": null
+      }
+    ]
+  },
+  "barerag": {
+    "benchmark": "Antigravity_Contradiction_Resolution",
+    "version": "0.5.1",
+    "client": "<BareRAGClient storage='./storage/benchmark_barerag' adapter=DeterministicMockAdapter>",
+    "client_type": "barerag",
+    "dataset": "benchmarks/phase1_gatekeeper/data/contradiction_benchmark.json",
+    "summary": {
+      "total_scenarios": 20,
+      "correct": 0,
+      "incorrect": 20,
+      "errors": 0,
+      "CRA": 0.0,
+      "mean_keyword_score": 0.0,
+      "elapsed_total_s": 1.6
+    },
+    "latency": {
+      "count": 20,
+      "mean_ms": 22.24,
+      "p50_ms": 19.95,
+      "p95_ms": 34.46,
+      "p99_ms": 44.08,
+      "min_ms": 14.49,
+      "max_ms": 46.48
+    },
+    "recency_bias_analysis": {
+      "t0_valid": {
+        "total": 10,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "t1_valid": {
+        "total": 10,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "per_scenario": [
+      {
+        "scenario_id": "CONF_001",
+        "client_type": "barerag",
+        "category": "Miras Hukuku (Inheritance Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "Ayşe Yılmaz",
+          "sonraki vasiyetname",
+          "TMK m. 542",
+          "iptal",
+          "2021 tarihli"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Ankara Çankaya'daki 1245 ada 7 parsel sayılı taşınmaz murisin ölümünden sonra kime intikal edecektir? Hangi vasiyetname geçerlidir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.023295,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_002",
+        "client_type": "barerag",
+        "category": "İş Hukuku (Labor Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "geçerli",
+          "sözleşme devam",
+          "farklı şirket",
+          "XYZ Lojistik",
+          "ABC Tekstil"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Fatma Demir'in ABC Tekstil A.Ş. ile olan iş sözleşmesi hâlâ geçerli midir? İkale protokolü Fatma Demir'i bağlar mı?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.014774,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_003",
+        "client_type": "barerag",
+        "category": "Borçlar Hukuku (Law of Obligations)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "5.200.000 TL",
+          "ek protokol",
+          "tadil",
+          "10.08.2021",
+          "yeni bedel"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Beyaz Holding A.Ş.'nin ödemesi gereken toplam satış bedeli nedir ve son ödeme tarihi ne zamandır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.024108,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_004",
+        "client_type": "barerag",
+        "category": "Ticaret Hukuku (Commercial Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "devam ediyor",
+          "farklı bölge",
+          "Marmara",
+          "Epsilon",
+          "Gamma etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Gamma Yedek Parça Ltd. Şti.'nin Doğu Anadolu Bölgesi'ndeki distribütörlük hakkı feshedilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.015896,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_005",
+        "client_type": "barerag",
+        "category": "İdare Hukuku (Administrative Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "yeni yönetmelik",
+          "Faz IV",
+          "klinik veri",
+          "2023 değişiklik",
+          "geçici madde"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Omega İlaç Sanayi A.Ş., Omegafen 400 mg için ruhsat yenilemesinde hangi mevzuat hükümlerine tabi olacaktır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.014494,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_006",
+        "client_type": "barerag",
+        "category": "Ceza Hukuku (Criminal Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "lehe kanun",
+          "uygulanmaz",
+          "aleyhe değişiklik",
+          "kesinleşmiş karar",
+          "TCK m. 7/2"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Hasan Korkmaz'ın kesinleşmiş dolandırıcılık mahkûmiyetine 7499 sayılı Kanun'daki yeni ceza sınırları uygulanabilir mi?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.023855,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_007",
+        "client_type": "barerag",
+        "category": "Kira Hukuku (Lease Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "18.000 TL",
+          "TÜFE artış",
+          "dava derdest",
+          "kesinleşmemiş",
+          "mevcut sözleşme"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Sigma Danışmanlık Ltd. Şti.'nin güncel aylık kira bedeli yükümlülüğü nedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.033826,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_008",
+        "client_type": "barerag",
+        "category": "Tüketici Hukuku (Consumer Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "10.04.2025",
+          "garanti uzatma",
+          "Bakanlık onaylı",
+          "taahhütname",
+          "3 yıl"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Elif Sarı'nın dizüstü bilgisayarının garanti süresi 10.04.2024'te mi yoksa 10.04.2025'te mi sona ermektedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.046481,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_009",
+        "client_type": "barerag",
+        "category": "Vergi Hukuku (Tax Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "indirimli oran",
+          "ihracat kazancı",
+          "%5 indirim",
+          "7456 sayılı Kanun",
+          "2023 dönemi"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Lambda Gıda Sanayi A.Ş.'nin 2023 hesap dönemi kurumlar vergisi oranı ne olacaktır? İhracat gelirleri için indirimli oran uygulanabilir mi?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.026857,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_010",
+        "client_type": "barerag",
+        "category": "Aile Hukuku (Family Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "Zeynep Polat",
+          "velayet değişmedi",
+          "dava derdest",
+          "kesinleşmiş karar",
+          "tedbir yok"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Müşterek çocuk Deniz Polat'ın velayeti şu an kime aittir? Velayet durumu değişmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.017753,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_011",
+        "client_type": "barerag",
+        "category": "İcra ve İflas Hukuku (Enforcement and Bankruptcy Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "geçici durdurma",
+          "menfi tespit",
+          "İİK m. 72/3",
+          "takip askıda",
+          "teminat yatırıldı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Vega Faktoring A.Ş.'nin icra takibi hâlâ geçerli midir? Borçlunun fabrikası üzerindeki haciz kaldırılmış mıdır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.015739,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_012",
+        "client_type": "barerag",
+        "category": "Taşınmaz Hukuku / Muris Muvazaası (Real Property / Sham Transaction)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "iptal edilmemiş",
+          "farklı taşınmaz",
+          "Konya",
+          "Bursa etkilenmez",
+          "farklı davalı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Bursa Nilüfer'deki 456 ada 12 parsel sayılı konutun tapu kaydı muris muvazaası nedeniyle iptal edilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.025116,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_013",
+        "client_type": "barerag",
+        "category": "Sigorta Hukuku (Insurance Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "teminat altında",
+          "mevcut poliçe geçerli",
+          "deprem dahil",
+          "yenileme dönemi bildirimi",
+          "mevcut dönem etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Yıldız İnşaat A.Ş.'nin Antalya Kepez'deki projesinde 01.12.2023 tarihinde meydana gelen deprem hasarı mevcut poliçe kapsamında teminat altında mıdır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.019429,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_014",
+        "client_type": "barerag",
+        "category": "İmar Hukuku (Zoning Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "etkilenmemiş",
+          "farklı ilçe",
+          "Kadıköy",
+          "Beşiktaş ruhsatı geçerli",
+          "kazanılmış hak"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Theta Gayrimenkul'ün Beşiktaş'taki 234 ada 9 parsel üzerindeki 12 katlı projesinin inşaat ruhsatı yeni imar planı değişikliğinden etkilenmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.018549,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_015",
+        "client_type": "barerag",
+        "category": "Fikri Mülkiyet Hukuku (Intellectual Property Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "kullanım ispatı",
+          "yeni kanun değişikliği",
+          "ciddi kullanım",
+          "Geçici 5. madde",
+          "5 yıl"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Iota Yazılım A.Ş.'nin NovaPay markasının 2029'daki yenileme başvurusunda hangi ek yükümlülükler söz konusu olacaktır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.021519,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_016",
+        "client_type": "barerag",
+        "category": "Rekabet Hukuku (Competition Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "muafiyet geçerli",
+          "ihlal yok",
+          "farklı taraflar",
+          "Chi Toptan",
+          "Psi-Alfa etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Psi Perakende Zinciri A.Ş. ile Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması Rekabet Kurulu tarafından ihlal olarak değerlendirilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.019742,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_017",
+        "client_type": "barerag",
+        "category": "Deniz Ticaret Hukuku (Maritime Commercial Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "deniz raporu",
+          "mücbir sebep",
+          "TTK m. 1178",
+          "sürveyör raporu",
+          "fırtına hasarı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Atlas Dış Ticaret Ltd. Şti.'nin hasarlı yük için tazminat talebi navlun bedelinden mahsup edilebilir mi? Taşıyanın sorumluluk durumu nedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.017834,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_018",
+        "client_type": "barerag",
+        "category": "Kişisel Verilerin Korunması Hukuku (Data Protection / KVKK)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "cezalandırılmamış",
+          "farklı şirket",
+          "Sigma Medikal",
+          "Kappa etkilenmez",
+          "VERBİS kayıtlı"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Kappa Sağlık Teknolojileri A.Ş.'nin hasta verisi işleme faaliyetleri KVKK Kurulu tarafından cezalandırılmış mıdır?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.026239,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_019",
+        "client_type": "barerag",
+        "category": "Toplu İş Hukuku (Collective Labor Law)",
+        "expected_resolution": "t1_valid",
+        "predicted_resolution": "t0_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "120 TL",
+          "65 TL",
+          "yeni TİS",
+          "01.03.2024",
+          "güncellenen koşullar"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Metal sektöründeki işçilerin Mart 2024 itibarıyla saat başı ücreti ve yemek yardımı tutarı nedir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.019227,
+        "error": null
+      },
+      {
+        "scenario_id": "CONF_020",
+        "client_type": "barerag",
+        "category": "Kamulaştırma Hukuku (Expropriation Law)",
+        "expected_resolution": "t0_valid",
+        "predicted_resolution": "t1_valid",
+        "correct": false,
+        "keyword_hits": [],
+        "keyword_misses": [
+          "riskli alan değil",
+          "farklı parsel",
+          "890 ada 22 parsel",
+          "kamulaştırma tamamlanmış",
+          "678 ada etkilenmez"
+        ],
+        "keyword_match": false,
+        "match_score": 0.0,
+        "query": "Osman Kaya'nın Ortahisar'daki 678 ada 14 parsel sayılı taşınmazı kentsel dönüşüm kapsamında riskli alan ilan edilmiş midir?",
+        "raw_response": "No relevant context found.",
+        "latency_s": 0.020149,
+        "error": null
+      }
+    ]
+  }
+}

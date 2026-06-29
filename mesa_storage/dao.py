@@ -462,10 +462,10 @@ class MemoryDAO:
             # PHASE 2: Insert new node
             await db.execute(
                 "INSERT INTO nodes "
-                "(id, entity_name, type, is_consolidated, created_at, "
+                "(id, entity_name, type, content_payload, is_consolidated, created_at, "
                 " agent_id, session_id) "
-                "VALUES (?, ?, ?, 0, ?, ?, ?)",
-                (node_id, entity_name, node_type, now, agent_id, session_id),
+                "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
+                (node_id, entity_name, node_type, content, now, agent_id, session_id),
             )
 
             # ---- LanceDB upsert (compensating rollback on fail) ------
@@ -576,6 +576,7 @@ class MemoryDAO:
                     nid,
                     rec["entity_name"],
                     rec.get("node_type", "ENTITY"),
+                    rec.get("content", ""),
                     0,
                     now,
                     agent_id,  # hardcoded — never from record dict
@@ -595,9 +596,9 @@ class MemoryDAO:
         async with self._sql.transaction() as db:
             await db.executemany(
                 "INSERT INTO nodes "
-                "(id, entity_name, type, is_consolidated, created_at, "
+                "(id, entity_name, type, content_payload, is_consolidated, created_at, "
                 " agent_id, session_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 sql_rows,
             )
 
@@ -1202,6 +1203,19 @@ class MemoryDAO:
             except Exception as exc:
                 logger.warning(
                     "INVALIDATE_NODE_EDGE_CASCADE_FAILED | agent_id=%s "
+                    "node_id=%s error=%s",
+                    agent_id,
+                    node_id,
+                    exc,
+                )
+
+        # Also delete from vector engine to prevent semantic search retrieval
+        if self._vec:
+            try:
+                await self._vec.hard_delete(node_id)
+            except Exception as exc:
+                logger.warning(
+                    "INVALIDATE_NODE_VEC_CASCADE_FAILED | agent_id=%s "
                     "node_id=%s error=%s",
                     agent_id,
                     node_id,

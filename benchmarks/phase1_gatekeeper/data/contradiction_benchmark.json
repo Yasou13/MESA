@@ -1,0 +1,202 @@
+[
+  {
+    "scenario_id": "CONF_001",
+    "category": "Miras Hukuku (Inheritance Law)",
+    "t0_context": "Muris Ahmet Yılmaz, 12.03.2019 tarihli düzenleme şeklinde vasiyetname ile Ankara ili Çankaya ilçesi 1245 ada 7 parsel sayılı taşınmazını oğlu Mehmet Yılmaz'a vasiyet etmiştir. Vasiyetname, Ankara 14. Noterliği'nce 2019/4872 yevmiye numarası ile düzenlenmiş olup iki tanık huzurunda imzalanmıştır. Vasiyetnamede saklı pay oranlarına ilişkin herhangi bir ihlal tespit edilmemiştir.",
+    "t1_context": "Muris Ahmet Yılmaz, 05.11.2021 tarihinde Ankara 22. Noterliği'nce düzenlenen 2021/8934 yevmiye numaralı yeni vasiyetname ile aynı taşınmazı kızı Ayşe Yılmaz'a vasiyet etmiş ve vasiyetnamenin 4. maddesinde '12.03.2019 tarihli vasiyetnamemin tüm hükümlerini açıkça iptal ediyorum' şerhini düşmüştür. TMK m. 542 gereğince sonraki tarihli vasiyetname, önceki vasiyetnameyi açıkça ortadan kaldırmaktadır.",
+    "query": "Ankara Çankaya'daki 1245 ada 7 parsel sayılı taşınmaz murisin ölümünden sonra kime intikal edecektir? Hangi vasiyetname geçerlidir?",
+    "ground_truth_keywords": ["Ayşe Yılmaz", "sonraki vasiyetname", "TMK m. 542", "iptal", "2021 tarihli"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_002",
+    "category": "İş Hukuku (Labor Law)",
+    "t0_context": "İşçi Fatma Demir, ABC Tekstil A.Ş. bünyesinde 01.06.2018 tarihli belirsiz süreli iş sözleşmesi ile konfeksiyon operatörü olarak çalışmaya başlamıştır. Sözleşmenin 8. maddesinde aylık brüt ücret 7.500 TL, 12. maddesinde yıllık 14 gün ücretli izin hakkı ve 15. maddesinde işverenin haklı nedenle fesih koşulları 4857 sayılı İş Kanunu m. 25/II'ye atıfla düzenlenmiştir. İşçinin SGK sicil kaydı aktif olup, prim ödemeleri kesintisiz devam etmektedir.",
+    "t1_context": "ABC Tekstil A.Ş. İnsan Kaynakları Müdürlüğü, 15.09.2023 tarihinde şirket genelinde uygulanan yeni ücret politikası kapsamında XYZ Lojistik Ltd. Şti. bünyesindeki depo çalışanlarının iş sözleşmelerini karşılıklı ikale yoluyla sona erdirmiştir. İkale protokolünde 4 aylık brüt ücret tutarında ek tazminat ödenmesi kararlaştırılmıştır. İkale protokolü XYZ Lojistik çalışanlarının tamamını kapsamaktadır.",
+    "query": "Fatma Demir'in ABC Tekstil A.Ş. ile olan iş sözleşmesi hâlâ geçerli midir? İkale protokolü Fatma Demir'i bağlar mı?",
+    "ground_truth_keywords": ["geçerli", "sözleşme devam", "farklı şirket", "XYZ Lojistik", "ABC Tekstil"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_003",
+    "category": "Borçlar Hukuku (Law of Obligations)",
+    "t0_context": "Satıcı Kara İnşaat Ltd. Şti. ile alıcı Beyaz Holding A.Ş. arasında 20.01.2020 tarihinde akdedilen gayrimenkul satış vaadi sözleşmesine göre, İstanbul Kartal ilçesi 892 ada 3 parsel sayılı arsa 4.500.000 TL bedelle satılacaktır. Sözleşmenin 6. maddesi uyarınca ödeme, 3 eşit taksitte yapılacak olup ilk taksit sözleşme tarihinde, ikinci taksit 20.07.2020'de, üçüncü taksit 20.01.2021'de ödenecektir. Sözleşme noter huzurunda düzenlenmiştir.",
+    "t1_context": "Taraflar 10.08.2020 tarihinde noter huzurunda düzenlenen ek protokol ile satış bedelini 5.200.000 TL olarak yeniden belirlemiş, kalan ödeme takvimini 4 eşit taksite bölmüş ve son taksit tarihini 10.08.2021 olarak güncellemiştir. Ek protokolün 2. maddesinde 'İşbu protokol, 20.01.2020 tarihli satış vaadi sözleşmesinin ayrılmaz parçası olup bedel ve ödeme koşullarına ilişkin hükümleri tadil eder' ifadesi yer almaktadır.",
+    "query": "Beyaz Holding A.Ş.'nin ödemesi gereken toplam satış bedeli nedir ve son ödeme tarihi ne zamandır?",
+    "ground_truth_keywords": ["5.200.000 TL", "ek protokol", "tadil", "10.08.2021", "yeni bedel"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_004",
+    "category": "Ticaret Hukuku (Commercial Law)",
+    "t0_context": "Delta Otomotiv A.Ş. ile Gamma Yedek Parça Ltd. Şti. arasında 01.03.2019 tarihinde imzalanan münhasır distribütörlük sözleşmesi uyarınca, Gamma şirketi Doğu Anadolu Bölgesi'nde Delta markasının tek yetkili distribütörü olarak atanmıştır. Sözleşmenin 14. maddesi gereğince sözleşme süresi 5 yıl olup, fesih için 6 ay önceden yazılı bildirim şartı öngörülmüştür. Sözleşmenin 9. maddesi asgari yıllık sipariş miktarını 500.000 adet olarak belirlemiştir.",
+    "t1_context": "Delta Otomotiv A.Ş., 22.06.2023 tarihli ihtarname ile Epsilon Ticaret A.Ş.'nin Marmara Bölgesi distribütörlük sözleşmesini, asgari sipariş yükümlülüğünün iki dönem üst üste karşılanmaması nedeniyle TTK m. 122 uyarınca haklı nedenle derhal feshettiğini bildirmiştir. İhtarnamede Marmara Bölgesi için yeni distribütör ataması sürecinin başlatıldığı belirtilmiştir.",
+    "query": "Gamma Yedek Parça Ltd. Şti.'nin Doğu Anadolu Bölgesi'ndeki distribütörlük hakkı feshedilmiş midir?",
+    "ground_truth_keywords": ["devam ediyor", "farklı bölge", "Marmara", "Epsilon", "Gamma etkilenmez"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_005",
+    "category": "İdare Hukuku (Administrative Law)",
+    "t0_context": "Omega İlaç Sanayi A.Ş., T.C. Sağlık Bakanlığı Türkiye İlaç ve Tıbbi Cihaz Kurumu'ndan 14.05.2018 tarih ve 2018/TR-4521 sayılı ruhsatname ile 'Omegafen 400 mg Film Tablet' isimli ürün için üretim ve satış ruhsatı almıştır. Ruhsatname GMP (İyi Üretim Uygulamaları) denetimine dayalı olarak 5 yıl süreyle verilmiş olup, ruhsat yenileme başvurusunun süre bitiminden 6 ay önce yapılması gerekmektedir.",
+    "t1_context": "T.C. Sağlık Bakanlığı, 01.01.2023 tarihinde yürürlüğe giren 'Beşeri Tıbbi Ürünler Ruhsatlandırma Yönetmeliğinde Değişiklik Yapılmasına Dair Yönetmelik' ile ruhsat yenileme sürecinde Faz IV klinik veri sunumu zorunluluğu getirmiştir. Yönetmeliğin Geçici 3. maddesi uyarınca, mevcut ruhsat sahipleri yenileme başvurularını yeni yönetmelik hükümlerine uygun olarak yapacak olup, geçiş süresi 31.12.2023 tarihinde sona ermektedir.",
+    "query": "Omega İlaç Sanayi A.Ş., Omegafen 400 mg için ruhsat yenilemesinde hangi mevzuat hükümlerine tabi olacaktır?",
+    "ground_truth_keywords": ["yeni yönetmelik", "Faz IV", "klinik veri", "2023 değişiklik", "geçici madde"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_006",
+    "category": "Ceza Hukuku (Criminal Law)",
+    "t0_context": "Sanık Hasan Korkmaz hakkında İstanbul 12. Ağır Ceza Mahkemesi'nin 2020/347 E. sayılı dosyasında, TCK m. 157 (dolandırıcılık) kapsamında 3 yıl 4 ay hapis cezasına hükmedilmiştir. Mahkûmiyet kararı 15.06.2021 tarihinde kesinleşmiş olup, sanığın cezası infaz aşamasındadır. Kararın gerekçesinde mağdur Selim Aktaş'ın hileli davranışlarla 280.000 TL zarara uğratıldığı ayrıntılı olarak tespit edilmiştir.",
+    "t1_context": "7. Yargı Paketi kapsamında 12.07.2024 tarihli ve 7499 sayılı Kanun ile TCK m. 157'de düzenlenen basit dolandırıcılık suçunun ceza alt sınırı 1 yıldan 2 yıla, üst sınırı 5 yıldan 7 yıla çıkarılmıştır. Kanunun Geçici 2. maddesi uyarınca, lehe kanun değerlendirmesi saklı kalmak kaydıyla yeni ceza sınırları yürürlük tarihinden itibaren işlenen suçlara uygulanacaktır. TCK m. 7/2 gereğince lehe olan kanun geçmişe uygulanır.",
+    "query": "Hasan Korkmaz'ın kesinleşmiş dolandırıcılık mahkûmiyetine 7499 sayılı Kanun'daki yeni ceza sınırları uygulanabilir mi?",
+    "ground_truth_keywords": ["lehe kanun", "uygulanmaz", "aleyhe değişiklik", "kesinleşmiş karar", "TCK m. 7/2"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_007",
+    "category": "Kira Hukuku (Lease Law)",
+    "t0_context": "Kiraya veren Nermin Çelik ile kiracı Sigma Danışmanlık Ltd. Şti. arasında 01.09.2020 tarihinde akdedilen 5 yıl süreli işyeri kira sözleşmesine göre, Ankara Kızılay'daki taşınmazın aylık kira bedeli 18.000 TL olarak belirlenmiştir. Sözleşmenin 7. maddesi kira bedelinin her yıl TÜFE oranında artırılacağını, 11. maddesi ise kiracının yazılı muvafakat olmaksızın alt kiracı kabul edemeyeceğini düzenlemiştir.",
+    "t1_context": "Kiraya veren Nermin Çelik, 20.03.2024 tarihli ihtarname ile Sigma Danışmanlık Ltd. Şti.'ye kira bedelinin TBK m. 344 uyarınca yeniden belirletilmesi amacıyla Ankara 8. Sulh Hukuk Mahkemesi'ne kira tespit davası açtığını bildirmiştir. Dava dilekçesinde emsal kira bedeli araştırmasına dayanılarak aylık kira bedelinin 52.000 TL olarak tespiti talep edilmiştir. Mahkeme tensip zaptını düzenlemiş ancak henüz keşif ve bilirkişi incelemesi yapılmamıştır.",
+    "query": "Sigma Danışmanlık Ltd. Şti.'nin güncel aylık kira bedeli yükümlülüğü nedir?",
+    "ground_truth_keywords": ["18.000 TL", "TÜFE artış", "dava derdest", "kesinleşmemiş", "mevcut sözleşme"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_008",
+    "category": "Tüketici Hukuku (Consumer Law)",
+    "t0_context": "Tüketici Elif Sarı, 10.04.2022 tarihinde Zeta Elektronik A.Ş.'den 45.000 TL bedelle dizüstü bilgisayar satın almıştır. Satış sözleşmesinde 2 yıl üretici garantisi ve 14 gün cayma hakkı düzenlenmiştir. Ürün garanti belgesi T.C. Ticaret Bakanlığı onaylı olup, garanti süresi 10.04.2024 tarihinde sona ermektedir.",
+    "t1_context": "Zeta Elektronik A.Ş., 15.01.2023 tarihinde 6502 sayılı Tüketicinin Korunması Hakkında Kanun m. 56 uyarınca Ticaret Bakanlığı'na bildirimde bulunarak tüm dizüstü bilgisayar ürünlerinin garanti süresini 3 yıla uzatan resmi garanti değişiklik taahhütnamesini tescil ettirmiştir. Taahhütname Bakanlık onayı ile yürürlüğe girmiş olup, 01.01.2022 sonrası satılan tüm ürünleri kapsamaktadır. Elif Sarı'nın satın alma tarihi bu kapsamdadır.",
+    "query": "Elif Sarı'nın dizüstü bilgisayarının garanti süresi 10.04.2024'te mi yoksa 10.04.2025'te mi sona ermektedir?",
+    "ground_truth_keywords": ["10.04.2025", "garanti uzatma", "Bakanlık onaylı", "taahhütname", "3 yıl"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_009",
+    "category": "Vergi Hukuku (Tax Law)",
+    "t0_context": "Lambda Gıda Sanayi A.Ş., 2022 hesap dönemi kurumlar vergisi beyannamesinde 12.500.000 TL matrah üzerinden %22 oranında 2.750.000 TL kurumlar vergisi tahakkuk ettirmiştir. Beyanname 30.04.2023 tarihinde Büyük Mükellefler Vergi Dairesi'ne süresinde verilmiş ve tahakkuk eden vergi taksitler halinde ödenmiştir. Şirketin yatırım indirimi veya istisna kapsamında herhangi bir talebi bulunmamaktadır.",
+    "t1_context": "7456 sayılı Kanun ile 15.07.2023 tarihinden itibaren geçerli olmak üzere kurumlar vergisi oranı ihracat gelirlerinden elde edilen kazançlar için %5 indirimli uygulanacak şekilde değiştirilmiştir. Lambda Gıda Sanayi A.Ş.'nin 2023 yılı gelirlerinin %60'ı ihracat faaliyetlerinden elde edilmiştir. Kanunun yürürlük maddesi uyarınca yeni oran 01.01.2023 tarihinden itibaren elde edilen kazançlara uygulanacaktır.",
+    "query": "Lambda Gıda Sanayi A.Ş.'nin 2023 hesap dönemi kurumlar vergisi oranı ne olacaktır? İhracat gelirleri için indirimli oran uygulanabilir mi?",
+    "ground_truth_keywords": ["indirimli oran", "ihracat kazancı", "%5 indirim", "7456 sayılı Kanun", "2023 dönemi"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_010",
+    "category": "Aile Hukuku (Family Law)",
+    "t0_context": "İstanbul 4. Aile Mahkemesi'nin 2021/1289 E., 2022/567 K. sayılı kararıyla Ayhan Polat ile Zeynep Polat'ın boşanmalarına hükmedilmiş, müşterek çocuk Deniz Polat'ın velayeti anne Zeynep Polat'a verilmiştir. Kararın 3. fıkrasında baba Ayhan Polat'a her ayın 1. ve 3. hafta sonu cumartesi 10:00 - pazar 18:00 saatleri arasında şahsi münasebet hakkı tanınmıştır. Karar 14.09.2022 tarihinde kesinleşmiştir.",
+    "t1_context": "Baba Ayhan Polat, 08.05.2024 tarihinde İstanbul 4. Aile Mahkemesi'ne verdiği dilekçe ile TMK m. 183 uyarınca velayetin değiştirilmesi davası açmıştır. Dilekçede annenin çocuğu yeterince gözetmediği ve eğitim ihtiyaçlarını karşılayamadığı iddia edilmiştir. Mahkeme tensip zaptı düzenlemiş, pedagog bilirkişi raporu talep etmiş ancak duruşma henüz yapılmamıştır. Velayet değişikliği davasında ihtiyati tedbir kararı verilmemiştir.",
+    "query": "Müşterek çocuk Deniz Polat'ın velayeti şu an kime aittir? Velayet durumu değişmiş midir?",
+    "ground_truth_keywords": ["Zeynep Polat", "velayet değişmedi", "dava derdest", "kesinleşmiş karar", "tedbir yok"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_011",
+    "category": "İcra ve İflas Hukuku (Enforcement and Bankruptcy Law)",
+    "t0_context": "Alacaklı Vega Faktoring A.Ş., borçlu Rota Nakliyat Ltd. Şti. aleyhine 450.000 TL alacak için Ankara 7. İcra Müdürlüğü'nün 2022/15432 E. sayılı dosyasından ilamsız icra takibi başlatmıştır. Borçluya gönderilen ödeme emri 03.02.2022 tarihinde usulüne uygun olarak tebliğ edilmiş, borçlu yasal 7 günlük süre içerisinde itiraz etmemiştir. Takip kesinleşmiş olup, borçlunun Ankara Sincan OSB'deki fabrika binası üzerine haciz şerhi işlenmiştir.",
+    "t1_context": "Rota Nakliyat Ltd. Şti., 18.11.2023 tarihinde Ankara 3. Asliye Ticaret Mahkemesi'ne İİK m. 72 uyarınca menfi tespit davası açmıştır. Dava dilekçesinde borcun zamanaşımına uğradığı ve senet altındaki imzanın şirket yetkilisine ait olmadığı ileri sürülmüştür. Mahkeme İİK m. 72/3 uyarınca alacağın %15'i oranında teminat karşılığında icra takibinin geçici olarak durdurulmasına karar vermiştir.",
+    "query": "Vega Faktoring A.Ş.'nin icra takibi hâlâ geçerli midir? Borçlunun fabrikası üzerindeki haciz kaldırılmış mıdır?",
+    "ground_truth_keywords": ["geçici durdurma", "menfi tespit", "İİK m. 72/3", "takip askıda", "teminat yatırıldı"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_012",
+    "category": "Taşınmaz Hukuku / Muris Muvazaası (Real Property / Sham Transaction)",
+    "t0_context": "Muris Hatice Aydın, 08.06.2017 tarihinde Bursa ili Nilüfer ilçesi 456 ada 12 parsel sayılı 320 m² konutu, oğlu Murat Aydın'a tapuda satış göstermek suretiyle devretmiştir. Tapu Müdürlüğü kayıtlarında işlem bedeli 850.000 TL olarak gösterilmiş, devir resmi şekilde tamamlanmıştır. Murat Aydın tapu maliki olarak sicile tescil edilmiştir.",
+    "t1_context": "Muris Hatice Aydın'ın 14.02.2023 tarihinde vefatının ardından, mirasçı kız kardeş Sevgi Aydın, 10.05.2023 tarihinde Konya 2. Asliye Hukuk Mahkemesi'ne tapu iptali ve tescil davası açmıştır. Davada Konya ilindeki 789 ada 5 parsel sayılı tarla vasfındaki taşınmazın muris muvazaası ile davalı Kemal Aydın'a devredildiği iddia edilmiştir. Mahkeme, Konya'daki taşınmaz için Yargıtay 1. Hukuk Dairesi'nin 2019/2847 K. içtihadına atıfla bilirkişi incelemesi kararı vermiştir.",
+    "query": "Bursa Nilüfer'deki 456 ada 12 parsel sayılı konutun tapu kaydı muris muvazaası nedeniyle iptal edilmiş midir?",
+    "ground_truth_keywords": ["iptal edilmemiş", "farklı taşınmaz", "Konya", "Bursa etkilenmez", "farklı davalı"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_013",
+    "category": "Sigorta Hukuku (Insurance Law)",
+    "t0_context": "Sigorta ettiren Yıldız İnşaat A.Ş., Güven Sigorta A.Ş. ile 01.03.2021 tarihinde akdedilen All-Risk İnşaat Sigortası poliçesi (Poliçe No: 2021-AR-7834) kapsamında, Antalya Kepez'deki konut inşaat projesi için 25.000.000 TL teminat limiti ile sigortalanmıştır. Poliçenin 4.2. maddesi deprem, sel ve fırtına risklerini teminat kapsamına almakta, 6.1. maddesi ise hasar ihbar süresini olaydan itibaren 5 iş günü olarak belirlemektedir.",
+    "t1_context": "Güven Sigorta A.Ş., 15.09.2023 tarihinde Yıldız İnşaat A.Ş.'ye gönderdiği yazılı bildirim ile poliçenin yenileme döneminde (01.03.2024) deprem teminatının ayrı bir ek prim karşılığında verileceğini, aksi halde yenilenen poliçede deprem teminatının yer almayacağını bildirmiştir. Bildirim 01.03.2024 tarihli yenileme dönemine ilişkin olup, mevcut poliçe süresini etkilememektedir.",
+    "query": "Yıldız İnşaat A.Ş.'nin Antalya Kepez'deki projesinde 01.12.2023 tarihinde meydana gelen deprem hasarı mevcut poliçe kapsamında teminat altında mıdır?",
+    "ground_truth_keywords": ["teminat altında", "mevcut poliçe geçerli", "deprem dahil", "yenileme dönemi bildirimi", "mevcut dönem etkilenmez"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_014",
+    "category": "İmar Hukuku (Zoning Law)",
+    "t0_context": "Theta Gayrimenkul Yatırım A.Ş., İstanbul Büyükşehir Belediyesi İmar Müdürlüğü'nden 22.08.2020 tarih ve 2020/İM-5678 sayılı inşaat ruhsatı alarak Beşiktaş ilçesi 234 ada 9 parsel üzerinde 12 katlı karma kullanım binası projesine başlamıştır. Ruhsat, 1/1000 ölçekli uygulama imar planına uygun olarak verilmiş olup, emsal (KAKS) değeri 2.50 ve maksimum bina yüksekliği 42 metre olarak belirlenmiştir.",
+    "t1_context": "İstanbul Büyükşehir Belediye Meclisi, 14.06.2023 tarihli kararı ile Kadıköy ilçesi sahil şeridi boyunca 1/5000 ölçekli nazım imar planı değişikliği yaparak, bölgedeki maksimum bina yüksekliğini 25 metreye düşürmüş ve emsal değerini 1.75 olarak yeniden belirlemiştir. Plan değişikliği 30 günlük askı süresini tamamlamış ve 20.08.2023 tarihinde kesinleşmiştir. Değişiklik Kadıköy sahil şeridini kapsamaktadır.",
+    "query": "Theta Gayrimenkul'ün Beşiktaş'taki 234 ada 9 parsel üzerindeki 12 katlı projesinin inşaat ruhsatı yeni imar planı değişikliğinden etkilenmiş midir?",
+    "ground_truth_keywords": ["etkilenmemiş", "farklı ilçe", "Kadıköy", "Beşiktaş ruhsatı geçerli", "kazanılmış hak"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_015",
+    "category": "Fikri Mülkiyet Hukuku (Intellectual Property Law)",
+    "t0_context": "Iota Yazılım A.Ş., 'NovaPay' isimli mobil ödeme uygulaması için Türk Patent ve Marka Kurumu (TÜRKPATENT) nezdinde 12.04.2019 tarih ve 2019/M-45678 sayılı marka tescil belgesi almıştır. Marka, Nice Sınıflandırması 9. ve 36. sınıflarda (bilgisayar yazılımları ve finansal hizmetler) tescil edilmiş olup, koruma süresi 10 yıldır. Tescil kapsamında 'NovaPay' ibaresi ve logotipi birlikte koruma altına alınmıştır.",
+    "t1_context": "6769 sayılı Sınai Mülkiyet Kanunu'nda 01.01.2024 tarihinde yürürlüğe giren değişiklik ile marka yenileme başvurularında kullanım ispatı zorunluluğu getirilmiştir. Değişikliğin Geçici 5. maddesi uyarınca, tescil tarihinden itibaren 5 yılını doldurmuş markaların yenileme başvurularında son 5 yıla ait ciddi biçimde kullanım kanıtı sunulması gerekmektedir. Iota Yazılım A.Ş.'nin NovaPay markası 12.04.2024 tarihinde 5. yılını doldurmuş olup, marka ticari olarak aktif kullanımdadır.",
+    "query": "Iota Yazılım A.Ş.'nin NovaPay markasının 2029'daki yenileme başvurusunda hangi ek yükümlülükler söz konusu olacaktır?",
+    "ground_truth_keywords": ["kullanım ispatı", "yeni kanun değişikliği", "ciddi kullanım", "Geçici 5. madde", "5 yıl"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_016",
+    "category": "Rekabet Hukuku (Competition Law)",
+    "t0_context": "Rekabet Kurulu'nun 08.03.2021 tarih ve 21-14/187-78 sayılı kararıyla, Psi Perakende Zinciri A.Ş. ile tedarikçisi Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması, 4054 sayılı Rekabetin Korunması Hakkında Kanun m. 4 kapsamında grup muafiyetinden yararlandırılmıştır. Muafiyet kararı 5 yıl süreyle geçerli olup, tarafların pazar paylarının ilgili ürün pazarında %30'un altında kaldığı tespit edilmiştir. Anlaşma kapsamında Alfa Gıda, Psi Perakende'ye yıllık 15.000 ton süt ürünü tedarik etmektedir.",
+    "t1_context": "Rekabet Kurulu, 12.10.2023 tarih ve 23-47/891-345 sayılı kararıyla, Chi Toptan Satış Ltd. Şti. ile Omega Tarım Ürünleri A.Ş. arasındaki münhasır tedarik anlaşmasının 4054 sayılı Kanun m. 4'ü ihlal ettiğine hükmetmiştir. Kararda Chi Toptan'ın ilgili coğrafi pazarda %45 pazar payına sahip olduğu ve anlaşmanın rakip tedarikçilerin pazara girişini engellediği belirlenmiştir. Her iki şirkete toplam 8.200.000 TL idari para cezası uygulanmıştır.",
+    "query": "Psi Perakende Zinciri A.Ş. ile Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması Rekabet Kurulu tarafından ihlal olarak değerlendirilmiş midir?",
+    "ground_truth_keywords": ["muafiyet geçerli", "ihlal yok", "farklı taraflar", "Chi Toptan", "Psi-Alfa etkilenmez"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_017",
+    "category": "Deniz Ticaret Hukuku (Maritime Commercial Law)",
+    "t0_context": "Taşıyan Neptün Denizcilik A.Ş. ile yükleten Atlas Dış Ticaret Ltd. Şti. arasında 05.04.2022 tarihli çarter parti sözleşmesi uyarınca, M/V Karadeniz Star gemisi ile İstanbul Ambarlı Limanı'ndan Mersin Limanı'na 3.500 ton demir çelik ürünü taşınacaktır. Konişmento 10.04.2022 tarihinde düzenlenmiş olup, navlun bedeli 280.000 USD olarak belirlenmiştir. TTK m. 1138 uyarınca taşıyanın sorumluluğu yükleme limanından boşaltma limanına kadar geçerlidir.",
+    "t1_context": "Taşıma sırasında 18.04.2022 tarihinde Antalya açıklarında şiddetli fırtına nedeniyle geminin ambar kapakları hasar görmüş ve yükün %20'si deniz suyuyla temas etmiştir. Gemi kaptanı aynı gün deniz raporu (sea protest) düzenlemiş ve Antalya Liman Başkanlığı'na bildirmiştir. TTK m. 1178 uyarınca taşıyan, denizcilik kazası sonucu oluşan zarardan mücbir sebep (force majeure) savunması ileri sürmüştür. Hasar tespit tutanağı bağımsız sürveyör tarafından 22.04.2022'de düzenlenmiştir.",
+    "query": "Atlas Dış Ticaret Ltd. Şti.'nin hasarlı yük için tazminat talebi navlun bedelinden mahsup edilebilir mi? Taşıyanın sorumluluk durumu nedir?",
+    "ground_truth_keywords": ["deniz raporu", "mücbir sebep", "TTK m. 1178", "sürveyör raporu", "fırtına hasarı"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_018",
+    "category": "Kişisel Verilerin Korunması Hukuku (Data Protection / KVKK)",
+    "t0_context": "Kappa Sağlık Teknolojileri A.Ş., Kişisel Verileri Koruma Kurumu (KVKK) nezdinde 22.07.2020 tarihinde VERBİS'e kayıt olmuş ve 6698 sayılı KVKK m. 10 uyarınca aydınlatma yükümlülüğünü yerine getirmiştir. Şirketin veri işleme envanterine göre, hasta sağlık verileri açık rıza kapsamında işlenmekte olup, verilerin yurt dışına aktarımı yapılmamaktadır. Kappa'nın veri sorumlusu siciline kayıtlı işleme amacı 'sağlık hizmeti sunumu ve randevu yönetimi' olarak belirlenmiştir.",
+    "t1_context": "Kişisel Verileri Koruma Kurulu, 14.03.2024 tarih ve 2024/356 sayılı kararıyla, Sigma Medikal Cihaz Ltd. Şti.'nin hastane zincirlerinden topladığı hasta verilerini açık rıza almaksızın üçüncü taraf ilaç firmalarına aktardığını tespit etmiştir. Kurul, Sigma Medikal'e 6698 sayılı Kanun m. 18/1-b uyarınca 1.950.000 TL idari para cezası uygulamış ve veri aktarımının derhal durdurulmasına karar vermiştir. Karar Resmî Gazete'de yayımlanmıştır.",
+    "query": "Kappa Sağlık Teknolojileri A.Ş.'nin hasta verisi işleme faaliyetleri KVKK Kurulu tarafından cezalandırılmış mıdır?",
+    "ground_truth_keywords": ["cezalandırılmamış", "farklı şirket", "Sigma Medikal", "Kappa etkilenmez", "VERBİS kayıtlı"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  },
+  {
+    "scenario_id": "CONF_019",
+    "category": "Toplu İş Hukuku (Collective Labor Law)",
+    "t0_context": "Metal-İş Sendikası ile Demir Çelik Üreticileri İşveren Sendikası arasında 01.01.2022 tarihinde yürürlüğe giren 2 yıl süreli toplu iş sözleşmesi (TİS) uyarınca, metal sektöründeki işçilerin saat başı ücreti 85 TL, yemek yardımı günlük 45 TL ve yıllık ikramiye 4 maaş tutarında belirlenmiştir. TİS'in 23. maddesi grev yasağı süresini düzenlemiş olup, sözleşme süresi boyunca grev ve lokavt uygulanamayacağı hükme bağlanmıştır.",
+    "t1_context": "Taraflar 15.12.2023 tarihinde yetki tespiti prosedürünü tamamlayarak yeni dönem TİS müzakerelerine başlamıştır. 28.02.2024 tarihinde imzalanan yeni TİS ile saat başı ücret 120 TL'ye yükseltilmiş, yemek yardımı 65 TL olarak güncellenmiş ve yıllık ikramiye 4,5 maaş olarak revize edilmiştir. Yeni TİS 01.03.2024 tarihinde yürürlüğe girmiş olup, 6356 sayılı Sendikalar ve Toplu İş Sözleşmesi Kanunu m. 35 uyarınca geriye etkili hüküm içermemektedir.",
+    "query": "Metal sektöründeki işçilerin Mart 2024 itibarıyla saat başı ücreti ve yemek yardımı tutarı nedir?",
+    "ground_truth_keywords": ["120 TL", "65 TL", "yeni TİS", "01.03.2024", "güncellenen koşullar"],
+    "match_mode": "any_of",
+    "expected_resolution": "t1_valid"
+  },
+  {
+    "scenario_id": "CONF_020",
+    "category": "Kamulaştırma Hukuku (Expropriation Law)",
+    "t0_context": "T.C. Karayolları Genel Müdürlüğü, 2942 sayılı Kamulaştırma Kanunu m. 5 uyarınca Trabzon ili Ortahisar ilçesi 678 ada 14 parsel sayılı 1.200 m² tarla vasfındaki taşınmazı, Trabzon-Gümüşhane otoyol projesi kapsamında kamulaştırmıştır. Kıymet takdir komisyonunca belirlenen bedel 3.600.000 TL olup, bedel 12.09.2021 tarihinde malik Osman Kaya'nın banka hesabına yatırılmış ve tapu tescili idare adına gerçekleştirilmiştir.",
+    "t1_context": "Trabzon Büyükşehir Belediyesi, 05.04.2024 tarihli Belediye Meclisi kararıyla Ortahisar ilçesinin kıyı kesiminde yer alan 890 ada 22 parsel sayılı taşınmazı, kentsel dönüşüm alanı ilan ederek 6306 sayılı Kanun kapsamında riskli alan tespiti yapmıştır. Riskli alan kararı Çevre, Şehircilik ve İklim Değişikliği Bakanlığı'nca onaylanmış olup, alan içindeki yapıların yıkım ve dönüşüm sürecine alınacağı ilan edilmiştir.",
+    "query": "Osman Kaya'nın Ortahisar'daki 678 ada 14 parsel sayılı taşınmazı kentsel dönüşüm kapsamında riskli alan ilan edilmiş midir?",
+    "ground_truth_keywords": ["riskli alan değil", "farklı parsel", "890 ada 22 parsel", "kamulaştırma tamamlanmış", "678 ada etkilenmez"],
+    "match_mode": "any_of",
+    "expected_resolution": "t0_valid"
+  }
+]

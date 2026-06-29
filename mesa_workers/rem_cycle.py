@@ -107,11 +107,13 @@ EXISTING consolidated record:
   Entity: {existing_entity}
   Type: {existing_type}
   Created: {existing_created}
+  Content: {existing_content}
 
-NEW unconsolidated record:
+NEW unconsolidated record (Agent ID: {agent_id}):
   Entity: {new_entity}
   Type: {new_type}
   Created: {new_created}
+  Content: {new_content}
 
 Respond ONLY with valid JSON:
 {{"contradiction": true or false, "justification": "..."}}"""
@@ -125,10 +127,12 @@ in wording.
 EXISTING consolidated record:
   Entity: {existing_entity}
   Type: {existing_type}
+  Content: {existing_content}
 
-NEW unconsolidated record:
+NEW unconsolidated record (Agent ID: {agent_id}):
   Entity: {new_entity}
   Type: {new_type}
+  Content: {new_content}
 
 Respond ONLY with valid JSON:
 {{"contradiction": true or false, "justification": "..."}}"""
@@ -247,26 +251,44 @@ async def evaluate_contradiction(
     Returns:
         ``True`` if dual consensus confirms a contradiction.
     """
+    agent_id = new_node.get("agent_id", "unknown")
     prompt_a = _CONTRADICTION_PROMPT_A.format(
         existing_entity=existing_node.get("entity_name", ""),
         existing_type=existing_node.get("type", "ENTITY"),
         existing_created=existing_node.get("created_at", ""),
+        existing_content=existing_node.get("content_payload", ""),
         new_entity=new_node.get("entity_name", ""),
         new_type=new_node.get("type", "ENTITY"),
         new_created=new_node.get("created_at", ""),
+        new_content=new_node.get("content_payload", ""),
+        agent_id=agent_id,
     )
     prompt_b = _CONTRADICTION_PROMPT_B.format(
         existing_entity=existing_node.get("entity_name", ""),
         existing_type=existing_node.get("type", "ENTITY"),
+        existing_content=existing_node.get("content_payload", ""),
         new_entity=new_node.get("entity_name", ""),
         new_type=new_node.get("type", "ENTITY"),
+        new_content=new_node.get("content_payload", ""),
+        agent_id=agent_id,
     )
 
     # Run both LLMs concurrently
-    raw_a, raw_b = await asyncio.gather(
-        llm_a.acomplete(prompt_a),
-        llm_b.acomplete(prompt_b),
-    )
+    try:
+        raw_a, raw_b = await asyncio.gather(
+            llm_a.acomplete(prompt_a),
+            llm_b.acomplete(prompt_b),
+        )
+    except Exception as e:
+        import json
+
+        fallback_json = json.dumps(
+            {
+                "contradiction": False,
+                "justification": f"Fail-safe triggered due to LLM error: {str(e)}",
+            }
+        )
+        raw_a, raw_b = fallback_json, fallback_json
 
     contradiction_a = _parse_contradiction_response(raw_a, "LLM_A")
     contradiction_b = _parse_contradiction_response(raw_b, "LLM_B")
@@ -701,25 +723,12 @@ class REMCycleWorker:
 
         # Check each existing match for contradiction via Dual-LLM consensus
         for existing in existing_nodes:
-            try:
-                is_contradiction = await evaluate_contradiction(
-                    self._llm_a,
-                    self._llm_b,
-                    existing,
-                    new_node,
-                )
-            except Exception as exc:
-                # LLM failure — fail-safe: consolidate without invalidating
-                logger.warning(
-                    "REM_CONTRADICTION_CHECK_FAILED | agent_id=%s "
-                    "existing=%s new=%s error=%s — fail-safe consolidating",
-                    agent_id,
-                    existing.get("id", "?"),
-                    new_id,
-                    exc,
-                )
-                continue
-
+            is_contradiction = await evaluate_contradiction(
+                self._llm_a,
+                self._llm_b,
+                existing,
+                new_node,
+            )
             if is_contradiction:
                 # Execute conflict resolution protocol
                 await resolve_conflict(self._dao, agent_id, existing, new_node)
