@@ -3,495 +3,1836 @@
   "version": "0.5.1",
   "client": "<MesaClient>",
   "client_type": "mesa",
-  "dataset": "benchmarks/phase1_gatekeeper/data/contradiction_benchmark.json",
+  "dataset": "benchmarks/phase2_ablation/data/synthetic_dataset.jsonl",
   "summary": {
-    "total_scenarios": 20,
-    "correct": 19,
-    "incorrect": 1,
+    "total_scenarios": 100,
+    "correct": 0,
+    "incorrect": 100,
     "errors": 0,
-    "CRA": 0.95,
-    "mean_keyword_score": 0.39,
-    "elapsed_total_s": 1.21
+    "CRA": 0.0,
+    "mean_keyword_score": 0.0,
+    "elapsed_total_s": 16.25
   },
   "latency": {
-    "count": 20,
-    "mean_ms": 26.81,
-    "p50_ms": 20.47,
-    "p95_ms": 55.28,
-    "p99_ms": 62.72,
-    "min_ms": 13.02,
-    "max_ms": 64.58
+    "count": 100,
+    "mean_ms": 52.67,
+    "p50_ms": 51.91,
+    "p95_ms": 69.16,
+    "p99_ms": 73.26,
+    "min_ms": 29.65,
+    "max_ms": 78.99
   },
   "recency_bias_analysis": {
     "t0_valid": {
-      "total": 10,
-      "correct": 10,
-      "accuracy": 1.0
+      "total": 0,
+      "correct": 0,
+      "accuracy": 0.0
     },
     "t1_valid": {
-      "total": 10,
-      "correct": 9,
-      "accuracy": 0.9
+      "total": 100,
+      "correct": 0,
+      "accuracy": 0.0
     }
   },
   "per_scenario": [
     {
-      "scenario_id": "CONF_001",
+      "scenario_id": "scen_a623b877",
       "client_type": "mesa",
-      "category": "Miras Hukuku (Inheritance Law)",
-      "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "Ayşe Yılmaz",
-        "TMK m. 542",
-        "iptal"
-      ],
-      "keyword_misses": [
-        "sonraki vasiyetname",
-        "2021 tarihli"
-      ],
-      "keyword_match": true,
-      "match_score": 0.6,
-      "query": "Ankara Çankaya'daki 1245 ada 7 parsel sayılı taşınmaz murisin ölümünden sonra kime intikal edecektir? Hangi vasiyetname geçerlidir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Muris Ahmet Yılmaz, 05.11.2021 tarihinde Ankara 22. Noterliği'nce düzenlenen 2021/8934 yevmiye numaralı yeni vasiyetname ile aynı taşınmazı kızı Ayşe Yılmaz'a vasiyet etmiş ve vasiyetnamenin 4. maddesinde '12.03.2019 tarihli vasiyetnamemin tüm hükümlerini açıkça iptal ediyorum' şerhini düşmüştür. TMK m. 542 gereğince sonraki tarihli vasiyetname, önceki vasiyetnameyi açıkça ortadan kaldırmaktadır.",
-      "latency_s": 0.046447,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_002",
-      "client_type": "mesa",
-      "category": "İş Hukuku (Labor Law)",
-      "expected_resolution": "t0_valid",
-      "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "XYZ Lojistik",
-        "ABC Tekstil"
-      ],
-      "keyword_misses": [
-        "geçerli",
-        "sözleşme devam",
-        "farklı şirket"
-      ],
-      "keyword_match": true,
-      "match_score": 0.4,
-      "query": "Fatma Demir'in ABC Tekstil A.Ş. ile olan iş sözleşmesi hâlâ geçerli midir? İkale protokolü Fatma Demir'i bağlar mı?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) ABC Tekstil A.Ş. İnsan Kaynakları Müdürlüğü, 15.09.2023 tarihinde şirket genelinde uygulanan yeni ücret politikası kapsamında XYZ Lojistik Ltd. Şti. bünyesindeki depo çalışanlarının iş sözleşmelerini karşılıklı ikale yoluyla sona erdirmiştir. İkale protokolünde 4 aylık brüt ücret tutarında ek tazminat ödenmesi kararlaştırılmıştır. İkale protokolü XYZ Lojistik çalışanlarının tamamını kapsamaktadır.\n[2] (source=unknown) İşçi Fatma Demir, ABC Tekstil A.Ş. bün",
-      "latency_s": 0.064576,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_003",
-      "client_type": "mesa",
-      "category": "Borçlar Hukuku (Law of Obligations)",
-      "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "5.200.000 TL",
-        "ek protokol",
-        "tadil",
-        "10.08.2021"
-      ],
-      "keyword_misses": [
-        "yeni bedel"
-      ],
-      "keyword_match": true,
-      "match_score": 0.8,
-      "query": "Beyaz Holding A.Ş.'nin ödemesi gereken toplam satış bedeli nedir ve son ödeme tarihi ne zamandır?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Taraflar 10.08.2020 tarihinde noter huzurunda düzenlenen ek protokol ile satış bedelini 5.200.000 TL olarak yeniden belirlemiş, kalan ödeme takvimini 4 eşit taksite bölmüş ve son taksit tarihini 10.08.2021 olarak güncellemiştir. Ek protokolün 2. maddesinde 'İşbu protokol, 20.01.2020 tarihli satış vaadi sözleşmesinin ayrılmaz parçası olup bedel ve ödeme koşullarına ilişkin hükümleri tadil eder' ifadesi yer almaktadır.",
-      "latency_s": 0.054786,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_004",
-      "client_type": "mesa",
-      "category": "Ticaret Hukuku (Commercial Law)",
-      "expected_resolution": "t0_valid",
-      "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "Marmara",
-        "Epsilon"
-      ],
-      "keyword_misses": [
-        "devam ediyor",
-        "farklı bölge",
-        "Gamma etkilenmez"
-      ],
-      "keyword_match": true,
-      "match_score": 0.4,
-      "query": "Gamma Yedek Parça Ltd. Şti.'nin Doğu Anadolu Bölgesi'ndeki distribütörlük hakkı feshedilmiş midir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Delta Otomotiv A.Ş. ile Gamma Yedek Parça Ltd. Şti. arasında 01.03.2019 tarihinde imzalanan münhasır distribütörlük sözleşmesi uyarınca, Gamma şirketi Doğu Anadolu Bölgesi'nde Delta markasının tek yetkili distribütörü olarak atanmıştır. Sözleşmenin 14. maddesi gereğince sözleşme süresi 5 yıl olup, fesih için 6 ay önceden yazılı bildirim şartı öngörülmüştür. Sözleşmenin 9. maddesi asgari yıllık sipariş miktarını 500.000 adet olarak belirlemiştir.\n[2] (sourc",
-      "latency_s": 0.016922,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_005",
-      "client_type": "mesa",
-      "category": "İdare Hukuku (Administrative Law)",
-      "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "yeni yönetmelik",
-        "Faz IV",
-        "klinik veri"
-      ],
-      "keyword_misses": [
-        "2023 değişiklik",
-        "geçici madde"
-      ],
-      "keyword_match": true,
-      "match_score": 0.6,
-      "query": "Omega İlaç Sanayi A.Ş., Omegafen 400 mg için ruhsat yenilemesinde hangi mevzuat hükümlerine tabi olacaktır?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) T.C. Sağlık Bakanlığı, 01.01.2023 tarihinde yürürlüğe giren 'Beşeri Tıbbi Ürünler Ruhsatlandırma Yönetmeliğinde Değişiklik Yapılmasına Dair Yönetmelik' ile ruhsat yenileme sürecinde Faz IV klinik veri sunumu zorunluluğu getirmiştir. Yönetmeliğin Geçici 3. maddesi uyarınca, mevcut ruhsat sahipleri yenileme başvurularını yeni yönetmelik hükümlerine uygun olarak yapacak olup, geçiş süresi 31.12.2023 tarihinde sona ermektedir.",
-      "latency_s": 0.020407,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_006",
-      "client_type": "mesa",
-      "category": "Ceza Hukuku (Criminal Law)",
-      "expected_resolution": "t0_valid",
-      "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "lehe kanun",
-        "TCK m. 7/2"
-      ],
-      "keyword_misses": [
-        "uygulanmaz",
-        "aleyhe değişiklik",
-        "kesinleşmiş karar"
-      ],
-      "keyword_match": true,
-      "match_score": 0.4,
-      "query": "Hasan Korkmaz'ın kesinleşmiş dolandırıcılık mahkûmiyetine 7499 sayılı Kanun'daki yeni ceza sınırları uygulanabilir mi?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) 7. Yargı Paketi kapsamında 12.07.2024 tarihli ve 7499 sayılı Kanun ile TCK m. 157'de düzenlenen basit dolandırıcılık suçunun ceza alt sınırı 1 yıldan 2 yıla, üst sınırı 5 yıldan 7 yıla çıkarılmıştır. Kanunun Geçici 2. maddesi uyarınca, lehe kanun değerlendirmesi saklı kalmak kaydıyla yeni ceza sınırları yürürlük tarihinden itibaren işlenen suçlara uygulanacaktır. TCK m. 7/2 gereğince lehe olan kanun geçmişe uygulanır.\n[2] (source=unknown) Sanık Hasan Korkm",
-      "latency_s": 0.017485,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_007",
-      "client_type": "mesa",
-      "category": "Kira Hukuku (Lease Law)",
-      "expected_resolution": "t0_valid",
-      "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "18.000 TL"
-      ],
-      "keyword_misses": [
-        "TÜFE artış",
-        "dava derdest",
-        "kesinleşmemiş",
-        "mevcut sözleşme"
-      ],
-      "keyword_match": true,
-      "match_score": 0.2,
-      "query": "Sigma Danışmanlık Ltd. Şti.'nin güncel aylık kira bedeli yükümlülüğü nedir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Kiraya veren Nermin Çelik ile kiracı Sigma Danışmanlık Ltd. Şti. arasında 01.09.2020 tarihinde akdedilen 5 yıl süreli işyeri kira sözleşmesine göre, Ankara Kızılay'daki taşınmazın aylık kira bedeli 18.000 TL olarak belirlenmiştir. Sözleşmenin 7. maddesi kira bedelinin her yıl TÜFE oranında artırılacağını, 11. maddesi ise kiracının yazılı muvafakat olmaksızın alt kiracı kabul edemeyeceğini düzenlemiştir.\n[2] (source=unknown) Kiraya veren Nermin Çelik, 20.03",
-      "latency_s": 0.034893,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_008",
-      "client_type": "mesa",
-      "category": "Tüketici Hukuku (Consumer Law)",
-      "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "taahhütname",
-        "3 yıl"
-      ],
-      "keyword_misses": [
-        "10.04.2025",
-        "garanti uzatma",
-        "Bakanlık onaylı"
-      ],
-      "keyword_match": true,
-      "match_score": 0.4,
-      "query": "Elif Sarı'nın dizüstü bilgisayarının garanti süresi 10.04.2024'te mi yoksa 10.04.2025'te mi sona ermektedir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Zeta Elektronik A.Ş., 15.01.2023 tarihinde 6502 sayılı Tüketicinin Korunması Hakkında Kanun m. 56 uyarınca Ticaret Bakanlığı'na bildirimde bulunarak tüm dizüstü bilgisayar ürünlerinin garanti süresini 3 yıla uzatan resmi garanti değişiklik taahhütnamesini tescil ettirmiştir. Taahhütname Bakanlık onayı ile yürürlüğe girmiş olup, 01.01.2022 sonrası satılan tüm ürünleri kapsamaktadır. Elif Sarı'nın satın alma tarihi bu kapsamdadır.",
-      "latency_s": 0.019947,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_009",
-      "client_type": "mesa",
-      "category": "Vergi Hukuku (Tax Law)",
-      "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "%5 indirim",
-        "7456 sayılı Kanun"
-      ],
-      "keyword_misses": [
-        "indirimli oran",
-        "ihracat kazancı",
-        "2023 dönemi"
-      ],
-      "keyword_match": true,
-      "match_score": 0.4,
-      "query": "Lambda Gıda Sanayi A.Ş.'nin 2023 hesap dönemi kurumlar vergisi oranı ne olacaktır? İhracat gelirleri için indirimli oran uygulanabilir mi?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) 7456 sayılı Kanun ile 15.07.2023 tarihinden itibaren geçerli olmak üzere kurumlar vergisi oranı ihracat gelirlerinden elde edilen kazançlar için %5 indirimli uygulanacak şekilde değiştirilmiştir. Lambda Gıda Sanayi A.Ş.'nin 2023 yılı gelirlerinin %60'ı ihracat faaliyetlerinden elde edilmiştir. Kanunun yürürlük maddesi uyarınca yeni oran 01.01.2023 tarihinden itibaren elde edilen kazançlara uygulanacaktır.",
-      "latency_s": 0.020525,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_010",
-      "client_type": "mesa",
-      "category": "Aile Hukuku (Family Law)",
-      "expected_resolution": "t0_valid",
-      "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "Zeynep Polat"
-      ],
-      "keyword_misses": [
-        "velayet değişmedi",
-        "dava derdest",
-        "kesinleşmiş karar",
-        "tedbir yok"
-      ],
-      "keyword_match": true,
-      "match_score": 0.2,
-      "query": "Müşterek çocuk Deniz Polat'ın velayeti şu an kime aittir? Velayet durumu değişmiş midir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Baba Ayhan Polat, 08.05.2024 tarihinde İstanbul 4. Aile Mahkemesi'ne verdiği dilekçe ile TMK m. 183 uyarınca velayetin değiştirilmesi davası açmıştır. Dilekçede annenin çocuğu yeterince gözetmediği ve eğitim ihtiyaçlarını karşılayamadığı iddia edilmiştir. Mahkeme tensip zaptı düzenlemiş, pedagog bilirkişi raporu talep etmiş ancak duruşma henüz yapılmamıştır. Velayet değişikliği davasında ihtiyati tedbir kararı verilmemiştir.\n[2] (source=unknown) İstanbul 4",
-      "latency_s": 0.031433,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_011",
-      "client_type": "mesa",
-      "category": "İcra ve İflas Hukuku (Enforcement and Bankruptcy Law)",
-      "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "menfi tespit",
-        "İİK m. 72/3"
-      ],
-      "keyword_misses": [
-        "geçici durdurma",
-        "takip askıda",
-        "teminat yatırıldı"
-      ],
-      "keyword_match": true,
-      "match_score": 0.4,
-      "query": "Vega Faktoring A.Ş.'nin icra takibi hâlâ geçerli midir? Borçlunun fabrikası üzerindeki haciz kaldırılmış mıdır?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Rota Nakliyat Ltd. Şti., 18.11.2023 tarihinde Ankara 3. Asliye Ticaret Mahkemesi'ne İİK m. 72 uyarınca menfi tespit davası açmıştır. Dava dilekçesinde borcun zamanaşımına uğradığı ve senet altındaki imzanın şirket yetkilisine ait olmadığı ileri sürülmüştür. Mahkeme İİK m. 72/3 uyarınca alacağın %15'i oranında teminat karşılığında icra takibinin geçici olarak durdurulmasına karar vermiştir.",
-      "latency_s": 0.027758,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_012",
-      "client_type": "mesa",
-      "category": "Taşınmaz Hukuku / Muris Muvazaası (Real Property / Sham Transaction)",
-      "expected_resolution": "t0_valid",
-      "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "Konya"
-      ],
-      "keyword_misses": [
-        "iptal edilmemiş",
-        "farklı taşınmaz",
-        "Bursa etkilenmez",
-        "farklı davalı"
-      ],
-      "keyword_match": true,
-      "match_score": 0.2,
-      "query": "Bursa Nilüfer'deki 456 ada 12 parsel sayılı konutun tapu kaydı muris muvazaası nedeniyle iptal edilmiş midir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Muris Hatice Aydın, 08.06.2017 tarihinde Bursa ili Nilüfer ilçesi 456 ada 12 parsel sayılı 320 m² konutu, oğlu Murat Aydın'a tapuda satış göstermek suretiyle devretmiştir. Tapu Müdürlüğü kayıtlarında işlem bedeli 850.000 TL olarak gösterilmiş, devir resmi şekilde tamamlanmıştır. Murat Aydın tapu maliki olarak sicile tescil edilmiştir.\n[2] (source=unknown) Muris Hatice Aydın'ın 14.02.2023 tarihinde vefatının ardından, mirasçı kız kardeş Sevgi Aydın, 10.05.2",
-      "latency_s": 0.015129,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_013",
-      "client_type": "mesa",
-      "category": "Sigorta Hukuku (Insurance Law)",
+      "category": "Financial",
       "expected_resolution": "t1_valid",
       "predicted_resolution": "t0_valid",
       "correct": false,
       "keyword_hits": [],
       "keyword_misses": [
-        "teminat altında",
-        "mevcut poliçe geçerli",
-        "deprem dahil",
-        "yenileme dönemi bildirimi",
-        "mevcut dönem etkilenmez"
+        "The specific entity/concept that has conflicting facts."
       ],
       "keyword_match": false,
       "match_score": 0.0,
-      "query": "Yıldız İnşaat A.Ş.'nin Antalya Kepez'deki projesinde 01.12.2023 tarihinde meydana gelen deprem hasarı mevcut poliçe kapsamında teminat altında mıdır?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Güven Sigorta A.Ş., 15.09.2023 tarihinde Yıldız İnşaat A.Ş.'ye gönderdiği yazılı bildirim ile poliçenin yenileme döneminde (01.03.2024) deprem teminatının ayrı bir ek prim karşılığında verileceğini, aksi halde yenilenen poliçede deprem teminatının yer almayacağını bildirmiştir. Bildirim 01.03.2024 tarihli yenileme dönemine ilişkin olup, mevcut poliçe süresini etkilememektedir.",
-      "latency_s": 0.016262,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.057432,
       "error": null
     },
     {
-      "scenario_id": "CONF_014",
+      "scenario_id": "scen_8fc482d3",
       "client_type": "mesa",
-      "category": "İmar Hukuku (Zoning Law)",
-      "expected_resolution": "t0_valid",
-      "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "Kadıköy"
-      ],
-      "keyword_misses": [
-        "etkilenmemiş",
-        "farklı ilçe",
-        "Beşiktaş ruhsatı geçerli",
-        "kazanılmış hak"
-      ],
-      "keyword_match": true,
-      "match_score": 0.2,
-      "query": "Theta Gayrimenkul'ün Beşiktaş'taki 234 ada 9 parsel üzerindeki 12 katlı projesinin inşaat ruhsatı yeni imar planı değişikliğinden etkilenmiş midir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) İstanbul Büyükşehir Belediye Meclisi, 14.06.2023 tarihli kararı ile Kadıköy ilçesi sahil şeridi boyunca 1/5000 ölçekli nazım imar planı değişikliği yaparak, bölgedeki maksimum bina yüksekliğini 25 metreye düşürmüş ve emsal değerini 1.75 olarak yeniden belirlemiştir. Plan değişikliği 30 günlük askı süresini tamamlamış ve 20.08.2023 tarihinde kesinleşmiştir. Değişiklik Kadıköy sahil şeridini kapsamaktadır.\n[2] (source=unknown) Theta Gayrimenkul Yatırım A.Ş.,",
-      "latency_s": 0.015737,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_015",
-      "client_type": "mesa",
-      "category": "Fikri Mülkiyet Hukuku (Intellectual Property Law)",
+      "category": "Legal",
       "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "kullanım ispatı",
-        "Geçici 5. madde",
-        "5 yıl"
-      ],
-      "keyword_misses": [
-        "yeni kanun değişikliği",
-        "ciddi kullanım"
-      ],
-      "keyword_match": true,
-      "match_score": 0.6,
-      "query": "Iota Yazılım A.Ş.'nin NovaPay markasının 2029'daki yenileme başvurusunda hangi ek yükümlülükler söz konusu olacaktır?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) 6769 sayılı Sınai Mülkiyet Kanunu'nda 01.01.2024 tarihinde yürürlüğe giren değişiklik ile marka yenileme başvurularında kullanım ispatı zorunluluğu getirilmiştir. Değişikliğin Geçici 5. maddesi uyarınca, tescil tarihinden itibaren 5 yılını doldurmuş markaların yenileme başvurularında son 5 yıla ait ciddi biçimde kullanım kanıtı sunulması gerekmektedir. Iota Yazılım A.Ş.'nin NovaPay markası 12.04.2024 tarihinde 5. yılını doldurmuş olup, marka ticari olarak ",
-      "latency_s": 0.031348,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_016",
-      "client_type": "mesa",
-      "category": "Rekabet Hukuku (Competition Law)",
-      "expected_resolution": "t0_valid",
       "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "Chi Toptan"
-      ],
+      "correct": false,
+      "keyword_hits": [],
       "keyword_misses": [
-        "muafiyet geçerli",
-        "ihlal yok",
-        "farklı taraflar",
-        "Psi-Alfa etkilenmez"
+        "The specific entity/concept that has conflicting facts."
       ],
-      "keyword_match": true,
-      "match_score": 0.2,
-      "query": "Psi Perakende Zinciri A.Ş. ile Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması Rekabet Kurulu tarafından ihlal olarak değerlendirilmiş midir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Rekabet Kurulu'nun 08.03.2021 tarih ve 21-14/187-78 sayılı kararıyla, Psi Perakende Zinciri A.Ş. ile tedarikçisi Alfa Gıda Sanayi A.Ş. arasındaki münhasır tedarik anlaşması, 4054 sayılı Rekabetin Korunması Hakkında Kanun m. 4 kapsamında grup muafiyetinden yararlandırılmıştır. Muafiyet kararı 5 yıl süreyle geçerli olup, tarafların pazar paylarının ilgili ürün pazarında %30'un altında kaldığı tespit edilmiştir. Anlaşma kapsamında Alfa Gıda, Psi Perakende'ye ",
-      "latency_s": 0.026383,
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.047632,
       "error": null
     },
     {
-      "scenario_id": "CONF_017",
+      "scenario_id": "scen_8e2831ad",
       "client_type": "mesa",
-      "category": "Deniz Ticaret Hukuku (Maritime Commercial Law)",
+      "category": "Legal",
       "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "deniz raporu",
-        "mücbir sebep",
-        "TTK m. 1178"
-      ],
-      "keyword_misses": [
-        "sürveyör raporu",
-        "fırtına hasarı"
-      ],
-      "keyword_match": true,
-      "match_score": 0.6,
-      "query": "Atlas Dış Ticaret Ltd. Şti.'nin hasarlı yük için tazminat talebi navlun bedelinden mahsup edilebilir mi? Taşıyanın sorumluluk durumu nedir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Taşıma sırasında 18.04.2022 tarihinde Antalya açıklarında şiddetli fırtına nedeniyle geminin ambar kapakları hasar görmüş ve yükün %20'si deniz suyuyla temas etmiştir. Gemi kaptanı aynı gün deniz raporu (sea protest) düzenlemiş ve Antalya Liman Başkanlığı'na bildirmiştir. TTK m. 1178 uyarınca taşıyan, denizcilik kazası sonucu oluşan zarardan mücbir sebep (force majeure) savunması ileri sürmüştür. Hasar tespit tutanağı bağımsız sürveyör tarafından 22.04.202",
-      "latency_s": 0.01855,
-      "error": null
-    },
-    {
-      "scenario_id": "CONF_018",
-      "client_type": "mesa",
-      "category": "Kişisel Verilerin Korunması Hukuku (Data Protection / KVKK)",
-      "expected_resolution": "t0_valid",
       "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "Sigma Medikal"
-      ],
+      "correct": false,
+      "keyword_hits": [],
       "keyword_misses": [
-        "cezalandırılmamış",
-        "farklı şirket",
-        "Kappa etkilenmez",
-        "VERBİS kayıtlı"
+        "The specific entity/concept that has conflicting facts."
       ],
-      "keyword_match": true,
-      "match_score": 0.2,
-      "query": "Kappa Sağlık Teknolojileri A.Ş.'nin hasta verisi işleme faaliyetleri KVKK Kurulu tarafından cezalandırılmış mıdır?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Kappa Sağlık Teknolojileri A.Ş., Kişisel Verileri Koruma Kurumu (KVKK) nezdinde 22.07.2020 tarihinde VERBİS'e kayıt olmuş ve 6698 sayılı KVKK m. 10 uyarınca aydınlatma yükümlülüğünü yerine getirmiştir. Şirketin veri işleme envanterine göre, hasta sağlık verileri açık rıza kapsamında işlenmekte olup, verilerin yurt dışına aktarımı yapılmamaktadır. Kappa'nın veri sorumlusu siciline kayıtlı işleme amacı 'sağlık hizmeti sunumu ve randevu yönetimi' olarak belir",
-      "latency_s": 0.026386,
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.055958,
       "error": null
     },
     {
-      "scenario_id": "CONF_019",
+      "scenario_id": "scen_bab662ca",
       "client_type": "mesa",
-      "category": "Toplu İş Hukuku (Collective Labor Law)",
+      "category": "Medical",
       "expected_resolution": "t1_valid",
-      "predicted_resolution": "t1_valid",
-      "correct": true,
-      "keyword_hits": [
-        "120 TL",
-        "65 TL",
-        "yeni TİS",
-        "01.03.2024"
-      ],
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
       "keyword_misses": [
-        "güncellenen koşullar"
+        "The specific entity/concept that has conflicting facts."
       ],
-      "keyword_match": true,
-      "match_score": 0.8,
-      "query": "Metal sektöründeki işçilerin Mart 2024 itibarıyla saat başı ücreti ve yemek yardımı tutarı nedir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Taraflar 15.12.2023 tarihinde yetki tespiti prosedürünü tamamlayarak yeni dönem TİS müzakerelerine başlamıştır. 28.02.2024 tarihinde imzalanan yeni TİS ile saat başı ücret 120 TL'ye yükseltilmiş, yemek yardımı 65 TL olarak güncellenmiş ve yıllık ikramiye 4,5 maaş olarak revize edilmiştir. Yeni TİS 01.03.2024 tarihinde yürürlüğe girmiş olup, 6356 sayılı Sendikalar ve Toplu İş Sözleşmesi Kanunu m. 35 uyarınca geriye etkili hüküm içermemektedir.",
-      "latency_s": 0.013025,
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.04693,
       "error": null
     },
     {
-      "scenario_id": "CONF_020",
+      "scenario_id": "scen_e3e2e24e",
       "client_type": "mesa",
-      "category": "Kamulaştırma Hukuku (Expropriation Law)",
-      "expected_resolution": "t0_valid",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
       "predicted_resolution": "t0_valid",
-      "correct": true,
-      "keyword_hits": [
-        "890 ada 22 parsel"
-      ],
+      "correct": false,
+      "keyword_hits": [],
       "keyword_misses": [
-        "riskli alan değil",
-        "farklı parsel",
-        "kamulaştırma tamamlanmış",
-        "678 ada etkilenmez"
+        "The specific entity/concept that has conflicting facts."
       ],
-      "keyword_match": true,
-      "match_score": 0.2,
-      "query": "Osman Kaya'nın Ortahisar'daki 678 ada 14 parsel sayılı taşınmazı kentsel dönüşüm kapsamında riskli alan ilan edilmiş midir?",
-      "raw_response": "Retrieved Context:\n[1] (source=unknown) Trabzon Büyükşehir Belediyesi, 05.04.2024 tarihli Belediye Meclisi kararıyla Ortahisar ilçesinin kıyı kesiminde yer alan 890 ada 22 parsel sayılı taşınmazı, kentsel dönüşüm alanı ilan ederek 6306 sayılı Kanun kapsamında riskli alan tespiti yapmıştır. Riskli alan kararı Çevre, Şehircilik ve İklim Değişikliği Bakanlığı'nca onaylanmış olup, alan içindeki yapıların yıkım ve dönüşüm sürecine alınacağı ilan edilmiştir.\n[2] (source=unknown) T.C. Karayolları Genel",
-      "latency_s": 0.018123,
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.039273,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_73a6b1d7",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.053285,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_b80d0cf9",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.044594,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_c5f4f65d",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.045081,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_0787ab0d",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.052027,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7bbd67c0",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.03651,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_0ed2f975",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.035897,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_978713f6",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.052912,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7d6d1660",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.029659,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_9579ab5f",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.044449,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7c82d014",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.031579,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_9b464539",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.042287,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_782cb1a5",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.047482,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_065dea90",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.032247,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_87498102",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.042864,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_a4396351",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.047109,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_4b442d97",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.044179,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_326de36b",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.036761,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_68cd1a73",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.060881,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_2c34f06b",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.037123,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_5577f135",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051399,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7ec474c7",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.037885,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_fb14febf",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.054689,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7f66da53",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.04657,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_933e72e2",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.029651,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_6d714c46",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.054311,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_9cfb6c8e",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.05683,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_8d634220",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.061873,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_3d44ff30",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.066036,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_82bb2e91",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.050184,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_a989abfc",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.054532,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_ac7d5f69",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.056454,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_6f33f5d4",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.059758,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_172cff96",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.055606,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_bbffb959",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.06202,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7040bdf9",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.047124,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_719bf564",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051085,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_388f1e37",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051899,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_d747e929",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.047823,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7388b5ac",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.047213,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_87864fd3",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051997,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_b7e3fa6c",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.050012,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_073b270f",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.043806,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_1f3db282",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.054638,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_fb527b27",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.049088,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_354d0ca9",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.061252,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_34000014",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.058017,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_ae219837",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.050385,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_4301d1c4",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.046414,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_42831bc9",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.060188,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_2e21928f",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.061826,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_c00f050e",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.05037,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_6c7caec0",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.04131,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_3f03d9a4",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.060329,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_677add3a",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051468,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_374c6db4",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.050477,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_5abc4217",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.073202,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_91ab224d",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.067367,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_735eba60",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.045813,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_ca990728",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.049351,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_efebfc18",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.069117,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_f396a6ac",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.072913,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_3b8c7bc2",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.066626,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_9bda12e2",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.078991,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_0ea07423",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051144,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_38e35022",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.056189,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_53ce5ec1",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.061864,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_926eaa29",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.052041,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_eda24e91",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051929,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_c56a99ea",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.048564,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_15aea835",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.063353,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_de67e633",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.058152,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_0ec87b80",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.060337,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_d845a8e6",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.0671,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_5d14ee7f",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.060009,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_62fd35db",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.068258,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_a85b9a0e",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.054842,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_7541b3da",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.046514,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_6bb74d4e",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.046475,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_e9860d5e",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.065315,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_c722b2b6",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.071271,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_820a30fe",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.044843,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_933cc970",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.051668,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_cb13d54e",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.067616,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_05676094",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.060721,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_2c3292f1",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.06174,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_5980e1b4",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.069924,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_1174605f",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.048828,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_4f86bc30",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.063435,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_2e41cfb8",
+      "client_type": "mesa",
+      "category": "Financial",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.034063,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_cdb7da0b",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.050933,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_923f0c65",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.067933,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_fc2435a5",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.043986,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_bcd273ab",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.054985,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_a51a767b",
+      "client_type": "mesa",
+      "category": "Medical",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.053899,
+      "error": null
+    },
+    {
+      "scenario_id": "scen_2a2fbfef",
+      "client_type": "mesa",
+      "category": "Legal",
+      "expected_resolution": "t1_valid",
+      "predicted_resolution": "t0_valid",
+      "correct": false,
+      "keyword_hits": [],
+      "keyword_misses": [
+        "The specific entity/concept that has conflicting facts."
+      ],
+      "keyword_match": false,
+      "match_score": 0.0,
+      "query": "A specific question asking about the current state of the fact.",
+      "raw_response": "Retrieved Context:\n[1] (source=unknown) The newer, dense document establishing fact B (contradicts A).\n[2] (source=unknown) The older, dense document establishing fact A.",
+      "latency_s": 0.037065,
       "error": null
     }
   ]

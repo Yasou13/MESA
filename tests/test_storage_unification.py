@@ -172,10 +172,7 @@ class TestColdPathRoutesToDAO:
         from mesa_workers.ingestion_worker import process_cold_path
 
         dao = _make_mock_dao()
-
-        mock_adapter = MagicMock()
-        mock_adapter.aembed = AsyncMock(return_value=[0.1] * 1536)
-        mock_adapter.acomplete = AsyncMock(return_value="[]")
+        dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
 
         # Patch REBEL to return no triplets (exercise raw-memory commit path)
         with (
@@ -187,10 +184,6 @@ class TestColdPathRoutesToDAO:
                 "mesa_workers.ingestion_worker._run_llm_triplet_extraction",
                 new_callable=AsyncMock,
                 return_value=[],
-            ),
-            patch(
-                "mesa_workers.ingestion_worker.AdapterFactory.get_adapter",
-                return_value=mock_adapter,
             ),
         ):
             await process_cold_path(log_id=1, agent_id="test_agent", dao=dao)
@@ -217,14 +210,11 @@ class TestColdPathRoutesToDAO:
         from mesa_workers.ingestion_worker import process_cold_path
 
         dao = _make_mock_dao()
+        dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
 
         fake_triplets = [
             {"head": "EU", "relation": "mandates", "tail": "Data Protection"},
         ]
-
-        mock_adapter = MagicMock()
-        mock_adapter.aembed = AsyncMock(return_value=[0.1] * 1536)
-        mock_adapter.acomplete = AsyncMock(return_value="[]")
 
         with (
             patch(
@@ -235,10 +225,6 @@ class TestColdPathRoutesToDAO:
                 "mesa_workers.ingestion_worker._run_llm_triplet_extraction",
                 new_callable=AsyncMock,
                 return_value=fake_triplets,
-            ),
-            patch(
-                "mesa_workers.ingestion_worker.AdapterFactory.get_adapter",
-                return_value=mock_adapter,
             ),
         ):
             await process_cold_path(log_id=1, agent_id="test_agent", dao=dao)

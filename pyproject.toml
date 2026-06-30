@@ -66,6 +66,7 @@ dependencies = [
     "jsonschema>=4.26.0",
     # Anomaly detection
     "pyod>=3.3.0",
+    "mem0ai>=0.1.0",
 ]
 
 [project.optional-dependencies]

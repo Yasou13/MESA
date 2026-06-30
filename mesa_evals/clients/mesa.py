@@ -21,10 +21,23 @@ logger = logging.getLogger("MESA_Client")
 
 
 class MesaClient(BaseMemoryClient):
-    """MESA Memory Client for Antigravity Contradiction Benchmark."""
+    """MESA Memory Client for Antigravity Contradiction Benchmark.
+
+    Supports ablation mode via environment variables:
+        - MESA_ENABLE_GRAPH: "True"/"False" — enables/disables KùzuDB graph
+        - MESA_ENABLE_CONSENSUS: "True"/"False" — enables/disables REM cycle
+    """
 
     def __init__(self, adapter: BaseUniversalLLMAdapter):
         self._adapter = adapter
+
+        # Read ablation flags (default: all enabled)
+        self._enable_graph = (
+            os.environ.get("MESA_ENABLE_GRAPH", "True").lower() == "true"
+        )
+        self._enable_consensus = (
+            os.environ.get("MESA_ENABLE_CONSENSUS", "True").lower() == "true"
+        )
 
         # Cleanup past test runs
         db_path = "./storage/benchmark_mesa_sql.db"
@@ -47,9 +60,12 @@ class MesaClient(BaseMemoryClient):
 
         sql_engine = AsyncEngine("./storage/benchmark_mesa_sql.db")
         vec_engine = VectorEngine(uri="./storage/benchmark_mesa_vec")
-        # Initialize graph schema
-        kuzu_initialize_schema("./storage/benchmark_mesa_graph")
-        graph_provider = KuzuGraphProvider(db_path="./storage/benchmark_mesa_graph")
+
+        # Conditionally initialize graph — disabled in ablation Naive_Vector_RAG
+        graph_provider = None
+        if self._enable_graph:
+            kuzu_initialize_schema("./storage/benchmark_mesa_graph")
+            graph_provider = KuzuGraphProvider(db_path="./storage/benchmark_mesa_graph")
 
         self._sql_engine = sql_engine
 
@@ -74,14 +90,21 @@ class MesaClient(BaseMemoryClient):
             access_control=BenchmarkAccessControl(),
         )
 
-        # Initialize REM Worker but set enabled=False so it doesn't poll.
-        # We manually trigger it after each add_memory to enforce deterministic tests.
-        self._rem_worker = REMCycleWorker(
-            dao=self._dao,
-            llm_a=self._adapter,
-            llm_b=self._adapter,
-            enabled=False,
-            activation_threshold=1,
+        # Conditionally initialize REM Worker — disabled in ablation variants
+        self._rem_worker: REMCycleWorker | None = None
+        if self._enable_consensus:
+            self._rem_worker = REMCycleWorker(
+                dao=self._dao,
+                llm_a=self._adapter,
+                llm_b=self._adapter,
+                enabled=False,
+                activation_threshold=1,
+            )
+
+        logger.info(
+            "MESA_CLIENT_INIT | graph=%s consensus=%s",
+            self._enable_graph,
+            self._enable_consensus,
         )
 
     async def initialize(self) -> None:
@@ -107,13 +130,12 @@ class MesaClient(BaseMemoryClient):
     ) -> str:
         self._validate_agent_id(agent_id)
 
-        # For the benchmark, we must ensure t0 and t1 are grouped together
-        # by the REM cycle. The baseline extraction uses the first few words,
-        # which differ between t0 and t1 text, causing them to miss each other.
-        # Since agent_id isolates the scenario, we can safely use a single entity name.
-        entity_name = "benchmark_subject"
+        # Extract entity name via LLM instead of hardcoding.
+        # This ensures the benchmark tests the full extraction pipeline,
+        # not a hand-linked shortcut.
+        entity_name = await self._extract_entity_name(content)
 
-        embedding = await self._adapter.aembed(content)
+        embedding = await self._dao.vector_engine.compute_embedding(content)
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
         # Insert raw memory
@@ -126,12 +148,39 @@ class MesaClient(BaseMemoryClient):
             metadata=metadata,
         )
 
-        # Trigger REM Cycle synchronously to evaluate contradiction
-        # This will query the LLM to compare this new node against existing nodes
-        # sharing the same entity name.
-        await self._rem_worker.run_now(agent_id)
+        # Trigger REM Cycle synchronously if consensus is enabled
+        if self._rem_worker is not None:
+            await self._rem_worker.run_now(agent_id)
 
         return node_id
+
+    async def _extract_entity_name(self, content: str) -> str:
+        """Extract the primary entity/subject from content via LLM.
+
+        Falls back to first 50 chars of content on failure.
+        """
+        try:
+            prompt = (
+                "Extract the single most important entity name (person, organization, "
+                "product, or concept) from the following text. Respond with ONLY the "
+                "entity name, nothing else.\n\n"
+                f"Text: {content[:500]}"
+            )
+            result = await self._adapter.acomplete(prompt)
+            if isinstance(result, str):
+                text_content = result
+            elif hasattr(result, "model_dump_json"):
+                text_content = getattr(result, "model_dump_json")()
+            else:
+                text_content = str(result)
+            entity = text_content.strip().strip('"').strip("'")[:100]
+            if entity:
+                return entity
+        except Exception as exc:
+            logger.warning("Entity extraction failed: %s — using fallback", exc)
+
+        # Fallback: use first meaningful words
+        return content[:50].strip()
 
     async def query(
         self, question: str, *, agent_id: str, limit: int = 5

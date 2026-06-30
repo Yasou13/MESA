@@ -34,6 +34,7 @@ from typing import Any
 # Add workspace root to python path to allow imports from mesa_evals
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from benchmarks.phase2_ablation.generators.judge import LLMJudgeEvaluator
 from mesa_evals.clients.base import BaseMemoryClient, QueryResult
 
 logger = logging.getLogger("MESA_ContradictionRunner")
@@ -252,15 +253,41 @@ class BenchmarkReport:
 
 
 def load_contradiction_dataset(path: str) -> list[dict[str, Any]]:
-    """Load and validate the contradiction benchmark dataset."""
+    """Load and validate the contradiction benchmark dataset, handling JSON and JSONL."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Benchmark dataset not found: {path}")
 
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = []
+    if path.endswith(".jsonl"):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    item = json.loads(line)
+                    # Determine expected resolution from circuit_type
+                    # Red herring scenarios (different entities) expect t0_valid
+                    circuit = item.get("circuit_type", "")
+                    expected_res = (
+                        "t0_valid" if "red_herring" in circuit.lower() else "t1_valid"
+                    )
+
+                    # Map new synthetic dataset schema to expected runner schema
+                    mapped_item = {
+                        "scenario_id": item.get("id"),
+                        "category": item.get("domain", "Unknown"),
+                        "t0_context": item.get("context_t0"),
+                        "t1_context": item.get("context_t1"),
+                        "query": item.get("question"),
+                        "expected_resolution": expected_res,
+                        "ground_truth_answer": item.get("ground_truth_answer", ""),
+                        "ground_truth_keywords": [item.get("target_entity", "")],
+                    }
+                    data.append(mapped_item)
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
     if not isinstance(data, list) or len(data) == 0:
-        raise ValueError("Dataset must be a non-empty JSON array.")
+        raise ValueError("Dataset must be a non-empty list.")
 
     required_keys = {
         "scenario_id",
@@ -300,32 +327,19 @@ def make_agent_id(scenario_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def evaluate_keywords(
-    retrieved_context: str,
-    ground_truth_keywords: list[str],
-    match_mode: str = "any_of",
-) -> tuple[list[str], list[str], float, bool]:
-    """Evaluate keyword presence.  Returns (hits, misses, score, any_match)."""
-    if not ground_truth_keywords:
-        return [], [], 0.0, False
+# ---------------------------------------------------------------------------
+# Shared LLM Judge instance (lazy-initialized)
+# ---------------------------------------------------------------------------
 
-    context_lower = retrieved_context.lower()
-    hits = [kw for kw in ground_truth_keywords if kw.lower() in context_lower]
-    misses = [kw for kw in ground_truth_keywords if kw.lower() not in context_lower]
-
-    if match_mode == "all_of":
-        score = 1.0 if not misses else 0.0
-    else:
-        score = len(hits) / len(ground_truth_keywords)
-
-    return hits, misses, score, len(hits) > 0
+_llm_judge: LLMJudgeEvaluator | None = None
 
 
-def predict_resolution(match_score: float, expected: str) -> str:
-    """Heuristic: keywords found → correct side; absent → wrong side."""
-    if match_score > 0.0:
-        return expected
-    return "t1_valid" if expected == "t0_valid" else "t0_valid"
+def _get_judge() -> LLMJudgeEvaluator:
+    """Lazy-init a shared LLM judge for the runner."""
+    global _llm_judge
+    if _llm_judge is None:
+        _llm_judge = LLMJudgeEvaluator()
+    return _llm_judge
 
 
 # ---------------------------------------------------------------------------
@@ -342,9 +356,13 @@ async def execute_scenario(
     tracker: LatencyTracker,
     search_limit: int = DEFAULT_SEARCH_LIMIT,
 ) -> ScenarioResult:
-    """Execute one scenario under semaphore throttle with precision timing."""
+    """Execute one scenario under semaphore throttle with precision timing.
+
+    Uses LLM-as-a-Judge for correctness evaluation instead of keyword matching.
+    """
     scenario_id = scenario["scenario_id"]
     agent_id = make_agent_id(scenario_id)
+    judge = _get_judge()
 
     async with semaphore:
         logger.info(
@@ -384,17 +402,33 @@ async def execute_scenario(
             query_latency_s = time.monotonic() - t_query_start
             tracker.record(query_latency_s * 1000.0)
 
-            total_latency_s = time.monotonic() - t_total_start
+            # PHASE 5: LLM-as-a-Judge evaluation
+            actual_response = result.context or "No relevant context found."
 
-            # PHASE 5: Evaluate
-            hits, misses, score, any_match = evaluate_keywords(
-                result.context,
-                scenario["ground_truth_keywords"],
-                scenario.get("match_mode", "any_of"),
+            # Derive ground truth answer from scenario
+            # Phase 1 datasets use ground_truth_keywords; Phase 2 uses ground_truth_answer
+            ground_truth = scenario.get("ground_truth_answer", "")
+            if not ground_truth:
+                ground_truth = ", ".join(scenario.get("ground_truth_keywords", []))
+
+            judge_result = await judge.evaluate(
+                context_t0=scenario["t0_context"],
+                context_t1=scenario["t1_context"],
+                query=scenario["query"],
+                expected_ground_truth=ground_truth,
+                actual_system_response=actual_response,
             )
 
-            predicted = predict_resolution(score, scenario["expected_resolution"])
-            correct = predicted == scenario["expected_resolution"]
+            correct = judge_result.is_correct
+            predicted = (
+                scenario["expected_resolution"]
+                if correct
+                else (
+                    "t1_valid"
+                    if scenario["expected_resolution"] == "t0_valid"
+                    else "t0_valid"
+                )
+            )
 
             sr = ScenarioResult(
                 scenario_id=scenario_id,
@@ -403,12 +437,12 @@ async def execute_scenario(
                 expected_resolution=scenario["expected_resolution"],
                 predicted_resolution=predicted,
                 correct=correct,
-                keyword_hits=hits,
-                keyword_misses=misses,
-                keyword_match=any_match,
-                match_score=score,
+                keyword_hits=[],
+                keyword_misses=[],
+                keyword_match=correct,
+                match_score=1.0 if correct else 0.0,
                 query=scenario["query"],
-                raw_response=result.context[:500],
+                raw_response=actual_response[:500],
                 latency_s=round(query_latency_s, 6),
                 error=result.error,
             )
@@ -424,7 +458,7 @@ async def execute_scenario(
                 predicted_resolution="error",
                 correct=False,
                 keyword_hits=[],
-                keyword_misses=scenario["ground_truth_keywords"],
+                keyword_misses=scenario.get("ground_truth_keywords", []),
                 keyword_match=False,
                 match_score=0.0,
                 query=scenario["query"],
@@ -494,11 +528,22 @@ async def run_benchmark(
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        exception_count = 0
         for r in results:
             if isinstance(r, Exception):
                 logger.error("GATHER_EXCEPTION | %s", r)
+                exception_count += 1
             elif isinstance(r, ScenarioResult):
                 report.scenario_results.append(r)
+
+        # Minimum success-rate guard: abort if >5% scenarios crashed
+        total = len(scenarios)
+        if total > 0 and exception_count / total > 0.05:
+            raise RuntimeError(
+                f"Benchmark aborted: {exception_count}/{total} scenarios "
+                f"({exception_count / total:.0%}) crashed. "
+                f"CRA computed over survivors would be unreliable."
+            )
 
     finally:
         await client.shutdown()
@@ -531,24 +576,25 @@ async def run_benchmark(
 
 def create_client(client_type: str) -> BaseMemoryClient:
     """Instantiate a benchmark client by type name."""
+    from mesa_memory.adapter.factory import AdapterFactory
+
+    adapter = AdapterFactory.get_adapter()
+
     if client_type == "barerag":
         from mesa_evals.clients.barerag import BareRAGClient
-        from mesa_memory.adapter.mock import DeterministicMockAdapter
 
         return BareRAGClient(
-            adapter=DeterministicMockAdapter(),
+            adapter=adapter,
             storage_root="./storage/benchmark_barerag",
         )
     elif client_type == "mesa":
         from mesa_evals.clients.mesa import MesaClient
-        from mesa_memory.adapter.mock import DeterministicMockAdapter
 
-        return MesaClient(adapter=DeterministicMockAdapter())
+        return MesaClient(adapter=adapter)
     elif client_type == "mem0":
         from mesa_evals.clients.mem0 import Mem0Client
-        from mesa_memory.adapter.mock import DeterministicMockAdapter
 
-        return Mem0Client(adapter=DeterministicMockAdapter())
+        return Mem0Client(adapter=adapter)
     raise ValueError(f"Unknown client type: {client_type!r}")
 
 

@@ -50,7 +50,6 @@ from typing import Any
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
-from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
@@ -750,8 +749,6 @@ async def _commit_triplets(
         triplets: List of ``{head, relation, tail}`` dicts from REBEL.
         log_id: raw_logs primary key (used for node context tagging).
     """
-    adapter = AdapterFactory.get_adapter()
-
     for triplet in triplets:
         head = triplet.get("head", "").strip()
         relation = triplet.get("relation", "").strip()
@@ -783,8 +780,8 @@ async def _commit_triplets(
 
         try:
             # Generate real embeddings for head and tail entities
-            head_embedding = await adapter.aembed(head[:512])
-            tail_embedding = await adapter.aembed(tail[:512])
+            head_embedding = await dao.vector_engine.compute_embedding(head[:512])
+            tail_embedding = await dao.vector_engine.compute_embedding(tail[:512])
 
             # Insert head entity node
             head_node_id = await dao.insert_memory(
@@ -864,8 +861,7 @@ async def _commit_raw_memory(
         content: Original content text.
         log_id: raw_logs primary key.
     """
-    adapter = AdapterFactory.get_adapter()
-    embedding = await adapter.aembed(content[:512])
+    embedding = await dao.vector_engine.compute_embedding(content[:512])
 
     node_id = await dao.insert_memory(
         agent_id,

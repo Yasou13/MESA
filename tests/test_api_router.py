@@ -197,7 +197,7 @@ class TestInsertEndpoint:
         mock_adapter.acomplete = AsyncMock(return_value="[]")
 
         with patch(
-            "mesa_workers.ingestion_worker.AdapterFactory.get_adapter",
+            "mesa_memory.adapter.factory.AdapterFactory.get_adapter",
             return_value=mock_adapter,
         ):
             resp = client.post(
@@ -257,7 +257,7 @@ class TestSearchEndpoint:
 
         with (
             patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_memory.adapter.factory.AdapterFactory"),
             patch("mesa_api.router._get_access_control"),
         ):
             resp = client.post(
@@ -295,7 +295,7 @@ class TestSearchEndpoint:
 
         with (
             patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_memory.adapter.factory.AdapterFactory"),
             patch("mesa_api.router._get_access_control"),
         ):
             resp = client.post(
@@ -317,7 +317,7 @@ class TestSearchEndpoint:
 
         with (
             patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_memory.adapter.factory.AdapterFactory"),
             patch("mesa_api.router._get_access_control"),
         ):
             resp = client.post(
@@ -379,7 +379,7 @@ class TestSearchEndpoint:
 
         with (
             patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
+            patch("mesa_memory.adapter.factory.AdapterFactory"),
             patch("mesa_api.router._get_access_control"),
         ):
             resp = client.post(

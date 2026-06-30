@@ -41,6 +41,8 @@ def test_query_analyzer_fallback():
 @pytest.mark.asyncio
 async def test_hybrid_retrieval_cold_start():
     storage = MagicMock()
+    storage.vector_engine = MagicMock()
+    storage.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
 
     storage.get_memories = AsyncMock(return_value=[])
     storage.find_nodes_by_name = AsyncMock(return_value=[])
@@ -97,6 +99,8 @@ async def test_hybrid_retrieval_cold_start():
 @pytest.mark.asyncio
 async def test_alpha_reranking_logic():
     storage = MagicMock()
+    storage.vector_engine = MagicMock()
+    storage.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
 
     storage.get_memories.return_value = [
         {"id": "node_b", "entity_name": "B_entity", "type": "ENTITY"},

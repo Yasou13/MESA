@@ -28,9 +28,4 @@ class AdapterFactory:
             return OllamaAdapter(
                 model=config.llm_model_name or "mistral",
             )
-        elif provider == "mock":
-            from mesa_memory.adapter.mock import DeterministicMockAdapter
-
-            return DeterministicMockAdapter()
-
         raise ValueError(f"Unknown LLM provider: {provider}")

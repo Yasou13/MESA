@@ -13,7 +13,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contradiction_runner import (
-    DEFAULT_DATASET_PATH,
     create_client,
     run_benchmark,
 )
@@ -22,7 +21,7 @@ logger = logging.getLogger("MESA_Gatekeeper")
 
 
 async def run_gatekeeper() -> None:
-    dataset_path = DEFAULT_DATASET_PATH
+    dataset_path = "benchmarks/phase2_ablation/data/synthetic_dataset.jsonl"
 
     # =========================================================================
     # PHASE A: INITIALIZATION
@@ -86,10 +85,7 @@ async def run_gatekeeper() -> None:
     if cra_score < 0.90:
         logger.critical("🚨 PIPELINE HALTED 🚨")
         logger.critical(
-            f"MESA CRA score ({cra_percentage:.2f}%) is below the strict 90% threshold."
-        )
-        logger.critical(
-            "ACTION REQUIRED: Fix MESA's core algorithms (Double-LLM evaluation loop or KùzuDB graph traversal)."
+            f"MESA CRA score ({cra_percentage:.2f}%) is below the strict threshold."
         )
         sys.exit(1)
 

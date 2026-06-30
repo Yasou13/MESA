@@ -17,8 +17,7 @@ a semantically similar but legally irrelevant document (t1) appears
 newer and cosine-closer to the query than the actually valid context.
 
 Storage backend: LanceDB (disk-backed, per-agent isolated tables).
-Embedding model: MESA's ``DeterministicMockAdapter`` (SHA-256 → 384d)
-                 or any ``BaseUniversalLLMAdapter`` implementation.
+Embedding model: Sentence-Transformers (all-MiniLM-L6-v2) or any ``BaseUniversalLLMAdapter`` implementation.
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ logger = logging.getLogger("MESA_BareRAG")
 # ---------------------------------------------------------------------------
 
 _DEFAULT_STORAGE_ROOT = "./storage/benchmark_barerag"
-_DEFAULT_SEARCH_LIMIT = 5
+_DEFAULT_SEARCH_LIMIT = 1  # Force single-chunk retrieval for benchmark fairness
 _DISTANCE_THRESHOLD = 0.85  # Reject chunks with cosine distance > this
 
 
@@ -61,6 +60,9 @@ class BareRAGClient(BaseMemoryClient):
         adapter: Embedding model adapter (any ``BaseUniversalLLMAdapter``).
         storage_root: Disk path for LanceDB data (default: ``./storage/benchmark_barerag``).
         search_limit: Default top-K for similarity search.
+            In benchmark mode, this defaults to 1 to prevent context stuffing
+            (retrieving both t0 and t1, offloading contradiction resolution
+            to the LLM judge's context window instead of testing retrieval).
     """
 
     def __init__(
@@ -130,8 +132,9 @@ class BareRAGClient(BaseMemoryClient):
         node_id = str(uuid.uuid4())
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-        # Generate embedding (sync adapter call is fine for benchmarks)
-        embedding = await self._adapter.aembed(content)
+        # Generate embedding via VectorEngine
+        assert self._vector_engine is not None
+        embedding = await self._vector_engine.compute_embedding(content)
 
         # Upsert into LanceDB with strict agent_id isolation
         assert self._vector_engine is not None
@@ -187,8 +190,8 @@ class BareRAGClient(BaseMemoryClient):
         k = limit or self._search_limit
 
         try:
-            # Step 1: Embed the query
-            query_embedding = await self._adapter.aembed(question)
+            # Step 1: Embed the query via VectorEngine
+            query_embedding = await self._vector_engine.compute_embedding(question)
 
             # Step 2: Cosine similarity search (agent_id hardcoded in WHERE)
             raw_results = await self._vector_engine.search(

@@ -81,14 +81,9 @@ class TestParseLLMTripletResponse:
 
 class TestCommitLogic:
     @pytest.mark.asyncio
-    @patch("mesa_workers.ingestion_worker.AdapterFactory")
-    async def test_commit_triplets(self, mock_factory):
-        mock_adapter = AsyncMock()
-        # Mock embedding return value
-        mock_adapter.aembed.return_value = [0.1, 0.2, 0.3]
-        mock_factory.get_adapter.return_value = mock_adapter
-
+    async def test_commit_triplets(self):
         mock_dao = MagicMock()
+        mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
         mock_dao.insert_memory = AsyncMock(side_effect=["node_head_id", "node_tail_id"])
         mock_dao.insert_edge = AsyncMock()
 
@@ -110,10 +105,10 @@ class TestCommitLogic:
             log_id=42,
         )
 
-        # Ensure aembed was called for head and tail
-        assert mock_adapter.aembed.await_count == 2
-        mock_adapter.aembed.assert_any_call("EntityA")
-        mock_adapter.aembed.assert_any_call("EntityB")
+        # Ensure compute_embedding was called for head and tail
+        assert mock_dao.vector_engine.compute_embedding.await_count == 2
+        mock_dao.vector_engine.compute_embedding.assert_any_call("EntityA")
+        mock_dao.vector_engine.compute_embedding.assert_any_call("EntityB")
 
         # Ensure memory nodes were inserted
         assert mock_dao.insert_memory.await_count == 2
@@ -130,13 +125,9 @@ class TestCommitLogic:
         )
 
     @pytest.mark.asyncio
-    @patch("mesa_workers.ingestion_worker.AdapterFactory")
-    async def test_commit_raw_memory(self, mock_factory):
-        mock_adapter = AsyncMock()
-        mock_adapter.aembed.return_value = [0.1, 0.2, 0.3]
-        mock_factory.get_adapter.return_value = mock_adapter
-
+    async def test_commit_raw_memory(self):
         mock_dao = MagicMock()
+        mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
         mock_dao.insert_memory = AsyncMock(return_value="raw_node_id")
 
         await _commit_raw_memory(
@@ -147,8 +138,10 @@ class TestCommitLogic:
             log_id=42,
         )
 
-        # aembed called once for the content
-        mock_adapter.aembed.assert_awaited_once_with("Raw content fallback")
+        # compute_embedding called once for the content
+        mock_dao.vector_engine.compute_embedding.assert_awaited_once_with(
+            "Raw content fallback"
+        )
 
         # insert_memory called with node_type="MEMORY"
         mock_dao.insert_memory.assert_awaited_once()

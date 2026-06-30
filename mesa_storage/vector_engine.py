@@ -60,7 +60,9 @@ from pathlib import Path
 from typing import Any
 
 import lancedb
+import litellm
 import pyarrow as pa
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger("MESA_Storage")
 
@@ -190,6 +192,9 @@ class VectorEngine:
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
 
+        self._embedder = None
+        self._fallback_embedder = False
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -246,6 +251,20 @@ class VectorEngine:
     def _sync_connect(self) -> lancedb.db.LanceDBConnection:
         """Synchronous LanceDB connection (runs in executor)."""
         Path(self._uri).mkdir(parents=True, exist_ok=True)
+
+        # Initialize embedding model here to avoid blocking main thread
+        try:
+            self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            logger.info(
+                "VECTOR_ENGINE_EMBEDDER | Loaded local sentence-transformers/all-MiniLM-L6-v2"
+            )
+        except Exception as exc:
+            logger.warning(
+                "VECTOR_ENGINE_EMBEDDER | Failed to load local model: %s. Falling back to litellm.",
+                exc,
+            )
+            self._fallback_embedder = True
+
         return lancedb.connect(self._uri)
 
     def _sync_get_or_create_table(self, dimension: int) -> Any:
@@ -271,6 +290,87 @@ class VectorEngine:
 
             self._tables[table_name] = table
             return table
+
+    # ------------------------------------------------------------------
+    # Embedding generation
+    # ------------------------------------------------------------------
+
+    async def compute_embedding(self, text: str) -> list[float]:
+        """Compute a 384-dimensional dense vector for the given text.
+
+        Uses the local SentenceTransformer model if available, otherwise falls
+        back to litellm text-embedding-3-small (and truncates/pads to 384 if needed).
+        """
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, self._sync_compute_embedding, text
+        )
+
+    def _sync_compute_embedding(self, text: str) -> list[float]:
+        if not self._fallback_embedder and self._embedder is not None:
+            # SentenceTransformer returns numpy array
+            vector = self._embedder.encode(text)
+            return vector.tolist()
+        else:
+            # Fallback to litellm
+            try:
+                response = litellm.embedding(
+                    model="text-embedding-3-small", input=[text]
+                )
+                vector = response.data[0]["embedding"]
+                # Ensure 384 dimensions to match schema
+                if len(vector) > 384:
+                    vector = vector[:384]
+                elif len(vector) < 384:
+                    vector = vector + [0.0] * (384 - len(vector))
+                return vector
+            except Exception as exc:
+                logger.error(
+                    "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc
+                )
+                # Absolute last resort: return zero vector of correct dimension
+                return [0.0] * 384
+
+    async def compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
+        """Compute embeddings for a batch of texts."""
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, self._sync_compute_embedding_batch, texts
+        )
+
+    def _sync_compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+
+        if not self._fallback_embedder and self._embedder is not None:
+            vectors = self._embedder.encode(texts)
+            return [v.tolist() for v in vectors]
+        else:
+            # Fallback to litellm
+            try:
+                response = litellm.embedding(
+                    model="text-embedding-3-small", input=texts
+                )
+                vectors = []
+                for item in response.data:
+                    v = item["embedding"]
+                    if len(v) > 384:
+                        v = v[:384]
+                    elif len(v) < 384:
+                        v = v + [0.0] * (384 - len(v))
+                    vectors.append(v)
+                return vectors
+            except Exception as exc:
+                logger.error(
+                    "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc
+                )
+                return [[0.0] * 384 for _ in texts]
 
     # ------------------------------------------------------------------
     # Write operations

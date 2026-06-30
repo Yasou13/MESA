@@ -139,12 +139,12 @@ def compute_recall(predicted: str, ground_truth: str) -> float:
 
 
 def _count_tokens(text: str) -> int:
-    """Word-split token count consistent with the mock adapter."""
+    """Word-split token count consistent with the local adapter."""
     return len(text.split())
 
 
 # ---------------------------------------------------------------------------
-# Deterministic mock embedding (mirrors DeterministicMockAdapter.embed)
+# Deterministic local embedding
 # ---------------------------------------------------------------------------
 
 _EMBEDDING_DIM = 384

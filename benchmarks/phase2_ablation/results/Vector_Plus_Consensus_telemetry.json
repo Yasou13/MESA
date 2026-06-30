@@ -1,0 +1,17 @@
+{
+    "block_name": "Vector_Plus_Consensus",
+    "timestamp": 1782780536.4298434,
+    "finops": {
+        "total_invocations": 0,
+        "total_cost_usd": 0,
+        "trivial_queries": 0,
+        "complex_queries": 0,
+        "adaptive_router_savings_usd": 0.0
+    },
+    "latency": {
+        "avg_ttft_sec": 0.037976177299897246
+    },
+    "results": {
+        "accuracy_percent": 76.0
+    }
+}
