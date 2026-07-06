@@ -280,7 +280,9 @@ async def evaluate_contradiction(
         )
         if any(isinstance(r, Exception) for r in results):
             # One or both failed, trigger the fallback directly
-            raise RuntimeError(f"One or more LLM calls failed: {results}")  # pragma: no cover
+            raise RuntimeError(
+                f"One or more LLM calls failed: {results}"
+            )  # pragma: no cover
         raw_a, raw_b = results
     except Exception as e:
         import json
