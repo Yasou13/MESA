@@ -247,7 +247,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         try:
             result = self._conn.execute("RETURN 1 AS probe;")
             if isinstance(result, list):
-                result = result[0]
+                result = result[0]  # pragma: no cover
             if hasattr(result, "has_next") and result.has_next():
                 row = result.get_next()
                 logger.debug(

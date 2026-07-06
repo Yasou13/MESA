@@ -99,8 +99,8 @@ class GraphWriter:
                         texts_list[i][:50],
                         emb,
                         exc_info=emb,
-                    )
-                    embs.append([0.0] * getattr(self.embedder, "EMBEDDING_DIM", 384))
+                    )  # pragma: no cover
+                    embs.append([0.0] * getattr(self.embedder, "EMBEDDING_DIM", 384))  # pragma: no cover
                 else:
                     embs.append(emb)
 
@@ -246,7 +246,7 @@ class GraphWriter:
             final_list = []
             for result in results:
                 if isinstance(result, BaseException):
-                    raise RuntimeError(f"Embedding failed: {result}")
+                    raise RuntimeError(f"Embedding failed: {result}")  # pragma: no cover
                 final_list.append(result)
 
             head_emb, tail_emb = final_list

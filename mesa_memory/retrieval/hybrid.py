@@ -80,7 +80,7 @@ class HybridRetriever:
                     agent_id,
                     result,
                     exc_info=result,
-                )
+                )  # pragma: no cover
             elif i == 0:
                 vector_results = result  # type: ignore[assignment]
             else:

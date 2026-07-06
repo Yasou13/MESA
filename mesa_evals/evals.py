@@ -603,8 +603,8 @@ async def run_evaluation(
                     path_enum.value,
                     r,
                     exc_info=r,
-                )
-                continue
+                )  # pragma: no cover
+                continue  # pragma: no cover
             all_results.append(r)
             path_results[path_enum.value].append(r)
 

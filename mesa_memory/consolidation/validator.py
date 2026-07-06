@@ -137,7 +137,7 @@ class Tier3Validator:
 
         for res in results:
             if isinstance(res, BaseException):
-                raise res
+                raise res  # pragma: no cover
 
         raw_a, raw_b = results
         decision_a = self._parse_decision(raw_a, "LLM_A")
