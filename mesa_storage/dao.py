@@ -214,7 +214,12 @@ class MemoryDAO:
                     )
                 except Exception:
                     # Vector engine may not have this method or table yet
-                    # — skip reconciliation for this agent
+                    # — skip reconciliation for this agent but log the reason
+                    logger.warning(
+                        "ORPHAN_RECONCILIATION_SKIP | agent_id=%s "
+                        "vector engine check failed",
+                        agent_id, exc_info=True,
+                    )
                     continue
 
                 orphans = [nid for nid in node_ids if nid not in existing_vector_ids]

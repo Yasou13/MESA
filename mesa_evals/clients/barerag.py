@@ -38,7 +38,7 @@ logger = logging.getLogger("MESA_BareRAG")
 # ---------------------------------------------------------------------------
 
 _DEFAULT_STORAGE_ROOT = "./storage/benchmark_barerag"
-_DEFAULT_SEARCH_LIMIT = 1  # Force single-chunk retrieval for benchmark fairness
+_DEFAULT_SEARCH_LIMIT = 5  # Enforce identical Top-K=5 limit for benchmark fairness
 _DISTANCE_THRESHOLD = 0.85  # Reject chunks with cosine distance > this
 
 

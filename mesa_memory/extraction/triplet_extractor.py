@@ -274,7 +274,7 @@ class TripletExtractor:
                 records_block=fallback_records_block
             )
 
-            raw_a, raw_b = await asyncio.gather(
+            gather_results = await asyncio.gather(
                 loop.run_in_executor(
                     None,
                     functools.partial(
@@ -287,7 +287,18 @@ class TripletExtractor:
                         self.llm_b.complete, fb_prompt_b, BatchExtractionResponse
                     ),
                 ),
+                return_exceptions=True,
             )
+            # Handle individual LLM failures gracefully
+            raw_a = gather_results[0] if not isinstance(gather_results[0], Exception) else None
+            raw_b = gather_results[1] if not isinstance(gather_results[1], Exception) else None
+            for idx, r in enumerate(gather_results):
+                if isinstance(r, Exception):
+                    llm_label = "LLM_A" if idx == 0 else "LLM_B"
+                    logger.error(
+                        "TRIPLET_EXTRACT_%s_FAILED | batch_size=%d error=%s",
+                        llm_label, len(fallback_batch), r, exc_info=r,
+                    )
 
             try:
                 response_a = self._parser.parse(raw_a, len(fallback_batch))

@@ -206,6 +206,23 @@ class MesaConfig(BaseSettings):
     extraction_lang: str = Field("tr", validation_alias="MESA_EXTRACTION_LANG")
 
     # -----------------------------------------------------------------------
+    # v0.5.1: Zero-Cost Mode
+    # When MESA_ZERO_COST_MODE=true, the system reconfigures itself to use
+    # exclusively local resources:
+    #   - LLM provider  → OllamaAdapter (localhost:11434)
+    #   - Embeddings    → sentence-transformers/all-MiniLM-L6-v2 (local)
+    #   - REBEL         → enabled (local, zero API cost)
+    #   - Dual-LLM      → single local LLM (latency tradeoff acknowledged)
+    # This mode requires Ollama to be running locally with a pulled model.
+    # -----------------------------------------------------------------------
+    zero_cost_mode: bool = Field(False, validation_alias="MESA_ZERO_COST_MODE")
+
+    # Ollama connection URL (used by OllamaAdapter and zero-cost mode)
+    ollama_url: str = Field(
+        "http://localhost:11434", validation_alias="MESA_OLLAMA_URL"
+    )
+
+    # -----------------------------------------------------------------------
     # Resilience & Circuit Breaker (Phase 2.3)
     # -----------------------------------------------------------------------
     retry_max_attempts: int = Field(5, validation_alias="MESA_RETRY_MAX_ATTEMPTS")
@@ -282,6 +299,42 @@ class MesaConfig(BaseSettings):
         assert (
             0.5 < self.t_route < 0.99
         ), "t_route MUST be strictly between 0.5 and 0.99"
+        return self
+
+    @model_validator(mode="after")
+    def apply_zero_cost_mode(self) -> "MesaConfig":
+        """When MESA_ZERO_COST_MODE=true, override provider settings for
+        fully local, zero-API-cost operation.
+
+        Overrides:
+          - mesa_llm_provider → "ollama"
+          - llm_model_name    → "llama3.2:3b"
+          - rebel_enabled     → True  (local transformer extraction)
+          - Logs a latency warning re: single-LLM consensus
+        """
+        if not self.zero_cost_mode:
+            return self
+
+        import logging
+
+        _zcm_logger = logging.getLogger("MESA_ZeroCost")
+        _zcm_logger.info(
+            "━━━ ZERO-COST MODE ACTIVE ━━━ "
+            "All inference routed to local Ollama (%s). "
+            "Embeddings: %s (local). REBEL: enabled.",
+            self.ollama_url,
+            self.local_embedding_model,
+        )
+        _zcm_logger.warning(
+            "Tier-3 dual-LLM consensus downgraded to single local LLM. "
+            "Latency tradeoff acknowledged — CRA may differ from cloud benchmarks."
+        )
+
+        object.__setattr__(self, "mesa_llm_provider", "ollama")
+        object.__setattr__(self, "llm_model_name", "llama3.2:3b")
+        object.__setattr__(self, "rebel_enabled", True)
+        # Ensure the OLLAMA_URL env var is set for the adapter factory
+        os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)
         return self
 
 

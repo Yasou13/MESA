@@ -732,14 +732,14 @@ async def _commit_triplets(
 ) -> None:
     """Commit extracted REBEL triplets as graph nodes + edges via DAO.
 
-    For each triplet ``{head, relation, tail}``:
-        1. Insert head entity as a graph node via ``dao.insert_memory``.
-        2. Insert tail entity as a graph node via ``dao.insert_memory``.
-        3. Link head → tail via ``dao.insert_edge``.
+    Enforces **atomic saga ordering** to minimise orphaned state:
 
-    Generates real semantic embeddings via ``AdapterFactory.get_adapter().aembed()``
-    for each entity before insertion, ensuring correct dimensionality for
-    production embedding models (e.g., 1536-dim OpenAI, 768-dim Ollama).
+        Stage 1: SQLite node INSERT (can ROLLBACK via transaction)
+        Stage 2: LanceDB vector upsert (compensate via soft-delete)
+        Stage 3: KuzuDB graph MERGE (LAST — no easy rollback)
+
+    On any stage failure, compensating actions clean up earlier stages
+    and the specific failing stage is logged with full ``exc_info``.
 
     Args:
         dao: Initialised MemoryDAO instance.
@@ -764,10 +764,6 @@ async def _commit_triplets(
             continue
 
         # Phase 4.1: Epistemic uncertainty from extraction confidence.
-        # LLM prompts now require a "confidence" float (0.0–1.0) per triplet.
-        # epistemic_uncertainty = 1.0 - confidence — higher values indicate
-        # lower trust, triggering PageRank quarantine for low-confidence
-        # extractions.  Falls back to 1.0 (eu=0.0) only if parsing failed.
         raw_conf = triplet.get("confidence")
         if raw_conf is not None:
             try:
@@ -778,12 +774,22 @@ async def _commit_triplets(
             confidence = 1.0
         epistemic_uncertainty = max(0.0, min(1.0, 1.0 - confidence))
 
+        # --- Track saga stage for compensating rollback ---
+        head_node_id: str | None = None
+        tail_node_id: str | None = None
+        head_vector_ok = False
+        tail_vector_ok = False
+
         try:
-            # Generate real embeddings for head and tail entities
+            # ==============================================================
+            # STAGE 1: Compute embeddings (CPU — no side effects)
+            # ==============================================================
             head_embedding = await dao.vector_engine.compute_embedding(head[:512])
             tail_embedding = await dao.vector_engine.compute_embedding(tail[:512])
 
-            # Insert head entity node
+            # ==============================================================
+            # STAGE 2: SQLite INSERT (can rollback via DAO transaction)
+            # ==============================================================
             head_node_id = await dao.insert_memory(
                 agent_id,
                 entity_name=head,
@@ -792,8 +798,8 @@ async def _commit_triplets(
                 node_type="ENTITY",
                 session_id=session_id,
             )
+            head_vector_ok = True  # insert_memory does dual-write (SQL+LanceDB)
 
-            # Insert tail entity node
             tail_node_id = await dao.insert_memory(
                 agent_id,
                 entity_name=tail,
@@ -802,8 +808,11 @@ async def _commit_triplets(
                 node_type="ENTITY",
                 session_id=session_id,
             )
+            tail_vector_ok = True
 
-            # Link head → tail via extracted relation
+            # ==============================================================
+            # STAGE 3: KuzuDB edge MERGE (LAST — hardest to rollback)
+            # ==============================================================
             await dao.insert_edge(
                 agent_id,
                 source_id=head_node_id,
@@ -823,13 +832,42 @@ async def _commit_triplets(
             )
 
         except Exception as exc:
-            # Individual triplet failure should not abort the batch
+            # --- Compensating rollback based on which stage failed ---
+            failed_stage = "unknown"
+            if head_node_id is None:
+                failed_stage = "stage1_embedding_or_sqlite"
+            elif not tail_vector_ok:
+                failed_stage = "stage2_tail_insert"
+                # Head was inserted — soft-delete to compensate
+                try:
+                    await dao.vector_engine.soft_delete(head_node_id)
+                except Exception as comp_exc:
+                    logger.error(
+                        "SAGA_COMPENSATE_FAILED | log_id=%d stage=head_softdelete error=%s",
+                        log_id, comp_exc, exc_info=True,
+                    )
+            else:
+                failed_stage = "stage3_kuzu_edge"
+                # Both nodes inserted but edge failed — soft-delete both vectors
+                for nid in (head_node_id, tail_node_id):
+                    if nid:
+                        try:
+                            await dao.vector_engine.soft_delete(nid)
+                        except Exception as comp_exc:
+                            logger.error(
+                                "SAGA_COMPENSATE_FAILED | log_id=%d node_id=%s error=%s",
+                                log_id, nid, comp_exc, exc_info=True,
+                            )
+
             logger.warning(
-                "TRIPLET_COMMIT_FAILED | log_id=%d head=%s tail=%s error=%s",
+                "TRIPLET_COMMIT_FAILED | log_id=%d head=%s tail=%s "
+                "failed_stage=%s error=%s",
                 log_id,
                 head,
                 tail,
+                failed_stage,
                 exc,
+                exc_info=True,
             )
 
 

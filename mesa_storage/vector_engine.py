@@ -548,6 +548,7 @@ class VectorEngine:
             try:
                 table_names = self._list_table_names()
             except Exception:
+                logger.error("get_existing_node_ids failed to list tables", exc_info=True)
                 return set()
 
             found: set[str] = set()
@@ -584,7 +585,10 @@ class VectorEngine:
                         for row_idx in range(result.num_rows):
                             found.add(str(result.column("node_id")[row_idx]))
                     except Exception:
-                        pass  # Table may be empty or schema mismatch
+                        logger.warning(
+                            "get_existing_node_ids query failed for table=%s agent=%s",
+                            table_name, agent_id, exc_info=True,
+                        )
 
             return found
 
@@ -1293,7 +1297,10 @@ class VectorEngine:
             try:
                 self._db.drop_table(new_name)
             except Exception:
-                pass
+                logger.warning(
+                    "PROMOTE_DROP_NEW_FAILED | table=%s — stale table may remain",
+                    new_name, exc_info=True,
+                )
 
         # 4. Invalidate cached table handles
         with self._table_lock:

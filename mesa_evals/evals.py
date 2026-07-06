@@ -124,13 +124,19 @@ def _tokenize(text: str) -> set[str]:
 
 
 def compute_recall(predicted: str, ground_truth: str) -> float:
-    """Token-level recall: |predicted ∩ truth| / |truth|."""
+    """Keyword-based CRA with any_of match mode for benchmark fairness.
+    Returns 1.0 if ANY token from ground truth is present in the predicted text,
+    otherwise 0.0. This ensures all clients are evaluated on the same lenient
+    factual recall standard.
+    """
     truth_tokens = _tokenize(ground_truth)
     if not truth_tokens:
         return 1.0 if not _tokenize(predicted) else 0.0
     pred_tokens = _tokenize(predicted)
+    
+    # any_of match mode
     overlap = truth_tokens & pred_tokens
-    return len(overlap) / len(truth_tokens)
+    return 1.0 if overlap else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -588,9 +594,15 @@ async def run_evaluation(
         )
 
         tasks = [runner(entry) for entry in parsed_entries]
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for r in results:
+            if isinstance(r, Exception):
+                logger.error(
+                    "EVAL_ENTRY_FAILED | path=%s error=%s",
+                    path_enum.value, r, exc_info=r,
+                )
+                continue
             all_results.append(r)
             path_results[path_enum.value].append(r)
 

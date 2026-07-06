@@ -87,7 +87,18 @@ class GraphWriter:
             embs = await self.embedder.aembed_batch(texts_list)
         except (NotImplementedError, AttributeError):
             # Fallback: individual async embeds via gather
-            embs = await asyncio.gather(*(self.embedder.aembed(t) for t in texts_list))
+            embs = await asyncio.gather(
+                *(self.embedder.aembed(t) for t in texts_list),
+                return_exceptions=True,
+            )
+            # Log and replace failed embeddings with zero vectors
+            for i, emb in enumerate(embs):
+                if isinstance(emb, Exception):
+                    logger.error(
+                        "PREFETCH_EMBED_FAILED | text=%s error=%s",
+                        texts_list[i][:50], emb, exc_info=emb,
+                    )
+                    embs[i] = [0.0] * getattr(self.embedder, "EMBEDDING_DIM", 384)
 
         for t, e in zip(texts_list, embs):
             embedding_cache[t] = e
@@ -222,10 +233,14 @@ class GraphWriter:
         # These are structural nodes — the real semantic vectors live in
         # the LanceDB hot-path records already persisted during ingestion.
         try:
-            head_emb, tail_emb = await asyncio.gather(
+            results = await asyncio.gather(
                 self.embedder.aembed(triplet["head"]),
                 self.embedder.aembed(triplet["tail"]),
+                return_exceptions=True
             )
+            if any(isinstance(r, Exception) for r in results):
+                raise RuntimeError(f"Embedding failed: {results}")
+            head_emb, tail_emb = results
         except Exception as exc:
             logger.warning(
                 "EMBED_FAILED | cmb_id=%s error=%s — using zero vectors",

@@ -65,7 +65,21 @@ class HybridRetriever:
         vector_task = self.get_vector_results(agent_id, normalized, k=100)
         graph_task = self.get_graph_results(agent_id, entities)
 
-        vector_results, graph_results = await asyncio.gather(vector_task, graph_task)
+        vector_results, graph_results = [], []
+        gather_results = await asyncio.gather(
+            vector_task, graph_task, return_exceptions=True
+        )
+        for i, result in enumerate(gather_results):
+            if isinstance(result, Exception):
+                label = "vector" if i == 0 else "graph"
+                logger.error(
+                    "HYBRID_RETRIEVAL_%s_FAILED | agent_id=%s error=%s",
+                    label.upper(), agent_id, result, exc_info=result,
+                )
+            elif i == 0:
+                vector_results = result
+            else:
+                graph_results = result
         lexical_results: list[dict] = []
 
         # Try FTS5 lexical search via DAO if available
@@ -85,6 +99,10 @@ class HybridRetriever:
                 for i, r in enumerate(lexical_results)
             ]
         except Exception:
+            logger.warning(
+                "FTS5_SEARCH_FAILED | agent_id=%s — falling back to empty lexical results",
+                agent_id, exc_info=True,
+            )
             lexical_results = []
 
         if is_cold_start or not graph_results:

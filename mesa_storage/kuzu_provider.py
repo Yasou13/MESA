@@ -46,13 +46,15 @@ from typing import Any
 
 import kuzu
 
+import os
+
 logger = logging.getLogger("MESA_Storage")
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-_MAX_WORKERS = 2  # KùzuDB is CPU-bound on C++ side; keep pool small
+_MAX_WORKERS = min(4, os.cpu_count() or 2)  # Cap to prevent over-subscription
 
 
 # ---------------------------------------------------------------------------
@@ -235,9 +237,65 @@ class KuzuGraphProvider(BaseGraphProvider):
         Connection.  The Database may already be open (managed by the
         FastAPI lifespan), so we open our own reference here — KùzuDB
         handles concurrent Database handles to the same path safely.
+
+        Performs a health check probe after connection to verify the
+        database is accessible and the schema is queryable.
         """
         self._db = kuzu.Database(self._db_path)
         self._conn = kuzu.Connection(self._db)
+
+        # Startup health probe — verify connection is functional
+        try:
+            result = self._conn.execute("RETURN 1 AS probe;")
+            if hasattr(result, "has_next") and result.has_next():
+                row = result.get_next()
+                logger.debug(
+                    "KUZU_HEALTH_PROBE | db_path=%s probe=%s — connection verified",
+                    self._db_path,
+                    row,
+                )
+            else:
+                logger.warning(
+                    "KUZU_HEALTH_PROBE | db_path=%s — probe returned no rows",
+                    self._db_path,
+                )
+        except Exception as probe_exc:
+            logger.error(
+                "KUZU_HEALTH_PROBE_FAILED | db_path=%s error=%s — "
+                "connection established but query failed",
+                self._db_path,
+                probe_exc,
+                exc_info=True,
+            )
+
+    async def health_check(self) -> dict:
+        """Perform a lightweight health check on the KùzuDB connection.
+
+        Returns:
+            Dict with health status and diagnostic information.
+        """
+        result: dict = {
+            "status": "unknown",
+            "db_path": self._db_path,
+            "initialized": self._initialized,
+            "max_workers": self._max_workers,
+        }
+
+        if not self._initialized:
+            result["status"] = "not_initialized"
+            return result
+
+        try:
+            rows = await self.execute_query("RETURN 1 AS probe")
+            if rows:
+                result["status"] = "healthy"
+            else:
+                result["status"] = "degraded"
+        except Exception as exc:
+            result["status"] = "unhealthy"
+            result["error"] = str(exc)
+
+        return result
 
     async def close(self) -> None:
         """Close the connection, release the database, and shut down the executor."""

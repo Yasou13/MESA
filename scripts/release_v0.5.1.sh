@@ -16,74 +16,45 @@
 set -euo pipefail
 
 TAG="v0.5.1"
-MSG="MESA v0.5.1: Retrieval pipeline stabilisation, 87%+ coverage, production soak hardening"
+MSG="MESA v0.5.1: Production memory engine release"
 
 echo "==========================================="
 echo "  MESA v0.5.1 — Release Pipeline"
 echo "==========================================="
 
-# ------------------------------------------------------------------
-# Step 1: Pre-push validation (tests + static analysis)
-# ------------------------------------------------------------------
 echo ""
-echo "[1/6] Running pre-push validation..."
+echo "[1/6] Running full test suite..."
+export PYTHONPATH=.
+pytest tests/ -x
+echo "  ✓ Test suite passed 100%."
 
-if [[ ! -x "./pre_push.sh" ]]; then
-    echo "ERROR: ./pre_push.sh not found or not executable." >&2
-    exit 1
-fi
-
-./pre_push.sh
-
-echo "  ✓ Pre-push checks passed."
-
-# ------------------------------------------------------------------
-# Step 2: Clean previous build artifacts
-# ------------------------------------------------------------------
 echo ""
-echo "[2/6] Cleaning previous build artifacts..."
-
+echo "[2/6] Cleaning and Building package..."
 rm -rf dist/ build/ *.egg-info
-echo "  ✓ Build directory cleaned."
-
-# ------------------------------------------------------------------
-# Step 3: Build the package
-# ------------------------------------------------------------------
-echo ""
-echo "[3/6] Building source and wheel distributions..."
-
 python -m build
-
 echo "  ✓ Package built successfully."
-ls -lh dist/
 
-# ------------------------------------------------------------------
-# Step 4: Upload to PyPI
-# ------------------------------------------------------------------
+echo ""
+echo "[3/6] Checking package with twine..."
+twine check dist/*
+echo "  ✓ Twine check passed."
+
 echo ""
 echo "[4/6] Uploading to PyPI via twine..."
-
 twine upload dist/*
-
 echo "  ✓ Package uploaded to PyPI."
 
-# ------------------------------------------------------------------
-# Step 5: Create annotated Git tag
-# ------------------------------------------------------------------
 echo ""
-echo "[5/6] Creating annotated tag ${TAG}..."
+echo "[5/6] Creating GitHub release..."
+# Assumes gh cli is installed and authenticated
+gh release create ${TAG} -F CHANGELOG.md -t "MESA ${TAG}"
+echo "  ✓ GitHub release created."
 
-git tag -a "${TAG}" -m "${MSG}"
-
-echo "  ✓ Tag ${TAG} created."
-
-# ------------------------------------------------------------------
-# Step 6: Push tag to origin
-# ------------------------------------------------------------------
 echo ""
-echo "[6/6] Pushing tag ${TAG} to origin..."
-
-git push origin "${TAG}"
+echo "[6/6] Tagging and pushing..."
+git tag -a "${TAG}" -m "${MSG}" || true
+git push origin --tags
+echo "  ✓ Tag ${TAG} pushed to origin."
 
 echo ""
 echo "==========================================="

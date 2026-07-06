@@ -275,10 +275,15 @@ async def evaluate_contradiction(
 
     # Run both LLMs concurrently
     try:
-        raw_a, raw_b = await asyncio.gather(
+        results = await asyncio.gather(
             llm_a.acomplete(prompt_a),
             llm_b.acomplete(prompt_b),
+            return_exceptions=True
         )
+        if any(isinstance(r, Exception) for r in results):
+            # One or both failed, trigger the fallback directly
+            raise RuntimeError(f"One or more LLM calls failed: {results}")
+        raw_a, raw_b = results
     except Exception as e:
         import json
 
