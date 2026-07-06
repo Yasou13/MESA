@@ -57,7 +57,10 @@ def _mock_adapter_factory():
     mock_adapter = MagicMock()
     mock_adapter.aembed = AsyncMock(return_value=[0.1] * 1536)
     mock_adapter.acomplete = AsyncMock(return_value="[]")
-    with patch("mesa_memory.adapter.factory.AdapterFactory.get_adapter", return_value=mock_adapter):
+    with patch(
+        "mesa_memory.adapter.factory.AdapterFactory.get_adapter",
+        return_value=mock_adapter,
+    ):
         yield mock_adapter
 
 
