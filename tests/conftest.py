@@ -14,6 +14,11 @@ import os
 import shutil
 from pathlib import Path
 
+# --- MESA CI: INJECT DUMMY KEYS TO BYPASS VALIDATION ---
+os.environ["GROQ_API_KEY"] = "dummy_ci_key_groq"
+os.environ["LLM_API_KEY"] = "dummy_ci_key_llm"
+os.environ["OPENAI_API_KEY"] = "dummy_ci_key_openai"
+
 import pytest
 
 # ---------------------------------------------------------------------------

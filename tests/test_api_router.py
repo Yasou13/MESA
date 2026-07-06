@@ -51,6 +51,16 @@ def _clean_test_dir():
     shutil.rmtree(TEST_DIR, ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def _mock_adapter_factory():
+    """Mock the AdapterFactory to prevent live HTTP requests during testing."""
+    mock_adapter = MagicMock()
+    mock_adapter.aembed = AsyncMock(return_value=[0.1] * 1536)
+    mock_adapter.acomplete = AsyncMock(return_value="[]")
+    with patch("mesa_memory.adapter.factory.AdapterFactory.get_adapter", return_value=mock_adapter):
+        yield mock_adapter
+
+
 @pytest.fixture
 def engines():
     """Create real engines and return them along with a configured TestClient."""
