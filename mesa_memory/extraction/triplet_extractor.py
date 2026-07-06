@@ -290,14 +290,25 @@ class TripletExtractor:
                 return_exceptions=True,
             )
             # Handle individual LLM failures gracefully
-            raw_a = gather_results[0] if not isinstance(gather_results[0], Exception) else None
-            raw_b = gather_results[1] if not isinstance(gather_results[1], Exception) else None
+            raw_a = (
+                gather_results[0]
+                if not isinstance(gather_results[0], Exception)
+                else None
+            )
+            raw_b = (
+                gather_results[1]
+                if not isinstance(gather_results[1], Exception)
+                else None
+            )
             for idx, r in enumerate(gather_results):
                 if isinstance(r, Exception):
                     llm_label = "LLM_A" if idx == 0 else "LLM_B"
                     logger.error(
                         "TRIPLET_EXTRACT_%s_FAILED | batch_size=%d error=%s",
-                        llm_label, len(fallback_batch), r, exc_info=r,
+                        llm_label,
+                        len(fallback_batch),
+                        r,
+                        exc_info=r,
                     )
 
             try:

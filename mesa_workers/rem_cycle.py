@@ -276,9 +276,7 @@ async def evaluate_contradiction(
     # Run both LLMs concurrently
     try:
         results = await asyncio.gather(
-            llm_a.acomplete(prompt_a),
-            llm_b.acomplete(prompt_b),
-            return_exceptions=True
+            llm_a.acomplete(prompt_a), llm_b.acomplete(prompt_b), return_exceptions=True
         )
         if any(isinstance(r, Exception) for r in results):
             # One or both failed, trigger the fallback directly

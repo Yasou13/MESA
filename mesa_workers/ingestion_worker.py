@@ -777,7 +777,6 @@ async def _commit_triplets(
         # --- Track saga stage for compensating rollback ---
         head_node_id: str | None = None
         tail_node_id: str | None = None
-        head_vector_ok = False
         tail_vector_ok = False
 
         try:
@@ -798,7 +797,7 @@ async def _commit_triplets(
                 node_type="ENTITY",
                 session_id=session_id,
             )
-            head_vector_ok = True  # insert_memory does dual-write (SQL+LanceDB)
+            # insert_memory does dual-write (SQL+LanceDB)
 
             tail_node_id = await dao.insert_memory(
                 agent_id,
@@ -844,7 +843,9 @@ async def _commit_triplets(
                 except Exception as comp_exc:
                     logger.error(
                         "SAGA_COMPENSATE_FAILED | log_id=%d stage=head_softdelete error=%s",
-                        log_id, comp_exc, exc_info=True,
+                        log_id,
+                        comp_exc,
+                        exc_info=True,
                     )
             else:
                 failed_stage = "stage3_kuzu_edge"
@@ -856,7 +857,10 @@ async def _commit_triplets(
                         except Exception as comp_exc:
                             logger.error(
                                 "SAGA_COMPENSATE_FAILED | log_id=%d node_id=%s error=%s",
-                                log_id, nid, comp_exc, exc_info=True,
+                                log_id,
+                                nid,
+                                comp_exc,
+                                exc_info=True,
                             )
 
             logger.warning(

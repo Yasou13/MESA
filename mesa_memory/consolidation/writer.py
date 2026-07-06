@@ -87,18 +87,22 @@ class GraphWriter:
             embs = await self.embedder.aembed_batch(texts_list)
         except (NotImplementedError, AttributeError):
             # Fallback: individual async embeds via gather
-            embs = await asyncio.gather(
+            gather_results = await asyncio.gather(
                 *(self.embedder.aembed(t) for t in texts_list),
                 return_exceptions=True,
             )
-            # Log and replace failed embeddings with zero vectors
-            for i, emb in enumerate(embs):
-                if isinstance(emb, Exception):
+            embs = []
+            for i, emb in enumerate(gather_results):
+                if isinstance(emb, BaseException):
                     logger.error(
                         "PREFETCH_EMBED_FAILED | text=%s error=%s",
-                        texts_list[i][:50], emb, exc_info=emb,
+                        texts_list[i][:50],
+                        emb,
+                        exc_info=emb,
                     )
-                    embs[i] = [0.0] * getattr(self.embedder, "EMBEDDING_DIM", 384)
+                    embs.append([0.0] * getattr(self.embedder, "EMBEDDING_DIM", 384))
+                else:
+                    embs.append(emb)
 
         for t, e in zip(texts_list, embs):
             embedding_cache[t] = e
@@ -236,11 +240,16 @@ class GraphWriter:
             results = await asyncio.gather(
                 self.embedder.aembed(triplet["head"]),
                 self.embedder.aembed(triplet["tail"]),
-                return_exceptions=True
+                return_exceptions=True,
             )
-            if any(isinstance(r, Exception) for r in results):
-                raise RuntimeError(f"Embedding failed: {results}")
-            head_emb, tail_emb = results
+
+            final_list = []
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise RuntimeError(f"Embedding failed: {result}")
+                final_list.append(result)
+
+            head_emb, tail_emb = final_list
         except Exception as exc:
             logger.warning(
                 "EMBED_FAILED | cmb_id=%s error=%s — using zero vectors",

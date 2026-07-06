@@ -86,6 +86,7 @@ class AdapterFactory:
             ollama_url = os.environ.get("MESA_OLLAMA_URL", "http://localhost:11434")
             return OllamaAdapter(
                 model=config.llm_model_name or "llama3.2:3b",
+                base_url=ollama_url,
             )
 
         # ── Auto-detection waterfall ─────────────────────────────────────

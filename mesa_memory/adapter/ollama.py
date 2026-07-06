@@ -12,11 +12,17 @@ from mesa_memory.adapter.tokenizer import count_tokens
 
 class OllamaAdapter(BaseUniversalLLMAdapter):
     def __init__(
-        self, model: str = "mistral", embedding_model: str = "nomic-embed-text"
+        self,
+        model: str = "mistral",
+        embedding_model: str = "nomic-embed-text",
+        base_url: Optional[str] = None,
     ):
         self._model = model
         self._embedding_model = embedding_model
-        self._ollama_client = ollama.Client()
+        self.base_url = base_url
+        self._ollama_client = (
+            ollama.Client(host=base_url) if base_url else ollama.Client()
+        )
 
     def complete(
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs

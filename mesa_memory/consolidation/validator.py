@@ -132,11 +132,14 @@ class Tier3Validator:
         results = await asyncio.gather(
             loop.run_in_executor(None, self.llm_a.complete, prompt_a),
             loop.run_in_executor(None, self.llm_b.complete, prompt_b),
-            return_exceptions=True
+            return_exceptions=True,
         )
-        
-        raw_a = results[0] if not isinstance(results[0], Exception) else ""
-        raw_b = results[1] if not isinstance(results[1], Exception) else ""
+
+        for res in results:
+            if isinstance(res, BaseException):
+                raise res
+
+        raw_a, raw_b = results
         decision_a = self._parse_decision(raw_a, "LLM_A")
         decision_b = self._parse_decision(raw_b, "LLM_B")
 

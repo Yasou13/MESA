@@ -133,7 +133,7 @@ def compute_recall(predicted: str, ground_truth: str) -> float:
     if not truth_tokens:
         return 1.0 if not _tokenize(predicted) else 0.0
     pred_tokens = _tokenize(predicted)
-    
+
     # any_of match mode
     overlap = truth_tokens & pred_tokens
     return 1.0 if overlap else 0.0
@@ -597,10 +597,12 @@ async def run_evaluation(
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for r in results:
-            if isinstance(r, Exception):
+            if isinstance(r, BaseException):
                 logger.error(
                     "EVAL_ENTRY_FAILED | path=%s error=%s",
-                    path_enum.value, r, exc_info=r,
+                    path_enum.value,
+                    r,
+                    exc_info=r,
                 )
                 continue
             all_results.append(r)

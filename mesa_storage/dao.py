@@ -218,7 +218,8 @@ class MemoryDAO:
                     logger.warning(
                         "ORPHAN_RECONCILIATION_SKIP | agent_id=%s "
                         "vector engine check failed",
-                        agent_id, exc_info=True,
+                        agent_id,
+                        exc_info=True,
                     )
                     continue
 

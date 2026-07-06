@@ -40,13 +40,12 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import kuzu
-
-import os
 
 logger = logging.getLogger("MESA_Storage")
 
@@ -247,6 +246,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         # Startup health probe — verify connection is functional
         try:
             result = self._conn.execute("RETURN 1 AS probe;")
+            if isinstance(result, list):
+                result = result[0]
             if hasattr(result, "has_next") and result.has_next():
                 row = result.get_next()
                 logger.debug(

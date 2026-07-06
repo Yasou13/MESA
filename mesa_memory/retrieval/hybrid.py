@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Any
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -65,21 +66,25 @@ class HybridRetriever:
         vector_task = self.get_vector_results(agent_id, normalized, k=100)
         graph_task = self.get_graph_results(agent_id, entities)
 
-        vector_results, graph_results = [], []
+        vector_results: list[Any] = []
+        graph_results: list[Any] = []
         gather_results = await asyncio.gather(
             vector_task, graph_task, return_exceptions=True
         )
         for i, result in enumerate(gather_results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 label = "vector" if i == 0 else "graph"
                 logger.error(
                     "HYBRID_RETRIEVAL_%s_FAILED | agent_id=%s error=%s",
-                    label.upper(), agent_id, result, exc_info=result,
+                    label.upper(),
+                    agent_id,
+                    result,
+                    exc_info=result,
                 )
             elif i == 0:
-                vector_results = result
+                vector_results = result  # type: ignore[assignment]
             else:
-                graph_results = result
+                graph_results = result  # type: ignore[assignment]
         lexical_results: list[dict] = []
 
         # Try FTS5 lexical search via DAO if available
@@ -101,7 +106,8 @@ class HybridRetriever:
         except Exception:
             logger.warning(
                 "FTS5_SEARCH_FAILED | agent_id=%s — falling back to empty lexical results",
-                agent_id, exc_info=True,
+                agent_id,
+                exc_info=True,
             )
             lexical_results = []
 
