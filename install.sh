@@ -74,8 +74,8 @@ fi
 # Start Ollama server in the background (idempotent — skips if already running)
 if ! pgrep -x "ollama" > /dev/null 2>&1; then
     info "Starting Ollama server..."
-    ollama serve &
-    sleep 3
+    nohup ollama serve > /dev/null 2>&1 &
+    sleep 5
     ok "Ollama server started."
 else
     ok "Ollama server already running."

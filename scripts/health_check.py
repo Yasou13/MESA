@@ -24,7 +24,7 @@ def check_kuzu():
     try:
         import kuzu
 
-        db_path = os.getenv("KUZU_DB_PATH", "storage/kuzu_db")
+        db_path = os.getenv("KUZU_DB_PATH", os.path.abspath(os.path.join(os.getcwd(), "storage/kuzu_db")))
         if not os.path.exists(os.path.dirname(db_path)):
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
         kuzu.Database(db_path)
@@ -42,7 +42,7 @@ def check_lancedb():
     try:
         import lancedb
 
-        db_path = os.getenv("LANCE_DB_PATH", "storage/vector_index.lance")
+        db_path = os.getenv("LANCE_DB_PATH", os.path.abspath(os.path.join(os.getcwd(), "storage/vector_index.lance")))
         if not os.path.exists(os.path.dirname(db_path)):
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
         lancedb.connect(db_path)

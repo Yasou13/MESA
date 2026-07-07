@@ -25,6 +25,7 @@ cd MESA
 echo "LLM_API_KEY=your_llm_key_here" > .env
 echo "MESA_API_KEY=local-dev-key" >> .env
 echo "MESA_REBEL_ENABLED=false" >> .env  # Skips 1.8GB download for quick testing
+echo "MESA_ZERO_COST_MODE=false" >> .env # Set to true to run 100% locally with Ollama
 
 > **Data Persistence:** You MUST map the `.kuzu/` directory as a Docker volume in your `docker-compose.yml` or run command to prevent ephemeral data loss of the knowledge graph.
 
@@ -179,6 +180,7 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 | **Hallucination Mitigation** | Dual-LLM Consensus + Fail-safe Discard | Prompt-based | Self-correction |
 | **Validation Architecture** | 3-Tier Statistical + LLM Pipeline | None | Prompt-based |
 | **Knowledge Graph** | Automated REBEL + LLM Triplet Extraction (Turkish/English) | Manual | None |
+| **Zero-Cost Mode** | Native 100% local execution via Ollama (`MESA_ZERO_COST_MODE`) | External | External |
 | **Tenant Isolation** | Mandatory `agent_id` RLS on every query | None | None |
 | **Session Lifecycle APIs** | Native `/session/start`, `/context`, `/end` endpoints | None | Implicit |
 | **Fault Tolerance** | Circuit Breaker + DLQ + Exponential Backoff | Try/Catch | Retry Decorator |
@@ -193,6 +195,8 @@ MESA v0.5.1 introduces advanced cognitive memory features:
 1. **Phase 4.1: Self-Healing Graphs**: Async Damped PageRank for hallucination quarantine.
 2. **Phase 4.2: Cognitive Salience**: Spreading Activation routed through KuzuDB using `OPTIONAL MATCH`.
 3. **Phase 4.3: Continuous Learning**: Blue/Green Procrustes vector alignment with persistent SQLite WAL to prevent phantom writes.
+4. **Phase 1.3: Domain-Specific Extraction**: Native zero-shot triplet extraction optimized for Turkish Legal texts (`MESA_EXTRACTION_LANG=tr`).
+5. **Zero-Cost Mode**: 100% local, air-gapped execution orchestrating `OllamaAdapter`, local embeddings, and REBEL without any cloud dependencies (`MESA_ZERO_COST_MODE=true`).
 
 ---
 
@@ -331,6 +335,9 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 | `LLM_MODEL_NAME` | `llama-3.1-8b-instant` | Model identifier |
 | `MESA_LLM_PROVIDER` | `openai_compatible` | LLM backend: `openai_compatible`, `claude`, `ollama`, `mock` |
 | `MESA_REBEL_ENABLED` | `true` | Set to `false` to skip the 1.8GB REBEL model (uses LLM fallback) |
+| `MESA_EXTRACTION_LANG` | `tr` | Zero-shot extraction language: `tr` (Turkish Legal) or `en` (English) |
+| `MESA_ZERO_COST_MODE` | `false` | When `true`, overrides provider to use local Ollama + local embeddings |
+| `MESA_OLLAMA_URL` | `http://localhost:11434` | Ollama connection URL for Zero-Cost mode |
 | `MESA_LEGAL_DOMAIN_MODE` | `false` | Force all routing through Dual-LLM consensus for legal docs |
 | `MESA_MAX_RAM_MB` | *(auto-detected)* | Override system RAM detection for memory limits |
 

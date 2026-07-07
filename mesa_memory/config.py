@@ -242,7 +242,7 @@ class MesaConfig(BaseSettings):
     # MESA_STORAGE_PATH convention used by server.py lifespan.
     # -----------------------------------------------------------------------
     storage_path: str = Field(
-        "./storage",
+        os.path.abspath(os.path.join(os.getcwd(), "storage")),
         validation_alias="MESA_STORAGE_PATH",
     )
 

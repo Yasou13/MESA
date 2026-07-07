@@ -377,7 +377,9 @@ Manages the full extraction lifecycle:
 
 1. **Primary LLM Extraction (Zero-Shot Turkish):** By default (`MESA_REBEL_ENABLED=false`), records are processed via the primary LLM adapter using a highly optimized, zero-shot Turkish legal triplet extraction prompt (`MESA_EXTRACTION_LANG=tr`). This completely eliminates the 1.8GB transformer model overhead for standard API deployments.
 
-2. **Optional REBEL Zero-Cost Extraction:** If `MESA_REBEL_ENABLED=true` is explicitly set (and the `[rebel]` poetry extra is installed), records are first processed through the `RebelExtractor` (Babelscape/rebel-large). This provides zero API cost at the expense of local memory and CPU/GPU compute. Records that REBEL cannot handle fall back to the primary LLM.
+2. **Optional REBEL Extraction:** If `MESA_REBEL_ENABLED=true` is explicitly set (and the `[rebel]` poetry extra is installed), records are first processed through the `RebelExtractor` (Babelscape/rebel-large). This provides local inference at the expense of local memory and CPU/GPU compute. Records that REBEL cannot handle fall back to the primary LLM.
+
+3. **Zero-Cost Mode (`MESA_ZERO_COST_MODE`):** When enabled, MESA orchestrates a fully local, air-gapped pipeline. It forces the `OllamaAdapter` for LLM tasks, uses local `sentence-transformers` for embeddings, and enables REBEL for triplet extraction. This ensures complete data privacy and zero API costs.
 
 3. **LLM Fallback & Lost-in-the-Middle:** For LLM extraction, records are batched and sent to dual LLMs (LLM_A and LLM_B) with positionally-tagged prompts:
    - **Layer 1 — Positional Tagging:** Explicit `=== RECORD N ===` / `=== END RECORD N ===` delimiters.
@@ -475,6 +477,12 @@ MESA natively implements an MCP (Model Context Protocol) server inside `mesa_mcp
 The `mesa_client` module provides both synchronous and asynchronous `httpx`-based clients:
 - Includes strict Pydantic V2 validation and exponential backoff retries.
 - Features a native **LangChain retriever** extension (`MesaLangchainRetriever`), allowing seamless drop-in replacement in existing AI pipelines that use LangChain.
+
+### LLM Adapters
+MESA supports multiple LLM inference engines via a unified `AdapterFactory`.
+- **OpenAI Compatible**: Connects to Groq, Together, or any v1/chat/completions endpoint.
+- **Claude (Anthropic)**: Native Message API support.
+- **OllamaAdapter**: Added in v0.5.1 to support local, offline execution. This adapter powers **Zero-Cost Mode** (`MESA_ZERO_COST_MODE=true`), allowing MESA to route all generation and validation through local SLMs (e.g., Llama-3.2:3b) running on `http://localhost:11434`.
 
 ---
 
