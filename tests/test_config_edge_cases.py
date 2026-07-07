@@ -78,3 +78,24 @@ def test_calculate_dynamic_limits_psutil():
         assert res.lancedb_memory_limit_bytes == int(
             2000000000 * config.ram_allocation_fraction
         )
+
+
+def test_read_cgroup_ram_limit_file_not_found():
+    with patch("builtins.open", side_effect=FileNotFoundError):
+        assert _read_cgroup_ram_limit() is None
+
+
+def test_config_claude_no_key():
+    _ = MesaConfig(
+        llm_provider="claude",
+        openai_api_key=None,
+        mesa_llm_provider="openai_compatible",
+    )
+    # Triggers warning block in validate_embedding_fallback
+
+
+def test_config_zero_cost_mode():
+    config = MesaConfig(zero_cost_mode=True, mesa_llm_provider="openai_compatible")
+    assert config.mesa_llm_provider == "ollama"
+    assert config.llm_model_name == "llama3.2:3b"
+    assert config.rebel_enabled is True
