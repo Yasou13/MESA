@@ -301,6 +301,8 @@ cp .env.example .env
 
 ### 3. Launch
 
+> **WARNING:** `make dev` runs a lightweight server without background workers or KuzuDB for rapid API testing. For true production parity and background processes, you MUST use `docker-compose up -d`.
+
 ```bash
 uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 # → http://127.0.0.1:8000/docs  (Swagger UI)

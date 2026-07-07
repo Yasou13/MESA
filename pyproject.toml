@@ -60,7 +60,6 @@ dependencies = [
     "jsonschema>=4.26.0",
     # Anomaly detection
     "pyod>=3.3.0",
-    "mem0ai>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -85,6 +84,9 @@ full = [
     "llvmlite>=0.47.0",
     "matplotlib>=3.10.0",
     "pillow>=12.0.0",
+]
+benchmarks = [
+    "mem0ai>=0.1.0",
 ]
 dev = [
     "pytest>=7.4.0",

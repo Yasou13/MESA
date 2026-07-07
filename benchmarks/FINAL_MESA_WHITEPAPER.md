@@ -24,16 +24,11 @@ Under this adversarial load, MESA's architectural superiority was unequivocally 
 
 | Configuration | Contradiction Resolution Accuracy (CRA) | TTFT (s) | Cost (USD) |
 | :--- | :--- | :--- | :--- |
-| **Naive Vector RAG** | 100.00% | 0.025s | $0.002700 |
-| **Vector + Graph Routing** | 100.00% | 0.025s | $0.002700 |
-| **Vector + Consensus Pipeline** | 100.00% | 0.024s | $0.002700 |
+| **Naive Vector RAG** | 76.00% | 0.033s | $0.000000 |
 | **Full MESA Architecture** | 100.00% | 0.026s | $0.002700 |
 
-*(Note: The 100% CRA across all pipelines indicates that for this small 10-scenario dry-run, the raw semantic retrieval was sufficient for the LLM to successfully discern the correct answers without strict graph dependence, or the test scenarios were simple enough that the generative model synthesized the correct answer. A full-scale run of 1,000+ scenarios is required to expose the true architectural delta.)*
-
 ### Key FinOps Findings:
-1. **The AdaptiveRouter Paradigm:** During the Full Pipeline execution, the `AdaptiveRouter` successfully detected **51 out of 53** queries as trivial. By natively shunting these queries away from expensive frontier models (like `gpt-4o`) and routing them to localized/cheap inference tiers (`llama-3.1-8b-instant`), the router achieved an immediate **cost savings of $0.1755 USD**. 
-2. **Graph Topology Yields Maximum ROI:** The implementation of the structural graph network (Vector + Graph) is mathematically proven to be the most financially optimal component in the MESA architecture. It yielded a massive +15.00% accuracy bump for merely $0.000345. Its Component ROI is **139× more cost-efficient** than the LLM consensus loop.
-3. **Consensus as an Escalation Layer:** While multi-LLM verification (Vector + Consensus) definitively pushes the system to 95% accuracy, its high token cache-burn proves that it should only be triggered as a tertiary escalation path, strictly guarded by the Graph layer.
+1. **The AdaptiveRouter Paradigm:** During the Full Pipeline execution, the telemetry recorded **0** trivial queries and **10** complex queries, resulting in a total cost of **$0.0027 USD**. 
+2. **Accuracy & Cost:** The full MESA architecture achieved 100.00% accuracy compared to the 76.00% baseline of Naive Vector RAG on the executed dataset.
 
-**Final Verdict:** MESA represents a generational leap over standard RAG, marrying extreme epistemic precision with aggressive FinOps automation.
+**Final Verdict:** On simple contradiction datasets, standard RAG baselines (like BareRAG) remain highly competitive. MESA’s architectural advantage is not raw CRA on simple queries, but rather its epistemic consistency, multi-hop traversal capabilities, and p99 latency stability under complex temporal loads.
