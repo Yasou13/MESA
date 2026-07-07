@@ -66,6 +66,7 @@ class TestConfigDefaults:
         with patch.dict(os.environ, {}, clear=True):
             # Re-import or re-instantiate config to ensure it reads the clean environment
             from mesa_memory.config import MesaConfig
+
             clean_config = MesaConfig()
             assert clean_config.rebel_enabled is False, (
                 "MESA_REBEL_ENABLED must default to False — "
