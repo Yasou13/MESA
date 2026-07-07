@@ -149,6 +149,71 @@ class TestCommitLogic:
         assert kwargs["node_type"] == "MEMORY"
         assert kwargs["content"] == "Raw content fallback"
 
+    @pytest.mark.asyncio
+    async def test_commit_triplets_saga_rollback_kuzudb_failure(self):
+        mock_dao = MagicMock()
+        mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.insert_memory = AsyncMock(side_effect=["head_id", "tail_id"])
+        mock_dao.insert_edge = AsyncMock(side_effect=RuntimeError("KuzuDB Failure"))
+        mock_dao.vector_engine.soft_delete = AsyncMock()
+
+        triplets = [{"head": "A", "relation": "R", "tail": "B", "confidence": "0.8"}]
+
+        await _commit_triplets(
+            dao=mock_dao,
+            agent_id="test",
+            session_id="test",
+            content="context",
+            triplets=triplets,
+            log_id=1,
+        )
+
+        mock_dao.insert_edge.assert_awaited_once()
+        assert mock_dao.vector_engine.soft_delete.await_count == 2
+        mock_dao.vector_engine.soft_delete.assert_any_call("head_id")
+        mock_dao.vector_engine.soft_delete.assert_any_call("tail_id")
+
+    @pytest.mark.asyncio
+    async def test_commit_triplets_saga_rollback_tail_insert_failure(self):
+        mock_dao = MagicMock()
+        mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.insert_memory = AsyncMock(side_effect=["head_id", RuntimeError("DB insert error")])
+        mock_dao.vector_engine.soft_delete = AsyncMock()
+
+        triplets = [{"head": "A", "relation": "R", "tail": "B", "confidence": "0.8"}]
+
+        await _commit_triplets(
+            dao=mock_dao,
+            agent_id="test",
+            session_id="test",
+            content="context",
+            triplets=triplets,
+            log_id=1,
+        )
+
+        mock_dao.vector_engine.soft_delete.assert_awaited_once_with("head_id")
+
+    @pytest.mark.asyncio
+    async def test_commit_triplets_saga_rollback_compensation_failure(self):
+        mock_dao = MagicMock()
+        mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.insert_memory = AsyncMock(side_effect=["head_id", "tail_id"])
+        mock_dao.insert_edge = AsyncMock(side_effect=RuntimeError("KuzuDB Failure"))
+        mock_dao.vector_engine.soft_delete = AsyncMock(side_effect=RuntimeError("Soft Delete Failed"))
+
+        triplets = [{"head": "A", "relation": "R", "tail": "B", "confidence": "0.8"}]
+
+        await _commit_triplets(
+            dao=mock_dao,
+            agent_id="test",
+            session_id="test",
+            content="context",
+            triplets=triplets,
+            log_id=1,
+        )
+
+        assert mock_dao.vector_engine.soft_delete.await_count == 2
+
 
 # ===================================================================
 # Cold Path Execution
@@ -263,3 +328,51 @@ class TestProcessColdPath:
         assert args[0][1] == 4
         assert args[0][2] == "failed"
         assert "RuntimeError: Database down" in args[1]["error_reason"]
+
+    @pytest.mark.asyncio
+    @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
+    @patch("mesa_workers.ingestion_worker._run_rebel_extraction", new_callable=AsyncMock)
+    @patch("mesa_workers.ingestion_worker._commit_triplets", new_callable=AsyncMock)
+    async def test_cold_path_tier3_consensus_failure(
+        self, mock_commit_triplets, mock_rebel, mock_ecod
+    ):
+        mock_ecod.return_value = True
+        mock_rebel.return_value = [{"head": "A", "relation": "R", "tail": "B", "confidence": "1.0"}]
+
+        mock_dao = MagicMock()
+        mock_dao.get_raw_log = AsyncMock(
+            return_value={"status": "queued", "payload": {"agent_id": "test-agent", "content": "A is R to B"}}
+        )
+        mock_dao.update_raw_log_status = AsyncMock()
+
+        mock_consolidation = AsyncMock()
+        mock_consolidation.run_batch = AsyncMock(side_effect=RuntimeError("Tier 3 failure"))
+
+        await process_cold_path(log_id=1, agent_id="test-agent", dao=mock_dao, consolidation_loop=mock_consolidation)
+
+        mock_dao.update_raw_log_status.assert_any_call("test-agent", 1, "processed")
+
+    @pytest.mark.asyncio
+    async def test_cold_path_status_update_failure(self):
+        mock_dao = MagicMock()
+        mock_dao.get_raw_log = AsyncMock(side_effect=RuntimeError("Database down"))
+        mock_dao.update_raw_log_status = AsyncMock(side_effect=RuntimeError("Status update failed"))
+
+        await process_cold_path(log_id=4, agent_id="test-agent", dao=mock_dao)
+
+class TestExceptBlocks:
+    @pytest.mark.asyncio
+    async def test_ecod_gate_exception(self):
+        from mesa_workers.ingestion_worker import _run_ecod_gate
+        mock_dao = MagicMock()
+        mock_dao.get_memories = AsyncMock(side_effect=RuntimeError("DB Error"))
+        res = await _run_ecod_gate(mock_dao, "agent", "content")
+        assert res is True  # Gate bypassed
+
+    @pytest.mark.asyncio
+    async def test_rebel_extraction_exception(self):
+        from mesa_workers.ingestion_worker import _run_rebel_extraction_impl
+        mock_extractor = MagicMock()
+        mock_extractor.extract_triplets = MagicMock(side_effect=RuntimeError("REBEL Error"))
+        res = await _run_rebel_extraction_impl(mock_extractor, "content")
+        assert res == []

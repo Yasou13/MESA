@@ -115,6 +115,11 @@ def test_ollama_complete():
     res = adapter.complete("test")
     assert res == "ollama resp"
 
+def test_ollama_base_url_init():
+    adapter = OllamaAdapter(base_url="http://custom.url")
+    assert adapter.base_url == "http://custom.url"
+    assert adapter._ollama_client is not None
+
 
 @patch("mesa_memory.adapter.ollama.outlines")
 def test_ollama_complete_schema(mock_outlines):
@@ -208,3 +213,27 @@ def test_enforce_context_limit_raises():
             model_id="",
             limit=10,
         )
+
+# ===================================================================
+# AdapterFactory Tests
+# ===================================================================
+
+def test_adapter_factory_ollama_explicit():
+    from mesa_memory.adapter.factory import AdapterFactory
+    from mesa_memory.adapter.ollama import OllamaAdapter
+    adapter = AdapterFactory.get_adapter(provider="ollama")
+    assert isinstance(adapter, OllamaAdapter)
+
+@patch("os.environ.get")
+def test_adapter_factory_auto_detect_zero_cost(mock_env_get):
+    from mesa_memory.adapter.factory import AdapterFactory
+    from mesa_memory.adapter.ollama import OllamaAdapter
+    
+    def env_get_side_effect(key, default=None):
+        if key == "MESA_OLLAMA_URL":
+            return "http://localhost:11434"
+        return default
+        
+    mock_env_get.side_effect = env_get_side_effect
+    adapter = AdapterFactory.get_adapter(provider="auto")
+    assert isinstance(adapter, OllamaAdapter)
