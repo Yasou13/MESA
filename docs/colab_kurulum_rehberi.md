@@ -60,32 +60,68 @@ print(".env dosyası başarıyla oluşturuldu!")
 
 > **Önemli:** `LLM_API_KEY` kısmına kendi API anahtarınızı (örneğin Groq kullanıyorsanız `gsk_...` ile başlayan anahtarınızı) girmeyi unutmayın. Colab ortamında gizlilik için isterseniz Colab'in sol menüsündeki "Secrets (Anahtarlar)" bölümünü de kullanabilirsiniz.
 
-## Adım 4: MESA Sunucusunu Başlatma
+## Adım 4: MESA Sunucusunu Başlatma ve Erken Hata Denetimi (Pre-flight Workflow)
 
-Colab not defterleri aynı anda sadece bir hücrenin çalışmasına izin verdiği için, FastAPI sunucusunu arka planda başlatmamız gerekiyor. Aşağıdaki kod bloğu sunucuyu arka planda çalıştıracaktır:
+Colab not defterleri aynı anda sadece bir hücrenin çalışmasına izin verdiği için, FastAPI sunucusunu arka planda başlatmamız gerekiyor. Sunucunun sorunsuz (500 veya 401 hatası vermeden) çalıştığından emin olmak için aşağıdaki **Erken Müdahale (Pre-flight) Workflow** betiğini kullanın. Bu betik, sunucu ayağa kalkana kadar bekler ve API anahtarlarınızı otomatik olarak test eder.
 
 ```python
 import subprocess
 import time
+import requests
+import sys
 
 # MESA sunucusunu arka planda başlat
+print("⏳ MESA API Sunucusu başlatılıyor...")
 server_process = subprocess.Popen(
     ["uvicorn", "mesa_memory.api.server:app", "--host", "0.0.0.0", "--port", "8000"],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
 )
 
-# Sunucunun ayağa kalkması için birkaç saniye bekle
-time.sleep(5)
-print("MESA API Sunucusu arka planda başlatıldı! (Port: 8000)")
-```
+# Erken Müdahale (Pre-flight) Kontrol Döngüsü
+max_retries = 15
+base_url = "http://localhost:8000"
+api_key = "local-dev-key"
+headers = {"X-API-Key": api_key}
 
-Çalışıp çalışmadığını doğrulamak için bir `curl` isteği atabilirsiniz:
+for i in range(max_retries):
+    try:
+        # 1. Healthcheck Kontrolü (Sunucu ayağa kalktı mı?)
+        res = requests.get(f"{base_url}/health", timeout=2)
+        
+        if res.status_code == 200:
+            print("✅ Sunucu başarıyla ayağa kalktı!")
+            
+            # 2. Yetkilendirme ve DB Kontrolü (401 ve 500 hatalarını erken yakalama)
+            # Rastgele bir v3 endpoint'ine istek atarak auth ve db durumunu sınıyoruz
+            auth_test = requests.get(f"{base_url}/v3/memory/status/0", headers=headers, timeout=2)
+            
+            if auth_test.status_code == 401:
+                print("🚨 HATA (401): API Anahtarı yetkisiz! .env dosyasındaki MESA_API_KEY ile istekteki anahtar uyuşmuyor.")
+                server_process.kill()
+                sys.exit(1)
+            elif auth_test.status_code == 500:
+                print("🚨 HATA (500 UnknownError): İç sunucu hatası. Muhtemelen .kuzu veritabanı kilitlendi veya izin sorunu var.")
+                print("ÇÖZÜM: Colab çalışma zamanını (Runtime) yeniden başlatın veya !rm -rf .kuzu dizinini silerek sıfırlayın.")
+                server_process.kill()
+                sys.exit(1)
+            else:
+                print("✅ Yetkilendirme (Auth) ve Veritabanı bağlantıları başarılı!")
+                break
+                
+        elif res.status_code >= 500:
+             print(f"🚨 HATA ({res.status_code}): Sunucu çöktü. LLM_API_KEY veya veritabanı ayarlarını kontrol edin.")
+             server_process.kill()
+             sys.exit(1)
+             
+    except requests.exceptions.ConnectionError:
+        print(f"[{i+1}/{max_retries}] Sunucu bekleniyor...")
+        time.sleep(2)
 
-```bash
-!curl http://localhost:8000/health
+else:
+    print("❌ Sunucu belirtilen sürede başlatılamadı. Lütfen stdout/stderr loglarını kontrol edin.")
+    server_process.kill()
 ```
-Yanıt olarak `{"status": "ok", ...}` görmelisiniz.
 
 ## Adım 5: Python SDK ile Test Etme
 
