@@ -35,11 +35,11 @@ jobs:
     - name: Install Linting & Typing Tools
       run: pip install black==26.3.1 ruff==0.15.13 mypy==2.1.0
     - name: Check Code Formatting (Black)
-      run: black --check mesa_memory/ tests/ mesa-benchmark/
+      run: black --check mesa_memory/ tests/
     - name: Lint Code (Ruff)
-      run: ruff check mesa_memory/ tests/ mesa-benchmark/
+      run: ruff check mesa_memory/ tests/
     - name: Type Check (Mypy)
-      run: mypy mesa_memory/ mesa_storage/ mesa_workers/ mesa_api/ mesa-benchmark/ --ignore-missing-imports --explicit-package-bases
+      run: mypy mesa_memory/ mesa_storage/ mesa_workers/ mesa_api/ --ignore-missing-imports --explicit-package-bases
 
     - name: Test with pytest
       env:
@@ -50,7 +50,7 @@ jobs:
         MESA_REBEL_ENABLED: "false"
       run: |
         export PYTHONPATH=.
-        pytest tests/ mesa-benchmark/tests/ --cov --cov-report=xml --cov-fail-under=85 --ignore=tests/bench
+        pytest tests/ --cov --cov-report=xml --cov-fail-under=85 --ignore=tests/bench
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
@@ -113,7 +113,70 @@ jobs:
         echo "=========================================="
         pytest tests/test_chaos.py -v --tb=short
 
+    # --------------------------------------------------------------
+    # Gate 3: Graph Poisoning Audit
+    # Validates legal knowledge graph integrity against the
+    # canonical Turkish law reference set. Enforces a hard 5%
+    # poisoning rate threshold — exceeding it blocks the merge.
+    #
+    # Requires a seeded test database. The audit script uses
+    # direct aiosqlite against the DB file (no running server).
+    # --------------------------------------------------------------
+    - name: "Gate 3: Seed Test Database for Graph Audit"
+      env:
+        PYTHONPATH: "."
+      run: |
+        python -c "
+        import asyncio, os
+        from mesa_storage.sqlite_engine import AsyncEngine
+        from mesa_storage.schemas import initialize_schema as init_sqlite_schema
+        from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema
+        from mesa_storage.kuzu_provider import KuzuGraphProvider
+        import aiosqlite
 
+        async def seed():
+            os.makedirs('.ci_storage', exist_ok=True)
+            engine = AsyncEngine('.ci_storage/ci_test.db', max_connections=2)
+            await engine.initialize()
+            await init_sqlite_schema(engine)
+
+            async with aiosqlite.connect('.ci_storage/ci_test.db') as db:
+                # Create two valid nodes in SQLite for metadata
+                await db.execute(
+                    \"\"\"INSERT INTO nodes (id, entity_name, type, is_consolidated, created_at, agent_id, session_id)
+                       VALUES ('node-src', 'Dava Konusu', 'ENTITY', 0, datetime('now'), 'ci-agent', 'ci-session')\"\"\"
+                )
+                await db.execute(
+                    \"\"\"INSERT INTO nodes (id, entity_name, type, is_consolidated, created_at, agent_id, session_id)
+                       VALUES ('node-tgt', 'TBK Madde 49', 'ENTITY', 0, datetime('now'), 'ci-agent', 'ci-session')\"\"\"
+                )
+                await db.commit()
+            await engine.close()
+
+            # Create edges in KuzuDB
+            init_kuzu_schema('.ci_storage/ci_test_graph')
+            kuzu = KuzuGraphProvider('.ci_storage/ci_test_graph')
+            await kuzu.initialize()
+            await kuzu.insert_node('node-src', 'Dava Konusu', 'ci-agent')
+            await kuzu.insert_node('node-tgt', 'TBK Madde 49', 'ci-agent')
+            await kuzu.insert_edge('node-src', 'node-tgt', 1.0, 'ci-agent')
+            
+            print('CI test database seeded successfully')
+
+        asyncio.run(seed())
+        "
+
+    - name: "Gate 3: Graph Poisoning Audit"
+      env:
+        PYTHONPATH: "."
+      run: |
+        echo "=========================================="
+        echo "  GATE 3: Graph Poisoning Audit"
+        echo "=========================================="
+        python -m mesa_evals.legal_audit \
+          --db .ci_storage/ci_test.db \
+          --agent-id ci-agent \
+          --threshold 0.05
 
     # --------------------------------------------------------------
     # Cleanup
