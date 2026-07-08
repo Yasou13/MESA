@@ -1,0 +1,9 @@
+{
+  "name": "MESA Contradiction Resolution Benchmark",
+  "tier": 1,
+  "description": "Tests the system's ability to resolve contradictions by preferring temporally newer information.",
+  "total_scenarios": 1,
+  "average_contexts_per_scenario": 2,
+  "author": "MESA Research Team",
+  "tags": ["contradiction", "temporal", "epistemic"]
+}
