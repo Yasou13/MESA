@@ -170,6 +170,13 @@ class BenchmarkRunner:
                     state.current_scenario_idx if iteration == start_iter else 0
                 )
 
+                if start_scenario > 0:
+                    logger.info(f"  Rebuilding database state: Ingesting scenarios 0 to {start_scenario - 1} for noise parity...")
+                    for rebuild_idx in range(0, start_scenario):
+                        rebuild_scen = self.dataset_manager.get_scenario(rebuild_idx)
+                        for ctx in rebuild_scen.contexts:
+                            self._call_with_backoff(self.client.add_memory, ctx)
+
                 for scenario_idx in range(start_scenario, total_scenarios):
                     scenario = self.dataset_manager.get_scenario(scenario_idx)
                     logger.info(
