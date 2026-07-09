@@ -134,3 +134,8 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             latency_ms=latency,
             metadata={"mesa_version": "0.5.1"},
         )
+
+    def close(self) -> None:
+        """Cleans up temporary resources."""
+        if hasattr(self, 'temp_dir') and self.temp_dir:
+            self.temp_dir.cleanup()

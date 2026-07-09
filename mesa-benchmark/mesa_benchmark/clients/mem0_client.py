@@ -68,6 +68,11 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
         return BenchmarkResponse(
             answer_text=answer_text,
             retrieved_context_ids=retrieved_ids,
+            token_usage={},
             latency_ms=latency,
-            metadata={"mem0": True},
+            metadata={"source": "mem0"},
         )
+
+    def close(self) -> None:
+        """Mem0 manages its own connections, no cleanup required."""
+        pass

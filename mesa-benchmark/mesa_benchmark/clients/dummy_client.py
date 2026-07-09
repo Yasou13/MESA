@@ -68,3 +68,7 @@ class DummyClientAdapter(AbstractBenchmarkClient):
             )
 
         return response
+
+    def close(self) -> None:
+        """Dummy client requires no cleanup."""
+        pass

@@ -58,6 +58,13 @@ class AbstractBenchmarkClient(ABC):
     @abstractmethod
     def answer(self, question: BenchmarkQuestion) -> BenchmarkResponse:
         """
-        Asks the memory system a question and returns a standardized BenchmarkResponse.
+        Queries the target system for the answer to the given question.
+        """
+        pass
+
+    @abstractmethod
+    def close(self) -> None:
+        """
+        Cleanly shuts down the client and releases any acquired resources (e.g., temporary directories, connection pools).
         """
         pass

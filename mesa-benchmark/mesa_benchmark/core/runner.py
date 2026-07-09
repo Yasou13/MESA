@@ -43,16 +43,16 @@ class BenchmarkRunner:
         self.run_id = str(uuid.uuid4())
 
     def _register_evaluators(self) -> None:
-        """Registers all available evaluator strategies."""
+        """Registers evaluators based on configuration."""
         self.evaluators["exact_match"] = ExactMatchEvaluator()
         try:
             from ..evaluators.llm_judge import LLMJudgeEvaluator
 
-            judge_model = None
+            judge_model = "gpt-4o-mini"
             if self.config and self.config.evaluation.llm_judge_model:
                 judge_model = self.config.evaluation.llm_judge_model
             self.evaluators["llm_judge"] = LLMJudgeEvaluator(
-                judge_model=judge_model or "gpt-4o"
+                judge_model=judge_model
             )
         except ImportError:
             logger.warning("LLMJudgeEvaluator not available (openai not installed).")
@@ -242,7 +242,6 @@ class BenchmarkRunner:
 
                     # Save state
                     self.state_manager.update_progress(iteration, scenario_idx + 1)
-
             logger.info("Benchmark execution completed.")
             self.state_manager.mark_completed()
 
@@ -266,3 +265,10 @@ class BenchmarkRunner:
             logger.error(f"Benchmark failed: {e}")
             self.state_manager.mark_failed(str(e))
             raise
+        finally:
+            if self.client:
+                try:
+                    self.client.close()
+                except Exception as e:
+                    logger.warning(f"Failed to cleanly close client adapter: {e}")
+            logger.info(f"Benchmark run {self.run_id} completely finished.")
