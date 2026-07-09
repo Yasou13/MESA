@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import secrets
 import sys
 from contextlib import asynccontextmanager
 
@@ -40,6 +41,7 @@ from fastapi.responses import JSONResponse  # noqa: E402
 
 from mesa_api.router import create_memory_router  # noqa: E402
 from mesa_storage.dao import MemoryDAO  # noqa: E402
+from mesa_storage.kuzu_provider import KuzuGraphProvider  # noqa: E402
 from mesa_storage.schemas import initialize_schema  # noqa: E402
 from mesa_storage.sqlite_engine import AsyncEngine  # noqa: E402
 from mesa_storage.vector_engine import VectorEngine  # noqa: E402
@@ -55,6 +57,7 @@ logger = logging.getLogger("MESA_DevServer")
 class _AppState:
     sqlite_engine: AsyncEngine | None = None
     vector_engine: VectorEngine | None = None
+    graph_provider: KuzuGraphProvider | None = None
     dao: MemoryDAO | None = None
 
 
@@ -127,10 +130,22 @@ async def lifespan(app: FastAPI):
     await _state.vector_engine.initialize()
     logger.info("Vector engine initialized: ./storage/vector.lance")
 
+    # --- KuzuDB graph engine ---
+    from mesa_storage import kuzu_setup
+    kuzu_setup.initialize_schema("./storage/kuzu_db")
+    import kuzu
+    import asyncio
+    loop = asyncio.get_running_loop()
+    db = await loop.run_in_executor(None, kuzu.Database, "./storage/kuzu_db")
+    _state.graph_provider = KuzuGraphProvider(db_path="./storage/kuzu_db")
+    await _state.graph_provider.initialize()
+    logger.info("KùzuDB graph engine initialized: ./storage/kuzu_db")
+
     # --- MemoryDAO ---
     _state.dao = MemoryDAO(
         sqlite_engine=_state.sqlite_engine,
         vector_engine=_state.vector_engine,
+        graph_provider=_state.graph_provider,
     )
     await _state.dao.initialize()
     logger.info("MemoryDAO wired")
@@ -188,7 +203,7 @@ if not _cli_args.no_auth:
         ):
             return await call_next(request)
         api_key = request.headers.get("X-API-Key", "")
-        if api_key != _MESA_API_KEY:
+        if not secrets.compare_digest(api_key.encode('utf-8'), _MESA_API_KEY.encode('utf-8')):
             return JSONResponse(
                 status_code=401,
                 content={

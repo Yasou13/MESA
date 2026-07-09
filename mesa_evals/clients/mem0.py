@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import uuid
 from typing import Any
 
@@ -30,7 +31,7 @@ class Mem0Client(BaseMemoryClient):
                     "model": config.llm_model_name or "gpt-4o-mini",
                     "temperature": 0.0,
                     "max_tokens": 1500,
-                    "api_key": "sk-dummy",
+                    "api_key": os.environ.get("OPENAI_API_KEY", ""),
                 },
             },
             "embedder": {

@@ -15,7 +15,17 @@ Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consens
 
 ---
 
-## ⚡ Quickstart (Docker) — 60 Seconds
+## ⚡ Quickstart (Local Installation)
+
+Install MESA as a Python package using `pip`. You can optionally install the `ml` group for local embedding/extraction models, and the `adapters` group for LLM API SDKs:
+
+```bash
+git clone https://github.com/Yasou13/MESA.git
+cd MESA
+pip install -e .[ml,adapters]
+```
+
+## 🐳 Quickstart (Docker) — 60 Seconds
 
 Copy-paste this to get a running MESA instance with zero local dependencies:
 
