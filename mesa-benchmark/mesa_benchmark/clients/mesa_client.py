@@ -109,13 +109,24 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         results = self.loop.run_until_complete(_answer())
 
         if results:
+            valid_chunks = []
             for r in results:
-                entity = r.get("graph", {}).get("entity_name")
+                graph = r.get("graph")
+                if not graph:
+                    continue
+                
+                entity = graph.get("entity_name")
                 if entity:
                     retrieved_ids.append(entity)
+                    
+                payload = graph.get("content_payload")
+                if payload:
+                    valid_chunks.append(str(payload))
 
-            # Synthesize an answer for the LLM judge using the chunks
-            answer_text = "\\n".join([str(r.get("graph", {}).get("content_payload", "")) for r in results])
+            if valid_chunks:
+                answer_text = "\n".join(valid_chunks)
+            else:
+                answer_text = "No relevant context found."
         else:
             answer_text = "No relevant context found."
 
