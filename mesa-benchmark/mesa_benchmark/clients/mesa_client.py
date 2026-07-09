@@ -55,19 +55,11 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         """Flushes the database for a clean test environment."""
         async def _clear() -> None:
             if self.sqlite:
-                try:
-                    await self.sqlite.execute_script("DELETE FROM nodes;")
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning(f"clear_memory sqlite failed: {e}")
+                await self.sqlite.execute_script("DELETE FROM nodes;")
             if self.vector and hasattr(self.vector, '_db') and self.vector._db:
-                try:
-                    for table_name in self.vector._db.table_names():
-                        self.vector._db.drop_table(table_name)
-                    self.vector._tables.clear()
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning(f"clear_memory vector failed: {e}")
+                for table_name in self.vector._db.table_names():
+                    self.vector._db.drop_table(table_name)
+                self.vector._tables.clear()
         self.loop.run_until_complete(_clear())
 
     def add_memory(self, context: MemoryContext) -> Dict[str, Any]:
