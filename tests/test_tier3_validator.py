@@ -268,8 +268,8 @@ class TestDisagreementLogging:
         with caplog.at_level(logging.INFO, logger="MESA_Tier3Validator"):
             result = await v.validate(_make_record(cmb_id="log-cmb-99"))
         assert result is False
-        assert "disagreement" in caplog.text.lower()
-        assert "log-cmb-99" in caplog.text
+        assert any("disagreement" in str(getattr(r, "msg", r)).lower() for r in caplog.records)
+        assert any("log-cmb-99" in str(getattr(r, "msg", r)) for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_disagree_a_discard_b_store_logs(self, caplog):
@@ -277,7 +277,7 @@ class TestDisagreementLogging:
         with caplog.at_level(logging.INFO, logger="MESA_Tier3Validator"):
             result = await v.validate(_make_record(cmb_id="log-cmb-77"))
         assert result is False
-        assert "log-cmb-77" in caplog.text
+        assert any("log-cmb-77" in str(getattr(r, "msg", r)) for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_disagree_missing_cmb_id_fallback(self, caplog):
@@ -288,7 +288,7 @@ class TestDisagreementLogging:
         with caplog.at_level(logging.INFO, logger="MESA_Tier3Validator"):
             result = await v.validate(record)
         assert result is False
-        assert "?" in caplog.text
+        assert any("?" in str(getattr(r, "msg", r)) for r in caplog.records)
 
 
 # ===================================================================
