@@ -112,7 +112,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                     retrieved_ids.append(entity)
 
             # Synthesize an answer for the LLM judge using the chunks
-            answer_text = "\\n".join([r.get("vector", {}).get("content", "") for r in results])
+            answer_text = "\\n".join([str(r.get("graph", {}).get("content_payload", "")) for r in results])
         else:
             answer_text = "No relevant context found."
 

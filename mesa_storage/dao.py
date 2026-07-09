@@ -741,7 +741,7 @@ class MemoryDAO:
         # RLS: agent_id = ? hardcoded — even if a node_id existed under
         # a different agent, it will NOT be returned.
         query = (
-            f"SELECT id, entity_name, type, is_consolidated, "
+            f"SELECT id, entity_name, type, content_payload, is_consolidated, "
             f"       created_at, session_id "
             f"FROM nodes "
             f"WHERE agent_id = ? "
