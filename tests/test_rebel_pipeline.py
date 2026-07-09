@@ -54,15 +54,15 @@ def test_parse_rebel_output_complex():
     assert triplets[1] == {"head": "C", "relation": "rel2", "tail": "D"}
 
 
+@patch("mesa_memory.extraction.rebel_pipeline.logger.warning")
 @patch.dict(
     "sys.modules",
     {"torch": MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))},
 )
-def test_rebel_cpu_warning(caplog):
+def test_rebel_cpu_warning(mock_warning):
     RebelExtractor()
-    assert any(
-        "REBEL running on CPU" in str(getattr(r, "msg", r)) for r in caplog.records
-    )
+    assert mock_warning.called
+    assert any("REBEL running on CPU" in call.args[0] for call in mock_warning.call_args_list)
 
 
 def test_import_error_for_pipeline():

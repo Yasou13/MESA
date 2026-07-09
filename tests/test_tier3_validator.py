@@ -14,7 +14,7 @@ Targets survived mutants in ``mesa_memory/consolidation/validator.py``:
 
 import json
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -263,34 +263,35 @@ class TestDisagreementLogging:
     """Kill mutants on the disagreement logging path (lines 142-148)."""
 
     @pytest.mark.asyncio
-    async def test_disagree_a_store_b_discard_logs(self, caplog):
+    @patch("mesa_memory.consolidation.validator.logger.info")
+    async def test_disagree_a_store_b_discard_logs(self, mock_info):
         v, _, _ = _make_validator(_store_json(), _discard_json())
-        with caplog.at_level(logging.INFO, logger="MESA_Tier3Validator"):
-            result = await v.validate(_make_record(cmb_id="log-cmb-99"))
+        result = await v.validate(_make_record(cmb_id="log-cmb-99"))
         assert result is False
-        assert any(
-            "disagreement" in str(getattr(r, "msg", r)).lower() for r in caplog.records
-        )
-        assert any("log-cmb-99" in str(getattr(r, "msg", r)) for r in caplog.records)
+        assert mock_info.called
+        assert any("disagreement" in str(call.args).lower() for call in mock_info.call_args_list)
+        assert any("log-cmb-99" in str(call.args) for call in mock_info.call_args_list)
 
     @pytest.mark.asyncio
-    async def test_disagree_a_discard_b_store_logs(self, caplog):
+    @patch("mesa_memory.consolidation.validator.logger.info")
+    async def test_disagree_a_discard_b_store_logs(self, mock_info):
         v, _, _ = _make_validator(_discard_json(), _store_json())
-        with caplog.at_level(logging.INFO, logger="MESA_Tier3Validator"):
-            result = await v.validate(_make_record(cmb_id="log-cmb-77"))
+        result = await v.validate(_make_record(cmb_id="log-cmb-77"))
         assert result is False
-        assert any("log-cmb-77" in str(getattr(r, "msg", r)) for r in caplog.records)
+        assert mock_info.called
+        assert any("log-cmb-77" in str(call.args) for call in mock_info.call_args_list)
 
     @pytest.mark.asyncio
-    async def test_disagree_missing_cmb_id_fallback(self, caplog):
+    @patch("mesa_memory.consolidation.validator.logger.info")
+    async def test_disagree_missing_cmb_id_fallback(self, mock_info):
         """When cmb_id is missing, logger should show '?' fallback."""
         record = _make_record()
         del record["cmb_id"]
         v, _, _ = _make_validator(_store_json(), _discard_json())
-        with caplog.at_level(logging.INFO, logger="MESA_Tier3Validator"):
-            result = await v.validate(record)
+        result = await v.validate(record)
         assert result is False
-        assert any("?" in str(getattr(r, "msg", r)) for r in caplog.records)
+        assert mock_info.called
+        assert any("?" in str(call.args) for call in mock_info.call_args_list)
 
 
 # ===================================================================
