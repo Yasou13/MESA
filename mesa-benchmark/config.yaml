@@ -1,0 +1,23 @@
+suite_name: "Sprint 2 Integration Suite"
+iterations: 1
+seed: 42
+
+dataset:
+  name: "synthetic_dataset"
+  version: "v1"
+  path: "mesa_benchmark/datasets/synthetic_dataset.json"
+  noise_ratio: 0.0
+
+client:
+  name: "mesa_client"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  timeout_ms: 5000
+  parameters:
+    verbose: true
+
+evaluation:
+  metrics:
+    - "hit_at_k"
+    - "mrr"
+    - "latency"
+  llm_judge_model: null

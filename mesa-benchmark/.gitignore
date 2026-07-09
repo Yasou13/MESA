@@ -1,0 +1,21 @@
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Benchmark outputs
+reports/
+*.jsonl
+state.json
+
+# Environment variables
+.env
