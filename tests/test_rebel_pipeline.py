@@ -60,7 +60,9 @@ def test_parse_rebel_output_complex():
 )
 def test_rebel_cpu_warning(caplog):
     RebelExtractor()
-    assert any("REBEL running on CPU" in str(getattr(r, "msg", r)) for r in caplog.records)
+    assert any(
+        "REBEL running on CPU" in str(getattr(r, "msg", r)) for r in caplog.records
+    )
 
 
 def test_import_error_for_pipeline():

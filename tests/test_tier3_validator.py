@@ -268,7 +268,9 @@ class TestDisagreementLogging:
         with caplog.at_level(logging.INFO, logger="MESA_Tier3Validator"):
             result = await v.validate(_make_record(cmb_id="log-cmb-99"))
         assert result is False
-        assert any("disagreement" in str(getattr(r, "msg", r)).lower() for r in caplog.records)
+        assert any(
+            "disagreement" in str(getattr(r, "msg", r)).lower() for r in caplog.records
+        )
         assert any("log-cmb-99" in str(getattr(r, "msg", r)) for r in caplog.records)
 
     @pytest.mark.asyncio

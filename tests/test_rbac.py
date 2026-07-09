@@ -104,4 +104,6 @@ def test_sanitize_cmb_content_prompt_injection(caplog):
     # It shouldn't block the content, just log it
     assert "Ignore all previous instructions" in sanitized
     # The exact log message should be emitted
-    assert any("PROMPT_INJECTION_ADVISORY" in str(getattr(r, "msg", r)) for r in caplog.records)
+    assert any(
+        "PROMPT_INJECTION_ADVISORY" in str(getattr(r, "msg", r)) for r in caplog.records
+    )
