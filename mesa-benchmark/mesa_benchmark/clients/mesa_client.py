@@ -30,6 +30,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         self.sqlite: Any = None
         self.vector: Any = None
         self.temp_dir: Any = None
+        self.loop = asyncio.new_event_loop()
 
     def initialize(self, config_params: Dict[str, Any]) -> None:
         """Initializes MESA components."""
@@ -48,7 +49,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             self.memory_dao = MemoryDAO(sqlite_engine=self.sqlite, vector_engine=self.vector)
             await self.memory_dao.initialize()
 
-        asyncio.run(_init())
+        self.loop.run_until_complete(_init())
 
     def clear_memory(self) -> None:
         """Flushes the database for a clean test environment."""
@@ -67,7 +68,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning(f"clear_memory vector failed: {e}")
-        asyncio.run(_clear())
+        self.loop.run_until_complete(_clear())
 
     def add_memory(self, context: MemoryContext) -> Dict[str, Any]:
         """Ingests context into MESA."""
@@ -83,7 +84,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 metadata=context.metadata
             )
 
-        asyncio.run(_add())
+        self.loop.run_until_complete(_add())
 
         latency = (time.time() - start_time) * 1000
         return {"latency_ms": latency}
@@ -105,7 +106,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             )
             return results
 
-        results = asyncio.run(_answer())
+        results = self.loop.run_until_complete(_answer())
 
         if results:
             for r in results:
