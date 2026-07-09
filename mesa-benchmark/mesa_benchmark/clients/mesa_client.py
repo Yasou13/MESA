@@ -55,16 +55,18 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         async def _clear() -> None:
             if self.sqlite:
                 try:
-                    await self.sqlite.execute_script("DELETE FROM memory_nodes; DELETE FROM memory_edges;")
-                except Exception:
-                    pass
-            if self.vector and hasattr(self.vector, 'db'):
+                    await self.sqlite.execute_script("DELETE FROM nodes;")
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"clear_memory sqlite failed: {e}")
+            if self.vector and hasattr(self.vector, '_db') and self.vector._db:
                 try:
-                    self.vector.db.drop_table("memories")
-                    self.vector.table = None
-                    await self.vector.initialize()
-                except Exception:
-                    pass
+                    for table_name in self.vector._db.table_names():
+                        self.vector._db.drop_table(table_name)
+                    self.vector._tables.clear()
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"clear_memory vector failed: {e}")
         asyncio.run(_clear())
 
     def add_memory(self, context: MemoryContext) -> Dict[str, Any]:
