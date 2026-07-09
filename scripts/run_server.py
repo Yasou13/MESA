@@ -132,11 +132,14 @@ async def lifespan(app: FastAPI):
 
     # --- KuzuDB graph engine ---
     from mesa_storage import kuzu_setup
+
     kuzu_setup.initialize_schema("./storage/kuzu_db")
-    import kuzu
     import asyncio
+
+    import kuzu
+
     loop = asyncio.get_running_loop()
-    db = await loop.run_in_executor(None, kuzu.Database, "./storage/kuzu_db")
+    _ = await loop.run_in_executor(None, kuzu.Database, "./storage/kuzu_db")
     _state.graph_provider = KuzuGraphProvider(db_path="./storage/kuzu_db")
     await _state.graph_provider.initialize()
     logger.info("KùzuDB graph engine initialized: ./storage/kuzu_db")
@@ -203,7 +206,9 @@ if not _cli_args.no_auth:
         ):
             return await call_next(request)
         api_key = request.headers.get("X-API-Key", "")
-        if not secrets.compare_digest(api_key.encode('utf-8'), _MESA_API_KEY.encode('utf-8')):
+        if not secrets.compare_digest(
+            api_key.encode("utf-8"), _MESA_API_KEY.encode("utf-8")
+        ):
             return JSONResponse(
                 status_code=401,
                 content={
