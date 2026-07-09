@@ -1,13 +1,12 @@
-import time
 import asyncio
+import os
+import sys
 import tempfile
+import time
 from typing import Any, Dict
 
 from ..datasets.schemas import BenchmarkQuestion, MemoryContext
 from .base import AbstractBenchmarkClient, BenchmarkResponse
-
-import os
-import sys
 
 # Add parent directory of mesa_benchmark to path to find mesa_storage
 sys.path.append(
@@ -15,9 +14,10 @@ sys.path.append(
 )
 
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
-from mesa_storage.schemas import initialize_schema
+
 
 class MesaClientAdapter(AbstractBenchmarkClient):
     """
@@ -36,15 +36,15 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         self.temp_dir = tempfile.TemporaryDirectory()
         db_path = f"{self.temp_dir.name}/mesa.db"
         lance_path = f"{self.temp_dir.name}/vector.lance"
-        
-        async def _init():
+
+        async def _init() -> None:
             self.sqlite = AsyncEngine(db_path=db_path)
             await self.sqlite.initialize()
             await initialize_schema(self.sqlite)
-            
+
             self.vector = VectorEngine(uri=lance_path)
             await self.vector.initialize()
-            
+
             self.memory_dao = MemoryDAO(sqlite_engine=self.sqlite, vector_engine=self.vector)
             await self.memory_dao.initialize()
 
@@ -52,7 +52,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
     def clear_memory(self) -> None:
         """Flushes the database for a clean test environment."""
-        async def _clear():
+        async def _clear() -> None:
             if self.sqlite:
                 try:
                     await self.sqlite.execute_script("DELETE FROM memory_nodes; DELETE FROM memory_edges;")
@@ -70,8 +70,8 @@ class MesaClientAdapter(AbstractBenchmarkClient):
     def add_memory(self, context: MemoryContext) -> Dict[str, Any]:
         """Ingests context into MESA."""
         start_time = time.time()
-        
-        async def _add():
+
+        async def _add() -> None:
             embedding = await self.vector.compute_embedding(context.text)
             await self.memory_dao.insert_memory(
                 content=context.text,
@@ -80,7 +80,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 embedding=embedding,
                 metadata=context.metadata
             )
-        
+
         asyncio.run(_add())
 
         latency = (time.time() - start_time) * 1000
@@ -93,7 +93,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         retrieved_ids = []
         answer_text = ""
 
-        async def _answer():
+        async def _answer() -> Any:
             query_embedding = await self.vector.compute_embedding(question.query)
             results = await self.memory_dao.search_memory(
                 query_vector=query_embedding,
@@ -102,15 +102,15 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 include_graph=True
             )
             return results
-            
+
         results = asyncio.run(_answer())
-        
+
         if results:
             for r in results:
                 entity = r.get("graph", {}).get("entity_name")
                 if entity:
                     retrieved_ids.append(entity)
-            
+
             # Synthesize an answer for the LLM judge using the chunks
             answer_text = "\\n".join([r.get("vector", {}).get("content", "") for r in results])
         else:
