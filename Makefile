@@ -21,3 +21,6 @@ docker-up:
 
 health:
 	python scripts/health_check.py
+
+load-test:
+	locust -f tests/bench/locustfile.py --host=http://localhost:8000

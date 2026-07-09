@@ -2,7 +2,6 @@ import logging
 from typing import Optional
 
 import tiktoken
-from transformers import AutoTokenizer
 
 from mesa_memory.adapter.base import TokenBudgetExceededError
 from mesa_memory.config import config
@@ -16,9 +15,11 @@ def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
         return len(enc.encode(text))
     if adapter_type == "ollama":
         try:
+            from transformers import AutoTokenizer
+
             tokenizer = AutoTokenizer.from_pretrained(model_id)
             return len(tokenizer.encode(text))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, ImportError) as exc:
             logger.warning(
                 "AutoTokenizer.from_pretrained(%s) failed, using word-count estimate: %s",
                 model_id,

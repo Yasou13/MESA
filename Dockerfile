@@ -18,7 +18,7 @@ COPY requirements*.txt ./
 RUN pip install --no-cache-dir --prefix=/install -r requirements-core.txt
 
 COPY . .
-RUN pip install --no-cache-dir --prefix=/install .
+RUN pip install --no-cache-dir --prefix=/install ".[adapters]"
 
 # Pre-download spaCy model in builder
 RUN python -m spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages
@@ -51,6 +51,6 @@ USER mesa
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/v3/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/init')" || exit 1
 
 CMD ["uvicorn", "mesa_memory.api.server:app", "--host", "0.0.0.0", "--port", "8000"]

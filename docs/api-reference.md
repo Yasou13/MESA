@@ -14,10 +14,10 @@ The MemoryDAO is the isolated boundary responsible for synchronous data integrit
 
 #### `async insert_memory(agent_id: str, node_id: str, entity_name: str, content: str, embedding: list[float], ...) → None`
 
-Persists a Cognitive Memory Block (CMB) into both the relational graph and vector index.
+Persists a Cognitive Memory Block (CMB) into both the relational graph and vector index. Includes a strict **1MB payload size limit** to prevent memory-exhaustion DoS attacks.
 
 **Raises:**
-- `ValueError` — If `agent_id` is invalid or unset.
+- `ValueError` — If `agent_id` is invalid or unset, or if the `content` payload exceeds 1MB.
 
 ---
 

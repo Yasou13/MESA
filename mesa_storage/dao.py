@@ -413,6 +413,12 @@ class MemoryDAO:
         """
         _assert_valid_agent_id(agent_id)
 
+        # P3 FIX: Input validation to prevent payload DoS (1MB limit)
+        if len(content.encode("utf-8")) > 1_048_576:
+            raise ValueError(
+                f"Content payload exceeds 1MB limit for entity {entity_name!r}"
+            )
+
         if node_id is None:
             node_id = str(uuid.uuid4())
 
@@ -570,6 +576,14 @@ class MemoryDAO:
 
         if not records:
             return 0
+
+        # P3 FIX: Input validation to prevent payload DoS (1MB limit)
+        for rec in records:
+            content = rec.get("content", "")
+            if len(content.encode("utf-8")) > 1_048_576:
+                raise ValueError(
+                    f"Content payload exceeds 1MB limit for entity {rec.get('entity_name')!r}"
+                )
 
         now = datetime.now(timezone.utc).isoformat()
         sql_rows: list[tuple] = []

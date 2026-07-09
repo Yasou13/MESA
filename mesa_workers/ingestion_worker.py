@@ -53,8 +53,12 @@ from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
+from mesa_memory.observability.logger import setup_logging
 from mesa_memory.valence.novelty import calculate_novelty_score
 from mesa_storage.dao import MemoryDAO
+
+# Configure logging for the worker process
+setup_logging()
 
 logger = logging.getLogger("MESA_ColdPath")
 
@@ -893,8 +897,12 @@ async def _commit_raw_memory(
     This ensures every ingested payload has at least one searchable node
     in the graph, even if no structured relations were extracted.
 
-    Generates a real semantic embedding via ``AdapterFactory.get_adapter().aembed()``
+    Generates a real semantic embedding via ``VectorEngine.compute_embedding()``
     to ensure correct dimensionality for production models.
+
+    Includes compensating saga rollback: if the dual-write
+    (SQLite + LanceDB via ``insert_memory``) fails, any partially
+    committed vector entry is soft-deleted to maintain consistency.
 
     Args:
         dao: Initialised MemoryDAO instance.
@@ -903,21 +911,48 @@ async def _commit_raw_memory(
         content: Original content text.
         log_id: raw_logs primary key.
     """
-    embedding = await dao.vector_engine.compute_embedding(content[:512])
+    node_id: str | None = None
 
-    node_id = await dao.insert_memory(
-        agent_id,
-        entity_name=content[:256],
-        content=content,
-        embedding=embedding,
-        node_type="MEMORY",
-        session_id=session_id,
-        content_hash=None,
-    )
+    try:
+        embedding = await dao.vector_engine.compute_embedding(content[:512])
 
-    logger.debug(
-        "RAW_MEMORY_COMMITTED | log_id=%d node_id=%s agent_id=%s",
-        log_id,
-        node_id,
-        agent_id,
-    )
+        node_id = await dao.insert_memory(
+            agent_id,
+            entity_name=content[:256],
+            content=content,
+            embedding=embedding,
+            node_type="MEMORY",
+            session_id=session_id,
+            content_hash=None,
+        )
+
+        logger.debug(
+            "RAW_MEMORY_COMMITTED | log_id=%d node_id=%s agent_id=%s",
+            log_id,
+            node_id,
+            agent_id,
+        )
+
+    except Exception as exc:
+        # --- Compensating rollback: soft-delete vector if node was written ---
+        if node_id is not None:
+            try:
+                await dao.vector_engine.soft_delete(node_id)
+            except Exception as comp_exc:
+                logger.error(
+                    "SAGA_COMPENSATE_FAILED | log_id=%d "
+                    "stage=raw_memory_softdelete node_id=%s error=%s",
+                    log_id,
+                    node_id,
+                    comp_exc,
+                    exc_info=True,
+                )
+
+        logger.warning(
+            "RAW_MEMORY_COMMIT_FAILED | log_id=%d agent_id=%s error=%s",
+            log_id,
+            agent_id,
+            exc,
+            exc_info=True,
+        )
+        raise

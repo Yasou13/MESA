@@ -95,14 +95,12 @@ info "Upgrading pip..."
 pip install --upgrade pip -q
 
 info "Installing core dependencies..."
-pip install -r requirements-core.txt -q || fail "Failed to install requirements-core.txt"
+pip install -e . -q || fail "Failed to install core dependencies"
 ok "Core dependencies installed."
 
-if [ -f "requirements-ml.txt" ]; then
-    info "Installing ML dependencies (optional)..."
-    pip install -r requirements-ml.txt -q || warn "ML dependencies partially failed. Non-critical."
-    ok "ML dependencies installed."
-fi
+info "Installing ML dependencies (optional)..."
+pip install -e .[ml] -q || warn "ML dependencies partially failed. Non-critical."
+ok "ML dependencies installed."
 
 # ── Step 5: Dynamic .env generation ──────────────────────────────────────────
 info "Setting up environment variables..."

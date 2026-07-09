@@ -53,16 +53,17 @@ import logging
 import re
 import threading
 import time
+import typing
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import lancedb
-import litellm
 import pyarrow as pa
-from sentence_transformers import SentenceTransformer
+
+if typing.TYPE_CHECKING:
+    import lancedb
 
 logger = logging.getLogger("MESA_Storage")
 
@@ -248,12 +249,16 @@ class VectorEngine:
                 self._max_workers,
             )
 
-    def _sync_connect(self) -> lancedb.db.LanceDBConnection:
+    def _sync_connect(self) -> "lancedb.db.LanceDBConnection":
         """Synchronous LanceDB connection (runs in executor)."""
+        import lancedb
+
         Path(self._uri).mkdir(parents=True, exist_ok=True)
 
         # Initialize embedding model here to avoid blocking main thread
         try:
+            from sentence_transformers import SentenceTransformer
+
             self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
             logger.info(
                 "VECTOR_ENGINE_EMBEDDER | Loaded local sentence-transformers/all-MiniLM-L6-v2"
@@ -317,6 +322,8 @@ class VectorEngine:
         else:
             # Fallback to litellm
             try:
+                import litellm
+
                 response = litellm.embedding(
                     model="text-embedding-3-small", input=[text]
                 )
@@ -327,6 +334,11 @@ class VectorEngine:
                 elif len(vector) < 384:
                     vector = vector + [0.0] * (384 - len(vector))
                 return vector
+            except ImportError as exc:
+                raise ImportError(
+                    "litellm is required for fallback embeddings. "
+                    "Install via `pip install mesa-memory[adapters]`."
+                ) from exc
             except Exception as exc:
                 logger.error(
                     "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc
@@ -354,6 +366,8 @@ class VectorEngine:
         else:
             # Fallback to litellm
             try:
+                import litellm
+
                 response = litellm.embedding(
                     model="text-embedding-3-small", input=texts
                 )
@@ -366,6 +380,11 @@ class VectorEngine:
                         v = v + [0.0] * (384 - len(v))
                     vectors.append(v)
                 return vectors
+            except ImportError as exc:
+                raise ImportError(
+                    "litellm is required for fallback embeddings. "
+                    "Install via `pip install mesa-memory[adapters]`."
+                ) from exc
             except Exception as exc:
                 logger.error(
                     "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc

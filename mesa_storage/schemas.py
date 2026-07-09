@@ -30,145 +30,8 @@ from mesa_storage.sqlite_engine import AsyncEngine
 logger = logging.getLogger("MESA_Storage")
 
 # ---------------------------------------------------------------------------
-# DDL statements — idempotent schema creation
-# ---------------------------------------------------------------------------
-
-_CREATE_NODES_TABLE = """\
-CREATE TABLE IF NOT EXISTS nodes (
-    id               TEXT    PRIMARY KEY,
-    entity_name      TEXT    NOT NULL,
-    type             TEXT    NOT NULL DEFAULT 'ENTITY',
-    content_payload  TEXT    NOT NULL DEFAULT '',
-    is_consolidated  INTEGER NOT NULL DEFAULT 0,
-    created_at       TEXT    NOT NULL,
-    invalid_at       TEXT    DEFAULT NULL,
-    deleted_at       TEXT    DEFAULT NULL,
-    agent_id         TEXT    NOT NULL DEFAULT '__unset__',
-    session_id       TEXT    NOT NULL DEFAULT '__unset__'
-);
-"""
-
-_CREATE_NODES_INDEXES = [
-    """\
-    CREATE INDEX IF NOT EXISTS idx_nodes_active
-    ON nodes(invalid_at) WHERE invalid_at IS NULL;
-    """,
-    """\
-    CREATE INDEX IF NOT EXISTS idx_nodes_entity_name
-    ON nodes(entity_name COLLATE NOCASE) WHERE invalid_at IS NULL;
-    """,
-    """\
-    CREATE INDEX IF NOT EXISTS idx_nodes_agent
-    ON nodes(agent_id, session_id) WHERE invalid_at IS NULL;
-    """,
-    """\
-    CREATE INDEX IF NOT EXISTS idx_nodes_unconsolidated
-    ON nodes(is_consolidated) WHERE is_consolidated = 0 AND invalid_at IS NULL;
-    """,
-    """\
-    CREATE INDEX IF NOT EXISTS idx_nodes_soft_deleted
-    ON nodes(deleted_at) WHERE deleted_at IS NOT NULL;
-    """,
-]
-
-# ---------------------------------------------------------------------------
-# FTS5 virtual table — zero-VRAM lexical pre-filtering
-# ---------------------------------------------------------------------------
-
-_CREATE_FTS5_TABLE = """\
-CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts
-USING fts5(
-    entity_name,
-    type,
-    content='nodes',
-    content_rowid='rowid'
-);
-"""
-
-_FTS5_TRIGGER_INSERT = """\
-CREATE TRIGGER IF NOT EXISTS trg_nodes_fts_insert
-AFTER INSERT ON nodes
-BEGIN
-    INSERT INTO nodes_fts(rowid, entity_name, type)
-    VALUES (NEW.rowid, NEW.entity_name, NEW.type);
-END;
-"""
-
-_FTS5_TRIGGER_DELETE = """\
-CREATE TRIGGER IF NOT EXISTS trg_nodes_fts_delete
-AFTER DELETE ON nodes
-BEGIN
-    INSERT INTO nodes_fts(nodes_fts, rowid, entity_name, type)
-    VALUES ('delete', OLD.rowid, OLD.entity_name, OLD.type);
-END;
-"""
-
-_FTS5_TRIGGER_UPDATE = """\
-CREATE TRIGGER IF NOT EXISTS trg_nodes_fts_update
-AFTER UPDATE ON nodes
-BEGIN
-    INSERT INTO nodes_fts(nodes_fts, rowid, entity_name, type)
-    VALUES ('delete', OLD.rowid, OLD.entity_name, OLD.type);
-    INSERT INTO nodes_fts(rowid, entity_name, type)
-    VALUES (NEW.rowid, NEW.entity_name, NEW.type);
-END;
-"""
-
-_CREATE_ROUTING_TELEMETRY_TABLE = """\
-CREATE TABLE IF NOT EXISTS routing_telemetry (
-    id                     TEXT    PRIMARY KEY,
-    agent_id               TEXT    NOT NULL,
-    record_id              TEXT    NOT NULL,
-    small_model_decision   INTEGER NOT NULL,
-    small_model_confidence REAL    NOT NULL,
-    dual_llm_decision      INTEGER NOT NULL,
-    is_hallucination       INTEGER NOT NULL,
-    created_at             TEXT    NOT NULL
-);
-"""
-
-_CREATE_RAW_LOGS_TABLE = """\
-CREATE TABLE IF NOT EXISTS raw_logs (
-    id         INTEGER PRIMARY KEY,
-    agent_id   TEXT    NOT NULL,
-    payload    JSON    NOT NULL,
-    status     TEXT    NOT NULL DEFAULT 'queued',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-"""
-
-_CREATE_RAW_LOGS_INDEXES = [
-    """\
-    CREATE INDEX IF NOT EXISTS idx_raw_logs_session
-    ON raw_logs(json_extract(payload, '$.agent_id'), json_extract(payload, '$.session_id'));
-    """,
-]
-
-
-# ---------------------------------------------------------------------------
 # Migration state and LanceDB WAL
 # ---------------------------------------------------------------------------
-
-_CREATE_SYSTEM_CONFIG_TABLE = """\
-CREATE TABLE IF NOT EXISTS system_config (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-"""
-
-_INIT_MIGRATION_LOCK = """\
-INSERT OR IGNORE INTO system_config (key, value) VALUES ('lancedb_is_migrating', 'false');
-"""
-
-_CREATE_LANCEDB_WAL_TABLE = """\
-CREATE TABLE IF NOT EXISTS lancedb_wal (
-    id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
-    vector BLOB NOT NULL,
-    metadata JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-"""
 
 
 # ---------------------------------------------------------------------------
@@ -177,49 +40,37 @@ CREATE TABLE IF NOT EXISTS lancedb_wal (
 
 
 async def initialize_schema(engine: AsyncEngine) -> None:
-    """Create all graph tables, indexes, FTS5 virtual table, and triggers.
-
-    Idempotent — safe to call on every application startup.  Executes all
-    DDL within a single connection to minimise WAL checkpoint overhead.
+    """Run Alembic migrations programmatically to 'head'.
 
     Args:
         engine: An initialised AsyncEngine pointing to the target database.
     """
+    import asyncio
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    # Resolve alembic.ini relative to this file (mesa_storage package)
+    _MODULE_DIR = Path(__file__).parent.resolve()
+    # We moved alembic.ini into mesa_storage for PyPI packaging
+    alembic_ini_path = _MODULE_DIR / "alembic.ini"
+    alembic_cfg = Config(str(alembic_ini_path))
+    # Inject the SQLite URL programmatically so we don't rely on the .ini
+    db_url = f"sqlite+aiosqlite:///{engine.db_path}"
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, command.upgrade, alembic_cfg, "head")
+
     async with engine.connection() as db:
-        # 1. Core tables
-        await db.execute(_CREATE_NODES_TABLE)
-        await db.execute(_CREATE_ROUTING_TELEMETRY_TABLE)
-        await db.execute(_CREATE_RAW_LOGS_TABLE)
-        await db.execute(_CREATE_SYSTEM_CONFIG_TABLE)
-        await db.execute(_CREATE_LANCEDB_WAL_TABLE)
-
-        # 1.1 Init config
-        await db.execute(_INIT_MIGRATION_LOCK)
-
-        # 2. Indexes
-        for idx_sql in _CREATE_NODES_INDEXES:
-            await db.execute(idx_sql)
-        for idx_sql in _CREATE_RAW_LOGS_INDEXES:
-            await db.execute(idx_sql)
-
-        # 3. FTS5 virtual table
-        await db.execute(_CREATE_FTS5_TABLE)
-
-        # 4. FTS5 sync triggers (idempotent via IF NOT EXISTS)
-        await db.execute(_FTS5_TRIGGER_INSERT)
-        await db.execute(_FTS5_TRIGGER_DELETE)
-        await db.execute(_FTS5_TRIGGER_UPDATE)
-
-        # 5. B-6 FIX: Recover orphaned jobs — any raw_logs entries stuck
-        #    in 'processing' for >5 minutes are reset to 'queued'.
-        #    This handles unclean shutdowns where workers died mid-flight.
+        # B-6 FIX: Recover orphaned jobs
         cursor = await db.execute(
             "UPDATE raw_logs SET status = 'queued' "
             "WHERE status = 'processing' "
             "AND created_at < datetime('now', '-5 minutes')"
         )
         recovered = cursor.rowcount
-
         await db.commit()
 
     if recovered:
@@ -230,8 +81,7 @@ async def initialize_schema(engine: AsyncEngine) -> None:
         )
 
     logger.info(
-        "SCHEMA_INIT | tables=[nodes, nodes_fts, routing_telemetry, raw_logs] "
-        "indexes=6 triggers=3 db=%s",
+        "SCHEMA_INIT | Alembic upgrade head completed for db=%s",
         engine.db_path,
     )
 

@@ -26,7 +26,7 @@ class HybridRetriever:
         self,
         dao: MemoryDAO,
         analyzer: QueryAnalyzer,
-        embedder: BaseUniversalLLMAdapter,
+        embedder: BaseUniversalLLMAdapter | None = None,
         access_control: AccessControl | None = None,
         agent_id: str = "__unset__",
     ):
@@ -356,7 +356,7 @@ class HybridRetriever:
 
         # Reserve tokens for the header line
         header = "Retrieved Context:"
-        remaining = budget - self.embedder.get_token_count(header)
+        remaining = budget - self._count_tokens(header)
         if remaining <= 0:
             return "Retrieved Context: None"
 
@@ -373,7 +373,7 @@ class HybridRetriever:
             entry += f") {content}"
 
             # --- Whole-node budget gate ---
-            entry_tokens = self.embedder.get_token_count(entry)
+            entry_tokens = self._count_tokens(entry)
             if entry_tokens > remaining:
                 # Node does not fit — discard entirely, stop processing.
                 break
@@ -385,3 +385,10 @@ class HybridRetriever:
             return "Retrieved Context: None"
 
         return header + "".join(included)
+
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens using embedder if available, otherwise word-count estimate."""
+        if self.embedder is not None:
+            return self.embedder.get_token_count(text)
+        # Lightweight fallback: ~1.3 tokens per word (conservative estimate)
+        return int(len(text.split()) * 1.3)

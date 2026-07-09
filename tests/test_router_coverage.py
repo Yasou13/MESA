@@ -67,11 +67,10 @@ def engines():
 
 @pytest.fixture
 def _mock_rbac():
-    """Patch the RBAC singleton so insert tests get WRITE access."""
+    """Provide a mock RBAC callable for insert tests."""
     ac_mock = MagicMock()
     ac_mock.check_access = AsyncMock(return_value=True)
-    with patch("mesa_api.router._get_access_control", return_value=ac_mock):
-        yield ac_mock
+    yield lambda: ac_mock
 
 
 @pytest.fixture
@@ -80,6 +79,7 @@ def client(engines, _mock_rbac):
     app = FastAPI()
     router = create_memory_router(
         get_dao=lambda: MemoryDAO(sqlite_engine=sql, vector_engine=vec),
+        get_access_control=_mock_rbac,
     )
     app.include_router(router)
     return TestClient(app, raise_server_exceptions=False)
@@ -194,11 +194,7 @@ class TestSearchErrors:
             side_effect=PermissionError("Access denied")
         )
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
-            patch("mesa_api.router._get_access_control"),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -213,11 +209,7 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(side_effect=RuntimeError("DB down"))
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
-            patch("mesa_api.router._get_access_control"),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -246,11 +238,7 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value={"cmb_ids": [node_id]})
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
-            patch("mesa_api.router._get_access_control"),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -268,11 +256,7 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value=["phantom-id-xyz"])
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-            patch("mesa_api.router.AdapterFactory"),
-            patch("mesa_api.router._get_access_control"),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={

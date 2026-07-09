@@ -42,10 +42,12 @@ import asyncio
 import logging
 import os
 import threading
+import typing
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-import kuzu
+if typing.TYPE_CHECKING:
+    import kuzu
 
 logger = logging.getLogger("MESA_Storage")
 
@@ -240,6 +242,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         Performs a health check probe after connection to verify the
         database is accessible and the schema is queryable.
         """
+        import kuzu
+
         self._db = kuzu.Database(self._db_path)
         self._conn = kuzu.Connection(self._db)
 

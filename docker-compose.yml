@@ -27,7 +27,7 @@ services:
       - .env
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v3/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/init')"]
       interval: 30s
       timeout: 5s
       retries: 3

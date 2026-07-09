@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-load_dotenv(override=True)
+load_dotenv()
 
 logger = logging.getLogger("MESA_Config")
 
@@ -294,11 +294,14 @@ class MesaConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validate_hard_constraints(self) -> "MesaConfig":
-        assert self.hybrid_alpha <= 0.5, "hybrid_alpha MUST be strictly <= 0.5"
-        assert self.hybrid_beta <= 0.5, "hybrid_beta MUST be strictly <= 0.5"
-        assert (
-            0.5 < self.t_route < 0.99
-        ), "t_route MUST be strictly between 0.5 and 0.99"
+        if self.hybrid_alpha > 0.5:
+            raise ValueError(f"hybrid_alpha MUST be <= 0.5, got {self.hybrid_alpha}")
+        if self.hybrid_beta > 0.5:
+            raise ValueError(f"hybrid_beta MUST be <= 0.5, got {self.hybrid_beta}")
+        if not (0.5 < self.t_route < 0.99):
+            raise ValueError(
+                f"t_route MUST be strictly between 0.5 and 0.99, got {self.t_route}"
+            )
         return self
 
     @model_validator(mode="after")

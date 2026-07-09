@@ -2,7 +2,7 @@ import asyncio
 import os
 import shutil
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -58,11 +58,10 @@ def engines():
 
 @pytest.fixture
 def _mock_rbac():
-    """Patch the RBAC singleton so insert tests get WRITE access."""
+    """Provide a mock RBAC callable for insert tests."""
     ac_mock = MagicMock()
     ac_mock.check_access = AsyncMock(return_value=True)
-    with patch("mesa_api.router._get_access_control", return_value=ac_mock):
-        yield ac_mock
+    yield lambda: ac_mock
 
 
 @pytest.fixture
@@ -74,6 +73,7 @@ def client(engines, _mock_rbac):
     router = create_memory_router(
         get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
         get_embedder=lambda: _test_embedder,
+        get_access_control=_mock_rbac,
     )
     app.include_router(router)
 

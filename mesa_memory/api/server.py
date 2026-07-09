@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager, suppress
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -15,7 +16,9 @@ from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
 )
+from mesa_memory.observability.logger import setup_logging
 from mesa_memory.observability.metrics import ObservabilityLayer
+from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.schemas import initialize_schema
@@ -54,7 +57,11 @@ def _require_api_key() -> None:
 
 async def get_api_key(api_key: str = Depends(_API_KEY_HEADER)) -> str:
     """Validate the incoming API key against the server-side secret."""
-    if not api_key or api_key != _MESA_API_KEY:
+    if (
+        not api_key
+        or not _MESA_API_KEY
+        or not secrets.compare_digest(api_key, _MESA_API_KEY)
+    ):
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
     return api_key
 
@@ -67,7 +74,9 @@ class AppState:
     dao: MemoryDAO
     obs_layer: ObservabilityLayer
     consolidation_loop: ConsolidationLoop
+    access_control: AccessControl
     background_tasks: set[asyncio.Task]
+    is_ready: bool
 
 
 state = AppState()
@@ -85,11 +94,16 @@ _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ==================================================================
+    # Configure Structured Logging
+    setup_logging()
+
     # Fail-fast: refuse to start without a valid API key
     _require_api_key()
 
     # Ensure the base storage directory exists before any DB initialization
     _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
+
+    state.is_ready = False
 
     state.obs_layer = ObservabilityLayer()
     state.background_tasks = set()
@@ -123,6 +137,13 @@ async def lifespan(app: FastAPI):
         graph_provider=state.graph_provider,
     )
     await state.dao.initialize()
+
+    # Initialize RBAC policy engine — MUST complete before port opens
+    state.access_control = AccessControl(
+        policy_path=str(_STORAGE_BASE / "rbac_policy.db")
+    )
+    await state.access_control.initialize()
+    logger.info("AccessControl initialised at %s", _STORAGE_BASE / "rbac_policy.db")
 
     # Wire the Consolidation Loop directly to the DAO
     llm_a = AdapterFactory.get_adapter()
@@ -206,6 +227,27 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error("Failed to start REMCycleWorker: %s", exc)
 
+    # ------------------------------------------------------------------
+    # Background worker: SQLite WAL Checkpointer
+    # ------------------------------------------------------------------
+    async def wal_checkpoint_worker():
+        while True:
+            try:
+                await asyncio.sleep(300)  # Checkpoint every 5 minutes
+                if hasattr(state, "sqlite_engine") and state.sqlite_engine:
+                    async with state.sqlite_engine.connection() as db:
+                        await db.execute("PRAGMA wal_checkpoint(PASSIVE);")
+                    logger.info("WAL_CHECKPOINT | PASSIVE checkpoint executed.")
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("WAL_CHECKPOINT_FAILED | error=%s", exc)
+
+    wal_task = asyncio.create_task(wal_checkpoint_worker())
+    state.background_tasks.add(wal_task)
+    logger.info("WAL Checkpoint worker started successfully.")
+
+    state.is_ready = True
     yield
 
     # ==================================================================
@@ -237,6 +279,12 @@ async def lifespan(app: FastAPI):
         pagerank_task.cancel()
         with suppress(asyncio.CancelledError):
             await pagerank_task
+    # Cancel the WAL worker
+    if wal_task is not None:
+        wal_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await wal_task
+
     # Stop the consolidation loop before flushing state
     if hasattr(state, "consolidation_loop") and state.consolidation_loop:
         await state.consolidation_loop.stop()
@@ -303,6 +351,18 @@ def get_consolidation_loop() -> ConsolidationLoop | None:
     return getattr(state, "consolidation_loop", None)
 
 
+def get_access_control() -> AccessControl:
+    """Dependency injection for the AccessControl singleton.
+
+    Returns the instance initialised during lifespan startup.
+    Raises 503 if called before lifespan completes.
+    """
+    ac = getattr(state, "access_control", None)
+    if ac is None:
+        raise HTTPException(status_code=503, detail="AccessControl not initialized")
+    return ac
+
+
 # Setup v3 API Router utilizing Dependency Injection
 # Requires depends at the router level for auth
 router_dependencies = [Depends(get_api_key)]
@@ -310,11 +370,20 @@ memory_router = create_memory_router(
     get_dao=get_dao,
     get_embedder=get_embedder,
     get_consolidation_loop=get_consolidation_loop,
+    get_access_control=get_access_control,
     prefix="/v3/memory",
 )
 # We can't attach dependencies to the include_router directly if the router already defines some,
 # but it's simpler to inject them directly on include_router
 app.include_router(memory_router, dependencies=router_dependencies)
+
+
+@app.get("/health/init")
+async def health_init():
+    """Health probe for container orchestration readiness."""
+    if getattr(state, "is_ready", False):
+        return {"status": "ready"}
+    raise HTTPException(status_code=503, detail="System initializing")
 
 
 @app.get("/v3/health")

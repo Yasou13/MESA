@@ -68,6 +68,8 @@ The relational layer uses `aiosqlite` for fully non-blocking database I/O within
 
 The schema is fully idempotent (`CREATE TABLE IF NOT EXISTS`) with trigger-based FTS5 synchronisation for lexical search.
 
+To prevent unbounded disk growth during sustained high-throughput ingestion, MESA implements a background `wal_checkpoint_worker` that executes a `PRAGMA wal_checkpoint(PASSIVE)` every 5 minutes. This ensures the Write-Ahead Log is continually recycled into the main database file without blocking active readers.
+
 ### 3.2 SQLite FTS5 — Zero-VRAM Lexical Pre-Filtering
 
 MESA provisions a `nodes_fts` FTS5 virtual table that mirrors the `entity_name` and `type` columns of the `nodes` table. Three triggers maintain synchronisation:
@@ -206,6 +208,7 @@ graph LR
 ### 4.3 RBAC & Input Sanitisation
 
 - **Authentication:** `X-API-Key` header validated against `MESA_API_KEY` environment variable.
+- **Payload Size Limits:** A strict `1MB` validation threshold is enforced at the DAO entry point (`insert_memory` / `bulk_insert_memory`). Any payload exceeding this byte-size is instantly rejected (`ValueError`) to prevent disk exhaustion and memory-bloat DoS attacks.
 - **Content Sanitisation:** `sanitize_cmb_content()` strips null bytes, ANSI escape sequences, dangerous HTML tags (script/style/iframe), shell metacharacters, and normalises whitespace. Prompt injection patterns are logged (advisory) but not hard-blocked to avoid false positives.
 - **Schema Validation:** All API payloads pass through strict Pydantic V2 schemas (`MemoryInsertRequest`, `MemorySearchRequest`, etc.) before reaching any storage logic.
 
@@ -460,6 +463,7 @@ graph LR
 
 **Key deployment notes:**
 
+- A strict `/health/init` readiness probe is exposed for Kubernetes/Docker orchestration. It returns `200 OK` only after all asynchronous storage engines and background loops are fully initialized (`state.is_ready = True`).
 - The spaCy language model (`xx_ent_wiki_sm`) is downloaded at **build time** in the Dockerfile — no runtime network calls in air-gapped environments.
 - Persistent storage is mounted at `/app/storage` via a Docker volume.
 - The `MESA_API_KEY` environment variable must be set for production authentication.

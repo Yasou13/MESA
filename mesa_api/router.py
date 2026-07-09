@@ -46,6 +46,7 @@ import time
 import uuid
 from typing import Callable, Protocol, Sequence, runtime_checkable
 
+import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from mesa_api.schemas import (
@@ -58,7 +59,6 @@ from mesa_api.schemas import (
     SessionStartRequest,
     SessionStartResponse,
 )
-from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
@@ -102,7 +102,6 @@ def _noop_embedder(text: str) -> list[float]:
 # ---------------------------------------------------------------------------
 
 _query_analyzer: QueryAnalyzer | None = None
-_access_control: AccessControl | None = None
 
 
 def _get_query_analyzer() -> QueryAnalyzer:
@@ -111,14 +110,6 @@ def _get_query_analyzer() -> QueryAnalyzer:
     if _query_analyzer is None:
         _query_analyzer = QueryAnalyzer()
     return _query_analyzer
-
-
-def _get_access_control() -> AccessControl:
-    """Lazy-init the AccessControl singleton."""
-    global _access_control
-    if _access_control is None:
-        _access_control = AccessControl()
-    return _access_control
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +122,7 @@ def create_memory_router(
     *,
     get_embedder: Callable[[], EmbedderProtocol] = lambda: _noop_embedder,
     get_consolidation_loop: Callable[[], ConsolidationLoop | None] = lambda: None,
+    get_access_control: Callable[[], AccessControl] | None = None,
     prefix: str = "/v3/memory",
     tags: Sequence[str] | None = None,
 ) -> APIRouter:
@@ -189,13 +181,19 @@ def create_memory_router(
 
         Target latency: **< 50ms**.
         """
+        structlog.contextvars.bind_contextvars(
+            agent_id=request.agent_id,
+            session_id=request.session_id,
+            endpoint="insert_memory",
+        )
+
         # ---------------------------------------------------------------
         # RBAC Gate: Verify WRITE permission for this agent/session pair.
         # This is a secondary security layer that operates alongside the
         # API Key authentication enforced at the router dependency level.
         # ---------------------------------------------------------------
         try:
-            ac = _get_access_control()
+            ac = get_access_control() if get_access_control else AccessControl()
             has_write = await ac.check_access(
                 request.agent_id,
                 request.session_id,
@@ -250,6 +248,10 @@ def create_memory_router(
 
         Terminal states: ``processed``, ``failed``, ``rejected``.
         """
+        structlog.contextvars.bind_contextvars(
+            agent_id=agent_id, log_id=log_id, endpoint="get_status"
+        )
+
         raw_log = await dao.get_raw_log(agent_id, log_id)
 
         if raw_log is None:
@@ -287,15 +289,20 @@ def create_memory_router(
         Results are returned in the canonical response schema:
         ``{context, retrieved_nodes, metrics}``.
         """
+        structlog.contextvars.bind_contextvars(
+            agent_id=request.agent_id,
+            session_id=request.session_id,
+            endpoint="search_memory",
+        )
         t_start = time.monotonic()
 
         try:
             # Build the HybridRetriever with per-request DAO + shared singletons
+            ac = get_access_control() if get_access_control else AccessControl()
             retriever = HybridRetriever(
                 dao=dao,
                 analyzer=_get_query_analyzer(),
-                embedder=AdapterFactory.get_adapter(),
-                access_control=_get_access_control(),
+                access_control=ac,
             )
 
             result = await retriever.retrieve(

@@ -29,9 +29,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         self.base_url = base_url
         self.model_name = model_name or "llama-3.1-8b-instant"
 
-        if not api_key or not api_key.startswith("gsk_"):
+        if not api_key:
             raise ValueError(
-                f"CRITICAL AUTH FAILURE: Valid Groq API key not loaded. Received: {str(api_key)[:10]}..."
+                "API key is required for OpenAICompatibleAdapter. "
+                "Set LLM_API_KEY or OPENAI_API_KEY environment variable."
             )
 
         self._sync_client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)

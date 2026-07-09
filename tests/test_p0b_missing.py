@@ -178,7 +178,7 @@ async def test_consolidation_loop_stop():
 
 
 def test_openai_adapter_methods():
-    adapter = OpenAICompatibleAdapter(api_key="gsk_123", model_name="test")
+    adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
     with patch.object(adapter._sync_client.chat.completions, "create") as mock_create:
         mock_create.return_value.choices = [
@@ -189,7 +189,7 @@ def test_openai_adapter_methods():
 
 @pytest.mark.asyncio
 async def test_openai_adapter_async_methods():
-    adapter = OpenAICompatibleAdapter(api_key="gsk_123", model_name="test")
+    adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
     with patch.object(
         adapter._async_client.chat.completions, "create", new_callable=AsyncMock
@@ -201,7 +201,7 @@ async def test_openai_adapter_async_methods():
 
 
 def test_openai_adapter_embed_methods():
-    adapter = OpenAICompatibleAdapter(api_key="gsk_123", model_name="test")
+    adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
     with patch.object(adapter._sync_client.embeddings, "create") as mock_create:
         mock_create.return_value.data = [MagicMock(embedding=[0.1, 0.2])]
@@ -231,7 +231,7 @@ def test_openai_adapter_embed_methods():
 
 @pytest.mark.asyncio
 async def test_openai_adapter_async_embed_methods():
-    adapter = OpenAICompatibleAdapter(api_key="gsk_123", model_name="test")
+    adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
     with patch.object(
         adapter._async_client.embeddings, "create", new_callable=AsyncMock

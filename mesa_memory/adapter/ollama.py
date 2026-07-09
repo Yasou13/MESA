@@ -3,7 +3,6 @@ import functools
 from typing import Optional, Type, Union
 
 import ollama
-import outlines
 from pydantic import BaseModel
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -28,6 +27,8 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
     ) -> Union[str, BaseModel]:
         if schema is not None:
+            import outlines
+
             llm = outlines.models.transformers(self._model)  # type: ignore[operator]
             generator = outlines.generate.json(llm, schema)  # type: ignore[attr-defined]
             return generator(prompt)

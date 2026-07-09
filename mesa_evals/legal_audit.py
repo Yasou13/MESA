@@ -247,7 +247,7 @@ def load_reference_set(
         A ``frozenset[str]`` of valid Turkish law article references.
     """
     try:
-        from datasets import load_dataset
+        from datasets import load_dataset  # type: ignore
 
         logger.info(
             "REFERENCE_SET | Attempting dynamic load from HuggingFace: %s",

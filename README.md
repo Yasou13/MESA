@@ -286,7 +286,12 @@ pip install -r requirements-core.txt
 **Optional Heavy ML Models:** If you need the local REBEL transformer model for English-only offline triplet extraction, install the optional package:
 ```bash
 pip install -r requirements-ml.txt
-# or pip install .[rebel] if using pyproject.toml package definition
+# or pip install .[ml] if using pyproject.toml
+```
+
+**Optional LLM Adapters:** The core package avoids installing third-party LLM SDKs to keep the footprint small. If you intend to use cloud providers (OpenAI, Anthropic, Groq, LiteLLM) or Ollama instead of pure local logic, install the adapters group:
+```bash
+pip install .[adapters]
 ```
 
 ### 2. Configure
@@ -322,7 +327,8 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 | `POST` | `/v3/session/start` | Generate a new session with tenant isolation |
 | `GET` | `/v3/session/{session_id}/context` | Retrieve episodic + graph context scoped to session |
 | `POST` | `/v3/session/{session_id}/end` | Terminate session and trigger final consolidation |
-| `GET` | `/health` | System status and readiness check |
+| `GET` | `/health/init` | Container orchestration readiness probe (returns 200 when workers are alive) |
+| `GET` | `/health` | System status and database health check |
 | `GET` | `/metrics` | Prometheus scrape endpoint |
 
 ---
@@ -393,7 +399,7 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 
 ### Current Status
 
-As of v0.5.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization — tested and validated for production evaluation. Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, preventing phantom writes during vector table alignments.
+As of v0.5.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization (including hard 1MB payload limits to prevent memory exhaustion DoS attacks). Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, and automated background WAL checkpointing, preventing phantom writes and disk bloat during continuous ingestion.
 
 ---
 

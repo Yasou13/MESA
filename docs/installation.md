@@ -16,8 +16,11 @@ git clone https://github.com/Yasou13/MESA.git
 cd MESA
 python3 -m venv venv && source venv/bin/activate
 
-# Install lightweight dependencies only
+# Install lightweight dependencies
 pip install -r requirements-core.txt
+
+# If you need external LLM APIs (Groq, OpenAI, Anthropic, Ollama), also install:
+pip install .[adapters]
 ```
 
 **What's included:**

@@ -1,8 +1,0 @@
-# ──────────────────────────────────────────────────────────────
-# MESA – Default dependency manifest
-#
-# Installs lightweight API/core dependencies only.
-# For full ML/local-model support, use:
-#   pip install -r requirements-ml.txt
-# ──────────────────────────────────────────────────────────────
--r requirements-core.txt

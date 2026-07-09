@@ -122,12 +122,16 @@ def test_ollama_base_url_init():
     assert adapter._ollama_client is not None
 
 
-@patch("mesa_memory.adapter.ollama.outlines")
-def test_ollama_complete_schema(mock_outlines):
-    adapter = OllamaAdapter()
+def test_ollama_complete_schema():
+    import sys
+
+    mock_outlines = MagicMock()
     mock_gen = MagicMock(return_value=DummySchema(decision="STORE"))
     mock_outlines.generate.json.return_value = mock_gen
-    res = adapter.complete("test", schema=DummySchema)
+
+    adapter = OllamaAdapter()
+    with patch.dict(sys.modules, {"outlines": mock_outlines}):
+        res = adapter.complete("test", schema=DummySchema)
     assert res.decision == "STORE"
 
 
