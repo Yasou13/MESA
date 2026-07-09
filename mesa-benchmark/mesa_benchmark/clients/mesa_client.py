@@ -55,7 +55,12 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         """Flushes the database for a clean test environment."""
         async def _clear() -> None:
             if self.sqlite:
-                await self.sqlite.execute_script("DELETE FROM nodes;")
+                await self.sqlite.execute_script(
+                    "DELETE FROM nodes;"
+                    "DELETE FROM lancedb_wal;"
+                    "DELETE FROM raw_logs;"
+                    "DELETE FROM routing_telemetry;"
+                )
             if self.vector and hasattr(self.vector, '_db') and self.vector._db:
                 for table_name in self.vector._db.table_names():
                     self.vector._db.drop_table(table_name)
