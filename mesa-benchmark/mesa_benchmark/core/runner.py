@@ -230,7 +230,7 @@ class BenchmarkRunner:
                                 "question_id": q.id,
                                 "score": 0.0,
                                 "is_correct": False,
-                                "latency_ms": 0.0,
+                                "latency_ms": None,
                                 "ground_truth": q.ground_truth,
                                 "actual_answer": f"ERROR: {e}",
                                 "expected_context_ids": q.expected_context_ids,

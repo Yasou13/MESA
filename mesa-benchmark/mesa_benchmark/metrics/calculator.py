@@ -194,8 +194,9 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         if data.get("is_correct", False):
             correct_count += 1
 
-        latency = float(data.get("latency_ms", 0.0))
-        latencies.append(latency)
+        raw_latency = data.get("latency_ms")
+        if raw_latency is not None:
+            latencies.append(float(raw_latency))
 
         total_prompt_tokens += int(data.get("prompt_tokens", 0))
 
@@ -214,7 +215,7 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
 
     accuracy = correct_count / total_count
     avg_score = sum(scores) / total_count
-    avg_latency = sum(latencies) / total_count
+    avg_latency = sum(latencies) / len(latencies) if latencies else 0.0
 
     # Percentile latencies
     p95_latency = 0.0
