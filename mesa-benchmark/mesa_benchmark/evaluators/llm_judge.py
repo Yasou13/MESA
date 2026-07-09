@@ -14,15 +14,17 @@ from .base import BaseEvaluator, EvaluationResult
 logger = logging.getLogger(__name__)
 
 # Default prompt template for LLM judging
-JUDGE_PROMPT_TEMPLATE = """You are an expert evaluator. Compare the system's answer against the ground truth and determine if the answer is correct.
+JUDGE_PROMPT_TEMPLATE = """You are an expert evaluator assessing a Retrieval-Augmented Generation (RAG) system's memory layer. 
+Your task is to determine if the retrieved context (System Answer) contains the necessary information to logically satisfy the Ground Truth.
 
 Ground Truth: {ground_truth}
-System Answer: {system_answer}
+Retrieved Context (System Answer): {system_answer}
 
 Expected Context IDs: {expected_contexts}
 Retrieved Context IDs: {retrieved_contexts}
 
-Evaluate whether the system answer correctly addresses the question based on the ground truth.
+Evaluate whether the retrieved context contains sufficient and accurate information to address the question based on the ground truth.
+If the system answer is just raw text/JSON chunks, that is EXPECTED. Read through them to see if the ground truth is present.
 Respond in JSON format:
 {{
   "is_correct": true/false,
