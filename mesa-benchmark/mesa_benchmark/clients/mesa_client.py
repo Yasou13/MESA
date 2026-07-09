@@ -115,13 +115,12 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 if not graph:
                     continue
                 
-                entity = graph.get("entity_name")
-                if entity:
-                    retrieved_ids.append(entity)
-                    
                 payload = graph.get("content_payload")
                 if payload:
                     valid_chunks.append(str(payload))
+                    entity = graph.get("entity_name")
+                    if entity and entity not in retrieved_ids:
+                        retrieved_ids.append(entity)
 
             if valid_chunks:
                 answer_text = "\n".join(valid_chunks)
