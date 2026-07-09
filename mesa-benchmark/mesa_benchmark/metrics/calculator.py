@@ -166,6 +166,9 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     rr_sum = 0.0
 
     engine = MetricsEngine()
+    
+    # Use a dictionary to deduplicate records in case of resumed benchmarks
+    unique_records = {}
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -173,28 +176,38 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
                 continue
 
             data = json.loads(line)
-            total_count += 1
+            # Create a unique key for each question evaluated in a specific iteration
+            run_id = data.get("run_id", "unknown")
+            iteration = data.get("iteration", 0)
+            scenario_id = data.get("scenario_id", "unknown")
+            question_id = data.get("question_id", "unknown")
+            
+            key = f"{run_id}_{iteration}_{scenario_id}_{question_id}"
+            unique_records[key] = data
 
-            score = float(data.get("score", 0.0))
-            scores.append(score)
+    for data in unique_records.values():
+        total_count += 1
 
-            if data.get("is_correct", False):
-                correct_count += 1
+        score = float(data.get("score", 0.0))
+        scores.append(score)
 
-            latency = float(data.get("latency_ms", 0.0))
-            latencies.append(latency)
+        if data.get("is_correct", False):
+            correct_count += 1
 
-            total_prompt_tokens += int(data.get("prompt_tokens", 0))
+        latency = float(data.get("latency_ms", 0.0))
+        latencies.append(latency)
 
-            # Retrieval metrics
-            expected = data.get("expected_context_ids", [])
-            retrieved = data.get("retrieved_context_ids", [])
+        total_prompt_tokens += int(data.get("prompt_tokens", 0))
 
-            if expected:
-                hit_1_sum += engine.calculate_hit_at_k(expected, retrieved, 1)
-                hit_3_sum += engine.calculate_hit_at_k(expected, retrieved, 3)
-                hit_5_sum += engine.calculate_hit_at_k(expected, retrieved, 5)
-                rr_sum += engine.calculate_reciprocal_rank(expected, retrieved)
+        # Retrieval metrics
+        expected = data.get("expected_context_ids", [])
+        retrieved = data.get("retrieved_context_ids", [])
+
+        if expected:
+            hit_1_sum += engine.calculate_hit_at_k(expected, retrieved, 1)
+            hit_3_sum += engine.calculate_hit_at_k(expected, retrieved, 3)
+            hit_5_sum += engine.calculate_hit_at_k(expected, retrieved, 5)
+            rr_sum += engine.calculate_reciprocal_rank(expected, retrieved)
 
     if total_count == 0:
         return BenchmarkMetrics()
