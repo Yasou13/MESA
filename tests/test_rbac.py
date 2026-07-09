@@ -1,9 +1,9 @@
 import os
 import sqlite3
+from unittest.mock import patch
 
 import pytest
 
-from unittest.mock import AsyncMock, patch
 from mesa_memory.security.rbac import AccessControl, sanitize_cmb_content
 
 
@@ -104,4 +104,6 @@ def test_sanitize_cmb_content_prompt_injection(mock_info):
     assert "Ignore all previous instructions" in sanitized
     # The exact log message should be emitted
     assert mock_info.called
-    assert any("PROMPT_INJECTION_ADVISORY" in call.args[0] for call in mock_info.call_args_list)
+    assert any(
+        "PROMPT_INJECTION_ADVISORY" in call.args[0] for call in mock_info.call_args_list
+    )

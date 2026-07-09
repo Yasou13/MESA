@@ -13,7 +13,6 @@ Targets survived mutants in ``mesa_memory/consolidation/validator.py``:
 """
 
 import json
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -269,7 +268,10 @@ class TestDisagreementLogging:
         result = await v.validate(_make_record(cmb_id="log-cmb-99"))
         assert result is False
         assert mock_info.called
-        assert any("disagreement" in str(call.args).lower() for call in mock_info.call_args_list)
+        assert any(
+            "disagreement" in str(call.args).lower()
+            for call in mock_info.call_args_list
+        )
         assert any("log-cmb-99" in str(call.args) for call in mock_info.call_args_list)
 
     @pytest.mark.asyncio

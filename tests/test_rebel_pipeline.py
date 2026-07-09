@@ -62,7 +62,9 @@ def test_parse_rebel_output_complex():
 def test_rebel_cpu_warning(mock_warning):
     RebelExtractor()
     assert mock_warning.called
-    assert any("REBEL running on CPU" in call.args[0] for call in mock_warning.call_args_list)
+    assert any(
+        "REBEL running on CPU" in call.args[0] for call in mock_warning.call_args_list
+    )
 
 
 def test_import_error_for_pipeline():
