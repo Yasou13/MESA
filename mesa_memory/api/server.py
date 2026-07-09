@@ -122,9 +122,10 @@ async def lifespan(app: FastAPI):
     # NOTE: Only the Database handle is created here. kuzu.Connection
     # instances must be created per-thread to avoid file-lock contention.
     _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # CRITICAL FIX: Ensure schema exists before any queries are run
     from mesa_storage import kuzu_setup
+
     kuzu_setup.initialize_schema(str(_KUZU_PATH))
 
     loop = asyncio.get_running_loop()
