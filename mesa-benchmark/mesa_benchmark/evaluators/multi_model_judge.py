@@ -124,9 +124,7 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
 
         # Fallback if all models failed
         if not scores:
-            logger.warning(
-                "All judge models failed. Falling back to substring match."
-            )
+            logger.warning("All judge models failed. Falling back to substring match.")
             gt = question.ground_truth.strip().lower()
             ans = response.answer_text.strip().lower()
             is_match = gt in ans

@@ -12,7 +12,6 @@ try:
 except ImportError:
     try:
         from zep_python import ZepClient as Zep
-        from zep_python.memory import Memory as ZepMemory
         from zep_python.message import Message
 
         ZEP_AVAILABLE = True
@@ -113,9 +112,7 @@ class ZepClientAdapter(AbstractBenchmarkClient):
             chunks = []
             if results:
                 for r in results:
-                    content = getattr(r, "content", None) or getattr(
-                        r, "summary", ""
-                    )
+                    content = getattr(r, "content", None) or getattr(r, "summary", "")
                     if content:
                         chunks.append(str(content))
                     meta = getattr(r, "metadata", {}) or {}

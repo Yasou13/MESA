@@ -58,7 +58,9 @@ def compute_run_statistics(values: List[float]) -> Dict[str, Any]:
     }
 
 
-def compute_t_test_p_value(sample_a: List[float], sample_b: List[float]) -> Dict[str, Any]:
+def compute_t_test_p_value(
+    sample_a: List[float], sample_b: List[float]
+) -> Dict[str, Any]:
     """
     Computes independent two-sample Welch's t-test t-statistic and approximate p-value.
 

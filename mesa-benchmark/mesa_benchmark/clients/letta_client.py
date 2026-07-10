@@ -6,7 +6,6 @@ from .base import AbstractBenchmarkClient, BenchmarkResponse
 
 try:
     from letta import Letta as LettaClient
-    from letta import LettaResponse
 
     LETTA_AVAILABLE = True
 except ImportError:
@@ -31,8 +30,7 @@ class LettaClientAdapter(AbstractBenchmarkClient):
     def initialize(self, config_params: Dict[str, Any]) -> None:
         if not LETTA_AVAILABLE:
             raise ImportError(
-                "Letta library is not installed. "
-                "Install with: pip install letta"
+                "Letta library is not installed. " "Install with: pip install letta"
             )
 
         base_url = config_params.get("base_url", "http://localhost:8283")

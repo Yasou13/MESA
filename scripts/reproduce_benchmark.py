@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 #!/usr/bin/env python3
 """
 MESA Reproducibility Benchmark Runner.
@@ -12,7 +13,6 @@ NOTE: This script runs REAL benchmarks — no dry-run mode with fake data.
 
 import argparse
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -23,10 +23,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "mesa-benchmark"))
 
-from mesa_benchmark.core.config import load_config
 from mesa_benchmark.core.runner import BenchmarkRunner
-from mesa_benchmark.metrics.calculator import calculate_metrics_from_jsonl
-from mesa_benchmark.reports.statistics import compute_run_statistics, compute_t_test_p_value
+from mesa_benchmark.reports.statistics import (
+    compute_run_statistics,
+    compute_t_test_p_value,
+)
 
 
 def collect_metrics_from_jsonl(results_file: str) -> Dict[str, Any]:
@@ -83,7 +84,9 @@ def run_single_seed(
 
     # Optionally limit dataset size for quick testing
     if max_scenarios and runner.dataset_manager:
-        runner.dataset_manager.scenarios = runner.dataset_manager.scenarios[:max_scenarios]
+        runner.dataset_manager.scenarios = runner.dataset_manager.scenarios[
+            :max_scenarios
+        ]
 
     runner.run()
 
@@ -165,12 +168,14 @@ def main():
         except Exception as exc:
             print(f"  ERROR on seed {seed}: {exc}")
             # Record failure but continue with other seeds
-            all_seed_metrics.append({
-                "seed": seed,
-                "accuracy": 0.0,
-                "avg_latency_ms": 0.0,
-                "error": str(exc),
-            })
+            all_seed_metrics.append(
+                {
+                    "seed": seed,
+                    "accuracy": 0.0,
+                    "avg_latency_ms": 0.0,
+                    "error": str(exc),
+                }
+            )
 
     # --- Compute statistics ---
     acc_stats = compute_run_statistics(mesa_accuracies)
@@ -187,14 +192,18 @@ def main():
         baseline_accuracies: List[float] = []
         for seed in seed_list:
             try:
-                b_metrics = run_single_seed(args.baseline_config, seed, args.max_scenarios)
+                b_metrics = run_single_seed(
+                    args.baseline_config, seed, args.max_scenarios
+                )
                 baseline_accuracies.append(b_metrics["accuracy"])
             except Exception as exc:
                 print(f"  Baseline seed {seed} failed: {exc}")
 
         if baseline_accuracies:
             baseline_stats = compute_run_statistics(baseline_accuracies)
-            significance_test = compute_t_test_p_value(mesa_accuracies, baseline_accuracies)
+            significance_test = compute_t_test_p_value(
+                mesa_accuracies, baseline_accuracies
+            )
 
     # --- Build report ---
     report: Dict[str, Any] = {
@@ -231,7 +240,9 @@ def main():
     print(f"\n{'='*60}")
     print("=== REPRODUCIBILITY REPORT SUMMARY ===")
     print(f"{'='*60}")
-    print(f"Accuracy across {len(mesa_accuracies)} seeds: {acc_stats['formatted_str']}%")
+    print(
+        f"Accuracy across {len(mesa_accuracies)} seeds: {acc_stats['formatted_str']}%"
+    )
     print(f"Average Latency: {lat_stats['formatted_str']} ms")
     if significance_test:
         print(
@@ -242,7 +253,9 @@ def main():
     print(f"Report saved to: {args.output}")
     print()
     print("To reproduce these results:")
-    print(f"  python scripts/reproduce_benchmark.py --config {args.config} --seeds {args.seeds}")
+    print(
+        f"  python scripts/reproduce_benchmark.py --config {args.config} --seeds {args.seeds}"
+    )
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import asyncio
 import logging
 import os
@@ -12,9 +13,7 @@ from .base import AbstractBenchmarkClient, BenchmarkResponse
 logger = logging.getLogger(__name__)
 
 # Add parent directory of mesa_benchmark to path to find mesa_storage & mesa_memory
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
-)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.retrieval.core import QueryAnalyzer
@@ -91,6 +90,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
     def clear_memory(self) -> None:
         """Flushes the database for a clean test environment."""
+
         async def _clear() -> None:
             if self.sqlite:
                 await self.sqlite.execute_script(
@@ -99,12 +99,13 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                     "DELETE FROM raw_logs;"
                     "DELETE FROM routing_telemetry;"
                 )
-            if self.vector and hasattr(self.vector, '_db') and self.vector._db:
+            if self.vector and hasattr(self.vector, "_db") and self.vector._db:
                 for table_name in self.vector._db.table_names():
                     self.vector._db.drop_table(table_name)
                 self.vector._tables.clear()
-            if self.graph_provider and hasattr(self.graph_provider, 'clear'):
+            if self.graph_provider and hasattr(self.graph_provider, "clear"):
                 await self.graph_provider.clear()
+
         self.loop.run_until_complete(_clear())
 
     def add_memory(self, context: MemoryContext) -> Dict[str, Any]:
@@ -113,11 +114,19 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
         async def _add() -> None:
             embedding = await self.vector.compute_embedding(context.text)
-            
+
             meta = context.metadata or {}
             # Fallback to a truncated version of the text if no title/entity_name exists
-            node_name = meta.get("entity_name") or meta.get("title") or (context.text[:50] + "..." if len(context.text) > 50 else context.text)
-            
+            node_name = (
+                meta.get("entity_name")
+                or meta.get("title")
+                or (
+                    context.text[:50] + "..."
+                    if len(context.text) > 50
+                    else context.text
+                )
+            )
+
             node_id = await self.memory_dao.insert_memory(
                 "benchmark",
                 content=context.text,
@@ -208,6 +217,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
         valid_chunks = []
         for nid in all_ids:
+
             async def _get_node(node_id: str):
                 return await self.memory_dao.get_memory_by_id("benchmark", node_id)
 
@@ -240,6 +250,5 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
     def close(self) -> None:
         """Cleans up temporary resources."""
-        if hasattr(self, 'temp_dir') and self.temp_dir:
+        if hasattr(self, "temp_dir") and self.temp_dir:
             self.temp_dir.cleanup()
-

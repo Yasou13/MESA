@@ -6,7 +6,7 @@ into standard MESA BenchmarkScenario objects.
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import List, Union
 
 from .schemas import BenchmarkQuestion, BenchmarkScenario, MemoryContext
 
@@ -63,7 +63,9 @@ class ExternalDatasetLoader:
                 q_id = str(qa.get("id", f"q_{idx}_{q_idx}"))
                 query = qa.get("question", "")
                 ground_truth = qa.get("answer", "")
-                expected_ids = qa.get("supporting_facts", qa.get("expected_context_ids", []))
+                expected_ids = qa.get(
+                    "supporting_facts", qa.get("expected_context_ids", [])
+                )
                 strategy = qa.get("evaluation_strategy", "llm_judge")
 
                 if query.strip():

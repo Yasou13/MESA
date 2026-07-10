@@ -14,7 +14,7 @@ from .base import BaseEvaluator, EvaluationResult
 logger = logging.getLogger(__name__)
 
 # Default prompt template for LLM judging
-JUDGE_PROMPT_TEMPLATE = """You are an expert evaluator assessing a Retrieval-Augmented Generation (RAG) system's memory layer. 
+JUDGE_PROMPT_TEMPLATE = """You are an expert evaluator assessing a Retrieval-Augmented Generation (RAG) system's memory layer.
 Your task is to determine if the retrieved context (System Answer) contains the necessary information to logically satisfy the Ground Truth.
 
 Ground Truth: {ground_truth}
@@ -87,7 +87,8 @@ class LLMJudgeEvaluator(BaseEvaluator):
             # Parse JSON response from LLM
             # Use regex to robustly extract JSON object, ignoring any surrounding text
             import re
-            json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+
+            json_match = re.search(r"\{.*\}", raw_content, re.DOTALL)
             if json_match:
                 raw_content = json_match.group(0)
 

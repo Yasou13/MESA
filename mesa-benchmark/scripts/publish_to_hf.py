@@ -139,7 +139,7 @@ def publish(
 ) -> None:
     """Uploads the dataset and card to HuggingFace Hub."""
     try:
-        from huggingface_hub import HfApi, upload_folder
+        from huggingface_hub import HfApi
     except ImportError:
         print(
             "[ERROR] huggingface_hub required. Install with: pip install huggingface_hub",
@@ -157,7 +157,8 @@ def publish(
 
     num_scenarios = len(data) if isinstance(data, list) else len(data.get("data", []))
     num_questions = sum(
-        len(s.get("questions", [])) for s in (data if isinstance(data, list) else data.get("data", []))
+        len(s.get("questions", []))
+        for s in (data if isinstance(data, list) else data.get("data", []))
     )
 
     dataset_name = f"MESA Memory Benchmark v{version}"
@@ -167,7 +168,9 @@ def publish(
     staging.mkdir(parents=True, exist_ok=True)
 
     # Write dataset card
-    card = create_dataset_card(repo_id, dataset_name, num_scenarios, num_questions, version)
+    card = create_dataset_card(
+        repo_id, dataset_name, num_scenarios, num_questions, version
+    )
     (staging / "README.md").write_text(card, encoding="utf-8")
 
     # Copy dataset
@@ -196,7 +199,9 @@ def main():
     parser.add_argument(
         "--dataset-path",
         type=str,
-        default=str(REPO_ROOT / "mesa_benchmark" / "datasets" / "comprehensive_200_dataset.json"),
+        default=str(
+            REPO_ROOT / "mesa_benchmark" / "datasets" / "comprehensive_200_dataset.json"
+        ),
         help="Path to the dataset JSON file.",
     )
     parser.add_argument(

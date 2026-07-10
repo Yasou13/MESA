@@ -166,7 +166,7 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     rr_sum = 0.0
 
     engine = MetricsEngine()
-    
+
     # Use a dictionary to deduplicate records in case of resumed benchmarks
     unique_records = {}
 
@@ -181,7 +181,7 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
             iteration = data.get("iteration", 0)
             scenario_id = data.get("scenario_id", "unknown")
             question_id = data.get("question_id", "unknown")
-            
+
             key = f"{run_id}_{iteration}_{scenario_id}_{question_id}"
             unique_records[key] = data
 

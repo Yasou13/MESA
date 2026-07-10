@@ -12,8 +12,7 @@ import argparse
 import json
 import os
 import random
-import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_OUT_PATH = os.path.normpath(
@@ -50,7 +49,15 @@ COMPANIES = [
     "Zenith Cloud",
 ]
 
-CITIES = ["Zurich", "Istanbul", "Tokyo", "San Francisco", "London", "Berlin", "Singapore"]
+CITIES = [
+    "Zurich",
+    "Istanbul",
+    "Tokyo",
+    "San Francisco",
+    "London",
+    "Berlin",
+    "Singapore",
+]
 
 
 def generate_single_hop(idx: int) -> Dict[str, Any]:
@@ -142,7 +149,9 @@ def generate_hard_negative(idx: int) -> Dict[str, Any]:
     text_old = f"In preliminary 2024 guidance, {company} projected annual net revenue of ${old_rev}M."
     text_new = f"In the audited FY2024 annual filing, {company} confirmed actual annual net revenue reached ${new_rev}M."
 
-    query = f"What was the actual audited FY2024 annual net revenue reported by {company}?"
+    query = (
+        f"What was the actual audited FY2024 annual net revenue reported by {company}?"
+    )
 
     return {
         "id": f"hard_negative_scenario_{idx}",

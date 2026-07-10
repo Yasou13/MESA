@@ -12,7 +12,6 @@ Usage:
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -34,7 +33,9 @@ def download_locomo_from_huggingface(cache_dir: Path) -> list:
         )
         sys.exit(1)
     except Exception as e:
-        print(f"[ERROR] Failed to download LoCoMo from HuggingFace: {e}", file=sys.stderr)
+        print(
+            f"[ERROR] Failed to download LoCoMo from HuggingFace: {e}", file=sys.stderr
+        )
         print("[INFO] Attempting fallback JSON download...", file=sys.stderr)
         return _download_locomo_json_fallback(cache_dir)
 
@@ -43,7 +44,9 @@ def _download_locomo_json_fallback(cache_dir: Path) -> list:
     """Fallback: download raw JSON if HuggingFace datasets fails."""
     import urllib.request
 
-    url = "https://huggingface.co/datasets/passing2961/LoCoMo/resolve/main/data/test.json"
+    url = (
+        "https://huggingface.co/datasets/passing2961/LoCoMo/resolve/main/data/test.json"
+    )
     cache_file = cache_dir / "locomo_test.json"
 
     if not cache_file.exists():
@@ -74,26 +77,40 @@ def convert_locomo_to_mesa(raw_items: list) -> list:
         if isinstance(conversations, str):
             # Single string context
             contexts.append(
-                {"id": f"ctx_{idx}_0", "text": conversations, "metadata": {"source": "locomo"}}
+                {
+                    "id": f"ctx_{idx}_0",
+                    "text": conversations,
+                    "metadata": {"source": "locomo"},
+                }
             )
         elif isinstance(conversations, list):
             for c_idx, turn in enumerate(conversations):
                 if isinstance(turn, dict):
-                    text = turn.get("text", turn.get("content", turn.get("utterance", "")))
+                    text = turn.get(
+                        "text", turn.get("content", turn.get("utterance", ""))
+                    )
                     speaker = turn.get("speaker", turn.get("role", "unknown"))
                     turn_id = str(turn.get("id", f"ctx_{idx}_{c_idx}"))
                     if text and text.strip():
-                        contexts.append({
-                            "id": turn_id,
-                            "text": f"[{speaker}]: {text}" if speaker != "unknown" else text,
-                            "metadata": {"source": "locomo", "speaker": speaker},
-                        })
+                        contexts.append(
+                            {
+                                "id": turn_id,
+                                "text": (
+                                    f"[{speaker}]: {text}"
+                                    if speaker != "unknown"
+                                    else text
+                                ),
+                                "metadata": {"source": "locomo", "speaker": speaker},
+                            }
+                        )
                 elif isinstance(turn, str) and turn.strip():
-                    contexts.append({
-                        "id": f"ctx_{idx}_{c_idx}",
-                        "text": turn,
-                        "metadata": {"source": "locomo"},
-                    })
+                    contexts.append(
+                        {
+                            "id": f"ctx_{idx}_{c_idx}",
+                            "text": turn,
+                            "metadata": {"source": "locomo"},
+                        }
+                    )
 
         # Extract QA pairs
         questions = []
@@ -102,7 +119,6 @@ def convert_locomo_to_mesa(raw_items: list) -> list:
             if isinstance(qa, dict):
                 query = qa.get("question", qa.get("query", ""))
                 answer = qa.get("answer", qa.get("ground_truth", ""))
-                q_type = qa.get("type", qa.get("category", "multi_hop"))
                 supporting = qa.get("supporting_facts", qa.get("evidence", []))
 
                 # Normalize supporting facts to context IDs
@@ -117,22 +133,26 @@ def convert_locomo_to_mesa(raw_items: list) -> list:
                             expected_ids.append(str(sf.get("id", f"ctx_{idx}_{q_idx}")))
 
                 if query and query.strip():
-                    questions.append({
-                        "id": f"locomo_{idx}_q{q_idx}",
-                        "query": query,
-                        "ground_truth": str(answer),
-                        "expected_context_ids": expected_ids,
-                        "evaluation_strategy": "llm_judge",
-                    })
+                    questions.append(
+                        {
+                            "id": f"locomo_{idx}_q{q_idx}",
+                            "query": query,
+                            "ground_truth": str(answer),
+                            "expected_context_ids": expected_ids,
+                            "evaluation_strategy": "llm_judge",
+                        }
+                    )
 
         if contexts and questions:
-            scenarios.append({
-                "id": scenario_id,
-                "name": f"LoCoMo Scenario {idx}",
-                "description": f"LoCoMo multi-hop dialogue memory test (item {idx})",
-                "contexts": contexts,
-                "questions": questions,
-            })
+            scenarios.append(
+                {
+                    "id": scenario_id,
+                    "name": f"LoCoMo Scenario {idx}",
+                    "description": f"LoCoMo multi-hop dialogue memory test (item {idx})",
+                    "contexts": contexts,
+                    "questions": questions,
+                }
+            )
 
     return scenarios
 
@@ -180,7 +200,7 @@ def main():
     print(f"Total questions: {sum(len(s['questions']) for s in scenarios)}")
     print(f"Total contexts: {sum(len(s['contexts']) for s in scenarios)}")
     print("\nTo run MESA against LoCoMo:")
-    print(f"  cd mesa-benchmark && python -m mesa_benchmark -c config_locomo.yaml")
+    print("  cd mesa-benchmark && python -m mesa_benchmark -c config_locomo.yaml")
 
 
 if __name__ == "__main__":

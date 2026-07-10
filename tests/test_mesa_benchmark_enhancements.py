@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """
 Unit and integration tests for MESA benchmark enhancements:
   - Agreement rate calculation
@@ -7,15 +8,12 @@ Unit and integration tests for MESA benchmark enhancements:
 """
 
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "mesa-benchmark"))
 
-import pytest
 
 from mesa_benchmark.clients.mesa_client import MesaClientAdapter
 from mesa_benchmark.datasets.external_loader import ExternalDatasetLoader

@@ -10,13 +10,9 @@ Tests for tech-debt fixes:
 """
 
 import json
-import math
-import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 # Ensure repo root is on path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -157,9 +153,7 @@ class TestMultiModelJudge:
             MultiModelJudgeEvaluator,
         )
 
-        agreement = MultiModelJudgeEvaluator._compute_pairwise_agreement(
-            [True, False]
-        )
+        agreement = MultiModelJudgeEvaluator._compute_pairwise_agreement([True, False])
         assert agreement == 0.0
 
     def test_pairwise_agreement_partial(self):
@@ -176,11 +170,11 @@ class TestMultiModelJudge:
 
     def test_multi_model_judge_fallback_on_all_failures(self):
         """When all LLM calls fail, judge should fall back to substring match."""
+        from mesa_benchmark.clients.base import BenchmarkResponse
+        from mesa_benchmark.datasets.schemas import BenchmarkQuestion
         from mesa_benchmark.evaluators.multi_model_judge import (
             MultiModelJudgeEvaluator,
         )
-        from mesa_benchmark.clients.base import BenchmarkResponse
-        from mesa_benchmark.datasets.schemas import BenchmarkQuestion
 
         evaluator = MultiModelJudgeEvaluator(judge_models=["nonexistent-model"])
 
@@ -255,9 +249,7 @@ class TestStatistics:
         from mesa_benchmark.reports.statistics import compute_t_test_p_value
 
         # Very different samples → should be significant
-        result = compute_t_test_p_value(
-            [90, 91, 92, 90, 91], [50, 51, 52, 50, 51]
-        )
+        result = compute_t_test_p_value([90, 91, 92, 90, 91], [50, 51, 52, 50, 51])
         assert result["is_significant"] is True
         assert result["p_value_approx"] < 0.05
 
@@ -265,9 +257,7 @@ class TestStatistics:
         from mesa_benchmark.reports.statistics import compute_t_test_p_value
 
         # Very similar samples → should NOT be significant
-        result = compute_t_test_p_value(
-            [90.0, 90.1, 89.9], [90.0, 90.0, 90.0]
-        )
+        result = compute_t_test_p_value([90.0, 90.1, 89.9], [90.0, 90.0, 90.0])
         assert result["is_significant"] is False
 
     def test_t_test_insufficient_samples(self):
@@ -293,8 +283,16 @@ class TestLoCoMoLoader:
                 "title": "Test Conversation",
                 "category": "multi_hop",
                 "conversation": [
-                    {"id": "turn_1", "text": "Alice works at TechCorp.", "speaker": "user"},
-                    {"id": "turn_2", "text": "Bob visited Paris last week.", "speaker": "assistant"},
+                    {
+                        "id": "turn_1",
+                        "text": "Alice works at TechCorp.",
+                        "speaker": "user",
+                    },
+                    {
+                        "id": "turn_2",
+                        "text": "Bob visited Paris last week.",
+                        "speaker": "assistant",
+                    },
                 ],
                 "qa_pairs": [
                     {
@@ -415,17 +413,18 @@ class TestReproducibilityReport:
         report_path = REPO_ROOT / "reproducibility_report.json"
         if report_path.exists():
             import json
+
             data = json.loads(report_path.read_text(encoding="utf-8"))
-            assert "accuracy_statistics" in data and "seeds_run" in data, (
-                "reproducibility_report.json exists but is not a valid real multi-seed report!"
-            )
+            assert (
+                "accuracy_statistics" in data and "seeds_run" in data
+            ), "reproducibility_report.json exists but is not a valid real multi-seed report!"
 
     def test_reproduce_script_no_dry_run(self):
         script_path = REPO_ROOT / "scripts" / "reproduce_benchmark.py"
         content = script_path.read_text(encoding="utf-8")
-        assert "dry_run" not in content, (
-            "reproduce_benchmark.py still contains dry-run logic with fake data!"
-        )
-        assert "91.5" not in content, (
-            "reproduce_benchmark.py still contains hardcoded fake accuracy values!"
-        )
+        assert (
+            "dry_run" not in content
+        ), "reproduce_benchmark.py still contains dry-run logic with fake data!"
+        assert (
+            "91.5" not in content
+        ), "reproduce_benchmark.py still contains hardcoded fake accuracy values!"

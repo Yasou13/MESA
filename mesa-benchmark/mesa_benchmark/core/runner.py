@@ -8,9 +8,9 @@ from typing import Any, Dict, List, Optional
 
 from ..clients.base import AbstractBenchmarkClient
 from ..datasets.loader import DatasetManager
+from ..evaluators.agreement import compute_agreement
 from ..evaluators.base import BaseEvaluator, EvaluationResult
 from ..evaluators.exact_match import ExactMatchEvaluator
-from ..evaluators.agreement import compute_agreement
 from ..metrics.calculator import calculate_metrics_from_jsonl
 from ..reports.reporter import MarkdownReporter
 from .config import BenchmarkConfig, load_config
@@ -54,9 +54,7 @@ class BenchmarkRunner:
             judge_model = "gpt-4o-mini"
             if self.config and self.config.evaluation.llm_judge_model:
                 judge_model = self.config.evaluation.llm_judge_model
-            self.evaluators["llm_judge"] = LLMJudgeEvaluator(
-                judge_model=judge_model
-            )
+            self.evaluators["llm_judge"] = LLMJudgeEvaluator(judge_model=judge_model)
         except ImportError:
             logger.warning("LLMJudgeEvaluator not available (openai not installed).")
 
@@ -231,7 +229,9 @@ class BenchmarkRunner:
                 )
 
                 if start_scenario > 0:
-                    logger.info(f"  Rebuilding database state: Ingesting scenarios 0 to {start_scenario - 1} for noise parity...")
+                    logger.info(
+                        f"  Rebuilding database state: Ingesting scenarios 0 to {start_scenario - 1} for noise parity..."
+                    )
                     for rebuild_idx in range(0, start_scenario):
                         rebuild_scen = self.dataset_manager.get_scenario(rebuild_idx)
                         for ctx in rebuild_scen.contexts:
@@ -257,7 +257,9 @@ class BenchmarkRunner:
                             response = self._call_with_backoff(self.client.answer, q)
 
                             # Dual evaluation: primary + optional secondary
-                            eval_result, secondary_result = self._dual_evaluate(response, q)
+                            eval_result, secondary_result = self._dual_evaluate(
+                                response, q
+                            )
 
                             logger.info(
                                 f"      Q: {q.id} -> Score: {eval_result.score}, "
@@ -282,12 +284,21 @@ class BenchmarkRunner:
 
                             # Dual-scoring: record secondary score and track agreement
                             if secondary_result is not None:
-                                result_record["secondary_score"] = secondary_result.score
-                                result_record["secondary_is_correct"] = secondary_result.is_correct
-                                result_record["secondary_evaluator"] = secondary_result.metadata.get(
-                                    "evaluator_type", "unknown"
+                                result_record["secondary_score"] = (
+                                    secondary_result.score
                                 )
-                                if q.evaluation_strategy in ("llm_judge", "multi_model_judge"):
+                                result_record["secondary_is_correct"] = (
+                                    secondary_result.is_correct
+                                )
+                                result_record["secondary_evaluator"] = (
+                                    secondary_result.metadata.get(
+                                        "evaluator_type", "unknown"
+                                    )
+                                )
+                                if q.evaluation_strategy in (
+                                    "llm_judge",
+                                    "multi_model_judge",
+                                ):
                                     keyword_scores.append(secondary_result.score)
                                     llm_judge_scores.append(eval_result.score)
                                 else:
