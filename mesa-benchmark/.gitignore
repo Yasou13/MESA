@@ -13,7 +13,7 @@ __pycache__/
 .ruff_cache/
 
 # Benchmark outputs
-reports/
+/reports/
 *.jsonl
 state.json
 
