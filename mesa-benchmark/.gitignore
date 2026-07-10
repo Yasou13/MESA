@@ -19,3 +19,4 @@ state.json
 
 # Environment variables
 .env
+\nstress_dataset.json
