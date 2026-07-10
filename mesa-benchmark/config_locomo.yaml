@@ -1,17 +1,17 @@
-suite_name: "MESA v0.5.1 Comprehensive Benchmark"
+suite_name: "MESA vs LoCoMo (International Benchmark)"
 iterations: 5
 seed: 42
 
 dataset:
-  name: "comprehensive_200"
-  version: "v2"
-  path: "mesa_benchmark/datasets/comprehensive_200_dataset.json"
+  name: "locomo"
+  version: "v1"
+  path: "datasets/locomo/dataset.json"
   noise_ratio: 0.0
 
 client:
   name: "mesa_client"
   adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
-  timeout_ms: 10000
+  timeout_ms: 15000
   parameters:
     verbose: false
 

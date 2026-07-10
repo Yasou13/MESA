@@ -1,4 +1,4 @@
-suite_name: "MESA v0.5.1 Comprehensive Benchmark"
+suite_name: "Zep Baseline Benchmark"
 iterations: 5
 seed: 42
 
@@ -9,18 +9,18 @@ dataset:
   noise_ratio: 0.0
 
 client:
-  name: "mesa_client"
-  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  name: "zep_client"
+  adapter_class: "mesa_benchmark.clients.zep_client.ZepClientAdapter"
   timeout_ms: 10000
   parameters:
-    verbose: false
+    api_key: "${ZEP_API_KEY}"
+    session_id: "benchmark_session"
 
 evaluation:
   metrics:
     - "hit_at_k"
     - "mrr"
     - "latency"
-    - "efficiency"
   llm_judge_model: "gpt-4o-mini"
   multi_judge_models:
     - "gpt-4o-mini"

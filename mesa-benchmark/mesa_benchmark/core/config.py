@@ -39,7 +39,15 @@ class EvaluationConfig(BaseModel):
         description="List of metrics to compute.",
     )
     llm_judge_model: Optional[str] = Field(
-        None, description="LLM model to use for judging (if applicable)."
+        None, description="LLM model to use for single-model judging (if applicable)."
+    )
+    multi_judge_models: list[str] = Field(
+        default_factory=list,
+        description="List of LLM models for multi-model independent judging.",
+    )
+    enable_agreement: bool = Field(
+        False,
+        description="If true, compute agreement rate between keyword/exact-match and LLM-judge evaluators.",
     )
 
 

@@ -22,7 +22,12 @@ class DatasetManager:
     def load(self) -> None:
         """Loads and validates the dataset from JSON."""
         if not self.dataset_path.exists():
-            raise DatasetLoaderError(f"Dataset file not found: {self.dataset_path}")
+            # Fallback 1: check relative to this module's directory (mesa_benchmark/datasets/)
+            fallback = Path(__file__).resolve().parent / self.dataset_path.name
+            if fallback.exists():
+                self.dataset_path = fallback
+            else:
+                raise DatasetLoaderError(f"Dataset file not found: {self.dataset_path}")
 
         try:
             with open(self.dataset_path, "r", encoding="utf-8") as f:

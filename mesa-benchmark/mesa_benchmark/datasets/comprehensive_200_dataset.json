@@ -1,0 +1,6712 @@
+[
+  {
+    "id": "single_hop_scenario_0",
+    "name": "Single-Hop Entity Role #0",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_0_ctx",
+        "text": "Dr. Elena Vance joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_0_q",
+        "query": "What role did Dr. Elena Vance assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_0_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_1",
+    "name": "Single-Hop Entity Role #1",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_1_ctx",
+        "text": "Professor Marcus Thorne joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_1_q",
+        "query": "What role did Professor Marcus Thorne assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_1_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_2",
+    "name": "Single-Hop Entity Role #2",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_2_ctx",
+        "text": "Aria Montgomery joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_2_q",
+        "query": "What role did Aria Montgomery assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_2_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_3",
+    "name": "Single-Hop Entity Role #3",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_3_ctx",
+        "text": "Kenji Sato joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_3_q",
+        "query": "What role did Kenji Sato assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_3_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_4",
+    "name": "Single-Hop Entity Role #4",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_4_ctx",
+        "text": "Clara Oswald joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_4_q",
+        "query": "What role did Clara Oswald assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_4_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_5",
+    "name": "Single-Hop Entity Role #5",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_5_ctx",
+        "text": "Dr. Aris Thorne joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_5_q",
+        "query": "What role did Dr. Aris Thorne assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_5_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_6",
+    "name": "Single-Hop Entity Role #6",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_6_ctx",
+        "text": "Selin Yilmaz joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_6_q",
+        "query": "What role did Selin Yilmaz assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_6_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_7",
+    "name": "Single-Hop Entity Role #7",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_7_ctx",
+        "text": "Kaan Aksoy joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_7_q",
+        "query": "What role did Kaan Aksoy assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_7_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_8",
+    "name": "Single-Hop Entity Role #8",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_8_ctx",
+        "text": "Amara Okafor joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_8_q",
+        "query": "What role did Amara Okafor assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_8_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_9",
+    "name": "Single-Hop Entity Role #9",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_9_ctx",
+        "text": "Liam O'Connor joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_9_q",
+        "query": "What role did Liam O'Connor assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_9_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_10",
+    "name": "Single-Hop Entity Role #10",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_10_ctx",
+        "text": "Dr. Elena Vance joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_10_q",
+        "query": "What role did Dr. Elena Vance assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_10_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_11",
+    "name": "Single-Hop Entity Role #11",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_11_ctx",
+        "text": "Professor Marcus Thorne joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_11_q",
+        "query": "What role did Professor Marcus Thorne assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_11_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_12",
+    "name": "Single-Hop Entity Role #12",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_12_ctx",
+        "text": "Aria Montgomery joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_12_q",
+        "query": "What role did Aria Montgomery assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_12_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_13",
+    "name": "Single-Hop Entity Role #13",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_13_ctx",
+        "text": "Kenji Sato joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_13_q",
+        "query": "What role did Kenji Sato assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_13_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_14",
+    "name": "Single-Hop Entity Role #14",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_14_ctx",
+        "text": "Clara Oswald joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_14_q",
+        "query": "What role did Clara Oswald assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_14_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_15",
+    "name": "Single-Hop Entity Role #15",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_15_ctx",
+        "text": "Dr. Aris Thorne joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_15_q",
+        "query": "What role did Dr. Aris Thorne assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_15_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_16",
+    "name": "Single-Hop Entity Role #16",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_16_ctx",
+        "text": "Selin Yilmaz joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_16_q",
+        "query": "What role did Selin Yilmaz assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_16_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_17",
+    "name": "Single-Hop Entity Role #17",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_17_ctx",
+        "text": "Kaan Aksoy joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_17_q",
+        "query": "What role did Kaan Aksoy assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_17_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_18",
+    "name": "Single-Hop Entity Role #18",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_18_ctx",
+        "text": "Amara Okafor joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_18_q",
+        "query": "What role did Amara Okafor assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_18_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_19",
+    "name": "Single-Hop Entity Role #19",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_19_ctx",
+        "text": "Liam O'Connor joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_19_q",
+        "query": "What role did Liam O'Connor assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_19_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_20",
+    "name": "Single-Hop Entity Role #20",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_20_ctx",
+        "text": "Dr. Elena Vance joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_20_q",
+        "query": "What role did Dr. Elena Vance assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_20_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_21",
+    "name": "Single-Hop Entity Role #21",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_21_ctx",
+        "text": "Professor Marcus Thorne joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_21_q",
+        "query": "What role did Professor Marcus Thorne assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_21_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_22",
+    "name": "Single-Hop Entity Role #22",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_22_ctx",
+        "text": "Aria Montgomery joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_22_q",
+        "query": "What role did Aria Montgomery assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_22_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_23",
+    "name": "Single-Hop Entity Role #23",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_23_ctx",
+        "text": "Kenji Sato joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_23_q",
+        "query": "What role did Kenji Sato assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_23_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_24",
+    "name": "Single-Hop Entity Role #24",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_24_ctx",
+        "text": "Clara Oswald joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_24_q",
+        "query": "What role did Clara Oswald assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_24_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_25",
+    "name": "Single-Hop Entity Role #25",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_25_ctx",
+        "text": "Dr. Aris Thorne joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_25_q",
+        "query": "What role did Dr. Aris Thorne assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_25_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_26",
+    "name": "Single-Hop Entity Role #26",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_26_ctx",
+        "text": "Selin Yilmaz joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_26_q",
+        "query": "What role did Selin Yilmaz assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_26_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_27",
+    "name": "Single-Hop Entity Role #27",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_27_ctx",
+        "text": "Kaan Aksoy joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_27_q",
+        "query": "What role did Kaan Aksoy assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_27_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_28",
+    "name": "Single-Hop Entity Role #28",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_28_ctx",
+        "text": "Amara Okafor joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_28_q",
+        "query": "What role did Amara Okafor assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_28_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_29",
+    "name": "Single-Hop Entity Role #29",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_29_ctx",
+        "text": "Liam O'Connor joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_29_q",
+        "query": "What role did Liam O'Connor assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_29_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_30",
+    "name": "Single-Hop Entity Role #30",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_30_ctx",
+        "text": "Dr. Elena Vance joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_30_q",
+        "query": "What role did Dr. Elena Vance assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_30_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_31",
+    "name": "Single-Hop Entity Role #31",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_31_ctx",
+        "text": "Professor Marcus Thorne joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_31_q",
+        "query": "What role did Professor Marcus Thorne assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_31_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_32",
+    "name": "Single-Hop Entity Role #32",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_32_ctx",
+        "text": "Aria Montgomery joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_32_q",
+        "query": "What role did Aria Montgomery assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_32_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_33",
+    "name": "Single-Hop Entity Role #33",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_33_ctx",
+        "text": "Kenji Sato joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_33_q",
+        "query": "What role did Kenji Sato assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_33_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_34",
+    "name": "Single-Hop Entity Role #34",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_34_ctx",
+        "text": "Clara Oswald joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_34_q",
+        "query": "What role did Clara Oswald assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_34_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_35",
+    "name": "Single-Hop Entity Role #35",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_35_ctx",
+        "text": "Dr. Aris Thorne joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_35_q",
+        "query": "What role did Dr. Aris Thorne assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_35_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_36",
+    "name": "Single-Hop Entity Role #36",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_36_ctx",
+        "text": "Selin Yilmaz joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_36_q",
+        "query": "What role did Selin Yilmaz assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_36_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_37",
+    "name": "Single-Hop Entity Role #37",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_37_ctx",
+        "text": "Kaan Aksoy joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_37_q",
+        "query": "What role did Kaan Aksoy assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_37_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_38",
+    "name": "Single-Hop Entity Role #38",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_38_ctx",
+        "text": "Amara Okafor joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_38_q",
+        "query": "What role did Amara Okafor assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_38_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_39",
+    "name": "Single-Hop Entity Role #39",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_39_ctx",
+        "text": "Liam O'Connor joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_39_q",
+        "query": "What role did Liam O'Connor assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_39_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_40",
+    "name": "Single-Hop Entity Role #40",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_40_ctx",
+        "text": "Dr. Elena Vance joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_40_q",
+        "query": "What role did Dr. Elena Vance assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_40_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_41",
+    "name": "Single-Hop Entity Role #41",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_41_ctx",
+        "text": "Professor Marcus Thorne joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_41_q",
+        "query": "What role did Professor Marcus Thorne assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_41_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_42",
+    "name": "Single-Hop Entity Role #42",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_42_ctx",
+        "text": "Aria Montgomery joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_42_q",
+        "query": "What role did Aria Montgomery assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_42_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_43",
+    "name": "Single-Hop Entity Role #43",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_43_ctx",
+        "text": "Kenji Sato joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_43_q",
+        "query": "What role did Kenji Sato assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_43_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_44",
+    "name": "Single-Hop Entity Role #44",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_44_ctx",
+        "text": "Clara Oswald joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_44_q",
+        "query": "What role did Clara Oswald assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_44_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_45",
+    "name": "Single-Hop Entity Role #45",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_45_ctx",
+        "text": "Dr. Aris Thorne joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_45_q",
+        "query": "What role did Dr. Aris Thorne assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_45_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_46",
+    "name": "Single-Hop Entity Role #46",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_46_ctx",
+        "text": "Selin Yilmaz joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_46_q",
+        "query": "What role did Selin Yilmaz assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_46_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_47",
+    "name": "Single-Hop Entity Role #47",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_47_ctx",
+        "text": "Kaan Aksoy joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_47_q",
+        "query": "What role did Kaan Aksoy assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_47_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_48",
+    "name": "Single-Hop Entity Role #48",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_48_ctx",
+        "text": "Amara Okafor joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_48_q",
+        "query": "What role did Amara Okafor assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_48_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_49",
+    "name": "Single-Hop Entity Role #49",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_49_ctx",
+        "text": "Liam O'Connor joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_49_q",
+        "query": "What role did Liam O'Connor assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_49_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_50",
+    "name": "Single-Hop Entity Role #50",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_50_ctx",
+        "text": "Dr. Elena Vance joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_50_q",
+        "query": "What role did Dr. Elena Vance assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_50_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_51",
+    "name": "Single-Hop Entity Role #51",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_51_ctx",
+        "text": "Professor Marcus Thorne joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_51_q",
+        "query": "What role did Professor Marcus Thorne assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_51_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_52",
+    "name": "Single-Hop Entity Role #52",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_52_ctx",
+        "text": "Aria Montgomery joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_52_q",
+        "query": "What role did Aria Montgomery assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_52_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_53",
+    "name": "Single-Hop Entity Role #53",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_53_ctx",
+        "text": "Kenji Sato joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_53_q",
+        "query": "What role did Kenji Sato assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_53_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_54",
+    "name": "Single-Hop Entity Role #54",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_54_ctx",
+        "text": "Clara Oswald joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_54_q",
+        "query": "What role did Clara Oswald assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_54_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_55",
+    "name": "Single-Hop Entity Role #55",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_55_ctx",
+        "text": "Dr. Aris Thorne joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_55_q",
+        "query": "What role did Dr. Aris Thorne assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_55_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_56",
+    "name": "Single-Hop Entity Role #56",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_56_ctx",
+        "text": "Selin Yilmaz joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_56_q",
+        "query": "What role did Selin Yilmaz assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_56_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_57",
+    "name": "Single-Hop Entity Role #57",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_57_ctx",
+        "text": "Kaan Aksoy joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_57_q",
+        "query": "What role did Kaan Aksoy assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_57_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_58",
+    "name": "Single-Hop Entity Role #58",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_58_ctx",
+        "text": "Amara Okafor joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_58_q",
+        "query": "What role did Amara Okafor assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_58_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_59",
+    "name": "Single-Hop Entity Role #59",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_59_ctx",
+        "text": "Liam O'Connor joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_59_q",
+        "query": "What role did Liam O'Connor assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_59_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_60",
+    "name": "Single-Hop Entity Role #60",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_60_ctx",
+        "text": "Dr. Elena Vance joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_60_q",
+        "query": "What role did Dr. Elena Vance assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_60_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_61",
+    "name": "Single-Hop Entity Role #61",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_61_ctx",
+        "text": "Professor Marcus Thorne joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_61_q",
+        "query": "What role did Professor Marcus Thorne assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_61_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_62",
+    "name": "Single-Hop Entity Role #62",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_62_ctx",
+        "text": "Aria Montgomery joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_62_q",
+        "query": "What role did Aria Montgomery assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_62_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_63",
+    "name": "Single-Hop Entity Role #63",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_63_ctx",
+        "text": "Kenji Sato joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_63_q",
+        "query": "What role did Kenji Sato assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_63_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_64",
+    "name": "Single-Hop Entity Role #64",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_64_ctx",
+        "text": "Clara Oswald joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_64_q",
+        "query": "What role did Clara Oswald assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_64_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_65",
+    "name": "Single-Hop Entity Role #65",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_65_ctx",
+        "text": "Dr. Aris Thorne joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_65_q",
+        "query": "What role did Dr. Aris Thorne assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_65_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_66",
+    "name": "Single-Hop Entity Role #66",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_66_ctx",
+        "text": "Selin Yilmaz joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_66_q",
+        "query": "What role did Selin Yilmaz assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_66_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_67",
+    "name": "Single-Hop Entity Role #67",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_67_ctx",
+        "text": "Kaan Aksoy joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_67_q",
+        "query": "What role did Kaan Aksoy assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_67_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_68",
+    "name": "Single-Hop Entity Role #68",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_68_ctx",
+        "text": "Amara Okafor joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_68_q",
+        "query": "What role did Amara Okafor assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_68_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_69",
+    "name": "Single-Hop Entity Role #69",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_69_ctx",
+        "text": "Liam O'Connor joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_69_q",
+        "query": "What role did Liam O'Connor assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_69_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_70",
+    "name": "Single-Hop Entity Role #70",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_70_ctx",
+        "text": "Dr. Elena Vance joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_70_q",
+        "query": "What role did Dr. Elena Vance assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_70_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_71",
+    "name": "Single-Hop Entity Role #71",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_71_ctx",
+        "text": "Professor Marcus Thorne joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_71_q",
+        "query": "What role did Professor Marcus Thorne assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_71_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_72",
+    "name": "Single-Hop Entity Role #72",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_72_ctx",
+        "text": "Aria Montgomery joined Aegis Quantum Systems as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_72_q",
+        "query": "What role did Aria Montgomery assume at Aegis Quantum Systems?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_72_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_73",
+    "name": "Single-Hop Entity Role #73",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_73_ctx",
+        "text": "Kenji Sato joined Ephesus BioLabs as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_73_q",
+        "query": "What role did Kenji Sato assume at Ephesus BioLabs?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_73_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_74",
+    "name": "Single-Hop Entity Role #74",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_74_ctx",
+        "text": "Clara Oswald joined MESA Memory Corp as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_74_q",
+        "query": "What role did Clara Oswald assume at MESA Memory Corp?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_74_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_75",
+    "name": "Single-Hop Entity Role #75",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_75_ctx",
+        "text": "Dr. Aris Thorne joined NovaStellar Tech as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_75_q",
+        "query": "What role did Dr. Aris Thorne assume at NovaStellar Tech?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_75_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_76",
+    "name": "Single-Hop Entity Role #76",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_76_ctx",
+        "text": "Selin Yilmaz joined Hyperion Cybernetics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_76_q",
+        "query": "What role did Selin Yilmaz assume at Hyperion Cybernetics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_76_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_77",
+    "name": "Single-Hop Entity Role #77",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_77_ctx",
+        "text": "Kaan Aksoy joined Veritas Legal AI as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_77_q",
+        "query": "What role did Kaan Aksoy assume at Veritas Legal AI?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_77_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_78",
+    "name": "Single-Hop Entity Role #78",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_78_ctx",
+        "text": "Amara Okafor joined Apex Robotics as Chief AI Architect in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_78_q",
+        "query": "What role did Amara Okafor assume at Apex Robotics?",
+        "ground_truth": "Chief AI Architect",
+        "expected_context_ids": [
+          "single_78_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "single_hop_scenario_79",
+    "name": "Single-Hop Entity Role #79",
+    "description": "Tests direct fact retrieval from single memory node.",
+    "contexts": [
+      {
+        "id": "single_79_ctx",
+        "text": "Liam O'Connor joined Zenith Cloud as Director of Research in January 2025.",
+        "metadata": {
+          "tier": "single_hop"
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "single_79_q",
+        "query": "What role did Liam O'Connor assume at Zenith Cloud?",
+        "ground_truth": "Director of Research",
+        "expected_context_ids": [
+          "single_79_ctx"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_0",
+    "name": "Multi-Hop Graph Traversal #0",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_0_ctx1",
+        "text": "Dr. Elena Vance is the lead investigator for Project Omega-0 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-0",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_0_ctx2",
+        "text": "Project Omega-0 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_0_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Elena Vance located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_0_ctx1",
+          "multi_0_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_1",
+    "name": "Multi-Hop Graph Traversal #1",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_1_ctx1",
+        "text": "Professor Marcus Thorne is the lead investigator for Project Omega-1 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-1",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_1_ctx2",
+        "text": "Project Omega-1 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_1_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Professor Marcus Thorne located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_1_ctx1",
+          "multi_1_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_2",
+    "name": "Multi-Hop Graph Traversal #2",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_2_ctx1",
+        "text": "Aria Montgomery is the lead investigator for Project Omega-2 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-2",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_2_ctx2",
+        "text": "Project Omega-2 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_2_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Aria Montgomery located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_2_ctx1",
+          "multi_2_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_3",
+    "name": "Multi-Hop Graph Traversal #3",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_3_ctx1",
+        "text": "Kenji Sato is the lead investigator for Project Omega-3 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-3",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_3_ctx2",
+        "text": "Project Omega-3 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_3_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kenji Sato located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_3_ctx1",
+          "multi_3_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_4",
+    "name": "Multi-Hop Graph Traversal #4",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_4_ctx1",
+        "text": "Clara Oswald is the lead investigator for Project Omega-4 at Hyperion Cybernetics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-4",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_4_ctx2",
+        "text": "Project Omega-4 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_4_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Clara Oswald located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_4_ctx1",
+          "multi_4_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_5",
+    "name": "Multi-Hop Graph Traversal #5",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_5_ctx1",
+        "text": "Dr. Aris Thorne is the lead investigator for Project Omega-5 at Veritas Legal AI.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-5",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_5_ctx2",
+        "text": "Project Omega-5 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_5_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Aris Thorne located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_5_ctx1",
+          "multi_5_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_6",
+    "name": "Multi-Hop Graph Traversal #6",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_6_ctx1",
+        "text": "Selin Yilmaz is the lead investigator for Project Omega-6 at Apex Robotics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-6",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_6_ctx2",
+        "text": "Project Omega-6 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_6_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Selin Yilmaz located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_6_ctx1",
+          "multi_6_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_7",
+    "name": "Multi-Hop Graph Traversal #7",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_7_ctx1",
+        "text": "Kaan Aksoy is the lead investigator for Project Omega-7 at Zenith Cloud.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-7",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_7_ctx2",
+        "text": "Project Omega-7 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_7_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kaan Aksoy located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_7_ctx1",
+          "multi_7_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_8",
+    "name": "Multi-Hop Graph Traversal #8",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_8_ctx1",
+        "text": "Amara Okafor is the lead investigator for Project Omega-8 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-8",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_8_ctx2",
+        "text": "Project Omega-8 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_8_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Amara Okafor located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_8_ctx1",
+          "multi_8_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_9",
+    "name": "Multi-Hop Graph Traversal #9",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_9_ctx1",
+        "text": "Liam O'Connor is the lead investigator for Project Omega-9 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-9",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_9_ctx2",
+        "text": "Project Omega-9 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_9_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Liam O'Connor located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_9_ctx1",
+          "multi_9_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_10",
+    "name": "Multi-Hop Graph Traversal #10",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_10_ctx1",
+        "text": "Dr. Elena Vance is the lead investigator for Project Omega-10 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-10",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_10_ctx2",
+        "text": "Project Omega-10 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_10_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Elena Vance located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_10_ctx1",
+          "multi_10_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_11",
+    "name": "Multi-Hop Graph Traversal #11",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_11_ctx1",
+        "text": "Professor Marcus Thorne is the lead investigator for Project Omega-11 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-11",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_11_ctx2",
+        "text": "Project Omega-11 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_11_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Professor Marcus Thorne located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_11_ctx1",
+          "multi_11_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_12",
+    "name": "Multi-Hop Graph Traversal #12",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_12_ctx1",
+        "text": "Aria Montgomery is the lead investigator for Project Omega-12 at Hyperion Cybernetics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-12",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_12_ctx2",
+        "text": "Project Omega-12 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_12_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Aria Montgomery located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_12_ctx1",
+          "multi_12_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_13",
+    "name": "Multi-Hop Graph Traversal #13",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_13_ctx1",
+        "text": "Kenji Sato is the lead investigator for Project Omega-13 at Veritas Legal AI.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-13",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_13_ctx2",
+        "text": "Project Omega-13 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_13_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kenji Sato located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_13_ctx1",
+          "multi_13_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_14",
+    "name": "Multi-Hop Graph Traversal #14",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_14_ctx1",
+        "text": "Clara Oswald is the lead investigator for Project Omega-14 at Apex Robotics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-14",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_14_ctx2",
+        "text": "Project Omega-14 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_14_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Clara Oswald located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_14_ctx1",
+          "multi_14_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_15",
+    "name": "Multi-Hop Graph Traversal #15",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_15_ctx1",
+        "text": "Dr. Aris Thorne is the lead investigator for Project Omega-15 at Zenith Cloud.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-15",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_15_ctx2",
+        "text": "Project Omega-15 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_15_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Aris Thorne located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_15_ctx1",
+          "multi_15_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_16",
+    "name": "Multi-Hop Graph Traversal #16",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_16_ctx1",
+        "text": "Selin Yilmaz is the lead investigator for Project Omega-16 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-16",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_16_ctx2",
+        "text": "Project Omega-16 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_16_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Selin Yilmaz located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_16_ctx1",
+          "multi_16_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_17",
+    "name": "Multi-Hop Graph Traversal #17",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_17_ctx1",
+        "text": "Kaan Aksoy is the lead investigator for Project Omega-17 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-17",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_17_ctx2",
+        "text": "Project Omega-17 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_17_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kaan Aksoy located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_17_ctx1",
+          "multi_17_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_18",
+    "name": "Multi-Hop Graph Traversal #18",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_18_ctx1",
+        "text": "Amara Okafor is the lead investigator for Project Omega-18 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-18",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_18_ctx2",
+        "text": "Project Omega-18 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_18_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Amara Okafor located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_18_ctx1",
+          "multi_18_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_19",
+    "name": "Multi-Hop Graph Traversal #19",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_19_ctx1",
+        "text": "Liam O'Connor is the lead investigator for Project Omega-19 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-19",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_19_ctx2",
+        "text": "Project Omega-19 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_19_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Liam O'Connor located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_19_ctx1",
+          "multi_19_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_20",
+    "name": "Multi-Hop Graph Traversal #20",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_20_ctx1",
+        "text": "Dr. Elena Vance is the lead investigator for Project Omega-20 at Hyperion Cybernetics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-20",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_20_ctx2",
+        "text": "Project Omega-20 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_20_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Elena Vance located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_20_ctx1",
+          "multi_20_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_21",
+    "name": "Multi-Hop Graph Traversal #21",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_21_ctx1",
+        "text": "Professor Marcus Thorne is the lead investigator for Project Omega-21 at Veritas Legal AI.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-21",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_21_ctx2",
+        "text": "Project Omega-21 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_21_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Professor Marcus Thorne located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_21_ctx1",
+          "multi_21_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_22",
+    "name": "Multi-Hop Graph Traversal #22",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_22_ctx1",
+        "text": "Aria Montgomery is the lead investigator for Project Omega-22 at Apex Robotics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-22",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_22_ctx2",
+        "text": "Project Omega-22 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_22_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Aria Montgomery located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_22_ctx1",
+          "multi_22_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_23",
+    "name": "Multi-Hop Graph Traversal #23",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_23_ctx1",
+        "text": "Kenji Sato is the lead investigator for Project Omega-23 at Zenith Cloud.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-23",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_23_ctx2",
+        "text": "Project Omega-23 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_23_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kenji Sato located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_23_ctx1",
+          "multi_23_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_24",
+    "name": "Multi-Hop Graph Traversal #24",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_24_ctx1",
+        "text": "Clara Oswald is the lead investigator for Project Omega-24 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-24",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_24_ctx2",
+        "text": "Project Omega-24 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_24_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Clara Oswald located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_24_ctx1",
+          "multi_24_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_25",
+    "name": "Multi-Hop Graph Traversal #25",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_25_ctx1",
+        "text": "Dr. Aris Thorne is the lead investigator for Project Omega-25 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-25",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_25_ctx2",
+        "text": "Project Omega-25 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_25_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Aris Thorne located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_25_ctx1",
+          "multi_25_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_26",
+    "name": "Multi-Hop Graph Traversal #26",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_26_ctx1",
+        "text": "Selin Yilmaz is the lead investigator for Project Omega-26 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-26",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_26_ctx2",
+        "text": "Project Omega-26 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_26_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Selin Yilmaz located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_26_ctx1",
+          "multi_26_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_27",
+    "name": "Multi-Hop Graph Traversal #27",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_27_ctx1",
+        "text": "Kaan Aksoy is the lead investigator for Project Omega-27 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-27",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_27_ctx2",
+        "text": "Project Omega-27 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_27_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kaan Aksoy located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_27_ctx1",
+          "multi_27_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_28",
+    "name": "Multi-Hop Graph Traversal #28",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_28_ctx1",
+        "text": "Amara Okafor is the lead investigator for Project Omega-28 at Hyperion Cybernetics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-28",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_28_ctx2",
+        "text": "Project Omega-28 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_28_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Amara Okafor located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_28_ctx1",
+          "multi_28_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_29",
+    "name": "Multi-Hop Graph Traversal #29",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_29_ctx1",
+        "text": "Liam O'Connor is the lead investigator for Project Omega-29 at Veritas Legal AI.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-29",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_29_ctx2",
+        "text": "Project Omega-29 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_29_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Liam O'Connor located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_29_ctx1",
+          "multi_29_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_30",
+    "name": "Multi-Hop Graph Traversal #30",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_30_ctx1",
+        "text": "Dr. Elena Vance is the lead investigator for Project Omega-30 at Apex Robotics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-30",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_30_ctx2",
+        "text": "Project Omega-30 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_30_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Elena Vance located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_30_ctx1",
+          "multi_30_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_31",
+    "name": "Multi-Hop Graph Traversal #31",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_31_ctx1",
+        "text": "Professor Marcus Thorne is the lead investigator for Project Omega-31 at Zenith Cloud.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-31",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_31_ctx2",
+        "text": "Project Omega-31 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_31_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Professor Marcus Thorne located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_31_ctx1",
+          "multi_31_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_32",
+    "name": "Multi-Hop Graph Traversal #32",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_32_ctx1",
+        "text": "Aria Montgomery is the lead investigator for Project Omega-32 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-32",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_32_ctx2",
+        "text": "Project Omega-32 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_32_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Aria Montgomery located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_32_ctx1",
+          "multi_32_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_33",
+    "name": "Multi-Hop Graph Traversal #33",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_33_ctx1",
+        "text": "Kenji Sato is the lead investigator for Project Omega-33 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-33",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_33_ctx2",
+        "text": "Project Omega-33 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_33_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kenji Sato located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_33_ctx1",
+          "multi_33_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_34",
+    "name": "Multi-Hop Graph Traversal #34",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_34_ctx1",
+        "text": "Clara Oswald is the lead investigator for Project Omega-34 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-34",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_34_ctx2",
+        "text": "Project Omega-34 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_34_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Clara Oswald located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_34_ctx1",
+          "multi_34_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_35",
+    "name": "Multi-Hop Graph Traversal #35",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_35_ctx1",
+        "text": "Dr. Aris Thorne is the lead investigator for Project Omega-35 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-35",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_35_ctx2",
+        "text": "Project Omega-35 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_35_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Aris Thorne located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_35_ctx1",
+          "multi_35_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_36",
+    "name": "Multi-Hop Graph Traversal #36",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_36_ctx1",
+        "text": "Selin Yilmaz is the lead investigator for Project Omega-36 at Hyperion Cybernetics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-36",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_36_ctx2",
+        "text": "Project Omega-36 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_36_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Selin Yilmaz located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_36_ctx1",
+          "multi_36_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_37",
+    "name": "Multi-Hop Graph Traversal #37",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_37_ctx1",
+        "text": "Kaan Aksoy is the lead investigator for Project Omega-37 at Veritas Legal AI.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-37",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_37_ctx2",
+        "text": "Project Omega-37 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_37_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kaan Aksoy located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_37_ctx1",
+          "multi_37_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_38",
+    "name": "Multi-Hop Graph Traversal #38",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_38_ctx1",
+        "text": "Amara Okafor is the lead investigator for Project Omega-38 at Apex Robotics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-38",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_38_ctx2",
+        "text": "Project Omega-38 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_38_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Amara Okafor located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_38_ctx1",
+          "multi_38_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_39",
+    "name": "Multi-Hop Graph Traversal #39",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_39_ctx1",
+        "text": "Liam O'Connor is the lead investigator for Project Omega-39 at Zenith Cloud.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-39",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_39_ctx2",
+        "text": "Project Omega-39 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_39_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Liam O'Connor located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_39_ctx1",
+          "multi_39_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_40",
+    "name": "Multi-Hop Graph Traversal #40",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_40_ctx1",
+        "text": "Dr. Elena Vance is the lead investigator for Project Omega-40 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-40",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_40_ctx2",
+        "text": "Project Omega-40 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_40_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Elena Vance located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_40_ctx1",
+          "multi_40_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_41",
+    "name": "Multi-Hop Graph Traversal #41",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_41_ctx1",
+        "text": "Professor Marcus Thorne is the lead investigator for Project Omega-41 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-41",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_41_ctx2",
+        "text": "Project Omega-41 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_41_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Professor Marcus Thorne located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_41_ctx1",
+          "multi_41_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_42",
+    "name": "Multi-Hop Graph Traversal #42",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_42_ctx1",
+        "text": "Aria Montgomery is the lead investigator for Project Omega-42 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-42",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_42_ctx2",
+        "text": "Project Omega-42 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_42_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Aria Montgomery located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_42_ctx1",
+          "multi_42_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_43",
+    "name": "Multi-Hop Graph Traversal #43",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_43_ctx1",
+        "text": "Kenji Sato is the lead investigator for Project Omega-43 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-43",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_43_ctx2",
+        "text": "Project Omega-43 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_43_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kenji Sato located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_43_ctx1",
+          "multi_43_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_44",
+    "name": "Multi-Hop Graph Traversal #44",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_44_ctx1",
+        "text": "Clara Oswald is the lead investigator for Project Omega-44 at Hyperion Cybernetics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-44",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_44_ctx2",
+        "text": "Project Omega-44 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_44_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Clara Oswald located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_44_ctx1",
+          "multi_44_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_45",
+    "name": "Multi-Hop Graph Traversal #45",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_45_ctx1",
+        "text": "Dr. Aris Thorne is the lead investigator for Project Omega-45 at Veritas Legal AI.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-45",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_45_ctx2",
+        "text": "Project Omega-45 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_45_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Aris Thorne located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_45_ctx1",
+          "multi_45_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_46",
+    "name": "Multi-Hop Graph Traversal #46",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_46_ctx1",
+        "text": "Selin Yilmaz is the lead investigator for Project Omega-46 at Apex Robotics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-46",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_46_ctx2",
+        "text": "Project Omega-46 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_46_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Selin Yilmaz located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_46_ctx1",
+          "multi_46_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_47",
+    "name": "Multi-Hop Graph Traversal #47",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_47_ctx1",
+        "text": "Kaan Aksoy is the lead investigator for Project Omega-47 at Zenith Cloud.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-47",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_47_ctx2",
+        "text": "Project Omega-47 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_47_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kaan Aksoy located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_47_ctx1",
+          "multi_47_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_48",
+    "name": "Multi-Hop Graph Traversal #48",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_48_ctx1",
+        "text": "Amara Okafor is the lead investigator for Project Omega-48 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-48",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_48_ctx2",
+        "text": "Project Omega-48 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_48_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Amara Okafor located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_48_ctx1",
+          "multi_48_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_49",
+    "name": "Multi-Hop Graph Traversal #49",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_49_ctx1",
+        "text": "Liam O'Connor is the lead investigator for Project Omega-49 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-49",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_49_ctx2",
+        "text": "Project Omega-49 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_49_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Liam O'Connor located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_49_ctx1",
+          "multi_49_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_50",
+    "name": "Multi-Hop Graph Traversal #50",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_50_ctx1",
+        "text": "Dr. Elena Vance is the lead investigator for Project Omega-50 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-50",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_50_ctx2",
+        "text": "Project Omega-50 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_50_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Elena Vance located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_50_ctx1",
+          "multi_50_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_51",
+    "name": "Multi-Hop Graph Traversal #51",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_51_ctx1",
+        "text": "Professor Marcus Thorne is the lead investigator for Project Omega-51 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-51",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_51_ctx2",
+        "text": "Project Omega-51 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_51_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Professor Marcus Thorne located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_51_ctx1",
+          "multi_51_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_52",
+    "name": "Multi-Hop Graph Traversal #52",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_52_ctx1",
+        "text": "Aria Montgomery is the lead investigator for Project Omega-52 at Hyperion Cybernetics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-52",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_52_ctx2",
+        "text": "Project Omega-52 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_52_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Aria Montgomery located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_52_ctx1",
+          "multi_52_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_53",
+    "name": "Multi-Hop Graph Traversal #53",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_53_ctx1",
+        "text": "Kenji Sato is the lead investigator for Project Omega-53 at Veritas Legal AI.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-53",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_53_ctx2",
+        "text": "Project Omega-53 has relocated its primary R&D headquarters to London.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "London",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_53_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kenji Sato located?",
+        "ground_truth": "London",
+        "expected_context_ids": [
+          "multi_53_ctx1",
+          "multi_53_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_54",
+    "name": "Multi-Hop Graph Traversal #54",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_54_ctx1",
+        "text": "Clara Oswald is the lead investigator for Project Omega-54 at Apex Robotics.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-54",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_54_ctx2",
+        "text": "Project Omega-54 has relocated its primary R&D headquarters to Berlin.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Berlin",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_54_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Clara Oswald located?",
+        "ground_truth": "Berlin",
+        "expected_context_ids": [
+          "multi_54_ctx1",
+          "multi_54_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_55",
+    "name": "Multi-Hop Graph Traversal #55",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_55_ctx1",
+        "text": "Dr. Aris Thorne is the lead investigator for Project Omega-55 at Zenith Cloud.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-55",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_55_ctx2",
+        "text": "Project Omega-55 has relocated its primary R&D headquarters to Singapore.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Singapore",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_55_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Dr. Aris Thorne located?",
+        "ground_truth": "Singapore",
+        "expected_context_ids": [
+          "multi_55_ctx1",
+          "multi_55_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_56",
+    "name": "Multi-Hop Graph Traversal #56",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_56_ctx1",
+        "text": "Selin Yilmaz is the lead investigator for Project Omega-56 at Aegis Quantum Systems.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-56",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_56_ctx2",
+        "text": "Project Omega-56 has relocated its primary R&D headquarters to Zurich.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Zurich",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_56_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Selin Yilmaz located?",
+        "ground_truth": "Zurich",
+        "expected_context_ids": [
+          "multi_56_ctx1",
+          "multi_56_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_57",
+    "name": "Multi-Hop Graph Traversal #57",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_57_ctx1",
+        "text": "Kaan Aksoy is the lead investigator for Project Omega-57 at Ephesus BioLabs.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-57",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_57_ctx2",
+        "text": "Project Omega-57 has relocated its primary R&D headquarters to Istanbul.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Istanbul",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_57_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Kaan Aksoy located?",
+        "ground_truth": "Istanbul",
+        "expected_context_ids": [
+          "multi_57_ctx1",
+          "multi_57_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_58",
+    "name": "Multi-Hop Graph Traversal #58",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_58_ctx1",
+        "text": "Amara Okafor is the lead investigator for Project Omega-58 at MESA Memory Corp.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-58",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_58_ctx2",
+        "text": "Project Omega-58 has relocated its primary R&D headquarters to Tokyo.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Tokyo",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_58_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Amara Okafor located?",
+        "ground_truth": "Tokyo",
+        "expected_context_ids": [
+          "multi_58_ctx1",
+          "multi_58_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_scenario_59",
+    "name": "Multi-Hop Graph Traversal #59",
+    "description": "Tests multi-hop connection across two entity nodes.",
+    "contexts": [
+      {
+        "id": "multi_59_ctx1",
+        "text": "Liam O'Connor is the lead investigator for Project Omega-59 at NovaStellar Tech.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "Project Omega-59",
+              "type": "LEADS"
+            }
+          ]
+        }
+      },
+      {
+        "id": "multi_59_ctx2",
+        "text": "Project Omega-59 has relocated its primary R&D headquarters to San Francisco.",
+        "metadata": {
+          "tier": "multi_hop",
+          "relations": [
+            {
+              "target": "San Francisco",
+              "type": "LOCATED_IN"
+            }
+          ]
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "multi_59_q",
+        "query": "In which city is the primary R&D headquarters of the project led by Liam O'Connor located?",
+        "ground_truth": "San Francisco",
+        "expected_context_ids": [
+          "multi_59_ctx1",
+          "multi_59_ctx2"
+        ],
+        "evaluation_strategy": "llm_judge"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_0",
+    "name": "Hard-Negative Contradiction #0",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_0_old",
+        "text": "In preliminary 2024 guidance, Aegis Quantum Systems projected annual net revenue of $120M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_0_new",
+        "text": "In the audited FY2024 annual filing, Aegis Quantum Systems confirmed actual annual net revenue reached $240M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_0_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Aegis Quantum Systems?",
+        "ground_truth": "$240M",
+        "expected_context_ids": [
+          "hn_0_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_1",
+    "name": "Hard-Negative Contradiction #1",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_1_old",
+        "text": "In preliminary 2024 guidance, Ephesus BioLabs projected annual net revenue of $121M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_1_new",
+        "text": "In the audited FY2024 annual filing, Ephesus BioLabs confirmed actual annual net revenue reached $241M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_1_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Ephesus BioLabs?",
+        "ground_truth": "$241M",
+        "expected_context_ids": [
+          "hn_1_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_2",
+    "name": "Hard-Negative Contradiction #2",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_2_old",
+        "text": "In preliminary 2024 guidance, MESA Memory Corp projected annual net revenue of $122M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_2_new",
+        "text": "In the audited FY2024 annual filing, MESA Memory Corp confirmed actual annual net revenue reached $242M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_2_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by MESA Memory Corp?",
+        "ground_truth": "$242M",
+        "expected_context_ids": [
+          "hn_2_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_3",
+    "name": "Hard-Negative Contradiction #3",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_3_old",
+        "text": "In preliminary 2024 guidance, NovaStellar Tech projected annual net revenue of $123M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_3_new",
+        "text": "In the audited FY2024 annual filing, NovaStellar Tech confirmed actual annual net revenue reached $243M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_3_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by NovaStellar Tech?",
+        "ground_truth": "$243M",
+        "expected_context_ids": [
+          "hn_3_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_4",
+    "name": "Hard-Negative Contradiction #4",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_4_old",
+        "text": "In preliminary 2024 guidance, Hyperion Cybernetics projected annual net revenue of $124M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_4_new",
+        "text": "In the audited FY2024 annual filing, Hyperion Cybernetics confirmed actual annual net revenue reached $244M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_4_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Hyperion Cybernetics?",
+        "ground_truth": "$244M",
+        "expected_context_ids": [
+          "hn_4_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_5",
+    "name": "Hard-Negative Contradiction #5",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_5_old",
+        "text": "In preliminary 2024 guidance, Veritas Legal AI projected annual net revenue of $125M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_5_new",
+        "text": "In the audited FY2024 annual filing, Veritas Legal AI confirmed actual annual net revenue reached $245M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_5_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Veritas Legal AI?",
+        "ground_truth": "$245M",
+        "expected_context_ids": [
+          "hn_5_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_6",
+    "name": "Hard-Negative Contradiction #6",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_6_old",
+        "text": "In preliminary 2024 guidance, Apex Robotics projected annual net revenue of $126M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_6_new",
+        "text": "In the audited FY2024 annual filing, Apex Robotics confirmed actual annual net revenue reached $246M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_6_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Apex Robotics?",
+        "ground_truth": "$246M",
+        "expected_context_ids": [
+          "hn_6_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_7",
+    "name": "Hard-Negative Contradiction #7",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_7_old",
+        "text": "In preliminary 2024 guidance, Zenith Cloud projected annual net revenue of $127M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_7_new",
+        "text": "In the audited FY2024 annual filing, Zenith Cloud confirmed actual annual net revenue reached $247M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_7_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Zenith Cloud?",
+        "ground_truth": "$247M",
+        "expected_context_ids": [
+          "hn_7_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_8",
+    "name": "Hard-Negative Contradiction #8",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_8_old",
+        "text": "In preliminary 2024 guidance, Aegis Quantum Systems projected annual net revenue of $128M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_8_new",
+        "text": "In the audited FY2024 annual filing, Aegis Quantum Systems confirmed actual annual net revenue reached $248M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_8_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Aegis Quantum Systems?",
+        "ground_truth": "$248M",
+        "expected_context_ids": [
+          "hn_8_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_9",
+    "name": "Hard-Negative Contradiction #9",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_9_old",
+        "text": "In preliminary 2024 guidance, Ephesus BioLabs projected annual net revenue of $129M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_9_new",
+        "text": "In the audited FY2024 annual filing, Ephesus BioLabs confirmed actual annual net revenue reached $249M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_9_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Ephesus BioLabs?",
+        "ground_truth": "$249M",
+        "expected_context_ids": [
+          "hn_9_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_10",
+    "name": "Hard-Negative Contradiction #10",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_10_old",
+        "text": "In preliminary 2024 guidance, MESA Memory Corp projected annual net revenue of $130M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_10_new",
+        "text": "In the audited FY2024 annual filing, MESA Memory Corp confirmed actual annual net revenue reached $250M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_10_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by MESA Memory Corp?",
+        "ground_truth": "$250M",
+        "expected_context_ids": [
+          "hn_10_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_11",
+    "name": "Hard-Negative Contradiction #11",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_11_old",
+        "text": "In preliminary 2024 guidance, NovaStellar Tech projected annual net revenue of $131M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_11_new",
+        "text": "In the audited FY2024 annual filing, NovaStellar Tech confirmed actual annual net revenue reached $251M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_11_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by NovaStellar Tech?",
+        "ground_truth": "$251M",
+        "expected_context_ids": [
+          "hn_11_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_12",
+    "name": "Hard-Negative Contradiction #12",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_12_old",
+        "text": "In preliminary 2024 guidance, Hyperion Cybernetics projected annual net revenue of $132M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_12_new",
+        "text": "In the audited FY2024 annual filing, Hyperion Cybernetics confirmed actual annual net revenue reached $252M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_12_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Hyperion Cybernetics?",
+        "ground_truth": "$252M",
+        "expected_context_ids": [
+          "hn_12_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_13",
+    "name": "Hard-Negative Contradiction #13",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_13_old",
+        "text": "In preliminary 2024 guidance, Veritas Legal AI projected annual net revenue of $133M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_13_new",
+        "text": "In the audited FY2024 annual filing, Veritas Legal AI confirmed actual annual net revenue reached $253M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_13_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Veritas Legal AI?",
+        "ground_truth": "$253M",
+        "expected_context_ids": [
+          "hn_13_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_14",
+    "name": "Hard-Negative Contradiction #14",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_14_old",
+        "text": "In preliminary 2024 guidance, Apex Robotics projected annual net revenue of $134M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_14_new",
+        "text": "In the audited FY2024 annual filing, Apex Robotics confirmed actual annual net revenue reached $254M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_14_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Apex Robotics?",
+        "ground_truth": "$254M",
+        "expected_context_ids": [
+          "hn_14_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_15",
+    "name": "Hard-Negative Contradiction #15",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_15_old",
+        "text": "In preliminary 2024 guidance, Zenith Cloud projected annual net revenue of $135M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_15_new",
+        "text": "In the audited FY2024 annual filing, Zenith Cloud confirmed actual annual net revenue reached $255M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_15_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Zenith Cloud?",
+        "ground_truth": "$255M",
+        "expected_context_ids": [
+          "hn_15_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_16",
+    "name": "Hard-Negative Contradiction #16",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_16_old",
+        "text": "In preliminary 2024 guidance, Aegis Quantum Systems projected annual net revenue of $136M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_16_new",
+        "text": "In the audited FY2024 annual filing, Aegis Quantum Systems confirmed actual annual net revenue reached $256M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_16_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Aegis Quantum Systems?",
+        "ground_truth": "$256M",
+        "expected_context_ids": [
+          "hn_16_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_17",
+    "name": "Hard-Negative Contradiction #17",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_17_old",
+        "text": "In preliminary 2024 guidance, Ephesus BioLabs projected annual net revenue of $137M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_17_new",
+        "text": "In the audited FY2024 annual filing, Ephesus BioLabs confirmed actual annual net revenue reached $257M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_17_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Ephesus BioLabs?",
+        "ground_truth": "$257M",
+        "expected_context_ids": [
+          "hn_17_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_18",
+    "name": "Hard-Negative Contradiction #18",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_18_old",
+        "text": "In preliminary 2024 guidance, MESA Memory Corp projected annual net revenue of $138M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_18_new",
+        "text": "In the audited FY2024 annual filing, MESA Memory Corp confirmed actual annual net revenue reached $258M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_18_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by MESA Memory Corp?",
+        "ground_truth": "$258M",
+        "expected_context_ids": [
+          "hn_18_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_19",
+    "name": "Hard-Negative Contradiction #19",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_19_old",
+        "text": "In preliminary 2024 guidance, NovaStellar Tech projected annual net revenue of $139M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_19_new",
+        "text": "In the audited FY2024 annual filing, NovaStellar Tech confirmed actual annual net revenue reached $259M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_19_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by NovaStellar Tech?",
+        "ground_truth": "$259M",
+        "expected_context_ids": [
+          "hn_19_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_20",
+    "name": "Hard-Negative Contradiction #20",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_20_old",
+        "text": "In preliminary 2024 guidance, Hyperion Cybernetics projected annual net revenue of $140M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_20_new",
+        "text": "In the audited FY2024 annual filing, Hyperion Cybernetics confirmed actual annual net revenue reached $260M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_20_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Hyperion Cybernetics?",
+        "ground_truth": "$260M",
+        "expected_context_ids": [
+          "hn_20_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_21",
+    "name": "Hard-Negative Contradiction #21",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_21_old",
+        "text": "In preliminary 2024 guidance, Veritas Legal AI projected annual net revenue of $141M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_21_new",
+        "text": "In the audited FY2024 annual filing, Veritas Legal AI confirmed actual annual net revenue reached $261M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_21_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Veritas Legal AI?",
+        "ground_truth": "$261M",
+        "expected_context_ids": [
+          "hn_21_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_22",
+    "name": "Hard-Negative Contradiction #22",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_22_old",
+        "text": "In preliminary 2024 guidance, Apex Robotics projected annual net revenue of $142M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_22_new",
+        "text": "In the audited FY2024 annual filing, Apex Robotics confirmed actual annual net revenue reached $262M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_22_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Apex Robotics?",
+        "ground_truth": "$262M",
+        "expected_context_ids": [
+          "hn_22_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_23",
+    "name": "Hard-Negative Contradiction #23",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_23_old",
+        "text": "In preliminary 2024 guidance, Zenith Cloud projected annual net revenue of $143M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_23_new",
+        "text": "In the audited FY2024 annual filing, Zenith Cloud confirmed actual annual net revenue reached $263M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_23_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Zenith Cloud?",
+        "ground_truth": "$263M",
+        "expected_context_ids": [
+          "hn_23_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_24",
+    "name": "Hard-Negative Contradiction #24",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_24_old",
+        "text": "In preliminary 2024 guidance, Aegis Quantum Systems projected annual net revenue of $144M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_24_new",
+        "text": "In the audited FY2024 annual filing, Aegis Quantum Systems confirmed actual annual net revenue reached $264M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_24_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Aegis Quantum Systems?",
+        "ground_truth": "$264M",
+        "expected_context_ids": [
+          "hn_24_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_25",
+    "name": "Hard-Negative Contradiction #25",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_25_old",
+        "text": "In preliminary 2024 guidance, Ephesus BioLabs projected annual net revenue of $145M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_25_new",
+        "text": "In the audited FY2024 annual filing, Ephesus BioLabs confirmed actual annual net revenue reached $265M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_25_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Ephesus BioLabs?",
+        "ground_truth": "$265M",
+        "expected_context_ids": [
+          "hn_25_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_26",
+    "name": "Hard-Negative Contradiction #26",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_26_old",
+        "text": "In preliminary 2024 guidance, MESA Memory Corp projected annual net revenue of $146M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_26_new",
+        "text": "In the audited FY2024 annual filing, MESA Memory Corp confirmed actual annual net revenue reached $266M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_26_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by MESA Memory Corp?",
+        "ground_truth": "$266M",
+        "expected_context_ids": [
+          "hn_26_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_27",
+    "name": "Hard-Negative Contradiction #27",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_27_old",
+        "text": "In preliminary 2024 guidance, NovaStellar Tech projected annual net revenue of $147M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_27_new",
+        "text": "In the audited FY2024 annual filing, NovaStellar Tech confirmed actual annual net revenue reached $267M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_27_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by NovaStellar Tech?",
+        "ground_truth": "$267M",
+        "expected_context_ids": [
+          "hn_27_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_28",
+    "name": "Hard-Negative Contradiction #28",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_28_old",
+        "text": "In preliminary 2024 guidance, Hyperion Cybernetics projected annual net revenue of $148M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_28_new",
+        "text": "In the audited FY2024 annual filing, Hyperion Cybernetics confirmed actual annual net revenue reached $268M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_28_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Hyperion Cybernetics?",
+        "ground_truth": "$268M",
+        "expected_context_ids": [
+          "hn_28_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "hard_negative_scenario_29",
+    "name": "Hard-Negative Contradiction #29",
+    "description": "Tests resolution of conflicting old guidance vs audited facts.",
+    "contexts": [
+      {
+        "id": "hn_29_old",
+        "text": "In preliminary 2024 guidance, Veritas Legal AI projected annual net revenue of $149M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "outdated": true
+        }
+      },
+      {
+        "id": "hn_29_new",
+        "text": "In the audited FY2024 annual filing, Veritas Legal AI confirmed actual annual net revenue reached $269M.",
+        "metadata": {
+          "tier": "hard_negative",
+          "authoritative": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "hn_29_q",
+        "query": "What was the actual audited FY2024 annual net revenue reported by Veritas Legal AI?",
+        "ground_truth": "$269M",
+        "expected_context_ids": [
+          "hn_29_new"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_0",
+    "name": "Out-of-Domain Distractor Quarantine #0",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_0_real",
+        "text": "Security briefing: Dr. Elena Vance was assigned security clearance code ALPHA-100.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_0_dist",
+        "text": "Unrelated gossip column mentioned Dr. Elena Vance visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_0_q",
+        "query": "What is the assigned security clearance code for Dr. Elena Vance?",
+        "ground_truth": "ALPHA-100",
+        "expected_context_ids": [
+          "ood_0_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_1",
+    "name": "Out-of-Domain Distractor Quarantine #1",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_1_real",
+        "text": "Security briefing: Professor Marcus Thorne was assigned security clearance code ALPHA-101.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_1_dist",
+        "text": "Unrelated gossip column mentioned Professor Marcus Thorne visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_1_q",
+        "query": "What is the assigned security clearance code for Professor Marcus Thorne?",
+        "ground_truth": "ALPHA-101",
+        "expected_context_ids": [
+          "ood_1_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_2",
+    "name": "Out-of-Domain Distractor Quarantine #2",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_2_real",
+        "text": "Security briefing: Aria Montgomery was assigned security clearance code ALPHA-102.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_2_dist",
+        "text": "Unrelated gossip column mentioned Aria Montgomery visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_2_q",
+        "query": "What is the assigned security clearance code for Aria Montgomery?",
+        "ground_truth": "ALPHA-102",
+        "expected_context_ids": [
+          "ood_2_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_3",
+    "name": "Out-of-Domain Distractor Quarantine #3",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_3_real",
+        "text": "Security briefing: Kenji Sato was assigned security clearance code ALPHA-103.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_3_dist",
+        "text": "Unrelated gossip column mentioned Kenji Sato visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_3_q",
+        "query": "What is the assigned security clearance code for Kenji Sato?",
+        "ground_truth": "ALPHA-103",
+        "expected_context_ids": [
+          "ood_3_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_4",
+    "name": "Out-of-Domain Distractor Quarantine #4",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_4_real",
+        "text": "Security briefing: Clara Oswald was assigned security clearance code ALPHA-104.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_4_dist",
+        "text": "Unrelated gossip column mentioned Clara Oswald visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_4_q",
+        "query": "What is the assigned security clearance code for Clara Oswald?",
+        "ground_truth": "ALPHA-104",
+        "expected_context_ids": [
+          "ood_4_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_5",
+    "name": "Out-of-Domain Distractor Quarantine #5",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_5_real",
+        "text": "Security briefing: Dr. Aris Thorne was assigned security clearance code ALPHA-105.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_5_dist",
+        "text": "Unrelated gossip column mentioned Dr. Aris Thorne visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_5_q",
+        "query": "What is the assigned security clearance code for Dr. Aris Thorne?",
+        "ground_truth": "ALPHA-105",
+        "expected_context_ids": [
+          "ood_5_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_6",
+    "name": "Out-of-Domain Distractor Quarantine #6",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_6_real",
+        "text": "Security briefing: Selin Yilmaz was assigned security clearance code ALPHA-106.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_6_dist",
+        "text": "Unrelated gossip column mentioned Selin Yilmaz visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_6_q",
+        "query": "What is the assigned security clearance code for Selin Yilmaz?",
+        "ground_truth": "ALPHA-106",
+        "expected_context_ids": [
+          "ood_6_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_7",
+    "name": "Out-of-Domain Distractor Quarantine #7",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_7_real",
+        "text": "Security briefing: Kaan Aksoy was assigned security clearance code ALPHA-107.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_7_dist",
+        "text": "Unrelated gossip column mentioned Kaan Aksoy visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_7_q",
+        "query": "What is the assigned security clearance code for Kaan Aksoy?",
+        "ground_truth": "ALPHA-107",
+        "expected_context_ids": [
+          "ood_7_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_8",
+    "name": "Out-of-Domain Distractor Quarantine #8",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_8_real",
+        "text": "Security briefing: Amara Okafor was assigned security clearance code ALPHA-108.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_8_dist",
+        "text": "Unrelated gossip column mentioned Amara Okafor visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_8_q",
+        "query": "What is the assigned security clearance code for Amara Okafor?",
+        "ground_truth": "ALPHA-108",
+        "expected_context_ids": [
+          "ood_8_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_9",
+    "name": "Out-of-Domain Distractor Quarantine #9",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_9_real",
+        "text": "Security briefing: Liam O'Connor was assigned security clearance code ALPHA-109.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_9_dist",
+        "text": "Unrelated gossip column mentioned Liam O'Connor visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_9_q",
+        "query": "What is the assigned security clearance code for Liam O'Connor?",
+        "ground_truth": "ALPHA-109",
+        "expected_context_ids": [
+          "ood_9_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_10",
+    "name": "Out-of-Domain Distractor Quarantine #10",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_10_real",
+        "text": "Security briefing: Dr. Elena Vance was assigned security clearance code ALPHA-110.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_10_dist",
+        "text": "Unrelated gossip column mentioned Dr. Elena Vance visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_10_q",
+        "query": "What is the assigned security clearance code for Dr. Elena Vance?",
+        "ground_truth": "ALPHA-110",
+        "expected_context_ids": [
+          "ood_10_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_11",
+    "name": "Out-of-Domain Distractor Quarantine #11",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_11_real",
+        "text": "Security briefing: Professor Marcus Thorne was assigned security clearance code ALPHA-111.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_11_dist",
+        "text": "Unrelated gossip column mentioned Professor Marcus Thorne visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_11_q",
+        "query": "What is the assigned security clearance code for Professor Marcus Thorne?",
+        "ground_truth": "ALPHA-111",
+        "expected_context_ids": [
+          "ood_11_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_12",
+    "name": "Out-of-Domain Distractor Quarantine #12",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_12_real",
+        "text": "Security briefing: Aria Montgomery was assigned security clearance code ALPHA-112.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_12_dist",
+        "text": "Unrelated gossip column mentioned Aria Montgomery visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_12_q",
+        "query": "What is the assigned security clearance code for Aria Montgomery?",
+        "ground_truth": "ALPHA-112",
+        "expected_context_ids": [
+          "ood_12_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_13",
+    "name": "Out-of-Domain Distractor Quarantine #13",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_13_real",
+        "text": "Security briefing: Kenji Sato was assigned security clearance code ALPHA-113.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_13_dist",
+        "text": "Unrelated gossip column mentioned Kenji Sato visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_13_q",
+        "query": "What is the assigned security clearance code for Kenji Sato?",
+        "ground_truth": "ALPHA-113",
+        "expected_context_ids": [
+          "ood_13_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_14",
+    "name": "Out-of-Domain Distractor Quarantine #14",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_14_real",
+        "text": "Security briefing: Clara Oswald was assigned security clearance code ALPHA-114.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_14_dist",
+        "text": "Unrelated gossip column mentioned Clara Oswald visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_14_q",
+        "query": "What is the assigned security clearance code for Clara Oswald?",
+        "ground_truth": "ALPHA-114",
+        "expected_context_ids": [
+          "ood_14_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_15",
+    "name": "Out-of-Domain Distractor Quarantine #15",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_15_real",
+        "text": "Security briefing: Dr. Aris Thorne was assigned security clearance code ALPHA-115.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_15_dist",
+        "text": "Unrelated gossip column mentioned Dr. Aris Thorne visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_15_q",
+        "query": "What is the assigned security clearance code for Dr. Aris Thorne?",
+        "ground_truth": "ALPHA-115",
+        "expected_context_ids": [
+          "ood_15_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_16",
+    "name": "Out-of-Domain Distractor Quarantine #16",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_16_real",
+        "text": "Security briefing: Selin Yilmaz was assigned security clearance code ALPHA-116.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_16_dist",
+        "text": "Unrelated gossip column mentioned Selin Yilmaz visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_16_q",
+        "query": "What is the assigned security clearance code for Selin Yilmaz?",
+        "ground_truth": "ALPHA-116",
+        "expected_context_ids": [
+          "ood_16_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_17",
+    "name": "Out-of-Domain Distractor Quarantine #17",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_17_real",
+        "text": "Security briefing: Kaan Aksoy was assigned security clearance code ALPHA-117.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_17_dist",
+        "text": "Unrelated gossip column mentioned Kaan Aksoy visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_17_q",
+        "query": "What is the assigned security clearance code for Kaan Aksoy?",
+        "ground_truth": "ALPHA-117",
+        "expected_context_ids": [
+          "ood_17_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_18",
+    "name": "Out-of-Domain Distractor Quarantine #18",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_18_real",
+        "text": "Security briefing: Amara Okafor was assigned security clearance code ALPHA-118.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_18_dist",
+        "text": "Unrelated gossip column mentioned Amara Okafor visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_18_q",
+        "query": "What is the assigned security clearance code for Amara Okafor?",
+        "ground_truth": "ALPHA-118",
+        "expected_context_ids": [
+          "ood_18_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_19",
+    "name": "Out-of-Domain Distractor Quarantine #19",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_19_real",
+        "text": "Security briefing: Liam O'Connor was assigned security clearance code ALPHA-119.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_19_dist",
+        "text": "Unrelated gossip column mentioned Liam O'Connor visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_19_q",
+        "query": "What is the assigned security clearance code for Liam O'Connor?",
+        "ground_truth": "ALPHA-119",
+        "expected_context_ids": [
+          "ood_19_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_20",
+    "name": "Out-of-Domain Distractor Quarantine #20",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_20_real",
+        "text": "Security briefing: Dr. Elena Vance was assigned security clearance code ALPHA-120.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_20_dist",
+        "text": "Unrelated gossip column mentioned Dr. Elena Vance visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_20_q",
+        "query": "What is the assigned security clearance code for Dr. Elena Vance?",
+        "ground_truth": "ALPHA-120",
+        "expected_context_ids": [
+          "ood_20_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_21",
+    "name": "Out-of-Domain Distractor Quarantine #21",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_21_real",
+        "text": "Security briefing: Professor Marcus Thorne was assigned security clearance code ALPHA-121.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_21_dist",
+        "text": "Unrelated gossip column mentioned Professor Marcus Thorne visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_21_q",
+        "query": "What is the assigned security clearance code for Professor Marcus Thorne?",
+        "ground_truth": "ALPHA-121",
+        "expected_context_ids": [
+          "ood_21_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_22",
+    "name": "Out-of-Domain Distractor Quarantine #22",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_22_real",
+        "text": "Security briefing: Aria Montgomery was assigned security clearance code ALPHA-122.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_22_dist",
+        "text": "Unrelated gossip column mentioned Aria Montgomery visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_22_q",
+        "query": "What is the assigned security clearance code for Aria Montgomery?",
+        "ground_truth": "ALPHA-122",
+        "expected_context_ids": [
+          "ood_22_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_23",
+    "name": "Out-of-Domain Distractor Quarantine #23",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_23_real",
+        "text": "Security briefing: Kenji Sato was assigned security clearance code ALPHA-123.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_23_dist",
+        "text": "Unrelated gossip column mentioned Kenji Sato visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_23_q",
+        "query": "What is the assigned security clearance code for Kenji Sato?",
+        "ground_truth": "ALPHA-123",
+        "expected_context_ids": [
+          "ood_23_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_24",
+    "name": "Out-of-Domain Distractor Quarantine #24",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_24_real",
+        "text": "Security briefing: Clara Oswald was assigned security clearance code ALPHA-124.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_24_dist",
+        "text": "Unrelated gossip column mentioned Clara Oswald visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_24_q",
+        "query": "What is the assigned security clearance code for Clara Oswald?",
+        "ground_truth": "ALPHA-124",
+        "expected_context_ids": [
+          "ood_24_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_25",
+    "name": "Out-of-Domain Distractor Quarantine #25",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_25_real",
+        "text": "Security briefing: Dr. Aris Thorne was assigned security clearance code ALPHA-125.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_25_dist",
+        "text": "Unrelated gossip column mentioned Dr. Aris Thorne visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_25_q",
+        "query": "What is the assigned security clearance code for Dr. Aris Thorne?",
+        "ground_truth": "ALPHA-125",
+        "expected_context_ids": [
+          "ood_25_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_26",
+    "name": "Out-of-Domain Distractor Quarantine #26",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_26_real",
+        "text": "Security briefing: Selin Yilmaz was assigned security clearance code ALPHA-126.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_26_dist",
+        "text": "Unrelated gossip column mentioned Selin Yilmaz visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_26_q",
+        "query": "What is the assigned security clearance code for Selin Yilmaz?",
+        "ground_truth": "ALPHA-126",
+        "expected_context_ids": [
+          "ood_26_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_27",
+    "name": "Out-of-Domain Distractor Quarantine #27",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_27_real",
+        "text": "Security briefing: Kaan Aksoy was assigned security clearance code ALPHA-127.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_27_dist",
+        "text": "Unrelated gossip column mentioned Kaan Aksoy visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_27_q",
+        "query": "What is the assigned security clearance code for Kaan Aksoy?",
+        "ground_truth": "ALPHA-127",
+        "expected_context_ids": [
+          "ood_27_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_28",
+    "name": "Out-of-Domain Distractor Quarantine #28",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_28_real",
+        "text": "Security briefing: Amara Okafor was assigned security clearance code ALPHA-128.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_28_dist",
+        "text": "Unrelated gossip column mentioned Amara Okafor visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_28_q",
+        "query": "What is the assigned security clearance code for Amara Okafor?",
+        "ground_truth": "ALPHA-128",
+        "expected_context_ids": [
+          "ood_28_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  },
+  {
+    "id": "ood_scenario_29",
+    "name": "Out-of-Domain Distractor Quarantine #29",
+    "description": "Tests whether system avoids irrelevant distractors.",
+    "contexts": [
+      {
+        "id": "ood_29_real",
+        "text": "Security briefing: Liam O'Connor was assigned security clearance code ALPHA-129.",
+        "metadata": {
+          "tier": "ood"
+        }
+      },
+      {
+        "id": "ood_29_dist",
+        "text": "Unrelated gossip column mentioned Liam O'Connor visited a coffee shop.",
+        "metadata": {
+          "tier": "ood",
+          "distractor": true
+        }
+      }
+    ],
+    "questions": [
+      {
+        "id": "ood_29_q",
+        "query": "What is the assigned security clearance code for Liam O'Connor?",
+        "ground_truth": "ALPHA-129",
+        "expected_context_ids": [
+          "ood_29_real"
+        ],
+        "evaluation_strategy": "exact_match"
+      }
+    ]
+  }
+]

@@ -1,65 +1,84 @@
 # MESA Benchmark Suite v4
 
-MESA Benchmark Suite, yapay zeka bellek (Memory/RAG) sistemlerini objektif, adil ve yalıtılmış bir ortamda ("Apple-to-Apple") test etmek için geliştirilmiş bağımsız bir ölçümleme altyapısıdır. MESA bellek mimarisinin yanı sıra Mem0, Zep gibi dış sistemleri de destekleyecek şekilde tasarlanmıştır.
+MESA Benchmark Suite, yapay zeka bellek (Memory/RAG) sistemlerini objektif, adil ve yalıtılmış bir ortamda ("Apple-to-Apple") test etmek için geliştirilmiş bağımsız bir ölçümleme altyapısıdır. MESA bellek mimarisinin yanı sıra Mem0, Zep, Letta/MemGPT gibi dış sistemleri de destekler.
 
 ## Özellikler
 
-- **Tam İzolasyon:** Her test senaryosundan önce hedef bellek sistemini otomatik olarak sıfırlayarak çapraz veri kirliliğini (data leakage) engeller.
-- **Kapsamlı Metrikler:** Sadece doğruluk değil, aynı zamanda Getirme (Retrieval) yeteneklerini de ölçer: `Hit@1`, `Hit@3`, `Hit@5`, `MRR` (Mean Reciprocal Rank), `nDCG`.
-- **Performans Ölçümü:** Ortalama Gecikme, `P95` ve `P99` Gecikme (Latency) hesaplamaları ile sistemin strese karşı direncini raporlar.
-- **Dinamik Değerlendirme (Evaluators):** Basit yanıtlar için `ExactMatchEvaluator`, çok adımlı (Multi-Hop) karmaşık akıl yürütme senaryoları için `LLMJudgeEvaluator` (LLM-as-a-Judge) destekler.
-- **Hata Toleransı (Resilience):** Uzun süren benchmark'larda API çökmeleri yaşanırsa, `state.json` mekanizması ile tam olarak kaldığı iterasyondan devam eder.
-- **Otomatik Raporlama:** Her koşu (run) sonrası okunabilir, şık Markdown formatında Liderlik Tablosu (Leaderboard) raporları üretir.
+- **200+ Senaryo, 4 Zorluk Katmanı:** Single-Hop (%40), Multi-Hop (%30), Hard-Negative (%15), Out-of-Domain (%15)
+- **5 Bellek Sistemi:** MESA, Mem0, Zep, Letta/MemGPT ve BareRAG (kontrol grubu)
+- **Üç Kademeli Değerlendirme:** ExactMatch → LLM-Judge → Multi-Model Judge (GPT + Claude majority voting)
+- **Metodolojik Doğrulama:** Keyword ↔ LLM-Judge agreement rate + Cohen's Kappa
+- **İstatistiksel Güvenilirlik:** 5-seed çalıştırma, Mean ± Std, Welch's t-test p-value
+- **Uluslararası Benchmark:** LoCoMo (ECAI 2025) entegrasyonu
+- **Tam İzolasyon:** Her iterasyon öncesi bellek sıfırlama, exponential backoff
+- **Kesintiden Devam:** `state.json` ile kaldığı iterasyondan otomatik devam
+- **Reproducibility:** Docker + pinned dependencies (`requirements-lock.txt`)
+- **HuggingFace Yayın:** Tek komutla dataset + card yükleme
 
-## Sistem Gereksinimleri
+## Desteklenen Sistemler
 
-- Python 3.10 veya üzeri
-- `pip` paket yöneticisi
-- Hedef sistemlere (MESA, Mem0 vb.) bağlanabilmek için gerekli API anahtarları (bkz. `.env.example`)
+| Sistem | Adapter | Config | Kurulum |
+|--------|---------|--------|---------|
+| **MESA** | `MesaClientAdapter` | `config.yaml` | Yerleşik |
+| **Mem0** | `Mem0ClientAdapter` | — | `pip install mem0ai` |
+| **Zep** | `ZepClientAdapter` | `config_zep.yaml` | `pip install zep-cloud` |
+| **Letta/MemGPT** | `LettaClientAdapter` | `config_letta.yaml` | `pip install letta` |
+| **BareRAG** | `DummyClientAdapter` | — | Yerleşik |
 
 ## Hızlı Başlangıç
 
-Daha detaylı bilgi, veri seti yapılandırmaları ve yeni adaptör yazımı için lütfen **[USAGE_GUIDE.md](./USAGE_GUIDE.md)** dosyasına göz atın.
+Detaylı konfigürasyon, adaptör yazımı, LoCoMo entegrasyonu ve HuggingFace yayın bilgileri için **[USAGE_GUIDE.md](./USAGE_GUIDE.md)** dosyasına göz atın.
 
 ### 1. Kurulum
 
 ```bash
-git clone https://github.com/mesa-project/mesa-benchmark-suite.git
 cd mesa-benchmark
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Bağımlılıkları yükleyin
-pip install -r requirements.txt
+# Pinned bağımlılıkları yükleyin (reproducibility için)
+pip install -r requirements-lock.txt
 ```
 
 ### 2. Yapılandırma
 
-`.env.example` dosyasını `.env` olarak kopyalayın ve içerisindeki API anahtarlarını kendi sistemlerinize göre düzenleyin:
 ```bash
 cp .env.example .env
+# .env dosyasında API anahtarlarınızı düzenleyin (OPENAI_API_KEY, ZEP_API_KEY vb.)
 ```
-
-`config.yaml` üzerinden hangi bellek istemcisini (client) ve veri setini kullanacağınızı seçin.
 
 ### 3. Çalıştırma
 
-Benchmark'ı başlatmak için aşağıdaki komutu kullanın:
-
 ```bash
-python -m mesa_benchmark --config config.yaml
+# Varsayılan benchmark (MESA, 200 senaryo, 5 iterasyon)
+python -m mesa_benchmark -c config.yaml
+
+# Reproducibility raporu (5 seed ile)
+python ../scripts/reproduce_benchmark.py --seeds 42,43,44,45,46
+
+# LoCoMo uluslararası benchmark
+python scripts/download_locomo.py
+python -m mesa_benchmark -c config_locomo.yaml
+
+# Rakip karşılaştırma
+python -m mesa_benchmark -c config_zep.yaml
+python -m mesa_benchmark -c config_letta.yaml
 ```
 
-Çıktılar `reports/` klasörüne Markdown (.md) olarak, ham loglar ise jsonl formatında ana dizine kaydedilecektir.
+### 4. Docker ile Çalıştırma
+
+```bash
+docker build -t mesa-benchmark .
+docker run --env-file .env mesa-benchmark
+```
 
 ## Testler
 
-Geliştirici ortamında unit test ve mock pipeline testlerini çalıştırmak için:
-
 ```bash
 pip install -r requirements-dev.txt
-PYTHONPATH=. pytest tests/
+cd .. && ./venv/bin/python -m pytest tests/test_tech_debt_fixes.py tests/test_mesa_benchmark_enhancements.py -v
 ```
 
 ## Lisans
-Bu proje MESA Araştırma Ekibi tarafından geliştirilmiştir.
+
+Apache License 2.0 — MESA Araştırma Ekibi tarafından geliştirilmiştir.

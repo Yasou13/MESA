@@ -4,12 +4,13 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from ..clients.base import AbstractBenchmarkClient
 from ..datasets.loader import DatasetManager
-from ..evaluators.base import BaseEvaluator
+from ..evaluators.base import BaseEvaluator, EvaluationResult
 from ..evaluators.exact_match import ExactMatchEvaluator
+from ..evaluators.agreement import compute_agreement
 from ..metrics.calculator import calculate_metrics_from_jsonl
 from ..reports.reporter import MarkdownReporter
 from .config import BenchmarkConfig, load_config
@@ -45,6 +46,8 @@ class BenchmarkRunner:
     def _register_evaluators(self) -> None:
         """Registers evaluators based on configuration."""
         self.evaluators["exact_match"] = ExactMatchEvaluator()
+
+        # Single-model LLM judge
         try:
             from ..evaluators.llm_judge import LLMJudgeEvaluator
 
@@ -56,6 +59,23 @@ class BenchmarkRunner:
             )
         except ImportError:
             logger.warning("LLMJudgeEvaluator not available (openai not installed).")
+
+        # Multi-model judge (for independent evaluation / self-grading bias mitigation)
+        if self.config and self.config.evaluation.multi_judge_models:
+            try:
+                from ..evaluators.multi_model_judge import MultiModelJudgeEvaluator
+
+                self.evaluators["multi_model_judge"] = MultiModelJudgeEvaluator(
+                    judge_models=self.config.evaluation.multi_judge_models,
+                )
+                logger.info(
+                    "MultiModelJudgeEvaluator registered with models: %s",
+                    self.config.evaluation.multi_judge_models,
+                )
+            except ImportError:
+                logger.warning(
+                    "MultiModelJudgeEvaluator not available (litellm not installed)."
+                )
 
     def _get_evaluator(self, strategy: str) -> BaseEvaluator:
         """Returns the evaluator for the given strategy, falling back to exact_match."""
@@ -138,6 +158,42 @@ class BenchmarkRunner:
                 run_id=self.run_id, results_file=f"results_{self.run_id}.jsonl"
             )
 
+    def _dual_evaluate(
+        self,
+        response: Any,
+        question: Any,
+    ) -> tuple[EvaluationResult, Optional[EvaluationResult]]:
+        """
+        Evaluates a response using both the primary evaluator and the secondary
+        evaluator (if agreement tracking is enabled).
+
+        Returns (primary_result, secondary_result_or_None).
+        """
+        primary_eval = self._get_evaluator(question.evaluation_strategy)
+        primary_result = primary_eval.evaluate(response, question)
+
+        secondary_result = None
+
+        if self.config and self.config.evaluation.enable_agreement:
+            if question.evaluation_strategy in ("llm_judge", "multi_model_judge"):
+                # Primary is already judge -> secondary should be exact_match for comparison
+                secondary_eval = self.evaluators["exact_match"]
+            else:
+                # Primary is exact_match -> secondary should be best available judge
+                if "multi_model_judge" in self.evaluators:
+                    secondary_eval = self.evaluators["multi_model_judge"]
+                elif "llm_judge" in self.evaluators:
+                    secondary_eval = self.evaluators["llm_judge"]
+                else:
+                    return primary_result, None
+
+            try:
+                secondary_result = secondary_eval.evaluate(response, question)
+            except Exception as e:
+                logger.warning("Secondary evaluation failed: %s", e)
+
+        return primary_result, secondary_result
+
     def run(self) -> None:
         """Main execution loop."""
         if not self.config or not self.dataset_manager or not self.client:
@@ -148,6 +204,10 @@ class BenchmarkRunner:
         assert self.client is not None
 
         logger.info(f"Starting benchmark suite: {self.config.suite_name}")
+
+        # Track dual scores for agreement computation (keyword vs LLM judge)
+        keyword_scores: List[float] = []
+        llm_judge_scores: List[float] = []
 
         try:
             state = self.state_manager.state
@@ -195,8 +255,9 @@ class BenchmarkRunner:
                     for q in scenario.questions:
                         try:
                             response = self._call_with_backoff(self.client.answer, q)
-                            evaluator = self._get_evaluator(q.evaluation_strategy)
-                            eval_result = evaluator.evaluate(response, q)
+
+                            # Dual evaluation: primary + optional secondary
+                            eval_result, secondary_result = self._dual_evaluate(response, q)
 
                             logger.info(
                                 f"      Q: {q.id} -> Score: {eval_result.score}, "
@@ -218,6 +279,21 @@ class BenchmarkRunner:
                                 "prompt_tokens": response.token_usage.get("prompt", 0),
                                 "evaluation_strategy": q.evaluation_strategy,
                             }
+
+                            # Dual-scoring: record secondary score and track agreement
+                            if secondary_result is not None:
+                                result_record["secondary_score"] = secondary_result.score
+                                result_record["secondary_is_correct"] = secondary_result.is_correct
+                                result_record["secondary_evaluator"] = secondary_result.metadata.get(
+                                    "evaluator_type", "unknown"
+                                )
+                                if q.evaluation_strategy in ("llm_judge", "multi_model_judge"):
+                                    keyword_scores.append(secondary_result.score)
+                                    llm_judge_scores.append(eval_result.score)
+                                else:
+                                    keyword_scores.append(eval_result.score)
+                                    llm_judge_scores.append(secondary_result.score)
+
                             self._append_result(result_record)
 
                         except Exception as e:
@@ -245,11 +321,26 @@ class BenchmarkRunner:
             logger.info("Benchmark execution completed.")
             self.state_manager.mark_completed()
 
+            # Compute agreement metrics if dual-scoring was used
+            agreement_data = {}
+            if keyword_scores and llm_judge_scores:
+                agreement_data = compute_agreement(keyword_scores, llm_judge_scores)
+                logger.info(
+                    "Agreement Rate: %.2f%%, Cohen's Kappa: %.4f",
+                    agreement_data.get("agreement_rate", 0.0),
+                    agreement_data.get("cohens_kappa", 0.0),
+                )
+
             # Trigger Reporting
             logger.info("Calculating metrics and generating report...")
             metrics = calculate_metrics_from_jsonl(state.results_file)
+
+            # Inject agreement data into metrics for the reporter
+            metrics_dict = metrics.model_dump()
+            metrics_dict["agreement"] = agreement_data
+
             reporter = MarkdownReporter(self.run_id, self.config)
-            report_path = reporter.generate_report(metrics)
+            report_path = reporter.generate_report_from_dict(metrics_dict)
 
             logger.info(
                 f"Benchmark finished successfully. Report generated at: {report_path}"

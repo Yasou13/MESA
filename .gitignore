@@ -167,3 +167,8 @@ mutants/
 storage/
 *.db
 __pycache__/
+
+# Ephemeral benchmark execution artifacts
+report_*.md
+reproducibility_report.json
+state.json

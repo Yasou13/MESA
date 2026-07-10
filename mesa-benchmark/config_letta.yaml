@@ -1,4 +1,4 @@
-suite_name: "MESA v0.5.1 Comprehensive Benchmark"
+suite_name: "Letta/MemGPT Baseline Benchmark"
 iterations: 5
 seed: 42
 
@@ -9,18 +9,18 @@ dataset:
   noise_ratio: 0.0
 
 client:
-  name: "mesa_client"
-  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
-  timeout_ms: 10000
+  name: "letta_client"
+  adapter_class: "mesa_benchmark.clients.letta_client.LettaClientAdapter"
+  timeout_ms: 15000
   parameters:
-    verbose: false
+    base_url: "http://localhost:8283"
+    agent_name: "mesa_benchmark_agent"
 
 evaluation:
   metrics:
     - "hit_at_k"
     - "mrr"
     - "latency"
-    - "efficiency"
   llm_judge_model: "gpt-4o-mini"
   multi_judge_models:
     - "gpt-4o-mini"
