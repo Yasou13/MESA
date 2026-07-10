@@ -85,11 +85,11 @@ class LLMJudgeEvaluator(BaseEvaluator):
             raw_content = completion.choices[0].message.content.strip()
 
             # Parse JSON response from LLM
-            # Handle markdown code blocks if present
-            if raw_content.startswith("```"):
-                raw_content = raw_content.split("```")[1]
-                if raw_content.startswith("json"):
-                    raw_content = raw_content[4:]
+            # Use regex to robustly extract JSON object, ignoring any surrounding text
+            import re
+            json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+            if json_match:
+                raw_content = json_match.group(0)
 
             judge_result = json.loads(raw_content)
 

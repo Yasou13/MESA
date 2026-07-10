@@ -113,23 +113,28 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
         async def _add() -> None:
             embedding = await self.vector.compute_embedding(context.text)
+            
+            meta = context.metadata or {}
+            # Fallback to a truncated version of the text if no title/entity_name exists
+            node_name = meta.get("entity_name") or meta.get("title") or (context.text[:50] + "..." if len(context.text) > 50 else context.text)
+            
             node_id = await self.memory_dao.insert_memory(
                 "benchmark",
                 content=context.text,
-                entity_name=context.id,
+                entity_name=node_name,
                 embedding=embedding,
-                metadata=context.metadata or {},
+                metadata=meta,
             )
 
             if self.graph_provider:
                 try:
                     await self.graph_provider.insert_node(
                         node_id=node_id,
-                        name=context.id,
+                        name=node_name,
                         agent_id="benchmark",
                     )
                 except Exception as e:
-                    logger.warning("Failed to insert graph node %s: %s", context.id, e)
+                    logger.warning("Failed to insert graph node %s: %s", node_name, e)
 
             # Insert edges if relations are specified in metadata
             relations = (context.metadata or {}).get("relations", [])
