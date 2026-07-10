@@ -3,8 +3,12 @@ import json
 import random
 import uuid
 from datetime import datetime, timedelta
+import os
 from pathlib import Path
 from typing import Dict, List, Any
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUT_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "mesa_benchmark", "datasets", "stress_dataset.json"))
 
 # Templates for synthetic generation
 COMPANIES = [
@@ -121,7 +125,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate large-scale stress datasets for MESA Benchmark")
     parser.add_argument("--scenarios", type=int, default=100, help="Number of contradiction scenarios to generate")
     parser.add_argument("--noise", type=int, default=5, help="Number of random noise contexts to inject per scenario")
-    parser.add_argument("--out", type=str, default="mesa-benchmark/mesa_benchmark/datasets/stress_dataset.json", help="Output JSON path")
+    parser.add_argument("--out", type=str, default=DEFAULT_OUT_PATH, help="Output JSON path")
     
     args = parser.parse_args()
     
