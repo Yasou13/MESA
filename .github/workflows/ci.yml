@@ -174,7 +174,7 @@ jobs:
         echo "=========================================="
         echo "  GATE 3: Graph Poisoning Audit"
         echo "=========================================="
-        python -m mesa_evals.legal_audit \
+        PYTHONPATH=. python -m mesa_evals.legal_audit \
           --db .ci_storage/ci_test.db \
           --agent-id ci-agent \
           --threshold 0.05
