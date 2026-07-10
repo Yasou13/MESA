@@ -11,6 +11,7 @@ is taken as ground truth.
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from ..clients.base import BenchmarkResponse
@@ -40,8 +41,13 @@ def _call_litellm(
     try:
         import litellm
 
+        litellm.suppress_debug_info = True
+        target_model = model
+        if "/" not in target_model and "11434" in os.environ.get("OPENAI_BASE_URL", ""):
+            target_model = f"openai/{target_model}"
+
         response = litellm.completion(
-            model=model,
+            model=target_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
             max_tokens=512,
