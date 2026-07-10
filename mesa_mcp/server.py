@@ -10,7 +10,7 @@ from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
 from mesa_client.client import AsyncMesaClient
 
 # Create an MCP server instance
-app = Server("mesa-mcp")
+app: Server = Server("mesa-mcp")
 
 # Environment variables for MESA configuration
 MESA_BASE_URL = os.getenv("MESA_BASE_URL", "http://localhost:8000/v3")

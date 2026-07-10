@@ -4,21 +4,27 @@ from typing import Any, Dict
 from ..datasets.schemas import BenchmarkQuestion, MemoryContext
 from .base import AbstractBenchmarkClient, BenchmarkResponse
 
-try:
-    from zep_cloud.client import Zep
-    from zep_cloud.types import Message
+Zep: Any = None
+Message: Any = None
+ZEP_AVAILABLE = False
 
+try:
+    from zep_cloud.client import Zep as ZepCloud
+    from zep_cloud.types import Message as ZepCloudMessage
+
+    Zep = ZepCloud
+    Message = ZepCloudMessage
     ZEP_AVAILABLE = True
 except ImportError:
     try:
-        from zep_python import ZepClient as Zep
-        from zep_python.message import Message
+        from zep_python import ZepClient as ZepPython
+        from zep_python.message import Message as ZepPythonMessage
 
+        Zep = ZepPython
+        Message = ZepPythonMessage
         ZEP_AVAILABLE = True
     except ImportError:
-        Zep = None
-        Message = None
-        ZEP_AVAILABLE = False
+        pass
 
 
 class ZepClientAdapter(AbstractBenchmarkClient):

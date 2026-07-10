@@ -2,6 +2,10 @@
 import asyncio
 import logging
 import os
+
+import nest_asyncio
+
+nest_asyncio.apply()
 import sys
 import tempfile
 import time

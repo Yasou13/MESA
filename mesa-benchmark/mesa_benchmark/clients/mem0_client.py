@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Any, Dict
 
@@ -26,6 +27,20 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
 
         # Mem0 uses a dict config
         mem0_config = config_params.get("mem0_config", {})
+
+        # Zero-Cost Mode Fallback for Baseline
+        if (
+            not mem0_config
+            and os.environ.get("MESA_ZERO_COST_MODE", "").lower() == "true"
+        ):
+            mem0_config = {
+                "llm": {"provider": "ollama", "config": {"model": "llama3.1:8b"}},
+                "embedder": {
+                    "provider": "huggingface",
+                    "config": {"model": "sentence-transformers/all-MiniLM-L6-v2"},
+                },
+            }
+
         self.memory = Memory.from_config(mem0_config)
 
     def clear_memory(self) -> None:
