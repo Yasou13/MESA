@@ -51,7 +51,7 @@ class ExternalDatasetLoader:
                     text = str(turn)
                     metadata = {}
 
-                if text.strip():
+                if text and str(text).strip():
                     contexts.append(
                         MemoryContext(id=turn_id, text=text, metadata=metadata)
                     )

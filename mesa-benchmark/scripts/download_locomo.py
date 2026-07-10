@@ -22,7 +22,7 @@ DEFAULT_OUT = SCRIPT_DIR.parent / "datasets" / "locomo" / "dataset.json"
 def download_locomo_from_huggingface(cache_dir: Path) -> list:
     """Downloads LoCoMo dataset using the HuggingFace datasets library."""
     try:
-        from datasets import load_dataset
+        from datasets import load_dataset  # type: ignore
 
         ds = load_dataset("passing2961/LoCoMo", split="test", cache_dir=str(cache_dir))
         return list(ds)
@@ -55,7 +55,8 @@ def _download_locomo_json_fallback(cache_dir: Path) -> list:
         urllib.request.urlretrieve(url, str(cache_file))
 
     with open(cache_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+        result: list = json.load(f)
+        return result
 
 
 def convert_locomo_to_mesa(raw_items: list) -> list:
@@ -157,7 +158,7 @@ def convert_locomo_to_mesa(raw_items: list) -> list:
     return scenarios
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Download LoCoMo benchmark and convert to MESA format."
     )

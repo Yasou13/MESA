@@ -9,7 +9,7 @@ try:
 
     LETTA_AVAILABLE = True
 except ImportError:
-    LettaClient = None  # type: ignore[assignment,misc]
+    LettaClient = None
     LETTA_AVAILABLE = False
 
 

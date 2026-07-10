@@ -61,7 +61,8 @@ def _call_litellm(
             if raw.startswith("json"):
                 raw = raw[4:]
 
-        return json.loads(raw)
+        result: dict = json.loads(raw)
+        return result
 
     except Exception as e:
         logger.warning("Multi-model judge call failed for model=%s: %s", model, e)

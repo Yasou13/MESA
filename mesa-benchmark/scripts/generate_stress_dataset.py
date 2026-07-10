@@ -45,7 +45,7 @@ def generate_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4()}"
 
 
-def random_date(start_year=2023, end_year=2025) -> str:
+def random_date(start_year: int = 2023, end_year: int = 2025) -> str:
     start = datetime(start_year, 1, 1)
     end = datetime(end_year, 12, 31)
     random_days = random.randint(0, (end - start).days)
@@ -110,7 +110,7 @@ def generate_noise_contexts(num_noise: int) -> List[Dict]:
 
 def generate_stress_dataset(
     num_scenarios: int, noise_per_scenario: int, output_path: str
-):
+) -> None:
     scenarios = []
 
     for i in range(num_scenarios):

@@ -218,7 +218,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         valid_chunks = []
         for nid in all_ids:
 
-            async def _get_node(node_id: str):
+            async def _get_node(node_id: str) -> Any:
                 return await self.memory_dao.get_memory_by_id("benchmark", node_id)
 
             node = self.loop.run_until_complete(_get_node(nid))

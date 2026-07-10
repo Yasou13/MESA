@@ -217,7 +217,7 @@ def generate_out_of_domain(idx: int) -> Dict[str, Any]:
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate 200+ comprehensive MESA benchmark scenarios."
     )

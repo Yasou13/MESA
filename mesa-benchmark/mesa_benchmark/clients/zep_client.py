@@ -16,8 +16,8 @@ except ImportError:
 
         ZEP_AVAILABLE = True
     except ImportError:
-        Zep = None  # type: ignore[assignment,misc]
-        Message = None  # type: ignore[assignment,misc]
+        Zep = None
+        Message = None
         ZEP_AVAILABLE = False
 
 

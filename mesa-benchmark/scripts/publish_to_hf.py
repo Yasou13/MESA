@@ -192,7 +192,7 @@ def publish(
     shutil.rmtree(staging, ignore_errors=True)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Publish MESA benchmark dataset to HuggingFace Hub."
     )
