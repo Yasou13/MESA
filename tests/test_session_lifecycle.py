@@ -61,6 +61,8 @@ def _mock_rbac():
     """Provide a mock RBAC callable for insert tests."""
     ac_mock = MagicMock()
     ac_mock.check_access = AsyncMock(return_value=True)
+    ac_mock.grant_access = AsyncMock(return_value=None)
+    ac_mock.revoke_access = AsyncMock(return_value=None)
     yield lambda: ac_mock
 
 

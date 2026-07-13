@@ -13,6 +13,6 @@ echo "[3/4] Mypy - Statik tip kontrolü işlemi başlatıldı..."
 mypy .
 
 echo "[4/4] Pytest - Birim testleri ve detaylı kapsam (coverage) raporu çalıştırılıyor..."
-pytest --cov=. --cov-report=term-missing
+pytest --cov --cov-report=term-missing
 
 echo "Tüm kontroller sıfır (0) hata ile tamamlandı. Kod dağıtıma/push işlemine hazır."

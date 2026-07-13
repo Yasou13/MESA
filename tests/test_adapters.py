@@ -129,13 +129,11 @@ def test_ollama_base_url_init():
 def test_ollama_complete_schema():
     import sys
 
-    mock_outlines = MagicMock()
-    mock_gen = MagicMock(return_value=DummySchema(decision="STORE"))
-    mock_outlines.generate.json.return_value = mock_gen
-
     adapter = OllamaAdapter()
-    with patch.dict(sys.modules, {"outlines": mock_outlines}):
-        res = adapter.complete("test", schema=DummySchema)
+    adapter._ollama_client.generate = MagicMock(
+        return_value={"response": '{"decision": "STORE"}'}
+    )
+    res = adapter.complete("test", schema=DummySchema)
     assert res.decision == "STORE"
 
 

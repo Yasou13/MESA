@@ -70,6 +70,8 @@ def _mock_rbac():
     """Provide a mock RBAC callable for insert tests."""
     ac_mock = MagicMock()
     ac_mock.check_access = AsyncMock(return_value=True)
+    ac_mock.grant_access = AsyncMock(return_value=None)
+    ac_mock.revoke_access = AsyncMock(return_value=None)
     yield lambda: ac_mock
 
 
@@ -82,7 +84,7 @@ def client(engines, _mock_rbac):
         get_access_control=_mock_rbac,
     )
     app.include_router(router)
-    return TestClient(app, raise_server_exceptions=False)
+    return TestClient(app, raise_server_exceptions=True)
 
 
 # ===================================================================
