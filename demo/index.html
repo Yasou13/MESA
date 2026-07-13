@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MESA Chat & Memory Demo</title>
+    <!-- Modern Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Setup Modal Overlay -->
+    <div id="setupModal" class="modal-overlay">
+        <div class="modal-content glass-panel">
+            <h2>MESA Initialisation</h2>
+            <p>Please enter your API Key and Agent ID to establish a session.</p>
+            <form id="setupForm">
+                <div class="input-group">
+                    <label for="apiKey">MESA_API_KEY</label>
+                    <input type="password" id="apiKey" required placeholder="Enter your secret key">
+                </div>
+                <div class="input-group">
+                    <label for="agentId">Agent ID</label>
+                    <input type="text" id="agentId" required placeholder="e.g., demo_agent_01" value="demo_agent_01">
+                </div>
+                <button type="submit" class="btn primary-btn" id="startSessionBtn">
+                    <span>Start Session</span>
+                    <div class="spinner hidden" id="setupSpinner"></div>
+                </button>
+                <div id="setupError" class="error-msg hidden"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="app-container hidden" id="appContainer">
+        
+        <!-- Header -->
+        <header class="app-header glass-panel">
+            <div class="logo">MESA <span class="badge">v0.4.0-dev</span></div>
+            <div class="session-info">
+                <div class="status-indicator online"></div>
+                <span id="headerAgentId">Agent: -</span>
+                <span id="headerSessionId" class="session-badge">Session: -</span>
+            </div>
+            <button id="logoutBtn" class="btn secondary-btn">Disconnect</button>
+        </header>
+
+        <!-- Two-pane Workspace -->
+        <div class="workspace">
+            
+            <!-- Left Pane: Chat Interface -->
+            <section class="chat-pane glass-panel">
+                <div class="chat-header">
+                    <h3>Conversation</h3>
+                </div>
+                <div class="chat-history" id="chatHistory">
+                    <!-- Chat messages will be injected here -->
+                    <div class="message system-msg">
+                        <div class="bubble">System initialized. Waiting for input...</div>
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <form id="chatForm">
+                        <input type="text" id="chatInput" placeholder="Ask a question or share a thought to store..." autocomplete="off">
+                        <button type="submit" class="btn primary-btn send-btn" id="sendBtn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M2.01 21L23 12L2.01 3L2 10l15 2-15 2z" fill="currentColor"/>
+                            </svg>
+                        </button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Right Pane: Telemetry Dashboard -->
+            <section class="telemetry-pane glass-panel">
+                <div class="telemetry-header">
+                    <h3>Context Inspector</h3>
+                    <div class="status-indicator online"></div>
+                </div>
+                
+                <div class="telemetry-content" id="telemetryContent">
+                    <div class="empty-state">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path d="M12 8v4l3 3" />
+                        </svg>
+                        <p>Waiting for interaction...</p>
+                        <span class="subtext">Send a message to see MESA's retrieval process.</span>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

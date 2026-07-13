@@ -127,7 +127,6 @@ def test_ollama_base_url_init():
     os.getenv("GITHUB_ACTIONS") == "true", reason="CI ortamında Ollama yok"
 )
 def test_ollama_complete_schema():
-    import sys
 
     adapter = OllamaAdapter()
     adapter._ollama_client.generate = MagicMock(

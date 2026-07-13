@@ -270,8 +270,8 @@ if not _cli_args.no_auth:
 
     @app.middleware("http")
     async def api_key_middleware(request: Request, call_next):
-        # Skip auth for health/metrics/docs endpoints
-        if request.url.path in (
+        # Skip auth for demo and health/metrics/docs endpoints
+        if request.url.path.startswith("/demo") or request.url.path in (
             "/health",
             "/metrics",
             "/docs",
