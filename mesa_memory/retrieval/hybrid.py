@@ -5,6 +5,7 @@ from typing import Any
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
+from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 
@@ -35,6 +36,7 @@ class HybridRetriever:
         self.embedder = embedder
         self.access_control = access_control or AccessControl()
         self._agent_id = agent_id
+        self.legal_resolver = LegalEntityResolver()
 
     async def retrieve(
         self,
@@ -50,6 +52,11 @@ class HybridRetriever:
             )
         normalized = normalize_query(query_text)
         entities = self.analyzer.extract_entities(normalized)
+
+        # Inject ontology-based legal entities to fix multi-hop failures
+        legal_entities = self.legal_resolver.extract_entities(query_text)
+        entities.extend(legal_entities)
+        entities = list(set(entities))
 
         # Graph node lookup via DAO
         seed_nodes = await self.dao.find_nodes_by_name(
@@ -119,7 +126,8 @@ class HybridRetriever:
                     r["cmb_id"] for r in self._cold_start_rerank(vector_results, top_n)
                 ]
         else:
-            fused_ids = self._apply_alpha_reranking(
+            fused_ids = await self._apply_alpha_reranking(
+                agent_id,
                 vector_results,
                 graph_results,
                 lexical_results,
@@ -259,13 +267,14 @@ class HybridRetriever:
 
         return ranked
 
-    def _apply_alpha_reranking(
+    async def _apply_alpha_reranking(
         self,
+        agent_id: str,
         vector_ranks: list[dict],
         graph_ranks: list[dict],
         lexical_ranks: list[dict],
     ) -> list[str]:
-        """Apply Score-Based Bonus (Alpha-Reranking) with deterministic normalization."""
+        """Apply Score-Based Bonus (Alpha-Reranking) with Epistemic Dampening."""
         alpha = getattr(config, "hybrid_alpha", 0.0)
         beta = getattr(config, "hybrid_beta", 0.0)
 
@@ -293,21 +302,37 @@ class HybridRetriever:
             if item.get("cmb_id", "")
         }
 
+        # DP3: Fetch Epistemic Data (Confidence & Quarantine flags)
+        epistemic_data = await self.dao.get_epistemic_data_for_nodes(
+            agent_id, list(union_ids)
+        )
+
         final_scores: dict[str, float] = {}
 
-        # Alpha Reranking Formula: S_vec + (alpha * S_graph_norm) + (beta * S_lex_norm)
+        # Alpha Reranking Formula with Epistemic Confidence Multiplier
         for cmb_id in union_ids:
+            e_data = epistemic_data.get(
+                cmb_id, {"confidence": 1.0, "is_quarantined": False}
+            )
+
+            # Quarantined nodes are completely excluded from retrieval
+            if e_data.get("is_quarantined"):
+                continue
+
+            confidence = e_data.get("confidence", 1.0)
+
             s_vec = vector_scores.get(cmb_id, 0.0)
             s_graph_raw = graph_scores.get(cmb_id, 0.0)
             s_lex_raw = lexical_scores.get(cmb_id, 0.0)
 
             # Deterministic Normalization
-            # Graph scores from spreading activation, cap at 1.0.
             s_graph_norm = min(s_graph_raw * 10.0, 1.0)
-            # FTS5 Lexical normalization via empirical constant
             s_lex_norm = min(s_lex_raw / 10.0, 1.0)
 
-            final_scores[cmb_id] = s_vec + (alpha * s_graph_norm) + (beta * s_lex_norm)
+            raw_rrf = s_vec + (alpha * s_graph_norm) + (beta * s_lex_norm)
+
+            # Apply Epistemic Dampening
+            final_scores[cmb_id] = raw_rrf * confidence
 
         sorted_ids = sorted(
             final_scores.keys(), key=lambda cid: final_scores[cid], reverse=True

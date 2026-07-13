@@ -59,6 +59,9 @@ def _make_mock_storage_facade(
     # FTS Mock
     storage.search_memory_fts = AsyncMock(return_value=[])
 
+    # Epistemic Mock
+    storage.get_epistemic_data_for_nodes = AsyncMock(return_value={})
+
     # Vector mock
     storage.search_memory = AsyncMock(return_value=vector_results or [])
 
@@ -296,7 +299,7 @@ class TestAlphaRerankingEdgeCases:
         storage = _make_mock_storage_facade()
         retriever = await _make_retriever(storage)
 
-        result = retriever._apply_alpha_reranking([], [], [])
+        result = await retriever._apply_alpha_reranking("test_agent", [], [], [])
         assert result == []
 
     @pytest.mark.asyncio
@@ -309,7 +312,7 @@ class TestAlphaRerankingEdgeCases:
             {"cmb_id": "v1", "score": 0.9},
             {"cmb_id": "v2", "score": 0.5},
         ]
-        result = retriever._apply_alpha_reranking(vector, [], [])
+        result = await retriever._apply_alpha_reranking("test_agent", vector, [], [])
         assert result[0] == "v1"
         assert result[1] == "v2"
 
@@ -330,7 +333,7 @@ class TestAlphaRerankingEdgeCases:
         config.hybrid_alpha = 0.5
 
         try:
-            result = retriever._apply_alpha_reranking([], graph, [])
+            result = await retriever._apply_alpha_reranking("test_agent", [], graph, [])
             assert result[0] == "g1"
             assert result[1] == "g2"
         finally:

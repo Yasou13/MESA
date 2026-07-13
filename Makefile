@@ -14,7 +14,7 @@ test:
 	pytest tests/ -x
 
 bench:
-	python scripts/run_investor_demo.py
+	python scripts/reproduce_benchmark.py
 
 docker-up:
 	docker-compose up -d

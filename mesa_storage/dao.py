@@ -750,7 +750,7 @@ class MemoryDAO:
         # a different agent, it will NOT be returned.
         query = (
             f"SELECT id, entity_name, type, content_payload, is_consolidated, "
-            f"       created_at, session_id "
+            f"       created_at, session_id, confidence, is_quarantined "
             f"FROM nodes "
             f"WHERE agent_id = ? "
             f"  AND id IN ({placeholders}) "
@@ -880,6 +880,42 @@ class MemoryDAO:
             async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
+
+    async def get_epistemic_data_for_nodes(
+        self, agent_id: str, node_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch confidence and quarantine status for a batch of nodes.
+
+        Args:
+            agent_id: Mandatory tenant isolation key.
+            node_ids: List of UUIDs to fetch.
+
+        Returns:
+            Dict mapping node_id -> {"confidence": float, "is_quarantined": bool}
+        """
+        if not node_ids:
+            return {}
+
+        _assert_valid_agent_id(agent_id)
+
+        placeholders = ",".join("?" for _ in node_ids)
+        query = (
+            f"SELECT id, confidence, is_quarantined "
+            f"FROM nodes "
+            f"WHERE agent_id = ? AND id IN ({placeholders})"
+        )
+        params: list[Any] = [agent_id, *node_ids]
+
+        results = {}
+        async with self._sql.connection() as db:
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    results[row[0]] = {
+                        "confidence": float(row[1]),
+                        "is_quarantined": bool(row[2]),
+                    }
+        return results
 
     # ==================================================================
     # PURGE — agent-scoped soft-delete
@@ -1106,6 +1142,27 @@ class MemoryDAO:
             agent_id=agent_id,
             epistemic_uncertainty=epistemic_uncertainty,
         )
+
+        # DP2: Epistemic Dampening Logic
+        if relation_type.upper() == "CONTRADICTS":
+            async with self._sql.transaction() as db:
+                for n_id in (source_id, target_id):
+                    await db.execute(
+                        "UPDATE nodes SET confidence = confidence * 0.8 "
+                        "WHERE id = ? AND agent_id = ?",
+                        (n_id, agent_id),
+                    )
+                    await db.execute(
+                        "UPDATE nodes SET is_quarantined = 1 "
+                        "WHERE id = ? AND agent_id = ? AND confidence < 0.2",
+                        (n_id, agent_id),
+                    )
+                await db.commit()
+            logger.info(
+                "EPISTEMIC_DAMPENING | CONTRADICTS relation triggered dampening for nodes %s and %s",
+                source_id,
+                target_id,
+            )
 
         logger.debug(
             "INSERT_EDGE | agent_id=%s %s-[%s]->%s w=%.3f eu=%.3f",

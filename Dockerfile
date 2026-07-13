@@ -14,11 +14,15 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements*.txt ./
-RUN pip install --no-cache-dir --prefix=/install -r requirements-core.txt
+COPY pyproject.toml ./
+COPY mesa_memory/ ./mesa_memory/
+COPY mesa_storage/ ./mesa_storage/
+COPY mesa_workers/ ./mesa_workers/
+COPY mesa_api/ ./mesa_api/
+COPY mesa_client/ ./mesa_client/
 
-COPY . .
 RUN pip install --no-cache-dir --prefix=/install ".[adapters]"
+
 
 # Pre-download spaCy model in builder
 RUN python -m spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages

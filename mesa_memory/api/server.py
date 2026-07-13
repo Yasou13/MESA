@@ -126,9 +126,9 @@ async def lifespan(app: FastAPI):
     # CRITICAL FIX: Ensure schema exists before any queries are run
     from mesa_storage import kuzu_setup
 
-    kuzu_setup.initialize_schema(str(_KUZU_PATH))
-
     loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
+
     state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
     logger.info("KùzuDB initialised at %s", _KUZU_PATH)
 

@@ -41,6 +41,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -89,6 +90,10 @@ def _noop_embedder(text: str) -> list[float]:
     In production, this should be replaced with a real embedding model
     via ``create_memory_router(embedder=my_embed_fn)``.
     """
+    logger.warning(
+        "NOOP_EMBEDDER_INVOKED | Search quality degraded — "
+        "configure a real embedder via create_memory_router(get_embedder=...)"
+    )
     return [0.0] * 8
 
 
@@ -248,6 +253,14 @@ def create_memory_router(
 
         Terminal states: ``processed``, ``failed``, ``rejected``.
         """
+        # RBAC Gate: Verify READ permission for this agent
+        ac = get_access_control() if get_access_control else AccessControl()
+        if not await ac.check_access(agent_id, "__any__", "READ"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Agent '{agent_id}' lacks READ access",
+            )
+
         structlog.contextvars.bind_contextvars(
             agent_id=agent_id, log_id=log_id, endpoint="get_status"
         )
@@ -305,11 +318,14 @@ def create_memory_router(
                 access_control=ac,
             )
 
-            result = await retriever.retrieve(
-                query_text=request.query,
-                agent_id=request.agent_id,
-                session_id=request.session_id,
-                top_n=request.limit,
+            result = await asyncio.wait_for(
+                retriever.retrieve(
+                    query_text=request.query,
+                    agent_id=request.agent_id,
+                    session_id=request.session_id,
+                    top_n=request.limit,
+                ),
+                timeout=30.0,  # 30s hard ceiling — prevents indefinite hangs
             )
 
             # Normalise retriever output — retrieve() returns list[str] (cmb_ids)
@@ -350,6 +366,12 @@ def create_memory_router(
                 if not node.get("is_consolidated", True):
                     ctx += " [WARNING: UNCONSOLIDATED MEMORY]"
                 context_parts.append(ctx)
+
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="Search timed out (30s ceiling exceeded)",
+            )
 
         except PermissionError as perm_exc:
             raise HTTPException(status_code=403, detail=str(perm_exc))
@@ -399,6 +421,17 @@ def create_memory_router(
         Violating this invariant causes catastrophic WAL locks under
         concurrent API load.
         """
+        # RBAC Gate: Verify WRITE permission for this agent/session pair.
+        try:
+            ac = get_access_control() if get_access_control else AccessControl()
+            _session = request.scope_id if request.scope == "session" else "__any__"
+            if not await ac.check_access(request.agent_id, _session, "WRITE"):
+                raise PermissionError(
+                    f"Agent '{request.agent_id}' lacks WRITE access for purge"
+                )
+        except PermissionError as perm_exc:
+            raise HTTPException(status_code=403, detail=str(perm_exc))
+
         deleted_count = 0
 
         try:
@@ -440,12 +473,19 @@ def create_memory_router(
     )
     async def start_session(
         request: SessionStartRequest,
+        dao: MemoryDAO = Depends(get_dao),
     ) -> SessionStartResponse:
         """Generate and return a new unique session identifier.
 
         Enforces strict RBAC: requires a valid ``agent_id`` in the request payload.
         """
+        # RBAC Gate: Verify WRITE permission for this agent.
+        ac = get_access_control() if get_access_control else AccessControl()
         session_id = f"sess_{uuid.uuid4().hex}"
+
+        # Grant WRITE access for the newly created session
+        await ac.grant_access(request.agent_id, session_id, "WRITE")
+
         logger.info(
             "SESSION_START | agent_id=%s session_id=%s", request.agent_id, session_id
         )
@@ -472,6 +512,16 @@ def create_memory_router(
         Enforces strict RBAC: requires the correct ``agent_id`` query parameter matching
         the tenant isolation model to retrieve session data.
         """
+        # RBAC Gate: Verify READ permission for this agent/session pair.
+        try:
+            ac = get_access_control() if get_access_control else AccessControl()
+            if not await ac.check_access(agent_id, session_id, "READ"):
+                raise PermissionError(
+                    f"Agent '{agent_id}' lacks READ access for session '{session_id}'"
+                )
+        except PermissionError as perm_exc:
+            raise HTTPException(status_code=403, detail=str(perm_exc))
+
         try:
             # Fetch recent episodic logs (raw_logs) for the session
             recent_logs = []
@@ -493,6 +543,8 @@ def create_memory_router(
                 context=context,
                 recent_logs=recent_logs,
             )
+        except PermissionError:
+            raise  # Re-raise RBAC errors without wrapping
         except Exception as exc:
             logger.error(
                 "SESSION_CONTEXT_ERROR | session_id=%s agent_id=%s error=%s",
@@ -527,6 +579,17 @@ def create_memory_router(
         Enforces strict RBAC: requires a valid ``agent_id`` in the request payload
         matching the session's tenant ID.
         """
+        # RBAC Gate: Verify WRITE permission for this agent/session pair.
+        try:
+            ac = get_access_control() if get_access_control else AccessControl()
+            if not await ac.check_access(request.agent_id, session_id, "WRITE"):
+                raise PermissionError(
+                    f"Agent '{request.agent_id}' lacks WRITE access "
+                    f"for session '{session_id}'"
+                )
+        except PermissionError as perm_exc:
+            raise HTTPException(status_code=403, detail=str(perm_exc))
+
         try:
             # Here we would enqueue a final consolidation pass for this specific session.
             # For now, we log the termination which could trigger the orchestrator.
@@ -536,6 +599,8 @@ def create_memory_router(
                 session_id,
             )
             return {"status": "ended", "session_id": session_id}
+        except PermissionError:
+            raise  # Re-raise RBAC errors without wrapping
         except Exception as exc:
             logger.error(
                 "SESSION_END_ERROR | session_id=%s agent_id=%s error=%s",

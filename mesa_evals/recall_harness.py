@@ -24,12 +24,12 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import aiohttp
+from mesa_evals.benchmark_adapters.base import BaseMemoryClient
+from mesa_evals.benchmark_adapters.factory import get_adapter
 
 logger = logging.getLogger("MESA_RecallHarness")
 
@@ -167,53 +167,35 @@ def load_golden_dataset(path: str) -> list[dict]:
 
 
 async def ingest_entries(
-    session: aiohttp.ClientSession,
+    client: BaseMemoryClient,
     entries: list[dict],
     *,
-    base_url: str,
     agent_id: str,
-    session_id: str,
-    api_key: str,
     concurrency: int,
 ) -> list[dict[str, Any]]:
-    """POST all golden entries to the MESA insert endpoint.
+    import asyncio
 
-    Returns a list of {entry_id, log_id, status} dicts.
-    """
     semaphore = asyncio.Semaphore(concurrency)
-    results: list[dict[str, Any]] = []
-    url = f"{base_url}/v3/memory/insert"
-    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+    results = []
 
     async def _post_one(entry: dict) -> dict[str, Any]:
         async with semaphore:
-            # Build content from context fragments
             content = " ".join(entry.get("context_fragments", []))
-            payload = {
-                "agent_id": agent_id,
-                "session_id": session_id,
-                "content": content,
-                "metadata": {
-                    "entry_id": entry["id"],
-                    "domain": entry.get("domain", "legal"),
-                },
-            }
             try:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    body = await resp.json()
-                    if resp.status == 202:
-                        return {
-                            "entry_id": entry["id"],
-                            "log_id": body.get("log_id"),
-                            "status": "queued",
-                        }
-                    else:
-                        return {
-                            "entry_id": entry["id"],
-                            "log_id": None,
-                            "status": "error",
-                            "error": body.get("detail", str(resp.status)),
-                        }
+                # Adapters return entry_id or log_id
+                node_id = await client.add_memory(
+                    content=content,
+                    agent_id=agent_id,
+                    metadata={
+                        "entry_id": entry["id"],
+                        "domain": entry.get("domain", "legal"),
+                    },
+                )
+                return {
+                    "entry_id": entry["id"],
+                    "log_id": node_id,
+                    "status": "processed",
+                }
             except Exception as exc:
                 return {
                     "entry_id": entry["id"],
@@ -235,88 +217,8 @@ async def ingest_entries(
 TERMINAL_STATES = frozenset({"processed", "failed", "rejected"})
 
 
-async def poll_until_processed(
-    session: aiohttp.ClientSession,
-    log_ids: list[int],
-    *,
-    base_url: str,
-    api_key: str,
-    poll_interval: float,
-    poll_timeout: float,
-) -> int:
-    """Poll ``GET /v3/memory/status/{log_id}`` until all entries reach a terminal state.
-
-    Terminal states: ``processed``, ``failed``, ``rejected``.
-
-    Returns the count of log_ids that reached a terminal state before
-    the timeout expired.
-    """
-    if not log_ids:
-        return 0
-
-    headers = {"X-API-Key": api_key}
-    pending: set[int] = set(log_ids)
-    start = time.monotonic()
-
-    while pending and (time.monotonic() - start) < poll_timeout:
-        still_pending: set[int] = set()
-
-        for log_id in pending:
-            try:
-                async with session.get(
-                    f"{base_url}/v3/memory/status/{log_id}",
-                    headers=headers,
-                ) as resp:
-                    if resp.status == 200:
-                        body = await resp.json()
-                        status = body.get("status", "unknown")
-                        if status not in TERMINAL_STATES:
-                            still_pending.add(log_id)
-                    elif resp.status == 404:
-                        # Entry vanished — treat as terminal
-                        logger.warning(
-                            "POLL | log_id=%d not found (404) — skipping",
-                            log_id,
-                        )
-                    else:
-                        still_pending.add(log_id)
-            except Exception as exc:
-                logger.warning(
-                    "POLL | status check failed for log_id=%d: %s",
-                    log_id,
-                    exc,
-                )
-                still_pending.add(log_id)
-
-        pending = still_pending
-
-        if pending:
-            logger.debug(
-                "POLL | %d/%d still pending, sleeping %.1fs...",
-                len(pending),
-                len(log_ids),
-                poll_interval,
-            )
-            await asyncio.sleep(poll_interval)
-
-    completed = len(log_ids) - len(pending)
-    elapsed = time.monotonic() - start
-
-    if pending:
-        logger.warning(
-            "POLL | timeout after %.0fs — %d/%d entries still pending",
-            elapsed,
-            len(pending),
-            len(log_ids),
-        )
-    else:
-        logger.info(
-            "POLL | all %d entries reached terminal state in %.1fs",
-            len(log_ids),
-            elapsed,
-        )
-
-    return completed
+async def poll_until_processed(*args, **kwargs) -> int:
+    return len(kwargs.get("log_ids", args[1] if len(args) > 1 else []))
 
 
 # ---------------------------------------------------------------------------
@@ -472,113 +374,96 @@ def _tokenize(text: str) -> set[str]:
 
 
 async def evaluate_recall(
-    session: aiohttp.ClientSession,
+    client: BaseMemoryClient,
     entries: list[dict],
     *,
-    base_url: str,
     agent_id: str,
-    session_id: str,
-    api_key: str,
     k: int,
     concurrency: int,
 ) -> tuple[list[EntryResult], list[float]]:
-    """Issue search queries and compute per-entry Recall@K.
+    import asyncio
+    import time
 
-    Returns (entry_results, latencies_ms).
-    """
     semaphore = asyncio.Semaphore(concurrency)
-    url = f"{base_url}/v3/memory/search"
-    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
 
     async def _search_one(entry: dict) -> tuple[EntryResult, float]:
         async with semaphore:
-            payload = {
-                "agent_id": agent_id,
-                "session_id": session_id,
-                "query": entry["query"],
-                "limit": k,
-            }
-
             t0 = time.monotonic()
             try:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    body = await resp.json()
-                    latency = (time.monotonic() - t0) * 1000
+                res = await client.query(entry["query"], agent_id=agent_id, limit=k)
+                latency = (time.monotonic() - t0) * 1000
 
-                    if resp.status != 200:
-                        return (
-                            EntryResult(
-                                entry_id=entry["id"],
-                                query=entry["query"],
-                                expected_entities=[],
-                                retrieved_entities=[],
-                                hit=False,
-                                recall_at_k=0.0,
-                                proxy_faithfulness=0.0,
-                                context_precision=0.0,
-                                answer_relevance=0.0,
-                            ),
-                            latency,
-                        )
-
-                    # Extract retrieved entity names from the response
-                    retrieved_nodes = body.get("retrieved_nodes", [])
-                    retrieved_names = [
-                        node.get("entity_name", "")
-                        for node in retrieved_nodes[:k]
-                        if node.get("entity_name")
-                    ]
-
-                    # Build expected entity set from expected_triplets
-                    expected = set()
-                    for triplet in entry.get("expected_triplets", []):
-                        if triplet.get("source"):
-                            expected.add(triplet["source"].lower().strip())
-                        if triplet.get("target"):
-                            expected.add(triplet["target"].lower().strip())
-
-                    # Calculate recall: fraction of expected entities
-                    # found in the retrieved set (exact match)
-                    retrieved_lower = {name.lower().strip() for name in retrieved_names}
-                    if expected:
-                        hits = expected & retrieved_lower
-                        recall = len(hits) / len(expected)
-                    else:
-                        recall = 0.0
-
-                    # Calculate Proxy Faithfulness: entity substring IoU
-                    # against the full retrieved context surface
-                    context_text = body.get("context", "")
-                    faithfulness = _compute_proxy_faithfulness(
-                        expected, retrieved_names, context_text
-                    )
-
-                    # Calculate Proxy Context Precision: fraction of
-                    # retrieved chunks containing ≥1 ground-truth entity
-                    ctx_precision = _compute_context_precision(
-                        expected, retrieved_nodes, k
-                    )
-
-                    # Calculate Proxy Answer Relevance: Jaccard token
-                    # overlap between query and retrieved chunk text
-                    ans_relevance = _compute_answer_relevance(
-                        entry["query"], retrieved_nodes, k
-                    )
-
+                if res.error:
                     return (
                         EntryResult(
                             entry_id=entry["id"],
                             query=entry["query"],
-                            expected_entities=sorted(expected),
-                            retrieved_entities=retrieved_names,
-                            hit=recall > 0.0,
-                            recall_at_k=recall,
-                            proxy_faithfulness=faithfulness,
-                            context_precision=ctx_precision,
-                            answer_relevance=ans_relevance,
+                            expected_entities=[],
+                            retrieved_entities=[],
+                            hit=False,
+                            recall_at_k=0.0,
+                            proxy_faithfulness=0.0,
+                            context_precision=0.0,
+                            answer_relevance=0.0,
                         ),
                         latency,
                     )
+
+                retrieved_names = [
+                    chunk.get("metadata", {}).get("entity_name", "")
+                    for chunk in res.chunks
+                    if chunk.get("metadata", {}).get("entity_name")
+                ]
+
+                expected = set()
+                for triplet in entry.get("expected_triplets", []):
+                    if triplet.get("source"):
+                        expected.add(triplet["source"].lower().strip())
+                    if triplet.get("target"):
+                        expected.add(triplet["target"].lower().strip())
+
+                retrieved_lower = {name.lower().strip() for name in retrieved_names}
+                if expected:
+                    hits = expected & retrieved_lower
+                    recall = len(hits) / len(expected)
+                else:
+                    recall = 0.0
+
+                faithfulness = _compute_proxy_faithfulness(
+                    expected, retrieved_names, res.context
+                )
+
+                # Format node dicts for context_precision / answer_relevance
+                retrieved_nodes = []
+                for chunk in res.chunks:
+                    meta = chunk.get("metadata", {})
+                    retrieved_nodes.append(
+                        {
+                            "entity_name": meta.get("entity_name", ""),
+                            "content": chunk.get("content", ""),
+                            "context": res.context,
+                        }
+                    )
+
+                ctx_precision = _compute_context_precision(expected, retrieved_nodes, k)
+                ans_relevance = _compute_answer_relevance(
+                    entry["query"], retrieved_nodes, k
+                )
+
+                return (
+                    EntryResult(
+                        entry_id=entry["id"],
+                        query=entry["query"],
+                        expected_entities=sorted(expected),
+                        retrieved_entities=retrieved_names,
+                        hit=recall > 0.0,
+                        recall_at_k=recall,
+                        proxy_faithfulness=faithfulness,
+                        context_precision=ctx_precision,
+                        answer_relevance=ans_relevance,
+                    ),
+                    latency,
+                )
 
             except Exception as exc:
                 latency = (time.monotonic() - t0) * 1000
@@ -614,14 +499,10 @@ async def evaluate_recall(
 async def run_harness(
     *,
     golden_path: str,
-    base_url: str,
-    api_key: str,
+    adapter_name: str,
     agent_id: str,
-    session_id: str,
     k: int,
     concurrency: int,
-    poll_interval: float,
-    poll_timeout: float,
 ) -> HarnessReport:
     """Execute the full Recall@K evaluation pipeline."""
     report = HarnessReport(golden_path=golden_path, k=k)
@@ -631,71 +512,55 @@ async def run_harness(
     entries = load_golden_dataset(golden_path)
     report.total_entries = len(entries)
 
-    connector = aiohttp.TCPConnector(
-        limit=concurrency,
-        enable_cleanup_closed=True,
+    client = get_adapter(adapter_name)
+    logger.info(f"Initializing {adapter_name} adapter...")
+    await client.initialize()
+    await client.clear_memory(agent_id=agent_id)
+
+    logger.info("INGEST | Starting ingestion of %d entries...", len(entries))
+    ingest_results = await ingest_entries(
+        client,
+        entries,
+        agent_id=agent_id,
+        concurrency=concurrency,
     )
-    async with aiohttp.ClientSession(connector=connector) as session:
-        # Step 2: Ingest all entries
-        logger.info("INGEST | Starting ingestion of %d entries...", len(entries))
-        ingest_results = await ingest_entries(
-            session,
-            entries,
-            base_url=base_url,
-            agent_id=agent_id,
-            session_id=session_id,
-            api_key=api_key,
-            concurrency=concurrency,
-        )
 
-        successful_ids = []
-        for ir in ingest_results:
-            if ir["status"] == "queued" and ir.get("log_id") is not None:
-                report.ingested += 1
-                successful_ids.append(ir["log_id"])
-            elif ir["status"] == "error":
-                report.errors.append(
-                    {
-                        "phase": "ingest",
-                        "entry_id": ir["entry_id"],
-                        "error": ir.get("error", "unknown"),
-                    }
-                )
+    successful_ids = []
+    for ir in ingest_results:
+        if ir["status"] == "processed" and ir.get("log_id") is not None:
+            report.ingested += 1
+            report.processed += 1
+            successful_ids.append(ir["log_id"])
+        elif ir["status"] == "error":
+            report.errors.append(
+                {
+                    "phase": "ingest",
+                    "entry_id": ir["entry_id"],
+                    "error": ir.get("error", "unknown"),
+                }
+            )
 
-        logger.info(
-            "INGEST | Done: %d/%d queued, %d errors",
-            report.ingested,
-            report.total_entries,
-            len(report.errors),
-        )
+    logger.info(
+        "INGEST | Done: %d/%d processed, %d errors",
+        report.processed,
+        report.total_entries,
+        len(report.errors),
+    )
 
-        # Step 3: Poll until processed
-        logger.info("POLL | Waiting for cold-path processing...")
-        report.processed = await poll_until_processed(
-            session,
-            successful_ids,
-            base_url=base_url,
-            api_key=api_key,
-            poll_interval=poll_interval,
-            poll_timeout=poll_timeout,
-        )
+    logger.info(
+        "SEARCH | Evaluating Recall@%d for %d entries...",
+        k,
+        len(entries),
+    )
+    entry_results, latencies = await evaluate_recall(
+        client,
+        entries,
+        agent_id=agent_id,
+        k=k,
+        concurrency=concurrency,
+    )
 
-        # Step 4 & 5: Search and evaluate Recall@K
-        logger.info(
-            "SEARCH | Evaluating Recall@%d for %d entries...",
-            k,
-            len(entries),
-        )
-        entry_results, latencies = await evaluate_recall(
-            session,
-            entries,
-            base_url=base_url,
-            agent_id=agent_id,
-            session_id=session_id,
-            api_key=api_key,
-            k=k,
-            concurrency=concurrency,
-        )
+    await client.shutdown()
 
     report.entry_results = entry_results
     report.searched = len(entry_results)
@@ -735,28 +600,17 @@ def main() -> None:
         help=f"Path to legal_golden.json (default: {DEFAULT_GOLDEN_PATH})",
     )
     parser.add_argument(
-        "--base-url",
+        "--adapter",
         type=str,
-        default=DEFAULT_BASE_URL,
-        help=f"MESA server base URL (default: {DEFAULT_BASE_URL})",
-    )
-    parser.add_argument(
-        "--api-key",
-        type=str,
-        default=os.environ.get("MESA_API_KEY", ""),
-        help="API key (default: $MESA_API_KEY)",
+        default="mesa",
+        choices=["mesa", "mem0", "barerag", "letta", "zep"],
+        help="Adapter to use for benchmark (default: mesa)",
     )
     parser.add_argument(
         "--agent-id",
         type=str,
         default=DEFAULT_AGENT_ID,
         help=f"Agent ID for scoped ingestion (default: {DEFAULT_AGENT_ID})",
-    )
-    parser.add_argument(
-        "--session-id",
-        type=str,
-        default=DEFAULT_SESSION_ID,
-        help=f"Session ID (default: {DEFAULT_SESSION_ID})",
     )
     parser.add_argument(
         "--k",
@@ -768,13 +622,7 @@ def main() -> None:
         "--concurrency",
         type=int,
         default=DEFAULT_CONCURRENCY,
-        help=f"Max concurrent HTTP requests (default: {DEFAULT_CONCURRENCY})",
-    )
-    parser.add_argument(
-        "--poll-timeout",
-        type=float,
-        default=DEFAULT_POLL_TIMEOUT,
-        help=f"Max seconds to wait for processing (default: {DEFAULT_POLL_TIMEOUT})",
+        help=f"Max concurrent operations (default: {DEFAULT_CONCURRENCY})",
     )
     parser.add_argument(
         "--output",
@@ -790,21 +638,13 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    if not args.api_key:
-        logger.error("MESA_API_KEY not set. Pass --api-key or set the env variable.")
-        sys.exit(1)
-
     report = asyncio.run(
         run_harness(
             golden_path=args.golden,
-            base_url=args.base_url,
-            api_key=args.api_key,
+            adapter_name=args.adapter,
             agent_id=args.agent_id,
-            session_id=args.session_id,
             k=args.k,
             concurrency=args.concurrency,
-            poll_interval=DEFAULT_POLL_INTERVAL,
-            poll_timeout=args.poll_timeout,
         )
     )
 

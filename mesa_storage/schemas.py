@@ -61,7 +61,10 @@ async def initialize_schema(engine: AsyncEngine) -> None:
     alembic_cfg.set_main_option("sqlalchemy.url", db_url)
 
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, command.upgrade, alembic_cfg, "head")
+    await asyncio.wait_for(
+        loop.run_in_executor(None, command.upgrade, alembic_cfg, "head"),
+        timeout=120.0,  # 2min ceiling — prevents indefinite startup hang
+    )
 
     async with engine.connection() as db:
         # B-6 FIX: Recover orphaned jobs
@@ -173,19 +176,30 @@ async def insert_node(
     agent_id: str = "__unset__",
     session_id: str = "__unset__",
     is_consolidated: bool = False,
+    confidence: float = 1.0,
+    is_quarantined: bool = False,
 ) -> str:
     """Insert a new node into the graph.
 
     Returns:
         The node_id of the inserted node.
     """
+    if agent_id == "__unset__":
+        import warnings
+
+        warnings.warn(
+            "insert_node called with sentinel agent_id='__unset__'. "
+            "Pass an explicit agent_id in production code.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     now = datetime.now(timezone.utc).isoformat()
 
     async with engine.transaction() as db:
         await db.execute(
             "INSERT INTO nodes (id, entity_name, type, content_payload, is_consolidated, "
-            "created_at, agent_id, session_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "created_at, agent_id, session_id, confidence, is_quarantined) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 node_id,
                 entity_name,
@@ -195,6 +209,8 @@ async def insert_node(
                 now,
                 agent_id,
                 session_id,
+                float(confidence),
+                int(is_quarantined),
             ),
         )
         await db.commit()
@@ -209,7 +225,7 @@ async def bulk_insert_nodes(
     """Insert multiple nodes in a single transaction.
 
     Each dict must contain: id, entity_name.
-    Optional keys: type, agent_id, session_id, is_consolidated.
+    Optional keys: type, agent_id, session_id, is_consolidated, confidence, is_quarantined.
 
     Returns:
         Number of nodes inserted.
@@ -222,8 +238,8 @@ async def bulk_insert_nodes(
     async with engine.transaction() as db:
         await db.executemany(
             "INSERT INTO nodes (id, entity_name, type, content_payload, is_consolidated, "
-            "created_at, agent_id, session_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "created_at, agent_id, session_id, confidence, is_quarantined) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     n["id"],
@@ -234,6 +250,8 @@ async def bulk_insert_nodes(
                     now,
                     n.get("agent_id", "__unset__"),
                     n.get("session_id", "__unset__"),
+                    float(n.get("confidence", 1.0)),
+                    int(n.get("is_quarantined", False)),
                 )
                 for n in nodes
             ],

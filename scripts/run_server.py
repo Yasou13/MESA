@@ -26,6 +26,7 @@ import os
 import secrets
 import sys
 from contextlib import asynccontextmanager
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -40,6 +41,7 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
 from mesa_api.router import create_memory_router  # noqa: E402
+from mesa_memory.security.rbac import AccessControl  # noqa: E402
 from mesa_storage.dao import MemoryDAO  # noqa: E402
 from mesa_storage.kuzu_provider import KuzuGraphProvider  # noqa: E402
 from mesa_storage.schemas import initialize_schema  # noqa: E402
@@ -59,6 +61,12 @@ class _AppState:
     vector_engine: VectorEngine | None = None
     graph_provider: KuzuGraphProvider | None = None
     dao: MemoryDAO | None = None
+    access_control: AccessControl | None = None
+
+    # Full mode workers
+    consolidation_loop: Any | None = None
+    maintenance_worker: Any | None = None
+    rem_worker: Any | None = None
 
 
 _state = _AppState()
@@ -96,6 +104,11 @@ def _parse_args() -> argparse.Namespace:
         "--reload",
         action="store_true",
         help="Enable uvicorn auto-reload (development mode)",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Start ConsolidationLoop, MaintenanceWorker, and REMCycleWorker",
     )
     # When launched via `uvicorn`, sys.argv may contain unexpected args.
     # parse_known_args tolerates that gracefully.
@@ -158,14 +171,75 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("DAO not initialized")
         return _state.dao
 
+    # --- AccessControl ---
+    _state.access_control = AccessControl(policy_path="./storage/rbac_policy.db")
+    await _state.access_control.initialize()
+    logger.info("AccessControl initialized")
+
+    def get_ac() -> AccessControl:
+        assert _state.access_control is not None
+        return _state.access_control
+
+    # --- Background Workers (--full) ---
+    if _cli_args.full:
+        import asyncio
+
+        from mesa_memory.adapter.ollama import OllamaAdapter
+        from mesa_memory.consolidation.loop import ConsolidationLoop
+        from mesa_memory.observability.metrics import ObservabilityLayer
+        from mesa_workers.maintenance import MaintenanceWorker
+        from mesa_workers.rem_cycle import REMCycleWorker
+
+        _state.consolidation_loop = ConsolidationLoop(
+            dao=_state.dao,
+            embedder=OllamaAdapter(model="nomic-embed-text"),
+            llm_a=OllamaAdapter(model="mistral"),
+            llm_b=OllamaAdapter(model="mistral"),
+            obs_layer=ObservabilityLayer(),
+        )
+        asyncio.create_task(_state.consolidation_loop.start())
+        logger.info("ConsolidationLoop started (Tier-3 consensus enabled)")
+
+        _state.maintenance_worker = MaintenanceWorker(
+            sqlite_engine=_state.sqlite_engine,
+            vector_engine=_state.vector_engine,
+            retention_hours=24,
+        )
+        asyncio.create_task(_state.maintenance_worker.start())
+        logger.info("MaintenanceWorker started")
+
+        _state.rem_worker = REMCycleWorker(
+            dao=_state.dao,
+            llm_a=OllamaAdapter(model="mistral"),
+            llm_b=OllamaAdapter(model="mistral"),
+            poll_interval_seconds=600,
+        )
+        asyncio.create_task(_state.rem_worker.start())
+        logger.info("REMCycleWorker started")
+
+    def get_cl():
+        return _state.consolidation_loop
+
     # --- Mount v3 memory router ---
-    router = create_memory_router(get_dao=get_dao, prefix="/v3/memory")
+    router = create_memory_router(
+        get_dao=get_dao,
+        get_access_control=get_ac,
+        get_consolidation_loop=get_cl,
+        prefix="/v3/memory",
+    )
     app.include_router(router)
     logger.info("v3 memory router mounted")
 
     yield
 
     # --- Shutdown ---
+    if _state.consolidation_loop:
+        await _state.consolidation_loop.stop()
+    if _state.maintenance_worker:
+        await _state.maintenance_worker.stop()
+    if _state.rem_worker:
+        await _state.rem_worker.stop()
+
     if _state.sqlite_engine:
         await _state.sqlite_engine.close()
         logger.info("SQLite engine closed")
@@ -177,7 +251,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="MESA Dev Server",
-    version="0.4.0-dev",
+    version="0.5.2",
     lifespan=lifespan,
 )
 

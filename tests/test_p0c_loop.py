@@ -52,10 +52,13 @@ async def test_consolidation_loop_full():
     await loop.run_batch([{"id": 1, "content": "test", "tier3_deferred": True}])
 
 
-def test_hybrid_reranking():
+@pytest.mark.asyncio
+async def test_hybrid_reranking():
     retriever = HybridRetriever(AsyncMock(), MagicMock(), MagicMock())
+    retriever.dao.get_epistemic_data_for_nodes = AsyncMock(return_value={})
 
-    res = retriever._apply_alpha_reranking(
+    res = await retriever._apply_alpha_reranking(
+        "test_agent",
         [{"cmb_id": "1", "score": 0.8}],
         [{"cmb_id": "2", "score": 0.9}],
         [{"cmb_id": "1", "score": 0.5}],

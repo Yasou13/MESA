@@ -77,6 +77,7 @@ async def test_hybrid_retrieval_cold_start():
     await ac.initialize()
     await ac.grant_access("test_agent", "test_session", "READ")
 
+    storage.get_epistemic_data_for_nodes = AsyncMock(return_value={})
     retriever = HybridRetriever(
         dao=storage,
         analyzer=analyzer,
@@ -121,6 +122,7 @@ async def test_alpha_reranking_logic():
             "_distance": 0.15,
         },
     ]
+    storage.get_epistemic_data_for_nodes = AsyncMock(return_value={})
 
     analyzer = MagicMock()
     analyzer.extract_entities.return_value = ["test"]
@@ -154,8 +156,8 @@ async def test_alpha_reranking_logic():
     config.hybrid_beta = 0.2
 
     try:
-        fused_ids = retriever._apply_alpha_reranking(
-            vector_ranks, graph_ranks, lexical_ranks
+        fused_ids = await retriever._apply_alpha_reranking(
+            "test_agent", vector_ranks, graph_ranks, lexical_ranks
         )
 
         # S_vec + (alpha * S_graph_norm) + (beta * S_lex_norm)

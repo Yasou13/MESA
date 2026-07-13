@@ -174,5 +174,7 @@ reproducibility_report.json
 state.json
 colab_sonuc.md
 _temp_config.yaml
+beam_eval_report.json
+rewrite_harness.py
 test_node.py
 test_qdrant/
