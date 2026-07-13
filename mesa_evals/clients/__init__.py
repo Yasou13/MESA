@@ -1,4 +1,4 @@
-# MESA v0.5.1 — Antigravity Contradiction Benchmark Clients
+# MESA v0.5.2 — Antigravity Contradiction Benchmark Clients
 # Provides pluggable memory client interfaces for A/B testing
 # MESA's full pipeline against dumb baselines.
 

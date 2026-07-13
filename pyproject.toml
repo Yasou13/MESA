@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesa-memory"
-version = "0.5.1"
+version = "0.5.2"
 description = "Enterprise AI agent memory engine"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -140,7 +140,7 @@ exclude = [
     "test_node\\.py$",
 ]
 
-# ---- Strict enforcement flags (v0.5.1 hardening) ----
+# ---- Strict enforcement flags (v0.5.2 hardening) ----
 # Individual flags instead of `strict = true` so per-module overrides
 # can cleanly disable specific checks without fighting the macro.
 disallow_untyped_defs = true

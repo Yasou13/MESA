@@ -246,7 +246,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             retrieved_context_ids=retrieved_ids,
             latency_ms=latency,
             metadata={
-                "mesa_version": "0.5.1",
+                "mesa_version": "0.5.2",
                 "multi_hop_enabled": True,
                 "graph_backend": "KuzuDB",
             },

@@ -1,4 +1,4 @@
-# MESA v0.5.1 — Router Coverage Tests
+# MESA v0.5.2 — Router Coverage Tests
 """
 Unit tests targeting uncovered paths in mesa_api/router.py.
 

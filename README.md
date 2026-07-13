@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.5.1-green.svg)
+![Version](https://img.shields.io/badge/Version-0.5.2-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
 Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
@@ -201,7 +201,7 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 
 ## Features & Capabilities
 
-MESA v0.5.1 introduces advanced cognitive memory features:
+MESA v0.5.2 introduces advanced cognitive memory features:
 1. **Phase 4.1: Self-Healing Graphs**: Async Damped PageRank for hallucination quarantine.
 2. **Phase 4.2: Cognitive Salience**: Spreading Activation routed through KuzuDB using `OPTIONAL MATCH`.
 3. **Phase 4.3: Continuous Learning**: Blue/Green Procrustes vector alignment with persistent SQLite WAL to prevent phantom writes.
@@ -409,7 +409,7 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 
 ### Current Status
 
-As of v0.5.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization (including hard 1MB payload limits to prevent memory exhaustion DoS attacks). Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, and automated background WAL checkpointing, preventing phantom writes and disk bloat during continuous ingestion.
+As of v0.5.2, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization (including hard 1MB payload limits to prevent memory exhaustion DoS attacks). Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, and automated background WAL checkpointing, preventing phantom writes and disk bloat during continuous ingestion.
 
 ---
 

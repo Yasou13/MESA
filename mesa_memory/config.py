@@ -206,7 +206,7 @@ class MesaConfig(BaseSettings):
     extraction_lang: str = Field("tr", validation_alias="MESA_EXTRACTION_LANG")
 
     # -----------------------------------------------------------------------
-    # v0.5.1: Zero-Cost Mode
+    # v0.5.2: Zero-Cost Mode
     # When MESA_ZERO_COST_MODE=true, the system reconfigures itself to use
     # exclusively local resources:
     #   - LLM provider  → OllamaAdapter (localhost:11434)

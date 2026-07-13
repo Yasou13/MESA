@@ -1,4 +1,4 @@
-"""MESA v0.5.1 — Phase 4B: Soak Test — Memory Leak & Queue Stability Monitor.
+"""MESA v0.5.2 — Phase 4B: Soak Test — Memory Leak & Queue Stability Monitor.
 
 Sends a constant, moderate load to ``POST /v3/memory/insert`` over a
 configurable duration (default: 12 hours) and monitors system health via

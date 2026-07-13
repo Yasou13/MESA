@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive 4-Tier Benchmark Dataset Generator for MESA v0.5.1+.
+Comprehensive 4-Tier Benchmark Dataset Generator for MESA v0.5.2+.
 Generates 200+ scenarios across four difficulty tiers:
   1. Single-Hop Retrieval (40%)
   2. Multi-Hop Graph Traversal (30%)

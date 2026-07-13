@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MESA v0.5.1 — Release Pipeline Script
+# MESA v0.5.2 — Release Pipeline Script
 # Phase 4.2: Build, publish, tag, and push.
 #
 # Prerequisites:
@@ -10,16 +10,16 @@
 #   - `gh` CLI authenticated (for GitHub Release creation)
 #
 # Usage:
-#   chmod +x scripts/release_v0.5.1.sh
-#   ./scripts/release_v0.5.1.sh
+#   chmod +x scripts/release_v0.5.2.sh
+#   ./scripts/release_v0.5.2.sh
 # =============================================================================
 set -euo pipefail
 
-TAG="v0.5.1"
-MSG="MESA v0.5.1: Production memory engine release"
+TAG="v0.5.2"
+MSG="MESA v0.5.2: Production memory engine release"
 
 echo "==========================================="
-echo "  MESA v0.5.1 — Release Pipeline"
+echo "  MESA v0.5.2 — Release Pipeline"
 echo "==========================================="
 
 echo ""

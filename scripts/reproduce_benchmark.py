@@ -208,7 +208,7 @@ def main():
     # --- Build report ---
     report: Dict[str, Any] = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "mesa_version": "0.5.1",
+        "mesa_version": "0.5.2",
         "seeds_run": seed_list,
         "seeds_completed": len(mesa_accuracies),
         "multi_hop_graph_enabled": True,
