@@ -154,12 +154,19 @@ input:focus {
     gap: 8px;
 }
 
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
 .primary-btn {
     background: var(--accent-color);
     color: white;
 }
 
-.primary-btn:hover {
+.primary-btn:hover:not(:disabled) {
     background: var(--accent-hover);
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
@@ -176,22 +183,6 @@ input:focus {
 .secondary-btn:hover {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-primary);
-}
-
-.ghost-btn {
-    background: transparent;
-    color: var(--text-secondary);
-}
-
-.ghost-btn:hover {
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.small-btn {
-    padding: 4px 8px;
-    font-size: 0.8rem;
-    border-radius: 6px;
 }
 
 /* -----------------------------------------
@@ -366,6 +357,10 @@ input:focus {
     background: rgba(0, 0, 0, 0.2);
 }
 
+#chatForm input:disabled {
+    opacity: 0.5;
+}
+
 .send-btn {
     border-radius: 50%;
     width: 48px;
@@ -374,116 +369,7 @@ input:focus {
 }
 
 /* -----------------------------------------
-   Inspector Pane
------------------------------------------ */
-.inspector-pane {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    border-radius: 16px;
-    overflow: hidden;
-}
-
-.inspector-header {
-    padding: 16px 24px;
-    border-bottom: 1px solid var(--glass-border);
-    background: rgba(255, 255, 255, 0.02);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.inspector-logs {
-    flex: 1;
-    padding: 16px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-}
-
-.inspector-logs::-webkit-scrollbar {
-    width: 6px;
-}
-.inspector-logs::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-}
-
-.log-entry {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--glass-border);
-    border-radius: 8px;
-    padding: 12px;
-    animation: fadeIn 0.3s ease-out;
-}
-
-.log-entry.req {
-    border-left: 3px solid #3b82f6;
-}
-
-.log-entry.res {
-    border-left: 3px solid var(--success);
-}
-
-.log-entry.info {
-    border-left: 3px solid #a855f7;
-}
-
-.log-header {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    color: var(--text-secondary);
-}
-
-.log-method {
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-pre {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-all;
-    color: #a78bfa;
-}
-
-/* -----------------------------------------
-   Animations
------------------------------------------ */
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-@keyframes slideUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes messagePop {
-    0% { opacity: 0; transform: scale(0.95) translateY(10px); }
-    100% { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top-color: white;
-    animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-
-/* -----------------------------------------
-   Telemetry Dashboard (Replaces Inspector)
+   Telemetry Dashboard
 ----------------------------------------- */
 .telemetry-pane {
     flex: 1;
@@ -509,6 +395,14 @@ pre {
     display: flex;
     flex-direction: column;
     gap: 20px;
+}
+
+.telemetry-content::-webkit-scrollbar {
+    width: 6px;
+}
+.telemetry-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
 }
 
 .empty-state {
@@ -540,7 +434,7 @@ pre {
 .metric-pill {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--glass-border);
-    padding: 8px 16px;
+    padding: 12px 16px;
     border-radius: 20px;
     font-size: 0.85rem;
     display: flex;
@@ -563,10 +457,15 @@ pre {
     font-size: 1.1rem;
 }
 
+.context-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .context-section h4 {
     font-size: 0.9rem;
     color: var(--text-secondary);
-    margin-bottom: 12px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -592,6 +491,7 @@ pre {
     font-weight: 500;
     color: var(--accent-color);
     font-size: 0.95rem;
+    word-break: break-word;
 }
 
 .score-badge {
@@ -602,6 +502,7 @@ pre {
     font-size: 0.75rem;
     font-weight: 600;
     border: 1px solid rgba(16, 185, 129, 0.2);
+    white-space: nowrap;
 }
 
 .progress-track {
@@ -617,4 +518,48 @@ pre {
     background: var(--success);
     border-radius: 2px;
     transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Typing indicator animation */
+.typing-dots::after {
+    content: '...';
+    animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: ''; }
+    40% { content: '.'; }
+    60% { content: '..'; }
+    80%, 100% { content: '...'; }
+}
+
+/* -----------------------------------------
+   Animations
+----------------------------------------- */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes messagePop {
+    0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
