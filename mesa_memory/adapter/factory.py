@@ -106,7 +106,8 @@ class AdapterFactory:
             from mesa_memory.adapter.ollama import OllamaAdapter
 
             return OllamaAdapter(
-                model=config.llm_model_name or "llama3.2:3b",
+                model=config.llm_model_name or "qwen3:8b",
+                base_url=ollama_url,
             )
 
         # 2. OpenAI-compatible (Groq, OpenAI, Together, etc.)

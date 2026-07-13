@@ -133,7 +133,7 @@ class HybridRetriever:
         # Uses KùzuDB's variable-length path traversal via DAO instead
         # of the legacy NetworkX snapshot.  Zero OOM risk.
         multi_hop_path: list[str] = []
-        if len(seed_nodes) >= 2:
+        if len(seed_nodes) >= 1:
             source_id = seed_nodes[0]["id"]
             try:
                 neighbors = await self.dao.get_neighbors(
@@ -141,22 +141,28 @@ class HybridRetriever:
                     node_id=source_id,
                     max_hops=3,
                 )
-                # Build the path: source → all reachable neighbors sorted by hops
-                target_id = seed_nodes[1]["id"]
-                # Check if target is reachable within the neighbor set
-                target_neighbors = [n for n in neighbors if n["id"] == target_id]
-                if target_neighbors:
-                    # Reconstruct a path-like list: source + intermediate + target
-                    hop_depth = target_neighbors[0]["hops"]
-                    intermediates = sorted(
-                        [n for n in neighbors if n["hops"] < hop_depth],
-                        key=lambda x: x["hops"],
-                    )
-                    multi_hop_path = (
-                        [source_id] + [n["id"] for n in intermediates] + [target_id]
-                    )
+                if len(seed_nodes) >= 2:
+                    # Build the path: source → all reachable neighbors sorted by hops
+                    target_id = seed_nodes[1]["id"]
+                    # Check if target is reachable within the neighbor set
+                    target_neighbors = [n for n in neighbors if n["id"] == target_id]
+                    if target_neighbors:
+                        # Reconstruct a path-like list: source + intermediate + target
+                        hop_depth = target_neighbors[0]["hops"]
+                        intermediates = sorted(
+                            [n for n in neighbors if n["hops"] < hop_depth],
+                            key=lambda x: x["hops"],
+                        )
+                        multi_hop_path = (
+                            [source_id] + [n["id"] for n in intermediates] + [target_id]
+                        )
+                    else:
+                        # Target not reachable — return source + sorted neighbors
+                        multi_hop_path = [source_id] + [
+                            n["id"] for n in sorted(neighbors, key=lambda x: x["hops"])
+                        ]
                 else:
-                    # Target not reachable — return source + sorted neighbors
+                    # Single seed - just return source + sorted neighbors
                     multi_hop_path = [source_id] + [
                         n["id"] for n in sorted(neighbors, key=lambda x: x["hops"])
                     ]

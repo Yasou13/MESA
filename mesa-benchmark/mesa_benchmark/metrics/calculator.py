@@ -83,10 +83,16 @@ class MetricsEngine:
         return total / len(ranks)
 
     @staticmethod
-    def calculate_ndcg(relevance_scores: List[float], k: int = 5) -> float:
+    def calculate_ndcg(
+        expected_ids: List[str], retrieved_ids: List[str], k: int = 5
+    ) -> float:
         """
-        Calculates nDCG@k from a list of relevance scores (ordered by retrieval rank).
+        Calculates nDCG@k using expected context bounds for ideal DCG calculation.
         """
+        if not expected_ids:
+            return 0.0
+
+        relevance_scores = [1.0 if r in expected_ids else 0.0 for r in retrieved_ids]
 
         def dcg(scores: List[float], k: int) -> float:
             val = 0.0
@@ -95,7 +101,11 @@ class MetricsEngine:
             return val
 
         actual_dcg = dcg(relevance_scores, k)
-        ideal_scores = sorted(relevance_scores, reverse=True)
+
+        # Ideal scenario: all expected contexts are retrieved at the top
+        ideal_scores = [1.0] * min(k, len(expected_ids)) + [0.0] * max(
+            0, k - len(expected_ids)
+        )
         ideal_dcg = dcg(ideal_scores, k)
 
         if ideal_dcg == 0:
@@ -159,11 +169,13 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     correct_count = 0
     total_count = 0
     total_prompt_tokens = 0
+    total_completion_tokens = 0
 
     hit_1_sum = 0
     hit_3_sum = 0
     hit_5_sum = 0
     rr_sum = 0.0
+    ndcg_sum = 0.0
 
     engine = MetricsEngine()
 
@@ -199,6 +211,7 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
             latencies.append(float(raw_latency))
 
         total_prompt_tokens += int(data.get("prompt_tokens", 0))
+        total_completion_tokens += int(data.get("completion_tokens", 0))
 
         # Retrieval metrics
         expected = data.get("expected_context_ids", [])
@@ -209,6 +222,8 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
             hit_3_sum += engine.calculate_hit_at_k(expected, retrieved, 3)
             hit_5_sum += engine.calculate_hit_at_k(expected, retrieved, 5)
             rr_sum += engine.calculate_reciprocal_rank(expected, retrieved)
+
+            ndcg_sum += engine.calculate_ndcg(expected, retrieved, k=5)
 
     if total_count == 0:
         return BenchmarkMetrics()
@@ -231,8 +246,9 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
 
     # Token efficiency
     token_efficiency = None
-    if correct_count > 0 and total_prompt_tokens > 0:
-        token_efficiency = total_prompt_tokens / correct_count
+    total_tokens = total_prompt_tokens + total_completion_tokens
+    if correct_count > 0 and total_tokens > 0:
+        token_efficiency = total_tokens / correct_count
 
     return BenchmarkMetrics(
         total_questions=total_count,
@@ -246,5 +262,6 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         hit_at_3=hit_3_sum / total_count,
         hit_at_5=hit_5_sum / total_count,
         mrr=rr_sum / total_count,
+        ndcg=ndcg_sum / total_count,
         token_efficiency=token_efficiency,
     )

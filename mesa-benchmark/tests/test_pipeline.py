@@ -33,8 +33,7 @@ def test_benchmark_response_model() -> None:
         answer_text="Test answer",
         retrieved_context_ids=["c1"],
         latency_ms=120.0,
-        prompt_tokens=10,
-        completion_tokens=5,
+        token_usage={"prompt": 10, "completion": 5},
         metadata={"test": True},
     )
     assert resp.answer_text == "Test answer"

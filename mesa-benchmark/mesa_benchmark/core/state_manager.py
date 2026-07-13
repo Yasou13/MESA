@@ -60,7 +60,12 @@ class StateManager:
 
         try:
             with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(self.state.model_dump(), f, indent=4)
+                state_dict = (
+                    self.state.model_dump()
+                    if hasattr(self.state, "model_dump")
+                    else self.state.dict()
+                )
+                json.dump(state_dict, f, indent=4)
         except Exception as e:
             raise StateError(f"Failed to save state to {self.state_file}: {e}")
 

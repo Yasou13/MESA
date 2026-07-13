@@ -46,14 +46,51 @@ def _call_litellm(
         if "/" not in target_model and "11434" in os.environ.get("OPENAI_BASE_URL", ""):
             target_model = f"openai/{target_model}"
 
-        response = litellm.completion(
-            model=target_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=512,
-        )
+        # Disable thinking mode for Qwen3 models to get direct JSON output
+        effective_prompt = prompt
+        if "qwen3" in target_model.lower():
+            effective_prompt = "/no_think\n" + prompt
 
-        raw = response.choices[0].message.content.strip()
+        base_url = os.environ.get("OPENAI_BASE_URL", "")
+        if "11434" in base_url:
+            import ollama
+
+            host = base_url.replace("/v1", "")
+            client = ollama.Client(host=host)
+            m_name = target_model.replace("openai/", "")
+            resp = client.chat(
+                model=m_name,
+                messages=[{"role": "user", "content": effective_prompt}],
+                options={"temperature": temperature},
+            )
+            raw = resp.get("message", {}).get("content", "")
+
+            # Handle reasoning_content for Ollama directly if needed
+            if not raw:
+                msg = resp.get("message", {})
+                reasoning = msg.get("reasoning_content") or msg.get("reasoning") or ""
+                if reasoning:
+                    raw = reasoning.strip()
+        else:
+            response = litellm.completion(
+                model=target_model,
+                messages=[{"role": "user", "content": effective_prompt}],
+                temperature=temperature,
+                max_tokens=1024,
+                num_retries=0,
+            )
+            raw = response.choices[0].message.content or ""
+
+            # Fallback: if content is empty, try reasoning_content (thinking models)
+            if not raw:
+                msg = response.choices[0].message
+                reasoning = getattr(msg, "reasoning_content", None) or ""
+                if reasoning:
+                    raw = reasoning.strip()
+
+        if not raw:
+            logger.warning("Empty response from model=%s", model)
+            return None
 
         # Handle markdown code blocks
         if raw.startswith("```"):
@@ -61,10 +98,20 @@ def _call_litellm(
             if raw.startswith("json"):
                 raw = raw[4:]
 
+        # Robust JSON extraction
+        import re
+
+        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if json_match:
+            raw = json_match.group(0)
+
         result: dict = json.loads(raw)
         return result
 
     except Exception as e:
+        import traceback
+
+        traceback.print_exc()
         logger.warning("Multi-model judge call failed for model=%s: %s", model, e)
         return None
 
@@ -76,7 +123,7 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
     Produces:
     - Individual per-model scores
     - Majority-vote final score
-    - Inter-model Cohen's Kappa (agreement metric)
+    - Inter-model Agreement Rate (agreement metric)
     """
 
     def __init__(
@@ -145,10 +192,10 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
         majority_correct = correct_count > len(verdicts) / 2
         avg_score = sum(scores) / len(scores)
 
-        # Compute inter-model Cohen's Kappa if 2+ models responded
-        inter_model_kappa = None
+        # Compute inter-model agreement rate if 2+ models responded
+        inter_model_agreement_rate = None
         if len(verdicts) >= 2:
-            inter_model_kappa = self._compute_pairwise_agreement(verdicts)
+            inter_model_agreement_rate = self._compute_pairwise_agreement(verdicts)
 
         return EvaluationResult(
             score=avg_score,
@@ -160,7 +207,7 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
                 "models_queried": list(model_results.keys()),
                 "per_model_results": model_results,
                 "majority_vote": majority_correct,
-                "inter_model_agreement": inter_model_kappa,
+                "inter_model_agreement_rate": inter_model_agreement_rate,
             },
         )
 

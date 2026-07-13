@@ -131,7 +131,12 @@ python_version = "3.10"
 ignore_missing_imports = true
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
-exclude = ["^venv/"]
+exclude = [
+    "^venv/",
+    "^mesa-benchmark/scratch/",
+    "^mesa-benchmark/scripts/",
+    "test_node\\.py$",
+]
 
 # ---- Strict enforcement flags (v0.5.1 hardening) ----
 # Individual flags instead of `strict = true` so per-module overrides

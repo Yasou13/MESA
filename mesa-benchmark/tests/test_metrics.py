@@ -58,12 +58,13 @@ class TestMetricsEngine:
 
     def test_ndcg_perfect_ranking(self) -> None:
         # All relevant docs in perfect order
-        relevance = [1.0, 1.0, 0.0]
-        result = MetricsEngine.calculate_ndcg(relevance, k=3)
-        assert result == pytest.approx(1.0)
+        expected = ["a", "b"]
+        retrieved = ["a", "b", "c"]
+        result = MetricsEngine.calculate_ndcg(expected, retrieved, k=3)
+        assert result == 1.0
 
     def test_ndcg_empty(self) -> None:
-        assert MetricsEngine.calculate_ndcg([], k=5) == 0.0
+        assert MetricsEngine.calculate_ndcg([], [], k=5) == 0.0
 
     def test_welch_t_test_identical_groups(self) -> None:
         a = [1.0, 1.0, 1.0, 1.0, 1.0]

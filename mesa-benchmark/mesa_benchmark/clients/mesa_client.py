@@ -159,7 +159,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                         if self.sqlite:
                             async with self.sqlite.connection() as conn:
                                 cursor = await conn.execute(
-                                    "SELECT node_id FROM nodes WHERE agent_id = 'benchmark' AND entity_name = ? LIMIT 1",
+                                    "SELECT id FROM nodes WHERE agent_id = 'benchmark' AND entity_name = ? LIMIT 1",
                                     (target_entity,),
                                 )
                                 row = await cursor.fetchone()

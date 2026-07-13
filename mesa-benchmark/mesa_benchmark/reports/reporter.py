@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class MarkdownReporter:
@@ -19,23 +19,31 @@ class MarkdownReporter:
         )
         return self.generate_report_from_dict(metrics_dict)
 
-    def generate_report_from_dict(self, metrics_dict: Dict[str, Any]) -> str:
-        """Generate report from a plain dictionary (supports injected agreement/variance data)."""
-        # Safely extract metrics
-        total = metrics_dict.get("total_questions", 0)
-        correct = metrics_dict.get("correct_answers", 0)
-        acc = metrics_dict.get("accuracy", 0.0) * 100
-        avg_lat = metrics_dict.get("avg_latency_ms", 0.0)
-        p95_lat = metrics_dict.get("p95_latency_ms", 0.0)
-        p99_lat = metrics_dict.get("p99_latency_ms", 0.0)
+    def generate_report_from_dict(
+        self, metrics_dict: Dict[str, Any], output_path: Optional[str] = None
+    ) -> str:
+        """
+        Generates a markdown report directly from a metrics dictionary.
+        """
+        # (Assuming the dict matches BenchmarkMetrics structure)
+        m = metrics_dict
 
-        hit1 = metrics_dict.get("hit_at_1", 0.0) * 100
-        hit3 = metrics_dict.get("hit_at_3", 0.0) * 100
-        hit5 = metrics_dict.get("hit_at_5", 0.0) * 100
-        mrr = metrics_dict.get("mrr", 0.0) * 100
+        # Core Metrics
+        total_q = m.get("total_questions", 0)
+        correct_q = m.get("correct_answers", 0)
+        accuracy = m.get("accuracy", 0.0) * 100
 
-        agreement = metrics_dict.get("agreement", {})
-        variance = metrics_dict.get("variance", {})
+        # Retrieval Metrics
+        hit1 = m.get("hit_at_1", 0.0) * 100
+        hit3 = m.get("hit_at_3", 0.0) * 100
+        hit5 = m.get("hit_at_5", 0.0) * 100
+        mrr = m.get("mrr", 0.0) * 100
+        ndcg = m.get("ndcg", 0.0) * 100
+
+        # Latency Metrics
+        avg_lat = m.get("avg_latency_ms", 0.0)
+        p95_lat = m.get("p95_latency_ms", 0.0)
+        p99_lat = m.get("p99_latency_ms", 0.0)
 
         report_lines = [
             "# 📊 MESA Benchmark Report",
@@ -48,16 +56,15 @@ class MarkdownReporter:
             "",
             "| Metric | Value | Açıklama |",
             "|:---|:---|:---|",
-            f"| **Total Questions** | {total} | Test edilen toplam soru sayısı |",
-            f"| **Correct Answers** | {correct} | Tamamen doğru kabul edilen cevaplar |",
-            f"| **Accuracy** | %{acc:.2f} | Sistemin genel doğruluk oranı |",
+            f"| **Total Questions** | {total_q} | Test edilen toplam soru sayısı |",
+            f"| **Correct Answers** | {correct_q} | Tamamen doğru kabul edilen cevaplar |",
+            f"| **Accuracy** | %{accuracy:.2f} | Sistemin genel doğruluk oranı |",
             "",
         ]
 
-        if agreement and agreement.get("total", 0) > 0:
-            agr_rate = agreement.get("agreement_rate", 0.0)
-            kappa = agreement.get("cohens_kappa", 0.0)
-            contingency = agreement.get("contingency_table", {})
+        # Agreement Section
+        agreement_data = metrics_dict.get("agreement", {})
+        if agreement_data:
             report_lines.extend(
                 [
                     "### 🤝 Methodological Verification (Keyword vs LLM-Judge Agreement)",
@@ -67,42 +74,44 @@ class MarkdownReporter:
                     "",
                     "| Evaluator Pair | Agreement Rate (%) | Cohen's Kappa | Assessment |",
                     "|:---|:---|:---|:---|",
-                    f"| **Keyword Match vs LLM-Judge** | **%{agr_rate:.2f}** | `{kappa:.4f}` | {'✅ Yüksek Uyum — Güvenilir Proxy' if agr_rate >= 80.0 else '⚠️ Orta/Düşük Uyum — LLM-Judge Raporlaması Önerilir'} |",
-                    "",
                 ]
             )
-            if contingency:
+
+            kappa = agreement_data.get("cohens_kappa", 0)
+            rate = agreement_data.get("agreement_rate", 0)
+            assessment = (
+                "✅ Yüksek Uyum — Güvenilir Proxy"
+                if kappa >= 0.7
+                else "⚠️ Düşük Uyum — LLM-Judge zorunlu"
+            )
+            report_lines.extend(
+                [
+                    f"| **Keyword vs LLM-Judge** | **%{rate:.2f}** | `{kappa:.4f}` | {assessment} |"
+                ]
+            )
+
+            conf = agreement_data.get("contingency_table", {})
+            if conf:
+                tt = conf.get("both_correct", 0)
+                tf = conf.get("only_a_correct", 0)
+                ft = conf.get("only_b_correct", 0)
+                ff = conf.get("both_incorrect", 0)
+
                 report_lines.extend(
                     [
+                        "",
                         "**Contingency Table:**",
                         "",
                         "| | Judge: Correct | Judge: Incorrect |",
                         "|:---|:---|:---|",
-                        f"| **Keyword: Correct** | {contingency.get('both_correct', 0)} | {contingency.get('only_a_correct', 0)} |",
-                        f"| **Keyword: Incorrect** | {contingency.get('only_b_correct', 0)} | {contingency.get('both_incorrect', 0)} |",
-                        "",
+                        f"| **Keyword: Correct** | {tt} | {tf} |",
+                        f"| **Keyword: Incorrect** | {ft} | {ff} |",
                     ]
                 )
 
-        if variance and variance.get("n", 0) > 1:
-            mean_str = variance.get("accuracy_mean_std", "N/A")
-            p_val = variance.get("p_value_vs_baseline", "N/A")
-            report_lines.extend(
-                [
-                    "### 📈 Multi-Seed Statistical Variance (Stokastik Kararlılık)",
-                    "",
-                    "LLM'ler stokastik olduğundan, aynı benchmark farklı seed'lerle çalıştırılır.",
-                    "Mean ± Std ve p-value, farkın istatistiksel olarak anlamlı olup olmadığını gösterir.",
-                    "",
-                    "| Metric | Multi-Seed Mean ± Std | p-value vs Baseline | Significance |",
-                    "|:---|:---|:---|:---|",
-                    f"| **Accuracy Across Seeds (n={variance.get('n')})** | **{mean_str}** | `{p_val}` | {'✅ Anlamlı Fark (p < 0.05)' if variance.get('is_significant') else '⚠️ İstatistiksel Olarak Eşdeğer'} |",
-                    "",
-                ]
-            )
-
         report_lines.extend(
             [
+                "",
                 "## ⚡ 2. Speed & Latency (Hız ve Gecikme)",
                 "Sistemin veritabanından bağlamı ne kadar sürede getirdiğini ölçer. Daha düşük her zaman daha iyidir.",
                 "",
@@ -121,13 +130,30 @@ class MarkdownReporter:
                 f"| **Hit@3** | %{hit3:.2f} | Doğru bilgi ilk 3 sonuç içinde yer aldı |",
                 f"| **Hit@5** | %{hit5:.2f} | Doğru bilgi ilk 5 sonuç içinde yer aldı |",
                 f"| **MRR** | %{mrr:.2f} | Ortalama İlk Bulma Sırası (Mean Reciprocal Rank) |",
+                f"| **nDCG@5** | %{ndcg:.2f} | Normalize Edilmiş İndirgenmiş Kümülatif Kazanç (Top-5) |",
                 "",
                 "> 💡 **İpucu:** `Hit@K` oranları ve Multi-Hop Çizge entegrasyonu sayesinde MESA hafıza katmanı, ilişkili varlıklar arasındaki uzun zincirli çıkarımlarda standart Vektör+SQLite sistemlerinden net şekilde ayrışmaktadır.",
-                "",
             ]
         )
 
-        report_path = f"report_{self.run_id}.md"
-        with open(report_path, "w", encoding="utf-8") as f:
+        token_eff = m.get("token_efficiency")
+        if token_eff is not None:
+            report_lines.extend(
+                [
+                    "",
+                    "## 💎 4. Token Efficiency",
+                    "Doğru bir cevap üretmek için sistemin ve LLM'in maliyet/token performansını gösterir.",
+                    "",
+                    "| Metric | Value | Açıklama |",
+                    "|:---|:---|:---|",
+                    f"| **Tokens / Correct Answer** | {token_eff:.1f} | 1 doğru cevap başına harcanan ortalama token (Prompt + Completion) |",
+                ]
+            )
+
+        report_lines.append("")
+
+        if output_path is None:
+            output_path = f"report_{self.run_id}.md"
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(report_lines))
-        return report_path
+        return output_path

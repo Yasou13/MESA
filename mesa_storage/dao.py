@@ -255,20 +255,28 @@ class MemoryDAO:
     # Migration State Polling
     # ==================================================================
 
-    async def _is_lancedb_migrating(self) -> bool:
+    async def _is_lancedb_migrating(self, db_conn: Any = None) -> bool:
         """Check if LanceDB is currently undergoing Blue/Green alignment.
 
         If true, new vectors must be queued in the SQLite WAL table to
         prevent phantom writes to a table that is about to be dropped.
         """
         try:
-            async with self._sql.connection() as db:
-                async with db.execute(
+            if db_conn is not None:
+                async with db_conn.execute(
                     "SELECT value FROM system_config WHERE key = 'lancedb_is_migrating'"
                 ) as cursor:
                     row = await cursor.fetchone()
                     if row:
                         return row[0].lower() == "true"
+            else:
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT value FROM system_config WHERE key = 'lancedb_is_migrating'"
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                        if row:
+                            return row[0].lower() == "true"
         except Exception as exc:
             logger.warning("IS_MIGRATING_CHECK_FAILED | error=%s", exc)
         return False
@@ -486,7 +494,7 @@ class MemoryDAO:
                 for cid in conflicting_node_ids:
                     await self._vec.soft_delete(cid)
 
-                if await self._is_lancedb_migrating():
+                if await self._is_lancedb_migrating(db):
                     import json
 
                     import numpy as np
@@ -624,7 +632,7 @@ class MemoryDAO:
 
             # ---- LanceDB batch upsert (compensating rollback on fail)
             try:
-                if await self._is_lancedb_migrating():
+                if await self._is_lancedb_migrating(db):
                     import json
 
                     import numpy as np

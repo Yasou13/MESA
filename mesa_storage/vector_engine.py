@@ -193,8 +193,14 @@ class VectorEngine:
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
 
-        self._embedder = None
-        self._fallback_embedder = False
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            self._fallback_embedder = False
+        except ImportError:
+            self._embedder = None
+            self._fallback_embedder = True
 
     # ------------------------------------------------------------------
     # Properties
@@ -255,21 +261,6 @@ class VectorEngine:
 
         Path(self._uri).mkdir(parents=True, exist_ok=True)
 
-        # Initialize embedding model here to avoid blocking main thread
-        try:
-            from sentence_transformers import SentenceTransformer
-
-            self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            logger.info(
-                "VECTOR_ENGINE_EMBEDDER | Loaded local sentence-transformers/all-MiniLM-L6-v2"
-            )
-        except Exception as exc:
-            logger.warning(
-                "VECTOR_ENGINE_EMBEDDER | Failed to load local model: %s. Falling back to litellm.",
-                exc,
-            )
-            self._fallback_embedder = True
-
         return lancedb.connect(self._uri)
 
     def _sync_get_or_create_table(self, dimension: int) -> Any:
@@ -320,6 +311,11 @@ class VectorEngine:
             vector = self._embedder.encode(text)
             return vector.tolist()
         else:
+            logger.error(
+                "FALLING BACK TO LITELLM! _fallback_embedder=%s, _embedder is None? %s",
+                self._fallback_embedder,
+                self._embedder is None,
+            )
             # Fallback to litellm
             try:
                 import litellm

@@ -34,10 +34,10 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
             and os.environ.get("MESA_ZERO_COST_MODE", "").lower() == "true"
         ):
             mem0_config = {
-                "llm": {"provider": "ollama", "config": {"model": "llama3.1:8b"}},
+                "llm": {"provider": "ollama", "config": {"model": "qwen3:8b"}},
                 "embedder": {
-                    "provider": "huggingface",
-                    "config": {"model": "sentence-transformers/all-MiniLM-L6-v2"},
+                    "provider": "ollama",
+                    "config": {"model": "qwen3:8b"},
                 },
             }
 

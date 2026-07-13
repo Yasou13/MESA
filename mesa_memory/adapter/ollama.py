@@ -27,11 +27,21 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
     ) -> Union[str, BaseModel]:
         if schema is not None:
-            import outlines
+            response = self._ollama_client.generate(
+                model=self._model,
+                prompt=prompt,
+                format=schema.model_json_schema(),
+            )
+            try:
+                return schema.model_validate_json(response["response"])
+            except Exception as e:
+                # Fallback if Ollama returns malformed JSON
+                import logging
 
-            llm = outlines.models.transformers(self._model)  # type: ignore[operator]
-            generator = outlines.generate.json(llm, schema)  # type: ignore[attr-defined]
-            return generator(prompt)
+                logging.getLogger(__name__).warning(
+                    f"Ollama returned invalid JSON for schema: {e}"
+                )
+                raise
 
         response = self._ollama_client.generate(
             model=self._model,

@@ -8,7 +8,8 @@ logger = logging.getLogger("MESA_Retrieval")
 try:
     import spacy
 
-    SPACY_AVAILABLE = True
+    # SPACY_AVAILABLE = True
+    SPACY_AVAILABLE = False  # Force disable to prevent hang
 except ImportError:
     SPACY_AVAILABLE = False
     logger.warning(

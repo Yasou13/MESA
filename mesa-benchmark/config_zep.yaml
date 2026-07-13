@@ -1,5 +1,5 @@
 suite_name: "Zep Baseline Benchmark"
-iterations: 5
+iterations: 1
 seed: 42
 
 dataset:
@@ -21,8 +21,7 @@ evaluation:
     - "hit_at_k"
     - "mrr"
     - "latency"
-  llm_judge_model: "gpt-4o-mini"
+  llm_judge_model: "openai/qwen3:8b"
   multi_judge_models:
-    - "gpt-4o-mini"
-    - "claude-sonnet-4-20250514"
+    - "openai/qwen3:8b"
   enable_agreement: true

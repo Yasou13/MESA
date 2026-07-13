@@ -1,11 +1,13 @@
 """
 LLM-as-a-Judge Evaluator.
-Uses an LLM (e.g., GPT-4o, Claude) to evaluate system answers against ground truth.
+Uses an LLM (e.g., GPT-4o, Claude, Ollama) to evaluate system answers against ground truth.
+Routes through litellm for provider-agnostic LLM calls (supports Ollama via OPENAI_BASE_URL).
 """
 
 import json
 import logging
-from typing import Any
+import os
+from typing import Optional
 
 from ..clients.base import BenchmarkResponse
 from ..datasets.schemas import BenchmarkQuestion
@@ -39,26 +41,94 @@ class LLMJudgeEvaluator(BaseEvaluator):
     Evaluator that uses an LLM to judge the quality of system responses.
     Suitable for complex Multi-Hop and Contradiction scenarios where
     simple string matching is insufficient.
+
+    Uses litellm for provider-agnostic routing (OpenAI, Anthropic, Ollama, etc.).
     """
 
     def __init__(self, judge_model: str = "gpt-4o", temperature: float = 0.0):
         self.judge_model = judge_model
         self.temperature = temperature
-        self._client: Any = None
 
-    def _get_client(self) -> Any:
-        """Lazily initializes the LLM client."""
-        if self._client is None:
-            try:
-                import openai
+    def _call_litellm(self, prompt: str) -> Optional[dict]:
+        """Calls the judge model via litellm and parses the JSON response."""
+        try:
+            import litellm
 
-                self._client = openai.OpenAI()
-            except ImportError:
-                raise ImportError(
-                    "openai package is required for LLMJudgeEvaluator. "
-                    "Install it with: pip install openai"
+            litellm.suppress_debug_info = False
+            litellm.set_verbose = True  # type: ignore
+            target_model = self.judge_model
+
+            # Auto-prefix for Ollama-routed models without a provider prefix
+            if "/" not in target_model and "11434" in os.environ.get(
+                "OPENAI_BASE_URL", ""
+            ):
+                target_model = f"openai/{target_model}"
+
+            # Disable thinking mode for Qwen3 models to get direct JSON output
+            effective_prompt = prompt
+            if "qwen3" in target_model.lower():
+                effective_prompt = "/no_think\n" + prompt
+
+            base_url = os.environ.get("OPENAI_BASE_URL", "")
+            if "11434" in base_url:
+                import ollama
+
+                host = base_url.replace("/v1", "")
+                client = ollama.Client(host=host)
+                m_name = target_model.replace("openai/", "")
+                resp = client.chat(
+                    model=m_name,
+                    messages=[{"role": "user", "content": effective_prompt}],
+                    options={"temperature": self.temperature},
                 )
-        return self._client
+                raw = resp.get("message", {}).get("content", "")
+            else:
+                response = litellm.completion(
+                    model=target_model,
+                    messages=[{"role": "user", "content": effective_prompt}],
+                    temperature=self.temperature,
+                    max_tokens=1024,
+                    num_retries=0,
+                )
+                raw = response.choices[0].message.content or ""
+
+            raw = raw.strip()
+
+            # Fallback: if content is empty, try reasoning_content (thinking models)
+            if not raw:
+                msg = response.choices[0].message
+                reasoning = getattr(msg, "reasoning_content", None) or ""
+                if reasoning:
+                    raw = reasoning.strip()
+
+            if not raw:
+                logger.warning("Empty response from model=%s", self.judge_model)
+                return None
+
+            # Handle markdown code blocks
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+
+            # Robust JSON extraction
+            import re
+
+            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if json_match:
+                raw = json_match.group(0)
+
+            result: dict = json.loads(raw)
+            return result
+
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            logger.warning(
+                "LLM Judge call failed for model=%s: %s", self.judge_model, e
+            )
+            return None
 
     def evaluate(
         self, response: BenchmarkResponse, question: BenchmarkQuestion
@@ -74,26 +144,9 @@ class LLMJudgeEvaluator(BaseEvaluator):
             retrieved_contexts=response.retrieved_context_ids,
         )
 
-        try:
-            client = self._get_client()
-            completion = client.chat.completions.create(
-                model=self.judge_model,
-                temperature=self.temperature,
-                messages=[{"role": "user", "content": prompt}],
-            )
+        judge_result = self._call_litellm(prompt)
 
-            raw_content = completion.choices[0].message.content.strip()
-
-            # Parse JSON response from LLM
-            # Use regex to robustly extract JSON object, ignoring any surrounding text
-            import re
-
-            json_match = re.search(r"\{.*\}", raw_content, re.DOTALL)
-            if json_match:
-                raw_content = json_match.group(0)
-
-            judge_result = json.loads(raw_content)
-
+        if judge_result is not None:
             return EvaluationResult(
                 score=float(judge_result.get("score", 0.0)),
                 latency_ms=response.latency_ms,
@@ -102,26 +155,23 @@ class LLMJudgeEvaluator(BaseEvaluator):
                 metadata={
                     "evaluator_type": "LLMJudgeEvaluator",
                     "judge_model": self.judge_model,
-                    "raw_judge_response": raw_content,
+                    "raw_judge_response": str(judge_result),
                 },
             )
 
-        except Exception as e:
-            logger.warning(f"LLM Judge failed, falling back to substring match: {e}")
+        # Fallback: simple substring match
+        logger.warning("LLM Judge failed, falling back to substring match.")
+        gt = question.ground_truth.strip().lower()
+        ans = response.answer_text.strip().lower()
+        is_match = gt in ans
 
-            # Fallback: simple substring match
-            gt = question.ground_truth.strip().lower()
-            ans = response.answer_text.strip().lower()
-            is_match = gt in ans
-
-            return EvaluationResult(
-                score=1.0 if is_match else 0.0,
-                latency_ms=response.latency_ms,
-                is_correct=is_match,
-                reasoning=f"LLM Judge unavailable ({e}). Fallback substring match used.",
-                metadata={
-                    "evaluator_type": "LLMJudgeEvaluator",
-                    "fallback": True,
-                    "error": str(e),
-                },
-            )
+        return EvaluationResult(
+            score=1.0 if is_match else 0.0,
+            latency_ms=response.latency_ms,
+            is_correct=is_match,
+            reasoning="LLM Judge unavailable. Fallback substring match used.",
+            metadata={
+                "evaluator_type": "LLMJudgeEvaluator",
+                "fallback": True,
+            },
+        )

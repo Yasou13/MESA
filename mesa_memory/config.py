@@ -334,7 +334,7 @@ class MesaConfig(BaseSettings):
         )
 
         object.__setattr__(self, "mesa_llm_provider", "ollama")
-        object.__setattr__(self, "llm_model_name", "llama3.1:8b")
+        object.__setattr__(self, "llm_model_name", "qwen3:8b")
         object.__setattr__(self, "rebel_enabled", True)
         # Ensure the OLLAMA_URL env var is set for the adapter factory
         os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)
