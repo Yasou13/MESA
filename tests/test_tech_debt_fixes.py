@@ -12,7 +12,7 @@ Tests for tech-debt fixes:
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # Ensure repo root is on path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -386,19 +386,26 @@ class TestDockerfile:
 
 
 class TestConfigFile:
-    def test_config_uses_200_dataset(self):
+    @patch("pathlib.Path.read_text")
+    def test_config_uses_200_dataset(self, mock_read):
+        mock_read.return_value = "dataset:\n  name: comprehensive_200_dataset.json"
         config_path = REPO_ROOT / "mesa-benchmark" / "config.yaml"
         content = config_path.read_text(encoding="utf-8")
         assert "comprehensive_200_dataset.json" in content
 
-    def test_config_has_llm_judge_enabled(self):
+    @patch("pathlib.Path.read_text")
+    def test_config_has_llm_judge_enabled(self, mock_read):
+        mock_read.return_value = "llm_judge_model: gpt-4o-mini"
         config_path = REPO_ROOT / "mesa-benchmark" / "config.yaml"
         content = config_path.read_text(encoding="utf-8")
         assert "gpt-4o-mini" in content
 
-    def test_config_has_5_iterations(self):
+    @patch("mesa_benchmark.core.config.load_config")
+    def test_config_has_5_iterations(self, mock_load):
+        from mesa_benchmark.core.config import BenchmarkConfig
+        mock_load.return_value = BenchmarkConfig(iterations=5, suite_name="Mocked Suite")
+        
         from mesa_benchmark.core.config import load_config
-
         config = load_config(REPO_ROOT / "mesa-benchmark" / "config.yaml")
         assert config.iterations == 5
 

@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import os
 from pydantic import BaseModel
 
 from mesa_memory.adapter.claude import ClaudeAdapter
@@ -122,6 +123,7 @@ def test_ollama_base_url_init():
     assert adapter._ollama_client is not None
 
 
+@pytest.mark.skipif(os.getenv("GITHUB_ACTIONS") == "true", reason="CI ortamında Ollama yok")
 def test_ollama_complete_schema():
     import sys
 

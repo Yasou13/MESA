@@ -97,5 +97,5 @@ def test_config_claude_no_key():
 def test_config_zero_cost_mode():
     config = MesaConfig(zero_cost_mode=True, mesa_llm_provider="openai_compatible")
     assert config.mesa_llm_provider == "ollama"
-    assert config.llm_model_name == "llama3.2:3b"
+    assert config.llm_model_name == "qwen3:8b"
     assert config.rebel_enabled is True
