@@ -102,6 +102,7 @@ dev = [
     "mypy>=1.10.0",
     "black>=24.0.0",
     "ruff>=0.4.0",
+    "nest_asyncio>=1.6.0",
 ]
 
 [project.urls]
