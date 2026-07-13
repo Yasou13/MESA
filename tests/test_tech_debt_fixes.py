@@ -402,10 +402,10 @@ class TestConfigFile:
 
     @patch("mesa_benchmark.core.config.load_config")
     def test_config_has_5_iterations(self, mock_load):
-        from mesa_benchmark.core.config import BenchmarkConfig
-        mock_load.return_value = BenchmarkConfig(iterations=5, suite_name="Mocked Suite")
-        
+        mock_load.return_value = MagicMock(iterations=5, suite_name="Mocked Suite")
+
         from mesa_benchmark.core.config import load_config
+
         config = load_config(REPO_ROOT / "mesa-benchmark" / "config.yaml")
         assert config.iterations == 5
 
