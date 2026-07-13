@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.2] - 2026-07-13
 
+### Added
+- **Comprehensive Benchmark Suite**: Introduced the `mesa-benchmark` ecosystem for rigorous, reproducible multi-tier evaluations of MESA's cognitive memory engine.
+- **Competitor Integrations**: Added out-of-the-box evaluation clients for industry competitors (Zep, Letta, Mem0) to run head-to-head performance comparisons.
+- **Google Colab Automation**: Shipped robust Google Colab notebooks with zero-touch "Run All" support, automated Git clone syncing, missing dependency installations, and `qwen3:8b`/`llama3.2:3b` setup scripts.
+- **Procedural Dataset Generator**: Added a scalable synthetic dataset generator script for extensive load and stress testing.
+- **Statistical Reporting Engine**: Overhauled the `MarkdownReporter` with beautiful aesthetic tables, Cohen's Kappa agreement tracking, and multi-model consensus contingency matrices.
+
 ### Fixed
-- Replaced physical `config.yaml` dependencies in unit tests with mocked configurations to ensure testing isolation.
-- Skipped network-dependent Ollama tests in GitHub Actions CI environment.
-- Added missing test dependencies (`nest_asyncio`, `datasets`) to CI pipeline.
-- Fixed `Mypy` type-checking errors in `tests/test_tech_debt_fixes.py` by using `MagicMock`.
-- Suppressed `E402` and `F841` linting errors in scratch and benchmark scripts.
+- **Evaluator & LLM Judge**: Resolved silent fallback bugs in the LLM Judge, suppressed `LiteLLM` debug banners, and formatted provider prefixes properly.
+- **Async & Connection Leaks**: Refactored the benchmark architecture to resolve `asyncio` event loop conflicts and unclosed DB connection/tempdir leaks.
+- **CI/CD Hardening**: 
+  - Mocked physical `config.yaml` dependencies in unit tests (`MagicMock`) to isolate the test suite.
+  - Skipped network-dependent Ollama tests in GitHub Actions.
+  - Added missing `nest_asyncio` and `datasets` packages to `pyproject.toml`.
+  - Suppressed `mypy` static typing errors and `ruff` (`E402`, `F841`) linting errors across scratch and benchmark scripts.
 
 ## [0.5.1] - 2026-06-03
 
