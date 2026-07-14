@@ -134,3 +134,73 @@ def test_mesa_client_adapter_rerank_config():
         assert response.metadata.get("mesa_version") == "0.6.0"
     finally:
         adapter.close()
+
+
+def test_bottleneck_diagnostics_and_report(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from mesa_benchmark.metrics.calculator import calculate_metrics_from_jsonl
+    from mesa_benchmark.reports.reporter import MarkdownReporter
+
+    # Create dummy JSONL with diagnostics
+    jsonl_path = tmp_path / "test_diag.jsonl"
+    records = [
+        {
+            "run_id": "test_run",
+            "iteration": 1,
+            "scenario_id": "sc1",
+            "question_id": "q1",
+            "score": 0.0,
+            "is_correct": False,
+            "latency_ms": 500.0,
+            "expected_context_ids": ["c1"],
+            "retrieved_context_ids": ["c2"],
+            "failure_attribution": "RETRIEVAL_MISS",
+            "latency_breakdown_ms": {
+                "vector_and_graph_search_ms": 20.0,
+                "rerank_ms": 450.0,
+                "total_retrieval_ms": 480.0,
+            },
+        },
+        {
+            "run_id": "test_run",
+            "iteration": 1,
+            "scenario_id": "sc1",
+            "question_id": "q2",
+            "score": 1.0,
+            "is_correct": True,
+            "latency_ms": 200.0,
+            "expected_context_ids": ["c3"],
+            "retrieved_context_ids": ["c3"],
+            "failure_attribution": "SUCCESS",
+            "latency_breakdown_ms": {
+                "vector_and_graph_search_ms": 15.0,
+                "rerank_ms": 150.0,
+                "total_retrieval_ms": 170.0,
+            },
+        },
+    ]
+
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+
+    metrics = calculate_metrics_from_jsonl(jsonl_path)
+    assert metrics.failure_attributions.get("RETRIEVAL_MISS") == 1
+    assert metrics.avg_latency_breakdown_ms.get("rerank_ms") == 300.0
+
+    dummy_config = SimpleNamespace(
+        suite_name="test_suite",
+        evaluation=SimpleNamespace(
+            metrics=["latency", "hit_at_k"], enable_agreement=False
+        ),
+    )
+    reporter = MarkdownReporter("test_run", dummy_config, output_dir=str(tmp_path))
+    report_file = reporter.generate_report(metrics)
+
+    with open(report_file, "r", encoding="utf-8") as rf:
+        content = rf.read()
+        assert "## 🛠️ 5. Root-Cause & Bottleneck Diagnostics" in content
+        assert "RETRIEVAL_MISS" in content
+        assert "rerank_ms" in content

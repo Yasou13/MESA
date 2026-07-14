@@ -350,6 +350,23 @@ class BenchmarkRunner:
                                 f"Latency: {eval_result.latency_ms:.2f}ms"
                             )
 
+                            # Determine root-cause failure attribution for diagnostics
+                            failure_attr = "SUCCESS"
+                            if not eval_result.is_correct and eval_result.score < 0.5:
+                                has_hit = any(
+                                    eid in response.retrieved_context_ids
+                                    for eid in q.expected_context_ids
+                                )
+                                if not has_hit and q.expected_context_ids:
+                                    failure_attr = "RETRIEVAL_MISS"
+                                elif (
+                                    len(response.retrieved_context_ids)
+                                    > len(q.expected_context_ids) + 3
+                                ):
+                                    failure_attr = "CONTEXT_NOISE"
+                                else:
+                                    failure_attr = "LLM_REASONING_ERROR"
+
                             result_record = {
                                 "run_id": self.run_id,
                                 "iteration": iteration,
@@ -367,6 +384,11 @@ class BenchmarkRunner:
                                     "completion", 0
                                 ),
                                 "evaluation_strategy": q.evaluation_strategy,
+                                "failure_attribution": failure_attr,
+                                "latency_breakdown_ms": response.metadata.get(
+                                    "latency_breakdown_ms", {}
+                                ),
+                                "diagnostics": response.metadata.get("diagnostics", {}),
                             }
 
                             # Dual-scoring: record secondary score and track agreement
@@ -412,6 +434,9 @@ class BenchmarkRunner:
                                 "prompt_tokens": 0,
                                 "completion_tokens": 0,
                                 "evaluation_strategy": q.evaluation_strategy,
+                                "failure_attribution": "TIMEOUT_OR_ERROR",
+                                "latency_breakdown_ms": {},
+                                "diagnostics": {"error": str(e)},
                             }
                             self._append_result(fail_record)
 

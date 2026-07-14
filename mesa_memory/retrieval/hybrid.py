@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -50,18 +51,25 @@ class HybridRetriever:
         session_id: str,
         top_n: int = 5,
         enable_multi_hop: bool = False,
+        collect_diagnostics: bool = False,
     ) -> list[str] | dict:
+        t_start = time.perf_counter()
+        stage_latencies: dict[str, float] = {}
+        stage_diagnostics: dict[str, Any] = {}
+
         if not await self.access_control.check_access(agent_id, session_id, "READ"):
             raise PermissionError(
                 f"Agent '{agent_id}' lacks READ access for session '{session_id}'"
             )
         normalized = normalize_query(query_text)
+        t_decomp = time.perf_counter()
         entities = self.analyzer.extract_entities(normalized)
 
         # Inject ontology-based legal entities to fix multi-hop failures
         legal_entities = self.legal_resolver.extract_entities(query_text)
         entities.extend(legal_entities)
         entities = list(set(entities))
+        stage_latencies["query_analysis_ms"] = (time.perf_counter() - t_decomp) * 1000
 
         # Graph node lookup via DAO
         seed_nodes = await self.dao.find_nodes_by_name(
@@ -78,6 +86,7 @@ class HybridRetriever:
         vector_results: list[Any] = []
         graph_results: list[Any] = []
 
+        t_vec_graph = time.perf_counter()
         if enable_multi_hop and self.embedder is not None:
             from mesa_memory.retrieval.decomposition import decompose_query
 
@@ -92,6 +101,9 @@ class HybridRetriever:
 
         all_tasks = vector_tasks + [graph_task]
         gather_results = await asyncio.gather(*all_tasks, return_exceptions=True)
+        stage_latencies["vector_and_graph_search_ms"] = (
+            time.perf_counter() - t_vec_graph
+        ) * 1000
 
         graph_res = gather_results.pop()
         if isinstance(graph_res, BaseException):
@@ -131,6 +143,7 @@ class HybridRetriever:
         lexical_results: list[dict] = []
 
         # Try FTS5 lexical search via DAO if available
+        t_fts = time.perf_counter()
         try:
             lexical_results = await self.dao.search_memory_fts(
                 agent_id, query=normalized, limit=100
@@ -153,10 +166,12 @@ class HybridRetriever:
                 exc_info=True,
             )
             lexical_results = []
+        stage_latencies["fts_search_ms"] = (time.perf_counter() - t_fts) * 1000
 
         pool_multiplier = getattr(config, "crossencoder_pool_multiplier", 3)
         pool_size = max(top_n * pool_multiplier, top_n)
 
+        t_rerank = time.perf_counter()
         if is_cold_start or not graph_results:
             if not vector_results:
                 candidate_ids: list[str] = []
@@ -190,13 +205,23 @@ class HybridRetriever:
             )
         else:
             cmb_ids = candidate_ids[:top_n]
+        stage_latencies["rerank_ms"] = (time.perf_counter() - t_rerank) * 1000
 
-        if not enable_multi_hop:
+        if collect_diagnostics:
+            stage_diagnostics["extracted_entities"] = entities
+            stage_diagnostics["vector_hits_count"] = len(vector_results)
+            stage_diagnostics["graph_hits_count"] = len(graph_results)
+            stage_diagnostics["lexical_hits_count"] = len(lexical_results)
+            stage_diagnostics["pre_rerank_candidate_ids"] = candidate_ids[:15]
+            stage_diagnostics["post_rerank_ids"] = cmb_ids
+
+        if not enable_multi_hop and not collect_diagnostics:
             return cmb_ids
 
         # --- Multi-hop graph traversal between top 2 seed entities ---
         # Uses KùzuDB's variable-length path traversal via DAO instead
         # of the legacy NetworkX snapshot.  Zero OOM risk.
+        t_mh = time.perf_counter()
         multi_hop_path: list[str] = []
         if len(seed_nodes) >= 1:
             source_id = seed_nodes[0]["id"]
@@ -237,8 +262,16 @@ class HybridRetriever:
                     source_id,
                     exc_info=True,
                 )
+        stage_latencies["multi_hop_traversal_ms"] = (time.perf_counter() - t_mh) * 1000
+        stage_latencies["total_retrieval_ms"] = (time.perf_counter() - t_start) * 1000
 
-        return {"cmb_ids": cmb_ids, "multi_hop_path": multi_hop_path}
+        result_dict = {
+            "cmb_ids": cmb_ids,
+            "multi_hop_path": multi_hop_path,
+            "latency_breakdown_ms": stage_latencies,
+            "diagnostics": stage_diagnostics,
+        }
+        return result_dict
 
     async def get_vector_results(
         self, agent_id: str, query_text: str, k: int = 10

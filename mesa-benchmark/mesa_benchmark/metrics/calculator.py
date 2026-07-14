@@ -42,6 +42,14 @@ class BenchmarkMetrics(BaseModel):
     token_efficiency: Optional[float] = Field(
         None, description="Total prompt tokens / correct answers."
     )
+    failure_attributions: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Breakdown of failure causes: RETRIEVAL_MISS, CONTEXT_NOISE, LLM_REASONING_ERROR, TIMEOUT_OR_ERROR.",
+    )
+    avg_latency_breakdown_ms: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Average response latency across each internal retrieval stage in ms.",
+    )
 
 
 class MetricsEngine:
@@ -177,6 +185,10 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     rr_sum = 0.0
     ndcg_sum = 0.0
 
+    failure_counts: Dict[str, int] = {}
+    stage_latencies_sum: Dict[str, float] = {}
+    stage_latencies_count: Dict[str, int] = {}
+
     engine = MetricsEngine()
 
     # Use a dictionary to deduplicate records in case of resumed benchmarks
@@ -225,6 +237,23 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
 
             ndcg_sum += engine.calculate_ndcg(expected, retrieved, k=5)
 
+        # Diagnostics: failure attribution
+        failure_attr = data.get("failure_attribution")
+        if failure_attr and failure_attr != "SUCCESS":
+            failure_counts[failure_attr] = failure_counts.get(failure_attr, 0) + 1
+
+        # Diagnostics: stage latencies
+        breakdown = data.get("latency_breakdown_ms", {})
+        if isinstance(breakdown, dict):
+            for stage, ms in breakdown.items():
+                if isinstance(ms, (int, float)) and ms >= 0:
+                    stage_latencies_sum[stage] = stage_latencies_sum.get(
+                        stage, 0.0
+                    ) + float(ms)
+                    stage_latencies_count[stage] = (
+                        stage_latencies_count.get(stage, 0) + 1
+                    )
+
     if total_count == 0:
         return BenchmarkMetrics()
 
@@ -250,6 +279,12 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     if correct_count > 0 and total_tokens > 0:
         token_efficiency = total_tokens / correct_count
 
+    avg_stage_latencies = {
+        stage: round(stage_latencies_sum[stage] / stage_latencies_count[stage], 2)
+        for stage in stage_latencies_sum
+        if stage_latencies_count.get(stage, 0) > 0
+    }
+
     return BenchmarkMetrics(
         total_questions=total_count,
         correct_answers=correct_count,
@@ -264,4 +299,6 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         mrr=rr_sum / total_count,
         ndcg=ndcg_sum / total_count,
         token_efficiency=token_efficiency,
+        failure_attributions=failure_counts,
+        avg_latency_breakdown_ms=avg_stage_latencies,
     )

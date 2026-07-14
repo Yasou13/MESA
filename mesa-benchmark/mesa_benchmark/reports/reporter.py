@@ -165,6 +165,71 @@ class MarkdownReporter:
                     ]
                 )
 
+        # Root-Cause & Bottleneck Diagnostics Section
+        failure_attrs = m.get("failure_attributions", {})
+        latency_breakdown = m.get("avg_latency_breakdown_ms", {})
+        if failure_attrs or latency_breakdown:
+            report_lines.extend(
+                [
+                    "",
+                    "## 🛠️ 5. Root-Cause & Bottleneck Diagnostics (Zafiyet ve Darboğaz Analizi)",
+                    "Bu bölüm, sistemin sadece ne kadar puan aldığını değil, başarısız veya yavaş olan sorguların **doğrudan kaynağını (bottleneck)** gösterir.",
+                    "",
+                ]
+            )
+
+            if failure_attrs:
+                total_fails = sum(failure_attrs.values())
+                report_lines.extend(
+                    [
+                        "### 🔬 Failure Source Attribution (Hata Kaynağı Dağılımı)",
+                        f"Toplam başarısız/düşük puanlı sorgu sayısı: **{total_fails}**",
+                        "",
+                        "| Hata Kaynağı (Root Cause) | Sayı | Oran (%) | Teşhis & Anlamı |",
+                        "|:---|:---|:---|:---|",
+                    ]
+                )
+                descriptions = {
+                    "RETRIEVAL_MISS": "🔴 **Arama Zafiyeti:** Beklenen bağlam Vektör/Çizge tarafından bulunamadı.",
+                    "CONTEXT_NOISE": "🟡 **Graf Gürültüsü:** Doğru bağlam geldi ama Multi-Hop aşırı uç ekleyip LLM'i şaşırttı.",
+                    "LLM_REASONING_ERROR": "🔵 **LLM Mantık Zafiyeti:** Doğru bağlam 1. sırada geldi ama LLM cevabı çıkaramadı.",
+                    "TIMEOUT_OR_ERROR": "⚫ **Zaman Aşımı / Sistem Hatası:** Sorgu süresi doldu veya exception fırlatıldı.",
+                }
+                for attr, count in failure_attrs.items():
+                    pct = (count / total_fails * 100) if total_fails > 0 else 0.0
+                    desc = descriptions.get(attr, "Bilindışı hata kaynağı.")
+                    report_lines.append(
+                        f"| **{attr}** | {count} | %{pct:.1f} | {desc} |"
+                    )
+                report_lines.append("")
+
+            if latency_breakdown:
+                total_bd = sum(latency_breakdown.values())
+                report_lines.extend(
+                    [
+                        "### ⏱️ Internal Latency Breakdown (Katman Darboğazları)",
+                        "Her bir arama katmanının ortalama ne kadar milisaniye harcadığı ve toplam gecikmedeki payı:",
+                        "",
+                        "| Arama Katmanı | Ortalama Süre (ms) | Pay (%) | Durum |",
+                        "|:---|:---|:---|:---|",
+                    ]
+                )
+                for stage, ms in sorted(
+                    latency_breakdown.items(), key=lambda x: x[1], reverse=True
+                ):
+                    if stage == "total_retrieval_ms":
+                        continue
+                    pct = (ms / total_bd * 100) if total_bd > 0 else 0.0
+                    status = (
+                        "⚠️ **DARBOĞAZ**"
+                        if pct > 50
+                        else ("🟢 Normal" if pct < 20 else "🟡 İzlenmeli")
+                    )
+                    report_lines.append(
+                        f"| **{stage}** | {ms:.2f} ms | %{pct:.1f} | {status} |"
+                    )
+                report_lines.append("")
+
         report_lines.append("")
 
         if output_path is None:

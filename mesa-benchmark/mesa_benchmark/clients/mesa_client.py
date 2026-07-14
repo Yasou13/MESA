@@ -102,10 +102,10 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 try:
                     from mesa_memory.retrieval.reranker import CrossEncoderReranker
 
-                    model_to_use = self.reranker_model or "cross-encoder/ms-marco-MiniLM-L-6-v2"
-                    reranker_instance = CrossEncoderReranker(
-                        model_name=model_to_use
+                    model_to_use = (
+                        self.reranker_model or "cross-encoder/ms-marco-MiniLM-L-6-v2"
                     )
+                    reranker_instance = CrossEncoderReranker(model_name=model_to_use)
                     logger.info(
                         "CrossEncoderReranker initialized for benchmark client with model: %s",
                         model_to_use,
@@ -251,6 +251,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                         session_id="__unset__",
                         top_n=self.top_n,
                         enable_multi_hop=self.enable_multi_hop,
+                        collect_diagnostics=True,
                     ),
                     timeout=self.timeout_s,
                 )
@@ -298,6 +299,12 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
         latency = (time.time() - start_time) * 1000
 
+        latency_breakdown = {}
+        diagnostics = {}
+        if isinstance(results, dict):
+            latency_breakdown = results.get("latency_breakdown_ms", {})
+            diagnostics = results.get("diagnostics", {})
+
         return BenchmarkResponse(
             answer_text=answer_text,
             retrieved_context_ids=retrieved_ids,
@@ -307,6 +314,8 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 "multi_hop_enabled": self.enable_multi_hop,
                 "rerank_enabled": self.enable_rerank,
                 "graph_backend": "KuzuDB",
+                "latency_breakdown_ms": latency_breakdown,
+                "diagnostics": diagnostics,
             },
         )
 
