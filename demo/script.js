@@ -142,19 +142,10 @@ chatForm.addEventListener("submit", async (e) => {
     const typingId = addMessage("MESA", "Thinking", "ai-msg typing");
 
     try {
-        // 1. Insert user message into memory (fire-and-forget, don't block UI)
-        fetch(`${API_BASE}/insert`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": state.apiKey },
-            body: JSON.stringify({
-                agent_id: state.agentId,
-                session_id: state.sessionId,
-                content: text,
-                metadata: { source: "demo_ui" }
-            })
-        }).catch(err => console.warn("Insert failed (non-blocking):", err));
+        // The /v3/demo/chat endpoint handles direct-write to the vector
+        // store internally, so no separate insert call is needed.
 
-        // 2. RAG endpoint — search + LLM generation
+        // RAG endpoint — direct-write + search + LLM generation
         const res = await fetch("/v3/demo/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-API-Key": state.apiKey },
@@ -189,6 +180,10 @@ function renderTelemetry(data) {
                 <span class="value">${data.latency_ms} ms</span>
             </div>
             <div class="metric-pill">
+                <span class="label">Stored</span>
+                <span class="value">${data.memory_stored ? "✓" : "✗"}</span>
+            </div>
+            <div class="metric-pill">
                 <span class="label">Context Hits</span>
                 <span class="value">${data.context.length}</span>
             </div>
@@ -204,7 +199,7 @@ function renderTelemetry(data) {
             html += `
                 <div class="telemetry-card">
                     <div class="card-header">
-                        <span class="entity-name">${escapeHtml(ctx.entity || "Unknown")}</span>
+                        <span class="entity-name">${escapeHtml(ctx.content || ctx.text || ctx.memory || ctx.entity || "Unknown Context")}</span>
                         <span class="score-badge">${score.toFixed(3)}</span>
                     </div>
                     <div class="progress-track">

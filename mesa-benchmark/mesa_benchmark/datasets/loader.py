@@ -22,8 +22,9 @@ class DatasetManager:
     def load(self) -> None:
         """Loads and validates the dataset from JSON."""
         if not self.dataset_path.exists():
-            # Fallback 1: check relative to this module's directory (mesa_benchmark/datasets/)
-            fallback = Path(__file__).resolve().parent / self.dataset_path.name
+            # Fallback 1: check relative to the mesa-benchmark project root
+            project_root = Path(__file__).resolve().parent.parent.parent
+            fallback = project_root / self.dataset_path
             if fallback.exists():
                 self.dataset_path = fallback
             else:

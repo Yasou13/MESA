@@ -1,10 +1,12 @@
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
 class MarkdownReporter:
-    def __init__(self, run_id: str, config: Any):
+    def __init__(self, run_id: str, config: Any, output_dir: Optional[str] = None):
         self.run_id = run_id
         self.config = config
+        self.output_dir = Path(output_dir) if output_dir else Path("results")
 
     def generate_report(self, metrics: Any) -> str:
         """Generate report from a BenchmarkMetrics object."""
@@ -153,7 +155,8 @@ class MarkdownReporter:
         report_lines.append("")
 
         if output_path is None:
-            output_path = f"report_{self.run_id}.md"
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = str(self.output_dir / f"report_{self.run_id}.md")
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(report_lines))
         return output_path

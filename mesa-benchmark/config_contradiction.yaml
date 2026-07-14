@@ -1,0 +1,27 @@
+suite_name: "MESA v0.5.2 Contradiction Benchmark (Ollama Remote)"
+iterations: 1
+seed: 42
+
+dataset:
+  name: "contradiction_stress_200"
+  version: "v2"
+  path: "datasets/contradiction_200.json"
+  noise_ratio: 0.0
+
+client:
+  name: "mesa_client"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  timeout_ms: 30000
+  parameters:
+    verbose: false
+
+evaluation:
+  metrics:
+    - "hit_at_k"
+    - "mrr"
+    - "latency"
+    - "efficiency"
+  llm_judge_model: "openai/qwen3:8b"
+  multi_judge_models:
+    - "openai/qwen3:8b"
+  enable_agreement: true
