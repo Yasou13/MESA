@@ -70,28 +70,59 @@ class HybridRetriever:
             len(seed_ids) == 0 or len(all_nodes) < config.cold_start_min_nodes
         )
 
-        vector_task = self.get_vector_results(agent_id, normalized, k=100)
-        graph_task = self.get_graph_results(agent_id, entities)
-
         vector_results: list[Any] = []
         graph_results: list[Any] = []
-        gather_results = await asyncio.gather(
-            vector_task, graph_task, return_exceptions=True
-        )
-        for i, result in enumerate(gather_results):
-            if isinstance(result, BaseException):
-                label = "vector" if i == 0 else "graph"
+
+        if enable_multi_hop and self.embedder is not None:
+            from mesa_memory.retrieval.decomposition import decompose_query
+
+            subqueries = await decompose_query(normalized, self.embedder)
+            vector_tasks = [
+                self.get_vector_results(agent_id, sq, k=100) for sq in subqueries
+            ]
+        else:
+            vector_tasks = [self.get_vector_results(agent_id, normalized, k=100)]
+
+        graph_task = self.get_graph_results(agent_id, entities)
+
+        all_tasks = vector_tasks + [graph_task]
+        gather_results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+        graph_res = gather_results.pop()
+        if isinstance(graph_res, BaseException):
+            logger.error(
+                "HYBRID_RETRIEVAL_GRAPH_FAILED | agent_id=%s error=%s",
+                agent_id,
+                graph_res,
+                exc_info=graph_res,
+            )
+        else:
+            graph_results = graph_res
+
+        merged_vectors: dict[str, Any] = {}
+        for res in gather_results:
+            if isinstance(res, BaseException):
                 logger.error(
-                    "HYBRID_RETRIEVAL_%s_FAILED | agent_id=%s error=%s",
-                    label.upper(),
+                    "HYBRID_RETRIEVAL_VECTOR_FAILED | agent_id=%s error=%s",
                     agent_id,
-                    result,
-                    exc_info=result,
-                )  # pragma: no cover
-            elif i == 0:
-                vector_results = result  # type: ignore[assignment]
-            else:
-                graph_results = result  # type: ignore[assignment]
+                    res,
+                    exc_info=res,
+                )
+            elif isinstance(res, list):
+                for item in res:
+                    cmb_id = item.get("cmb_id")
+                    if cmb_id:
+                        if (
+                            cmb_id not in merged_vectors
+                            or item["score"] > merged_vectors[cmb_id]["score"]
+                        ):
+                            merged_vectors[cmb_id] = item
+
+        vector_results = sorted(
+            merged_vectors.values(), key=lambda x: x["score"], reverse=True
+        )
+        for i, r in enumerate(vector_results):
+            r["rank"] = i + 1
         lexical_results: list[dict] = []
 
         # Try FTS5 lexical search via DAO if available

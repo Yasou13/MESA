@@ -24,6 +24,7 @@ from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_workers.entity_consolidation_worker import schedule_consolidation_worker
 from mesa_workers.maintenance import MaintenanceWorker
 from mesa_workers.maintenance_pagerank import schedule_pagerank_worker
 from mesa_workers.rem_cycle import REMCycleWorker
@@ -205,6 +206,19 @@ async def lifespan(app: FastAPI):
         logger.info("PageRank worker scheduled successfully.")
     except Exception as exc:
         logger.error("Failed to schedule PageRank worker: %s", exc)
+
+    consolidation_task = None
+    try:
+        consolidation_adapter = AdapterFactory.get_adapter()
+        consolidation_task = asyncio.create_task(
+            schedule_consolidation_worker(
+                dao=state.dao, llm_adapter=consolidation_adapter
+            )
+        )
+        state.background_tasks.add(consolidation_task)
+        logger.info("Consolidation worker scheduled successfully.")
+    except Exception as exc:
+        logger.error("Failed to schedule Consolidation worker: %s", exc)
 
     maintenance_worker = MaintenanceWorker(
         sqlite_engine=state.sqlite_engine,

@@ -1051,6 +1051,48 @@ class MemoryDAO:
         return nodes_deleted
 
     # ==================================================================
+    # UPDATE ENTITY DESCRIPTION
+    # ==================================================================
+
+    async def update_entity_description(
+        self,
+        agent_id: str,
+        node_id: str,
+        new_content: str,
+        new_embedding: list[float],
+    ) -> None:
+        """Update an existing entity node's content and embedding.
+
+        This performs a dual-write:
+            1. Updates `content_payload` in the SQLite nodes table.
+            2. Upserts the new text and embedding in the LanceDB vector index.
+
+        Args:
+            agent_id: Mandatory tenant isolation key.
+            node_id: UUID of the node to update.
+            new_content: The new consolidated text description.
+            new_embedding: Float32 embedding of the new content.
+        """
+        _assert_valid_agent_id(agent_id)
+
+        # 1. Update SQLite relational node
+        async with self._sql.transaction() as db:
+            await db.execute(
+                "UPDATE nodes SET content_payload = ? "
+                "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
+                (new_content, node_id, agent_id),
+            )
+            await db.commit()
+
+        # 2. Update Vector table via upsert
+        await self.vector_engine.upsert(
+            agent_id=agent_id,
+            node_id=node_id,
+            content=new_content,
+            embedding=new_embedding,
+        )
+
+    # ==================================================================
     # MARK CONSOLIDATED — agent-scoped
     # ==================================================================
 
