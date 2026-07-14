@@ -64,93 +64,104 @@ class MarkdownReporter:
             "",
         ]
 
+        metrics_list = self.config.evaluation.metrics if self.config else []
+
         # Agreement Section
-        agreement_data = metrics_dict.get("agreement", {})
-        if agreement_data:
-            report_lines.extend(
-                [
-                    "### 🤝 Methodological Verification (Keyword vs LLM-Judge Agreement)",
-                    "",
-                    "Bu tablo, keyword/exact-match evaluator ile LLM-Judge evaluator arasındaki uyumu gösterir.",
-                    "Yüksek uyum oranı (≥80%) keyword matching'in güvenilir bir proxy olduğunu kanıtlar.",
-                    "",
-                    "| Evaluator Pair | Agreement Rate (%) | Cohen's Kappa | Assessment |",
-                    "|:---|:---|:---|:---|",
-                ]
-            )
-
-            kappa = agreement_data.get("cohens_kappa", 0)
-            rate = agreement_data.get("agreement_rate", 0)
-            assessment = (
-                "✅ Yüksek Uyum — Güvenilir Proxy"
-                if kappa >= 0.7
-                else "⚠️ Düşük Uyum — LLM-Judge zorunlu"
-            )
-            report_lines.extend(
-                [
-                    f"| **Keyword vs LLM-Judge** | **%{rate:.2f}** | `{kappa:.4f}` | {assessment} |"
-                ]
-            )
-
-            conf = agreement_data.get("contingency_table", {})
-            if conf:
-                tt = conf.get("both_correct", 0)
-                tf = conf.get("only_a_correct", 0)
-                ft = conf.get("only_b_correct", 0)
-                ff = conf.get("both_incorrect", 0)
-
+        if self.config and getattr(self.config.evaluation, "enable_agreement", False):
+            agreement_data = metrics_dict.get("agreement", {})
+            if agreement_data:
                 report_lines.extend(
                     [
+                        "### 🤝 Methodological Verification (Keyword vs LLM-Judge Agreement)",
                         "",
-                        "**Contingency Table:**",
+                        "Bu tablo, keyword/exact-match evaluator ile LLM-Judge evaluator arasındaki uyumu gösterir.",
+                        "Yüksek uyum oranı (≥80%) keyword matching'in güvenilir bir proxy olduğunu kanıtlar.",
                         "",
-                        "| | Judge: Correct | Judge: Incorrect |",
-                        "|:---|:---|:---|",
-                        f"| **Keyword: Correct** | {tt} | {tf} |",
-                        f"| **Keyword: Incorrect** | {ft} | {ff} |",
+                        "| Evaluator Pair | Agreement Rate (%) | Cohen's Kappa | Assessment |",
+                        "|:---|:---|:---|:---|",
                     ]
                 )
 
-        report_lines.extend(
-            [
-                "",
-                "## ⚡ 2. Speed & Latency (Hız ve Gecikme)",
-                "Sistemin veritabanından bağlamı ne kadar sürede getirdiğini ölçer. Daha düşük her zaman daha iyidir.",
-                "",
-                "| Metric | Time (ms) | Açıklama |",
-                "|:---|:---|:---|",
-                f"| **Average Latency** | {avg_lat:.2f} ms | Ortalama tepki süresi |",
-                f"| **P95 Latency** | {p95_lat:.2f} ms | Sorguların %95'i bu süreden daha hızlı bitti |",
-                f"| **P99 Latency** | {p99_lat:.2f} ms | En zorlu sorguların maksimum süresi |",
-                "",
-                "## 🔍 3. Retrieval Performance (Hafıza Bulma Başarısı)",
-                "Sistemin Vektör + KùzuDB Çizge arama mimarisinin doğru bilgiyi ne kadar isabetli bulduğunu gösterir.",
-                "",
-                "| Metric | Score | Açıklama |",
-                "|:---|:---|:---|",
-                f"| **Hit@1** | %{hit1:.2f} | Doğru bilgi 1. sırada geldi |",
-                f"| **Hit@3** | %{hit3:.2f} | Doğru bilgi ilk 3 sonuç içinde yer aldı |",
-                f"| **Hit@5** | %{hit5:.2f} | Doğru bilgi ilk 5 sonuç içinde yer aldı |",
-                f"| **MRR** | %{mrr:.2f} | Ortalama İlk Bulma Sırası (Mean Reciprocal Rank) |",
-                f"| **nDCG@5** | %{ndcg:.2f} | Normalize Edilmiş İndirgenmiş Kümülatif Kazanç (Top-5) |",
-                "",
-                "> 💡 **İpucu:** `Hit@K` oranları ve Multi-Hop Çizge entegrasyonu sayesinde MESA hafıza katmanı, ilişkili varlıklar arasındaki uzun zincirli çıkarımlarda standart Vektör+SQLite sistemlerinden net şekilde ayrışmaktadır.",
-            ]
-        )
+                kappa = agreement_data.get("cohens_kappa", 0)
+                rate = agreement_data.get("agreement_rate", 0)
+                assessment = (
+                    "✅ Yüksek Uyum — Güvenilir Proxy"
+                    if kappa >= 0.7
+                    else "⚠️ Düşük Uyum — LLM-Judge zorunlu"
+                )
+                report_lines.extend(
+                    [
+                        f"| **Keyword vs LLM-Judge** | **%{rate:.2f}** | `{kappa:.4f}` | {assessment} |"
+                    ]
+                )
 
-        token_eff = m.get("token_efficiency")
-        if token_eff is not None:
+                conf = agreement_data.get("contingency_table", {})
+                if conf:
+                    tt = conf.get("both_correct", 0)
+                    tf = conf.get("only_a_correct", 0)
+                    ft = conf.get("only_b_correct", 0)
+                    ff = conf.get("both_incorrect", 0)
+
+                    report_lines.extend(
+                        [
+                            "",
+                            "**Contingency Table:**",
+                            "",
+                            "| | Judge: Correct | Judge: Incorrect |",
+                            "|:---|:---|:---|",
+                            f"| **Keyword: Correct** | {tt} | {tf} |",
+                            f"| **Keyword: Incorrect** | {ft} | {ff} |",
+                        ]
+                    )
+
+        if "latency" in metrics_list:
             report_lines.extend(
                 [
                     "",
-                    "## 💎 4. Token Efficiency",
-                    "Doğru bir cevap üretmek için sistemin ve LLM'in maliyet/token performansını gösterir.",
+                    "## ⚡ 2. Speed & Latency (Hız ve Gecikme)",
+                    "Sistemin veritabanından bağlamı ne kadar sürede getirdiğini ölçer. Daha düşük her zaman daha iyidir.",
                     "",
-                    "| Metric | Value | Açıklama |",
+                    "| Metric | Time (ms) | Açıklama |",
                     "|:---|:---|:---|",
-                    f"| **Tokens / Correct Answer** | {token_eff:.1f} | 1 doğru cevap başına harcanan ortalama token (Prompt + Completion) |",
+                    f"| **Average Latency** | {avg_lat:.2f} ms | Ortalama tepki süresi |",
+                    f"| **P95 Latency** | {p95_lat:.2f} ms | Sorguların %95'i bu süreden daha hızlı bitti |",
+                    f"| **P99 Latency** | {p99_lat:.2f} ms | En zorlu sorguların maksimum süresi |",
                 ]
             )
+
+        if "hit_at_k" in metrics_list or "mrr" in metrics_list:
+            report_lines.extend(
+                [
+                    "",
+                    "## 🔍 3. Retrieval Performance (Hafıza Bulma Başarısı)",
+                    "Sistemin Vektör + KùzuDB Çizge arama mimarisinin doğru bilgiyi ne kadar isabetli bulduğunu gösterir.",
+                    "",
+                    "| Metric | Score | Açıklama |",
+                    "|:---|:---|:---|",
+                    f"| **Hit@1** | %{hit1:.2f} | Doğru bilgi 1. sırada geldi |",
+                    f"| **Hit@3** | %{hit3:.2f} | Doğru bilgi ilk 3 sonuç içinde yer aldı |",
+                    f"| **Hit@5** | %{hit5:.2f} | Doğru bilgi ilk 5 sonuç içinde yer aldı |",
+                    f"| **MRR** | %{mrr:.2f} | Ortalama İlk Bulma Sırası (Mean Reciprocal Rank) |",
+                    f"| **nDCG@5** | %{ndcg:.2f} | Normalize Edilmiş İndirgenmiş Kümülatif Kazanç (Top-5) |",
+                    "",
+                    "> 💡 **İpucu:** `Hit@K` oranları ve Multi-Hop Çizge entegrasyonu sayesinde MESA hafıza katmanı, ilişkili varlıklar arasındaki uzun zincirli çıkarımlarda standart Vektör+SQLite sistemlerinden net şekilde ayrışmaktadır.",
+                ]
+            )
+
+        if "efficiency" in metrics_list:
+            token_eff = m.get("token_efficiency")
+            if token_eff is not None:
+                report_lines.extend(
+                    [
+                        "",
+                        "## 💎 4. Token Efficiency",
+                        "Doğru bir cevap üretmek için sistemin ve LLM'in maliyet/token performansını gösterir.",
+                        "",
+                        "| Metric | Value | Açıklama |",
+                        "|:---|:---|:---|",
+                        f"| **Tokens / Correct Answer** | {token_eff:.1f} | 1 doğru cevap başına harcanan ortalama token (Prompt + Completion) |",
+                    ]
+                )
 
         report_lines.append("")
 

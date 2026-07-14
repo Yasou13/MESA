@@ -70,6 +70,7 @@ class LLMJudgeEvaluator(BaseEvaluator):
                 effective_prompt = "/no_think\n" + prompt
 
             base_url = os.environ.get("OPENAI_BASE_URL", "")
+            is_litellm = False
             if "11434" in base_url:
                 import ollama
 
@@ -83,6 +84,7 @@ class LLMJudgeEvaluator(BaseEvaluator):
                 )
                 raw = resp.get("message", {}).get("content", "")
             else:
+                is_litellm = True
                 response = litellm.completion(
                     model=target_model,
                     messages=[{"role": "user", "content": effective_prompt}],
@@ -95,7 +97,7 @@ class LLMJudgeEvaluator(BaseEvaluator):
             raw = raw.strip()
 
             # Fallback: if content is empty, try reasoning_content (thinking models)
-            if not raw:
+            if not raw and is_litellm:
                 msg = response.choices[0].message
                 reasoning = getattr(msg, "reasoning_content", None) or ""
                 if reasoning:

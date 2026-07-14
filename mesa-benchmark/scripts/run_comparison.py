@@ -38,7 +38,7 @@ def main():
     parser.add_argument(
         "--override-judge",
         action="store_true",
-        default=True,
+        default=False,
         help="Force all configs to use openai/qwen3:8b as the LLM judge for fairness.",
     )
 

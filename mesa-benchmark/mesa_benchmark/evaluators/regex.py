@@ -1,22 +1,28 @@
+import re
+
 from ..clients.base import BenchmarkResponse
 from ..datasets.schemas import BenchmarkQuestion
 from .base import BaseEvaluator, EvaluationResult
 
 
-class ExactMatchEvaluator(BaseEvaluator):
+class RegexEvaluator(BaseEvaluator):
     """
-    A simple evaluator that checks if the exact ground truth string
-    is present within the target system's response (case-insensitive substring match).
+    Evaluator that checks if the ground truth pattern exists in the response
+    using a regular expression search.
     """
 
     def evaluate(
         self, response: BenchmarkResponse, question: BenchmarkQuestion
     ) -> EvaluationResult:
-        ground_truth = question.ground_truth.strip().lower()
-        actual_answer = response.answer_text.strip().lower()
+        pattern = question.ground_truth.strip()
+        actual_answer = response.answer_text.strip()
 
-        # Substring exact match (case-insensitive)
-        is_match = ground_truth in actual_answer
+        try:
+            is_match = bool(re.search(pattern, actual_answer, re.IGNORECASE))
+        except re.error:
+            # If the regex is invalid, default to False
+            is_match = False
+
         score = 1.0 if is_match else 0.0
 
         return EvaluationResult(
@@ -24,7 +30,7 @@ class ExactMatchEvaluator(BaseEvaluator):
             latency_ms=response.latency_ms,
             is_correct=is_match,
             metadata={
-                "evaluator_type": "ExactMatchEvaluator",
+                "evaluator_type": "RegexEvaluator",
                 "ground_truth": question.ground_truth,
                 "actual_answer": response.answer_text,
             },

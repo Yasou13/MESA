@@ -15,8 +15,9 @@ class DatasetLoaderError(BenchmarkError):
 
 
 class DatasetManager:
-    def __init__(self, dataset_path: str | Path):
+    def __init__(self, dataset_path: str | Path, noise_ratio: float = 0.0):
         self.dataset_path = Path(dataset_path)
+        self.noise_ratio = noise_ratio
         self.scenarios: List[BenchmarkScenario] = []
 
     def load(self) -> None:
@@ -46,6 +47,24 @@ class DatasetManager:
             try:
                 scenario = BenchmarkScenario(**item)
 
+                # Apply text corruption if noise_ratio > 0
+                if self.noise_ratio > 0.0:
+                    import random
+                    import string
+
+                    num_to_corrupt = int(len(scenario.contexts) * self.noise_ratio)
+                    if num_to_corrupt > 0:
+                        contexts_to_corrupt = random.sample(
+                            scenario.contexts, num_to_corrupt
+                        )
+                        for ctx in contexts_to_corrupt:
+                            # Append random gibberish to simulate noisy data extraction
+                            noise = " ".join(
+                                "".join(random.choices(string.ascii_letters, k=8))
+                                for _ in range(5)
+                            )
+                            ctx.text = f"{ctx.text} {noise}"
+
                 # Check for duplicate scenario IDs
                 if scenario.id in scenario_ids:
                     raise DatasetLoaderError(
@@ -54,7 +73,14 @@ class DatasetManager:
                 scenario_ids.add(scenario.id)
 
                 # Validate that expected_context_ids exist in the contexts
-                context_ids = {ctx.id for ctx in scenario.contexts}
+                context_ids = set()
+                for ctx in scenario.contexts:
+                    if ctx.id in context_ids:
+                        raise DatasetLoaderError(
+                            f"Duplicate context ID '{ctx.id}' in scenario '{scenario.id}'"
+                        )
+                    context_ids.add(ctx.id)
+
                 for q in scenario.questions:
                     for ec_id in q.expected_context_ids:
                         if ec_id not in context_ids:

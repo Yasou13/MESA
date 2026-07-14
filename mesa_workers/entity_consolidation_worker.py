@@ -125,20 +125,20 @@ async def schedule_consolidation_worker(
 ) -> None:
     logger.info("Consolidation worker scheduled (interval=%ds)", interval_sec)
 
-    while True:
-        try:
-            agent_ids = await dao.get_all_active_agent_ids()
-            for agent_id in agent_ids:
-                try:
-                    await run_consolidation_scan(agent_id, dao, llm_adapter)
-                except Exception as exc:
-                    logger.error(
-                        "Consolidation scan failed for agent %s: %s", agent_id, exc
-                    )
-        except asyncio.CancelledError:
-            logger.info("Consolidation worker cancelled.")
-            break
-        except Exception as exc:
-            logger.error("Consolidation worker encountered an error: %s", exc)
+    try:
+        while True:
+            try:
+                agent_ids = await dao.get_all_active_agent_ids()
+                for agent_id in agent_ids:
+                    try:
+                        await run_consolidation_scan(agent_id, dao, llm_adapter)
+                    except Exception as exc:
+                        logger.error(
+                            "Consolidation scan failed for agent %s: %s", agent_id, exc
+                        )
+            except Exception as exc:
+                logger.error("Consolidation worker encountered an error: %s", exc)
 
-        await asyncio.sleep(interval_sec)
+            await asyncio.sleep(interval_sec)
+    except asyncio.CancelledError:
+        logger.info("Consolidation worker cancelled.")

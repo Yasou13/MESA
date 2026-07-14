@@ -51,6 +51,13 @@ class BenchmarkRunner:
         """Registers evaluators based on configuration."""
         self.evaluators["exact_match"] = ExactMatchEvaluator()
 
+        try:
+            from ..evaluators.regex import RegexEvaluator
+
+            self.evaluators["regex"] = RegexEvaluator()
+        except ImportError:
+            logger.warning("RegexEvaluator not available.")
+
         # Single-model LLM judge
         try:
             from ..evaluators.llm_judge import LLMJudgeEvaluator
@@ -80,13 +87,12 @@ class BenchmarkRunner:
                 )
 
     def _get_evaluator(self, strategy: str) -> BaseEvaluator:
-        """Returns the evaluator for the given strategy, falling back to exact_match."""
+        """Returns the evaluator for the given strategy, raising ValueError if unknown."""
         if strategy in self.evaluators:
             return self.evaluators[strategy]
-        logger.warning(
-            f"Unknown evaluation strategy '{strategy}', falling back to exact_match."
+        raise ValueError(
+            f"Unknown evaluation strategy '{strategy}'. Known strategies: {list(self.evaluators.keys())}"
         )
-        return self.evaluators["exact_match"]
 
     def _load_client(self) -> None:
         """Dynamically loads and initializes the client adapter."""
@@ -122,60 +128,73 @@ class BenchmarkRunner:
     def _call_with_backoff(
         self, func: Any, *args: Any, max_retries: int = 3, **kwargs: Any
     ) -> Any:
-        """Calls a function with exponential backoff on failure."""
-        import signal
+        """Calls a function with exponential backoff and timeout on failure."""
+        import concurrent.futures
 
-        class TimeoutException(BaseException):
-            pass
-
-        def timeout_handler(signum: int, frame: Any) -> None:
-            raise TimeoutException("Synchronous timeout (120s) reached.")
+        timeout_s = 120.0
+        if self.config and getattr(self.config.client, "timeout_ms", None):
+            timeout_s = self.config.client.timeout_ms / 1000.0
 
         for attempt in range(max_retries):
-            try:
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(120)
-                res = func(*args, **kwargs)
-                signal.alarm(0)
-                return res
-            except TimeoutException:
-                signal.alarm(0)
-                from ..clients.base import BenchmarkResponse
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(func, *args, **kwargs)
+                try:
+                    return future.result(timeout=timeout_s)
+                except concurrent.futures.TimeoutError:
+                    from ..clients.base import BenchmarkResponse
 
-                logger.error(
-                    "Final timeout (120s) reached! Overriding inner blocks. Proceeding with empty response."
-                )
-                return BenchmarkResponse(
-                    answer_text="", retrieved_context_ids=[], latency_ms=120000
-                )
-            except Exception as e:
-                signal.alarm(0)
-                wait_time = 2**attempt
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        f"Attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s..."
+                    logger.error(
+                        f"Final timeout ({timeout_s}s) reached! Overriding inner blocks. Proceeding with empty response."
                     )
-                    time.sleep(wait_time)
-                else:
-                    raise
+                    return BenchmarkResponse(
+                        answer_text="",
+                        retrieved_context_ids=[],
+                        latency_ms=int(timeout_s * 1000),
+                    )
+                except Exception as e:
+                    wait_time = 2**attempt
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"Attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s..."
+                        )
+                        time.sleep(wait_time)
+                    else:
+                        raise
 
     def setup(self) -> None:
         """Loads configuration, dataset, and initializes state and client."""
         logger.info(f"Loading configuration from {self.config_path}")
         self.config = load_config(self.config_path)
 
-        # Set up dynamic results directory based on client and dataset
+        # Seed random number generators for reproducibility
+        import random
+
+        random.seed(self.config.seed)
+        try:
+            import numpy as np
+
+            np.random.seed(self.config.seed)
+        except ImportError:
+            pass
+
+        # Set up dynamic results directory based on client, dataset version, and seed
         client_name = self.config.client.name
         dataset_name = self.config.dataset.name
+        dataset_ver = self.config.dataset.version
+        seed = self.config.seed
 
-        self.results_dir = Path("results") / client_name / dataset_name
+        self.results_dir = (
+            Path("results") / client_name / f"{dataset_name}_{dataset_ver}_seed{seed}"
+        )
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
         state_path = self.results_dir / ".state.json"
         self.state_manager = StateManager(state_file=state_path)
 
         logger.info(f"Loading dataset from {self.config.dataset.path}")
-        self.dataset_manager = DatasetManager(self.config.dataset.path)
+        self.dataset_manager = DatasetManager(
+            self.config.dataset.path, noise_ratio=self.config.dataset.noise_ratio
+        )
         self.dataset_manager.load()
         logger.info(f"Successfully loaded {len(self.dataset_manager)} scenarios.")
 
@@ -245,6 +264,32 @@ class BenchmarkRunner:
         # Track dual scores for agreement computation (keyword vs LLM judge)
         keyword_scores: List[float] = []
         llm_judge_scores: List[float] = []
+
+        # Restore agreement state from previous jsonl if exists
+        try:
+            res_file = (
+                Path(self.state_manager.state.results_file)
+                if self.state_manager and self.state_manager.state
+                else None
+            )
+            if res_file and res_file.exists():
+                with open(res_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        data = json.loads(line)
+                        strat = data.get("evaluation_strategy", "")
+                        sec_score = data.get("secondary_score")
+                        score = data.get("score")
+                        if sec_score is not None and score is not None:
+                            if strat in ("llm_judge", "multi_model_judge"):
+                                keyword_scores.append(float(sec_score))
+                                llm_judge_scores.append(float(score))
+                            else:
+                                keyword_scores.append(float(score))
+                                llm_judge_scores.append(float(sec_score))
+        except Exception as e:
+            logger.warning(f"Failed to restore agreement state: {e}")
 
         try:
             state = self.state_manager.state
@@ -318,6 +363,9 @@ class BenchmarkRunner:
                                 "expected_context_ids": q.expected_context_ids,
                                 "retrieved_context_ids": response.retrieved_context_ids,
                                 "prompt_tokens": response.token_usage.get("prompt", 0),
+                                "completion_tokens": response.token_usage.get(
+                                    "completion", 0
+                                ),
                                 "evaluation_strategy": q.evaluation_strategy,
                             }
 
@@ -362,6 +410,7 @@ class BenchmarkRunner:
                                 "expected_context_ids": q.expected_context_ids,
                                 "retrieved_context_ids": [],
                                 "prompt_tokens": 0,
+                                "completion_tokens": 0,
                                 "evaluation_strategy": q.evaluation_strategy,
                             }
                             self._append_result(fail_record)

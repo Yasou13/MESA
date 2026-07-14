@@ -73,30 +73,49 @@ def run_single_seed(
     Runs a single benchmark iteration with the given seed.
     Returns metrics parsed from the generated JSONL.
     """
-    runner = BenchmarkRunner(config_path=config_path)
-    runner.run_id = f"reproduce_seed_{seed}"
+    import os
 
-    # Override seed in config
-    runner.setup()
-    assert runner.config is not None
-    runner.config.seed = seed
-    runner.config.iterations = 1  # Single iteration per seed
+    import yaml
 
-    # Optionally limit dataset size for quick testing
-    if max_scenarios and runner.dataset_manager:
-        runner.dataset_manager.scenarios = runner.dataset_manager.scenarios[
-            :max_scenarios
-        ]
+    # Override seed in config by creating a temporary config
+    with open(config_path, "r", encoding="utf-8") as f:
+        conf_dict = yaml.safe_load(f)
 
-    runner.run()
+    conf_dict["seed"] = seed
+    conf_dict["iterations"] = 1
 
-    # Read metrics from generated JSONL
-    results_file = f"results_{runner.run_id}.jsonl"
-    metrics = collect_metrics_from_jsonl(results_file)
-    metrics["seed"] = seed
-    metrics["results_file"] = results_file
+    temp_config_path = f"_temp_reproduce_{os.path.basename(config_path)}"
+    with open(temp_config_path, "w", encoding="utf-8") as f:
+        yaml.dump(conf_dict, f)
 
-    return metrics
+    try:
+        runner = BenchmarkRunner(config_path=temp_config_path)
+        runner.run_id = f"reproduce_seed_{seed}"
+
+        runner.setup()
+
+        # Optionally limit dataset size for quick testing
+        if max_scenarios and runner.dataset_manager:
+            runner.dataset_manager.scenarios = runner.dataset_manager.scenarios[
+                :max_scenarios
+            ]
+
+        runner.run()
+
+        # Read metrics from generated JSONL
+        results_file = (
+            str(runner.state_manager.state.results_file)
+            if runner.state_manager and runner.state_manager.state
+            else ""
+        )
+        metrics = collect_metrics_from_jsonl(results_file)
+        metrics["seed"] = seed
+        metrics["results_file"] = results_file
+
+        return metrics
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
 
 
 def main():

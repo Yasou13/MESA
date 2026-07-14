@@ -1,0 +1,24 @@
+client:
+  adapter_class: mesa_benchmark.clients.mesa_client.MesaClientAdapter
+  name: mesa_client
+  parameters:
+    verbose: false
+  timeout_ms: 30000
+dataset:
+  name: comprehensive_200
+  noise_ratio: 0.0
+  path: mesa_benchmark/datasets/comprehensive_200_dataset.json
+  version: v2
+evaluation:
+  enable_agreement: true
+  llm_judge_model: openai/qwen3:8b
+  metrics:
+  - hit_at_k
+  - mrr
+  - latency
+  - efficiency
+  multi_judge_models:
+  - openai/qwen3:8b
+iterations: 1
+seed: 42
+suite_name: MESA v0.5.2 Comprehensive Benchmark (Ollama Remote)
