@@ -27,23 +27,28 @@ def mock_adapter():
 # API Server Tests
 # -------------------------
 def test_server_lifespan_health_metrics():
-    with TestClient(app) as client:
-        # B1 FIX: /health and /metrics now require API key
-        assert client.get("/health").status_code == 401
-        assert client.get("/metrics").status_code == 401
-        assert (
-            client.get("/health", headers={"X-API-Key": "test_key"}).status_code == 200
-        )
-        assert (
-            client.get("/metrics", headers={"X-API-Key": "test_key"}).status_code == 200
-        )
-        assert (
-            client.get(
-                "/v3/memory/session/test/context?agent_id=1",
-                headers={"X-API-Key": "wrong"},
-            ).status_code
-            == 401
-        )
+    with patch("mesa_memory.api.server.MemoryDAO") as mock_dao:
+        mock_dao.return_value.initialize = AsyncMock()
+        mock_dao.return_value.health_check = AsyncMock(return_value={"status": "ok"})
+        with TestClient(app) as client:
+            # B1 FIX: /health and /metrics now require API key
+            assert client.get("/health").status_code == 401
+            assert client.get("/metrics").status_code == 401
+            assert (
+                client.get("/health", headers={"X-API-Key": "test_key"}).status_code
+                == 200
+            )
+            assert (
+                client.get("/metrics", headers={"X-API-Key": "test_key"}).status_code
+                == 200
+            )
+            assert (
+                client.get(
+                    "/v3/memory/session/test/context?agent_id=1",
+                    headers={"X-API-Key": "wrong"},
+                ).status_code
+                == 401
+            )
 
 
 def test_get_dao_embedder():
