@@ -1,4 +1,4 @@
-suite_name: "MESA v0.6.0 Comprehensive Benchmark (Ollama Remote)"
+suite_name: "MESA v0.6.0 Comprehensive Benchmark (CrossEncoder Reranking Enabled)"
 iterations: 1
 seed: 42
 
@@ -15,7 +15,8 @@ client:
   parameters:
     verbose: false
     enable_multi_hop: true
-    enable_rerank: false
+    enable_rerank: true
+    reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
     top_n: 5
 
 evaluation:

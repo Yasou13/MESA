@@ -52,10 +52,21 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         self.graph_provider: Any = None
         self.retriever: Any = None
         self.temp_dir: Any = None
+        self.enable_multi_hop: bool = True
+        self.enable_rerank: bool = False
+        self.reranker_model: str | None = None
+        self.top_n: int = 5
+        self.timeout_s: float = 30.0
         self.loop = asyncio.new_event_loop()
 
     def initialize(self, config_params: Dict[str, Any]) -> None:
-        """Initializes MESA storage engines (SQLite, LanceDB, KùzuDB) and HybridRetriever."""
+        """Initializes MESA storage engines (SQLite, LanceDB, KùzuDB), HybridRetriever, and CrossEncoder Reranker."""
+        self.enable_multi_hop = config_params.get("enable_multi_hop", True)
+        self.top_n = config_params.get("top_n", 5)
+        self.enable_rerank = config_params.get("enable_rerank", False) or "reranker_model" in config_params
+        self.reranker_model = config_params.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+        self.timeout_s = float(config_params.get("timeout_s", 30.0))
+
         self.temp_dir = tempfile.TemporaryDirectory()
         db_path = f"{self.temp_dir.name}/mesa.db"
         lance_path = f"{self.temp_dir.name}/vector.lance"
@@ -81,6 +92,15 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             )
             await self.memory_dao.initialize()
 
+            reranker_instance = None
+            if self.enable_rerank:
+                try:
+                    from mesa_memory.retrieval.reranker import CrossEncoderReranker
+                    reranker_instance = CrossEncoderReranker(model_name=self.reranker_model)
+                    logger.info("CrossEncoderReranker initialized for benchmark client with model: %s", self.reranker_model)
+                except Exception as e:
+                    logger.warning("Failed to initialize CrossEncoderReranker: %s", e)
+
             llm_adapter = AdapterFactory.get_adapter("auto")
             analyzer = QueryAnalyzer()
             self.retriever = HybridRetriever(
@@ -88,6 +108,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 analyzer=analyzer,
                 embedder=llm_adapter,
                 access_control=BenchmarkAccessControl(),
+                reranker=reranker_instance,
             )
 
         self.loop.run_until_complete(_init())
@@ -216,15 +237,15 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                         query_text=question.query,
                         agent_id="benchmark",
                         session_id="__unset__",
-                        top_n=5,
-                        enable_multi_hop=True,
+                        top_n=self.top_n,
+                        enable_multi_hop=self.enable_multi_hop,
                     ),
-                    timeout=30.0,
+                    timeout=self.timeout_s,
                 )
                 return results
             except asyncio.TimeoutError:
                 logger.error(
-                    f"Timeout (30s) while retrieving context for question: {question.id}"
+                    f"Timeout ({self.timeout_s}s) while retrieving context for question: {question.id}"
                 )
                 return []
 
@@ -270,8 +291,9 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             retrieved_context_ids=retrieved_ids,
             latency_ms=latency,
             metadata={
-                "mesa_version": "0.5.2",
-                "multi_hop_enabled": True,
+                "mesa_version": "0.6.0",
+                "multi_hop_enabled": self.enable_multi_hop,
+                "rerank_enabled": self.enable_rerank,
                 "graph_backend": "KuzuDB",
             },
         )

@@ -67,8 +67,8 @@ class MarkdownReporter:
         metrics_list = self.config.evaluation.metrics if self.config else []
 
         # Agreement Section
-        if self.config and getattr(self.config.evaluation, "enable_agreement", False):
-            agreement_data = metrics_dict.get("agreement", {})
+        agreement_data = metrics_dict.get("agreement", {})
+        if (self.config and getattr(self.config.evaluation, "enable_agreement", False)) or agreement_data:
             if agreement_data:
                 report_lines.extend(
                     [

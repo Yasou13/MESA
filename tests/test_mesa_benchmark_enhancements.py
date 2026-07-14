@@ -101,5 +101,35 @@ def test_mesa_client_adapter_graph_metadata():
         response = adapter.answer(question)
         assert response.metadata.get("multi_hop_enabled") is True
         assert response.metadata.get("graph_backend") == "KuzuDB"
+        assert response.metadata.get("mesa_version") == "0.6.0"
     finally:
         adapter.close()
+
+
+def test_mesa_client_adapter_rerank_config():
+    adapter = MesaClientAdapter()
+    adapter.initialize({
+        "verbose": True,
+        "enable_rerank": True,
+        "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "top_n": 10,
+    })
+
+    try:
+        assert adapter.enable_rerank is True
+        assert adapter.top_n == 10
+        assert adapter.retriever is not None
+        assert adapter.retriever.reranker is not None
+
+        question = BenchmarkQuestion(
+            id="q_rerank_1",
+            query="Testing CrossEncoder reranker inside benchmark client",
+            ground_truth="Test",
+            expected_context_ids=[],
+        )
+        response = adapter.answer(question)
+        assert response.metadata.get("rerank_enabled") is True
+        assert response.metadata.get("mesa_version") == "0.6.0"
+    finally:
+        adapter.close()
+
