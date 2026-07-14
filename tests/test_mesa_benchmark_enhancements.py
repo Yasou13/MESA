@@ -108,12 +108,14 @@ def test_mesa_client_adapter_graph_metadata():
 
 def test_mesa_client_adapter_rerank_config():
     adapter = MesaClientAdapter()
-    adapter.initialize({
-        "verbose": True,
-        "enable_rerank": True,
-        "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
-        "top_n": 10,
-    })
+    adapter.initialize(
+        {
+            "verbose": True,
+            "enable_rerank": True,
+            "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "top_n": 10,
+        }
+    )
 
     try:
         assert adapter.enable_rerank is True
@@ -132,4 +134,3 @@ def test_mesa_client_adapter_rerank_config():
         assert response.metadata.get("mesa_version") == "0.6.0"
     finally:
         adapter.close()
-

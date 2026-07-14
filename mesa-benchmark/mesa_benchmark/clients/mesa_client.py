@@ -63,8 +63,13 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         """Initializes MESA storage engines (SQLite, LanceDB, KùzuDB), HybridRetriever, and CrossEncoder Reranker."""
         self.enable_multi_hop = config_params.get("enable_multi_hop", True)
         self.top_n = config_params.get("top_n", 5)
-        self.enable_rerank = config_params.get("enable_rerank", False) or "reranker_model" in config_params
-        self.reranker_model = config_params.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+        self.enable_rerank = (
+            config_params.get("enable_rerank", False)
+            or "reranker_model" in config_params
+        )
+        self.reranker_model = config_params.get(
+            "reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        )
         self.timeout_s = float(config_params.get("timeout_s", 30.0))
 
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -96,8 +101,15 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             if self.enable_rerank:
                 try:
                     from mesa_memory.retrieval.reranker import CrossEncoderReranker
-                    reranker_instance = CrossEncoderReranker(model_name=self.reranker_model)
-                    logger.info("CrossEncoderReranker initialized for benchmark client with model: %s", self.reranker_model)
+
+                    model_to_use = self.reranker_model or "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                    reranker_instance = CrossEncoderReranker(
+                        model_name=model_to_use
+                    )
+                    logger.info(
+                        "CrossEncoderReranker initialized for benchmark client with model: %s",
+                        model_to_use,
+                    )
                 except Exception as e:
                     logger.warning("Failed to initialize CrossEncoderReranker: %s", e)
 
