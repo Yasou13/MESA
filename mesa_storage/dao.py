@@ -1547,7 +1547,7 @@ class MemoryDAO:
             "MATCH (a:Entity {id: $node_id, agent_id: $agent_id})"
             "-[r:Observed]-() "
             "RETURN count(r)",
-            {"node_id": node_id, "agent_id": agent_id},
+            {"node_id": f"{agent_id}::{node_id}", "agent_id": agent_id},
         )
         return rows[0][0] if rows else 0
 
