@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -8,6 +8,9 @@ from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
 from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
+
+if TYPE_CHECKING:
+    from mesa_memory.retrieval.reranker import CrossEncoderReranker
 
 logger = logging.getLogger("MESA_Retrieval")
 
@@ -30,6 +33,7 @@ class HybridRetriever:
         embedder: BaseUniversalLLMAdapter | None = None,
         access_control: AccessControl | None = None,
         agent_id: str = "__unset__",
+        reranker: "CrossEncoderReranker | Any | None" = None,
     ):
         self.dao = dao
         self.analyzer = analyzer
@@ -37,6 +41,7 @@ class HybridRetriever:
         self.access_control = access_control or AccessControl()
         self._agent_id = agent_id
         self.legal_resolver = LegalEntityResolver()
+        self.reranker = reranker
 
     async def retrieve(
         self,
@@ -149,12 +154,19 @@ class HybridRetriever:
             )
             lexical_results = []
 
+        pool_multiplier = getattr(config, "crossencoder_pool_multiplier", 3)
+        pool_size = max(top_n * pool_multiplier, top_n)
+
         if is_cold_start or not graph_results:
             if not vector_results:
-                cmb_ids: list[str] = []
+                candidate_ids: list[str] = []
             else:
-                cmb_ids = [
-                    r["cmb_id"] for r in self._cold_start_rerank(vector_results, top_n)
+                candidate_ids = [
+                    r["cmb_id"]
+                    for r in self._cold_start_rerank(
+                        vector_results,
+                        pool_size if self.reranker is not None else top_n,
+                    )
                 ]
         else:
             fused_ids = await self._apply_alpha_reranking(
@@ -163,7 +175,21 @@ class HybridRetriever:
                 graph_results,
                 lexical_results,
             )
-            cmb_ids = fused_ids[:top_n]
+            candidate_ids = (
+                fused_ids[:pool_size]
+                if self.reranker is not None
+                else fused_ids[:top_n]
+            )
+
+        if self.reranker is not None and candidate_ids:
+            contents = await self._fetch_contents_batch(agent_id, candidate_ids)
+            cmb_ids = await self.reranker.rerank(
+                query=query_text,
+                candidates=contents,
+                top_k=top_n,
+            )
+        else:
+            cmb_ids = candidate_ids[:top_n]
 
         if not enable_multi_hop:
             return cmb_ids
@@ -385,6 +411,34 @@ class HybridRetriever:
 
         reranked.sort(key=lambda x: x["rrf_score"], reverse=True)
         return reranked[:top_k]
+
+    async def _fetch_contents_batch(
+        self, agent_id: str, cmb_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Fetch node contents in batch for CrossEncoder reranking."""
+        if not cmb_ids:
+            return []
+        batch_map = await self.dao.get_nodes_by_ids_batch(agent_id, cmb_ids)
+        results: list[dict[str, Any]] = []
+        for cid in cmb_ids:
+            node = batch_map.get(cid)
+            if node:
+                results.append(
+                    {
+                        "cmb_id": cid,
+                        "content": node.get("content_payload", ""),
+                        "entity_name": node.get("entity_name", ""),
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "cmb_id": cid,
+                        "content": "",
+                        "entity_name": "",
+                    }
+                )
+        return results
 
     def format_working_memory(
         self,

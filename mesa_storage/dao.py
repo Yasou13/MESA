@@ -917,7 +917,47 @@ class MemoryDAO:
                     }
         return results
 
+    async def get_nodes_by_ids_batch(
+        self, agent_id: str, node_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Batch retrieve node metadata and content by their IDs.
+
+        RLS: Mandatory ``agent_id`` hardcoded into WHERE predicate.
+        Only returns active nodes (not tombstoned or soft-deleted).
+
+        Args:
+            agent_id: Mandatory tenant isolation key.
+            node_ids: List of UUIDs to fetch.
+
+        Returns:
+            Dict mapping node_id -> dict of node attributes (entity_name, content_payload, type, etc.).
+        """
+        if not node_ids:
+            return {}
+
+        _assert_valid_agent_id(agent_id)
+
+        placeholders = ",".join("?" for _ in node_ids)
+        query = (
+            f"SELECT id, entity_name, type, content_payload, is_consolidated, "
+            f"confidence, is_quarantined "
+            f"FROM nodes "
+            f"WHERE agent_id = ? AND id IN ({placeholders}) "
+            f"  AND invalid_at IS NULL AND deleted_at IS NULL"
+        )
+        params: list[Any] = [agent_id, *node_ids]
+
+        results: dict[str, dict[str, Any]] = {}
+        async with self._sql.connection() as db:
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    row_dict = dict(row)
+                    results[row_dict["id"]] = row_dict
+        return results
+
     # ==================================================================
+
     # PURGE — agent-scoped soft-delete
     # ==================================================================
 

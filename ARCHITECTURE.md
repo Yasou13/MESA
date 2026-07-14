@@ -336,7 +336,48 @@ The fitness score is a weighted composite of three dimensions:
 
 ---
 
-## 10. Extraction Pipeline
+## 10. Hybrid Retrieval & Multi-Stage Reranking Pipeline
+
+MESA orchestrates a multi-stage, hybrid retrieval architecture (`mesa_memory/retrieval/hybrid.py`) designed to maximize recall across diverse cognitive storage modalities before applying high-precision learned reranking.
+
+```mermaid
+graph TD
+    Query[Query Text & Agent ID] --> VSearch[LanceDB Vector Search<br/>Cosine Distance]
+    Query --> FSearch[SQLite FTS5 Search<br/>Lexical Keyword Match]
+    Query --> GSearch[KùzuDB Graph Traversal<br/>Cognitive Salience]
+
+    VSearch --> Pool[Union Candidate Pool]
+    FSearch --> Pool
+    GSearch --> Pool
+
+    Pool --> Alpha[Stage 1: Alpha Reranking<br/>Reciprocal Rank Fusion + Epistemic Dampening]
+    Alpha -->|pool_size = top_n * pool_multiplier| BatchFetch[MemoryDAO.get_nodes_by_ids_batch<br/>Strict RLS Isolation]
+    BatchFetch --> CE[Stage 2: CrossEncoder Reranking<br/>Learned Query-Candidate Scoring via ThreadPoolExecutor]
+    CE --> Final[Final Top-N Candidate IDs & Multi-Hop Path]
+```
+
+### 10.1 Multi-Store Candidate Pool
+During retrieval (`HybridRetriever.retrieve`), queries concurrently query three isolated engines:
+1. **Vector Engine (LanceDB):** Semantic similarity matching over normalized embeddings.
+2. **Lexical Engine (SQLite FTS5):** Zero-VRAM keyword and prefix matching over node names and content.
+3. **Graph Engine (KùzuDB):** Cognitive salience computation and multi-hop entity traversal.
+
+### 10.2 Stage 1: Alpha Reranking & Epistemic Dampening
+Candidates returned from all three stores are unified (`_apply_alpha_reranking`) using an enhanced Reciprocal Rank Fusion formula:
+$$\text{Score}_{raw} = S_{vec} + (\alpha \times S_{graph\_norm}) + (\beta \times S_{lex\_norm})$$
+Each candidate's raw score is then multiplied by its **Epistemic Confidence** (`confidence` in `[0.0, 1.0]`) fetched via `MemoryDAO.get_epistemic_data_for_nodes()`. Quarantined nodes (`is_quarantined = TRUE`) are instantly dropped from the retrieval pool.
+
+### 10.3 Stage 2: CrossEncoder Learned Reranking
+To bridge the gap between candidate recall and semantic precision without incurring latency penalties across the entire database, MESA v0.6.0 introduces an optional **CrossEncoder Reranking Stage** (`mesa_memory/retrieval/reranker.py`).
+
+- **Candidate Pool Expansion:** When `MESA_CROSSENCODER_ENABLED=true`, Stage 1 selects an expanded pool of size `top_n * MESA_CROSSENCODER_POOL_MULTIPLIER` (default: `3x`).
+- **Batch Content Lookup with Tenant Isolation:** The text contents of candidate blocks are fetched via `MemoryDAO.get_nodes_by_ids_batch(agent_id, cmb_ids)`. This executes a single optimized SQL query enforced with `AND agent_id = ?`, ensuring row-level multi-tenant security during content hydration.
+- **Non-Blocking Inference:** CrossEncoder scoring (`cross-encoder/ms-marco-MiniLM-L-6-v2`) performs deep cross-attention over `(query, candidate)` pairs. To preserve MESA's asynchronous throughput, inference is offloaded to a dedicated `ThreadPoolExecutor` via `asyncio.get_running_loop().run_in_executor()`, ensuring zero event-loop blocking.
+- **Graceful Degradation & Fallback:** If `sentence_transformers` is unavailable, model initialization fails, or runtime inference errors occur, `CrossEncoderReranker` sets `_load_failed = True` and falls back cleanly to Stage 1 Alpha-reranked order. Retrieval never fails due to reranker unavailability.
+
+---
+
+## 11. Extraction Pipeline
 
 The extraction pipeline transforms raw text records into structured knowledge graph triplets. Formerly a monolithic God-Object (`ConsolidationLoop`), the pipeline was decomposed into focused modules following the Single Responsibility Principle.
 
@@ -405,7 +446,7 @@ Infrastructure errors (JSON parse failure, rate limits, network) raise `Tier3Val
 
 ---
 
-## 11. Data Pipeline & Isolation Logic
+## 12. Data Pipeline & Isolation Logic
 
 To guarantee deterministic extraction from non-deterministic LLMs, the pipeline enforces strict JSON schema generation via Pydantic models (`ExtractedTriplet`, `BatchExtractionResponse`). Malformed responses trigger the **"Isolation & Recovery"** protocol.
 
@@ -414,7 +455,7 @@ To guarantee deterministic extraction from non-deterministic LLMs, the pipeline 
 
 ---
 
-## 12. REM Cycle & Consolidation Worker
+## 13. REM Cycle & Consolidation Worker
 
 The `rem_cycle.py` background worker handles asynchronous knowledge graph extraction and consolidation. It avoids blocking the API's hot path by consuming the backlog in idle cycles.
 
@@ -423,7 +464,7 @@ The `rem_cycle.py` background worker handles asynchronous knowledge graph extrac
 
 ---
 
-## 13. Evaluation & Quality Gates (`mesa_evals`)
+## 14. Evaluation & Quality Gates (`mesa_evals`)
 
 MESA v0.5.2 enforces strict CI/CD quality assurance through its evaluation pipeline. The `gatekeeper.py` quality gate acts as the primary CI/CD enforcer. 
 
@@ -432,7 +473,7 @@ MESA v0.5.2 enforces strict CI/CD quality assurance through its evaluation pipel
 
 ---
 
-## 14. Deployment Architecture
+## 15. Deployment Architecture
 
 ```mermaid
 graph LR

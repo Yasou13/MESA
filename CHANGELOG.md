@@ -5,6 +5,17 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-14
+
+### Added
+- **Multi-Stage CrossEncoder Reranking**: Introduced Stage 2 learned reranking (`mesa_memory/retrieval/reranker.py`) powered by `cross-encoder/ms-marco-MiniLM-L-6-v2` to substantially improve retrieval precision on top of Alpha Reciprocal Rank Fusion.
+- **Candidate Pool Expansion**: Added `crossencoder_pool_multiplier` configuration (default: `3x`) to expand Stage 1 candidate pool size prior to CrossEncoder scoring.
+- **Tenant-Isolated Batch Fetching**: Implemented `MemoryDAO.get_nodes_by_ids_batch()` in `mesa_storage/dao.py` to fetch candidate payloads in a single optimized SQL query enforced with mandatory `WHERE agent_id = ? AND id IN (...)` Row-Level Security.
+- **Non-Blocking Inference & Lazy Loading**: Offloaded CrossEncoder model prediction to `asyncio.run_in_executor()` using `ThreadPoolExecutor` to prevent event-loop blocking. Added lazy singleton initialization in `mesa_api/router.py`.
+- **Graceful Degradation**: Added resilient fallback mechanisms ensuring that if model loading or runtime inference fails, `CrossEncoderReranker` logs the warning and falls back cleanly to Stage 1 Alpha-reranked ordering.
+- **Configuration & Environment Support**: Added `MESA_CROSSENCODER_ENABLED`, `MESA_CROSSENCODER_MODEL`, and `MESA_CROSSENCODER_POOL_MULTIPLIER` options (`mesa_memory/config.py` and `.env.example`).
+- **Comprehensive Test Suite**: Shipped unit and integration tests in `tests/test_crossencoder_reranking.py` covering fallback behavior, score sorting, batch RLS isolation, and hybrid retrieval flow.
+
 ## [0.5.2] - 2026-07-13
 
 ### Added

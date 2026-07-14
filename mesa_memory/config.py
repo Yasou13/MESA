@@ -170,6 +170,18 @@ class MesaConfig(BaseSettings):
     cold_start_distance_weight: float = 0.5
     ppr_alpha: float = 0.15
 
+    # CrossEncoder Reranking (v0.6.0)
+    crossencoder_enabled: bool = Field(
+        False, validation_alias="MESA_CROSSENCODER_ENABLED"
+    )
+    crossencoder_model: str = Field(
+        "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        validation_alias="MESA_CROSSENCODER_MODEL",
+    )
+    crossencoder_pool_multiplier: int = Field(
+        3, validation_alias="MESA_CROSSENCODER_POOL_MULTIPLIER"
+    )
+
     # -----------------------------------------------------------------------
     # v0.4.0 Phase 3: Zero-Hallucination Legal Mode
     # When True, the AdaptiveRouter bypasses the small-model confidence gate
@@ -301,6 +313,10 @@ class MesaConfig(BaseSettings):
         if not (0.5 < self.t_route < 0.99):
             raise ValueError(
                 f"t_route MUST be strictly between 0.5 and 0.99, got {self.t_route}"
+            )
+        if self.crossencoder_pool_multiplier < 1:
+            raise ValueError(
+                f"crossencoder_pool_multiplier MUST be >= 1, got {self.crossencoder_pool_multiplier}"
             )
         return self
 

@@ -45,7 +45,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Callable, Protocol, Sequence, runtime_checkable
+from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -60,6 +60,7 @@ from mesa_api.schemas import (
     SessionStartRequest,
     SessionStartResponse,
 )
+from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
@@ -115,6 +116,21 @@ def _get_query_analyzer() -> QueryAnalyzer:
     if _query_analyzer is None:
         _query_analyzer = QueryAnalyzer()
     return _query_analyzer
+
+
+_reranker: Any | None = None
+
+
+def _get_reranker() -> Any | None:
+    """Lazy-init the CrossEncoderReranker singleton if enabled via config."""
+    global _reranker
+    if not config.crossencoder_enabled:
+        return None
+    if _reranker is None:
+        from mesa_memory.retrieval.reranker import CrossEncoderReranker
+
+        _reranker = CrossEncoderReranker(config.crossencoder_model)
+    return _reranker
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +332,7 @@ def create_memory_router(
                 dao=dao,
                 analyzer=_get_query_analyzer(),
                 access_control=ac,
+                reranker=_get_reranker(),
             )
 
             result = await asyncio.wait_for(
