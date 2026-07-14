@@ -37,11 +37,15 @@ class BenchmarkRunner:
     def __init__(self, config_path: str | Path):
         self.config_path = Path(config_path)
         self.config: Optional[BenchmarkConfig] = None
-        self.state_manager = StateManager(state_file="state.json")
+        self.run_id = str(uuid.uuid4())
+
+        # Initialized in setup() after config is loaded
+        self.results_dir: Optional[Path] = None
+        self.state_manager: Optional[StateManager] = None
+
         self.dataset_manager: Optional[DatasetManager] = None
         self.client: Optional[AbstractBenchmarkClient] = None
         self.evaluators: Dict[str, BaseEvaluator] = {}
-        self.run_id = str(uuid.uuid4())
 
     def _register_evaluators(self) -> None:
         """Registers evaluators based on configuration."""
@@ -109,7 +113,7 @@ class BenchmarkRunner:
 
     def _append_result(self, result_dict: dict) -> None:
         """Appends a result JSON object to the JSONL results file (Atomic Transaction)."""
-        if not self.state_manager.state:
+        if not self.state_manager or not self.state_manager.state:
             return
         results_file = Path(self.state_manager.state.results_file)
         with open(results_file, "a", encoding="utf-8") as f:
@@ -119,10 +123,33 @@ class BenchmarkRunner:
         self, func: Any, *args: Any, max_retries: int = 3, **kwargs: Any
     ) -> Any:
         """Calls a function with exponential backoff on failure."""
+        import signal
+
+        class TimeoutException(BaseException):
+            pass
+
+        def timeout_handler(signum: int, frame: Any) -> None:
+            raise TimeoutException("Synchronous timeout (120s) reached.")
+
         for attempt in range(max_retries):
             try:
-                return func(*args, **kwargs)
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(120)
+                res = func(*args, **kwargs)
+                signal.alarm(0)
+                return res
+            except TimeoutException:
+                signal.alarm(0)
+                from ..clients.base import BenchmarkResponse
+
+                logger.error(
+                    "Final timeout (120s) reached! Overriding inner blocks. Proceeding with empty response."
+                )
+                return BenchmarkResponse(
+                    answer_text="", retrieved_context_ids=[], latency_ms=120000
+                )
             except Exception as e:
+                signal.alarm(0)
                 wait_time = 2**attempt
                 if attempt < max_retries - 1:
                     logger.warning(
@@ -136,6 +163,16 @@ class BenchmarkRunner:
         """Loads configuration, dataset, and initializes state and client."""
         logger.info(f"Loading configuration from {self.config_path}")
         self.config = load_config(self.config_path)
+
+        # Set up dynamic results directory based on client and dataset
+        client_name = self.config.client.name
+        dataset_name = self.config.dataset.name
+
+        self.results_dir = Path("results") / client_name / dataset_name
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+
+        state_path = self.results_dir / ".state.json"
+        self.state_manager = StateManager(state_file=state_path)
 
         logger.info(f"Loading dataset from {self.config.dataset.path}")
         self.dataset_manager = DatasetManager(self.config.dataset.path)
@@ -153,7 +190,8 @@ class BenchmarkRunner:
         else:
             logger.info(f"Starting new run: {self.run_id}")
             self.state_manager.initialize_state(
-                run_id=self.run_id, results_file=f"results_{self.run_id}.jsonl"
+                run_id=self.run_id,
+                results_file=str(self.results_dir / f"results_{self.run_id}.jsonl"),
             )
 
     def _dual_evaluate(
@@ -200,6 +238,7 @@ class BenchmarkRunner:
         assert self.config is not None
         assert self.dataset_manager is not None
         assert self.client is not None
+        assert self.state_manager is not None
 
         logger.info(f"Starting benchmark suite: {self.config.suite_name}")
 
@@ -350,7 +389,9 @@ class BenchmarkRunner:
             metrics_dict = metrics.model_dump()
             metrics_dict["agreement"] = agreement_data
 
-            reporter = MarkdownReporter(self.run_id, self.config)
+            reporter = MarkdownReporter(
+                self.run_id, self.config, output_dir=str(self.results_dir)
+            )
             report_path = reporter.generate_report_from_dict(metrics_dict)
 
             logger.info(

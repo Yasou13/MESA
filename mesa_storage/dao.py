@@ -1088,7 +1088,6 @@ class MemoryDAO:
         await self.vector_engine.upsert(
             agent_id=agent_id,
             node_id=node_id,
-            content=new_content,
             embedding=new_embedding,
         )
 
