@@ -58,6 +58,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         self.top_n: int = 5
         self.timeout_s: float = 30.0
         self.loop = asyncio.new_event_loop()
+        self.context_id_map: Dict[str, str] = {}
 
     def initialize(self, config_params: Dict[str, Any]) -> None:
         """Initializes MESA storage engines (SQLite, LanceDB, KùzuDB), HybridRetriever, and CrossEncoder Reranker."""
@@ -78,18 +79,22 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         graph_path = f"{self.temp_dir.name}/graph.kuzu"
 
         async def _init() -> None:
+            logger.info("Initializing SQLite engine")
             self.sqlite = AsyncEngine(db_path=db_path)
             await self.sqlite.initialize()
             await initialize_schema(self.sqlite)
 
+            logger.info("Initializing vector engine")
             self.vector = VectorEngine(uri=lance_path)
             await self.vector.initialize()
 
+            logger.info("Initializing KùzuDB graph provider")
             # Initialize KùzuDB Graph Engine
             kuzu_initialize_schema(graph_path)
             self.graph_provider = KuzuGraphProvider(db_path=graph_path)
             await self.graph_provider.initialize()
 
+            logger.info("Initializing MemoryDAO")
             self.memory_dao = MemoryDAO(
                 sqlite_engine=self.sqlite,
                 vector_engine=self.vector,
@@ -97,6 +102,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             )
             await self.memory_dao.initialize()
 
+            logger.info("Initializing reranker")
             reranker_instance = None
             if self.enable_rerank:
                 try:
@@ -115,6 +121,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
             llm_adapter = AdapterFactory.get_adapter("auto")
             analyzer = QueryAnalyzer()
+            logger.info("Initializing HybridRetriever")
             self.retriever = HybridRetriever(
                 dao=self.memory_dao,
                 analyzer=analyzer,
@@ -122,6 +129,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 access_control=BenchmarkAccessControl(),
                 reranker=reranker_instance,
             )
+            logger.info("MESA client initialization complete")
 
         self.loop.run_until_complete(_init())
 
@@ -144,6 +152,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 await self.graph_provider.clear()
 
         self.loop.run_until_complete(_clear())
+        self.context_id_map.clear()
 
     def add_memory(self, context: MemoryContext) -> Dict[str, Any]:
         """Ingests context into MESA vector, relational, and graph storage."""
@@ -173,6 +182,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 embedding=embedding,
                 metadata=meta,
             )
+            self.context_id_map[node_id] = context.id
 
             if self.graph_provider:
                 try:
@@ -228,15 +238,6 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
     def answer(self, question: BenchmarkQuestion) -> BenchmarkResponse:
         """Queries MESA using HybridRetriever with multi-hop graph traversal enabled."""
-        if question.id in (
-            "15_instruction_following_q1",
-            "15_instruction_following_q0",
-        ):
-            logger.warning(f"SKIPPING known deadlocking question: {question.id}")
-            return BenchmarkResponse(
-                answer_text="", retrieved_context_ids=[], latency_ms=0
-            )
-
         start_time = time.time()
 
         retrieved_ids = []
@@ -281,9 +282,8 @@ class MesaClientAdapter(AbstractBenchmarkClient):
 
             node = self.loop.run_until_complete(_get_node(nid))
             if node:
-                payload = node.get("content_payload")
-                meta = node.get("metadata", {})
-                orig_id = meta.get("original_context_id")
+                payload = node.get("content")
+                orig_id = self.context_id_map.get(nid)
 
                 if payload:
                     valid_chunks.append(str(payload))

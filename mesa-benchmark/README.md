@@ -6,37 +6,47 @@ MESA Benchmark Suite, yapay zeka bellek (Memory/RAG) sistemlerini objektif, adil
 
 - **200+ Senaryo, 4 Zorluk Katmanı:** Single-Hop (%40), Multi-Hop (%30), Hard-Negative (%15), Out-of-Domain (%15)
 - **5 Bellek Sistemi:** MESA, Mem0, Zep, Letta/MemGPT ve BareRAG (kontrol grubu)
-- **Üç Kademeli Değerlendirme:** ExactMatch → LLM-Judge → Multi-Model Judge (GPT + Claude majority voting)
+- **Üç Kademeli Değerlendirme:** ExactMatch → LLM-Judge → Multi-Model Judge (majority voting)
 - **Metodolojik Doğrulama:** Keyword ↔ LLM-Judge agreement rate + Cohen's Kappa
-- **İstatistiksel Güvenilirlik:** 5-seed çalıştırma, Mean ± Std, Welch's t-test p-value
-- **Uluslararası Benchmark:** LoCoMo (ECAI 2025) entegrasyonu
+- **Root-Cause Attribution:** Hataların kaynağını otomatik tespit (RETRIEVAL_MISS, CONTEXT_NOISE, LLM_REASONING_ERROR)
+- **İstatistiksel Güvenilirlik:** Multi-seed çalıştırma, Mean ± Std, Welch's t-test p-value
 - **Tam İzolasyon:** Her iterasyon öncesi bellek sıfırlama, exponential backoff
 - **Kesintiden Devam:** `.state.json` ile kaldığı iterasyondan otomatik devam
 - **Reproducibility:** Docker + pinned dependencies (`requirements-lock.txt`)
-- **HuggingFace Yayın:** Tek komutla dataset + card yükleme
 
 ## Desteklenen Sistemler
 
 | Sistem | Adapter | Config | Kurulum |
 |--------|---------|--------|---------|
 | **MESA** | `MesaClientAdapter` | `config.yaml` | Yerleşik |
-| **Mem0** | `Mem0ClientAdapter` | — | `pip install mem0ai` |
+| **Mem0** | `Mem0ClientAdapter` | `config_mem0.yaml` | `pip install mem0ai` |
 | **Zep** | `ZepClientAdapter` | `config_zep.yaml` | `pip install zep-cloud` |
 | **Letta/MemGPT** | `LettaClientAdapter` | `config_letta.yaml` | `pip install letta` |
 | **BareRAG** | `DummyClientAdapter` | — | Yerleşik |
 
+## Hazır Config Dosyaları
+
+| Config | Sistem | Veri Seti | Açıklama |
+|--------|--------|-----------|----------|
+| `config.yaml` | MESA | comprehensive_200 | Ana benchmark (200 senaryo) |
+| `config_beam.yaml` | MESA | beam | BEAM karşılaştırma (20 senaryo, 400 soru) |
+| `config_contradiction.yaml` | MESA | contradiction_200 | Çelişki çözümü odaklı (200 senaryo) |
+| `config_multi_hop.yaml` | MESA | comprehensive_multihop | Yalnızca multi-hop (60 senaryo) |
+| `config_reranking.yaml` | MESA | comprehensive_200 | CrossEncoder reranking etkin |
+| `config_mem0.yaml` | Mem0 | comprehensive_200 | Mem0 baseline |
+| `config_zep.yaml` | Zep | comprehensive_200 | Zep baseline |
+| `config_letta.yaml` | Letta | comprehensive_200 | Letta/MemGPT baseline |
+| `config_mini_mesa.yaml` | MESA | mini (2 senaryo) | Hızlı doğrulama testi |
+| `config_mini_mem0.yaml` | Mem0 | mini (2 senaryo) | Hızlı doğrulama testi |
+
 ## Hızlı Başlangıç
 
-Detaylı konfigürasyon, adaptör yazımı, LoCoMo entegrasyonu ve HuggingFace yayın bilgileri için **[USAGE_GUIDE.md](./USAGE_GUIDE.md)** dosyasına göz atın.
+Detaylı konfigürasyon, adaptör yazımı ve daha fazlası için **[USAGE_GUIDE.md](./USAGE_GUIDE.md)** dosyasına göz atın.
 
 ### 1. Kurulum
 
 ```bash
 cd mesa-benchmark
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Pinned bağımlılıkları yükleyin (reproducibility için)
 pip install -r requirements-lock.txt
 ```
 
@@ -44,24 +54,27 @@ pip install -r requirements-lock.txt
 
 ```bash
 cp .env.example .env
-# .env dosyasında API anahtarlarınızı düzenleyin (OPENAI_API_KEY, ZEP_API_KEY vb.)
+# .env dosyasında API anahtarlarınızı düzenleyin
 ```
 
-### 3. Çalıştırma
+### 3. Çalıştırma (Proje kök dizininden)
 
 ```bash
-# Varsayılan benchmark (MESA, 200 senaryo, 5 iterasyon)
-python -m mesa_benchmark -c config.yaml
+# Hızlı doğrulama testi (mini dataset)
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_mini_mesa.yaml --seeds 42
 
-# Reproducibility raporu (5 seed ile)
-python ../scripts/reproduce_benchmark.py --seeds 42,43,44,45,46
+# Ana benchmark (200 senaryo)
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config.yaml --seeds 42
 
-# LoCoMo uluslararası benchmark
-python -m mesa_benchmark -c config_locomo.yaml
+# Multi-seed reproducibility (5 seed)
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config.yaml --seeds 42,43,44,45,46
 
-# Rakip karşılaştırma
-python -m mesa_benchmark -c config_zep.yaml
-python -m mesa_benchmark -c config_letta.yaml
+# Mem0 baseline karşılaştırma
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_mem0.yaml --seeds 42
 ```
 
 ### 4. Docker ile Çalıştırma
@@ -75,8 +88,12 @@ docker run --env-file .env mesa-benchmark
 
 ```bash
 pip install -r requirements-dev.txt
-cd .. cd .. && ./venv/bin/python -m pytest tests/test_tech_debt_fixes.py tests/test_mesa_benchmark_enhancements.py -vcd .. && ./venv/bin/python -m pytest tests/test_tech_debt_fixes.py tests/test_mesa_benchmark_enhancements.py -v ./venv/bin/python -m pytest tests/ -v
+venv/bin/python -m pytest mesa-benchmark/tests/ -v
 ```
+
+## Metodoloji
+
+Benchmark metodolojisinin detayları için **[BENCHMARK_METHODOLOGY.md](../BENCHMARK_METHODOLOGY.md)** dosyasına bakın.
 
 ## Lisans
 

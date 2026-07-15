@@ -25,22 +25,25 @@ Bu kılavuz, benchmark altyapısının konfigürasyonu, veri setlerinin nasıl e
 Benchmark yürütme motoru `config.yaml` dosyasından beslenir. Bu dosyayı değiştirerek test edeceğiniz sistemi, çalıştırılacak iterasyon sayısını, değerlendirme yöntemlerini ve istatistikleri belirleyebilirsiniz.
 
 ```yaml
-suite_name: "MESA v0.5.2 Comprehensive Benchmark"
-iterations: 5          # Multi-seed istatistik için en az 5 önerilir
+suite_name: "MESA v0.6.0 Comprehensive Benchmark"
+iterations: 1          # Multi-seed istatistik için en az 5 önerilir
 seed: 42
 
 dataset:
   name: "comprehensive_200"
   version: "v2"
-  path: "mesa_benchmark/datasets/comprehensive_200_dataset.json"
+  path: "mesa-benchmark/mesa_benchmark/datasets/comprehensive_200_dataset.json"
   noise_ratio: 0.0
 
 client:
   name: "mesa_client"
   adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
-  timeout_ms: 10000
+  timeout_ms: 30000
   parameters:
     verbose: false
+    enable_multi_hop: true
+    enable_rerank: false
+    top_n: 5
 
 evaluation:
   metrics:
@@ -48,11 +51,10 @@ evaluation:
     - "mrr"
     - "latency"
     - "efficiency"
-  llm_judge_model: "gpt-4o-mini"          # Tek model LLM-as-a-Judge
-  multi_judge_models:                       # Çoklu model bağımsız değerlendirme
-    - "gpt-4o-mini"
-    - "claude-sonnet-4-20250514"
-  enable_agreement: true                    # Keyword vs LLM-Judge uyum raporu
+  llm_judge_model: "openai/qwen3:8b"        # Tek model LLM-as-a-Judge
+  multi_judge_models:                         # Çoklu model bağımsız değerlendirme
+    - "openai/qwen3:8b"
+  enable_agreement: true                      # Keyword vs LLM-Judge uyum raporu
 ```
 
 ### Konfigürasyon Alanları
@@ -62,22 +64,39 @@ evaluation:
 | `suite_name` | string | — | Benchmark raporunda görünecek isim |
 | `iterations` | int | `5` | Kaç kez çalıştırılacağı (varyans hesabı için ≥5) |
 | `seed` | int | `42` | Tekrarlanabilirlik için rastgele tohum |
-| `dataset.path` | string | — | JSON veri seti dosyasının yolu |
+| `dataset.path` | string | — | JSON veri seti dosyasının yolu (proje kökünden) |
 | `dataset.noise_ratio` | float | `0.0` | Gürültü oranı (0.0 – 1.0) |
 | `client.adapter_class` | string | — | Python modül yolu (tam nitelikli) |
 | `client.timeout_ms` | int | `10000` | API zaman aşımı (ms) |
+| `client.parameters` | dict | `{}` | Adaptöre özel parametreler |
 | `evaluation.llm_judge_model` | string | `null` | Tek model LLM judge (null = devre dışı) |
 | `evaluation.multi_judge_models` | list | `[]` | Çoklu model bağımsız judge listesi |
 | `evaluation.enable_agreement` | bool | `false` | Keyword ↔ LLM-Judge uyum raporu |
 
+### MESA Client Parametreleri
+
+| Parametre | Tip | Varsayılan | Açıklama |
+|-----------|-----|-----------|----------|
+| `enable_multi_hop` | bool | `true` | KùzuDB çizge geçişini etkinleştir |
+| `enable_rerank` | bool | `false` | CrossEncoder reranking |
+| `reranker_model` | string | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker model |
+| `top_n` | int | `5` | Getirilecek sonuç sayısı |
+| `timeout_s` | float | `30.0` | Sorgu zaman aşımı (saniye) |
+
 ### Hazır Config Dosyaları
 
-| Config | Sistem | Açıklama |
-|--------|--------|----------|
-| `config.yaml` | MESA | Ana benchmark (200 senaryo, 5 iterasyon) |
-| `config_locomo.yaml` | MESA | LoCoMo uluslararası benchmark |
-| `config_zep.yaml` | Zep | Zep rakip baseline |
-| `config_letta.yaml` | Letta/MemGPT | Letta rakip baseline |
+| Config | Sistem | Veri Seti | Açıklama |
+|--------|--------|-----------|----------|
+| `config.yaml` | MESA | comprehensive_200 | Ana benchmark (200 senaryo) |
+| `config_beam.yaml` | MESA | beam | BEAM karşılaştırma (400 soru) |
+| `config_contradiction.yaml` | MESA | contradiction_200 | Çelişki çözümü (200 senaryo) |
+| `config_multi_hop.yaml` | MESA | multihop_only | Yalnızca multi-hop (60 senaryo) |
+| `config_reranking.yaml` | MESA | comprehensive_200 | CrossEncoder reranking etkin |
+| `config_mem0.yaml` | Mem0 | comprehensive_200 | Mem0 baseline |
+| `config_zep.yaml` | Zep | comprehensive_200 | Zep baseline |
+| `config_letta.yaml` | Letta | comprehensive_200 | Letta/MemGPT baseline |
+| `config_mini_mesa.yaml` | MESA | mini (2 senaryo) | Hızlı doğrulama |
+| `config_mini_mem0.yaml` | Mem0 | mini (2 senaryo) | Hızlı doğrulama |
 
 ---
 
@@ -133,13 +152,24 @@ Her senaryo şu yapıdadır:
 ]
 ```
 
+### Mevcut Veri Setleri
+
+| Veri Seti | Konum | Senaryolar | Sorular |
+|-----------|-------|------------|---------|
+| `comprehensive_200_dataset.json` | `mesa_benchmark/datasets/` | 200 | 200 |
+| `mini_dataset.json` | `mesa_benchmark/datasets/` | 2 | 2 |
+| `stress_dataset.json` | `mesa_benchmark/datasets/` | 100 | 100 |
+| `beam/dataset.json` | `datasets/` | 20 | 400 |
+| `contradiction_200.json` | `datasets/` | 200 | 200 |
+| `comprehensive_multihop_only.json` | `datasets/` | 60 | 60 |
+
 ### Değerlendirme Stratejileri (`evaluation_strategy`)
 
 | Strateji | Maliyet | Açıklama |
 |----------|---------|----------|
 | `"exact_match"` | Ücretsiz | Alt dize (substring) eşleşmesi. Hızlı, basit. |
-| `"llm_judge"` | API maliyeti | Tek LLM model (GPT-4o-mini) anlamsal değerlendirme. `OPENAI_API_KEY` gerekir. |
-| `"multi_model_judge"` | Yüksek API maliyeti | 2-3 farklı model ile bağımsız değerlendirme + majority voting. Self-grading bias'ı engeller. |
+| `"llm_judge"` | API maliyeti | Tek LLM model anlamsal değerlendirme. `OPENAI_BASE_URL` veya API key gerekir. |
+| `"multi_model_judge"` | Yüksek maliyeti | 2-3 farklı model ile bağımsız değerlendirme + majority voting. |
 
 ### Yeni Veri Seti Oluşturma
 
@@ -147,40 +177,49 @@ Her senaryo şu yapıdadır:
 
 ```bash
 cd mesa-benchmark
+python scripts/generate_comprehensive_dataset.py
+```
+
+Stress test veri seti oluşturmak için:
+
+```bash
+python scripts/generate_stress_dataset.py
 ```
 
 ---
 
 ## 3. Desteklenen Bellek Sistemleri (Client Adapters)
 
-Benchmark suite şu anda 5 bellek sistemini destekler:
-
 | Sistem | Adapter Sınıfı | Config | Kurulum |
 |--------|----------------|--------|---------|
 | **MESA** | `MesaClientAdapter` | `config.yaml` | Yerleşik (kurulum gerekmez) |
-| **Mem0** | `Mem0ClientAdapter` | — | `pip install mem0ai` |
+| **Mem0** | `Mem0ClientAdapter` | `config_mem0.yaml` | `pip install mem0ai` |
 | **Zep** | `ZepClientAdapter` | `config_zep.yaml` | `pip install zep-cloud` |
 | **Letta/MemGPT** | `LettaClientAdapter` | `config_letta.yaml` | `pip install letta` |
 | **BareRAG (Kontrol)** | `DummyClientAdapter` | — | Yerleşik |
 
 ### Rakip Benchmark Çalıştırma
 
-Her rakip sistemi aynı veri setine karşı çalıştırabilirsiniz:
+Her rakip sistemi aynı veri setine karşı çalıştırabilirsiniz (proje kök dizininden):
 
 ```bash
 # MESA (varsayılan)
-python -m mesa_benchmark -c config.yaml
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config.yaml --seeds 42
 
-# Zep
+# Mem0 baseline
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_mem0.yaml --seeds 42
+
+# Zep baseline
 export ZEP_API_KEY="your-zep-api-key"
-python -m mesa_benchmark -c config_zep.yaml
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_zep.yaml --seeds 42
 
 # Letta/MemGPT (önce Letta sunucusunu başlatın)
 letta server &
-python -m mesa_benchmark -c config_letta.yaml
-
-# Mem0
-python -m mesa_benchmark -c config.yaml  # adapter_class'ı mem0_client olarak değiştirin
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_letta.yaml --seeds 42
 ```
 
 > **Not:** Tüm sistemler aynı `AbstractBenchmarkClient` interface'ini uyguladığı için, aynı veri seti, aynı evaluator ve aynı metriklerle değerlendirilir — **Apple-to-Apple** karşılaştırma garanti edilir.
@@ -189,21 +228,23 @@ python -m mesa_benchmark -c config.yaml  # adapter_class'ı mem0_client olarak d
 
 ## 4. Değerlendirme Pipeline'ı (Evaluators)
 
-Benchmark v2'de üç kademeli bir değerlendirme sistemi bulunur:
+Benchmark v4'te üç kademeli bir değerlendirme sistemi bulunur:
 
 ### 4.1 Keyword/Exact Match (Birincil — Ücretsiz)
 
 Her soru için birincil evaluator çalışır. `evaluation_strategy` alanına göre seçilir.
 
-### 4.2 LLM-as-a-Judge (İkincil — API Maliyetli)
+### 4.2 LLM-as-a-Judge (İkincil)
 
 Config'te `enable_agreement: true` ise, birincil evaluator'a ek olarak LLM Judge otomatik çalıştırılır. İki evaluator arasındaki uyum hesaplanır.
 
 ```yaml
 evaluation:
-  llm_judge_model: "gpt-4o-mini"
+  llm_judge_model: "openai/qwen3:8b"
   enable_agreement: true
 ```
+
+LLM Judge, Qwen3 modelleri için otomatik olarak `/no_think` modunu kullanarak JSON çıktısı alır. Yerel Ollama sunucusu kullanıldığında `OPENAI_BASE_URL` env var'ı üzerinden yönlendirme yapılır.
 
 ### 4.3 Multi-Model Judge (Bağımsız Değerlendirme)
 
@@ -212,14 +253,14 @@ Self-grading bias'ı engellemek için 2-3 farklı LLM model kullanılır:
 ```yaml
 evaluation:
   multi_judge_models:
-    - "gpt-4o-mini"          # OpenAI
-    - "claude-sonnet-4-20250514"   # Anthropic
+    - "openai/qwen3:8b"
+    - "gpt-4o-mini"
 ```
 
 **Nasıl çalışır:**
 1. Her soru aynı prompt ile tüm modellere gönderilir
 2. Her model bağımsız olarak `{is_correct, score, reasoning}` döner
-3. **Majority voting** ile final karar verilir (2/3 doğru = doğru)
+3. **Majority voting** ile final karar verilir
 4. Modeller arası **pairwise agreement** oranı hesaplanır
 5. Tüm model detayları metadata'da saklanır
 
@@ -239,12 +280,12 @@ Agreement Rate ≥ %85 ise, keyword matching'in LLM-Judge ile uyumlu, güvenilir
 
 ## 5. Multi-Seed Reproducibility
 
-LLM'ler stokastik olduğundan, tek bir çalıştırma güvenilir sonuç vermez. Benchmark suite otomatik olarak multi-seed çalıştırma destekler.
+LLM'ler stokastik olduğundan, tek bir çalıştırma güvenilir sonuç vermez.
 
 ### Otomatik Çalıştırma (Önerilen)
 
 ```bash
-python scripts/reproduce_benchmark.py \
+venv/bin/python scripts/reproduce_benchmark.py \
   --config mesa-benchmark/config.yaml \
   --seeds 42,43,44,45,46 \
   --output reproducibility_report.json
@@ -256,42 +297,21 @@ python scripts/reproduce_benchmark.py \
 {
   "seeds_run": [42, 43, 44, 45, 46],
   "seeds_completed": 5,
-  "accuracy_statistics": {
-    "mean": 90.50,
-    "std": 1.04,
-    "formatted_str": "90.50 ± 1.04",
-    "ci_95": 1.36,
-    "n": 5
-  },
-  "significance_test": {
-    "t_stat": 3.42,
-    "p_value_approx": 0.0012,
-    "is_significant": true
-  }
+  "runs": [
+    {"seed": 42, "status": "success"},
+    {"seed": 43, "status": "success"}
+  ]
 }
 ```
-
-### Baseline Karşılaştırması (P-Value)
-
-MESA'yı bir baseline'a karşı istatistiksel olarak test etmek için:
-
-```bash
-python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config.yaml \
-  --baseline-config mesa-benchmark/config_zep.yaml \
-  --seeds 42,43,44,45,46
-```
-
-Bu komut Welch's t-test ile p-value hesaplar ve farkın istatistiksel olarak anlamlı olup olmadığını raporlar.
 
 ### Hızlı Test (Senaryo Limiti)
 
 Tüm 200 senaryoyu çalıştırmadan önce test etmek isterseniz:
 
 ```bash
-python scripts/reproduce_benchmark.py \
+venv/bin/python scripts/reproduce_benchmark.py \
   --config mesa-benchmark/config.yaml \
-  --seeds 42,43 \
+  --seeds 42 \
   --max-scenarios 10
 ```
 
@@ -305,6 +325,7 @@ MESA'yı uluslararası tanınan LoCoMo benchmark'ına karşı çalıştırmak, s
 
 ```bash
 cd mesa-benchmark
+python scripts/download_locomo.py
 ```
 
 Bu komut:
@@ -315,81 +336,41 @@ Bu komut:
 ### Adım 2: LoCoMo'ya Karşı Çalıştırın
 
 ```bash
-python -m mesa_benchmark -c config_locomo.yaml
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_locomo.yaml --seeds 42
 ```
-
-### Adım 3: Sonuçları Raporlayın
-
-LoCoMo sonuçları, mevcut akademik yayınlarla (Mem0'ın ECAI 2025 paper'ı gibi) doğrudan karşılaştırılabilir. Raporlama formatı:
-
-> *"MESA, LoCoMo benchmark'ında X puan aldı. Mem0'ın yayımladığı Y puanıyla karşılaştırılabilir."*
 
 ---
 
 ## 7. İzolasyon ve Kesintiden Devam Etme (Resilience)
 
-Benchmark aracı son derece katı bir hata kontrol sistemine sahiptir.
-
-- **Tam İzolasyon:** Her iterasyon öncesinde `clear_memory()` çağrılır. Bu çağrı başarısız olursa benchmark **derhal durur** (`MemoryPurgeError`). Çapraz veri kirliliği asla tolere edilmez.
-- **Exponential Backoff:** Herhangi bir API Limit aşımında (Rate Limit) araç çökmez, katlanarak artan bekleme süreleriyle (1s, 2s, 4s...) en fazla 3 kez tekrar dener.
-- **Kaldığı Yerden Devam:** Sistem çalışırken bilgisayarınız kapanırsa panik yapmayın. Tüm ilerleme `.state.json` dosyasında tutulur. Sistemi tekrar çalıştırdığınızda araç otomatik olarak son kalınan iterasyon ve senaryodan devam eder.
-- **Noise Parity:** Kaldığı yerden devam ederken, atlanmış senaryoların bağlamları veritabanına geri yüklenir — böylece bellek durumu temiz başlangıçla aynı kalır.
-
-Temiz bir test başlatmak istiyorsanız:
-
-```bash
-rm -rf results/
-python -m mesa_benchmark -c config.yaml
-```
+- **Tam İzolasyon:** Her iterasyon öncesinde `clear_memory()` çağrılır. Bu çağrı başarısız olursa benchmark **derhal durur** (`MemoryPurgeError`).
+- **Exponential Backoff:** API limit aşımlarında katlanarak artan bekleme süreleriyle (1s, 2s, 4s...) en fazla 3 kez tekrar dener.
+- **Kaldığı Yerden Devam:** Tüm ilerleme `.state.json` dosyasında tutulur. Sistemi tekrar çalıştırdığınızda otomatik olarak son kalınan noktadan devam eder.
+- **Noise Parity:** Kaldığı yerden devam ederken, atlanmış senaryoların bağlamları veritabanına geri yüklenir.
 
 ---
 
 ## 8. Raporların Okunması
 
-Test tamamlandıktan sonra `report_{RUN_ID}.md` dosyası oluşur. Rapor üç ana bölümden oluşur:
+Test tamamlandıktan sonra `results/{client}/{dataset}_seed{N}/` altında dosyalar oluşur:
 
-### 8.1 Accuracy & Reliability
+### Rapor Bölümleri
 
-| Metrik | Açıklama |
-|--------|----------|
-| **Total Questions** | Test edilen toplam soru sayısı |
-| **Correct Answers** | Doğru cevap sayısı |
-| **Accuracy** | Genel doğruluk oranı (%) |
-
-### 8.2 Methodological Verification (Yeni)
-
-`enable_agreement: true` ise raporda ek bir bölüm görünür:
-
-| Metrik | Açıklama |
-|--------|----------|
-| **Agreement Rate** | Keyword ve LLM-Judge evaluator'ların uyum oranı |
-| **Cohen's Kappa** | Şans uyumunu çıkaran istatistiksel katsayı |
-| **Contingency Table** | Detaylı çapraz doğruluk tablosu |
-
-### 8.3 Speed & Latency
-
-| Metrik | Açıklama |
-|--------|----------|
-| **Average Latency** | Ortalama tepki süresi (ms) |
-| **P95 Latency** | Sorguların %95'inin bitmesi için gereken süre |
-| **P99 Latency** | En yavaş %1'lik sorguların süresi |
-
-### 8.4 Retrieval Performance
-
-| Metrik | Açıklama |
-|--------|----------|
-| **Hit@1** | Doğru bilgi 1. sırada geldi |
-| **Hit@3** | Doğru bilgi ilk 3 sonuç içinde |
-| **Hit@5** | Doğru bilgi ilk 5 sonuç içinde |
-| **MRR** | Ortalama İlk Bulma Sırası (Mean Reciprocal Rank) |
+| Bölüm | Açıklama |
+|-------|----------|
+| **Accuracy & Reliability** | Doğruluk oranı, toplam soru/doğru sayısı |
+| **Methodological Verification** | Agreement rate, Cohen's Kappa, contingency table |
+| **Speed & Latency** | Ortalama, P95, P99 latency |
+| **Retrieval Performance** | Hit@1, Hit@3, Hit@5, MRR, nDCG@5 |
+| **Token Efficiency** | Doğru cevap başına token maliyeti |
+| **Root-Cause Diagnostics** | Failure attribution breakdown + internal latency breakdown |
 
 ---
 
 ## 9. HuggingFace Yayın Altyapısı
 
-Benchmark veri setinizi ve sonuçlarınızı uluslararası görünürlük için HuggingFace Hub'da yayımlayabilirsiniz.
-
-### Dataset Yayımlama
+Benchmark veri setinizi HuggingFace Hub'da yayımlayabilirsiniz:
 
 ```bash
 cd mesa-benchmark
@@ -398,32 +379,15 @@ cd mesa-benchmark
 export HF_TOKEN="hf_your_token_here"
 
 # Varsayılan veri setini yayımla
+python scripts/publish_to_hf.py \
   --dataset-path mesa_benchmark/datasets/comprehensive_200_dataset.json \
   --repo-id your-org/mesa-benchmark \
   --version 2.0
 ```
 
-Bu komut otomatik olarak:
-- HuggingFace dataset repository oluşturur
-- Dataset card (README.md) ile YAML frontmatter üretir
-- Lisans (Apache 2.0), citation bilgisi ve feature schema ekler
-- Veri setini `test.json` olarak yükler
-
-### LoCoMo Sonuçlarını Yayımlama
-
-```bash
-  --dataset-path datasets/locomo/dataset.json \
-  --repo-id your-org/mesa-locomo-benchmark \
-  --version 1.0
-```
-
 ---
 
 ## 10. Docker ile Reproducible Çalıştırma
-
-Tam reproducibility için Docker kullanılması önerilir. Dockerfile, pinned dependency versiyonları (`requirements-lock.txt`) kullanarak her makinede aynı ortamı garanti eder.
-
-### Build ve Çalıştırma
 
 ```bash
 cd mesa-benchmark
@@ -434,25 +398,15 @@ docker build -t mesa-benchmark .
 # Varsayılan benchmark çalıştır
 docker run --env-file .env mesa-benchmark
 
-# LoCoMo benchmark çalıştır
-docker run --env-file .env mesa-benchmark --config config_locomo.yaml
-
-# Zep baseline çalıştır
-docker run --env-file .env mesa-benchmark --config config_zep.yaml
+# Belirli config ile çalıştır
+docker run --env-file .env mesa-benchmark --config config_mem0.yaml
 ```
-
-### Reproducibility Kontrolü
-
-Docker image'ı `requirements-lock.txt` kullandığı için:
-- Her build aynı bağımlılık versiyonlarını yükler
-- Farklı makinelerde aynı sonuçlar üretilir
-- `seed` parametresi ile deterministik çalıştırma sağlanır
 
 ---
 
 ## 11. Yeni Bellek İstemcisi (Client Adapter) Eklemek
 
-Rakip bir AI belleğini sisteme entegre edip MESA ile yarışmasını isterseniz tek yapmanız gereken `AbstractBenchmarkClient` sınıfını uygulamaktır.
+`AbstractBenchmarkClient` sınıfını uygulamanız yeterlidir:
 
 ### Adım 1: Adapter Dosyası Oluşturun
 
@@ -465,7 +419,6 @@ from typing import Any, Dict
 from mesa_benchmark.clients.base import AbstractBenchmarkClient, BenchmarkResponse
 from mesa_benchmark.datasets.schemas import BenchmarkQuestion, MemoryContext
 
-# Kütüphane yoksa güvenli hata ver
 try:
     from my_system import MySystemClient
     MY_SYSTEM_AVAILABLE = True
@@ -513,13 +466,13 @@ class MySystemAdapter(AbstractBenchmarkClient):
 
 ```yaml
 suite_name: "MySystem Baseline"
-iterations: 5
+iterations: 1
 seed: 42
 
 dataset:
   name: "comprehensive_200"
   version: "v2"
-  path: "mesa_benchmark/datasets/comprehensive_200_dataset.json"
+  path: "mesa-benchmark/mesa_benchmark/datasets/comprehensive_200_dataset.json"
   noise_ratio: 0.0
 
 client:
@@ -531,14 +484,15 @@ client:
 
 evaluation:
   metrics: ["hit_at_k", "mrr", "latency"]
-  llm_judge_model: "gpt-4o-mini"
+  llm_judge_model: "openai/qwen3:8b"
   enable_agreement: true
 ```
 
 ### Adım 3: Çalıştırın
 
 ```bash
-python -m mesa_benchmark -c config_my_system.yaml
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_my_system.yaml --seeds 42
 ```
 
 > **Önemli:** `clear_memory()` metodunun tüm verileri tamamen sildiğinden emin olun. Bu metot başarısız olursa benchmark hemen durur — çapraz veri kirliliği hiçbir koşulda tolere edilmez.
@@ -548,26 +502,23 @@ python -m mesa_benchmark -c config_my_system.yaml
 ## Hızlı Referans — Sık Kullanılan Komutlar
 
 ```bash
-# Varsayılan benchmark (MESA, 200 senaryo, 5 iterasyon)
-python -m mesa_benchmark -c config.yaml
+# Hızlı doğrulama (mini dataset)
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config_mini_mesa.yaml --seeds 42
+
+# Ana benchmark (200 senaryo)
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config.yaml --seeds 42
 
 # Reproducibility raporu (5 seed)
-python scripts/reproduce_benchmark.py --seeds 42,43,44,45,46
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config.yaml --seeds 42,43,44,45,46
 
-# MESA vs Zep karşılaştırması (p-value ile)
-python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config.yaml \
-  --baseline-config mesa-benchmark/config_zep.yaml
-
-# LoCoMo uluslararası benchmark
-python -m mesa_benchmark -c config_locomo.yaml
-
-# HuggingFace'e yayımla
+# Senaryo limiti ile hızlı test
+venv/bin/python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config.yaml --seeds 42 --max-scenarios 10
 
 # Docker ile çalıştır
 docker build -t mesa-benchmark .
 docker run --env-file .env mesa-benchmark
-
-# Temiz başlangıç (state temizle)
-rm -rf results/
 ```

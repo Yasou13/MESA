@@ -5,7 +5,7 @@ seed: 42
 dataset:
   name: "comprehensive_multihop_only"
   version: "v2"
-  path: "datasets/comprehensive_multihop_only.json"
+  path: "mesa-benchmark/datasets/comprehensive_multihop_only.json"
   noise_ratio: 0.0
 
 client:

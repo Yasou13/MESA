@@ -1,5 +1,6 @@
-import os
+import logging
 import time
+import uuid
 from typing import Any, Dict
 
 from ..datasets.schemas import BenchmarkQuestion, MemoryContext
@@ -10,14 +11,19 @@ try:
 except ImportError:
     Memory = None
 
+logger = logging.getLogger(__name__)
+
 
 class Mem0ClientAdapter(AbstractBenchmarkClient):
     """
     Adapter for the Mem0 system (Baseline).
+    Uses Mem0's built-in OpenAI-compatible provider, which reads
+    OPENAI_API_KEY and OPENAI_BASE_URL from environment variables automatically.
     """
 
     def __init__(self) -> None:
         self.memory = None
+        self.current_user_id = str(uuid.uuid4())
 
     def initialize(self, config_params: Dict[str, Any]) -> None:
         if Memory is None:
@@ -25,36 +31,40 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
                 "mem0ai library is not installed. Run 'pip install mem0ai'"
             )
 
-        # Mem0 uses a dict config
-        mem0_config = config_params.get("mem0_config", {})
-
-        # Zero-Cost Mode Fallback for Baseline
-        if (
-            not mem0_config
-            and os.environ.get("MESA_ZERO_COST_MODE", "").lower() == "true"
-        ):
-            mem0_config = {
-                "llm": {"provider": "ollama", "config": {"model": "qwen3:8b"}},
-                "embedder": {
-                    "provider": "ollama",
-                    "config": {"model": "qwen3:8b"},
-                },
-            }
+        # Mem0 reads OPENAI_API_KEY and OPENAI_BASE_URL from env vars.
+        # For embedding, it uses the Ollama provider directly via OLLAMA_HOST.
+        mem0_config = config_params.get("mem0_config", {
+            "llm": {
+                "provider": "openai",
+                "config": {
+                    "model": "qwen3:8b"
+                }
+            },
+            "embedder": {
+                "provider": "ollama",
+                "config": {
+                    "model": "nomic-embed-text:latest"
+                }
+            },
+        })
 
         self.memory = Memory.from_config(mem0_config)
 
     def clear_memory(self) -> None:
-        if self.memory:
-            self.memory.reset()
+        # Isolate benchmark scenarios by generating a new user_id per iteration.
+        # This avoids calling reset() which can break the vector store collection.
+        self.current_user_id = str(uuid.uuid4())
 
     def add_memory(self, context: MemoryContext) -> Dict[str, Any]:
         start_time = time.time()
 
         if self.memory:
-            # Mem0 add format: add(messages, user_id=...)
-            self.memory.add(
-                context.text, user_id="benchmark_user", metadata={"id": context.id}
-            )
+            try:
+                self.memory.add(
+                    context.text, user_id=self.current_user_id, metadata={"id": context.id}
+                )
+            except Exception as e:
+                logger.warning("Mem0 add_memory failed for context '%s': %s", context.id, e)
 
         latency = (time.time() - start_time) * 1000
         return {"latency_ms": latency}
@@ -66,17 +76,18 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
         answer_text = ""
 
         if self.memory:
-            # Search Mem0
-            results = self.memory.search(question.query, user_id="benchmark_user")
-            # Synthesize answer or return raw context depending on the test definition
-            answer_text = str(results)
+            try:
+                results = self.memory.search(question.query, user_id=self.current_user_id)
+                answer_text = str(results)
 
-            if results:
-                # Try to extract the custom ID we injected during add_memory
-                for res in results:
-                    meta = res.get("metadata", {})
-                    if "id" in meta:
-                        retrieved_ids.append(meta["id"])
+                if results:
+                    for res in results:
+                        meta = res.get("metadata", {})
+                        if "id" in meta:
+                            retrieved_ids.append(meta["id"])
+            except Exception as e:
+                logger.warning("Mem0 search failed for question '%s': %s", question.id, e)
+                answer_text = ""
 
         latency = (time.time() - start_time) * 1000
 
@@ -89,5 +100,4 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
         )
 
     def close(self) -> None:
-        """Mem0 manages its own connections, no cleanup required."""
         pass

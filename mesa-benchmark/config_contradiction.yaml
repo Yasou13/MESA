@@ -5,7 +5,7 @@ seed: 42
 dataset:
   name: "contradiction_stress_200"
   version: "v2"
-  path: "datasets/contradiction_200.json"
+  path: "mesa-benchmark/datasets/contradiction_200.json"
   noise_ratio: 0.0
 
 client:

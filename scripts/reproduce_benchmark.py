@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -10,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "mesa-benchmark"))
 from mesa_benchmark.core.config import load_config
 from mesa_benchmark.core.runner import BenchmarkRunner
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s")
 
 
 def main():
@@ -24,15 +25,28 @@ def main():
     args = parser.parse_args()
     seeds = [int(s.strip()) for s in args.seeds.split(",")]
 
+    if args.max_scenarios:
+        os.environ["MESA_MAX_SCENARIOS"] = str(args.max_scenarios)
+
     results = {"seeds_run": seeds, "seeds_completed": 0, "runs": []}
-    
+
     for seed in seeds:
         logging.info(f"--- Running seed {seed} ---")
         try:
-            cfg = load_config(args.config)
-            cfg.seed = seed
+            # Create a fresh runner per seed. BenchmarkRunner.setup() reads the
+            # config from disk, so we override the seed *after* setup completes.
             runner = BenchmarkRunner(config_path=args.config)
-            runner.config = cfg
+            runner.setup()
+            # Override seed on the already-loaded config and re-seed RNGs
+            runner.config.seed = seed
+            import random
+            random.seed(seed)
+            try:
+                import numpy as np
+                np.random.seed(seed)
+            except ImportError:
+                pass
+
             runner.run()
             results["seeds_completed"] += 1
             results["runs"].append({"seed": seed, "status": "success"})
@@ -42,7 +56,7 @@ def main():
 
     with open(args.output, "w") as f:
         json.dump(results, f, indent=2)
-        
+
     logging.info(f"Done. Report written to {args.output}")
 
 

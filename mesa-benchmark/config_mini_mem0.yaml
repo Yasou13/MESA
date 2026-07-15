@@ -1,19 +1,19 @@
-suite_name: "MESA v0.5.2 BEAM Benchmark (Ollama Remote)"
+suite_name: "MEM0 MINI Test"
 iterations: 1
 seed: 42
 
 dataset:
-  name: "beam_dataset"
+  name: "mini_dataset"
   version: "v1"
-  path: "mesa-benchmark/datasets/beam/dataset.json"
+  path: "mesa-benchmark/mesa_benchmark/datasets/mini_dataset.json"
   noise_ratio: 0.0
 
 client:
-  name: "mesa_client"
-  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
-  timeout_ms: 30000
+  name: "mem0_client"
+  adapter_class: "mesa_benchmark.clients.mem0_client.Mem0ClientAdapter"
+  timeout_ms: 120000
   parameters:
-    verbose: false
+    verbose: true
 
 evaluation:
   metrics:

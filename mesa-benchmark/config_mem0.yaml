@@ -5,13 +5,13 @@ seed: 42
 dataset:
   name: "comprehensive_200"
   version: "v2"
-  path: "mesa_benchmark/datasets/comprehensive_200_dataset.json"
+  path: "mesa-benchmark/mesa_benchmark/datasets/comprehensive_200_dataset.json"
   noise_ratio: 0.0
 
 client:
   name: "mem0_client"
   adapter_class: "mesa_benchmark.clients.mem0_client.Mem0ClientAdapter"
-  timeout_ms: 15000
+  timeout_ms: 120000
   parameters: {}
 
 evaluation:
