@@ -45,9 +45,9 @@ class MesaRetriever(BaseRetriever):
         response = self.client.search(request)
 
         documents = []
-        for item in response.results:
+        for item in response.retrieved_nodes:
             doc = Document(
-                page_content=item.entity_name,
+                page_content=item.content_payload or item.entity_name,
                 metadata={
                     "node_id": item.node_id,
                     "score": item.score,

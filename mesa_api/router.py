@@ -55,6 +55,7 @@ from mesa_api.schemas import (
     MemoryInsertRequest,
     MemoryPurgeRequest,
     MemorySearchRequest,
+    MemorySearchResponse,
     SessionContextResponse,
     SessionEndRequest,
     SessionStartRequest,
@@ -302,11 +303,12 @@ def create_memory_router(
         "/search",
         summary="Search memory",
         response_description="Retrieved context with latency metrics",
+        response_model=MemorySearchResponse,
     )
     async def search_memory(
         request: MemorySearchRequest,
         dao: MemoryDAO = Depends(get_dao),
-    ) -> dict:
+    ) -> MemorySearchResponse:
         """Execute a hybrid memory search via the production HybridRetriever.
 
         Performs ranked retrieval through the full fusion pipeline:
@@ -365,6 +367,7 @@ def create_memory_router(
                             "node_id": cmb_id,
                             "agent_id": request.agent_id,
                             "source": "hybrid",
+                            "score": 0.0,
                         }
                     )
                     continue
@@ -374,8 +377,10 @@ def create_memory_router(
                     {
                         "node_id": cmb_id,
                         "entity_name": entity_name,
+                        "content_payload": node.get("content"),
                         "type": node.get("node_type", "ENTITY"),
                         "source": "hybrid",
+                        "score": 1.0,
                         "agent_id": node.get("agent_id", request.agent_id),
                     }
                 )
@@ -394,6 +399,9 @@ def create_memory_router(
             raise HTTPException(status_code=403, detail=str(perm_exc))
 
         except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
             logger.error(
                 "SEARCH_ERROR | agent_id=%s query=%r error=%s",
                 request.agent_id,
@@ -409,11 +417,11 @@ def create_memory_router(
         elapsed_ms = int((time.monotonic() - t_start) * 1000)
         context = "; ".join(context_parts) if context_parts else ""
 
-        return {
-            "context": context,
-            "retrieved_nodes": retrieved_nodes[: request.limit],
-            "metrics": {"latency_ms": elapsed_ms},
-        }
+        return MemorySearchResponse(
+            context=context,
+            retrieved_nodes=retrieved_nodes[: request.limit],
+            metrics={"latency_ms": elapsed_ms},
+        )
 
     # ==================================================================
     # DELETE /v3/memory/purge
@@ -460,6 +468,9 @@ def create_memory_router(
             )
 
         except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
             logger.error(
                 "PURGE_ERROR | agent_id=%s scope=%s error=%s",
                 request.agent_id,
@@ -563,6 +574,9 @@ def create_memory_router(
         except PermissionError:
             raise  # Re-raise RBAC errors without wrapping
         except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
             logger.error(
                 "SESSION_CONTEXT_ERROR | session_id=%s agent_id=%s error=%s",
                 session_id,
@@ -619,6 +633,9 @@ def create_memory_router(
         except PermissionError:
             raise  # Re-raise RBAC errors without wrapping
         except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
             logger.error(
                 "SESSION_END_ERROR | session_id=%s agent_id=%s error=%s",
                 session_id,

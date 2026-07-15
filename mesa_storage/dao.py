@@ -158,6 +158,10 @@ class MemoryDAO:
     # E1 FIX: Startup orphan reconciliation
     # ------------------------------------------------------------------
 
+    def get_all_embeddings(self, limit: int = 10000) -> list[list[float]]:
+        """Synchronously load active embeddings for ValenceMotor hydration."""
+        return self.vector_engine._sync_get_all_embeddings(limit)
+
     async def _reconcile_orphaned_nodes(self) -> None:
         """Detect and invalidate SQLite nodes with no LanceDB vector.
 
@@ -492,7 +496,7 @@ class MemoryDAO:
             try:
                 # Apply soft-delete in LanceDB for conflicts
                 for cid in conflicting_node_ids:
-                    await self._vec.soft_delete(cid)
+                    await self._vec.soft_delete(cid, agent_id)
 
                 if await self._is_lancedb_migrating(db):
                     import json
@@ -764,7 +768,7 @@ class MemoryDAO:
             async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 for row in rows:
-                    row_dict = dict(row)
+                    row_dict = self._sanitize_payload(dict(row))
                     graph_map[row_dict["id"]] = row_dict
 
         # Merge vector + graph data
@@ -1066,7 +1070,7 @@ class MemoryDAO:
             # ---- PHASE 2: VECTOR LAYER (compensating rollback on fail) -
             try:
                 for nid in affected_ids:
-                    await self._vec.soft_delete(nid)
+                    await self._vec.soft_delete(nid, agent_id)
             except Exception as vec_exc:
                 # Vector deletion failed — ROLLBACK the SQL transaction
                 # to prevent dangling relational records.
@@ -1089,6 +1093,26 @@ class MemoryDAO:
             nodes_deleted,
         )
         return nodes_deleted
+
+    async def _atomic_saga_commit(
+        self,
+        db_conn: Any,
+        vector_func: Any = None,
+        graph_func: Any = None,
+    ) -> None:
+        """Central helper for executing dual/tri-write sagas.
+        Ensures secondary stores (LanceDB, Kuzu) succeed before committing SQLite.
+        """
+        try:
+            if graph_func is not None:
+                await graph_func()
+            if vector_func is not None:
+                await vector_func()
+        except Exception as exc:
+            await db_conn.rollback()
+            logger.error("SAGA_ROLLBACK | Failed to write to secondary store: %s", exc)
+            raise
+        await db_conn.commit()
 
     # ==================================================================
     # UPDATE ENTITY DESCRIPTION
@@ -1115,21 +1139,21 @@ class MemoryDAO:
         """
         _assert_valid_agent_id(agent_id)
 
-        # 1. Update SQLite relational node
         async with self._sql.transaction() as db:
             await db.execute(
                 "UPDATE nodes SET content_payload = ? "
                 "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
                 (new_content, node_id, agent_id),
             )
-            await db.commit()
 
-        # 2. Update Vector table via upsert
-        await self.vector_engine.upsert(
-            agent_id=agent_id,
-            node_id=node_id,
-            embedding=new_embedding,
-        )
+            async def _vec_update():
+                await self.vector_engine.upsert(
+                    agent_id=agent_id,
+                    node_id=node_id,
+                    embedding=new_embedding,
+                )
+
+            await self._atomic_saga_commit(db, vector_func=_vec_update)
 
     # ==================================================================
     # MARK CONSOLIDATED — agent-scoped
@@ -1348,45 +1372,27 @@ class MemoryDAO:
         _assert_valid_agent_id(agent_id)
 
         async with self._sql.transaction() as db:
-            # RLS: WHERE agent_id = ? hardcoded
             await db.execute(
                 "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
                 "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
                 (node_id, agent_id),
             )
-            # NOTE: Edge cascade removed — edges now live in KùzuDB
-            # and are structurally bound to Entity nodes via MATCH.
-            await db.commit()
 
-        # Cascade-delete edges in KùzuDB if graph provider is attached
-        if self._graph:
-            try:
-                await self._graph.execute_write(
-                    "MATCH (n:Entity {id: $node_id, agent_id: $agent_id})"
-                    "-[r:Observed]-() DELETE r",
-                    {"node_id": node_id, "agent_id": agent_id},
-                )
-            except Exception as exc:
-                logger.warning(
-                    "INVALIDATE_NODE_EDGE_CASCADE_FAILED | agent_id=%s "
-                    "node_id=%s error=%s",
-                    agent_id,
-                    node_id,
-                    exc,
-                )
+            async def _graph_update():
+                if self._graph:
+                    await self._graph.execute_write(
+                        "MATCH (n:Entity {id: $node_id, agent_id: $agent_id})"
+                        "-[r:Observed]-() DELETE r",
+                        {"node_id": node_id, "agent_id": agent_id},
+                    )
 
-        # Also delete from vector engine to prevent semantic search retrieval
-        if self._vec:
-            try:
-                await self._vec.hard_delete(node_id)
-            except Exception as exc:
-                logger.warning(
-                    "INVALIDATE_NODE_VEC_CASCADE_FAILED | agent_id=%s "
-                    "node_id=%s error=%s",
-                    agent_id,
-                    node_id,
-                    exc,
-                )
+            async def _vec_update():
+                if self._vec:
+                    await self._vec.hard_delete(node_id, agent_id)
+
+            await self._atomic_saga_commit(
+                db, vector_func=_vec_update, graph_func=_graph_update
+            )
 
         logger.info(
             "INVALIDATE_NODE | agent_id=%s node_id=%s",
@@ -1552,7 +1558,7 @@ class MemoryDAO:
         async with self._sql.connection() as db:
             async with db.execute(query, (node_id, agent_id)) as cursor:
                 row = await cursor.fetchone()
-                return dict(row) if row else None
+                return self._sanitize_payload(dict(row)) if row else None
 
     # ==================================================================
     # NODE DEGREE — agent-scoped edge count
@@ -1801,10 +1807,30 @@ class MemoryDAO:
             "vector": vec_health,
         }
         if self._graph is not None:
+            graph_status = "not_initialized"
+            if self._graph.is_initialized:
+                try:
+                    await self._graph.execute_query(
+                        "MATCH (n:Entity) RETURN COUNT(n) AS c"
+                    )
+                    graph_status = "healthy"
+                except Exception:
+                    graph_status = "unhealthy"
             result["graph"] = {
-                "status": (
-                    "healthy" if self._graph.is_initialized else "not_initialized"
-                ),
+                "status": graph_status,
                 "db_path": self._graph.db_path,
             }
         return result
+
+    @staticmethod
+    def _sanitize_payload(row_dict: dict[str, Any]) -> dict[str, Any]:
+        """Normalize sqlite row dict for external consumption."""
+        if "content_payload" in row_dict:
+            row_dict["content"] = row_dict.pop("content_payload")
+        if "type" in row_dict:
+            row_dict["node_type"] = row_dict.pop("type")
+        if "is_consolidated" in row_dict:
+            row_dict["is_consolidated"] = bool(row_dict["is_consolidated"])
+        if "is_quarantined" in row_dict:
+            row_dict["is_quarantined"] = bool(row_dict["is_quarantined"])
+        return row_dict

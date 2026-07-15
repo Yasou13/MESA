@@ -65,7 +65,9 @@ fi
 info "Setting up Ollama for zero-cost local inference..."
 if ! command -v ollama &> /dev/null; then
     info "Ollama not found. Installing..."
-    curl -fsSL https://ollama.com/install.sh | sh
+    curl -fsSL https://ollama.com/install.sh -o /tmp/ollama_install.sh
+    sh /tmp/ollama_install.sh
+    rm -f /tmp/ollama_install.sh
     ok "Ollama installed."
 else
     ok "Ollama already installed."

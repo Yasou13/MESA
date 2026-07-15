@@ -45,9 +45,16 @@ class LLMJudgeEvaluator(BaseEvaluator):
     Uses litellm for provider-agnostic routing (OpenAI, Anthropic, Ollama, etc.).
     """
 
-    def __init__(self, judge_model: str = "gpt-4o", temperature: float = 0.0):
+    def __init__(
+        self,
+        judge_model: str = "gpt-4o",
+        temperature: float = 0.0,
+        ensemble_size: int = 3,
+    ):
         self.judge_model = judge_model
-        self.temperature = temperature
+        # Use a non-zero temperature for ensemble variance, unless explicitly 0
+        self.temperature = temperature if temperature > 0.0 else 0.7
+        self.ensemble_size = ensemble_size
 
     def _call_litellm(self, prompt: str) -> Optional[dict]:
         """Calls the judge model via litellm and parses the JSON response."""
@@ -146,34 +153,44 @@ class LLMJudgeEvaluator(BaseEvaluator):
             retrieved_contexts=response.retrieved_context_ids,
         )
 
-        judge_result = self._call_litellm(prompt)
+        import concurrent.futures
 
-        if judge_result is not None:
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.ensemble_size
+        ) as executor:
+            futures = [
+                executor.submit(self._call_litellm, prompt)
+                for _ in range(self.ensemble_size)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                res = future.result()
+                if res is not None:
+                    results.append(res)
+
+        if results:
+            correct_votes = sum(1 for r in results if r.get("is_correct", False))
+            is_correct = correct_votes > (len(results) / 2)
+            avg_score = sum(float(r.get("score", 0.0)) for r in results) / len(results)
+            combined_reasoning = "\n---\n".join(
+                [str(r.get("reasoning", "")) for r in results]
+            )
+
             return EvaluationResult(
-                score=float(judge_result.get("score", 0.0)),
+                score=avg_score,
                 latency_ms=response.latency_ms,
-                is_correct=bool(judge_result.get("is_correct", False)),
-                reasoning=str(judge_result.get("reasoning", "")),
+                is_correct=is_correct,
+                reasoning=f"Majority Vote ({correct_votes}/{len(results)}): \n{combined_reasoning}",
                 metadata={
                     "evaluator_type": "LLMJudgeEvaluator",
                     "judge_model": self.judge_model,
-                    "raw_judge_response": str(judge_result),
+                    "ensemble_size": len(results),
+                    "raw_judge_responses": str(results),
                 },
             )
 
-        # Fallback: simple substring match
-        logger.warning("LLM Judge failed, falling back to substring match.")
-        gt = question.ground_truth.strip().lower()
-        ans = response.answer_text.strip().lower()
-        is_match = gt in ans
-
-        return EvaluationResult(
-            score=1.0 if is_match else 0.0,
-            latency_ms=response.latency_ms,
-            is_correct=is_match,
-            reasoning="LLM Judge unavailable. Fallback substring match used.",
-            metadata={
-                "evaluator_type": "LLMJudgeEvaluator",
-                "fallback": True,
-            },
+        # Fallback: Raise an error instead of silently passing
+        logger.error("LLM Judge failed.")
+        raise RuntimeError(
+            "LLM Judge evaluation failed. Check your API keys and model availability."
         )

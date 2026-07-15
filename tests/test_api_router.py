@@ -22,12 +22,14 @@ from fastapi.testclient import TestClient
 from mesa_api.router import create_memory_router
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import (
-    get_active_nodes,
     initialize_schema,
-    insert_node,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from tests.utils.storage_helpers import (
+    get_active_nodes,
+    insert_node,
+)
 
 TEST_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -280,6 +282,8 @@ class TestSearchEndpoint:
                     "query": "SearchTestNode",
                 },
             )
+        if resp.status_code != 200:
+            print(resp.text)
         assert resp.status_code == 200
         body = resp.json()
         assert "context" in body
@@ -332,6 +336,8 @@ class TestSearchEndpoint:
                     "query": "nonexistent_entity_xyz",
                 },
             )
+        if resp.status_code != 200:
+            print(resp.text)
         assert resp.status_code == 200
         body = resp.json()
         assert body["retrieved_nodes"] == []
@@ -425,6 +431,8 @@ class TestPurgeEndpoint:
                 "scope_id": "agent-purge",
             },
         )
+        if resp.status_code != 200:
+            print(resp.text)
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "purged"

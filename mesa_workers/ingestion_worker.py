@@ -753,6 +753,27 @@ async def _commit_triplets(
         triplets: List of ``{head, relation, tail}`` dicts from REBEL.
         log_id: raw_logs primary key (used for node context tagging).
     """
+    # Batch compute embeddings to prevent N+1 queries
+    unique_entities = set()
+    for triplet in triplets:
+        head = triplet.get("head", "").strip()
+        tail = triplet.get("tail", "").strip()
+        if head:
+            unique_entities.add(head[:512])
+        if tail:
+            unique_entities.add(tail[:512])
+
+    unique_entities_list = list(unique_entities)
+    if unique_entities_list:
+        embeddings_list = await dao.vector_engine.compute_embedding_batch(
+            unique_entities_list
+        )
+        embedding_map = {
+            ent: emb for ent, emb in zip(unique_entities_list, embeddings_list)
+        }
+    else:
+        embedding_map = {}
+
     for triplet in triplets:
         head = triplet.get("head", "").strip()
         relation = triplet.get("relation", "").strip()
@@ -787,8 +808,8 @@ async def _commit_triplets(
             # ==============================================================
             # STAGE 1: Compute embeddings (CPU — no side effects)
             # ==============================================================
-            head_embedding = await dao.vector_engine.compute_embedding(head[:512])
-            tail_embedding = await dao.vector_engine.compute_embedding(tail[:512])
+            head_embedding = embedding_map.get(head[:512], [])
+            tail_embedding = embedding_map.get(tail[:512], [])
 
             # ==============================================================
             # STAGE 2: SQLite INSERT (can rollback via DAO transaction)
@@ -843,7 +864,7 @@ async def _commit_triplets(
                 failed_stage = "stage2_tail_insert"
                 # Head was inserted — soft-delete to compensate
                 try:
-                    await dao.vector_engine.soft_delete(head_node_id)
+                    await dao.vector_engine.soft_delete(head_node_id, agent_id)
                 except Exception as comp_exc:
                     logger.error(
                         "SAGA_COMPENSATE_FAILED | log_id=%d stage=head_softdelete error=%s",
@@ -857,7 +878,7 @@ async def _commit_triplets(
                 for nid in (head_node_id, tail_node_id):
                     if nid:
                         try:
-                            await dao.vector_engine.soft_delete(nid)
+                            await dao.vector_engine.soft_delete(nid, agent_id)
                         except Exception as comp_exc:
                             logger.error(
                                 "SAGA_COMPENSATE_FAILED | log_id=%d node_id=%s error=%s",
@@ -937,7 +958,7 @@ async def _commit_raw_memory(
         # --- Compensating rollback: soft-delete vector if node was written ---
         if node_id is not None:
             try:
-                await dao.vector_engine.soft_delete(node_id)
+                await dao.vector_engine.soft_delete(node_id, agent_id)
             except Exception as comp_exc:
                 logger.error(
                     "SAGA_COMPENSATE_FAILED | log_id=%d "

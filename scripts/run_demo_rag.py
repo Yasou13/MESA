@@ -22,11 +22,13 @@ import time
 from typing import Optional
 
 import uvicorn
+from fastapi import Depends
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.api.server import get_api_key
 
 # Import the main MESA app and shared state
 from scripts.run_server import _project_root, _state, app
@@ -72,7 +74,11 @@ class DemoChatResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # POST /v3/demo/chat — RAG endpoint with direct-write memory
 # ---------------------------------------------------------------------------
-@app.post("/v3/demo/chat", response_model=DemoChatResponse)
+@app.post(
+    "/v3/demo/chat",
+    response_model=DemoChatResponse,
+    dependencies=[Depends(get_api_key)],
+)
 async def demo_chat(req: DemoChatRequest):
     """Direct-write RAG: embed → store → search → LLM → respond.
 

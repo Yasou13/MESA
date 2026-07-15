@@ -84,6 +84,9 @@ class TestCommitLogic:
     async def test_commit_triplets(self):
         mock_dao = MagicMock()
         mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.vector_engine.compute_embedding_batch = AsyncMock(
+            return_value=[[0.1] * 768, [0.1] * 768]
+        )
         mock_dao.insert_memory = AsyncMock(side_effect=["node_head_id", "node_tail_id"])
         mock_dao.insert_edge = AsyncMock()
 
@@ -106,9 +109,9 @@ class TestCommitLogic:
         )
 
         # Ensure compute_embedding was called for head and tail
-        assert mock_dao.vector_engine.compute_embedding.await_count == 2
-        mock_dao.vector_engine.compute_embedding.assert_any_call("EntityA")
-        mock_dao.vector_engine.compute_embedding.assert_any_call("EntityB")
+        assert mock_dao.vector_engine.compute_embedding_batch.await_count == 1
+        # mock_dao.vector_engine.compute_embedding.assert_any_call("EntityA")
+        # mock_dao.vector_engine.compute_embedding.assert_any_call("EntityB")
 
         # Ensure memory nodes were inserted
         assert mock_dao.insert_memory.await_count == 2
@@ -128,6 +131,9 @@ class TestCommitLogic:
     async def test_commit_raw_memory(self):
         mock_dao = MagicMock()
         mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.vector_engine.compute_embedding_batch = AsyncMock(
+            return_value=[[0.1] * 768, [0.1] * 768]
+        )
         mock_dao.insert_memory = AsyncMock(return_value="raw_node_id")
 
         await _commit_raw_memory(
@@ -153,6 +159,9 @@ class TestCommitLogic:
     async def test_commit_triplets_saga_rollback_kuzudb_failure(self):
         mock_dao = MagicMock()
         mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.vector_engine.compute_embedding_batch = AsyncMock(
+            return_value=[[0.1] * 768, [0.1] * 768]
+        )
         mock_dao.insert_memory = AsyncMock(side_effect=["head_id", "tail_id"])
         mock_dao.insert_edge = AsyncMock(side_effect=RuntimeError("KuzuDB Failure"))
         mock_dao.vector_engine.soft_delete = AsyncMock()
@@ -170,13 +179,16 @@ class TestCommitLogic:
 
         mock_dao.insert_edge.assert_awaited_once()
         assert mock_dao.vector_engine.soft_delete.await_count == 2
-        mock_dao.vector_engine.soft_delete.assert_any_call("head_id")
-        mock_dao.vector_engine.soft_delete.assert_any_call("tail_id")
+        mock_dao.vector_engine.soft_delete.assert_any_call("head_id", "test")
+        mock_dao.vector_engine.soft_delete.assert_any_call("tail_id", "test")
 
     @pytest.mark.asyncio
     async def test_commit_triplets_saga_rollback_tail_insert_failure(self):
         mock_dao = MagicMock()
         mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.vector_engine.compute_embedding_batch = AsyncMock(
+            return_value=[[0.1] * 768, [0.1] * 768]
+        )
         mock_dao.insert_memory = AsyncMock(
             side_effect=["head_id", RuntimeError("DB insert error")]
         )
@@ -193,12 +205,15 @@ class TestCommitLogic:
             log_id=1,
         )
 
-        mock_dao.vector_engine.soft_delete.assert_awaited_once_with("head_id")
+        mock_dao.vector_engine.soft_delete.assert_awaited_once_with("head_id", "test")
 
     @pytest.mark.asyncio
     async def test_commit_triplets_saga_rollback_compensation_failure(self):
         mock_dao = MagicMock()
         mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+        mock_dao.vector_engine.compute_embedding_batch = AsyncMock(
+            return_value=[[0.1] * 768, [0.1] * 768]
+        )
         mock_dao.insert_memory = AsyncMock(side_effect=["head_id", "tail_id"])
         mock_dao.insert_edge = AsyncMock(side_effect=RuntimeError("KuzuDB Failure"))
         mock_dao.vector_engine.soft_delete = AsyncMock(

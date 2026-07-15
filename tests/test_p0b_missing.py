@@ -166,8 +166,11 @@ async def test_valence_evaluate_errors():
 
 @pytest.mark.asyncio
 async def test_consolidation_loop_stop():
+    dao = AsyncMock()
+    dao.get_all_embeddings = MagicMock(return_value=[])
+    dao.load_embedding_cache = MagicMock(return_value=[])
     loop = ConsolidationLoop(
-        dao=AsyncMock(),
+        dao=dao,
         embedder=MagicMock(),
         llm_a=MagicMock(),
         llm_b=MagicMock(),

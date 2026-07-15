@@ -192,7 +192,7 @@ class TestDelete:
     async def test_soft_delete_hides_from_search(self, engine):
         nid = uuid.uuid4().hex
         await engine.upsert(nid, "agent_1", VEC_A)
-        await engine.soft_delete(nid)
+        await engine.soft_delete(nid, "agent_1")
 
         results = await engine.search(VEC_A, limit=10)
         assert not any(r["node_id"] == nid for r in results)
@@ -201,7 +201,7 @@ class TestDelete:
     async def test_soft_delete_visible_with_include_expired(self, engine):
         nid = uuid.uuid4().hex
         await engine.upsert(nid, "agent_1", VEC_A)
-        await engine.soft_delete(nid)
+        await engine.soft_delete(nid, "agent_1")
 
         results = await engine.search(VEC_A, limit=10, include_expired=True)
         assert any(r["node_id"] == nid for r in results)
@@ -210,7 +210,7 @@ class TestDelete:
     async def test_hard_delete_removes_permanently(self, engine):
         nid = uuid.uuid4().hex
         await engine.upsert(nid, "agent_1", VEC_A)
-        await engine.hard_delete(nid)
+        await engine.hard_delete(nid, "agent_1")
 
         results = await engine.search(VEC_A, limit=10, include_expired=True)
         assert not any(r["node_id"] == nid for r in results)

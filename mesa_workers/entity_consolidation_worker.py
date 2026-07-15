@@ -51,20 +51,11 @@ async def run_consolidation_scan(
             continue
 
         # Format context from neighbors.
-        # get_neighbors returns edges which have source_id, target_id.
-        # Wait! get_neighbors in dao.py returns dicts with 'source_id', 'target_id', 'weight', 'agent_id'.
-        # We need to get the actual neighbor nodes to know their names.
-        # So we need to query `dao.get_memory_by_id` or similar for the target_id.
+        # get_neighbors returns dicts with 'id', 'name', 'hops'.
         context_lines = []
         for n in neighbors:
-            # The neighbor could be source or target depending on direction.
-            # Assuming node_id is either source_id or target_id.
-            other_id = n["target_id"] if n["source_id"] == node_id else n["source_id"]
-            other_node = await dao.get_memory_by_id(agent_id, other_id)
-            if other_node:
-                n_name = other_node.get("entity_name", "Unknown")
-                n_type = other_node.get("type", "ENTITY")
-                context_lines.append(f"- {n_name} ({n_type})")
+            n_name = n.get("name", "Unknown")
+            context_lines.append(f"- {n_name} (ENTITY)")
 
         if not context_lines:
             continue

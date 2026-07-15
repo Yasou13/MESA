@@ -281,7 +281,7 @@ class BareRAGClient(BaseMemoryClient):
         purged = 0
         for node_id in active_ids:
             try:
-                await self._vector_engine.soft_delete(node_id)
+                await self._vector_engine.soft_delete(node_id, agent_id)
                 purged += 1
             except Exception as exc:
                 logger.warning(

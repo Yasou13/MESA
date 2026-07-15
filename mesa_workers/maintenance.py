@@ -423,7 +423,7 @@ class MaintenanceWorker:
                 # Delete expired nodes
                 cursor = await db.execute(
                     "DELETE FROM nodes WHERE invalid_at IS NOT NULL "
-                    "AND invalid_at < ?",
+                    "AND datetime(invalid_at) < datetime(?)",
                     (cutoff,),
                 )
                 nodes_deleted = cursor.rowcount

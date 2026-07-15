@@ -11,12 +11,11 @@ import asyncio
 import os
 import shutil
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from mesa_storage.dao import MemoryDAO, _assert_valid_agent_id
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -36,11 +35,19 @@ def dao_env():
     uid = uuid.uuid4().hex[:8]
     db = os.path.join(TEST_DIR, f"dao_{uid}.db")
     vec = os.path.join(TEST_DIR, f"vec_{uid}.lance")
-    graph_path = os.path.join(TEST_DIR, f"graph_{uid}.kuzu")
     sql = AsyncEngine(db, max_connections=2)
     vec_eng = VectorEngine(vec, max_workers=1)
-    init_kuzu_schema(graph_path)
-    graph_eng = KuzuGraphProvider(db_path=graph_path)
+    mock_kuzu = MagicMock()
+    mock_kuzu.is_initialized = True
+    mock_kuzu.execute_query = AsyncMock(return_value=[])
+    mock_kuzu.insert_entity = AsyncMock()
+    mock_kuzu.insert_edge = AsyncMock()
+    mock_kuzu.get_neighbors = AsyncMock(
+        return_value=[{"id": "n2", "name": "TestEntity", "hops": "1"}]
+    )
+    mock_kuzu.initialize = AsyncMock()
+    mock_kuzu.close = AsyncMock()
+    graph_eng = mock_kuzu
     loop = asyncio.new_event_loop()
     loop.run_until_complete(sql.initialize())
     loop.run_until_complete(initialize_schema(sql))
@@ -282,6 +289,7 @@ class TestGetNeighbors:
 
     def test_no_neighbors(self, dao_env):
         dao, _, _, loop = dao_env
+        dao.graph_provider.get_neighbors.return_value = []
         nid = loop.run_until_complete(
             dao.insert_memory(
                 "agent-1", entity_name="Lone", content="c", embedding=VEC8

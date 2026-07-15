@@ -603,3 +603,81 @@ async def start_tier3_deferred_worker(
         except Exception as e:
             logger.error(f"Error in Tier-3 Deferred worker: {e}", exc_info=True)
             await asyncio.sleep(sleep_interval)
+
+
+async def start_dlq_worker(
+    dao: MemoryDAO,
+    consolidation_loop: ConsolidationLoop,
+    agent_id: str = "mesa_consolidation_system",
+    sleep_interval: int = 60,
+    batch_size: int = 10,
+):
+    """
+    Background worker that periodically drains the Dead Letter Queue (DLQ),
+    fetches the original records from the database, and attempts to re-process them.
+    """
+    logger.info("Starting DLQ re-processing background worker...")
+    while True:
+        try:
+            dlq_len = await consolidation_loop.dead_letter_queue.alen()
+            if dlq_len == 0:
+                await asyncio.sleep(sleep_interval)
+                continue
+
+            logger.info(
+                "DLQ worker found %d items. Attempting re-processing...", dlq_len
+            )
+
+            # Read items up to batch_size
+            items_to_process = []
+            for i in range(min(dlq_len, batch_size)):
+                try:
+                    item = await consolidation_loop.dead_letter_queue.agetitem(i)
+                    items_to_process.append(item)
+                except IndexError:
+                    break
+
+            if not items_to_process:
+                await asyncio.sleep(sleep_interval)
+                continue
+
+            # Clear the queue since we are processing this batch (in a real system we'd pop,
+            # but PersistentQueue only has clear. We just clear it; failed items will be re-appended).
+            await consolidation_loop.dead_letter_queue.clear()
+
+            # For remaining items beyond batch size, put them back
+            if dlq_len > batch_size:
+                for i in range(batch_size, dlq_len):
+                    try:
+                        leftover = await consolidation_loop.dead_letter_queue.agetitem(
+                            i
+                        )
+                        await consolidation_loop.dead_letter_queue.aappend(leftover)
+                    except IndexError:
+                        break
+
+            # Fetch original records
+            batch_records = []
+            for item in items_to_process:
+                cmb_id = item.get("cmb_id")
+                # Wait, getting agent_id: we'll try the default agent_id since DLQ doesn't store it
+                # If get_memory_by_id needs exact agent_id, we just use the one passed or try to find it.
+                record = await dao.get_memory_by_id(agent_id, cmb_id)
+                if record:
+                    batch_records.append(record)
+
+            if batch_records:
+                logger.info(
+                    "DLQ worker successfully fetched %d records for re-processing.",
+                    len(batch_records),
+                )
+                await consolidation_loop.run_batch(batch_records)
+
+            await asyncio.sleep(sleep_interval)
+
+        except asyncio.CancelledError:
+            logger.info("DLQ worker cancelled, shutting down.")
+            break
+        except Exception as e:
+            logger.error(f"Error in DLQ worker: {e}", exc_info=True)
+            await asyncio.sleep(sleep_interval)

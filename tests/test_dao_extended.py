@@ -72,7 +72,7 @@ async def test_update_entity_description(dao_full):
 
     node = await dao_full.get_memory_by_id(agent_id, node_id=node_id)
     assert node is not None
-    assert node["content_payload"] == "New content"
+    assert node["content"] == "New content"
 
 
 @pytest.mark.asyncio

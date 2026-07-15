@@ -693,22 +693,28 @@ class KuzuGraphProvider(BaseGraphProvider):
             result = self._conn.execute(query, parameters=parameters)
 
         rows: list[list[Any]] = []
-        if hasattr(result, "has_next"):
-            agent_id = parameters.get("agent_id") if parameters else None
-            prefix = f"{agent_id}::" if agent_id else None
+        try:
+            if hasattr(result, "has_next"):
+                agent_id = parameters.get("agent_id") if parameters else None
+                prefix = f"{agent_id}::" if agent_id else None
 
-            while result.has_next():  # type: ignore[union-attr]
-                row = result.get_next()  # type: ignore[union-attr]
-                if prefix:
-                    if isinstance(row, dict):
-                        for k, v in row.items():
-                            if isinstance(v, str) and v.startswith(prefix):
-                                row[k] = v[len(prefix) :]
-                    elif isinstance(row, list):
-                        for i in range(len(row)):
-                            if isinstance(row[i], str) and row[i].startswith(prefix):
-                                row[i] = row[i][len(prefix) :]
-                rows.append(typing.cast(list[Any], row))
+                while result.has_next():  # type: ignore[union-attr]
+                    row = result.get_next()  # type: ignore[union-attr]
+                    if prefix:
+                        if isinstance(row, dict):
+                            for k, v in row.items():
+                                if isinstance(v, str) and v.startswith(prefix):
+                                    row[k] = v[len(prefix) :]
+                        elif isinstance(row, list):
+                            for i in range(len(row)):
+                                if isinstance(row[i], str) and row[i].startswith(
+                                    prefix
+                                ):
+                                    row[i] = row[i][len(prefix) :]
+                    rows.append(typing.cast(list[Any], row))
+        finally:
+            if hasattr(result, "close"):
+                result.close()
         return rows
 
     def _sync_execute_write(
@@ -719,7 +725,9 @@ class KuzuGraphProvider(BaseGraphProvider):
         """Run a Cypher mutation and discard the result (executor thread)."""
         with self._conn_lock:
             assert self._conn is not None, "Connection not initialised"
-            self._conn.execute(query, parameters=parameters)
+            result = self._conn.execute(query, parameters=parameters)
+            if hasattr(result, "close"):
+                result.close()
 
     # ------------------------------------------------------------------
     # Guards

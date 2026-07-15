@@ -191,10 +191,10 @@ class TestMultiModelJudge:
             latency_ms=50.0,
         )
 
-        result = evaluator.evaluate(response, question)
-        # Fallback should match via substring
-        assert result.is_correct is True
-        assert result.metadata.get("fallback") is True
+        import pytest
+
+        with pytest.raises(RuntimeError, match="All judge models failed"):
+            evaluator.evaluate(response, question)
 
 
 # ===================================================================

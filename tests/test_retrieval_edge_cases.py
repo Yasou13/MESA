@@ -46,7 +46,7 @@ def _make_mock_storage_facade(
     graph_nodes=None,
     vector_results=None,
 ):
-    """Create a StorageFacade mock with configurable responses."""
+    """Create a MemoryDAO mock with configurable responses."""
     storage = MagicMock()
     storage.vector_engine = MagicMock()
     storage.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)

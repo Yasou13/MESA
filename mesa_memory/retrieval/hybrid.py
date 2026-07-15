@@ -99,13 +99,28 @@ class HybridRetriever:
 
         graph_task = self.get_graph_results(agent_id, entities)
 
-        all_tasks = vector_tasks + [graph_task]
+        async def _fts_with_timing():
+            t0 = time.perf_counter()
+            try:
+                res = await self.dao.search_memory_fts(
+                    agent_id, query=normalized, limit=100
+                )
+                return res, (time.perf_counter() - t0) * 1000
+            except Exception as e:
+                return e, (time.perf_counter() - t0) * 1000
+
+        fts_task = _fts_with_timing()
+
+        all_tasks = vector_tasks + [graph_task, fts_task]
         gather_results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+        # Pop in reverse order: FTS was appended last, Graph was appended before FTS
+        fts_res_tuple = gather_results.pop()
+        graph_res = gather_results.pop()
+
         stage_latencies["vector_and_graph_search_ms"] = (
             time.perf_counter() - t_vec_graph
         ) * 1000
-
-        graph_res = gather_results.pop()
         if isinstance(graph_res, BaseException):
             logger.error(
                 "HYBRID_RETRIEVAL_GRAPH_FAILED | agent_id=%s error=%s",
@@ -141,13 +156,18 @@ class HybridRetriever:
         for i, r in enumerate(vector_results):
             r["rank"] = i + 1
         lexical_results: list[dict] = []
+        fts_res, fts_ms = (
+            fts_res_tuple if isinstance(fts_res_tuple, tuple) else (fts_res_tuple, 0.0)
+        )
+        stage_latencies["fts_search_ms"] = fts_ms
 
-        # Try FTS5 lexical search via DAO if available
-        t_fts = time.perf_counter()
-        try:
-            lexical_results = await self.dao.search_memory_fts(
-                agent_id, query=normalized, limit=100
+        if isinstance(fts_res, BaseException):
+            logger.warning(
+                "FTS5_SEARCH_FAILED | agent_id=%s — falling back to empty lexical results",
+                agent_id,
+                exc_info=fts_res,
             )
+        else:
             # Normalize to ranking format
             lexical_results = [
                 {
@@ -157,16 +177,8 @@ class HybridRetriever:
                     "source": "lexical",
                     "rank": i + 1,
                 }
-                for i, r in enumerate(lexical_results)
+                for i, r in enumerate(fts_res)
             ]
-        except Exception:
-            logger.warning(
-                "FTS5_SEARCH_FAILED | agent_id=%s — falling back to empty lexical results",
-                agent_id,
-                exc_info=True,
-            )
-            lexical_results = []
-        stage_latencies["fts_search_ms"] = (time.perf_counter() - t_fts) * 1000
 
         pool_multiplier = getattr(config, "crossencoder_pool_multiplier", 3)
         pool_size = max(top_n * pool_multiplier, top_n)

@@ -59,7 +59,7 @@ ValenceMotor(
 |---|---|---|
 | `llm_adapter` | `BaseUniversalLLMAdapter` | LLM adapter for embedding and completion |
 | `obs_layer` | `ObservabilityLayer` | Metrics and logging layer |
-| `storage` | `StorageFacade \| VectorStorage \| None` | Storage for embedding hydration |
+| `storage` | `MemoryDAO \| None` | Storage for embedding hydration |
 
 ### Methods
 
@@ -114,7 +114,7 @@ Fuses vector similarity search (cosine distance via LanceDB) with graph-based Pe
 
 ```python
 HybridRetriever(
-    storage_facade: StorageFacade,
+    dao: MemoryDAO,
     analyzer: QueryAnalyzer,
     embedder: BaseUniversalLLMAdapter,
     access_control: AccessControl | None = None,
@@ -123,7 +123,7 @@ HybridRetriever(
 
 | Parameter | Type | Description |
 |---|---|---|
-| `storage_facade` | `StorageFacade` | Unified storage interface |
+| `dao` | `MemoryDAO` | Unified data access object |
 | `analyzer` | `QueryAnalyzer` | Entity extraction from query text |
 | `embedder` | `BaseUniversalLLMAdapter` | Adapter for query embedding |
 | `access_control` | `AccessControl \| None` | RBAC controller |
@@ -214,7 +214,7 @@ Returns `True` if the agent has sufficient permissions. `WRITE` satisfies both `
 
 | Error | Source | Cause | Recovery |
 |---|---|---|---|
-| `PermissionError` | `StorageFacade`, `HybridRetriever` | Agent lacks required RBAC access | Call `grant_access()` first |
+| `PermissionError` | `MemoryDAO`, `HybridRetriever` | Agent lacks required RBAC access | Call `grant_access()` first |
 | `RuntimeError` | `MemoryDAO.purge_memory` | Partial purge across storage layers | Saga pattern prevents zombie data |
 | `MemoryError` | `VectorEngine` | LanceDB memory usage exceeds configured limit | Increase `lancedb_memory_limit_bytes` or `MESA_MAX_RAM_MB` |
 | `ImportError` | `RebelExtractor` | `transformers` library not installed | Install via `requirements-ml.txt` |

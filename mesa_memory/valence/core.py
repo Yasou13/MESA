@@ -198,11 +198,32 @@ class ValenceMotor:
             new_emb, existing, cosine_threshold=threshold
         )
 
+        n_score = 1.0 if is_novel else 0.0
+
+        # Fallback to rough token count if adapter doesn't provide it
+        try:
+            token_count = self.llm_adapter.get_token_count(_content)
+        except Exception:
+            token_count = len(_content.split())
+
+        fitness = calculate_fitness_score(
+            content=_content, token_count=token_count, novelty_score=n_score
+        )
+
+        if fitness < 0.3:
+            self.obs_layer.log_valence_decision(
+                tier=2,
+                decision="DISCARD",
+                justification=f"Low combined valence/fitness ({fitness:.4f})",
+                cost=cost,
+            )
+            return False
+
         if is_novel:
             self.obs_layer.log_valence_decision(
                 tier=2,
                 decision="ADMIT",
-                justification=f"Novelty detected (threshold={threshold:.4f})",
+                justification=f"Novelty detected (threshold={threshold:.4f}, fitness={fitness:.4f})",
                 cost=cost,
             )
             self._admit(embedding)
@@ -211,7 +232,7 @@ class ValenceMotor:
         self.obs_layer.log_valence_decision(
             tier=2,
             decision="UNCERTAIN",
-            justification=f"Novelty below threshold ({threshold:.4f}), escalating to Tier 3",
+            justification=f"Novelty below threshold ({threshold:.4f}), fitness={fitness:.4f}, escalating to Tier 3",
             cost=cost,
         )
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesa-memory"
-version = "0.5.2"
+version = "0.6.0"
 description = "Enterprise AI agent memory engine"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -247,7 +247,7 @@ warn_return_any = false
 warn_unused_ignores = false
 
 [tool.pytest.ini_options]
-asyncio_mode = "strict"
+asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.coverage.run]

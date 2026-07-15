@@ -15,6 +15,7 @@ app: Server = Server("mesa-mcp")
 # Environment variables for MESA configuration
 MESA_BASE_URL = os.getenv("MESA_BASE_URL", "http://localhost:8000/v3")
 MESA_API_KEY = os.getenv("MESA_API_KEY")
+MESA_AGENT_ID = os.getenv("MESA_AGENT_ID")
 
 
 @app.list_tools()
@@ -27,10 +28,6 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Tenant identifier for the AI agent (e.g., 'claude-desktop')",
-                    },
                     "session_id": {
                         "type": "string",
                         "description": "Session or conversation identifier",
@@ -40,7 +37,7 @@ async def list_tools() -> list[types.Tool]:
                         "description": "The actual information or memory to store",
                     },
                 },
-                "required": ["agent_id", "session_id", "content"],
+                "required": ["session_id", "content"],
             },
         ),
         types.Tool(
@@ -49,10 +46,6 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Tenant identifier for the AI agent",
-                    },
                     "session_id": {
                         "type": "string",
                         "description": "Session or conversation identifier",
@@ -66,7 +59,7 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Maximum number of results to retrieve (default 5)",
                     },
                 },
-                "required": ["agent_id", "session_id", "query"],
+                "required": ["session_id", "query"],
             },
         ),
     ]
@@ -80,15 +73,18 @@ async def call_tool(
     if not arguments:
         raise ValueError("Missing tool arguments")
 
-    agent_id = arguments.get("agent_id")
-    session_id = arguments.get("session_id")
-
-    if not agent_id or not session_id:
+    agent_id = MESA_AGENT_ID
+    if not agent_id:
         return [
             types.TextContent(
-                type="text", text="Error: agent_id and session_id are required."
+                type="text",
+                text="Error: MESA_AGENT_ID environment variable is not configured.",
             )
         ]
+
+    session_id = arguments.get("session_id")
+    if not session_id:
+        return [types.TextContent(type="text", text="Error: session_id is required.")]
 
     try:
         async with AsyncMesaClient(
@@ -140,7 +136,7 @@ async def call_tool(
 
                 resp = await client.search(req)
 
-                if not resp.results:
+                if not resp.retrieved_nodes:
                     return [
                         types.TextContent(
                             type="text", text="No relevant memories found."
@@ -148,16 +144,17 @@ async def call_tool(
                     ]
 
                 formatted_results = []
-                for i, res in enumerate(resp.results, 1):
+                for i, res in enumerate(resp.retrieved_nodes, 1):
+                    content = res.content_payload or res.entity_name
                     formatted_results.append(
-                        f"Result {i} (Score: {res.score:.4f}):\n{res.entity_name}"
+                        f"Result {i} (Score: {res.score:.4f}):\n{content}"
                     )
 
                 result_text = "\n\n".join(formatted_results)
                 return [
                     types.TextContent(
                         type="text",
-                        text=f"Found {resp.total} results:\n\n{result_text}",
+                        text=f"Found {len(resp.retrieved_nodes)} results:\n\n{result_text}",
                     )
                 ]
 

@@ -419,13 +419,13 @@ class TestResponseSchemas:
             agent_id="agent_1",
         )
         resp = MemorySearchResponse(
-            results=[item],
-            total=1,
-            query="test",
-            agent_id="agent_1",
+            context="Some context",
+            retrieved_nodes=[item],
+            metrics={"latency_ms": 10},
         )
-        assert resp.total == 1
-        assert resp.results[0].entity_name == "TestEntity"
+        assert resp.context == "Some context"
+        assert resp.metrics["latency_ms"] == 10
+        assert resp.retrieved_nodes[0].entity_name == "TestEntity"
 
     def test_search_result_rejects_negative_score(self):
         with pytest.raises(ValidationError):

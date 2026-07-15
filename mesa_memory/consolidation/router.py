@@ -116,6 +116,7 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         self.valence_motor = ValenceMotor(
             llm_adapter=self.small_llm,
             obs_layer=_obs,
+            storage=self.dao,
         )
 
         # Dynamic Thresholding Cache
@@ -266,6 +267,11 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         # payload is forced through the heavy Dual-LLM ConsolidationLoop.
         # -----------------------------------------------------------------
         if getattr(config, "legal_domain_mode", False):
+            logger.warning(
+                "LEGAL_DOMAIN_STRICT_MODE is ACTIVE! "
+                "All records will bypass the small-model gate and route directly to Dual-LLM. "
+                "EXPECT SIGNIFICANTLY HIGHER API COSTS AND LATENCY PER RECORD."
+            )
             logger.info(
                 "LEGAL_DOMAIN_STRICT_MODE | Bypassing small-model gate. "
                 "Routing directly to Dual-LLM for record: %s",

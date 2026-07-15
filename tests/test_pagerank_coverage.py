@@ -305,7 +305,12 @@ class TestSchedulePageRankWorker:
         task = asyncio.create_task(
             schedule_pagerank_worker(mock_dao, interval_sec=3600)
         )
-        await asyncio.sleep(0.1)
+        # Yield deterministically until the mock is called
+        for _ in range(50):
+            if mock_dao.get_all_active_agent_ids.called:
+                break
+            await asyncio.sleep(0)
+
         task.cancel()
         try:
             await task

@@ -172,19 +172,9 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
 
         # Fallback if all models failed
         if not scores:
-            logger.warning("All judge models failed. Falling back to substring match.")
-            gt = question.ground_truth.strip().lower()
-            ans = response.answer_text.strip().lower()
-            is_match = gt in ans
-            return EvaluationResult(
-                score=1.0 if is_match else 0.0,
-                latency_ms=response.latency_ms,
-                is_correct=is_match,
-                reasoning="All judge models failed. Fallback substring match used.",
-                metadata={
-                    "evaluator_type": "MultiModelJudgeEvaluator",
-                    "fallback": True,
-                },
+            logger.error("All judge models failed.")
+            raise RuntimeError(
+                "All judge models failed during MultiModelJudge evaluation."
             )
 
         # Majority vote

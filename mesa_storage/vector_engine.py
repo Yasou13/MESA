@@ -712,7 +712,7 @@ class VectorEngine:
     # Delete operations
     # ------------------------------------------------------------------
 
-    async def soft_delete(self, node_id: str) -> None:
+    async def soft_delete(self, node_id: str, agent_id: str) -> None:
         """Soft-delete a vector record by setting expired_at.
 
         Marks the record as expired rather than physically removing it,
@@ -723,9 +723,11 @@ class VectorEngine:
 
         loop = asyncio.get_running_loop()
         async with self._mutation_lock:
-            await loop.run_in_executor(self._executor, self._sync_soft_delete, node_id)
+            await loop.run_in_executor(
+                self._executor, self._sync_soft_delete, node_id, agent_id
+            )
 
-    def _sync_soft_delete(self, node_id: str) -> None:
+    def _sync_soft_delete(self, node_id: str, agent_id: str) -> None:
         """Synchronous soft-delete (runs in executor thread)."""
         now = datetime.now(timezone.utc).isoformat()
         assert self._db is not None
@@ -737,8 +739,9 @@ class VectorEngine:
             try:
                 table = self._db.open_table(table_name)
                 _validate_filter_value(node_id, "node_id")
+                _validate_filter_value(agent_id, "agent_id")
                 table.update(
-                    where=f"node_id = '{node_id}'",
+                    where=f"node_id = '{node_id}' AND agent_id = '{agent_id}'",
                     values={"expired_at": now},
                 )
                 # Invalidate cached handle — stale after mutation
@@ -758,7 +761,7 @@ class VectorEngine:
         with self._metrics._lock:
             self._metrics.soft_deletes += 1
 
-    async def hard_delete(self, node_id: str) -> None:
+    async def hard_delete(self, node_id: str, agent_id: str) -> None:
         """Physically remove a vector record from disk.
 
         Use sparingly — prefer soft_delete for audit trail.
@@ -768,9 +771,11 @@ class VectorEngine:
 
         loop = asyncio.get_running_loop()
         async with self._mutation_lock:
-            await loop.run_in_executor(self._executor, self._sync_hard_delete, node_id)
+            await loop.run_in_executor(
+                self._executor, self._sync_hard_delete, node_id, agent_id
+            )
 
-    def _sync_hard_delete(self, node_id: str) -> None:
+    def _sync_hard_delete(self, node_id: str, agent_id: str) -> None:
         """Synchronous hard delete (runs in executor thread)."""
         assert self._db is not None
 
@@ -780,7 +785,8 @@ class VectorEngine:
             try:
                 table = self._db.open_table(table_name)
                 _validate_filter_value(node_id, "node_id")
-                table.delete(f"node_id = '{node_id}'")
+                _validate_filter_value(agent_id, "agent_id")
+                table.delete(f"node_id = '{node_id}' AND agent_id = '{agent_id}'")
                 # Invalidate cached handle — stale after mutation
                 with self._table_lock:
                     self._tables.pop(table_name, None)
@@ -812,6 +818,54 @@ class VectorEngine:
         return await loop.run_in_executor(
             self._executor, self._sync_get_active_node_ids, agent_id
         )
+
+    async def get_all_embeddings(self, limit: int = 10000) -> list[list[float]]:
+        """Retrieve a sample of active embeddings for cognitive state hydration."""
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, self._sync_get_all_embeddings, limit
+        )
+
+    def _sync_get_all_embeddings(self, limit: int) -> list[list[float]]:
+        assert self._db is not None
+        embeddings: list[list[float]] = []
+        for table_name in self._list_table_names():
+            if not table_name.startswith(_DEFAULT_TABLE_PREFIX):
+                continue
+            try:
+                table = self._db.open_table(table_name)
+                arrow_table = (
+                    table.search()
+                    .where("expired_at IS NULL")
+                    .select(["vector"])
+                    .limit(limit - len(embeddings))
+                    .to_arrow()
+                )
+
+                # Depending on pyarrow schema, vector might be FixedSizeList or similar
+                # to_pylist() converts to standard python lists
+                batch = arrow_table.column("vector").to_pylist()
+
+                # Handle possible NaN/None values from pyarrow
+                for v in batch:
+                    if v is not None:
+                        # Some versions of lancedb wrap vectors in ndarrays
+                        if hasattr(v, "tolist"):
+                            embeddings.append(v.tolist())
+                        else:
+                            embeddings.append(list(v))
+
+                if len(embeddings) >= limit:
+                    break
+            except Exception as exc:
+                logger.error(
+                    "Error fetching embeddings from table %s: %s", table_name, exc
+                )
+
+        return embeddings[:limit]
 
     def _sync_get_active_node_ids(self, agent_id: str | None) -> set[str]:
         """Synchronous node ID retrieval (runs in executor thread)."""
@@ -926,7 +980,12 @@ class VectorEngine:
                 self._uri,
                 self._metrics.snapshot(),
             )
-        self._executor.shutdown(wait=False)
+        import sys
+
+        if sys.version_info >= (3, 9):
+            self._executor.shutdown(wait=False, cancel_futures=True)
+        else:
+            self._executor.shutdown(wait=False)
         self._tables.clear()
         self._db = None
         self._initialized = False

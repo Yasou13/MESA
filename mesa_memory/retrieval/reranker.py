@@ -16,6 +16,7 @@ asyncio event loop via ThreadPoolExecutor.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 from typing import Any
 
@@ -29,6 +30,7 @@ class CrossEncoderReranker:
         self.model_name = model_name
         self._model: Any | None = None
         self._load_failed: bool = False
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     def _ensure_loaded(self) -> bool:
         """Lazy load the CrossEncoder model."""
@@ -114,4 +116,4 @@ class CrossEncoderReranker:
                 return [c["cmb_id"] for c in valid_candidates[:top_k]]
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _predict_and_score)
+        return await loop.run_in_executor(self._executor, _predict_and_score)

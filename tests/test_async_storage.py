@@ -15,18 +15,20 @@ import pytest
 import pytest_asyncio
 
 from mesa_storage.schemas import (
-    bulk_insert_nodes,
-    find_nodes_by_name,
     fts5_rebuild,
     fts5_search,
-    get_active_nodes,
     initialize_schema,
-    insert_node,
-    mark_consolidated,
-    soft_delete_node,
     validate_schema,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
+from tests.utils.storage_helpers import (
+    bulk_insert_nodes,
+    find_nodes_by_name,
+    get_active_nodes,
+    insert_node,
+    mark_consolidated,
+    soft_delete_node,
+)
 
 TEST_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),

@@ -17,12 +17,14 @@ import pytest_asyncio
 
 from mesa_storage.schemas import (
     initialize_schema,
-    insert_node,
-    soft_delete_node,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 from mesa_workers.maintenance import MaintenanceWorker
+from tests.utils.storage_helpers import (
+    insert_node,
+    soft_delete_node,
+)
 
 TEST_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -206,7 +208,7 @@ class TestVectorPurge:
         """Expired vectors past retention are hard-deleted."""
         nid = uuid.uuid4().hex
         await vector_engine.upsert(nid, "agent_1", VEC_8D)
-        await vector_engine.soft_delete(nid)
+        await vector_engine.soft_delete(nid, "test_agent")
 
         # Backdate expired_at via direct table access
         db = vector_engine._db
@@ -339,7 +341,7 @@ class TestMaintenanceMissingCoverage:
         with patch.object(worker, "_seconds_until_next_window", return_value=0.1):
 
             async def trigger_stop():
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0)
                 worker._stop_event.set()
 
             asyncio.create_task(trigger_stop())

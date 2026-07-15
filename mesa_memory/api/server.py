@@ -7,7 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import kuzu
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -18,6 +18,7 @@ from mesa_memory.consolidation.loop import (
 )
 from mesa_memory.observability.logger import setup_logging
 from mesa_memory.observability.metrics import ObservabilityLayer
+from mesa_memory.observability.tracer import setup_telemetry_tracing
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
@@ -97,6 +98,9 @@ async def lifespan(app: FastAPI):
     # ==================================================================
     # Configure Structured Logging
     setup_logging()
+
+    # Initialize LLM telemetry (Langfuse/Langsmith)
+    setup_telemetry_tracing()
 
     # Fail-fast: refuse to start without a valid API key
     _require_api_key()
@@ -220,9 +224,51 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error("Failed to schedule Consolidation worker: %s", exc)
 
+    # ------------------------------------------------------------------
+    # Background workers: Tier-3 Deferred and DLQ
+    # ------------------------------------------------------------------
+    try:
+        from mesa_memory.consolidation.loop import (
+            start_dlq_worker,
+            start_tier3_deferred_worker,
+        )
+
+        tier3_task = asyncio.create_task(
+            start_tier3_deferred_worker(
+                dao=state.dao,
+                consolidation_loop=state.consolidation_loop,
+                sleep_interval=15,
+                batch_size=20,
+            )
+        )
+        state.background_tasks.add(tier3_task)
+        logger.info("Tier-3 Deferred worker scheduled successfully.")
+
+        dlq_task = asyncio.create_task(
+            start_dlq_worker(
+                dao=state.dao,
+                consolidation_loop=state.consolidation_loop,
+                sleep_interval=60,
+                batch_size=10,
+            )
+        )
+        state.background_tasks.add(dlq_task)
+        logger.info("DLQ re-processing worker scheduled successfully.")
+    except Exception as exc:
+        logger.error("Failed to schedule Tier-3/DLQ workers: %s", exc)
+
+    vacuum_hours_env = os.environ.get("MESA_VACUUM_HOURS", "3")
+    try:
+        schedule_hours = [
+            int(h.strip()) for h in vacuum_hours_env.split(",") if h.strip()
+        ]
+    except ValueError:
+        schedule_hours = [3]
+
     maintenance_worker = MaintenanceWorker(
         sqlite_engine=state.sqlite_engine,
         vector_engine=state.vector_engine,
+        schedule_hours=schedule_hours,
     )
     try:
         await maintenance_worker.start()
@@ -350,6 +396,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
 
+@app.middleware("http")
+async def add_api_version_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-API-Version"] = __version__
+    return response
+
+
 def get_dao() -> MemoryDAO:
     """Dependency injection for the MemoryDAO."""
     if not hasattr(state, "dao") or state.dao is None:
@@ -401,12 +454,19 @@ app.include_router(memory_router, dependencies=router_dependencies)
 @app.get("/health/init")
 async def health_init():
     """Health probe for container orchestration readiness."""
-    if getattr(state, "is_ready", False):
-        return {"status": "ready"}
-    raise HTTPException(status_code=503, detail="System initializing")
+    if not getattr(state, "is_ready", False):
+        raise HTTPException(status_code=503, detail="System initializing")
+    health = await state.dao.health_check()
+    if (
+        health.get("sqlite", {}).get("status") == "healthy"
+        and health.get("vector", {}).get("status") == "healthy"
+    ):
+        if health.get("graph", {}).get("status") in ("healthy", "not_initialized"):
+            return {"status": "ready"}
+    raise HTTPException(status_code=503, detail="Backend services degraded")
 
 
-@app.get("/v3/health")
+@app.get("/v3/health", dependencies=[Depends(get_api_key)])
 async def health_v3():
     return await state.dao.health_check()
 

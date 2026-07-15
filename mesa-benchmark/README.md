@@ -57,7 +57,6 @@ python -m mesa_benchmark -c config.yaml
 python ../scripts/reproduce_benchmark.py --seeds 42,43,44,45,46
 
 # LoCoMo uluslararası benchmark
-python scripts/download_locomo.py
 python -m mesa_benchmark -c config_locomo.yaml
 
 # Rakip karşılaştırma

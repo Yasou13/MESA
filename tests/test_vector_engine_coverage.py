@@ -284,7 +284,7 @@ class TestDeleteOperations:
     @pytest.mark.asyncio
     async def test_soft_delete(self, engine):
         await engine.upsert("del-1", "agent-d", [0.1] * 8)
-        await engine.soft_delete("del-1")
+        await engine.soft_delete("del-1", "agent-d")
         assert engine.metrics.soft_deletes == 1
 
         # Should not appear in active search
@@ -295,7 +295,7 @@ class TestDeleteOperations:
     @pytest.mark.asyncio
     async def test_hard_delete(self, engine):
         await engine.upsert("hdel-1", "agent-hd", [0.2] * 8)
-        await engine.hard_delete("hdel-1")
+        await engine.hard_delete("hdel-1", "agent-hd")
 
         # Should not appear even with include_expired
         results = await engine.search(
@@ -308,13 +308,13 @@ class TestDeleteOperations:
     async def test_soft_delete_uninitialized_raises(self):
         eng = VectorEngine("/tmp/fake.lance")
         with pytest.raises(RuntimeError):
-            await eng.soft_delete("n")
+            await eng.soft_delete("n", "agent_1")
 
     @pytest.mark.asyncio
     async def test_hard_delete_uninitialized_raises(self):
         eng = VectorEngine("/tmp/fake.lance")
         with pytest.raises(RuntimeError):
-            await eng.hard_delete("n")
+            await eng.hard_delete("n", "agent_1")
 
 
 # ===================================================================
@@ -337,7 +337,7 @@ class TestActiveNodeIds:
     @pytest.mark.asyncio
     async def test_excludes_soft_deleted(self, engine):
         await engine.upsert("sd-1", "agent-sd", [0.4] * 8)
-        await engine.soft_delete("sd-1")
+        await engine.soft_delete("sd-1", "agent-sd")
 
         ids = await engine.get_active_node_ids(agent_id="agent-sd")
         assert "sd-1" not in ids
@@ -366,7 +366,7 @@ class TestCountRecords:
     @pytest.mark.asyncio
     async def test_count_all(self, engine):
         await engine.upsert("cnt-a", "agent-cnt", [0.1] * 8)
-        await engine.soft_delete("cnt-a")
+        await engine.soft_delete("cnt-a", "agent_1")
         await engine.upsert("cnt-b", "agent-cnt", [0.2] * 8)
 
         counts = await engine.count_records(active_only=False)

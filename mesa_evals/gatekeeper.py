@@ -278,6 +278,47 @@ def run_gatekeeper(results_path: Path | None = None) -> int:
     print("GATE_INFO  | --- Rule 2: Latency Limit ---")
     all_violations.extend(enforce_latency_limit(summaries, base_summary))
 
+    import os
+
+    if os.environ.get("MESA_LEGAL_DOMAIN_MODE") == "1":
+        print("GATE_INFO  | --- Rule 3: Legal Graph Poisoning ---")
+        try:
+            import asyncio
+
+            from mesa_evals.legal_audit import (
+                GraphPoisoningError,
+                audit_graph,
+                enforce_guardrail,
+            )
+
+            # Use default values for testing db
+            # We assume agent-id is test-agent for eval runs
+            # Actually, let's just spawn the legal_audit main or call it directly.
+            # wait, audit_graph takes db_path and agent_id
+            db_path = os.environ.get("MESA_DB_PATH", "./storage/mesa.db")
+            agent_id = "test-agent"  # or fetch from somewhere
+
+            # Since gatekeeper might not know the exact agent_id used in evals,
+            # maybe we just spawn it with default args or run it if they exist
+            # Wait, better to just call audit_graph if the DB exists.
+            if Path(db_path).exists():
+                audit_result = asyncio.run(audit_graph(db_path, agent_id))
+                try:
+                    enforce_guardrail(audit_result)
+                except GraphPoisoningError as e:
+                    all_violations.append(
+                        GateViolation(
+                            rule="Legal_Poisoning",
+                            path="Legal_Audit",
+                            message=str(e),
+                            details={"poisoning_rate": audit_result.poisoning_rate},
+                        )
+                    )
+            else:
+                print(f"GATE_WARN  | DB {db_path} not found, skipping Rule 3")
+        except Exception as e:
+            print(f"GATE_ERROR | Failed to run Rule 3: {e}")
+
     print("GATE_INFO  | " + "=" * 60)
 
     # Report

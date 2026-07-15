@@ -16,6 +16,8 @@ from mesa_memory.valence.core import ValenceMotor
 @pytest.mark.asyncio
 async def test_consolidation_loop_full():
     dao = AsyncMock()
+    dao.get_all_embeddings = MagicMock(return_value=[])
+    dao.load_embedding_cache = MagicMock(return_value=[])
     embedder = MagicMock()
     llm_a = MagicMock()
     llm_b = MagicMock()
@@ -114,7 +116,9 @@ async def test_hybrid_retrieve_full():
 
 @pytest.mark.asyncio
 async def test_valence_evaluate_full():
-    motor = ValenceMotor(MagicMock(), MagicMock(), None)
+    mock_llm = MagicMock()
+    mock_llm.get_token_count.return_value = 1
+    motor = ValenceMotor(mock_llm, MagicMock(), None)
 
     # explicit_correction
     res = await motor.evaluate(

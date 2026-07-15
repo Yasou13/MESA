@@ -163,7 +163,7 @@ When records exhaust all retry budgets or fail while the Circuit Breaker is open
 
 ### 4.1 Epistemic Isolation (Row-Level Security)
 
-> **Invariant:** Every SQL query, LanceDB filter, and graph traversal in the MESA data path **MUST** include a mandatory `agent_id` predicate. No function accepts `agent_id` as optional. This is enforced at the function signature level (keyword-only argument) and in every `WHERE` clause.
+> **Invariant:** Every SQL query, LanceDB filter, and graph traversal in the MESA data path **MUST** include a mandatory `agent_id` predicate. No function accepts `agent_id` as optional. This is enforced at the function signature level (first positional argument) and in every `WHERE` clause.
 
 This rule guarantees **mathematical row-level security**: Agent A can never read, modify, or traverse Agent B's data, regardless of application-layer bugs.
 
@@ -232,7 +232,7 @@ Security is deeply integrated at the lowest storage mutation points. The `Access
 
 - **Authentication:** The FastAPI server requires an `X-API-Key` header on all sensitive endpoints, validated against the `MESA_API_KEY` environment variable. Invalid or missing keys receive `401 Unauthorized`.
 - **Read Operations:** Validated at the retrieval boundaries. If an agent lacks `READ` privileges, the system raises a strict `PermissionError` before any computational expense is incurred.
-- **Write Operations:** Validated directly inside the persistence methods (e.g., `upsert_node`, `upsert_vector`). By enforcing the check inside the data adapter itself, MESA ensures zero-trust security even if higher-level logic is compromised.
+- **Write Operations:** Validated directly at the API routing layer (e.g., `mesa_api/router.py`) and retrieval boundaries (`HybridRetriever`). By enforcing the check early before any persistence operations, MESA ensures zero-trust security and prevents unnecessary computational expense.
 - **Multi-Tenancy:** Both `MemoryInsertRequest` and `MemorySearchRequest` require a non-empty `agent_id`, ensuring full tenant isolation across storage, retrieval, and RBAC layers.
 
 ---
@@ -244,23 +244,25 @@ The journey of a Cognitive Memory Block (CMB) involves rigorous filtering, algor
 ```mermaid
 sequenceDiagram
     participant Agent as LLM Agent
+    participant Router as API Router
     participant Valence as Valence Motor (M7)
     participant Fitness as Fitness Gate
-    participant StorageFacade as Storage Facade (M6)
+    participant MemoryDAO as MemoryDAO (M6)
     participant RBAC as Access Control
     participant DB as LanceDB / Graph
 
-    Agent->>Valence: Submit Candidate CMB
-    Valence->>Valence: Check Tier-1 Rules (Syntax, Safety)
+    Agent->>Router: Submit Candidate CMB
+    Router->>RBAC: check_access(agent_id, session_id, "WRITE")
+    RBAC-->>Router: Access Granted
+    Router->>Valence: Check Tier-1 Rules (Syntax, Safety)
     Valence->>Valence: Evaluate EWMAD Novelty (Tier-2)
     alt Is Novel?
         Valence->>Fitness: calculate_fitness_score(content, token_count)
         Fitness-->>MemoryDAO: Scored CMB
-        MemoryDAO->>RBAC: check_access(agent_id, session_id, "WRITE")
-        RBAC-->>MemoryDAO: Access Granted
         MemoryDAO->>DB: Transactional Multi-write (Vector, Graph) via BackgroundTask
         DB-->>MemoryDAO: ACK
-        MemoryDAO-->>Valence: Success
+        MemoryDAO-->>Router: Success
+        Router-->>Agent: Success
     else Uncertain (Tier-3)
         Valence-->>Agent: DEFERRED (Staged to RawLog)
     else Redundant

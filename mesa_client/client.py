@@ -80,6 +80,21 @@ def _sync_retry(
             return operation()
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             attempt += 1
+
+            # Unsafe retry prevention (R-18)
+            method = (
+                getattr(e.request, "method", "").upper()
+                if hasattr(e, "request")
+                else ""
+            )
+            is_idempotent = method in ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")
+            is_safe_error = isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout))
+
+            if method and not is_idempotent and not is_safe_error:
+                raise MesaNetworkError(
+                    f"Refusing to retry non-idempotent {method} request: {e}"
+                ) from e
+
             if attempt >= max_retries:
                 raise MesaNetworkError(
                     f"Max retries ({max_retries}) exceeded. Last error: {e}"
@@ -99,6 +114,21 @@ async def _async_retry(
             return await operation()
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             attempt += 1
+
+            # Unsafe retry prevention (R-18)
+            method = (
+                getattr(e.request, "method", "").upper()
+                if hasattr(e, "request")
+                else ""
+            )
+            is_idempotent = method in ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")
+            is_safe_error = isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout))
+
+            if method and not is_idempotent and not is_safe_error:
+                raise MesaNetworkError(
+                    f"Refusing to retry non-idempotent {method} request: {e}"
+                ) from e
+
             if attempt >= max_retries:
                 raise MesaNetworkError(
                     f"Max retries ({max_retries}) exceeded. Last error: {e}"
@@ -124,7 +154,7 @@ class MesaClient:
         self.max_retries = max_retries
         headers = {}
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            headers["X-API-Key"] = api_key
 
         self._client = httpx.Client(
             base_url=self.base_url,
@@ -150,6 +180,15 @@ class MesaClient:
             # Catch 4XX and 5XX status codes
             if 400 <= response.status_code < 600:
                 raise _parse_api_error(response)
+
+            # Version compatibility check
+            server_version = response.headers.get("X-API-Version")
+            if server_version and not server_version.startswith("0."):
+                logger.warning(
+                    f"SDK/API Version mismatch: SDK expects 0.x.x, Server is {server_version}. "
+                    f"Compatibility is not guaranteed."
+                )
+
             return response
 
         resp = _sync_retry(_op, self.max_retries)
@@ -245,6 +284,15 @@ class AsyncMesaClient:
             # Catch 4XX and 5XX status codes
             if 400 <= response.status_code < 600:
                 raise _parse_api_error(response)
+
+            # Version compatibility check
+            server_version = response.headers.get("X-API-Version")
+            if server_version and not server_version.startswith("0."):
+                logger.warning(
+                    f"SDK/API Version mismatch: SDK expects 0.x.x, Server is {server_version}. "
+                    f"Compatibility is not guaranteed."
+                )
+
             return response
 
         resp = await _async_retry(_op, self.max_retries)

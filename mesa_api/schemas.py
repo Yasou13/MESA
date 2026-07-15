@@ -412,12 +412,17 @@ class SearchResultItem(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     node_id: str = Field(..., description="UUID of the matching node")
-    entity_name: str = Field(..., description="Entity name from the graph")
+    entity_name: str = Field(default="", description="Entity name from the graph")
+    type: str = Field(default="ENTITY", description="Type of the node")
+    source: str = Field(default="hybrid", description="Source of the retrieval")
     score: float = Field(
         ..., ge=0.0, description="Relevance score (lower distance = better)"
     )
     content_hash: str | None = Field(
         default=None, description="SHA-256 of the stored content"
+    )
+    content_payload: str | None = Field(
+        default=None, description="The full raw text content of the node"
     )
     agent_id: str = Field(..., description="Owning tenant identifier")
 
@@ -427,12 +432,15 @@ class MemorySearchResponse(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    results: list[SearchResultItem] = Field(
+    context: str = Field(
+        default="", description="Reconstructed context from retrieved nodes"
+    )
+    retrieved_nodes: list[SearchResultItem] = Field(
         default_factory=list, description="Ranked search results"
     )
-    total: int = Field(..., ge=0, description="Total number of results returned")
-    query: str = Field(..., description="Echo of the original query")
-    agent_id: str = Field(..., description="Echo of the tenant identifier")
+    metrics: dict[str, int] = Field(
+        default_factory=dict, description="Query execution metrics"
+    )
 
 
 class MemoryPurgeResponse(BaseModel):

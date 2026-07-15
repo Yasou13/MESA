@@ -35,6 +35,8 @@ def _make_mock_dao():
         }
     )
     dao.update_raw_log_status = AsyncMock()
+    dao.vector_engine = MagicMock()
+    dao.vector_engine.compute_embedding_batch = AsyncMock(return_value=[[0.1] * 768])
     dao.get_memories = AsyncMock(return_value=[])
     dao.insert_memory = AsyncMock(return_value="node_id")
     dao.insert_edge = AsyncMock(return_value="edge_id")

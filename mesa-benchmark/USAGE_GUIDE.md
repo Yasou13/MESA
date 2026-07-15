@@ -147,7 +147,6 @@ Her senaryo şu yapıdadır:
 
 ```bash
 cd mesa-benchmark
-python scripts/generate_comprehensive_dataset.py --seed 42 --output mesa_benchmark/datasets/comprehensive_200_dataset.json
 ```
 
 ---
@@ -306,7 +305,6 @@ MESA'yı uluslararası tanınan LoCoMo benchmark'ına karşı çalıştırmak, s
 
 ```bash
 cd mesa-benchmark
-python scripts/download_locomo.py
 ```
 
 Bu komut:
@@ -400,7 +398,6 @@ cd mesa-benchmark
 export HF_TOKEN="hf_your_token_here"
 
 # Varsayılan veri setini yayımla
-python scripts/publish_to_hf.py \
   --dataset-path mesa_benchmark/datasets/comprehensive_200_dataset.json \
   --repo-id your-org/mesa-benchmark \
   --version 2.0
@@ -415,7 +412,6 @@ Bu komut otomatik olarak:
 ### LoCoMo Sonuçlarını Yayımlama
 
 ```bash
-python scripts/publish_to_hf.py \
   --dataset-path datasets/locomo/dataset.json \
   --repo-id your-org/mesa-locomo-benchmark \
   --version 1.0
@@ -564,11 +560,9 @@ python scripts/reproduce_benchmark.py \
   --baseline-config mesa-benchmark/config_zep.yaml
 
 # LoCoMo uluslararası benchmark
-python scripts/download_locomo.py
 python -m mesa_benchmark -c config_locomo.yaml
 
 # HuggingFace'e yayımla
-HF_TOKEN=xxx python scripts/publish_to_hf.py --repo-id your-org/mesa-benchmark
 
 # Docker ile çalıştır
 docker build -t mesa-benchmark .

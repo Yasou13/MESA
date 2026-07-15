@@ -23,15 +23,9 @@ Public API::
 
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import (
-    bulk_insert_nodes,
-    find_nodes_by_name,
     fts5_rebuild,
     fts5_search,
-    get_active_nodes,
     initialize_schema,
-    insert_node,
-    mark_consolidated,
-    soft_delete_node,
     validate_schema,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -43,12 +37,6 @@ __all__ = [
     "MemoryDAO",
     "initialize_schema",
     "validate_schema",
-    "insert_node",
-    "bulk_insert_nodes",
-    "soft_delete_node",
-    "mark_consolidated",
-    "get_active_nodes",
-    "find_nodes_by_name",
     "fts5_search",
     "fts5_rebuild",
 ]
