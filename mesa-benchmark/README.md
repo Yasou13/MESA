@@ -11,7 +11,7 @@ MESA Benchmark Suite, yapay zeka bellek (Memory/RAG) sistemlerini objektif, adil
 - **İstatistiksel Güvenilirlik:** 5-seed çalıştırma, Mean ± Std, Welch's t-test p-value
 - **Uluslararası Benchmark:** LoCoMo (ECAI 2025) entegrasyonu
 - **Tam İzolasyon:** Her iterasyon öncesi bellek sıfırlama, exponential backoff
-- **Kesintiden Devam:** `state.json` ile kaldığı iterasyondan otomatik devam
+- **Kesintiden Devam:** `.state.json` ile kaldığı iterasyondan otomatik devam
 - **Reproducibility:** Docker + pinned dependencies (`requirements-lock.txt`)
 - **HuggingFace Yayın:** Tek komutla dataset + card yükleme
 
@@ -75,7 +75,7 @@ docker run --env-file .env mesa-benchmark
 
 ```bash
 pip install -r requirements-dev.txt
-cd .. && ./venv/bin/python -m pytest tests/test_tech_debt_fixes.py tests/test_mesa_benchmark_enhancements.py -v
+cd .. cd .. && ./venv/bin/python -m pytest tests/test_tech_debt_fixes.py tests/test_mesa_benchmark_enhancements.py -vcd .. && ./venv/bin/python -m pytest tests/test_tech_debt_fixes.py tests/test_mesa_benchmark_enhancements.py -v ./venv/bin/python -m pytest tests/ -v
 ```
 
 ## Lisans

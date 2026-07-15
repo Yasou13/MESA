@@ -18,7 +18,7 @@ COPY config.yaml .
 COPY config_locomo.yaml .
 
 # Copy reproducibility scripts
-COPY ../scripts/reproduce_benchmark.py ./scripts/
+COPY scripts/ ./scripts/
 
 # Create output directories
 RUN mkdir -p /app/reports /app/logs /app/results

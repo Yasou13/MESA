@@ -332,13 +332,13 @@ Benchmark aracı son derece katı bir hata kontrol sistemine sahiptir.
 
 - **Tam İzolasyon:** Her iterasyon öncesinde `clear_memory()` çağrılır. Bu çağrı başarısız olursa benchmark **derhal durur** (`MemoryPurgeError`). Çapraz veri kirliliği asla tolere edilmez.
 - **Exponential Backoff:** Herhangi bir API Limit aşımında (Rate Limit) araç çökmez, katlanarak artan bekleme süreleriyle (1s, 2s, 4s...) en fazla 3 kez tekrar dener.
-- **Kaldığı Yerden Devam:** Sistem çalışırken bilgisayarınız kapanırsa panik yapmayın. Tüm ilerleme `state.json` dosyasında tutulur. Sistemi tekrar çalıştırdığınızda araç otomatik olarak son kalınan iterasyon ve senaryodan devam eder.
+- **Kaldığı Yerden Devam:** Sistem çalışırken bilgisayarınız kapanırsa panik yapmayın. Tüm ilerleme `.state.json` dosyasında tutulur. Sistemi tekrar çalıştırdığınızda araç otomatik olarak son kalınan iterasyon ve senaryodan devam eder.
 - **Noise Parity:** Kaldığı yerden devam ederken, atlanmış senaryoların bağlamları veritabanına geri yüklenir — böylece bellek durumu temiz başlangıçla aynı kalır.
 
 Temiz bir test başlatmak istiyorsanız:
 
 ```bash
-rm state.json results_*.jsonl
+rm -rf results/
 python -m mesa_benchmark -c config.yaml
 ```
 
@@ -569,5 +569,5 @@ docker build -t mesa-benchmark .
 docker run --env-file .env mesa-benchmark
 
 # Temiz başlangıç (state temizle)
-rm state.json results_*.jsonl
+rm -rf results/
 ```
