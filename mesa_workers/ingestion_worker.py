@@ -43,11 +43,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 import traceback
 from typing import Any
 
+import structlog
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from mesa_memory.config import config
@@ -60,7 +60,6 @@ from mesa_storage.dao import MemoryDAO
 # Configure logging for the worker process
 setup_logging()
 
-import structlog
 logger = structlog.get_logger("MESA_ColdPath")
 
 # ---------------------------------------------------------------------------
