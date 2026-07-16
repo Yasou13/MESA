@@ -31,6 +31,7 @@ const I18N = {
         hero_title: "The Open-Source <span class='gradient-text'>Triple-Store Memory Engine</span> for Enterprise AI Agents",
         hero_desc: "Eliminate context amnesia, tenant leakage, and multi-hop reasoning loops. Built with high-throughput native C++ KùzuDB graph traversal, LanceDB dense vectors, and Stage-2 CrossEncoder reranking.",
         hero_cta_sandbox: "Test Live Sandbox",
+        hero_cta_visualizer: "Try the System (Visual Demo)",
         hero_cta_bench: "View Benchmarks",
         hero_cta_docs: "OpenAPI Specs (/docs)",
         
@@ -189,6 +190,7 @@ const I18N = {
         hero_title: "Kurumsal Yapay Zeka Ajanları İçin Açık Kaynaklı <span class='gradient-text'>Üçlü Depolama Bellek Motoru</span>",
         hero_desc: "Bağlam amnezisini, kiracı veri sızıntılarını ve çok adımlı çıkarım hatalarını ortadan kaldırın. Yüksek hızlı KùzuDB C++ çizge gezintisi, LanceDB yoğun vektörleri ve Stage-2 CrossEncoder yeniden sıralaması ile güçlendirildi.",
         hero_cta_sandbox: "Canlı Sandbox'ı Test Et",
+        hero_cta_visualizer: "Sistemi Deneyin (Görsel Demo)",
         hero_cta_bench: "Benchmark Sonuçları",
         hero_cta_docs: "OpenAPI Dokümantasyonu (/docs)",
         
@@ -460,6 +462,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initScrollEffects();
     initTerminalLogSimulators();
     initMouseParallax();
+    initNeuralCanvas();
 });
 
 // ---------------------------------------------------------------------------
@@ -1064,4 +1067,141 @@ function initTerminalLogSimulators() {
             sdkIdx++;
         }
     }, 2600);
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Neural Network Canvas Background
+// ---------------------------------------------------------------------------
+function initNeuralCanvas() {
+    const canvas = document.getElementById('neuralCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    // Check for reduced motion preference
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        return;
+    }
+
+    let width, height;
+    let nodes = [];
+    let NODE_COUNT;
+    let scrollY = window.scrollY;
+    
+    // Scroll dynamic properties
+    let speedMultiplier = 1;
+    let connectionDistance = 150;
+    let colorHue = 260; // Start at purple/indigo
+
+    window.addEventListener('scroll', () => {
+        scrollY = window.scrollY;
+        const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+        const scrollPercent = maxScroll > 0 ? scrollY / maxScroll : 0;
+        
+        // As we scroll down:
+        // Speed increases
+        speedMultiplier = 1 + scrollPercent * 2;
+        // Connections reach further
+        connectionDistance = 150 + scrollPercent * 100;
+        // Color hue shifts (e.g. from purple 260 to cyan 190)
+        colorHue = 260 - (scrollPercent * 70); 
+    }, { passive: true });
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Node_count = (width*height)/14000
+        const targetNodeCount = Math.floor((width * height) / 14000);
+        // Clamp node count for safety
+        NODE_COUNT = Math.min(Math.max(targetNodeCount, 40), 150);
+        
+        initNodes();
+    }
+
+    function initNodes() {
+        nodes = [];
+        for (let i = 0; i < NODE_COUNT; i++) {
+            nodes.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                vx: (Math.random() - 0.5) * 0.5,
+                vy: (Math.random() - 0.5) * 0.5,
+                baseRadius: Math.random() * 2 + 1,
+                radius: 0,
+                phase: Math.random() * Math.PI * 2
+            });
+        }
+    }
+
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
+
+    function draw() {
+        ctx.clearRect(0, 0, width, height);
+        
+        const time = Date.now() * 0.001;
+
+        // Update positions
+        for (let i = 0; i < NODE_COUNT; i++) {
+            const node = nodes[i];
+            
+            // Organic random noise added to velocity
+            node.vx += (Math.random() - 0.5) * 0.02 * speedMultiplier;
+            node.vy += (Math.random() - 0.5) * 0.02 * speedMultiplier;
+            
+            // Dampen velocity to prevent infinite acceleration
+            node.vx *= 0.98;
+            node.vy *= 0.98;
+
+            node.x += node.vx * speedMultiplier;
+            node.y += node.vy * speedMultiplier;
+
+            // Breathing effect
+            node.radius = node.baseRadius + Math.sin(time * 2 * speedMultiplier + node.phase) * 0.5;
+
+            // Bounce off edges
+            if (node.x < 0 || node.x > width) node.vx *= -1;
+            if (node.y < 0 || node.y > height) node.vy *= -1;
+            
+            // Keep strictly in bounds just in case
+            node.x = Math.max(0, Math.min(width, node.x));
+            node.y = Math.max(0, Math.min(height, node.y));
+        }
+
+        // Draw connections
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < NODE_COUNT; i++) {
+            for (let j = i + 1; j < NODE_COUNT; j++) {
+                const dx = nodes[i].x - nodes[j].x;
+                const dy = nodes[i].y - nodes[j].y;
+                const distSq = dx * dx + dy * dy;
+                const thresholdSq = connectionDistance * connectionDistance;
+
+                if (distSq < thresholdSq) {
+                    const dist = Math.sqrt(distSq);
+                    const opacity = 1 - (dist / connectionDistance);
+                    ctx.strokeStyle = `hsla(${colorHue}, 70%, 60%, ${opacity * 0.5})`;
+                    ctx.beginPath();
+                    ctx.moveTo(nodes[i].x, nodes[i].y);
+                    ctx.lineTo(nodes[j].x, nodes[j].y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Draw nodes
+        for (let i = 0; i < NODE_COUNT; i++) {
+            const node = nodes[i];
+            ctx.fillStyle = `hsla(${colorHue}, 80%, 70%, 0.8)`;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, Math.max(0.1, node.radius), 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        requestAnimationFrame(draw);
+    }
+
+    draw();
 }
