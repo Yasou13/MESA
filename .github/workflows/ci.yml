@@ -224,5 +224,7 @@ jobs:
     - name: Run Canary Smoke Test
       env:
         PYTHONPATH: "."
+        MESA_API_KEY: "mesa_prod_sec_2026_xyz"
       run: |
+        python scripts/run_server.py &
         python scripts/canary_smoke_test.py
