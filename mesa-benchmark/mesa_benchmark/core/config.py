@@ -1,8 +1,7 @@
-from pathlib import Path
-from typing import Any, Dict, Optional
-
 import os
 import re
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -70,7 +69,7 @@ def _resolve_env_vars(obj: Any) -> Any:
     if isinstance(obj, str):
         pattern = re.compile(r"\$\{([^}]+)\}")
 
-        def replace(match):
+        def replace(match: Any) -> str:
             var_name = match.group(1)
             if var_name not in os.environ:
                 raise ConfigurationError(
