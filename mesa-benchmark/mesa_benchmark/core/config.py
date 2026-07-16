@@ -1,6 +1,9 @@
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import os
+import re
+
 import yaml
 from pydantic import BaseModel, Field
 
@@ -63,17 +66,18 @@ class BenchmarkConfig(BaseModel):
     evaluation: EvaluationConfig
 
 
-import os
-import re
-
 def _resolve_env_vars(obj: Any) -> Any:
     if isinstance(obj, str):
-        pattern = re.compile(r'\$\{([^}]+)\}')
+        pattern = re.compile(r"\$\{([^}]+)\}")
+
         def replace(match):
             var_name = match.group(1)
             if var_name not in os.environ:
-                raise ConfigurationError(f"Environment variable '{var_name}' is not set but referenced in config.")
+                raise ConfigurationError(
+                    f"Environment variable '{var_name}' is not set but referenced in config."
+                )
             return os.environ[var_name]
+
         return pattern.sub(replace, obj)
     elif isinstance(obj, dict):
         return {k: _resolve_env_vars(v) for k, v in obj.items()}
