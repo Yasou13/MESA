@@ -21,6 +21,9 @@ os.environ["OPENAI_API_KEY"] = "dummy_ci_key_openai"
 
 import pytest
 
+from mesa_memory.api.middleware import limiter
+limiter.enabled = False
+
 # ---------------------------------------------------------------------------
 # Dynamic path resolution — resolves from *this file's* location, not CWD.
 # Works identically on developer machines, CI runners, and containers.
