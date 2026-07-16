@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MESA - Bilişsel Hafıza Motoru Demosu</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-effects">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+    </div>
+
+    <header class="hero">
+        <h1>MESA</h1>
+        <p class="subtitle">Otonom AI Ajanları İçin Yapılandırılmış Hafıza Motoru</p>
+    </header>
+
+    <main class="container">
+        
+        <div class="grid-layout">
+            <!-- Sol Panel: Etkileşim ve Süreç -->
+            <section class="panel interaction-panel">
+                <div class="panel-header">
+                    <h2>1. Veri Girişi</h2>
+                    <p>MESA'nın hafızasına kaydedilecek yeni bir bilgi (hafıza) girin.</p>
+                </div>
+                
+                <form id="ingestion-form" class="input-terminal">
+                    <div class="terminal-header">
+                        <span class="dot red"></span>
+                        <span class="dot yellow"></span>
+                        <span class="dot green"></span>
+                        <span class="title">POST /v3/memory/insert</span>
+                    </div>
+                    <div class="terminal-body">
+                        <label for="memory-input">"content":</label>
+                        <textarea id="memory-input" rows="3" placeholder='Örn: "Tesla Q4 2025 gelirleri 25 Milyar Doları aştı, yıllık %12 artış gösterdi."' required></textarea>
+                        <button type="submit" id="submit-btn" class="btn-glow">
+                            <span>Veriyi İşle</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="panel-header" style="margin-top: 2rem;">
+                    <h2>2. İşleme Hattı (Pipeline)</h2>
+                    <p>Sisteme giren veri, halüsinasyon riskine karşı ardışık filtrelerden geçer.</p>
+                </div>
+
+                <div class="pipeline-visualizer">
+                    <div class="step" id="step-valence">
+                        <div class="step-icon">1</div>
+                        <div class="step-content">
+                            <h3>Valence Motor (Geçit)</h3>
+                            <p>Verinin uygunluğu ve anormallik (ECOD) kontrolü yapılır.</p>
+                        </div>
+                        <div class="status-indicator">Bekliyor</div>
+                    </div>
+                    
+                    <div class="step-connector"></div>
+
+                    <div class="step" id="step-extraction">
+                        <div class="step-icon">2</div>
+                        <div class="step-content">
+                            <h3>REBEL Çıkarımı (Triplet)</h3>
+                            <p>Düz metin Özellik-Yüklem-Nesne üçlülerine (graf) ayrıştırılır.</p>
+                        </div>
+                        <div class="status-indicator">Bekliyor</div>
+                    </div>
+
+                    <div class="step-connector"></div>
+
+                    <div class="step" id="step-consensus">
+                        <div class="step-icon">3</div>
+                        <div class="step-content">
+                            <h3>Çift-LLM Konsensüsü</h3>
+                            <p>Çıkarılan bilgilerin doğruluğu 2 farklı LLM ile çapraz teyit edilir.</p>
+                        </div>
+                        <div class="status-indicator">Bekliyor</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sağ Panel: Grafik ve Eğitim -->
+            <section class="panel graph-panel">
+                <div class="panel-header">
+                    <h2>3. Bilgi Grafı (Knowledge Graph)</h2>
+                    <p>Kelime ve cümleler arasındaki bağlantıların KùzuDB'de saklanma yapısı.</p>
+                </div>
+                
+                <div class="graph-container">
+                    <canvas id="graphCanvas"></canvas>
+                    <div id="graph-overlay-text">Grafı görmek için sol taraftan veri girin...</div>
+                </div>
+
+                <div class="educational-content">
+                    <div class="edu-card">
+                        <h3><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> Sistem Nasıl Çalışır ve Bağlantılar Nasıl Kurulur?</h3>
+                        <p>Düz bir metin sisteme girdiğinde <strong>REBEL</strong> modeli (veya LLM fallback), cümleyi <em>Üçlü (Triplet)</em> adı verilen yapı taşlarına böler: <code>[Özne] -> (İlişki/Yüklem) -> [Nesne]</code>. Örneğin, "Tesla'nın gelirleri arttı" cümlesi <code>[Tesla] -[SAHİPTİR]-> [Gelir Artışı]</code> şekline dönüşür. Bu düğümler (node) ve kenarlar (edge), KùzuDB üzerinde bir ağ (graf) oluşturur.</p>
+                    </div>
+
+                    <div class="edu-card">
+                        <h3><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-secondary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> Neyi Amaçlıyor ve Neyi Kanıtlıyor?</h3>
+                        <p>Geleneksel yapay zeka hafızası "düz metin" depolar, bu da <strong>halüsinasyona (yanılgıya)</strong> sebep olur. MESA, istatistiksel anomali tespiti ve <em>Çift-LLM Konsensüsü (Çapraz Doğrulama)</em> ile sisteme giren veriyi filtreler. Düz metni <strong>yapılandırılmış, doğrulanmış graf ağına</strong> dönüştürerek yapay zeka ajanlarının sadece yakın zamandakileri değil, geçmişi de <em>kesin ve doğru (halüsinasyonsuz)</em> hatırlayabildiğini kanıtlar.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
