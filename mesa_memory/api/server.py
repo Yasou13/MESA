@@ -414,7 +414,7 @@ from slowapi.errors import RateLimitExceeded
 from mesa_memory.api.middleware import limiter, rate_limit_exceeded_handler
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
 from mesa_memory.observability.metrics import PROM_HTTP_REQUESTS
 
 

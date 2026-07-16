@@ -202,9 +202,7 @@ class TestSearchErrors:
             side_effect=PermissionError("Access denied")
         )
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -219,9 +217,7 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(side_effect=RuntimeError("DB down"))
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -251,9 +247,7 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value={"cmb_ids": [node_id]})
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -274,9 +268,7 @@ class TestSearchErrors:
         import uuid
 
         agent_id = f"agent-phantom-{uuid.uuid4().hex[:6]}"
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={

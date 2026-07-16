@@ -108,9 +108,9 @@ class TestCrossTenantTraversal:
         result = await kuzu_provider.get_neighbors(
             node_id="A1", agent_id=AGENT_B, max_hops=2
         )
-        assert result == [], (
-            f"SECURITY VIOLATION: Agent B retrieved Agent A's neighbors: {result}"
-        )
+        assert (
+            result == []
+        ), f"SECURITY VIOLATION: Agent B retrieved Agent A's neighbors: {result}"
 
     @pytest.mark.asyncio
     async def test_agent_a_cannot_see_agent_b_neighbors(self, kuzu_provider):
@@ -120,9 +120,9 @@ class TestCrossTenantTraversal:
         result = await kuzu_provider.get_neighbors(
             node_id="B1", agent_id=AGENT_A, max_hops=2
         )
-        assert result == [], (
-            f"SECURITY VIOLATION: Agent A retrieved Agent B's neighbors: {result}"
-        )
+        assert (
+            result == []
+        ), f"SECURITY VIOLATION: Agent A retrieved Agent B's neighbors: {result}"
 
     @pytest.mark.asyncio
     async def test_max_depth_traversal_cannot_cross_tenants(self, kuzu_provider):

@@ -125,9 +125,9 @@ async def test_circuit_breaker_trips_on_continuous_503():
                 await process_cold_path(3, agent_id="test_agent", dao=dao)
                 call_count_after = mock_adapter.acomplete.call_count
 
-                assert call_count_before == call_count_after, (
-                    "Adapter should not be called when CB is open"
-                )
+                assert (
+                    call_count_before == call_count_after
+                ), "Adapter should not be called when CB is open"
 
     # Verify that records were explicitly flagged as failed (DLQ in SQLite)
     failed_calls = [

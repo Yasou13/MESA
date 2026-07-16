@@ -49,6 +49,7 @@ from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from mesa_api.schemas import (
     ErrorResponse,
@@ -192,7 +193,7 @@ def create_memory_router(
         payload: MemoryInsertRequest,
         background_tasks: BackgroundTasks,
         dao: MemoryDAO = Depends(get_dao),
-    ) -> dict:
+    ) -> JSONResponse:
         """Queue a memory record for asynchronous cold-path processing.
 
         **Hot-path architecture (v0.4.0)**: The endpoint performs a single
@@ -252,8 +253,6 @@ def create_memory_router(
             dao,
             consolidation_loop=get_consolidation_loop(),
         )
-
-        from fastapi.responses import JSONResponse
 
         return JSONResponse(
             status_code=202,

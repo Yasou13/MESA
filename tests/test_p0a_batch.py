@@ -69,9 +69,9 @@ def _make_mock_dao():
     return dao
 
 
-def _build_consolidation_loop() -> tuple[
-    ConsolidationLoop, MagicMock, MagicMock, MagicMock
-]:
+def _build_consolidation_loop() -> (
+    tuple[ConsolidationLoop, MagicMock, MagicMock, MagicMock]
+):
     """Build a ConsolidationLoop with fully mocked dependencies.
 
     Returns (loop, dao_mock, llm_a_mock, llm_b_mock).
@@ -134,9 +134,9 @@ class TestBatchCapacity:
 
         # Assertion 1: At least 20 mark_consolidated calls (may be more due
         # to writes in writer.py also calling mark_consolidated)
-        assert dao.mark_consolidated.call_count >= 20, (
-            f"Expected >= 20 consolidated, got {dao.mark_consolidated.call_count}"
-        )
+        assert (
+            dao.mark_consolidated.call_count >= 20
+        ), f"Expected >= 20 consolidated, got {dao.mark_consolidated.call_count}"
 
         # Assertion 2: Graph writes occurred (sim=0.9 > threshold)
         assert dao.insert_memory.call_count > 0
@@ -310,9 +310,9 @@ class TestFaultTolerance:
 
         assert result is not None, "Salvage returned None for recoverable JSON"
         response = BatchExtractionResponse.model_validate(result)
-        assert len(response.triplets) == 3, (
-            f"Expected 3 salvaged triplets, got {len(response.triplets)}"
-        )
+        assert (
+            len(response.triplets) == 3
+        ), f"Expected 3 salvaged triplets, got {len(response.triplets)}"
         recovered_indices = {t.record_index for t in response.triplets}
         assert recovered_indices == {0, 1, 2}
 
@@ -487,9 +487,9 @@ class TestFaultTolerance:
             await loop.run_batch(records)
 
         # All 5 records must be marked consolidated (no data loss)
-        assert dao.mark_consolidated.call_count >= 5, (
-            f"Expected >= 5 consolidated, got {dao.mark_consolidated.call_count}"
-        )
+        assert (
+            dao.mark_consolidated.call_count >= 5
+        ), f"Expected >= 5 consolidated, got {dao.mark_consolidated.call_count}"
 
     @pytest.mark.asyncio
     async def test_total_parse_failure_triggers_bisection(self):
@@ -557,9 +557,9 @@ class TestFaultTolerance:
         )
 
         # LLM_A should have been called more than once (initial + retries)
-        assert llm_a.complete.call_count > 1 or llm_a.acomplete.call_count > 1, (
-            "Bisection should have triggered additional LLM calls"
-        )
+        assert (
+            llm_a.complete.call_count > 1 or llm_a.acomplete.call_count > 1
+        ), "Bisection should have triggered additional LLM calls"
 
 
 # ===================================================================

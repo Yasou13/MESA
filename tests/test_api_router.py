@@ -273,9 +273,7 @@ class TestSearchEndpoint:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value=[node_id])
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -311,9 +309,7 @@ class TestSearchEndpoint:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value=[node_id])
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -331,9 +327,7 @@ class TestSearchEndpoint:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value=[])
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -393,9 +387,7 @@ class TestSearchEndpoint:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value=node_ids)
 
-        with (
-            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
-        ):
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
             resp = client.post(
                 "/v3/memory/search",
                 json={

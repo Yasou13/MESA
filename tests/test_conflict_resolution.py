@@ -96,6 +96,6 @@ class TestSemanticConflictResolution:
         )
         returned_nids = [r["node_id"] for r in search_res]
         assert node_b in returned_nids
-        assert node_a not in returned_nids, (
-            "Triplet A should have been soft-deleted from LanceDB"
-        )
+        assert (
+            node_a not in returned_nids
+        ), "Triplet A should have been soft-deleted from LanceDB"

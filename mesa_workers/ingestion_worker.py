@@ -60,8 +60,8 @@ from mesa_storage.dao import MemoryDAO
 # Configure logging for the worker process
 setup_logging()
 
-logger = logging.getLogger("MESA_ColdPath")
-
+import structlog
+logger = structlog.get_logger("MESA_ColdPath")
 
 # ---------------------------------------------------------------------------
 # Module-level singletons — initialised lazily on first cold-path call
