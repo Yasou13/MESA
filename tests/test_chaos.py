@@ -1,6 +1,6 @@
 """MESA v0.4.1 — Phase 3B: Chaos Engineering — Saga Rollback Resilience Test.
 
-Proves that the Atomic Dual-Write Saga pattern (B-7) correctly rolls back
+Proves that the Atomic Dual-Write Saga pattern correctly rolls back
 SQLite INSERT when the LanceDB vector upsert fails.  Uses unittest.mock to
 force-crash ``VectorEngine.upsert``, then verifies the ``nodes`` table
 contains NO orphaned relational record.

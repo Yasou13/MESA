@@ -48,7 +48,7 @@ import uuid
 from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from mesa_api.schemas import (
     ErrorResponse,
@@ -61,6 +61,7 @@ from mesa_api.schemas import (
     SessionStartRequest,
     SessionStartResponse,
 )
+from mesa_memory.api.middleware import limiter
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.retrieval.core import QueryAnalyzer
@@ -187,7 +188,8 @@ def create_memory_router(
         },
     )
     async def insert_memory(
-        request: MemoryInsertRequest,
+        request: Request,
+        payload: MemoryInsertRequest,
         background_tasks: BackgroundTasks,
         dao: MemoryDAO = Depends(get_dao),
     ) -> dict:
@@ -204,8 +206,8 @@ def create_memory_router(
         Target latency: **< 50ms**.
         """
         structlog.contextvars.bind_contextvars(
-            agent_id=request.agent_id,
-            session_id=request.session_id,
+            agent_id=payload.agent_id,
+            session_id=payload.session_id,
             endpoint="insert_memory",
         )
 
@@ -217,36 +219,51 @@ def create_memory_router(
         try:
             ac = get_access_control() if get_access_control else AccessControl()
             has_write = await ac.check_access(
-                request.agent_id,
-                request.session_id,
+                payload.agent_id,
+                payload.session_id,
                 "WRITE",
             )
             if not has_write:
                 raise PermissionError(
-                    f"Agent '{request.agent_id}' lacks WRITE access "
-                    f"for session '{request.session_id}'"
+                    f"Agent '{payload.agent_id}' lacks WRITE access "
+                    f"for session '{payload.session_id}'"
                 )
         except PermissionError as perm_exc:
             raise HTTPException(status_code=403, detail=str(perm_exc))
 
-        payload = {
-            "agent_id": request.agent_id,
-            "session_id": request.session_id,
-            "content": request.content,
-            "metadata": request.metadata,
+        payload_dict = {
+            "agent_id": payload.agent_id,
+            "session_id": payload.session_id,
+            "content": payload.content,
+            "metadata": payload.metadata,
         }
 
-        log_id = await dao.insert_raw_log(request.agent_id, payload)
+        log_id = await dao.insert_raw_log(payload.agent_id, payload_dict)
 
+        def dummy_task():
+            with open("dummy.txt", "w") as f:
+                f.write("DUMMY TASK EXECUTED\n")
+
+        background_tasks.add_task(dummy_task)
         background_tasks.add_task(
             process_cold_path,
             log_id,
-            request.agent_id,
+            payload.agent_id,
             dao,
             consolidation_loop=get_consolidation_loop(),
         )
 
-        return {"status": "queued", "log_id": log_id}
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "DEFERRED",
+                "agent_id": payload.agent_id,
+                "log_id": log_id,
+            },
+            background=background_tasks,
+        )
 
     # ==================================================================
     # GET /v3/memory/status/{log_id}  —  Cold-path status query
@@ -257,7 +274,9 @@ def create_memory_router(
         summary="Query cold-path processing status for a raw_log entry",
         response_description="Current processing status of the log entry",
     )
+    @limiter.limit("60/minute")
     async def get_status(
+        request: Request,
         log_id: int,
         agent_id: str,
         dao: MemoryDAO = Depends(get_dao),
@@ -305,8 +324,10 @@ def create_memory_router(
         response_description="Retrieved context with latency metrics",
         response_model=MemorySearchResponse,
     )
+    @limiter.limit("60/minute")
     async def search_memory(
-        request: MemorySearchRequest,
+        request: Request,
+        payload: MemorySearchRequest,
         dao: MemoryDAO = Depends(get_dao),
     ) -> MemorySearchResponse:
         """Execute a hybrid memory search via the production HybridRetriever.
@@ -321,8 +342,8 @@ def create_memory_router(
         ``{context, retrieved_nodes, metrics}``.
         """
         structlog.contextvars.bind_contextvars(
-            agent_id=request.agent_id,
-            session_id=request.session_id,
+            agent_id=payload.agent_id,
+            session_id=payload.session_id,
             endpoint="search_memory",
         )
         t_start = time.monotonic()
@@ -339,10 +360,10 @@ def create_memory_router(
 
             result = await asyncio.wait_for(
                 retriever.retrieve(
-                    query_text=request.query,
-                    agent_id=request.agent_id,
-                    session_id=request.session_id,
-                    top_n=request.limit,
+                    query_text=payload.query,
+                    agent_id=payload.agent_id,
+                    session_id=payload.session_id,
+                    top_n=payload.limit,
                 ),
                 timeout=30.0,  # 30s hard ceiling — prevents indefinite hangs
             )
@@ -359,13 +380,13 @@ def create_memory_router(
             context_parts: list[str] = []
 
             for cmb_id in cmb_ids:
-                node = await dao.get_memory_by_id(request.agent_id, cmb_id)
+                node = await dao.get_memory_by_id(payload.agent_id, cmb_id)
                 if node is None:
                     # Node may have been purged between retrieval and hydration
                     retrieved_nodes.append(
                         {
                             "node_id": cmb_id,
-                            "agent_id": request.agent_id,
+                            "agent_id": payload.agent_id,
                             "source": "hybrid",
                             "score": 0.0,
                         }
@@ -381,7 +402,7 @@ def create_memory_router(
                         "type": node.get("node_type", "ENTITY"),
                         "source": "hybrid",
                         "score": 1.0,
-                        "agent_id": node.get("agent_id", request.agent_id),
+                        "agent_id": node.get("agent_id", payload.agent_id),
                     }
                 )
                 ctx = entity_name
@@ -404,8 +425,8 @@ def create_memory_router(
             traceback.print_exc()
             logger.error(
                 "SEARCH_ERROR | agent_id=%s query=%r error=%s",
-                request.agent_id,
-                request.query[:50],
+                payload.agent_id,
+                payload.query[:50],
                 exc,
                 exc_info=True,
             )
@@ -419,7 +440,7 @@ def create_memory_router(
 
         return MemorySearchResponse(
             context=context,
-            retrieved_nodes=retrieved_nodes[: request.limit],
+            retrieved_nodes=retrieved_nodes[: payload.limit],
             metrics={"latency_ms": elapsed_ms},
         )
 
@@ -432,8 +453,10 @@ def create_memory_router(
         summary="Soft-delete memory records",
         response_description="Purge result with affected record count",
     )
+    @limiter.limit("60/minute")
     async def purge_memory(
-        request: MemoryPurgeRequest,
+        request: Request,
+        payload: MemoryPurgeRequest,
         dao: MemoryDAO = Depends(get_dao),
     ) -> dict:
         """Soft-delete memory records by agent or session scope.
@@ -449,10 +472,10 @@ def create_memory_router(
         # RBAC Gate: Verify WRITE permission for this agent/session pair.
         try:
             ac = get_access_control() if get_access_control else AccessControl()
-            _session = request.scope_id if request.scope == "session" else "__any__"
-            if not await ac.check_access(request.agent_id, _session, "WRITE"):
+            _session = payload.scope_id if payload.scope == "session" else "__any__"
+            if not await ac.check_access(payload.agent_id, _session, "WRITE"):
                 raise PermissionError(
-                    f"Agent '{request.agent_id}' lacks WRITE access for purge"
+                    f"Agent '{payload.agent_id}' lacks WRITE access for purge"
                 )
         except PermissionError as perm_exc:
             raise HTTPException(status_code=403, detail=str(perm_exc))
@@ -460,10 +483,10 @@ def create_memory_router(
         deleted_count = 0
 
         try:
-            session_id = request.scope_id if request.scope == "session" else None
+            session_id = payload.scope_id if payload.scope == "session" else None
             deleted_count = await dao.purge_memory(
-                agent_id=request.agent_id,
-                scope=request.scope,
+                agent_id=payload.agent_id,
+                scope=payload.scope,
                 session_id=session_id,
             )
 
@@ -473,8 +496,8 @@ def create_memory_router(
             traceback.print_exc()
             logger.error(
                 "PURGE_ERROR | agent_id=%s scope=%s error=%s",
-                request.agent_id,
-                request.scope,
+                payload.agent_id,
+                payload.scope,
                 exc,
                 exc_info=True,
             )
@@ -499,8 +522,10 @@ def create_memory_router(
         response_description="Returns a new unique session_id",
         response_model=SessionStartResponse,
     )
+    @limiter.limit("60/minute")
     async def start_session(
-        request: SessionStartRequest,
+        request: Request,
+        payload: SessionStartRequest,
         dao: MemoryDAO = Depends(get_dao),
     ) -> SessionStartResponse:
         """Generate and return a new unique session identifier.
@@ -512,12 +537,12 @@ def create_memory_router(
         session_id = f"sess_{uuid.uuid4().hex}"
 
         # Grant WRITE access for the newly created session
-        await ac.grant_access(request.agent_id, session_id, "WRITE")
+        await ac.grant_access(payload.agent_id, session_id, "WRITE")
 
         logger.info(
-            "SESSION_START | agent_id=%s session_id=%s", request.agent_id, session_id
+            "SESSION_START | agent_id=%s session_id=%s", payload.agent_id, session_id
         )
-        return SessionStartResponse(session_id=session_id, agent_id=request.agent_id)
+        return SessionStartResponse(session_id=session_id, agent_id=payload.agent_id)
 
     # ==================================================================
     # GET /v3/session/{session_id}/context
@@ -530,7 +555,9 @@ def create_memory_router(
         response_description="Consolidated memory and recent logs for the session",
         response_model=SessionContextResponse,
     )
+    @limiter.limit("60/minute")
     async def get_session_context(
+        request: Request,
         session_id: str,
         agent_id: str,
         dao: MemoryDAO = Depends(get_dao),
@@ -599,9 +626,11 @@ def create_memory_router(
         summary="End a session",
         response_description="Session termination status",
     )
+    @limiter.limit("60/minute")
     async def end_session(
+        request: Request,
         session_id: str,
-        request: SessionEndRequest,
+        payload: SessionEndRequest,
         background_tasks: BackgroundTasks,
         dao: MemoryDAO = Depends(get_dao),
     ) -> dict:
@@ -613,9 +642,9 @@ def create_memory_router(
         # RBAC Gate: Verify WRITE permission for this agent/session pair.
         try:
             ac = get_access_control() if get_access_control else AccessControl()
-            if not await ac.check_access(request.agent_id, session_id, "WRITE"):
+            if not await ac.check_access(payload.agent_id, session_id, "WRITE"):
                 raise PermissionError(
-                    f"Agent '{request.agent_id}' lacks WRITE access "
+                    f"Agent '{payload.agent_id}' lacks WRITE access "
                     f"for session '{session_id}'"
                 )
         except PermissionError as perm_exc:
@@ -626,7 +655,7 @@ def create_memory_router(
             # For now, we log the termination which could trigger the orchestrator.
             logger.info(
                 "SESSION_END | agent_id=%s session_id=%s triggered final consolidation.",
-                request.agent_id,
+                payload.agent_id,
                 session_id,
             )
             return {"status": "ended", "session_id": session_id}
@@ -639,7 +668,7 @@ def create_memory_router(
             logger.error(
                 "SESSION_END_ERROR | session_id=%s agent_id=%s error=%s",
                 session_id,
-                request.agent_id,
+                payload.agent_id,
                 exc,
                 exc_info=True,
             )

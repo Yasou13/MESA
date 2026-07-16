@@ -616,20 +616,20 @@ class TestOutputContract:
         assert isinstance(triplet, dict), f"Triplet must be dict, got {type(triplet)}"
         required_keys = {"head", "relation", "tail"}
         allowed_keys = required_keys | {"confidence"}
-        assert required_keys <= set(
-            triplet.keys()
-        ), f"Missing required keys: {required_keys - set(triplet.keys())}"
-        assert (
-            set(triplet.keys()) <= allowed_keys
-        ), f"Unexpected keys: {set(triplet.keys()) - allowed_keys}"
+        assert required_keys <= set(triplet.keys()), (
+            f"Missing required keys: {required_keys - set(triplet.keys())}"
+        )
+        assert set(triplet.keys()) <= allowed_keys, (
+            f"Unexpected keys: {set(triplet.keys()) - allowed_keys}"
+        )
         for key in ("head", "relation", "tail"):
-            assert isinstance(
-                triplet[key], str
-            ), f"triplet[{key!r}] must be str, got {type(triplet[key])}"
+            assert isinstance(triplet[key], str), (
+                f"triplet[{key!r}] must be str, got {type(triplet[key])}"
+            )
             assert len(triplet[key]) > 0, f"triplet[{key!r}] must be non-empty"
-            assert (
-                triplet[key] == triplet[key].strip()
-            ), f"triplet[{key!r}] must be stripped, got {triplet[key]!r}"
+            assert triplet[key] == triplet[key].strip(), (
+                f"triplet[{key!r}] must be stripped, got {triplet[key]!r}"
+            )
         if "confidence" in triplet:
             # confidence must be a parseable float string
             float(triplet["confidence"])  # raises ValueError if not

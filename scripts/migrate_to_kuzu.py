@@ -124,14 +124,25 @@ def extract_edges(sqlite_path: str, csv_path: str) -> int:
     """
     conn = sqlite3.connect(sqlite_path)
     conn.row_factory = sqlite3.Row
+    rows = []
     try:
-        cursor = conn.execute(
-            "SELECT source_id, target_id, weight, created_at, agent_id "
-            "FROM edges "
-            "WHERE invalid_at IS NULL "
-            "ORDER BY created_at ASC"
-        )
-        rows = cursor.fetchall()
+        # Check if edges table exists (might be absent in modern schema)
+        table_check = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='edges'"
+        ).fetchone()
+
+        if not table_check:
+            logger.warning(
+                "Table 'edges' does not exist in SQLite (modern schema). Skipping edge extraction."
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT source_id, target_id, weight, created_at, agent_id "
+                "FROM edges "
+                "WHERE invalid_at IS NULL "
+                "ORDER BY created_at ASC"
+            )
+            rows = cursor.fetchall()
     finally:
         conn.close()
 

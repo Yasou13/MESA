@@ -62,6 +62,11 @@ PROM_ADMISSION_RATE = PromGauge("mesa_cmb_admission_rate", "CMB admission rate")
 PROM_DIVERGENCE_RATE = PromGauge(
     "mesa_consolidation_divergence_rate", "Consolidation divergence rate"
 )
+PROM_SAGA_FAILURES = PromCounter("saga_failure_total", "Total dual-write saga failures")
+PROM_HTTP_REQUESTS = PromCounter(
+    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "status"]
+)
+PROM_QUEUE_BACKLOG = PromGauge("queue_backlog_size", "Current ingestion queue backlog")
 
 
 class ObservabilityLayer:

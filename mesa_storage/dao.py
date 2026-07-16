@@ -458,22 +458,48 @@ class MemoryDAO:
             if graph_data.get("entity_name") == entity_name and distance < 0.15:
                 conflicting_node_ids.append(mem["node_id"])
 
-        # ---- ATOMIC SAGA: SQLite + LanceDB (B-7 pattern) ----------
-        # DO NOT commit SQLite until LanceDB succeeds.  On vector
-        # failure, ROLLBACK SQLite to prevent orphaned relational records.
+        # ---- ATOMIC SAGA: Secondary stores FIRST (fixes lock starvation) ----------
+        is_migrating = await self._is_lancedb_migrating()
+
+        try:
+            if not is_migrating:
+                for cid in conflicting_node_ids:
+                    await self._vec.soft_delete(cid, agent_id)
+                await self._vec.upsert(
+                    node_id=node_id,
+                    agent_id=agent_id,
+                    embedding=embedding,
+                    content_hash=content_hash,
+                )
+        except Exception as vec_exc:
+            logger.error(
+                "INSERT_SAGA_ROLLBACK | agent_id=%s node_id=%s vector_error=%s",
+                agent_id,
+                node_id,
+                vec_exc,
+            )
+            raise
+
+        if self._graph is not None:
+            try:
+                await self._graph.insert_node(
+                    node_id=node_id,
+                    name=entity_name,
+                    agent_id=agent_id,
+                )
+            except Exception as graph_exc:
+                logger.warning("Failed to insert node into KuzuDB: %s", graph_exc)
+
+        # PHASE 2: Fast SQLite transaction
         async with self._sql.transaction() as db:
-            # PHASE 1: Soft-delete conflicting nodes in SQLite
             if conflicting_node_ids:
                 placeholders = ",".join("?" for _ in conflicting_node_ids)
-                # Soft-delete nodes
                 await db.execute(
                     f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
                     f"WHERE id IN ({placeholders}) AND agent_id = ? "
                     f"AND invalid_at IS NULL",
                     (*conflicting_node_ids, agent_id),
                 )
-                # NOTE: Edge cascade removed — edges now live in KùzuDB
-                # and are structurally bound to Entity nodes via MATCH.
                 logger.info(
                     "SEMANTIC_CONFLICT_RESOLUTION | agent_id=%s new_node_id=%s "
                     "resolved_conflicts=%d soft_deleted=%s",
@@ -483,7 +509,6 @@ class MemoryDAO:
                     conflicting_node_ids,
                 )
 
-            # PHASE 2: Insert new node
             await db.execute(
                 "INSERT INTO nodes "
                 "(id, entity_name, type, content_payload, is_consolidated, created_at, "
@@ -492,59 +517,23 @@ class MemoryDAO:
                 (node_id, entity_name, node_type, content, now, agent_id, session_id),
             )
 
-            # ---- LanceDB upsert (compensating rollback on fail) ------
-            try:
-                # Apply soft-delete in LanceDB for conflicts
-                for cid in conflicting_node_ids:
-                    await self._vec.soft_delete(cid, agent_id)
+            if is_migrating:
+                import json
 
-                if await self._is_lancedb_migrating(db):
-                    import json
+                import numpy as np
 
-                    import numpy as np
-
-                    vector_bytes = np.array(embedding, dtype=np.float32).tobytes()
-                    wal_metadata = json.dumps(
-                        {"node_id": node_id, "content_hash": content_hash}
-                    )
-                    wal_record_id = str(uuid.uuid4())
-
-                    await db.execute(
-                        "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
-                        "VALUES (?, ?, ?, ?)",
-                        (wal_record_id, agent_id, vector_bytes, wal_metadata),
-                    )
-                    logger.info("UPSERT_QUEUED_IN_WAL | node_id=%s", node_id)
-                else:
-                    await self._vec.upsert(
-                        node_id=node_id,
-                        agent_id=agent_id,
-                        embedding=embedding,
-                        content_hash=content_hash,
-                    )
-            except Exception as vec_exc:
-                await db.rollback()
-                logger.error(
-                    "INSERT_SAGA_ROLLBACK | agent_id=%s node_id=%s "
-                    "vector_error=%s — SQL changes rolled back",
-                    agent_id,
-                    node_id,
-                    vec_exc,
+                vector_bytes = np.array(embedding, dtype=np.float32).tobytes()
+                wal_metadata = json.dumps(
+                    {"node_id": node_id, "content_hash": content_hash}
                 )
-                raise
+                wal_record_id = str(uuid.uuid4())
+                await db.execute(
+                    "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
+                    "VALUES (?, ?, ?, ?)",
+                    (wal_record_id, agent_id, vector_bytes, wal_metadata),
+                )
+                logger.info("UPSERT_QUEUED_IN_WAL | node_id=%s", node_id)
 
-            # Insert node into KuzuDB if graph provider is configured
-            if self._graph is not None:
-                try:
-                    await self._graph.insert_node(
-                        node_id=node_id,
-                        name=entity_name,
-                        agent_id=agent_id,
-                    )
-                except Exception as graph_exc:
-                    logger.warning("Failed to insert node into KuzuDB: %s", graph_exc)
-
-            # Both layers succeeded — commit the SQL transaction
             await db.commit()
 
         logger.info(
@@ -624,7 +613,33 @@ class MemoryDAO:
                 }
             )
 
-        # ---- ATOMIC SAGA: SQLite + LanceDB (B-7 pattern) ----------
+        # ---- ATOMIC SAGA: Secondary stores FIRST ----------
+        is_migrating = await self._is_lancedb_migrating()
+
+        try:
+            if not is_migrating:
+                await self._vec.bulk_upsert(vec_rows)
+        except Exception as vec_exc:
+            logger.error(
+                "BULK_INSERT_SAGA_ROLLBACK | agent_id=%s count=%d vector_error=%s",
+                agent_id,
+                len(records),
+                vec_exc,
+            )
+            raise
+
+        if self._graph is not None:
+            try:
+                for rec, sql_row in zip(records, sql_rows):
+                    await self._graph.insert_node(
+                        node_id=sql_row[0],
+                        name=sql_row[1],
+                        agent_id=agent_id,
+                    )
+            except Exception as graph_exc:
+                logger.warning("Failed to bulk insert nodes into KuzuDB: %s", graph_exc)
+
+        # PHASE 2: Fast SQLite transaction
         async with self._sql.transaction() as db:
             await db.executemany(
                 "INSERT INTO nodes "
@@ -634,63 +649,31 @@ class MemoryDAO:
                 sql_rows,
             )
 
-            # ---- LanceDB batch upsert (compensating rollback on fail)
-            try:
-                if await self._is_lancedb_migrating(db):
-                    import json
+            if is_migrating:
+                import json
 
-                    import numpy as np
+                import numpy as np
 
-                    wal_records = []
-                    for r in vec_rows:
-                        vector_bytes = np.array(
-                            r["embedding"], dtype=np.float32
-                        ).tobytes()
-                        wal_metadata = json.dumps(
-                            {
-                                "node_id": r["node_id"],
-                                "content_hash": r.get("content_hash"),
-                            }
-                        )
-                        wal_records.append(
-                            (str(uuid.uuid4()), agent_id, vector_bytes, wal_metadata)
-                        )
-
-                    await db.executemany(
-                        "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
-                        "VALUES (?, ?, ?, ?)",
-                        wal_records,
+                wal_records = []
+                for r in vec_rows:
+                    vector_bytes = np.array(r["embedding"], dtype=np.float32).tobytes()
+                    wal_metadata = json.dumps(
+                        {
+                            "node_id": r["node_id"],
+                            "content_hash": r.get("content_hash"),
+                        }
                     )
-                    logger.info(
-                        "BULK_UPSERT_QUEUED_IN_WAL | count=%d", len(wal_records)
+                    wal_records.append(
+                        (str(uuid.uuid4()), agent_id, vector_bytes, wal_metadata)
                     )
-                else:
-                    await self._vec.bulk_upsert(vec_rows)
-            except Exception as vec_exc:
-                await db.rollback()
-                logger.error(
-                    "BULK_INSERT_SAGA_ROLLBACK | agent_id=%s count=%d "
-                    "vector_error=%s — SQL changes rolled back",
-                    agent_id,
-                    len(records),
-                    vec_exc,
+
+                await db.executemany(
+                    "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
+                    "VALUES (?, ?, ?, ?)",
+                    wal_records,
                 )
-                raise
+                logger.info("BULK_UPSERT_QUEUED_IN_WAL | count=%d", len(wal_records))
 
-            if self._graph is not None:
-                try:
-                    for rec, sql_row in zip(records, sql_rows):
-                        await self._graph.insert_node(
-                            node_id=sql_row[0],
-                            name=sql_row[1],
-                            agent_id=agent_id,
-                        )
-                except Exception as graph_exc:
-                    logger.warning(
-                        "Failed to bulk insert nodes into KuzuDB: %s", graph_exc
-                    )
-
-            # Both layers succeeded — commit
             await db.commit()
 
         logger.info(
@@ -1032,15 +1015,20 @@ class MemoryDAO:
         if not affected_ids:
             return 0
 
-        # ---- PHASE 1: RELATIONAL SOFT-DELETE FIRST (B-7 Saga Fix) -----
-        # Execute SQLite soft-delete first inside a transaction. If the
-        # subsequent vector layer fails, we can compensate by rolling
-        # back the relational changes, preventing dangling SQL records
-        # that reference live vector data.
+        # ---- PHASE 1: SECONDARY STORE SOFT-DELETE FIRST ----------
+        try:
+            for nid in affected_ids:
+                await self._vec.soft_delete(nid, agent_id)
+        except Exception as vec_exc:
+            logger.error(
+                "PURGE_SAGA_ROLLBACK | agent_id=%s vector_error=%s",
+                agent_id,
+                vec_exc,
+            )
+            raise
+
+        # ---- PHASE 2: Fast SQLite transaction
         async with self._sql.transaction() as db:
-            # ---- 1a. Soft-delete nodes: UPDATE SET invalid_at ----------
-            #      CRITICAL: No DELETE — UPDATE only.
-            #      RLS: WHERE agent_id = ? hardcoded.
             if scope == "session":
                 update_sql = (
                     "UPDATE nodes "
@@ -1062,28 +1050,6 @@ class MemoryDAO:
                 node_cursor = await db.execute(update_sql, (agent_id,))
 
             nodes_deleted = node_cursor.rowcount
-
-            # NOTE: Edge cascade removed — edges now live in KùzuDB
-            # and are structurally bound to Entity nodes via MATCH.
-
-            # DO NOT commit yet — wait for vector layer success
-            # ---- PHASE 2: VECTOR LAYER (compensating rollback on fail) -
-            try:
-                for nid in affected_ids:
-                    await self._vec.soft_delete(nid, agent_id)
-            except Exception as vec_exc:
-                # Vector deletion failed — ROLLBACK the SQL transaction
-                # to prevent dangling relational records.
-                await db.rollback()
-                logger.error(
-                    "PURGE_SAGA_ROLLBACK | agent_id=%s "
-                    "vector_error=%s — SQL changes rolled back",
-                    agent_id,
-                    vec_exc,
-                )
-                raise
-
-            # Both layers succeeded — commit the SQL transaction
             await db.commit()
 
         logger.info(
@@ -1371,28 +1337,28 @@ class MemoryDAO:
         """
         _assert_valid_agent_id(agent_id)
 
+        try:
+            if self._vec:
+                await self._vec.hard_delete(node_id, agent_id)
+            if self._graph:
+                await self._graph.execute_write(
+                    "MATCH (n:Entity {id: $node_id, agent_id: $agent_id})"
+                    "-[r:Observed]-() DELETE r",
+                    {"node_id": node_id, "agent_id": agent_id},
+                )
+        except Exception as exc:
+            logger.error(
+                "INVALIDATE_SAGA_ROLLBACK | agent_id=%s error=%s", agent_id, exc
+            )
+            raise
+
         async with self._sql.transaction() as db:
             await db.execute(
                 "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
                 "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
                 (node_id, agent_id),
             )
-
-            async def _graph_update():
-                if self._graph:
-                    await self._graph.execute_write(
-                        "MATCH (n:Entity {id: $node_id, agent_id: $agent_id})"
-                        "-[r:Observed]-() DELETE r",
-                        {"node_id": node_id, "agent_id": agent_id},
-                    )
-
-            async def _vec_update():
-                if self._vec:
-                    await self._vec.hard_delete(node_id, agent_id)
-
-            await self._atomic_saga_commit(
-                db, vector_func=_vec_update, graph_func=_graph_update
-            )
+            await db.commit()
 
         logger.info(
             "INVALIDATE_NODE | agent_id=%s node_id=%s",
@@ -1834,3 +1800,37 @@ class MemoryDAO:
         if "is_quarantined" in row_dict:
             row_dict["is_quarantined"] = bool(row_dict["is_quarantined"])
         return row_dict
+
+    # ==================================================================
+    # COST CONTROL (Daily Limits)
+    # ==================================================================
+
+    async def increment_and_check_daily_limit(
+        self, agent_id: str, limit: int = 1000
+    ) -> bool:
+        """Increment the daily request counter for the agent and check if it exceeds the limit.
+        Returns True if allowed, False if exceeded.
+        """
+        from datetime import date
+
+        today = date.today().isoformat()
+
+        async with self._sql.transaction() as db:
+            await db.execute(
+                "INSERT INTO daily_limits (agent_id, date, request_count) "
+                "VALUES (?, ?, 1) "
+                "ON CONFLICT(agent_id, date) DO UPDATE SET request_count = request_count + 1",
+                (agent_id, today),
+            )
+
+            async with db.execute(
+                "SELECT request_count FROM daily_limits WHERE agent_id = ? AND date = ?",
+                (agent_id, today),
+            ) as cur:
+                row = await cur.fetchone()
+
+            await db.commit()
+
+        if row and row[0] > limit:
+            return False
+        return True

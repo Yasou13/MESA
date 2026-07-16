@@ -16,7 +16,9 @@ class MarkdownReporter:
             else (
                 metrics.dict()
                 if hasattr(metrics, "dict")
-                else vars(metrics) if hasattr(metrics, "__dict__") else metrics
+                else vars(metrics)
+                if hasattr(metrics, "__dict__")
+                else metrics
             )
         )
         return self.generate_report_from_dict(metrics_dict)

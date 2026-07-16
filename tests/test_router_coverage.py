@@ -156,14 +156,17 @@ class TestSessionStart:
 
 class TestSessionContext:
     def test_context_returns_empty_for_new_session(self, client):
+        import uuid
+
+        agent_id = f"agent-ctx-{uuid.uuid4().hex[:6]}"
         resp = client.get(
             "/v3/memory/session/test-session/context",
-            params={"agent_id": "agent-ctx"},
+            params={"agent_id": agent_id},
         )
         assert resp.status_code == 200
         body = resp.json()
         assert body["session_id"] == "test-session"
-        assert body["agent_id"] == "agent-ctx"
+        assert body["agent_id"] == agent_id
         assert isinstance(body["recent_logs"], list)
 
 
@@ -174,9 +177,12 @@ class TestSessionContext:
 
 class TestSessionEnd:
     def test_end_session_returns_status(self, client):
+        import uuid
+
+        agent_id = f"agent-end-{uuid.uuid4().hex[:6]}"
         resp = client.post(
             "/v3/memory/session/test-session/end",
-            json={"agent_id": "agent-end"},
+            json={"agent_id": agent_id},
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -196,7 +202,9 @@ class TestSearchErrors:
             side_effect=PermissionError("Access denied")
         )
 
-        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+        ):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -211,7 +219,9 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(side_effect=RuntimeError("DB down"))
 
-        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+        ):
             resp = client.post(
                 "/v3/memory/search",
                 json={
@@ -227,9 +237,10 @@ class TestSearchErrors:
         sql, vec, loop = engines
         node_id = uuid.uuid4().hex
 
+        agent_id = f"agent-dict-{uuid.uuid4().hex[:6]}"
         loop.run_until_complete(
             MemoryDAO(sqlite_engine=sql, vector_engine=vec).insert_memory(
-                "agent-dict",
+                agent_id,
                 entity_name="DictNode",
                 content="data",
                 embedding=[0.1] * 8,
@@ -240,11 +251,13 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value={"cmb_ids": [node_id]})
 
-        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+        ):
             resp = client.post(
                 "/v3/memory/search",
                 json={
-                    "agent_id": "agent-dict",
+                    "agent_id": agent_id,
                     "session_id": "s1",
                     "query": "test",
                 },
@@ -258,11 +271,16 @@ class TestSearchErrors:
         mock_retriever = MagicMock()
         mock_retriever.retrieve = AsyncMock(return_value=["phantom-id-xyz"])
 
-        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
+        import uuid
+
+        agent_id = f"agent-phantom-{uuid.uuid4().hex[:6]}"
+        with (
+            patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),
+        ):
             resp = client.post(
                 "/v3/memory/search",
                 json={
-                    "agent_id": "agent-phantom",
+                    "agent_id": agent_id,
                     "session_id": "s1",
                     "query": "test",
                 },

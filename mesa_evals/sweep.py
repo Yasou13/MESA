@@ -354,7 +354,7 @@ def _print_table(
         marker = " ★" if delta > 0 else ""
 
         print(
-            f"{i+1:<5} │ {cfg.alpha:>5.2f} │ {cfg.beta:>5.2f} │ "
+            f"{i + 1:<5} │ {cfg.alpha:>5.2f} │ {cfg.beta:>5.2f} │ "
             f"{result.mean_recall_at_5:>10.6f} │ {delta_str:>10} │ "
             f"{result.elapsed_ms:>10.1f}{marker}"
         )
@@ -447,7 +447,7 @@ async def run_sweep(
 
     baseline_recall = _evaluate_pure_vector(entries)
     print(
-        f"SWEEP_BASELINE | Pure Vector Recall@{RECALL_AT_K}: " f"{baseline_recall:.6f}",
+        f"SWEEP_BASELINE | Pure Vector Recall@{RECALL_AT_K}: {baseline_recall:.6f}",
         file=sys.stderr,
     )
 
@@ -475,8 +475,8 @@ async def run_sweep(
         if (i + 1) % checkpoint_interval == 0 or (i + 1) == total:
             best_so_far = max(results, key=lambda r: r.mean_recall_at_5)
             print(
-                f"SWEEP_PROGRESS | {i+1}/{total} "
-                f"({100*(i+1)/total:.0f}%) "
+                f"SWEEP_PROGRESS | {i + 1}/{total} "
+                f"({100 * (i + 1) / total:.0f}%) "
                 f"best_recall@5={best_so_far.mean_recall_at_5:.6f}",
                 file=sys.stderr,
             )

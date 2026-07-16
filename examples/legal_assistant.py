@@ -60,7 +60,7 @@ def run_legal_simulation(
     combined_context = []
     for i, doc in enumerate(docs):
         print(
-            f"Document {i+1} [Score: {doc.metadata.get('score', 'N/A')}]: {doc.page_content}"
+            f"Document {i + 1} [Score: {doc.metadata.get('score', 'N/A')}]: {doc.page_content}"
         )
         combined_context.append(doc.page_content.lower())
 

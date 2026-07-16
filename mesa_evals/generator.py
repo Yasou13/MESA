@@ -508,9 +508,9 @@ def generate_synthetic_entries() -> list[dict[str, Any]]:
     # Shuffle deterministically for interleaved domain evaluation
     random.shuffle(all_entries)
 
-    assert (
-        len(all_entries) == 30
-    ), f"Synthetic block must contain exactly 30 entries, got {len(all_entries)}"
+    assert len(all_entries) == 30, (
+        f"Synthetic block must contain exactly 30 entries, got {len(all_entries)}"
+    )
 
     return all_entries
 

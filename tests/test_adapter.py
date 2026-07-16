@@ -40,7 +40,6 @@ def test_claude_adapter_local_embed_fallback():
         patch("mesa_memory.adapter.claude.anthropic.Anthropic"),
         patch("mesa_memory.adapter.claude.anthropic.AsyncAnthropic"),
     ):
-
         adapter = ClaudeAdapter(anthropic_api_key="test", openai_api_key=None)
         assert adapter._sync_openai is None
 

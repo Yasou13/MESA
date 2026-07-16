@@ -82,31 +82,31 @@ class TestPseudoEntropyDeleted:
 
     def test_no_pseudo_entropy_in_source(self):
         src = inspect.getsource(AdaptiveRouter)
-        assert (
-            "pseudo_entropy" not in src
-        ), "pseudo_entropy still present in AdaptiveRouter source"
+        assert "pseudo_entropy" not in src, (
+            "pseudo_entropy still present in AdaptiveRouter source"
+        )
 
     def test_no_modulo_100_formula(self):
         src = inspect.getsource(AdaptiveRouter)
-        assert (
-            "% 100" not in src
-        ), "The invalid `len(raw_response) % 100` formula is still present"
+        assert "% 100" not in src, (
+            "The invalid `len(raw_response) % 100` formula is still present"
+        )
 
     def test_no_todo_placeholder_comment(self):
         src = inspect.getsource(AdaptiveRouter)
-        assert (
-            "simulate confidence" not in src.lower()
-        ), "Placeholder 'simulate confidence' comment still present"
+        assert "simulate confidence" not in src.lower(), (
+            "Placeholder 'simulate confidence' comment still present"
+        )
 
     def test_llm_judge_method_exists(self):
-        assert hasattr(
-            AdaptiveRouter, "_llm_judge_confidence"
-        ), "_llm_judge_confidence method not found on AdaptiveRouter"
+        assert hasattr(AdaptiveRouter, "_llm_judge_confidence"), (
+            "_llm_judge_confidence method not found on AdaptiveRouter"
+        )
 
     def test_judge_prompt_exists(self):
-        assert hasattr(
-            AdaptiveRouter, "_JUDGE_PROMPT"
-        ), "_JUDGE_PROMPT not found on AdaptiveRouter"
+        assert hasattr(AdaptiveRouter, "_JUDGE_PROMPT"), (
+            "_JUDGE_PROMPT not found on AdaptiveRouter"
+        )
         prompt = AdaptiveRouter._JUDGE_PROMPT
         assert "Logical consistency" in prompt
         assert "Factual grounding" in prompt

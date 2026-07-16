@@ -45,7 +45,17 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
         return self.complete(prompt, schema, **kwargs)
 
     def embed(self, text, **kwargs):
-        return [0.0] * config.embedding_dimension
+        import hashlib
+
+        h = hashlib.sha256(text.encode("utf-8")).digest()
+        vec = [(b / 255.0) - 0.5 for b in h]
+        if len(vec) < config.embedding_dimension:
+            vec = vec * (config.embedding_dimension // len(vec) + 1)
+        vec = vec[: config.embedding_dimension]
+        mag = sum(x**2 for x in vec) ** 0.5
+        if mag == 0:
+            return [1.0] + [0.0] * (config.embedding_dimension - 1)
+        return [x / mag for x in vec]
 
     async def aembed(self, text, **kwargs):
         return self.embed(text, **kwargs)
@@ -92,6 +102,8 @@ class AdapterFactory:
         # ── Auto-detection waterfall ─────────────────────────────────────
         elif provider == "auto":
             return AdapterFactory._auto_detect()
+        elif provider == "mock":
+            return DeterministicMockAdapter()
 
         raise ValueError(f"Unknown LLM provider: {provider}")
 

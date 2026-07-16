@@ -21,11 +21,12 @@ COPY mesa_workers/ ./mesa_workers/
 COPY mesa_api/ ./mesa_api/
 COPY mesa_client/ ./mesa_client/
 
-RUN pip install --no-cache-dir --prefix=/install ".[adapters]"
+RUN pip install --no-cache-dir --prefix=/install ".[adapters,ml]"
 
 
 # Pre-download spaCy model in builder
-RUN python -m spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages
+ENV PYTHONPATH=/install/lib/python3.10/site-packages:/install/lib/python3/site-packages:/install/lib/python3.10/dist-packages
+RUN /install/bin/python -m spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages || /install/bin/spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages || python -m spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages
 
 # ── RUNTIME STAGE ──
 FROM python:3.10-slim AS runtime

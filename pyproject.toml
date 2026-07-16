@@ -27,6 +27,7 @@ dependencies = [
     # Web / API
     "uvicorn>=0.29.0",
     "fastapi>=0.111.0",
+    "slowapi>=0.1.9",
     "prometheus_client>=0.20.0",
     # LLM Provider SDKs (Core)
     # Note: Specific SDKs (openai, anthropic, etc.) are moved to optional [adapters]
@@ -127,6 +128,11 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]
+"tests/*" = ["E402"]
+"mesa_memory/api/server.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"

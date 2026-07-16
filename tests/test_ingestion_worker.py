@@ -260,7 +260,7 @@ class TestProcessColdPath:
         mock_dao = MagicMock()
         mock_dao.get_raw_log = AsyncMock(
             return_value={
-                "status": "queued",
+                "status": "DEFERRED",
                 "payload": {"agent_id": "test-agent", "content": "A is R to B"},
             }
         )
@@ -292,7 +292,7 @@ class TestProcessColdPath:
         mock_dao = MagicMock()
         mock_dao.get_raw_log = AsyncMock(
             return_value={
-                "status": "queued",
+                "status": "DEFERRED",
                 "payload": {
                     "agent_id": "test-agent",
                     "content": "Just a general statement",
@@ -316,7 +316,7 @@ class TestProcessColdPath:
         mock_dao = MagicMock()
         mock_dao.get_raw_log = AsyncMock(
             return_value={
-                "status": "queued",
+                "status": "DEFERRED",
                 "payload": {"agent_id": "test-agent", "content": "Not novel"},
             }
         )
@@ -365,7 +365,7 @@ class TestProcessColdPath:
         mock_dao = MagicMock()
         mock_dao.get_raw_log = AsyncMock(
             return_value={
-                "status": "queued",
+                "status": "DEFERRED",
                 "payload": {"agent_id": "test-agent", "content": "A is R to B"},
             }
         )

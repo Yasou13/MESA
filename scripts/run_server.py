@@ -298,6 +298,14 @@ if not _cli_args.no_auth:
 # ---------------------------------------------------------------------------
 
 
+@app.get("/metrics")
+async def metrics():
+    from fastapi import Response
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/health")
 async def health():
     """Basic health check."""

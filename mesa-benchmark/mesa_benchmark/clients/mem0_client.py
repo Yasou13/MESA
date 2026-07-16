@@ -33,20 +33,16 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
 
         # Mem0 reads OPENAI_API_KEY and OPENAI_BASE_URL from env vars.
         # For embedding, it uses the Ollama provider directly via OLLAMA_HOST.
-        mem0_config = config_params.get("mem0_config", {
-            "llm": {
-                "provider": "openai",
-                "config": {
-                    "model": "qwen3:8b"
-                }
+        mem0_config = config_params.get(
+            "mem0_config",
+            {
+                "llm": {"provider": "openai", "config": {"model": "qwen3:8b"}},
+                "embedder": {
+                    "provider": "ollama",
+                    "config": {"model": "nomic-embed-text:latest"},
+                },
             },
-            "embedder": {
-                "provider": "ollama",
-                "config": {
-                    "model": "nomic-embed-text:latest"
-                }
-            },
-        })
+        )
 
         self.memory = Memory.from_config(mem0_config)
 
@@ -61,10 +57,14 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
         if self.memory:
             try:
                 self.memory.add(
-                    context.text, user_id=self.current_user_id, metadata={"id": context.id}
+                    context.text,
+                    user_id=self.current_user_id,
+                    metadata={"id": context.id},
                 )
             except Exception as e:
-                logger.warning("Mem0 add_memory failed for context '%s': %s", context.id, e)
+                logger.warning(
+                    "Mem0 add_memory failed for context '%s': %s", context.id, e
+                )
 
         latency = (time.time() - start_time) * 1000
         return {"latency_ms": latency}
@@ -77,7 +77,9 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
 
         if self.memory:
             try:
-                results = self.memory.search(question.query, user_id=self.current_user_id)
+                results = self.memory.search(
+                    question.query, user_id=self.current_user_id
+                )
                 answer_text = str(results)
 
                 if results:
@@ -86,7 +88,9 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
                         if "id" in meta:
                             retrieved_ids.append(meta["id"])
             except Exception as e:
-                logger.warning("Mem0 search failed for question '%s': %s", question.id, e)
+                logger.warning(
+                    "Mem0 search failed for question '%s': %s", question.id, e
+                )
                 answer_text = ""
 
         latency = (time.time() - start_time) * 1000

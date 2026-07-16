@@ -38,7 +38,7 @@ def _make_mock_dao() -> MagicMock:
                 "content": "EU regulation Article 5 mandates data protection compliance.",
                 "metadata": {},
             },
-            "status": "queued",
+            "status": "DEFERRED",
             "created_at": "2026-05-30T00:00:00Z",
         }
     )
@@ -152,11 +152,10 @@ class TestNoProductionImportsFromDeletedStorage:
 
         # Must not contain a live import of StorageFacade
         assert "from mesa_memory.storage import" not in source, (
-            f"{module_name} still imports from the deleted "
-            f"mesa_memory.storage package"
+            f"{module_name} still imports from the deleted mesa_memory.storage package"
         )
         assert "import mesa_memory.storage" not in source, (
-            f"{module_name} still imports the deleted " f"mesa_memory.storage package"
+            f"{module_name} still imports the deleted mesa_memory.storage package"
         )
 
 
@@ -241,7 +240,7 @@ class TestColdPathRoutesToDAO:
 
         # Assert: insert_edge called exactly once for the triplet
         assert dao.insert_edge.await_count == 1, (
-            f"Expected 1 insert_edge call, " f"got {dao.insert_edge.await_count}"
+            f"Expected 1 insert_edge call, got {dao.insert_edge.await_count}"
         )
 
         # Assert: finalized
@@ -260,7 +259,7 @@ class TestColdPathRoutesToDAO:
                     "agent_id": "",  # Empty — should trigger rejection
                     "content": "Some content",
                 },
-                "status": "queued",
+                "status": "DEFERRED",
                 "created_at": "2026-05-30T00:00:00Z",
             }
         )
@@ -276,7 +275,7 @@ class TestColdPathRoutesToDAO:
         dao.insert_memory.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_cold_path_skips_non_queued(self):
+    async def test_cold_path_skips_non_DEFERRED(self):
         """If raw_log status is not 'queued', the worker skips silently."""
         from mesa_workers.ingestion_worker import process_cold_path
 
@@ -390,9 +389,9 @@ class TestHybridRetrieverDAOWiring:
             "HybridRetriever still accepts 'storage_facade' — "
             "split-brain not eliminated"
         )
-        assert (
-            "dao" in param_names
-        ), "HybridRetriever must accept 'dao' (MemoryDAO) parameter"
+        assert "dao" in param_names, (
+            "HybridRetriever must accept 'dao' (MemoryDAO) parameter"
+        )
 
 
 # ===================================================================
@@ -410,15 +409,15 @@ class TestDAODualWriteSagaIntegrity:
 
         source = inspect.getsource(MemoryDAO.insert_memory)
 
-        assert (
-            "transaction" in source
-        ), "insert_memory must use transaction() for atomic SAGA"
-        assert (
-            "rollback" in source.lower()
-        ), "insert_memory must have a rollback path for vector failure"
-        assert (
-            "upsert" in source.lower()
-        ), "insert_memory must call vector upsert within the SAGA"
+        assert "transaction" in source, (
+            "insert_memory must use transaction() for atomic SAGA"
+        )
+        assert "rollback" in source.lower(), (
+            "insert_memory must have a rollback path for vector failure"
+        )
+        assert "upsert" in source.lower(), (
+            "insert_memory must call vector upsert within the SAGA"
+        )
 
     def test_purge_memory_has_transaction_and_rollback(self):
         """MemoryDAO.purge_memory source must contain SAGA keywords."""
@@ -426,12 +425,12 @@ class TestDAODualWriteSagaIntegrity:
 
         source = inspect.getsource(MemoryDAO.purge_memory)
 
-        assert (
-            "transaction" in source
-        ), "purge_memory must use transaction() for atomic SAGA"
-        assert (
-            "rollback" in source.lower()
-        ), "purge_memory must have a compensating rollback"
+        assert "transaction" in source, (
+            "purge_memory must use transaction() for atomic SAGA"
+        )
+        assert "rollback" in source.lower(), (
+            "purge_memory must have a compensating rollback"
+        )
 
     def test_dao_is_single_source_of_truth(self):
         """MemoryDAO must be the ONLY class with insert_memory capability
@@ -447,8 +446,7 @@ class TestDAODualWriteSagaIntegrity:
                 storage_classes.append(name)
 
         assert storage_classes == ["MemoryDAO"], (
-            f"Expected only MemoryDAO to have insert_memory, "
-            f"found: {storage_classes}"
+            f"Expected only MemoryDAO to have insert_memory, found: {storage_classes}"
         )
 
 

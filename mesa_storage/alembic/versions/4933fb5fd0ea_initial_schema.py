@@ -102,7 +102,7 @@ def upgrade() -> None:
         id         INTEGER PRIMARY KEY,
         agent_id   TEXT    NOT NULL,
         payload    JSON    NOT NULL,
-        status     TEXT    NOT NULL DEFAULT 'queued',
+        status     TEXT    NOT NULL DEFAULT 'DEFERRED',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """)

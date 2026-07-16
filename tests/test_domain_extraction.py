@@ -76,9 +76,9 @@ class TestConfigDefaults:
     def test_extraction_lang_defaults_to_turkish(self):
         from mesa_memory.config import config
 
-        assert (
-            config.extraction_lang == "tr"
-        ), "MESA_EXTRACTION_LANG must default to 'tr' (Turkish)"
+        assert config.extraction_lang == "tr", (
+            "MESA_EXTRACTION_LANG must default to 'tr' (Turkish)"
+        )
 
 
 # ===================================================================

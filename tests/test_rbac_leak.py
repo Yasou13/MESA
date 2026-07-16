@@ -82,9 +82,9 @@ class TestCrossTenantIsolation:
         )
         # Verify the node actually exists for agent_A (control assertion)
         memories = loop.run_until_complete(dao.get_memories(AGENT_A))
-        assert any(
-            m["entity_name"] == SENTINEL_ENTITY for m in memories
-        ), "Control failed: agent_A seed data not found"
+        assert any(m["entity_name"] == SENTINEL_ENTITY for m in memories), (
+            "Control failed: agent_A seed data not found"
+        )
         return node_id
 
     def test_get_memories_isolation(self, dao_env):

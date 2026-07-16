@@ -380,7 +380,7 @@ class MaintenanceWorker:
             )
 
             logger.info(
-                "MAINTENANCE_CYCLE_COMPLETE | cycle_id=%s " "total_ms=%.1f",
+                "MAINTENANCE_CYCLE_COMPLETE | cycle_id=%s total_ms=%.1f",
                 cycle_id,
                 vacuum_ms + purge_ms,
             )

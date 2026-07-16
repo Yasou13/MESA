@@ -49,3 +49,5 @@ eval_results.json
 sweep_results.json
 legal_golden.json
 .coverage.*
+demo/
+demo/

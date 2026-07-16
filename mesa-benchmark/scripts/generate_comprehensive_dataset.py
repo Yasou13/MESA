@@ -183,7 +183,7 @@ def generate_hard_negative(idx: int) -> Dict[str, Any]:
 
 def generate_out_of_domain(idx: int) -> Dict[str, Any]:
     person = ENTITIES_A[idx % len(ENTITIES_A)]
-    secret_code = f"ALPHA-{idx+100}"
+    secret_code = f"ALPHA-{idx + 100}"
     distractor = f"Unrelated gossip column mentioned {person} visited a coffee shop."
 
     ctx_real = f"ood_{idx}_real"

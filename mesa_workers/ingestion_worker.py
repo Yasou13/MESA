@@ -123,18 +123,37 @@ async def process_cold_path(
     """
     t_start = time.monotonic()
 
+    with open("cold_path_trace.txt", "a") as f:
+        f.write(f"START {log_id}\n")
     try:
+        logger.info("COLD_PATH_DEBUG | Entering try block", log_id=log_id)
+        with open("cold_path_trace.txt", "a") as f:
+            f.write(f"BEFORE SEMAPHORE {log_id}\n")
         async with MAX_CONCURRENT_WORKERS:
+            with open("cold_path_trace.txt", "a") as f:
+                f.write(f"INSIDE SEMAPHORE {log_id}\n")
             # ==============================================================
             # 1. RETRIEVE PAYLOAD + STATUS GUARD
             # ==============================================================
+            logger.info("COLD_PATH_DEBUG | Starting get_raw_log", log_id=log_id)
+            with open("cold_path_trace.txt", "a") as f:
+                f.write(f"BEFORE GET_RAW_LOG {log_id}\n")
             raw_log = await dao.get_raw_log(agent_id, log_id)
+            with open("cold_path_trace.txt", "a") as f:
+                f.write(f"AFTER GET_RAW_LOG {log_id}\n")
+            logger.info("COLD_PATH_DEBUG | Finished get_raw_log", log_id=log_id)
+            with open("cold_path_trace.txt", "a") as f:
+                f.write(f"RAW_LOG {raw_log}\n")
 
             if raw_log is None:
+                with open("cold_path_trace.txt", "a") as f:
+                    f.write("RETURNING NOT FOUND\n")
                 logger.warning("COLD_PATH_SKIP | log_id=%d reason=not_found", log_id)
                 return
 
-            if raw_log["status"] != "queued":
+            if raw_log["status"] != "DEFERRED":
+                with open("cold_path_trace.txt", "a") as f:
+                    f.write(f"RETURNING WRONG STATUS {raw_log['status']}\n")
                 logger.debug(
                     "COLD_PATH_SKIP | log_id=%d reason=status_is_%s",
                     log_id,
@@ -173,6 +192,7 @@ async def process_cold_path(
                 len(content),
             )
 
+            logger.info("COLD_PATH_DEBUG | Starting ECOD check", log_id=log_id)
             # ==============================================================
             # 3. TIER-1: ECOD ANOMALY DETECTION (Novelty Gate)
             # ==============================================================
@@ -191,14 +211,22 @@ async def process_cold_path(
                 )
                 return
 
+            with open("cold_path_trace.txt", "a") as f:
+                f.write(f"BEFORE REBEL {log_id}\n")
             # ==============================================================
             # 4. TIER-2: REBEL TRIPLE EXTRACTION
             # ==============================================================
+            logger.info("COLD_PATH_DEBUG | Starting REBEL check", log_id=log_id)
             triplets = await _run_rebel_extraction(content)
+            with open("cold_path_trace.txt", "a") as f:
+                f.write(f"AFTER REBEL {log_id}\n")
 
             # ==============================================================
-            # 5. GRAPH COMMIT
+            # 4. TIER-3 (Consensus) or GRAPH COMMIT
             # ==============================================================
+            logger.info("COLD_PATH_DEBUG | Starting Commit", log_id=log_id)
+            with open("cold_path_trace.txt", "a") as f:
+                f.write(f"BEFORE COMMIT {log_id}\n")
             if triplets:
                 await _commit_triplets(
                     dao=dao,
@@ -537,6 +565,8 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
         from mesa_memory.adapter.factory import AdapterFactory
 
         adapter = AdapterFactory.get_adapter()
+        with open("cold_path_trace.txt", "a") as f:
+            f.write(f"ADAPTER IS {adapter.__class__.__name__}\n")
 
         prompt = _get_extraction_prompt(content)
 

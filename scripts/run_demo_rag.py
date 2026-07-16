@@ -151,7 +151,7 @@ async def demo_chat(req: DemoChatRequest):
         # Skip the message we just inserted (distance ≈ 0)
         if dist < 0.01:
             continue
-        context_lines.append(f"• [{name}] (benzerlik={1-dist:.1%}): {content}")
+        context_lines.append(f"• [{name}] (benzerlik={1 - dist:.1%}): {content}")
 
     context_str = (
         "\n".join(context_lines) if context_lines else "(boş — geçmiş kayıt yok)"

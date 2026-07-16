@@ -200,7 +200,7 @@ class GraphWriter:
                     )
                 else:
                     logger.info(
-                        "Record %s silently discarded " "(peripheral node, sim=%.4f)",
+                        "Record %s silently discarded (peripheral node, sim=%.4f)",
                         cmb_id,
                         sim_score,
                     )

@@ -90,7 +90,9 @@ def client(engines, _mock_rbac):
 class TestSessionLifecycle:
     def test_lifecycle(self, client):
         """Scenario 1: Lifecycle"""
-        agent_id = "agent_lifecycle_test"
+        import uuid
+
+        agent_id = f"agent_lifecycle_{uuid.uuid4().hex[:6]}"
 
         # 1. Start a session
         start_resp = client.post(
@@ -140,7 +142,9 @@ class TestSessionLifecycle:
 
     def test_isolation(self, client):
         """Scenario 2: Isolation"""
-        agent_id = "agent_isolation_test"
+        import uuid
+
+        agent_id = f"agent_isolation_{uuid.uuid4().hex[:6]}"
 
         # 1. Create two separate sessions
         resp_a = client.post("/v3/memory/session/start", json={"agent_id": agent_id})

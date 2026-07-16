@@ -134,7 +134,6 @@ async def test_schedule_consolidation_worker(mock_dao, mock_llm_adapter):
             new_callable=AsyncMock,
         ) as mock_scan,
     ):
-
         mock_sleep.side_effect = asyncio.CancelledError()
 
         await schedule_consolidation_worker(mock_dao, mock_llm_adapter, interval_sec=10)

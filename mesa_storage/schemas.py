@@ -68,7 +68,7 @@ async def initialize_schema(engine: AsyncEngine) -> None:
     async with engine.connection() as db:
         # B-6 FIX: Recover orphaned jobs
         cursor = await db.execute(
-            "UPDATE raw_logs SET status = 'queued' "
+            "UPDATE raw_logs SET status = 'DEFERRED' "
             "WHERE status = 'processing' "
             "AND created_at < datetime('now', '-5 minutes')"
         )

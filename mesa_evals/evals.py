@@ -231,7 +231,7 @@ async def _run_base_vector(entry: DatasetEntry) -> EntryResult:
 
     # Take top-3 fragments
     retrieved = [frag for _, frag in scored[:3]]
-    context_block = "\n".join(f"[{i+1}] {f}" for i, f in enumerate(retrieved))
+    context_block = "\n".join(f"[{i + 1}] {f}" for i, f in enumerate(retrieved))
 
     prompt = f"Context:\n{context_block}\n\nQuery: {entry.query}\nAnswer:"
     input_toks = _count_tokens(prompt)
@@ -336,7 +336,7 @@ async def _run_base_graph(entry: DatasetEntry) -> EntryResult:
         retrieved_fragments = entry.context_fragments[:1]
 
     context_block = "\n".join(
-        f"[{i+1}] {f}" for i, f in enumerate(retrieved_fragments[:3])
+        f"[{i + 1}] {f}" for i, f in enumerate(retrieved_fragments[:3])
     )
     prompt = f"Graph Context:\n{context_block}\n\nQuery: {entry.query}\nAnswer:"
     input_toks = _count_tokens(prompt)
@@ -396,7 +396,7 @@ async def _run_base_hybrid(entry: DatasetEntry) -> EntryResult:
     fused_order = sorted(rrf_scores.keys(), key=lambda i: rrf_scores[i], reverse=True)
     retrieved = [entry.context_fragments[i] for i in fused_order[:3]]
 
-    context_block = "\n".join(f"[{i+1}] {f}" for i, f in enumerate(retrieved))
+    context_block = "\n".join(f"[{i + 1}] {f}" for i, f in enumerate(retrieved))
     prompt = (
         f"Hybrid Context (Vector+Graph RRF):\n{context_block}\n\n"
         f"Query: {entry.query}\nAnswer:"
@@ -454,7 +454,7 @@ async def _run_base_hybrid_fts5(entry: DatasetEntry) -> EntryResult:
     fts_ranked: list[tuple[float, int]] = []
     try:
         rows = conn.execute(
-            "SELECT idx, rank FROM fts_frags WHERE fts_frags MATCH ? " "ORDER BY rank",
+            "SELECT idx, rank FROM fts_frags WHERE fts_frags MATCH ? ORDER BY rank",
             (fts_query,),
         ).fetchall()
         for row in rows:
@@ -493,7 +493,7 @@ async def _run_base_hybrid_fts5(entry: DatasetEntry) -> EntryResult:
     fused_order = sorted(rrf_scores.keys(), key=lambda i: rrf_scores[i], reverse=True)
     retrieved = [entry.context_fragments[i] for i in fused_order[:3]]
 
-    context_block = "\n".join(f"[{i+1}] {f}" for i, f in enumerate(retrieved))
+    context_block = "\n".join(f"[{i + 1}] {f}" for i, f in enumerate(retrieved))
     prompt = (
         f"Hybrid+FTS5 Context (Vector+Graph+FTS5 RRF):\n{context_block}\n\n"
         f"Query: {entry.query}\nAnswer:"

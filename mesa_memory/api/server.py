@@ -1,3 +1,6 @@
+import faulthandler
+
+faulthandler.enable()
 import asyncio
 import logging
 import os
@@ -52,8 +55,7 @@ def _require_api_key() -> None:
     """
     if not _MESA_API_KEY:
         raise RuntimeError(
-            "MESA_API_KEY environment variable must be set. "
-            "No local fallback allowed."
+            "MESA_API_KEY environment variable must be set. No local fallback allowed."
         )
 
 
@@ -128,14 +130,16 @@ async def lifespan(app: FastAPI):
     # instances must be created per-thread to avoid file-lock contention.
     _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # CRITICAL FIX: Ensure schema exists before any queries are run
+    print("LIFESPAN: Before initialize_schema")
     from mesa_storage import kuzu_setup
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
+    print("LIFESPAN: After initialize_schema")
 
     state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
     logger.info("KùzuDB initialised at %s", _KUZU_PATH)
+    print("LIFESPAN: After kuzu.Database")
 
     # Initialize the async-safe KuzuGraphProvider for edge operations
     state.graph_provider = KuzuGraphProvider(db_path=str(_KUZU_PATH))
@@ -156,6 +160,7 @@ async def lifespan(app: FastAPI):
     await state.access_control.initialize()
     logger.info("AccessControl initialised at %s", _STORAGE_BASE / "rbac_policy.db")
 
+    print("LIFESPAN: Before AdapterFactory")
     # Wire the Consolidation Loop directly to the DAO
     llm_a = AdapterFactory.get_adapter()
     llm_b = AdapterFactory.get_adapter()
@@ -167,6 +172,7 @@ async def lifespan(app: FastAPI):
         obs_layer=state.obs_layer,
     )
     asyncio.create_task(state.consolidation_loop.start())
+    print("LIFESPAN: After ConsolidationLoop")
 
     # ------------------------------------------------------------------
     # Valence state restoration (prevents threshold amnesia on restart)
@@ -205,7 +211,9 @@ async def lifespan(app: FastAPI):
     # ------------------------------------------------------------------
     pagerank_task = None
     try:
+        print("LIFESPAN: Before pagerank")
         pagerank_task = asyncio.create_task(schedule_pagerank_worker(dao=state.dao))
+        print("LIFESPAN: After pagerank")
         state.background_tasks.add(pagerank_task)
         logger.info("PageRank worker scheduled successfully.")
     except Exception as exc:
@@ -213,12 +221,14 @@ async def lifespan(app: FastAPI):
 
     consolidation_task = None
     try:
+        print("LIFESPAN: Before consolidation_worker")
         consolidation_adapter = AdapterFactory.get_adapter()
         consolidation_task = asyncio.create_task(
             schedule_consolidation_worker(
                 dao=state.dao, llm_adapter=consolidation_adapter
             )
         )
+        print("LIFESPAN: After consolidation_worker")
         state.background_tasks.add(consolidation_task)
         logger.info("Consolidation worker scheduled successfully.")
     except Exception as exc:
@@ -271,9 +281,11 @@ async def lifespan(app: FastAPI):
         schedule_hours=schedule_hours,
     )
     try:
+        print("LIFESPAN: Before maintenance_worker")
         await maintenance_worker.start()
         if maintenance_worker._task:
             state.background_tasks.add(maintenance_worker._task)
+        print("LIFESPAN: After maintenance_worker")
         logger.info("MaintenanceWorker started successfully.")
     except Exception as exc:
         logger.error("Failed to start MaintenanceWorker: %s", exc)
@@ -313,8 +325,10 @@ async def lifespan(app: FastAPI):
     state.background_tasks.add(wal_task)
     logger.info("WAL Checkpoint worker started successfully.")
 
+    print("LIFESPAN: READY!")
     state.is_ready = True
     yield
+    print("LIFESPAN: SHUTDOWN!")
 
     # ==================================================================
     # Teardown — cancel all background workers
@@ -395,12 +409,29 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
+from slowapi.errors import RateLimitExceeded
+
+from mesa_memory.api.middleware import limiter, rate_limit_exceeded_handler
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+from mesa_memory.observability.metrics import PROM_HTTP_REQUESTS
+
 
 @app.middleware("http")
 async def add_api_version_header(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["X-API-Version"] = __version__
-    return response
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-API-Version"] = __version__
+        return response
+    finally:
+        # Exclude metrics endpoint from skewing results
+        if request.url.path != "/metrics":
+            PROM_HTTP_REQUESTS.labels(
+                method=request.method, endpoint=request.url.path, status=status_code
+            ).inc()
 
 
 def get_dao() -> MemoryDAO:
@@ -436,9 +467,11 @@ def get_access_control() -> AccessControl:
     return ac
 
 
+from mesa_memory.api.middleware import check_daily_limit
+
 # Setup v3 API Router utilizing Dependency Injection
-# Requires depends at the router level for auth
-router_dependencies = [Depends(get_api_key)]
+# Requires depends at the router level for auth and rate limits
+router_dependencies = [Depends(get_api_key), Depends(check_daily_limit)]
 memory_router = create_memory_router(
     get_dao=get_dao,
     get_embedder=get_embedder,

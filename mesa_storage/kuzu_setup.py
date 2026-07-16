@@ -133,8 +133,7 @@ def initialize_schema(db_path: str) -> None:
         _apply_migrations(conn)
 
         logger.info(
-            "KUZU_SCHEMA | initialization complete — "
-            "tables=[Entity, Observed] db=%s",
+            "KUZU_SCHEMA | initialization complete — tables=[Entity, Observed] db=%s",
             db_path,
         )
     finally:

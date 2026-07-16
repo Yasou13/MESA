@@ -386,8 +386,7 @@ class KuzuGraphProvider(BaseGraphProvider):
     # insert, preventing accidental overwrites on re-ingestion.
 
     _UPSERT_NODE_CYPHER = (
-        "MERGE (n:Entity {id: $id, agent_id: $agent_id}) "
-        "ON CREATE SET n.name = $name"
+        "MERGE (n:Entity {id: $id, agent_id: $agent_id}) ON CREATE SET n.name = $name"
     )
 
     _UPSERT_EDGE_CYPHER = (

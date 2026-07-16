@@ -74,12 +74,17 @@ class ValenceMotor:
 
     async def load_state(self, db_path: str):
         """Restore the cognitive state from SQLite if available."""
+        print(f"VALENCE: load_state called with {db_path}")
         try:
+            print("VALENCE: before aiosqlite.connect")
             async with aiosqlite.connect(db_path) as db:
+                print("VALENCE: inside aiosqlite.connect")
                 async with db.execute(
                     "SELECT value FROM valence_state WHERE key = 'valence_core_state'"
                 ) as cursor:
+                    print("VALENCE: after execute")
                     row = await cursor.fetchone()
+                    print(f"VALENCE: row fetched: {row}")
                     if row:
                         state_data = json.loads(row[0])
                         self._ewmad_threshold = state_data.get(

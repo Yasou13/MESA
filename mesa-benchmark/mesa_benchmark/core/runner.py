@@ -296,6 +296,12 @@ class BenchmarkRunner:
             assert state is not None
             start_iter = state.current_iteration
             total_scenarios = len(self.dataset_manager)
+            import os
+
+            if "MESA_MAX_SCENARIOS" in os.environ:
+                total_scenarios = min(
+                    total_scenarios, int(os.environ["MESA_MAX_SCENARIOS"])
+                )
 
             for iteration in range(start_iter, self.config.iterations + 1):
                 logger.info(f"--- Iteration {iteration}/{self.config.iterations} ---")
