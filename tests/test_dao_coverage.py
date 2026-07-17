@@ -424,6 +424,7 @@ class TestRoutingTelemetry:
 
 from datetime import datetime, timezone
 
+
 class TestReconcileOrphanedNodes:
     @pytest.mark.asyncio
     async def test_reconcile_orphaned_nodes(self, dao):
@@ -431,14 +432,25 @@ class TestReconcileOrphanedNodes:
         async with dao._sqlite_engine.connection() as db:
             await db.execute(
                 "INSERT INTO nodes (id, entity_name, type, content_payload, is_consolidated, created_at, agent_id, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                ("orphan_id_1", "orphan", "ENTITY", "content", 0, now, "agent-orphan", "sess_1")
+                (
+                    "orphan_id_1",
+                    "orphan",
+                    "ENTITY",
+                    "content",
+                    0,
+                    now,
+                    "agent-orphan",
+                    "sess_1",
+                ),
             )
             await db.commit()
-            
+
         await dao._reconcile_orphaned_nodes()
-        
+
         async with dao._sqlite_engine.connection() as db:
-            async with db.execute("SELECT invalid_at FROM nodes WHERE id = 'orphan_id_1'") as cursor:
+            async with db.execute(
+                "SELECT invalid_at FROM nodes WHERE id = 'orphan_id_1'"
+            ) as cursor:
                 row = await cursor.fetchone()
                 assert row is not None
                 assert row[0] is not None
@@ -447,7 +459,12 @@ class TestReconcileOrphanedNodes:
 class TestSearchMemoryFTS:
     @pytest.mark.asyncio
     async def test_search_memory_fts(self, dao):
-        await dao.insert_memory("agent-fts", entity_name="fts1", content="hello special world", embedding=[0.1]*8)
+        await dao.insert_memory(
+            "agent-fts",
+            entity_name="fts1",
+            content="hello special world",
+            embedding=[0.1] * 8,
+        )
         results = await dao.search_memory_fts("agent-fts", query="special")
         # Since it's a mock test without triggers, we just assert the call doesn't fail
         assert isinstance(results, list)
@@ -462,9 +479,10 @@ class TestAlignMemorySpace:
     @pytest.mark.asyncio
     async def test_align_memory_space(self, dao):
         import numpy as np
+
         matrix = np.eye(8)
         golden = []
-        # Simulate align_memory_space. The vector engine might not have apply_procrustes_and_switch mocked, 
+        # Simulate align_memory_space. The vector engine might not have apply_procrustes_and_switch mocked,
         # but calling it exercises the lock acquisition and exception paths.
         success = await dao.align_memory_space(matrix, golden)
         assert isinstance(success, bool)
@@ -475,13 +493,24 @@ class TestInsertMigrating:
     async def test_insert_migrating(self, dao):
         async with dao._sqlite_engine.transaction() as db:
             # We assume system_config table exists or we just create it/update it
-            await db.execute("INSERT OR REPLACE INTO system_config (key, value) VALUES ('lancedb_is_migrating', 'true')")
+            await db.execute(
+                "INSERT OR REPLACE INTO system_config (key, value) VALUES ('lancedb_is_migrating', 'true')"
+            )
             await db.commit()
-            
-        await dao.insert_memory("agent-mig", entity_name="mig", content="text", embedding=[0.5]*8)
-        await dao.bulk_insert_memory("agent-mig", records=[{"entity_name": "mig2", "content": "text2", "embedding": [0.6]*8}])
+
+        await dao.insert_memory(
+            "agent-mig", entity_name="mig", content="text", embedding=[0.5] * 8
+        )
+        await dao.bulk_insert_memory(
+            "agent-mig",
+            records=[
+                {"entity_name": "mig2", "content": "text2", "embedding": [0.6] * 8}
+            ],
+        )
 
         # cleanup
         async with dao._sqlite_engine.transaction() as db:
-            await db.execute("UPDATE system_config SET value = 'false' WHERE key = 'lancedb_is_migrating'")
+            await db.execute(
+                "UPDATE system_config SET value = 'false' WHERE key = 'lancedb_is_migrating'"
+            )
             await db.commit()
