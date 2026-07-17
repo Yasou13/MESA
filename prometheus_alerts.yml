@@ -1,0 +1,38 @@
+groups:
+- name: mesa_alerts
+  rules:
+  - alert: APIHighErrorRate
+    expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High API error rate"
+      description: "More than 5% of requests are failing in the last 5 minutes."
+
+  - alert: DualWriteSagaFailure
+    expr: rate(saga_failure_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Dual-write saga failures detected"
+      description: "Inconsistencies may exist between SQLite and LanceDB/KuzuDB."
+
+  - alert: HighDiskUsage
+    expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High disk usage"
+      description: "Disk usage is above 90%."
+
+  - alert: IngestionQueueBacklog
+    expr: queue_backlog_size > 1000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High ingestion queue backlog"
+      description: "There are over 1000 items waiting in the ingestion queue."

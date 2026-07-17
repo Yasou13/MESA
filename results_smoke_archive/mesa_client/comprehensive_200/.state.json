@@ -1,0 +1,8 @@
+{
+    "run_id": "reproduce_seed_42",
+    "current_iteration": 1,
+    "current_scenario_idx": 0,
+    "status": "running",
+    "results_file": "results/mesa_client/comprehensive_200/results_reproduce_seed_42.jsonl",
+    "error_message": null
+}

@@ -191,7 +191,7 @@ class HybridRetriever:
                 if r["cmb_id"] not in seen:
                     seen.add(r["cmb_id"])
                     combined_results.append(r)
-            
+
             if not combined_results:
                 candidate_ids: list[str] = []
             else:

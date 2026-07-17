@@ -87,6 +87,7 @@ async def main():
                 async with sql.connection() as db:
                     async with db.execute("SELECT 1") as cursor:
                         await cursor.fetchone()
+
             await asyncio.wait_for(_do_query(), timeout=1.0)
             print(f"Simple SQLite query SUCCESS in {time.time() - t0:.2f}s")
             return True

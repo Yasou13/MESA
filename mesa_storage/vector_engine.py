@@ -335,6 +335,7 @@ class VectorEngine:
                     "litellm is missing. Falling back to deterministic mock embedding."
                 )
                 import hashlib
+
                 h = hashlib.sha256(text.encode("utf-8")).digest()
                 vec = [(b / 255.0) - 0.5 for b in h]
                 vec = (vec * (384 // len(vec) + 1))[:384]
@@ -388,6 +389,7 @@ class VectorEngine:
                     "litellm is missing. Falling back to deterministic mock embeddings."
                 )
                 import hashlib
+
                 vectors = []
                 for t in texts:
                     h = hashlib.sha256(t.encode("utf-8")).digest()
