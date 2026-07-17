@@ -159,7 +159,7 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
             result = _call_litellm(model, prompt, self.temperature)
             if result is not None:
                 score = float(result.get("score", 0.0))
-                is_correct = bool(result.get("is_correct", False))
+                is_correct = score >= 0.5
                 reasoning = str(result.get("reasoning", ""))
 
                 model_results[model] = {
@@ -179,8 +179,8 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
 
         # Majority vote
         correct_count = sum(1 for v in verdicts if v)
-        majority_correct = correct_count > len(verdicts) / 2
         avg_score = sum(scores) / len(scores)
+        majority_correct = avg_score >= 0.5
 
         # Compute inter-model agreement rate if 2+ models responded
         inter_model_agreement_rate = None

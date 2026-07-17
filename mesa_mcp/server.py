@@ -62,6 +62,27 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["session_id", "query"],
             },
         ),
+        types.Tool(
+            name="forget_memory",
+            description="Permanently delete a memory or all memories for an entity (GDPR/KVKK right-to-erasure)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional session to purge. If omitted, purges entire agent memory.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="get_stats",
+            description="Return memory statistics: total nodes, edges, recent admit/discard rates",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
     ]
 
 
@@ -70,7 +91,7 @@ async def call_tool(
     name: str, arguments: dict[str, Any] | None
 ) -> list[types.TextContent]:
     """Handle execution of MESA tools."""
-    if not arguments:
+    if arguments is None:
         raise ValueError("Missing tool arguments")
 
     agent_id = MESA_AGENT_ID
@@ -83,14 +104,14 @@ async def call_tool(
         ]
 
     session_id = arguments.get("session_id")
-    if not session_id:
-        return [types.TextContent(type="text", text="Error: session_id is required.")]
 
     try:
         async with AsyncMesaClient(
             base_url=MESA_BASE_URL, api_key=MESA_API_KEY
         ) as client:
             if name == "record_memory":
+                if not session_id:
+                    return [types.TextContent(type="text", text="Error: session_id is required for record_memory.")]
                 content = arguments.get("content")
                 if not content:
                     return [
@@ -117,6 +138,8 @@ async def call_tool(
                 ]
 
             elif name == "search_memory":
+                if not session_id:
+                    return [types.TextContent(type="text", text="Error: session_id is required for search_memory.")]
                 query = arguments.get("query")
                 limit = arguments.get("limit", 5)
                 if not query:
@@ -157,6 +180,47 @@ async def call_tool(
                         text=f"Found {len(resp.retrieved_nodes)} results:\n\n{result_text}",
                     )
                 ]
+
+            elif name == "forget_memory":
+                from mesa_api.schemas import MemoryPurgeRequest
+                target_session = arguments.get("session_id")
+                req = MemoryPurgeRequest(agent_id=agent_id, scope_id=target_session if target_session else agent_id, scope="session" if target_session else "agent")
+                resp = await client.purge(req)
+                return [types.TextContent(type="text", text=f"Purge complete. Affected nodes: {resp.records_affected}")]
+
+            elif name == "get_stats":
+                from mesa_storage.sqlite_engine import AsyncEngine
+                from mesa_storage.kuzu_provider import KuzuGraphProvider
+                from mesa_storage.dao import MemoryDAO
+                
+                db_path = os.path.join(os.environ.get("MESA_STORAGE_PATH", "./storage"), "mesa.db")
+                kuzu_path = os.path.join(os.environ.get("MESA_STORAGE_PATH", "./storage"), "kuzu")
+                
+                sql = AsyncEngine(db_path=db_path)
+                await sql.initialize()
+                
+                stats = {"total_nodes": 0, "total_edges": 0, "telemetry": {}}
+                
+                async with sql.connection() as db:
+                    async with db.execute("SELECT count(*) FROM nodes WHERE agent_id = ?", (agent_id,)) as cur:
+                        stats["total_nodes"] = (await cur.fetchone())[0]
+                
+                dao = MemoryDAO(sqlite_engine=sql, vector_engine=None, graph_provider=None)
+                stats["telemetry"] = await dao.get_recent_telemetry_stats(agent_id=agent_id, limit=100)
+                await sql.close()
+                
+                graph = KuzuGraphProvider(db_path=kuzu_path)
+                await graph.initialize()
+                try:
+                    res = await graph.execute_query("MATCH ()-[r]->() RETURN count(r) as c")
+                    if res:
+                        stats["total_edges"] = res[0].get("c", 0)
+                except Exception:
+                    pass
+                finally:
+                    await graph.close()
+                    
+                return [types.TextContent(type="text", text=f"Stats: {stats}")]
 
             else:
                 raise ValueError(f"Unknown tool: {name}")
