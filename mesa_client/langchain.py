@@ -77,7 +77,7 @@ class MesaStore(BaseStore[str, str]):
 
     def mget(self, keys: Sequence[str]) -> list[Optional[str]]:
         """Retrieve memories by querying MESA for each key."""
-        results = []
+        results: list[Optional[str]] = []
         for key in keys:
             from mesa_api.schemas import MemorySearchRequest
             req = MemorySearchRequest(

@@ -16,6 +16,11 @@ on:
     branches: [ "main" ]
 
 jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mesa:ci-test .
   # ================================================================
   # JOB 1: Build — Formatting, Linting, Typing, Unit Tests
   # ================================================================
@@ -50,7 +55,7 @@ jobs:
         MESA_REBEL_ENABLED: "false"
       run: |
         export PYTHONPATH=.
-        pytest tests/ --cov --cov-report=xml --cov-fail-under=80 --ignore=tests/bench
+        pytest tests/ --cov --cov-report=xml --cov-fail-under=85 --ignore=tests/bench
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:

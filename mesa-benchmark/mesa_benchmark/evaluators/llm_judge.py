@@ -170,8 +170,8 @@ class LLMJudgeEvaluator(BaseEvaluator):
 
         if results:
             correct_votes = sum(1 for r in results if r.get("is_correct", False))
-            is_correct = correct_votes > (len(results) / 2)
             avg_score = sum(float(r.get("score", 0.0)) for r in results) / len(results)
+            is_correct = avg_score >= 0.5
             combined_reasoning = "\n---\n".join(
                 [str(r.get("reasoning", "")) for r in results]
             )
