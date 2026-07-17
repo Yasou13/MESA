@@ -185,13 +185,14 @@ class HybridRetriever:
 
         t_rerank = time.perf_counter()
         if is_cold_start or not graph_results:
-            if not vector_results:
+            combined_results = vector_results + lexical_results
+            if not combined_results:
                 candidate_ids: list[str] = []
             else:
                 candidate_ids = [
                     r["cmb_id"]
                     for r in self._cold_start_rerank(
-                        vector_results,
+                        combined_results,
                         pool_size if self.reranker is not None else top_n,
                     )
                 ]

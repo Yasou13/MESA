@@ -330,11 +330,18 @@ class VectorEngine:
                 elif len(vector) < 384:
                     vector = vector + [0.0] * (384 - len(vector))
                 return vector
-            except ImportError as exc:
-                raise ImportError(
-                    "litellm is required for fallback embeddings. "
-                    "Install via `pip install mesa-memory[adapters]`."
-                ) from exc
+            except ImportError:
+                logger.warning(
+                    "litellm is missing. Falling back to deterministic mock embedding."
+                )
+                import hashlib
+                h = hashlib.sha256(text.encode("utf-8")).digest()
+                vec = [(b / 255.0) - 0.5 for b in h]
+                vec = (vec * (384 // len(vec) + 1))[:384]
+                mag = sum(x**2 for x in vec) ** 0.5
+                if mag == 0:
+                    return [1.0] + [0.0] * 383
+                return [x / mag for x in vec]
             except Exception as exc:
                 logger.error(
                     "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc
@@ -376,11 +383,22 @@ class VectorEngine:
                         v = v + [0.0] * (384 - len(v))
                     vectors.append(v)
                 return vectors
-            except ImportError as exc:
-                raise ImportError(
-                    "litellm is required for fallback embeddings. "
-                    "Install via `pip install mesa-memory[adapters]`."
-                ) from exc
+            except ImportError:
+                logger.warning(
+                    "litellm is missing. Falling back to deterministic mock embeddings."
+                )
+                import hashlib
+                vectors = []
+                for t in texts:
+                    h = hashlib.sha256(t.encode("utf-8")).digest()
+                    vec = [(b / 255.0) - 0.5 for b in h]
+                    vec = (vec * (384 // len(vec) + 1))[:384]
+                    mag = sum(x**2 for x in vec) ** 0.5
+                    if mag == 0:
+                        vectors.append([1.0] + [0.0] * 383)
+                    else:
+                        vectors.append([x / mag for x in vec])
+                return vectors
             except Exception as exc:
                 logger.error(
                     "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc

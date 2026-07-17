@@ -83,10 +83,11 @@ async def main():
         t0 = time.time()
         try:
             # We enforce a timeout. If it deadlocks, it hits the timeout.
-            async with asyncio.timeout(1.0):  # type: ignore[attr-defined]
+            async def _do_query():
                 async with sql.connection() as db:
                     async with db.execute("SELECT 1") as cursor:
                         await cursor.fetchone()
+            await asyncio.wait_for(_do_query(), timeout=1.0)
             print(f"Simple SQLite query SUCCESS in {time.time() - t0:.2f}s")
             return True
         except asyncio.TimeoutError:
