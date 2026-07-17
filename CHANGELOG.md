@@ -5,7 +5,7 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - 2026-07-17
+## [0.6.1] - 2026-07-17
 
 ### Added
 - **Multi-Stage CrossEncoder Reranking**: Introduced Stage 2 learned reranking (`mesa_memory/retrieval/reranker.py`) powered by `cross-encoder/ms-marco-MiniLM-L-6-v2` to substantially improve retrieval precision on top of Alpha Reciprocal Rank Fusion.
@@ -242,7 +242,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
-[0.6.0]: https://github.com/Yasou13/MESA/compare/v0.5.2...v0.6.0
+[0.6.1]: https://github.com/Yasou13/MESA/compare/v0.5.2...v0.6.1
 [0.5.2]: https://github.com/Yasou13/MESA/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Yasou13/MESA/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Yasou13/MESA/compare/v0.4.2...v0.5.0

@@ -1,4 +1,4 @@
-suite_name: "MESA v0.6.0 BEAM Benchmark (Ollama Remote)"
+suite_name: "MESA v0.6.1 BEAM Benchmark (Ollama Remote)"
 iterations: 1
 seed: 42
 

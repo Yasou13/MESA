@@ -1,4 +1,4 @@
-# MESA v0.6.0 — Phase 4.1: Self-Healing Graphs — Damped PageRank Quarantine Scanner
+# MESA v0.6.1 — Phase 4.1: Self-Healing Graphs — Damped PageRank Quarantine Scanner
 # Background worker that detects and quarantines hallucinated nodes by
 # computing a Damped PageRank variant where epistemic_uncertainty acts
 # as a per-edge damping penalty.

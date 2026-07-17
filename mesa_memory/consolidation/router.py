@@ -253,11 +253,11 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         2. **Small-model accept** → ``decision=bool, route="small_model"``.
         3. **Dual-LLM fallback/audit** → ``decision=bool, route="dual_llm"``.
 
-        v0.6.0 Phase 3: When LEGAL_DOMAIN_MODE is active, steps 1-3 are
+        v0.6.1 Phase 3: When LEGAL_DOMAIN_MODE is active, steps 1-3 are
         entirely bypassed. Every record is routed to the Dual-LLM to
         guarantee zero-hallucination consensus on legal data.
 
-        v0.6.0 Phase 1.2: Confidence scoring now uses LLM-as-a-Judge
+        v0.6.1 Phase 1.2: Confidence scoring now uses LLM-as-a-Judge
         instead of the mathematically invalid pseudo-entropy placeholder.
         """
         # -----------------------------------------------------------------

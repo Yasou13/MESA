@@ -1,4 +1,4 @@
-from typing import List, Sequence, Optional, Iterator
+from typing import Iterator, List, Optional, Sequence
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
@@ -6,7 +6,7 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.stores import BaseStore
 from pydantic import ConfigDict, Field
 
-from mesa_api.schemas import MemorySearchRequest, MemoryInsertRequest
+from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
 from mesa_client.client import MesaClient
 
 
@@ -80,16 +80,17 @@ class MesaStore(BaseStore[str, str]):
         results: list[Optional[str]] = []
         for key in keys:
             from mesa_api.schemas import MemorySearchRequest
+
             req = MemorySearchRequest(
-                agent_id=self.agent_id,
-                session_id=self.session_id,
-                query=key,
-                limit=1
+                agent_id=self.agent_id, session_id=self.session_id, query=key, limit=1
             )
             try:
                 resp = self.client.search(req)
                 if resp.retrieved_nodes:
-                    results.append(resp.retrieved_nodes[0].content_payload or resp.retrieved_nodes[0].entity_name)
+                    results.append(
+                        resp.retrieved_nodes[0].content_payload
+                        or resp.retrieved_nodes[0].entity_name
+                    )
                 else:
                     results.append(None)
             except Exception:
@@ -103,7 +104,7 @@ class MesaStore(BaseStore[str, str]):
                 agent_id=self.agent_id,
                 session_id=self.session_id,
                 content=value,
-                metadata={"langchain_key": key}
+                metadata={"langchain_key": key},
             )
             self.client.insert(req)
 

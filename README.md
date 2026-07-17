@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.6.0-green.svg)
+![Version](https://img.shields.io/badge/Version-0.6.1-green.svg)
 
 **Enterprise-grade cognitive memory engine for autonomous AI agents.**
 Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
@@ -201,7 +201,7 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 
 ## Features & Capabilities
 
-MESA v0.6.0 introduces advanced cognitive memory features:
+MESA v0.6.1 introduces advanced cognitive memory features:
 1. **Multi-Stage CrossEncoder Reranking**: Substantially improves retrieval precision using Stage 2 learned reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`).
 2. **MESA Benchmark Suite**: Rigorous multi-tier evaluation pipeline with Apple-to-Apple competitor integrations (Zep, Letta, Mem0).
 3. **Phase 4.1: Self-Healing Graphs**: Async Damped PageRank for hallucination quarantine.
@@ -411,7 +411,7 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 
 ### Current Status
 
-As of v0.6.0, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization (including hard 1MB payload limits to prevent memory exhaustion DoS attacks). Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, and automated background WAL checkpointing, preventing phantom writes and disk bloat during continuous ingestion.
+As of v0.6.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization (including hard 1MB payload limits to prevent memory exhaustion DoS attacks). Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, and automated background WAL checkpointing, preventing phantom writes and disk bloat during continuous ingestion.
 
 ---
 

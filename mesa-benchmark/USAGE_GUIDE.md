@@ -25,7 +25,7 @@ Bu kılavuz, benchmark altyapısının konfigürasyonu, veri setlerinin nasıl e
 Benchmark yürütme motoru `config.yaml` dosyasından beslenir. Bu dosyayı değiştirerek test edeceğiniz sistemi, çalıştırılacak iterasyon sayısını, değerlendirme yöntemlerini ve istatistikleri belirleyebilirsiniz.
 
 ```yaml
-suite_name: "MESA v0.6.0 Comprehensive Benchmark"
+suite_name: "MESA v0.6.1 Comprehensive Benchmark"
 iterations: 1          # Multi-seed istatistik için en az 5 önerilir
 seed: 42
 

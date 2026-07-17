@@ -1,4 +1,4 @@
-# MESA v0.6.0 — DAO Coverage Tests
+# MESA v0.6.1 — DAO Coverage Tests
 """
 Unit tests targeting uncovered execution paths in mesa_storage/dao.py.
 

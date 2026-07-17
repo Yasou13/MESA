@@ -2,7 +2,7 @@
 
 The `mesa_memory` package is being deprecated and superseded by new modular packages.
 
-**Target Removal:** v0.6.0
+**Target Removal:** v0.6.1
 
 ## Migration Guide
 

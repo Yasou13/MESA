@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesa-memory"
-version = "0.6.0"
+version = "0.6.1"
 description = "Enterprise AI agent memory engine"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -65,7 +65,7 @@ dependencies = [
 adapters = [
     "anthropic>=0.100.0",
     "openai>=2.36.0",
-    "ollama>=0.6.0",
+    "ollama>=0.6.1",
     "groq>=0.9.0",
     "litellm>=1.40.0",
 ]
@@ -146,7 +146,7 @@ exclude = [
     "test_node\\.py$",
 ]
 
-# ---- Strict enforcement flags (v0.6.0 hardening) ----
+# ---- Strict enforcement flags (v0.6.1 hardening) ----
 # Individual flags instead of `strict = true` so per-module overrides
 # can cleanly disable specific checks without fighting the macro.
 disallow_untyped_defs = true

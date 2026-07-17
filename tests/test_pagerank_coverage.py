@@ -1,4 +1,4 @@
-# MESA v0.6.0 — PageRank Coverage Tests
+# MESA v0.6.1 — PageRank Coverage Tests
 """
 Unit tests for mesa_workers/maintenance_pagerank.py.
 

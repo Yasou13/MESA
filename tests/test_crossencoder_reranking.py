@@ -1,4 +1,4 @@
-# MESA v0.6.0 — CrossEncoder Reranking Unit & Integration Tests
+# MESA v0.6.1 — CrossEncoder Reranking Unit & Integration Tests
 """
 Tests verifying the CrossEncoder reranking module, MemoryDAO batch fetching,
 and HybridRetriever integration.

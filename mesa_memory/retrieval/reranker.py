@@ -1,4 +1,4 @@
-# MESA v0.6.0 — Learned Reranking Module (CrossEncoder)
+# MESA v0.6.1 — Learned Reranking Module (CrossEncoder)
 # Provides query-candidate learned scoring using sentence-transformers CrossEncoder.
 #
 # Architecture:

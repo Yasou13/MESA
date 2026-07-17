@@ -369,7 +369,7 @@ async def lifespan(app: FastAPI):
     if hasattr(state, "consolidation_loop") and state.consolidation_loop:
         await state.consolidation_loop.stop()
 
-    # v0.6.0 FIX: Persist valence cognitive state to prevent amnesia.
+    # v0.6.1 FIX: Persist valence cognitive state to prevent amnesia.
     # Without this save, the EWMAD threshold and memory count are lost
     # on every restart, causing threshold regression.
     try:

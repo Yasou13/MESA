@@ -1,4 +1,4 @@
-# MESA v0.6.0 — BareRAGClient (Dumb Baseline)
+# MESA v0.6.1 — BareRAGClient (Dumb Baseline)
 # Pure vector-only retrieval with NO graph relations, NO time-awareness,
 # and NO contradiction resolution logic.  Intentionally naive to serve
 # as the control group in the Antigravity Contradiction Benchmark.

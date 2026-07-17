@@ -1,4 +1,4 @@
-"""MESA v0.6.0 — Phase 2 (Part 2): Automated Graph Poisoning Audit.
+"""MESA v0.6.1 — Phase 2 (Part 2): Automated Graph Poisoning Audit.
 
 Detects "Confident Hallucinations" where the REBEL extractor hallucinates
 fake laws and poisons the knowledge graph.
@@ -526,7 +526,7 @@ def enforce_guardrail(
 def main() -> None:
     """CLI entrypoint for the Legal Graph Poisoning Audit."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.6.0 — Legal Graph Poisoning Audit",
+        description="MESA v0.6.1 — Legal Graph Poisoning Audit",
     )
     parser.add_argument(
         "--db",

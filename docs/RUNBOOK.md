@@ -5,9 +5,9 @@ This runbook outlines operational procedures for the MESA Enterprise Memory syst
 ## 1. Deadlock Mitigation
 **Symptom:** The MESA API hangs or times out on `POST /v3/memory/insert` and `DELETE /v3/memory/purge`, with CPU utilization remaining normal but SQLite/Kuzu operations stalling indefinitely.
 
-**Root Cause:** Prior to v0.6.0, MESA utilized a nested transaction architecture where `MemoryDAO` held an SQLite `transaction()` lock while making blocking I/O calls to LanceDB and KùzuDB. Exhausting connection pools during bulk operations led to a circular wait deadlock (lock starvation).
+**Root Cause:** Prior to v0.6.1, MESA utilized a nested transaction architecture where `MemoryDAO` held an SQLite `transaction()` lock while making blocking I/O calls to LanceDB and KùzuDB. Exhausting connection pools during bulk operations led to a circular wait deadlock (lock starvation).
 
-**Resolution (Implemented in v0.6.0):**
+**Resolution (Implemented in v0.6.1):**
 MESA now strictly follows the **Compensating Transaction Saga Pattern**. Secondary stores (LanceDB and KùzuDB) are written to *before* opening the primary SQLite transaction. If secondary stores fail, compensating transactions are executed. This eliminates the lock inversion completely.
 *Action:* No manual intervention is required. This is structurally mitigated.
 

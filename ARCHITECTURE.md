@@ -1,6 +1,6 @@
 # MESA Memory Layer: Architecture Whitepaper
 
-> **Version:** 0.6.0
+> **Version:** 0.6.1
 > **Last Updated:** 2026-07-17
 
 ---
@@ -9,7 +9,7 @@
 
 MESA is fundamentally architected as a high-throughput, asynchronous cognitive memory engine. The core design principle is **"Integrity over Velocity."** While the system leverages non-blocking `asyncio` routines and decoupled storage layers to achieve high scalability, it deliberately introduces computational bottlenecks (via the Valence Motor) to aggressively validate data before persistence.
 
-In v0.6.0, MESA acts as a **headless FastAPI daemon** (API-first architecture). All client interaction flows through versioned REST endpoints (`/v3/memory/*`) or the Python SDK (`mesa_client`). This architecture enables deployment as a standalone service with strict process-level isolation between API request handling and background maintenance operations.
+In v0.6.1, MESA acts as a **headless FastAPI daemon** (API-first architecture). All client interaction flows through versioned REST endpoints (`/v3/memory/*`) or the Python SDK (`mesa_client`). This architecture enables deployment as a standalone service with strict process-level isolation between API request handling and background maintenance operations.
 
 ---
 
@@ -53,7 +53,7 @@ The `MemoryDAO` is responsible for unifying the relational graph operations (SQL
 MESA now unifies all relational operations (SQLite), semantic vector operations (LanceDB), and graph operations (KuzuDB) directly under a single interface: `MemoryDAO`. It strictly enforces row-level security (RLS) by hardcoding `agent_id` into every underlying query — including the `raw_logs` ingestion table — ensuring that multi-tenant boundaries are never breached by the application logic.
 
 > [!IMPORTANT]
-> As of v0.6.0, the `raw_logs` table includes an explicit `agent_id` column with mandatory `WHERE agent_id = ?` predicates on all `INSERT`, `SELECT`, and `UPDATE` queries. Every `MemoryDAO` method that touches `raw_logs` (`insert_raw_log`, `get_raw_log`, `update_raw_log_status`) calls `_assert_valid_agent_id(agent_id)` at entry, guaranteeing zero-trust tenant isolation across the entire ingestion path.
+> As of v0.6.1, the `raw_logs` table includes an explicit `agent_id` column with mandatory `WHERE agent_id = ?` predicates on all `INSERT`, `SELECT`, and `UPDATE` queries. Every `MemoryDAO` method that touches `raw_logs` (`insert_raw_log`, `get_raw_log`, `update_raw_log_status`) calls `_assert_valid_agent_id(agent_id)` at entry, guaranteeing zero-trust tenant isolation across the entire ingestion path.
 
 ### 3.1 SQLite — Relational Store (aiosqlite + WAL)
 
@@ -375,7 +375,7 @@ $$\text{Score}_{raw} = S_{vec} + (\alpha \times S_{graph\_norm}) + (\beta \times
 Each candidate's raw score is then multiplied by its **Epistemic Confidence** (`confidence` in `[0.0, 1.0]`) fetched via `MemoryDAO.get_epistemic_data_for_nodes()`. Quarantined nodes (`is_quarantined = TRUE`) are instantly dropped from the retrieval pool.
 
 ### 11.3 Stage 2: CrossEncoder Learned Reranking
-To bridge the gap between candidate recall and semantic precision without incurring latency penalties across the entire database, MESA v0.6.0 introduces an optional **CrossEncoder Reranking Stage** (`mesa_memory/retrieval/reranker.py`).
+To bridge the gap between candidate recall and semantic precision without incurring latency penalties across the entire database, MESA v0.6.1 introduces an optional **CrossEncoder Reranking Stage** (`mesa_memory/retrieval/reranker.py`).
 
 - **Candidate Pool Expansion:** When `MESA_CROSSENCODER_ENABLED=true`, Stage 1 selects an expanded pool of size `top_n * MESA_CROSSENCODER_POOL_MULTIPLIER` (default: `3x`).
 - **Batch Content Lookup with Tenant Isolation:** The text contents of candidate blocks are fetched via `MemoryDAO.get_nodes_by_ids_batch(agent_id, cmb_ids)`. This executes a single optimized SQL query enforced with `AND agent_id = ?`, ensuring row-level multi-tenant security during content hydration.
@@ -473,7 +473,7 @@ The `rem_cycle.py` background worker handles asynchronous knowledge graph extrac
 
 ## 15. Evaluation & Quality Gates (`mesa_evals`)
 
-MESA v0.6.0 enforces strict CI/CD quality assurance through its evaluation pipeline. The `gatekeeper.py` quality gate acts as the primary CI/CD enforcer. 
+MESA v0.6.1 enforces strict CI/CD quality assurance through its evaluation pipeline. The `gatekeeper.py` quality gate acts as the primary CI/CD enforcer. 
 
 - **Ablation Pipeline:** Evaluates algorithmic changes (e.g., FTS5 lexical candidate limits, RRF weight calibration) by isolating variables and running comprehensive synthetic benchmarks against a domain-specific Golden Dataset.
 - **Strict Enforcement Rules:** It balances **Recall vs. Cost**. Any pull request that drops Recall below the established baseline (e.g., `Base_Hybrid` < `0.344`) or exceeds maximum TTFT (Time To First Token) latency limits is immediately rejected by the CI runner.
@@ -540,7 +540,7 @@ The `mesa_client` module provides both synchronous and asynchronous `httpx`-base
 MESA supports multiple LLM inference engines via a unified `AdapterFactory`.
 - **OpenAI Compatible**: Connects to Groq, Together, or any v1/chat/completions endpoint.
 - **Claude (Anthropic)**: Native Message API support.
-- **OllamaAdapter**: Added in v0.6.0 to support local, offline execution. This adapter powers **Zero-Cost Mode** (`MESA_ZERO_COST_MODE=true`), allowing MESA to route all generation and validation through local SLMs (e.g., Llama-3.2:3b) running on `http://localhost:11434`.
+- **OllamaAdapter**: Added in v0.6.1 to support local, offline execution. This adapter powers **Zero-Cost Mode** (`MESA_ZERO_COST_MODE=true`), allowing MESA to route all generation and validation through local SLMs (e.g., Llama-3.2:3b) running on `http://localhost:11434`.
 
 ---
 

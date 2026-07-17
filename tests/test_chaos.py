@@ -1,4 +1,4 @@
-"""MESA v0.6.0 — Phase 3B: Chaos Engineering — Saga Rollback Resilience Test.
+"""MESA v0.6.1 — Phase 3B: Chaos Engineering — Saga Rollback Resilience Test.
 
 Proves that the Atomic Dual-Write Saga pattern correctly rolls back
 SQLite INSERT when the LanceDB vector upsert fails.  Uses unittest.mock to
