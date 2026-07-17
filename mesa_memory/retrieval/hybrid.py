@@ -185,7 +185,13 @@ class HybridRetriever:
 
         t_rerank = time.perf_counter()
         if is_cold_start or not graph_results:
-            combined_results = vector_results + lexical_results
+            seen = set()
+            combined_results = []
+            for r in vector_results + lexical_results:
+                if r["cmb_id"] not in seen:
+                    seen.add(r["cmb_id"])
+                    combined_results.append(r)
+            
             if not combined_results:
                 candidate_ids: list[str] = []
             else:
