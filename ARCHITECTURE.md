@@ -1,7 +1,7 @@
 # MESA Memory Layer: Architecture Whitepaper
 
 > **Version:** 0.6.0
-> **Last Updated:** 2026-06-03
+> **Last Updated:** 2026-07-17
 
 ---
 
@@ -136,6 +136,11 @@ Because KùzuDB does not natively support secondary indexing on non-Primary Key 
 KùzuDB's Python API operates synchronously via C++ bindings. To integrate this seamlessly into MESA's asynchronous FastAPI architecture without blocking the event loop, all KùzuDB interactions are funneled through the `KuzuGraphProvider`. 
 This provider utilizes `asyncio.get_running_loop().run_in_executor()` to strictly isolate all heavy mathematical operations (matrix dot products) and synchronous KùzuDB calls from the FastAPI event loop. This guarantees zero event-loop blocking under high-concurrency loads.
 
+#### Spreading Activation & Self-Healing Graphs
+To maintain graph health dynamically, KùzuDB powers two native cognitive operations:
+- **Spreading Activation (Cognitive Salience):** Simulates energy spreading across the graph to calculate node salience natively within KùzuDB, avoiding Python-side bottlenecking.
+- **Self-Healing via Damped PageRank:** An asynchronous background algorithm detects and quarantines hallucinated or contradictory nodes based on `epistemic_uncertainty`, ensuring long-term graph stability.
+
 ### 3.6 Semantic Conflict Resolution (Check-Then-Act)
 
 During dual-write insertions, `MemoryDAO` implements a "Check-Then-Act" semantic conflict resolution protocol. Before inserting a new memory record, the vector index is queried for highly similar existing entities. 
@@ -161,7 +166,7 @@ When records exhaust all retry budgets or fail while the Circuit Breaker is open
 
 ## 5. Security & Tenant Isolation
 
-### 4.1 Epistemic Isolation (Row-Level Security)
+### 5.1 Epistemic Isolation (Row-Level Security)
 
 > **Invariant:** Every SQL query, LanceDB filter, and graph traversal in the MESA data path **MUST** include a mandatory `agent_id` predicate. No function accepts `agent_id` as optional. This is enforced at the function signature level (first positional argument) and in every `WHERE` clause.
 
@@ -177,7 +182,7 @@ This rule guarantees **mathematical row-level security**: Agent A can never read
 | `mesa_storage/vector_engine.py` | `agent_id` filter injected into every LanceDB `WHERE` clause |
 | `mesa_memory/retrieval/hybrid.py` | Retrieval path passes `agent_id` through all sub-queries |
 
-### 4.2 Tombstoning vs. Hard-Delete Separation
+### 5.2 Tombstoning vs. Hard-Delete Separation
 
 The API layer and the maintenance layer have **strict, non-overlapping responsibilities**:
 
@@ -205,20 +210,20 @@ graph LR
 
 **Why this matters:** SQLite VACUUM requires an exclusive lock on the database file. If VACUUM were triggered from the API request path, it would cause catastrophic WAL reader starvation under concurrent load. By sequestering all destructive operations in the `MaintenanceWorker` — which runs on a **dedicated synchronous `sqlite3` connection** with `isolation_level=None` — the API's WAL readers are never blocked. The `purge` API endpoint utilizes an atomic Two-Phase Commit Saga pattern to execute LanceDB tombstoning prior to SQLite tombstoning, avoiding "zombie data" if exceptions occur.
 
-### 4.3 RBAC & Input Sanitisation
+### 5.3 RBAC & Input Sanitisation
 
 - **Authentication:** `X-API-Key` header validated against `MESA_API_KEY` environment variable.
 - **Payload Size Limits:** A strict `1MB` validation threshold is enforced at the DAO entry point (`insert_memory` / `bulk_insert_memory`). Any payload exceeding this byte-size is instantly rejected (`ValueError`) to prevent disk exhaustion and memory-bloat DoS attacks.
 - **Content Sanitisation:** `sanitize_cmb_content()` strips null bytes, ANSI escape sequences, dangerous HTML tags (script/style/iframe), shell metacharacters, and normalises whitespace. Prompt injection patterns are logged (advisory) but not hard-blocked to avoid false positives.
 - **Schema Validation:** All API payloads pass through strict Pydantic V2 schemas (`MemoryInsertRequest`, `MemorySearchRequest`, etc.) before reaching any storage logic.
 
-### 4.4 Epistemic Gating (Bi-Temporal Read Path)
+### 5.4 Epistemic Gating (Bi-Temporal Read Path)
 
 The retriever (`mesa_memory/retriever.py`) implements bi-temporal awareness: memories that have not yet been processed by the consolidation pipeline (`is_consolidated = FALSE`) are wrapped in an explicit `⚠️ UNVERIFIED MEMORY` Markdown warning. This prevents the downstream LLM from treating unconsolidated data as authoritative.
 
 ---
 
-## 5. Multi-Dimensional Vector Routing
+## 6. Multi-Dimensional Vector Routing
 
 MESA natively supports multi-model embedding pipelines (e.g., OpenAI `1536` dimensions, local MiniLM `384` dimensions). Rather than utilizing mathematical projections like Procrustes—which destroy clinical semantic accuracy—the `VectorEngine` dynamically isolates vector spaces.
 
@@ -226,7 +231,7 @@ Upon ingestion, MESA analyzes the incoming tensor dimension and routes the vecto
 
 ---
 
-## 6. RBAC Enforcement Flow
+## 7. RBAC Enforcement Flow
 
 Security is deeply integrated at the lowest storage mutation points. The `AccessControl` module evaluates agent authorization based on robust `session_id` and `agent_id` tracking.
 
@@ -237,7 +242,7 @@ Security is deeply integrated at the lowest storage mutation points. The `Access
 
 ---
 
-## 7. Cognitive Data Lifecycle (Valence to Storage)
+## 8. Cognitive Data Lifecycle (Valence to Storage)
 
 The journey of a Cognitive Memory Block (CMB) involves rigorous filtering, algorithmic novelty detection, and transactional persistence.
 
@@ -272,7 +277,7 @@ sequenceDiagram
 
 ---
 
-## 8. ValenceMotor Persistence
+## 9. ValenceMotor Persistence
 
 The `ValenceMotor` maintains adaptive novelty thresholds via Exponentially Weighted Moving Average of Distances (EWMAD). These thresholds are **stateful** — they drift over time as the memory pool grows. Losing them on process restart would force the system back to bootstrap-mode, causing a flood of redundant admissions until the threshold reconverges.
 
@@ -314,7 +319,7 @@ Where `w` is a sigmoid function of `memory_count`, controlled by `drift_sigmoid_
 
 ---
 
-## 9. Fitness Gate
+## 10. Fitness Gate
 
 Before any CMB is persisted to the database, `calculate_fitness_score` evaluates whether the content carries sufficient information density to justify storage costs. This gate runs dynamically at the point of persistence—scores are computed dynamically and not pre-computed.
 
@@ -338,7 +343,7 @@ The fitness score is a weighted composite of three dimensions:
 
 ---
 
-## 10. Hybrid Retrieval & Multi-Stage Reranking Pipeline
+## 11. Hybrid Retrieval & Multi-Stage Reranking Pipeline
 
 MESA orchestrates a multi-stage, hybrid retrieval architecture (`mesa_memory/retrieval/hybrid.py`) designed to maximize recall across diverse cognitive storage modalities before applying high-precision learned reranking.
 
@@ -358,18 +363,18 @@ graph TD
     CE --> Final[Final Top-N Candidate IDs & Multi-Hop Path]
 ```
 
-### 10.1 Multi-Store Candidate Pool
+### 11.1 Multi-Store Candidate Pool
 During retrieval (`HybridRetriever.retrieve`), queries concurrently query three isolated engines:
 1. **Vector Engine (LanceDB):** Semantic similarity matching over normalized embeddings.
 2. **Lexical Engine (SQLite FTS5):** Zero-VRAM keyword and prefix matching over node names and content.
 3. **Graph Engine (KùzuDB):** Cognitive salience computation and multi-hop entity traversal.
 
-### 10.2 Stage 1: Alpha Reranking & Epistemic Dampening
+### 11.2 Stage 1: Alpha Reranking & Epistemic Dampening
 Candidates returned from all three stores are unified (`_apply_alpha_reranking`) using an enhanced Reciprocal Rank Fusion formula:
 $$\text{Score}_{raw} = S_{vec} + (\alpha \times S_{graph\_norm}) + (\beta \times S_{lex\_norm})$$
 Each candidate's raw score is then multiplied by its **Epistemic Confidence** (`confidence` in `[0.0, 1.0]`) fetched via `MemoryDAO.get_epistemic_data_for_nodes()`. Quarantined nodes (`is_quarantined = TRUE`) are instantly dropped from the retrieval pool.
 
-### 10.3 Stage 2: CrossEncoder Learned Reranking
+### 11.3 Stage 2: CrossEncoder Learned Reranking
 To bridge the gap between candidate recall and semantic precision without incurring latency penalties across the entire database, MESA v0.6.0 introduces an optional **CrossEncoder Reranking Stage** (`mesa_memory/retrieval/reranker.py`).
 
 - **Candidate Pool Expansion:** When `MESA_CROSSENCODER_ENABLED=true`, Stage 1 selects an expanded pool of size `top_n * MESA_CROSSENCODER_POOL_MULTIPLIER` (default: `3x`).
@@ -379,7 +384,7 @@ To bridge the gap between candidate recall and semantic precision without incurr
 
 ---
 
-## 11. Extraction Pipeline
+## 12. Extraction Pipeline
 
 The extraction pipeline transforms raw text records into structured knowledge graph triplets. Formerly a monolithic God-Object (`ConsolidationLoop`), the pipeline was decomposed into focused modules following the Single Responsibility Principle.
 
@@ -448,7 +453,7 @@ Infrastructure errors (JSON parse failure, rate limits, network) raise `Tier3Val
 
 ---
 
-## 12. Data Pipeline & Isolation Logic
+## 13. Data Pipeline & Isolation Logic
 
 To guarantee deterministic extraction from non-deterministic LLMs, the pipeline enforces strict JSON schema generation via Pydantic models (`ExtractedTriplet`, `BatchExtractionResponse`). Malformed responses trigger the **"Isolation & Recovery"** protocol.
 
@@ -457,7 +462,7 @@ To guarantee deterministic extraction from non-deterministic LLMs, the pipeline 
 
 ---
 
-## 13. REM Cycle & Consolidation Worker
+## 14. REM Cycle & Consolidation Worker
 
 The `rem_cycle.py` background worker handles asynchronous knowledge graph extraction and consolidation. It avoids blocking the API's hot path by consuming the backlog in idle cycles.
 
@@ -466,16 +471,22 @@ The `rem_cycle.py` background worker handles asynchronous knowledge graph extrac
 
 ---
 
-## 14. Evaluation & Quality Gates (`mesa_evals`)
+## 15. Evaluation & Quality Gates (`mesa_evals`)
 
 MESA v0.6.0 enforces strict CI/CD quality assurance through its evaluation pipeline. The `gatekeeper.py` quality gate acts as the primary CI/CD enforcer. 
 
 - **Ablation Pipeline:** Evaluates algorithmic changes (e.g., FTS5 lexical candidate limits, RRF weight calibration) by isolating variables and running comprehensive synthetic benchmarks against a domain-specific Golden Dataset.
 - **Strict Enforcement Rules:** It balances **Recall vs. Cost**. Any pull request that drops Recall below the established baseline (e.g., `Base_Hybrid` < `0.344`) or exceeds maximum TTFT (Time To First Token) latency limits is immediately rejected by the CI runner.
 
+### 15.1 MESA Benchmark Suite
+MESA implements a rigorous evaluation methodology (documented in `BENCHMARK_METHODOLOGY.md`) to guarantee scientific validity:
+- **Apple-to-Apple Competitor Integrations:** Out-of-the-box evaluation clients for industry competitors (Zep, Letta, Mem0) ensuring identical datasets and metrics are used.
+- **3-Tier Evaluation Pipeline:** Features Exact Match, single LLM-as-a-Judge, and Multi-Model Judge consensus (Majority Voting & Cohen's Kappa) to mathematically eliminate self-grading bias.
+- **Procedural Dataset Generation:** Automated creation of hard-negative and multi-hop scenarios to aggressively stress-test retrieval limits.
+
 ---
 
-## 15. Deployment Architecture
+## 16. Deployment Architecture
 
 ```mermaid
 graph LR
@@ -515,7 +526,7 @@ graph LR
 
 ---
 
-## 15. External Integration
+## 17. External Integration
 
 ### Model Context Protocol (`mesa_mcp`)
 MESA natively implements an MCP (Model Context Protocol) server inside `mesa_mcp`. This allows ecosystem tools such as Claude Desktop and other MCP-compliant agents to directly interface with the MESA memory engine. Agents can query context and store memory natively without writing custom API wrappers.

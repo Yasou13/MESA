@@ -5,7 +5,7 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - 2026-07-14
+## [0.6.0] - 2026-07-17
 
 ### Added
 - **Multi-Stage CrossEncoder Reranking**: Introduced Stage 2 learned reranking (`mesa_memory/retrieval/reranker.py`) powered by `cross-encoder/ms-marco-MiniLM-L-6-v2` to substantially improve retrieval precision on top of Alpha Reciprocal Rank Fusion.
@@ -116,11 +116,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **docs(readme): Docker-First Quickstart Overhaul:** README now opens with a 60-second copy-paste Docker quickstart block. All API examples updated to v3 endpoints (`/v3/memory/insert`, `/v3/memory/search`, `/v3/memory/status/{log_id}`, `/v3/memory/purge`) with correct `X-API-Key` headers. Added environment variables reference table.
 - **docs(mcp): Claude Desktop MCP Integration Guide:** New dedicated section with the exact `claude_desktop_config.json` snippet required to connect Claude Desktop to a local MESA instance via the `mesa_mcp.server` stdio transport. Documents both `record_memory` and `search_memory` MCP tools.
 
+---
+
+## [0.4.0] - 2026-05-29
+
 ### Fixed
 
 - **Split-Brain Dual-Write Atomicity (P0):** Implemented an atomic Saga pattern for SQLite/LanceDB dual-writes. SQLite `COMMIT` is now strictly deferred until the LanceDB `upsert` succeeds; on failure, the transaction falls back to a SQL `ROLLBACK`, eliminating split-brain orphan records across the relational and vector stores.
 - **Async Embedder Event Loop Starvation (P0):** Offloaded synchronous `embedder()` calls on the search hot-path to `asyncio` thread-pool executors (`run_in_executor`), preventing event loop starvation under concurrent query load.
 - **LanceDB Filter Injection (P0):** Enforced strict regex sanitization (`^[a-zA-Z0-9_-]+$`) on `agent_id` values before interpolation into LanceDB `WHERE` clause filters, closing a filter injection vector in the vector search path.
+
+---
+
+## [0.3.1] - 2026-05-23
+
+### Added
+- **Alpha-Reranking**: Applied alpha-reranking and adaptive LLM routing.
+
+### Fixed
+- **CI/CD Pipeline**: Resolved mypy type check errors for CI/CD pipeline.
 
 ---
 
@@ -228,9 +242,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.6.0]: https://github.com/Yasou13/MESA/compare/v0.5.2...v0.6.0
+[0.5.2]: https://github.com/Yasou13/MESA/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/Yasou13/MESA/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Yasou13/MESA/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Yasou13/MESA/compare/v0.4.1...v0.4.2
-[0.4.1]: https://github.com/Yasou13/MESA/compare/v0.3.0...v0.4.1
+[0.4.1]: https://github.com/Yasou13/MESA/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/Yasou13/MESA/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/Yasou13/MESA/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Yasou13/MESA/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Yasou13/MESA/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Yasou13/MESA/releases/tag/v0.1.0

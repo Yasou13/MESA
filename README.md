@@ -202,11 +202,12 @@ Traditional agent memory is a flat buffer of text. MESA replaces that with a **m
 ## Features & Capabilities
 
 MESA v0.6.0 introduces advanced cognitive memory features:
-1. **Phase 4.1: Self-Healing Graphs**: Async Damped PageRank for hallucination quarantine.
-2. **Phase 4.2: Cognitive Salience**: Spreading Activation routed through KuzuDB using `OPTIONAL MATCH`.
-3. **Phase 4.3: Continuous Learning**: Blue/Green Procrustes vector alignment with persistent SQLite WAL to prevent phantom writes.
-4. **Phase 1.3: Domain-Specific Extraction**: Native zero-shot triplet extraction optimized for Turkish Legal texts (`MESA_EXTRACTION_LANG=tr`).
-5. **Zero-Cost Mode**: 100% local, air-gapped execution orchestrating `OllamaAdapter`, local embeddings, and REBEL without any cloud dependencies (`MESA_ZERO_COST_MODE=true`).
+1. **Multi-Stage CrossEncoder Reranking**: Substantially improves retrieval precision using Stage 2 learned reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`).
+2. **MESA Benchmark Suite**: Rigorous multi-tier evaluation pipeline with Apple-to-Apple competitor integrations (Zep, Letta, Mem0).
+3. **Phase 4.1: Self-Healing Graphs**: Async Damped PageRank for hallucination quarantine.
+4. **Phase 4.2: Cognitive Salience**: Spreading Activation routed through KuzuDB using `OPTIONAL MATCH`.
+5. **Phase 4.3: Continuous Learning**: Blue/Green Procrustes vector alignment with persistent SQLite WAL to prevent phantom writes.
+6. **Zero-Cost Mode**: 100% local, air-gapped execution orchestrating `OllamaAdapter`, local embeddings, and REBEL without any cloud dependencies (`MESA_ZERO_COST_MODE=true`).
 
 ---
 
@@ -254,10 +255,11 @@ graph TB
         O --> P["Vector Search"]
         O --> Q["Graph Search<br/>(PPR + k-hop)"]
         O --> R["FTS5 Lexical<br/>Pre-Filter"]
-        P --> S["RRF Fusion"]
+        P --> S["Stage 1: RRF Fusion"]
         Q --> S
         R --> S
-        S --> RES["Ranked Results"]
+        S --> T["Stage 2: CrossEncoder Reranking"]
+        T --> RES["Ranked Results"]
     end
 
     subgraph "Background Workers"
@@ -421,6 +423,7 @@ MESA/
 ├── mesa_api/             # Headless FastAPI v3 REST server + Pydantic schemas
 ├── mesa_client/          # Python SDK (sync/async) + LangChain adapter
 ├── mesa_evals/           # Golden Dataset, evaluation runner, CI/CD gatekeeper
+├── mesa-benchmark/       # Comprehensive evaluation suite for competitor benchmarking
 ├── mesa_memory/
 │   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
 │   ├── api/              # FastAPI server entrypoint + auth middleware
