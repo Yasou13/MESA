@@ -282,3 +282,148 @@ class TestSearchErrors:
         # Node is returned with minimal metadata (hydration fallback)
         assert body["retrieved_nodes"][0]["node_id"] == "phantom-id-xyz"
         assert body["retrieved_nodes"][0]["source"] == "hybrid"
+
+    def test_search_timeout_returns_504(self, client):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        import uuid
+
+        agent_id = f"agent-time-{uuid.uuid4().hex[:6]}"
+        with (patch("mesa_api.router.HybridRetriever", return_value=mock_retriever),):
+            resp = client.post(
+                "/v3/memory/search",
+                json={
+                    "agent_id": agent_id,
+                    "session_id": "s1",
+                    "query": "test",
+                },
+            )
+        assert resp.status_code == 504
+
+
+class TestPurgeErrors:
+    def test_purge_permission_error_returns_403(self, client):
+        ac_mock = MagicMock()
+        ac_mock.check_access = AsyncMock(return_value=False)
+        app = FastAPI()
+        router = create_memory_router(
+            get_dao=lambda: MagicMock(),
+            get_access_control=lambda: ac_mock,
+        )
+        app.include_router(router)
+        cli = TestClient(app, raise_server_exceptions=False)
+
+        resp = cli.request(
+            "DELETE",
+            "/v3/memory/purge",
+            json={"agent_id": "agent-err", "scope": "session", "scope_id": "s1"},
+        )
+        assert resp.status_code == 403
+
+    def test_purge_exception_returns_500(self, client):
+        ac_mock = MagicMock()
+        ac_mock.check_access = AsyncMock(return_value=True)
+        dao_mock = MagicMock()
+        dao_mock.purge_memory = AsyncMock(side_effect=RuntimeError("DAO Error"))
+
+        app = FastAPI()
+        router = create_memory_router(
+            get_dao=lambda: dao_mock,
+            get_access_control=lambda: ac_mock,
+        )
+        app.include_router(router)
+        cli = TestClient(app, raise_server_exceptions=False)
+
+        resp = cli.request(
+            "DELETE",
+            "/v3/memory/purge",
+            json={"agent_id": "agent-err", "scope": "session", "scope_id": "s1"},
+        )
+        assert resp.status_code == 500
+
+
+class TestSessionContextErrors:
+    def test_context_permission_error_returns_403(self, client):
+        ac_mock = MagicMock()
+        ac_mock.check_access = AsyncMock(return_value=False)
+        app = FastAPI()
+        router = create_memory_router(
+            get_dao=lambda: MagicMock(),
+            get_access_control=lambda: ac_mock,
+        )
+        app.include_router(router)
+        cli = TestClient(app, raise_server_exceptions=False)
+
+        resp = cli.get(
+            "/v3/memory/session/s1/context", params={"agent_id": "agent-err"}
+        )
+        assert resp.status_code == 403
+
+    def test_context_exception_returns_500(self, client):
+        ac_mock = MagicMock()
+        ac_mock.check_access = AsyncMock(return_value=True)
+        dao_mock = MagicMock()
+        dao_mock.get_recent_logs = AsyncMock(side_effect=RuntimeError("DAO Error"))
+
+        app = FastAPI()
+        router = create_memory_router(
+            get_dao=lambda: dao_mock,
+            get_access_control=lambda: ac_mock,
+        )
+        app.include_router(router)
+        cli = TestClient(app, raise_server_exceptions=False)
+
+        resp = cli.get(
+            "/v3/memory/session/s1/context", params={"agent_id": "agent-err"}
+        )
+        assert resp.status_code == 500
+
+
+class TestSessionEndErrors:
+    def test_end_permission_error_returns_403(self, client):
+        ac_mock = MagicMock()
+        ac_mock.check_access = AsyncMock(return_value=False)
+        app = FastAPI()
+        router = create_memory_router(
+            get_dao=lambda: MagicMock(),
+            get_access_control=lambda: ac_mock,
+        )
+        app.include_router(router)
+        cli = TestClient(app, raise_server_exceptions=False)
+
+        resp = cli.post("/v3/memory/session/s1/end", json={"agent_id": "agent-err"})
+        assert resp.status_code == 403
+
+    def test_end_exception_returns_500(self, client):
+        ac_mock = MagicMock()
+        ac_mock.check_access = AsyncMock(side_effect=RuntimeError("Unexpected error"))
+        app = FastAPI()
+        router = create_memory_router(
+            get_dao=lambda: MagicMock(),
+            get_access_control=lambda: ac_mock,
+        )
+        app.include_router(router)
+        cli = TestClient(app, raise_server_exceptions=False)
+
+        resp = cli.post("/v3/memory/session/s1/end", json={"agent_id": "agent-err"})
+        assert resp.status_code == 500
+
+
+class TestInsertErrors:
+    def test_insert_permission_error_returns_403(self, client):
+        ac_mock = MagicMock()
+        ac_mock.check_access = AsyncMock(return_value=False)
+        app = FastAPI()
+        router = create_memory_router(
+            get_dao=lambda: MagicMock(),
+            get_access_control=lambda: ac_mock,
+        )
+        app.include_router(router)
+        cli = TestClient(app, raise_server_exceptions=False)
+
+        resp = cli.post(
+            "/v3/memory/insert",
+            json={"agent_id": "agent-err", "session_id": "s1", "content": "text"},
+        )
+        assert resp.status_code == 403
