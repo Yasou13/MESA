@@ -36253,3 +36253,294 @@ AFTER GET_RAW_LOG 4485
 RAW_LOG {'id': 4485, 'agent_id': 'canary-agent', 'payload': {'agent_id': 'canary-agent', 'session_id': 'sess_db627755a25143a7b7b005c9888a7c91', 'content': 'The canary sings at midnight in the coal mine.', 'metadata': {'canary_id': 'c123'}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 05:55:19'}
 BEFORE REBEL 4485
 ADAPTER IS OllamaAdapter
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Test memory content.', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:50'}
+BEFORE REBEL 1
+ADAPTER IS MagicMock
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 1
+ADAPTER IS MagicMock
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 2
+BEFORE SEMAPHORE 2
+INSIDE SEMAPHORE 2
+BEFORE GET_RAW_LOG 2
+AFTER GET_RAW_LOG 2
+RAW_LOG {'id': 2, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 2
+ADAPTER IS MagicMock
+AFTER REBEL 2
+BEFORE COMMIT 2
+START 3
+BEFORE SEMAPHORE 3
+INSIDE SEMAPHORE 3
+BEFORE GET_RAW_LOG 3
+AFTER GET_RAW_LOG 3
+RAW_LOG {'id': 3, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 3
+ADAPTER IS MagicMock
+AFTER REBEL 3
+BEFORE COMMIT 3
+START 4
+BEFORE SEMAPHORE 4
+INSIDE SEMAPHORE 4
+BEFORE GET_RAW_LOG 4
+AFTER GET_RAW_LOG 4
+RAW_LOG {'id': 4, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 4
+ADAPTER IS MagicMock
+AFTER REBEL 4
+BEFORE COMMIT 4
+START 5
+BEFORE SEMAPHORE 5
+INSIDE SEMAPHORE 5
+BEFORE GET_RAW_LOG 5
+AFTER GET_RAW_LOG 5
+RAW_LOG {'id': 5, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 5
+ADAPTER IS MagicMock
+AFTER REBEL 5
+BEFORE COMMIT 5
+START 6
+BEFORE SEMAPHORE 6
+INSIDE SEMAPHORE 6
+BEFORE GET_RAW_LOG 6
+AFTER GET_RAW_LOG 6
+RAW_LOG {'id': 6, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 6
+ADAPTER IS MagicMock
+AFTER REBEL 6
+BEFORE COMMIT 6
+START 7
+BEFORE SEMAPHORE 7
+INSIDE SEMAPHORE 7
+BEFORE GET_RAW_LOG 7
+AFTER GET_RAW_LOG 7
+RAW_LOG {'id': 7, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 7
+ADAPTER IS MagicMock
+AFTER REBEL 7
+BEFORE COMMIT 7
+START 8
+BEFORE SEMAPHORE 8
+INSIDE SEMAPHORE 8
+BEFORE GET_RAW_LOG 8
+AFTER GET_RAW_LOG 8
+RAW_LOG {'id': 8, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 8
+ADAPTER IS MagicMock
+AFTER REBEL 8
+BEFORE COMMIT 8
+START 9
+BEFORE SEMAPHORE 9
+INSIDE SEMAPHORE 9
+BEFORE GET_RAW_LOG 9
+AFTER GET_RAW_LOG 9
+RAW_LOG {'id': 9, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 9
+ADAPTER IS MagicMock
+AFTER REBEL 9
+BEFORE COMMIT 9
+START 10
+BEFORE SEMAPHORE 10
+INSIDE SEMAPHORE 10
+BEFORE GET_RAW_LOG 10
+AFTER GET_RAW_LOG 10
+RAW_LOG {'id': 10, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:24:54'}
+BEFORE REBEL 10
+ADAPTER IS MagicMock
+AFTER REBEL 10
+BEFORE COMMIT 10
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Content with metadata', 'metadata': {'source': 'test', 'priority': 5}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:25:12'}
+BEFORE REBEL 1
+ADAPTER IS MagicMock
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent-bg', 'payload': {'agent_id': 'agent-bg', 'session_id': 'sess-bg', 'content': 'Background insert test', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:25:16'}
+BEFORE REBEL 1
+ADAPTER IS MagicMock
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'No vector engine', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:25:21'}
+BEFORE REBEL 1
+ADAPTER IS MagicMock
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent-1', 'payload': {'agent_id': 'agent-1', 'session_id': 'sess-001', 'content': 'Custom prefix test', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:26:15'}
+BEFORE REBEL 1
+ADAPTER IS MagicMock
+AFTER REBEL 1
+BEFORE COMMIT 1
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'payload': {'agent_id': 'test_agent', 'content': 'Alice likes Bob.'}, 'status': 'DEFERRED', 'created_at': '2026-05-30T00:00:00Z'}
+BEFORE REBEL 1
+ADAPTER IS BaseUniversalLLMAdapter
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'payload': {'agent_id': 'test_agent', 'content': 'Alice likes Bob.'}, 'status': 'DEFERRED', 'created_at': '2026-05-30T00:00:00Z'}
+BEFORE REBEL 1
+ADAPTER IS BaseUniversalLLMAdapter
+START 2
+BEFORE SEMAPHORE 2
+INSIDE SEMAPHORE 2
+BEFORE GET_RAW_LOG 2
+AFTER GET_RAW_LOG 2
+RAW_LOG {'id': 1, 'payload': {'agent_id': 'test_agent', 'content': 'Alice likes Bob.'}, 'status': 'DEFERRED', 'created_at': '2026-05-30T00:00:00Z'}
+BEFORE REBEL 2
+ADAPTER IS BaseUniversalLLMAdapter
+START 3
+BEFORE SEMAPHORE 3
+INSIDE SEMAPHORE 3
+BEFORE GET_RAW_LOG 3
+AFTER GET_RAW_LOG 3
+RAW_LOG {'id': 1, 'payload': {'agent_id': 'test_agent', 'content': 'Alice likes Bob.'}, 'status': 'DEFERRED', 'created_at': '2026-05-30T00:00:00Z'}
+BEFORE REBEL 3
+ADAPTER IS BaseUniversalLLMAdapter
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'status': 'DEFERRED', 'payload': {'agent_id': 'test-agent', 'content': 'A is R to B'}}
+BEFORE REBEL 1
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 2
+BEFORE SEMAPHORE 2
+INSIDE SEMAPHORE 2
+BEFORE GET_RAW_LOG 2
+AFTER GET_RAW_LOG 2
+RAW_LOG {'status': 'DEFERRED', 'payload': {'agent_id': 'test-agent', 'content': 'Just a general statement'}}
+BEFORE REBEL 2
+AFTER REBEL 2
+BEFORE COMMIT 2
+START 3
+BEFORE SEMAPHORE 3
+INSIDE SEMAPHORE 3
+BEFORE GET_RAW_LOG 3
+AFTER GET_RAW_LOG 3
+RAW_LOG {'status': 'DEFERRED', 'payload': {'agent_id': 'test-agent', 'content': 'Not novel'}}
+START 4
+BEFORE SEMAPHORE 4
+INSIDE SEMAPHORE 4
+BEFORE GET_RAW_LOG 4
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'status': 'DEFERRED', 'payload': {'agent_id': 'test-agent', 'content': 'A is R to B'}}
+BEFORE REBEL 1
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 4
+BEFORE SEMAPHORE 4
+INSIDE SEMAPHORE 4
+BEFORE GET_RAW_LOG 4
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent_lifecycle_aa58d8', 'payload': {'agent_id': 'agent_lifecycle_aa58d8', 'session_id': 'sess_5ffe483d7a3f42bba8b12e6a621e9732', 'content': 'Memory one for session', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:35:16'}
+BEFORE REBEL 1
+ADAPTER IS OllamaAdapter
+START 2
+BEFORE SEMAPHORE 2
+INSIDE SEMAPHORE 2
+BEFORE GET_RAW_LOG 2
+AFTER GET_RAW_LOG 2
+RAW_LOG {'id': 2, 'agent_id': 'agent_lifecycle_aa58d8', 'payload': {'agent_id': 'agent_lifecycle_aa58d8', 'session_id': 'sess_5ffe483d7a3f42bba8b12e6a621e9732', 'content': 'Memory two for session', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:35:32'}
+BEFORE REBEL 2
+ADAPTER IS OllamaAdapter
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'agent_id': 'agent_isolation_5999a1', 'payload': {'agent_id': 'agent_isolation_5999a1', 'session_id': 'sess_5f92612355714956a38caebe9ccc98bd', 'content': 'Secret data for A', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-07-17 06:35:53'}
+BEFORE REBEL 1
+ADAPTER IS OllamaAdapter
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'payload': {'agent_id': 'test_agent', 'session_id': 'test_session', 'content': 'EU regulation Article 5 mandates data protection compliance.', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-05-30T00:00:00Z'}
+BEFORE REBEL 1
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'payload': {'agent_id': 'test_agent', 'session_id': 'test_session', 'content': 'EU regulation Article 5 mandates data protection compliance.', 'metadata': {}}, 'status': 'DEFERRED', 'created_at': '2026-05-30T00:00:00Z'}
+BEFORE REBEL 1
+AFTER REBEL 1
+BEFORE COMMIT 1
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'payload': {'agent_id': '', 'content': 'Some content'}, 'status': 'DEFERRED', 'created_at': '2026-05-30T00:00:00Z'}
+START 1
+BEFORE SEMAPHORE 1
+INSIDE SEMAPHORE 1
+BEFORE GET_RAW_LOG 1
+AFTER GET_RAW_LOG 1
+RAW_LOG {'id': 1, 'payload': {'agent_id': 'a', 'content': 'c'}, 'status': 'processed', 'created_at': '2026-05-30T00:00:00Z'}
+RETURNING WRONG STATUS processed
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock
+ADAPTER IS MagicMock

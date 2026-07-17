@@ -1,4 +1,4 @@
-# MESA v0.4.0 — Phase 1: Hot Path Architecture
+# MESA v0.6.0 — Phase 1: Hot Path Architecture
 # Asynchronous FastAPI router with decoupled ingestion pipeline.
 #
 # Architecture:
@@ -196,7 +196,7 @@ def create_memory_router(
     ) -> JSONResponse:
         """Queue a memory record for asynchronous cold-path processing.
 
-        **Hot-path architecture (v0.4.0)**: The endpoint performs a single
+        **Hot-path architecture (v0.6.0)**: The endpoint performs a single
         async INSERT into the ``raw_logs`` staging table and returns
         immediately with the generated ``log_id``.
 

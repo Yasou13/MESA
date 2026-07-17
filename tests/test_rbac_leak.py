@@ -1,4 +1,4 @@
-"""MESA v0.4.1 — Phase 3B: Cross-Tenant RBAC Leakage Test.
+"""MESA v0.6.0 — Phase 3B: Cross-Tenant RBAC Leakage Test.
 
 Mathematically proves that the DAO's mandatory ``WHERE agent_id = ?``
 predicate prevents cross-tenant data access.  The test inserts data

@@ -1,4 +1,4 @@
-# MESA v0.5.2 — Vector Engine Coverage Tests
+# MESA v0.6.0 — Vector Engine Coverage Tests
 """
 Unit tests targeting uncovered execution paths in mesa_storage/vector_engine.py.
 

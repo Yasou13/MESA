@@ -183,7 +183,7 @@ class MesaConfig(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
-    # v0.4.0 Phase 3: Zero-Hallucination Legal Mode
+    # v0.6.0 Phase 3: Zero-Hallucination Legal Mode
     # When True, the AdaptiveRouter bypasses the small-model confidence gate
     # and ALWAYS routes to the Dual-LLM ConsolidationLoop.  This eliminates
     # the risk of "confident hallucinations" from lightweight models when
@@ -196,7 +196,7 @@ class MesaConfig(BaseSettings):
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # -----------------------------------------------------------------------
-    # v0.4.1 DX Patch: Optional REBEL Model
+    # v0.6.0 DX Patch: Optional REBEL Model
     # Default: DISABLED.  The 1.8 GB Babelscape/rebel-large model is NOT
     # downloaded or loaded unless explicitly opted-in via env var.
     # Triple extraction uses the LLM zero-shot prompt (Groq/Llama-3) which
@@ -208,7 +208,7 @@ class MesaConfig(BaseSettings):
     rebel_enabled: bool = Field(False, validation_alias="MESA_REBEL_ENABLED")
 
     # -----------------------------------------------------------------------
-    # v0.5.0 Phase 1.3: Domain-Specific Extraction Language
+    # v0.6.0 Phase 1.3: Domain-Specific Extraction Language
     # Controls which zero-shot extraction prompt template is used when
     # REBEL is disabled.  Supported values: "en" (English), "tr" (Turkish).
     # Turkish mode uses a specialised legal/formal prompt optimised for
@@ -218,7 +218,7 @@ class MesaConfig(BaseSettings):
     extraction_lang: str = Field("tr", validation_alias="MESA_EXTRACTION_LANG")
 
     # -----------------------------------------------------------------------
-    # v0.5.2: Zero-Cost Mode
+    # v0.6.0: Zero-Cost Mode
     # When MESA_ZERO_COST_MODE=true, the system reconfigures itself to use
     # exclusively local resources:
     #   - LLM provider  → OllamaAdapter (localhost:11434)

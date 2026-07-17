@@ -1,4 +1,4 @@
-# MESA v0.5.0 — Data Access Object Layer (Epistemic Isolation)
+# MESA v0.6.0 — Data Access Object Layer (Epistemic Isolation)
 # Wraps aiosqlite (nodes/raw_logs), LanceDB (vectors), and KùzuDB (graph
 # edges) behind a single class that MANDATES agent_id on every method.
 #
@@ -1638,7 +1638,7 @@ class MemoryDAO:
     async def insert_raw_log(self, agent_id: str, payload: dict) -> int:
         """Insert a raw payload into the ``raw_logs`` staging table.
 
-        This is the **hot-path write** for the v0.4.0 decoupled ingestion
+        This is the **hot-path write** for the v0.6.0 decoupled ingestion
         architecture.  It performs a single async SQLite INSERT and returns
         the auto-generated ``log_id`` immediately.
 

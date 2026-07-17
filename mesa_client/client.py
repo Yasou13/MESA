@@ -152,7 +152,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.4.1"}
+        headers = {"User-Agent": "mesa-client/v0.6.0"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -256,7 +256,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.4.1"}
+        headers = {"User-Agent": "mesa-client/v0.6.0"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 

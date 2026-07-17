@@ -1,4 +1,4 @@
-# MESA v0.5.2 — BaseMemoryClient ABC
+# MESA v0.6.0 — BaseMemoryClient ABC
 # Defines the contract all benchmark memory clients must fulfil.
 # Decoupled from any specific storage backend to enable clean A/B
 # comparison between MESA's full pipeline and dumb baselines.

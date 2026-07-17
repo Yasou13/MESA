@@ -146,7 +146,7 @@ exclude = [
     "test_node\\.py$",
 ]
 
-# ---- Strict enforcement flags (v0.5.2 hardening) ----
+# ---- Strict enforcement flags (v0.6.0 hardening) ----
 # Individual flags instead of `strict = true` so per-module overrides
 # can cleanly disable specific checks without fighting the macro.
 disallow_untyped_defs = true

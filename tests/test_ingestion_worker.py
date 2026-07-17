@@ -1,5 +1,5 @@
 """
-MESA v0.4.0 — Ingestion Worker Test Suite
+MESA v0.6.0 — Ingestion Worker Test Suite
 Unit tests for mesa_workers/ingestion_worker.py
 """
 

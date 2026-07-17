@@ -1,4 +1,4 @@
-suite_name: "MESA v0.5.2 Multi-Hop Benchmark (Ollama Remote)"
+suite_name: "MESA v0.6.0 Multi-Hop Benchmark (Ollama Remote)"
 iterations: 1
 seed: 42
 

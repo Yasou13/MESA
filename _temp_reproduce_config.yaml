@@ -21,4 +21,4 @@ evaluation:
   - openai/qwen3:8b
 iterations: 1
 seed: 42
-suite_name: MESA v0.5.2 Comprehensive Benchmark (Ollama Remote)
+suite_name: MESA v0.6.0 Comprehensive Benchmark (Ollama Remote)

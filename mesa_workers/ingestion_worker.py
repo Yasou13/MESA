@@ -1,4 +1,4 @@
-# MESA v0.4.0 — Phase 1 Part 2: Cold Path Ingestion Worker
+# MESA v0.6.0 — Phase 1 Part 2: Cold Path Ingestion Worker
 # Asynchronous background worker that processes queued raw_logs entries
 # through the full validation pipeline.
 #
@@ -17,7 +17,7 @@
 #   Failures update raw_logs status and log the error trace.
 #   Nothing bubbles up to crash the FastAPI background task pool.
 """
-Cold-path ingestion worker for the MESA v0.4.0 decoupled pipeline.
+Cold-path ingestion worker for the MESA v0.6.0 decoupled pipeline.
 
 Consumes entries from the ``raw_logs`` staging table and runs them through
 the full validation stack before committing to permanent graph storage.
