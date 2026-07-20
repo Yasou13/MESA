@@ -41,6 +41,8 @@ def dao_env():
     mock_kuzu.is_initialized = True
     mock_kuzu.execute_query = AsyncMock(return_value=[])
     mock_kuzu.insert_entity = AsyncMock()
+    # WAVE-002 fail-closed graph contract: DAO awaits insert_node before SQLite commit.
+    mock_kuzu.insert_node = AsyncMock()
     mock_kuzu.insert_edge = AsyncMock()
     mock_kuzu.get_neighbors = AsyncMock(
         return_value=[{"id": "n2", "name": "TestEntity", "hops": "1"}]
@@ -256,6 +258,11 @@ class TestGetNeighbors:
         n2 = loop.run_until_complete(
             dao.insert_memory("agent-1", entity_name="B", content="c", embedding=VEC8)
         )
+        # WAVE-002 canonical read filtering only returns neighbors that exist
+        # in SQLite; point the graph mock at the actual tenant-scoped node.
+        dao.graph_provider.get_neighbors.return_value = [
+            {"id": n2, "name": "TestEntity", "hops": "1"}
+        ]
         loop.run_until_complete(
             dao.insert_edge(
                 "agent-1", source_id=n1, target_id=n2, relation_type="LINKS"

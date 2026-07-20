@@ -68,9 +68,18 @@ from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
-from mesa_storage.dao import MemoryDAO
+from mesa_storage.dao import (
+    MemoryDAO,
+    PurgeAlreadyFinalizedError,
+    PurgeBlockedError,
+    PurgeRetryPendingError,
+    QueueOverCapacityError,
+    QueueRecordTooLargeError,
+    QueueUnavailableError,
+)
 from mesa_workers.ingestion_worker import (
     process_cold_path,  # Cold-path worker (Phase 1 Part 2)
+    process_session_finalization,
 )
 
 logger = logging.getLogger("MESA_API")
@@ -239,13 +248,29 @@ def create_memory_router(
             "metadata": payload.metadata,
         }
 
-        log_id = await dao.insert_raw_log(payload.agent_id, payload_dict)
+        try:
+            admission = await dao.admit_raw_log(
+                payload.agent_id, payload_dict, policy=config.queue_admission_policy
+            )
+        except QueueRecordTooLargeError:
+            return JSONResponse(
+                status_code=413,
+                content={"error": "queue_record_too_large", "admission": "REJECTED_OVER_CAPACITY", "retryable": False},
+            )
+        except QueueOverCapacityError as exc:
+            return JSONResponse(
+                status_code=503,
+                headers={"Retry-After": str(config.queue_admission_policy.queue_retry_after_seconds)},
+                content={"error": "queue_over_capacity", "admission": "REJECTED_OVER_CAPACITY", "scope": exc.scope, "retryable": True},
+            )
+        except QueueUnavailableError:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "queue_unavailable", "admission": "BLOCKED", "retryable": True},
+            )
 
-        def dummy_task():
-            with open("dummy.txt", "w") as f:
-                f.write("DUMMY TASK EXECUTED\n")
+        log_id = admission["log_id"]
 
-        background_tasks.add_task(dummy_task)
         background_tasks.add_task(
             process_cold_path,
             log_id,
@@ -460,24 +485,34 @@ def create_memory_router(
     ) -> dict:
         """Soft-delete memory records by agent or session scope.
 
-        **CRITICAL**: This endpoint performs ONLY soft-deletes.
-        It MUST NOT trigger VACUUM, hard-delete, or any compaction
-        operation.  Physical removal is exclusively handled by the
-        ``MaintenanceWorker`` during scheduled idle windows.
-
-        Violating this invariant causes catastrophic WAL locks under
-        concurrent API load.
+        **CRITICAL**: This endpoint creates a durable SQLite purge journal
+        and tombstone before any downstream action. It MUST NOT trigger VACUUM
+        or compaction. Journal-recorded Kuzu/vector deletes are idempotent,
+        verified steps; a partial failure returns retry-pending rather than
+        reporting purge success.
         """
-        # RBAC Gate: Verify WRITE permission for this agent/session pair.
-        try:
-            ac = get_access_control() if get_access_control else AccessControl()
-            _session = payload.scope_id if payload.scope == "session" else "__any__"
-            if not await ac.check_access(payload.agent_id, _session, "WRITE"):
-                raise PermissionError(
-                    f"Agent '{payload.agent_id}' lacks WRITE access for purge"
-                )
-        except PermissionError as perm_exc:
-            raise HTTPException(status_code=403, detail=str(perm_exc))
+        # Principal is the authorization subject; caller-supplied agent_id is only scope.
+        principal = getattr(request.state, "principal", None)
+        if principal is None:
+            raise HTTPException(status_code=401, detail="Authenticated principal required for purge")
+        if getattr(principal, "status", None) != "active":
+            raise HTTPException(status_code=401, detail="Inactive authenticated principal")
+
+        ac = get_access_control() if get_access_control else AccessControl()
+        if not await ac.check_principal_permission(
+            principal.principal_id, payload.agent_id, "PURGE"
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Principal lacks PURGE permission for requested agent",
+            )
+        _session = payload.scope_id if payload.scope == "session" else "__any__"
+        if payload.scope == "session" and not await ac.check_principal_session_access(
+            principal.principal_id, payload.agent_id, _session, "WRITE"
+        ):
+            raise HTTPException(status_code=403, detail="Session access denied")
+        if not await ac.check_access(payload.agent_id, _session, "WRITE"):
+            raise HTTPException(status_code=403, detail="Session access denied")
 
         deleted_count = 0
 
@@ -487,8 +522,15 @@ def create_memory_router(
                 agent_id=payload.agent_id,
                 scope=payload.scope,
                 session_id=session_id,
+                principal_id=principal.principal_id,
             )
 
+        except PurgeAlreadyFinalizedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except PurgeRetryPendingError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except PurgeBlockedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         except Exception as exc:
             import traceback
 
@@ -531,12 +573,35 @@ def create_memory_router(
 
         Enforces strict RBAC: requires a valid ``agent_id`` in the request payload.
         """
-        # RBAC Gate: Verify WRITE permission for this agent.
-        ac = get_access_control() if get_access_control else AccessControl()
-        session_id = f"sess_{uuid.uuid4().hex}"
+        # A requested agent_id identifies the target; it never grants access.
+        # The host server attaches a verified principal during authentication.
+        principal = getattr(request.state, "principal", None)
+        if principal is not None:
+            if getattr(principal, "status", None) != "active":
+                raise HTTPException(status_code=401, detail="Inactive authenticated principal")
 
-        # Grant WRITE access for the newly created session
+            ac = get_access_control() if get_access_control else AccessControl()
+            is_authorized = await ac.check_principal_permission(
+                principal.principal_id,
+                payload.agent_id,
+                "SESSION_CREATE",
+            )
+            if not is_authorized:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Principal lacks SESSION_CREATE permission for requested agent",
+                )
+        else:
+            # Direct router consumers must add an authentication dependency that
+            # supplies request.state.principal before exposing this route.
+            ac = get_access_control() if get_access_control else AccessControl()
+
+        session_id = f"sess_{uuid.uuid4().hex}"
         await ac.grant_access(payload.agent_id, session_id, "WRITE")
+        if principal is not None:
+            await ac.grant_principal_session_access(
+                principal.principal_id, payload.agent_id, session_id, "WRITE"
+            )
 
         logger.info(
             "SESSION_START | agent_id=%s session_id=%s", payload.agent_id, session_id
@@ -566,13 +631,20 @@ def create_memory_router(
         Enforces strict RBAC: requires the correct ``agent_id`` query parameter matching
         the tenant isolation model to retrieve session data.
         """
-        # RBAC Gate: Verify READ permission for this agent/session pair.
+        # A client-supplied agent_id is only a target scope.  Production
+        # requests must also match a persisted principal/session binding.
         try:
             ac = get_access_control() if get_access_control else AccessControl()
+            principal = getattr(request.state, "principal", None)
+            if principal is not None:
+                if getattr(principal, "status", None) != "active":
+                    raise HTTPException(status_code=401, detail="Inactive authenticated principal")
+                if not await ac.check_principal_session_access(
+                    principal.principal_id, agent_id, session_id, "READ"
+                ):
+                    raise HTTPException(status_code=403, detail="Session access denied")
             if not await ac.check_access(agent_id, session_id, "READ"):
-                raise PermissionError(
-                    f"Agent '{agent_id}' lacks READ access for session '{session_id}'"
-                )
+                raise PermissionError("Session access denied")
         except PermissionError as perm_exc:
             raise HTTPException(status_code=403, detail=str(perm_exc))
 
@@ -638,26 +710,48 @@ def create_memory_router(
         Enforces strict RBAC: requires a valid ``agent_id`` in the request payload
         matching the session's tenant ID.
         """
-        # RBAC Gate: Verify WRITE permission for this agent/session pair.
+        # Production requests additionally require the persisted owner/access
+        # binding created at session start (or provisioned server-side).
         try:
             ac = get_access_control() if get_access_control else AccessControl()
+            principal = getattr(request.state, "principal", None)
+            if principal is not None:
+                if getattr(principal, "status", None) != "active":
+                    raise HTTPException(status_code=401, detail="Inactive authenticated principal")
+                if not await ac.check_principal_session_access(
+                    principal.principal_id, payload.agent_id, session_id, "WRITE"
+                ):
+                    raise HTTPException(status_code=403, detail="Session access denied")
             if not await ac.check_access(payload.agent_id, session_id, "WRITE"):
-                raise PermissionError(
-                    f"Agent '{payload.agent_id}' lacks WRITE access "
-                    f"for session '{session_id}'"
-                )
+                raise PermissionError("Session access denied")
         except PermissionError as perm_exc:
             raise HTTPException(status_code=403, detail=str(perm_exc))
 
         try:
-            # Here we would enqueue a final consolidation pass for this specific session.
-            # For now, we log the termination which could trigger the orchestrator.
-            logger.info(
-                "SESSION_END | agent_id=%s session_id=%s triggered final consolidation.",
+            finalization = await dao.request_session_finalization(
+                payload.agent_id, session_id
+            )
+            if finalization["state"] == "COMPLETED":
+                return {"status": "ended", "session_id": session_id}
+            consolidation_loop = get_consolidation_loop()
+            background_tasks.add_task(
+                process_session_finalization,
                 payload.agent_id,
                 session_id,
+                dao,
+                consolidation_loop,
             )
-            return {"status": "ended", "session_id": session_id}
+            logger.info(
+                "SESSION_END_PENDING | agent_id=%s session_id=%s finalization_id=%s",
+                payload.agent_id,
+                session_id,
+                finalization["finalization_id"],
+            )
+            return {
+                "status": "pending",
+                "session_id": session_id,
+                "finalization_id": finalization["finalization_id"],
+            }
         except PermissionError:
             raise  # Re-raise RBAC errors without wrapping
         except Exception as exc:

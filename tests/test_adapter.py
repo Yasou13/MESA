@@ -1,8 +1,12 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.ollama import OllamaAdapter
 from tests.fixtures.vectors import VEC_BASE, VEC_BASE_384, VEC_BASE_1536
+
+pytestmark = pytest.mark.optional_provider
 
 
 def test_claude_adapter_embed():

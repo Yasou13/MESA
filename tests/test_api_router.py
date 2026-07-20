@@ -13,6 +13,7 @@ import asyncio
 import os
 import shutil
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -44,6 +45,16 @@ def _test_embedder(text: str) -> list[float]:
     """Deterministic 8-dim test embedder."""
     seed = sum(ord(c) for c in text) % 256
     return [float(seed) / 256.0] * 8
+
+
+class _VerifiedPurgeGraph:
+    """Route fixture for the separately covered verified purge contract."""
+
+    async def delete_nodes(self, *, purge_id, agent_id, node_ids):
+        return None
+
+    async def verify_nodes_absent(self, *, agent_id, node_ids):
+        return True
 
 
 @pytest.fixture(autouse=True)
@@ -93,6 +104,8 @@ def _mock_rbac():
     """Provide a mock RBAC callable for insert tests."""
     ac_mock = MagicMock()
     ac_mock.check_access = AsyncMock(return_value=True)
+    ac_mock.check_principal_permission = AsyncMock(return_value=True)
+    ac_mock.check_principal_session_access = AsyncMock(return_value=True)
     ac_mock.grant_access = AsyncMock(return_value=None)
     ac_mock.revoke_access = AsyncMock(return_value=None)
     yield lambda: ac_mock
@@ -104,8 +117,20 @@ def client(engines, _mock_rbac):
     sqlite_eng, vec_eng, _ = engines
 
     app = FastAPI()
+
+    @app.middleware("http")
+    async def attach_active_principal(request, call_next):
+        request.state.principal = SimpleNamespace(
+            principal_id="test-principal", status="active"
+        )
+        return await call_next(request)
+
     router = create_memory_router(
-        get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
+        get_dao=lambda: MemoryDAO(
+            sqlite_engine=sqlite_eng,
+            vector_engine=vec_eng,
+            graph_provider=_VerifiedPurgeGraph(),
+        ),
         get_embedder=lambda: _test_embedder,
         get_access_control=_mock_rbac,
     )
@@ -206,8 +231,22 @@ class TestInsertEndpoint:
         )
         assert resp.status_code == 202
 
-    def test_insert_persists_node_in_background(self, client, engines):
-        """After insert, the background task writes to SQLite."""
+    def test_insert_does_not_write_cwd_debug_files(self, client, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        resp = client.post(
+            "/v3/memory/insert",
+            json={
+                "agent_id": "agent-1",
+                "session_id": "sess-001",
+                "content": "No CWD debug artifact",
+            },
+        )
+        assert resp.status_code == 202
+        assert not (tmp_path / "dummy.txt").exists()
+        assert not (tmp_path / "cold_path_trace.txt").exists()
+
+    def test_insert_persists_durable_raw_log(self, client, engines):
+        """Insert durably records work without fabricating a model result."""
         sqlite_eng, vec_eng, loop = engines
 
         mock_adapter = MagicMock()
@@ -229,12 +268,18 @@ class TestInsertEndpoint:
         assert resp.status_code == 202
         assert resp.json()["log_id"] > 0
 
-        # Background task runs during TestClient scope — verify the node
+        raw_log = loop.run_until_complete(
+            MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng).get_raw_log(
+                "agent-bg", resp.json()["log_id"]
+            )
+        )
+        assert raw_log is not None
+        assert raw_log["payload"]["content"] == "Background insert test"
+        assert raw_log["status"].startswith("failed:RuntimeError:")
         nodes = loop.run_until_complete(
             get_active_nodes(sqlite_eng, agent_id="agent-bg")
         )
-        found = [n for n in nodes if n["agent_id"] == "agent-bg"]
-        assert len(found) >= 1
+        assert nodes == []
 
     def test_insert_without_vector_engine(self, client_no_vector):
         resp = client_no_vector.post(

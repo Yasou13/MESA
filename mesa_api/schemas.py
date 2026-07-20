@@ -444,19 +444,15 @@ class MemorySearchResponse(BaseModel):
 
 
 class MemoryPurgeResponse(BaseModel):
-    """Response returned after a purge (soft-delete) request."""
+    """Response returned by the existing purge route contract."""
 
     model_config = ConfigDict(frozen=True)
 
-    status: Literal["PURGED"] = Field(
-        default="PURGED", description="Always 'PURGED' on success"
+    status: Literal["purged"] = Field(
+        default="purged", description="Always 'purged' on success"
     )
-    scope: Literal["agent", "session"] = Field(
-        ..., description="Echo of the purge scope"
-    )
-    scope_id: str = Field(..., description="Echo of the purge target")
-    records_affected: int = Field(
-        ..., ge=0, description="Number of records soft-deleted"
+    deleted_records_count: int = Field(
+        ..., ge=0, description="Number of records affected by the purge"
     )
 
 

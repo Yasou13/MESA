@@ -177,6 +177,7 @@ class VectorEngine:
         *,
         max_workers: int = _MAX_WORKERS,
         metric: str = _DEFAULT_METRIC,
+        allow_model_loading: bool = False,
     ) -> None:
         self._uri = uri
         self._metric = metric
@@ -193,14 +194,20 @@ class VectorEngine:
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
 
-        try:
-            from sentence_transformers import SentenceTransformer
+        self._embedder = None
+        self._fallback_embedder = True
+        if allow_model_loading:
+            try:
+                from sentence_transformers import SentenceTransformer
 
-            self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            self._fallback_embedder = False
-        except ImportError:
-            self._embedder = None
-            self._fallback_embedder = True
+                self._embedder = SentenceTransformer(
+                    "all-MiniLM-L6-v2", local_files_only=True
+                )
+                self._fallback_embedder = False
+            except (ImportError, OSError):
+                logger.warning(
+                    "VECTOR_EMBEDDER_DISABLED | local model is unavailable; network fallback is forbidden"
+                )
 
     # ------------------------------------------------------------------
     # Properties
@@ -306,49 +313,12 @@ class VectorEngine:
         )
 
     def _sync_compute_embedding(self, text: str) -> list[float]:
-        if not self._fallback_embedder and self._embedder is not None:
-            # SentenceTransformer returns numpy array
-            vector = self._embedder.encode(text)
-            return vector.tolist()
-        else:
-            logger.error(
-                "FALLING BACK TO LITELLM! _fallback_embedder=%s, _embedder is None? %s",
-                self._fallback_embedder,
-                self._embedder is None,
+        if self._embedder is None or self._fallback_embedder:
+            raise RuntimeError(
+                "semantic embedding runtime is disabled or no local-only model is available"
             )
-            # Fallback to litellm
-            try:
-                import litellm
-
-                response = litellm.embedding(
-                    model="text-embedding-3-small", input=[text]
-                )
-                vector = response.data[0]["embedding"]
-                # Ensure 384 dimensions to match schema
-                if len(vector) > 384:
-                    vector = vector[:384]
-                elif len(vector) < 384:
-                    vector = vector + [0.0] * (384 - len(vector))
-                return vector
-            except ImportError:
-                logger.warning(
-                    "litellm is missing. Falling back to deterministic mock embedding."
-                )
-                import hashlib
-
-                h = hashlib.sha256(text.encode("utf-8")).digest()
-                vec = [(b / 255.0) - 0.5 for b in h]
-                vec = (vec * (384 // len(vec) + 1))[:384]
-                mag = sum(x**2 for x in vec) ** 0.5
-                if mag == 0:
-                    return [1.0] + [0.0] * 383
-                return [x / mag for x in vec]
-            except Exception as exc:
-                logger.error(
-                    "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc
-                )
-                # Absolute last resort: return zero vector of correct dimension
-                return [0.0] * 384
+        vector = self._embedder.encode(text)
+        return vector.tolist()
 
     async def compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
         """Compute embeddings for a batch of texts."""
@@ -363,49 +333,12 @@ class VectorEngine:
     def _sync_compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-
-        if not self._fallback_embedder and self._embedder is not None:
-            vectors = self._embedder.encode(texts)
-            return [v.tolist() for v in vectors]
-        else:
-            # Fallback to litellm
-            try:
-                import litellm
-
-                response = litellm.embedding(
-                    model="text-embedding-3-small", input=texts
-                )
-                vectors = []
-                for item in response.data:
-                    v = item["embedding"]
-                    if len(v) > 384:
-                        v = v[:384]
-                    elif len(v) < 384:
-                        v = v + [0.0] * (384 - len(v))
-                    vectors.append(v)
-                return vectors
-            except ImportError:
-                logger.warning(
-                    "litellm is missing. Falling back to deterministic mock embeddings."
-                )
-                import hashlib
-
-                vectors = []
-                for t in texts:
-                    h = hashlib.sha256(t.encode("utf-8")).digest()
-                    vec = [(b / 255.0) - 0.5 for b in h]
-                    vec = (vec * (384 // len(vec) + 1))[:384]
-                    mag = sum(x**2 for x in vec) ** 0.5
-                    if mag == 0:
-                        vectors.append([1.0] + [0.0] * 383)
-                    else:
-                        vectors.append([x / mag for x in vec])
-                return vectors
-            except Exception as exc:
-                logger.error(
-                    "VECTOR_ENGINE_EMBED_ERROR | litellm fallback failed: %s", exc
-                )
-                return [[0.0] * 384 for _ in texts]
+        if self._embedder is None or self._fallback_embedder:
+            raise RuntimeError(
+                "semantic embedding runtime is disabled or no local-only model is available"
+            )
+        vectors = self._embedder.encode(texts)
+        return [vector.tolist() for vector in vectors]
 
     # ------------------------------------------------------------------
     # Write operations
@@ -472,12 +405,12 @@ class VectorEngine:
                 "node_id"
             ).when_matched_update_all().when_not_matched_insert_all().execute([record])
         except (RuntimeError, OSError) as exc:
-            logger.warning(
-                "merge_insert failed for node_id=%s, falling back to add(): %s",
+            logger.error(
+                "VECTOR_UPSERT_REJECTED | node_id=%s merge_insert_error=%s",
                 node_id,
                 exc,
             )
-            table.add([record])
+            raise
 
         with self._metrics._lock:
             self._metrics.upserts += 1
@@ -533,12 +466,13 @@ class VectorEngine:
                 table.merge_insert(
                     "node_id"
                 ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
-            except (RuntimeError, OSError):
-                logger.warning(
-                    "bulk merge_insert failed for dim=%d, falling back to add()",
+            except (RuntimeError, OSError) as exc:
+                logger.error(
+                    "VECTOR_BULK_UPSERT_REJECTED | dim=%d merge_insert_error=%s",
                     dim,
+                    exc,
                 )
-                table.add(rows)
+                raise
             total += len(rows)
 
         with self._metrics._lock:
@@ -571,8 +505,10 @@ class VectorEngine:
         Returns:
             Set of node_ids that have at least one vector entry.
         """
-        if not node_ids or not self.is_initialized:
+        if not node_ids:
             return set()
+        if not self.is_initialized:
+            raise RuntimeError("VectorEngine is unavailable for projection verification")
 
         _validate_filter_value(agent_id, "agent_id")
         loop = asyncio.get_running_loop()
@@ -1016,6 +952,18 @@ class VectorEngine:
 
     async def apply_procrustes_and_switch(
         self,
+        transformation_matrix: Any,
+        golden_dataset: list[dict[str, Any]],
+        threshold: float = 0.85,
+    ) -> bool:
+        """Serialize the complete alignment with every vector mutation."""
+        async with self._mutation_lock:
+            return await self._apply_procrustes_and_switch(
+                transformation_matrix, golden_dataset, threshold
+            )
+
+    async def _apply_procrustes_and_switch(
+        self,
         transformation_matrix: Any,  # numpy.ndarray — imported at runtime
         golden_dataset: list[dict[str, Any]],
         threshold: float = 0.85,
@@ -1146,14 +1094,13 @@ class VectorEngine:
                 # ==================================================
                 if recall >= threshold:
                     # --- SWITCH: promote _new, drop backup + old ---
-                    async with self._mutation_lock:
-                        await loop.run_in_executor(
-                            self._executor,
-                            self._sync_promote_table,
-                            active_name,
-                            new_name,
-                            backup_name,
-                        )
+                    await loop.run_in_executor(
+                        self._executor,
+                        self._sync_promote_table,
+                        active_name,
+                        new_name,
+                        backup_name,
+                    )
                     logger.info(
                         "ALIGN_SWITCH_SUCCESS | table=%s recall@5=%.4f "
                         "new_table=%s promoted=true",

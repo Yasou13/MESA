@@ -1,4 +1,11 @@
-# Exclude non-essential files from Docker build context
+# Version control and local automation metadata
+.git
+.github
+.audit
+.agents
+.codex
+
+# Python environments and caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -7,47 +14,40 @@ __pycache__/
 .venv/
 venv/
 env/
-.git/
-.gitignore
-.gemini/
-.github/
+
+# Secrets and local configuration
 .env
-.env.local
-.env.test
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime data and generated artifacts
+storage/
+results/
+models/
+data/
+.cache/
+htmlcov/
+coverage.xml
+.coverage*
 *.db
+*.sqlite
 *.sqlite3
 *.lance
-storage/
-models/
-huggingface_cache/
-.cache/
 *.bin
 *.pt
 *.onnx
 *.safetensors
-data/
+*.log
+
+# Development-only material
+mesa-benchmark/
 tests/
 scripts/
 docs/
-htmlcov/
-coverage.xml
-.coverage
-bench_results.json
-.benchmarks/
-*.log
-tmp/
-temp/
-scratch/
-Dockerfile
-docker-compose.yml
-
-# Ephemeral benchmark & evaluation artifacts
-*.sqlite
-bench_*.sqlite
-bench_*.db
-eval_results.json
-sweep_results.json
-legal_golden.json
-.coverage.*
 demo/
-demo/
+cold_path_trace.txt
+dummy.txt

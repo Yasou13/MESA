@@ -69,7 +69,12 @@ async def test_composite_similarity_alignment():
 
 
 @pytest.mark.asyncio
-async def test_consolidation_divergence_paths():
+async def test_consolidation_divergence_paths(tmp_path, monkeypatch):
+    from mesa_memory.config import config
+
+    monkeypatch.setattr(config, "storage_path", str(tmp_path))
+    monkeypatch.setattr(config, "human_review_queue_path", str(tmp_path / "review.jsonl"))
+    monkeypatch.setattr(config, "dead_letter_queue_path", str(tmp_path / "dlq.jsonl"))
     obs = ObservabilityLayer()
     dao = _make_mock_dao()
 
@@ -120,7 +125,6 @@ async def test_consolidation_divergence_paths():
     assert call_kwargs.kwargs.get("weight") == 0.5
 
     dao.reset_mock()
-    await loop.human_review_queue.clear()
 
     # Hub-node scenario: high degree → human review
     dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "hub_1"}])
@@ -136,7 +140,8 @@ async def test_consolidation_divergence_paths():
     assert not dao.insert_edge.called
 
     dao.reset_mock()
-    await loop.human_review_queue.clear()
+    claimed = await loop.human_review_queue.aclaim(worker_id="test-drain")
+    assert await loop.human_review_queue.aack(claimed, worker_id="test-drain")
 
     # Peripheral node: low degree → silent discard
     dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "periph_1"}])

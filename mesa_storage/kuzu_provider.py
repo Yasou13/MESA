@@ -104,6 +104,25 @@ class BaseGraphProvider(abc.ABC):
         """Upsert an Entity node with tenant isolation."""
 
     @abc.abstractmethod
+    async def delete_nodes(
+        self,
+        *,
+        purge_id: str,
+        agent_id: str,
+        node_ids: list[str],
+    ) -> None:
+        """Idempotently delete the exact graph nodes recorded by a purge journal."""
+
+    @abc.abstractmethod
+    async def verify_nodes_absent(
+        self,
+        *,
+        agent_id: str,
+        node_ids: list[str],
+    ) -> bool:
+        """Return whether the exact graph nodes are absent after a purge."""
+
+    @abc.abstractmethod
     async def insert_edge(
         self,
         source_id: str,
@@ -425,6 +444,40 @@ class KuzuGraphProvider(BaseGraphProvider):
             self._UPSERT_NODE_CYPHER,
             {"id": composite_id, "name": name, "agent_id": agent_id},
         )
+
+    async def delete_nodes(
+        self,
+        *,
+        purge_id: str,
+        agent_id: str,
+        node_ids: list[str],
+    ) -> None:
+        """Delete only journal-recorded nodes; absent nodes are an idempotent success."""
+        if not node_ids:
+            return
+        composite_ids = [self._composite_id(agent_id, node_id) for node_id in node_ids]
+        await self.execute_write(
+            "MATCH (n:Entity {agent_id: $agent_id}) "
+            "WHERE n.id IN $node_ids DETACH DELETE n",
+            {"agent_id": agent_id, "node_ids": composite_ids},
+        )
+
+    async def verify_nodes_absent(
+        self,
+        *,
+        agent_id: str,
+        node_ids: list[str],
+    ) -> bool:
+        """Verify exact journal-recorded graph nodes are absent."""
+        if not node_ids:
+            return True
+        composite_ids = [self._composite_id(agent_id, node_id) for node_id in node_ids]
+        rows = await self.execute_query(
+            "MATCH (n:Entity {agent_id: $agent_id}) "
+            "WHERE n.id IN $node_ids RETURN n.id",
+            {"agent_id": agent_id, "node_ids": composite_ids},
+        )
+        return not rows
 
     async def insert_edge(
         self,

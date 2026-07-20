@@ -194,9 +194,14 @@ class TestConsensusLogic:
 
 class TestDeadLetterIntegration:
     @pytest.mark.asyncio
-    async def test_tier3_error_dead_letters(self):
+    async def test_tier3_error_dead_letters(self, tmp_path, monkeypatch):
         """Tier3ValidationError → dead_letter_queue, NOT invalidate_node."""
         from mesa_memory.consolidation.loop import ConsolidationLoop
+        from mesa_memory.config import config
+
+        monkeypatch.setattr(config, "storage_path", str(tmp_path))
+        monkeypatch.setattr(config, "human_review_queue_path", str(tmp_path / "review.jsonl"))
+        monkeypatch.setattr(config, "dead_letter_queue_path", str(tmp_path / "dlq.jsonl"))
 
         mock_dao = MagicMock()
         mock_dao.get_memories = AsyncMock(return_value=[])
@@ -219,8 +224,6 @@ class TestDeadLetterIntegration:
             llm_b=llm_b,
             obs_layer=MagicMock(),
         )
-        await loop.dead_letter_queue.clear()
-
         await loop.run_batch([_make_record(tier3=True)])
 
         assert await loop.dead_letter_queue.alen() == 1
@@ -230,9 +233,14 @@ class TestDeadLetterIntegration:
         mock_dao.invalidate_node.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_malformed_json_dead_letters(self):
+    async def test_malformed_json_dead_letters(self, tmp_path, monkeypatch):
         """Malformed JSON → dead-lettered, never silently DISCARDED."""
         from mesa_memory.consolidation.loop import ConsolidationLoop
+        from mesa_memory.config import config
+
+        monkeypatch.setattr(config, "storage_path", str(tmp_path))
+        monkeypatch.setattr(config, "human_review_queue_path", str(tmp_path / "review.jsonl"))
+        monkeypatch.setattr(config, "dead_letter_queue_path", str(tmp_path / "dlq.jsonl"))
 
         mock_dao = MagicMock()
         mock_dao.get_memories = AsyncMock(return_value=[])
@@ -251,12 +259,11 @@ class TestDeadLetterIntegration:
             llm_b=llm_b,
             obs_layer=MagicMock(),
         )
-        await loop.dead_letter_queue.clear()
-
         await loop.run_batch([_make_record(tier3=True)])
 
         assert await loop.dead_letter_queue.alen() == 1
         item = await loop.dead_letter_queue.agetitem(0)
-        assert "error" in item
+        assert "error" not in item
+        assert item["error_summary"] == "failure recorded"
         # Infrastructure error → dead-lettered, NOT invalidated
         mock_dao.invalidate_node.assert_not_called()

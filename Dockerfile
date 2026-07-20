@@ -1,61 +1,35 @@
-# ──────────────────────────────────────────────────────────────
-# MESA Memory System – Production API Container
-# ──────────────────────────────────────────────────────────────
+# syntax=docker/dockerfile:1.7
+ARG PYTHON_IMAGE=python:3.13.5-slim-bookworm
 
-# ── BUILDER STAGE ──
-FROM python:3.10-slim AS builder
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
+FROM ${PYTHON_IMAGE} AS builder
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /build
+COPY pyproject.toml README.md LICENSE ./
+COPY mesa_memory ./mesa_memory
+COPY mesa_storage ./mesa_storage
+COPY mesa_workers ./mesa_workers
+COPY mesa_api ./mesa_api
+COPY mesa_client ./mesa_client
+COPY mesa_evals ./mesa_evals
+COPY mesa_mcp ./mesa_mcp
+RUN python -m pip wheel --no-cache-dir --wheel-dir=/wheels .
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc build-essential && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY pyproject.toml ./
-COPY mesa_memory/ ./mesa_memory/
-COPY mesa_storage/ ./mesa_storage/
-COPY mesa_workers/ ./mesa_workers/
-COPY mesa_api/ ./mesa_api/
-COPY mesa_client/ ./mesa_client/
-
-RUN pip install --no-cache-dir --prefix=/install ".[adapters,ml]"
-
-
-# Pre-download spaCy model in builder
-ENV PYTHONPATH=/install/lib/python3.10/site-packages:/install/lib/python3/site-packages:/install/lib/python3.10/dist-packages
-RUN /install/bin/python -m spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages || /install/bin/spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages || python -m spacy download xx_ent_wiki_sm --target /install/lib/python3.10/site-packages
-
-# ── RUNTIME STAGE ──
-FROM python:3.10-slim AS runtime
-
+FROM ${PYTHON_IMAGE} AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MESA_REBEL_ENABLED=false \
-    MESA_EXTRACTION_LANG=tr
-
-WORKDIR /app
-
-# Copy dependencies from builder
-COPY --from=builder /install /usr/local
-COPY . .
-
-# Non-root user for container security hardening
-RUN useradd -m -r -s /bin/false mesa
-
-# Persistent storage mount points
-RUN mkdir -p /app/storage /app/.kuzu && chown -R mesa:mesa /app/storage /app/.kuzu
-VOLUME ["/app/storage", "/app/.kuzu"]
-
-# Never bake secrets into the image, MESA_API_KEY must be provided at runtime
-
-USER mesa
-
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    MESA_LOAD_DOTENV=false \
+    MESA_MODEL_ENABLED=false \
+    MESA_EXTERNAL_PROVIDER_ENABLED=false \
+    MESA_PORT=8000
+RUN groupadd --system mesa && useradd --system --gid mesa --home-dir /nonexistent --shell /usr/sbin/nologin mesa \
+    && mkdir -p /var/lib/mesa && chown mesa:mesa /var/lib/mesa
+COPY --from=builder /wheels /wheels
+RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels /wheels/mesa_memory-*.whl && rm -rf /wheels
+USER mesa:mesa
+WORKDIR /var/lib/mesa
+VOLUME ["/var/lib/mesa"]
 EXPOSE 8000
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/init')" || exit 1
-
-CMD ["uvicorn", "mesa_memory.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-m", "mesa_memory.container_health"]
+ENTRYPOINT ["python", "-m", "mesa_memory.runtime_entrypoint"]

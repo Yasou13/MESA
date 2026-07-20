@@ -183,15 +183,14 @@ class TestSagaRollbackOnVectorFailure:
             f"bulk VectorEngine crash — ROLLBACK did not execute"
         )
 
-    def test_purge_saga_rollback(self, dao_env):
-        """Prove purge_memory rolls back if vector soft_delete fails.
-
-        Insert a real node first, then crash the vector soft_delete.
-        The SQLite soft-delete (invalid_at stamp) must be reverted.
-        """
+    def test_purge_downstream_failure_keeps_fail_closed_tombstone(self, dao_env):
+        """A vector purge failure must stay journaled and never resurrect data."""
         dao, sql, vec, loop = dao_env
+        graph = AsyncMock()
+        graph.delete_nodes = AsyncMock(return_value=None)
+        graph.verify_nodes_absent = AsyncMock(return_value=True)
+        dao._graph = graph
 
-        # Insert a real node (both SQLite + LanceDB succeed)
         node_id = loop.run_until_complete(
             dao.insert_memory(
                 AGENT_ID,
@@ -201,29 +200,29 @@ class TestSagaRollbackOnVectorFailure:
             )
         )
 
-        # Now crash the vector layer during purge
         with patch.object(
             vec,
-            "soft_delete",
+            "hard_delete",
             new_callable=AsyncMock,
             side_effect=Exception("Simulated Purge Vector Crash"),
         ):
             with pytest.raises(Exception):
                 loop.run_until_complete(dao.purge_memory(AGENT_ID, scope="agent"))
 
-        # The node must still be ACTIVE (invalid_at IS NULL)
-        async def _check_node_active():
+        async def _check_fail_closed_state():
             async with sql.connection() as db:
                 async with db.execute(
-                    "SELECT id, invalid_at FROM nodes WHERE id = ? AND agent_id = ?",
+                    "SELECT n.invalid_at, n.deleted_at, n.purge_id, p.state, p.vector_result "
+                    "FROM nodes n JOIN purge_journal p ON p.purge_id = n.purge_id "
+                    "WHERE n.id = ? AND n.agent_id = ?",
                     (node_id, AGENT_ID),
                 ) as cursor:
                     return await cursor.fetchone()
 
-        row = loop.run_until_complete(_check_node_active())
-        assert row is not None, "Node vanished after failed purge"
-        # row is an aiosqlite.Row — access by index
-        assert row[1] is None, (
-            f"SAGA VIOLATION: node {node_id} was soft-deleted (invalid_at={row[1]}) "
-            f"despite vector soft_delete crash — ROLLBACK did not execute"
-        )
+        row = loop.run_until_complete(_check_fail_closed_state())
+        assert row is not None, "purge journal ownership was lost"
+        assert row[0] is not None and row[1] is not None and row[2] is not None
+        assert row[3] in {"RETRY_PENDING", "BLOCKED"}
+        assert row[4] == "PENDING"
+        active = loop.run_until_complete(dao.get_memories(AGENT_ID))
+        assert all(item["id"] != node_id for item in active)

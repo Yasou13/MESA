@@ -13,6 +13,7 @@ from mesa_memory.consolidation.loop import (
     start_tier3_deferred_worker,
 )
 from mesa_memory.consolidation.validator import Tier3ValidationError
+from mesa_memory.config import config
 from tests.fixtures.vectors import (
     VEC_BASE_384,
     VEC_MATCH_384,
@@ -89,12 +90,13 @@ async def test_loop_exceptions():
 
     loop = ConsolidationLoop(dao, MagicMock(), MagicMock(), MagicMock(), MagicMock())
     loop.run_batch = AsyncMock()
-    await loop.start()
+    with patch.object(config, "consolidation_idle_timeout", 0):
+        await loop.start()
 
-    dao.get_memories = AsyncMock(
-        side_effect=[Exception("test"), asyncio.CancelledError()]
-    )
-    await loop.start()
+        dao.get_memories = AsyncMock(
+            side_effect=[Exception("test"), asyncio.CancelledError()]
+        )
+        await loop.start()
 
 
 @pytest.mark.asyncio
@@ -118,7 +120,7 @@ async def test_loop_delegations():
 
 @pytest.mark.asyncio
 async def test_loop_extract_batch_retry_exceptions():
-    from tenacity import RetryError
+    from tenacity import RetryError, wait_none
 
     loop = ConsolidationLoop(
         MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock()
@@ -127,7 +129,7 @@ async def test_loop_extract_batch_retry_exceptions():
 
     with patch("mesa_memory.consolidation.loop.llm_circuit_breaker") as cb:
         cb.is_open = False
-        with patch("mesa_memory.consolidation.loop.wait_exponential", return_value=0):
+        with patch.object(loop._extract_batch_with_retry.retry, "wait", wait_none()):
             with pytest.raises(RetryError):
                 await loop._extract_batch_with_retry([{"id": "1"}])
         cb.record_failure.assert_called()
@@ -135,18 +137,20 @@ async def test_loop_extract_batch_retry_exceptions():
 
 @pytest.mark.asyncio
 async def test_loop_circuit_breaker_open():
-    from tenacity import RetryError
+    from tenacity import RetryError, wait_none
 
     loop = ConsolidationLoop(
         MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock()
     )
     with patch("mesa_memory.consolidation.loop.llm_circuit_breaker") as cb:
         cb.is_open = True
-        with pytest.raises(RetryError):
-            await loop._extract_batch_with_retry([])
+        with patch.object(loop._extract_batch_with_retry.retry, "wait", wait_none()):
+            with patch.object(loop._validate_with_timeout.retry, "wait", wait_none()):
+                with pytest.raises(RetryError):
+                    await loop._extract_batch_with_retry([])
 
-        with pytest.raises(RetryError):
-            await loop._validate_with_timeout({})
+                with pytest.raises(RetryError):
+                    await loop._validate_with_timeout({})
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,10 @@ import asyncio
 import functools
 from typing import Optional, Type, Union
 
-import ollama
+try:
+    import ollama
+except ImportError:
+    ollama = None
 from pydantic import BaseModel
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -16,6 +19,8 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         embedding_model: str = "nomic-embed-text",
         base_url: Optional[str] = None,
     ):
+        if ollama is None:
+            raise RuntimeError("OllamaAdapter requires mesa-memory[adapters]")
         self._model = model
         self._embedding_model = embedding_model
         self.base_url = base_url

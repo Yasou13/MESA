@@ -101,6 +101,7 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "raw_logs",
         "system_config",
         "lancedb_wal",
+        "purge_journal",
     }
     expected_indexes = {
         "idx_nodes_active",

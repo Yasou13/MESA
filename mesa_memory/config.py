@@ -1,14 +1,14 @@
 import logging
 import os
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 import psutil
 from dotenv import load_dotenv
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-load_dotenv()
 
 logger = logging.getLogger("MESA_Config")
 
@@ -22,6 +22,155 @@ _CGROUP_V2_PATH = "/sys/fs/cgroup/memory.max"
 
 # cgroup "max" sentinel — kernels report this when no limit is set
 _CGROUP_MAX_SENTINEL = "max"
+_DEFAULT_RUNTIME_LAB_ROOT = Path("/storage/mesa-lab").resolve()
+
+
+class RuntimeProfile(str, Enum):
+    API_ONLY = "api-only"
+    WORKER_ONLY = "worker-only"
+    COMBINED = "combined"
+    TEST_ISOLATED = "test-isolated"
+
+
+class RuntimeProfileError(ValueError):
+    """Fail-closed runtime configuration error with no secret material."""
+
+
+def _resolve_runtime_lab_root(values: Mapping[str, str]) -> Path:
+    """Return the explicit test-isolated trust boundary without accepting relative paths."""
+    raw_lab_root = values.get("MESA_RUNTIME_LAB_ROOT")
+    if raw_lab_root is None:
+        return _DEFAULT_RUNTIME_LAB_ROOT
+    lab_root = Path(raw_lab_root)
+    if not lab_root.is_absolute():
+        raise RuntimeProfileError("MESA_RUNTIME_LAB_ROOT must be an absolute path")
+    return lab_root.resolve(strict=False)
+
+
+def _parse_runtime_bool(value: str | bool | None, *, name: str, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeProfileError(f"{name} must be an explicit boolean")
+
+
+@dataclass(frozen=True)
+class RuntimeProfileConfig:
+    profile: RuntimeProfile
+    storage_root: Path
+    load_dotenv: bool
+    dotenv_path: Path | None
+    model_enabled: bool
+    external_provider_enabled: bool
+    api_enabled: bool
+    worker_enabled: bool
+
+
+def load_runtime_profile(environ: Mapping[str, str] | None = None) -> RuntimeProfileConfig:
+    """Parse runtime startup configuration without searching or loading dotenv files."""
+    values = os.environ if environ is None else environ
+    raw_profile = values.get("MESA_RUNTIME_PROFILE")
+    if raw_profile is None:
+        raise RuntimeProfileError("MESA_RUNTIME_PROFILE is required")
+    try:
+        profile = RuntimeProfile(raw_profile)
+    except ValueError as exc:
+        raise RuntimeProfileError("MESA_RUNTIME_PROFILE is invalid") from exc
+    raw_storage = values.get("MESA_STORAGE_ROOT") or values.get("MESA_STORAGE_PATH")
+    if not raw_storage:
+        raise RuntimeProfileError("MESA_STORAGE_ROOT is required")
+    raw_storage_path = Path(raw_storage)
+    storage_root = raw_storage_path.expanduser().resolve(strict=False)
+    if storage_root in {Path("/"), Path.home().resolve(), Path.cwd().resolve()}:
+        raise RuntimeProfileError("MESA_STORAGE_ROOT is not an allowed runtime storage root")
+    load_dotenv_flag = _parse_runtime_bool(values.get("MESA_LOAD_DOTENV"), name="MESA_LOAD_DOTENV", default=False)
+    dotenv_raw = values.get("MESA_DOTENV_PATH")
+    dotenv_path = Path(dotenv_raw).expanduser().resolve(strict=False) if dotenv_raw else None
+    model_enabled = _parse_runtime_bool(values.get("MESA_MODEL_ENABLED"), name="MESA_MODEL_ENABLED", default=False)
+    provider_enabled = _parse_runtime_bool(values.get("MESA_EXTERNAL_PROVIDER_ENABLED"), name="MESA_EXTERNAL_PROVIDER_ENABLED", default=False)
+    role_defaults = {
+        RuntimeProfile.API_ONLY: (True, False),
+        RuntimeProfile.WORKER_ONLY: (False, True),
+        RuntimeProfile.COMBINED: (True, True),
+        RuntimeProfile.TEST_ISOLATED: (True, False),
+    }
+    api_enabled, worker_enabled = role_defaults[profile]
+    if profile is RuntimeProfile.TEST_ISOLATED:
+        if not raw_storage_path.is_absolute():
+            raise RuntimeProfileError("test-isolated MESA_STORAGE_ROOT must be an absolute path")
+        runtime_lab_root = _resolve_runtime_lab_root(values)
+        if storage_root == runtime_lab_root:
+            raise RuntimeProfileError("MESA_STORAGE_ROOT is not an allowed runtime storage root")
+        try:
+            storage_root.relative_to(runtime_lab_root)
+        except ValueError as exc:
+            raise RuntimeProfileError("test-isolated storage must be under MESA_RUNTIME_LAB_ROOT") from exc
+        if load_dotenv_flag or dotenv_path is not None or model_enabled or provider_enabled:
+            raise RuntimeProfileError("test-isolated forbids dotenv, model, and external provider")
+        worker_enabled = _parse_runtime_bool(values.get("MESA_WORKER_ENABLED"), name="MESA_WORKER_ENABLED", default=False)
+        api_enabled = _parse_runtime_bool(values.get("MESA_API_ENABLED"), name="MESA_API_ENABLED", default=True)
+    elif load_dotenv_flag and dotenv_path is None:
+        raise RuntimeProfileError("MESA_DOTENV_PATH is required when dotenv loading is enabled")
+    return RuntimeProfileConfig(profile, storage_root, load_dotenv_flag, dotenv_path, model_enabled, provider_enabled, api_enabled, worker_enabled)
+
+
+def load_explicit_dotenv(runtime: RuntimeProfileConfig) -> None:
+    """Load only an explicit absolute dotenv path after profile validation."""
+    if not runtime.load_dotenv:
+        return
+    assert runtime.dotenv_path is not None
+    if not runtime.dotenv_path.is_file():
+        raise RuntimeProfileError("explicit dotenv path is unavailable")
+    load_dotenv(dotenv_path=runtime.dotenv_path, override=False)
+
+
+class QueueAdmissionPolicy(BaseModel):
+    """Fail-closed, server-side admission limits for durable cold-path work."""
+
+    queue_max_pending_records: int = 10_000
+    queue_max_pending_bytes: int = 536_870_912
+    queue_max_pending_records_per_tenant: int = 2_000
+    queue_max_pending_bytes_per_tenant: int = 134_217_728
+    queue_max_in_flight_records: int = 32
+    queue_max_in_flight_records_per_tenant: int = 8
+    queue_max_retry_pending_records: int = 2_000
+    queue_max_retry_pending_records_per_tenant: int = 500
+    queue_max_single_record_bytes: int = 8_388_608
+    queue_retry_after_seconds: int = 5
+
+    @model_validator(mode="after")
+    def validate_bounded_limits(self) -> "QueueAdmissionPolicy":
+        values = self.model_dump()
+        if any(not isinstance(value, int) or value <= 0 for value in values.values()):
+            raise ValueError("queue admission limits must be positive integers; zero and unlimited are forbidden")
+        pairs = (
+            ("queue_max_pending_records_per_tenant", "queue_max_pending_records"),
+            ("queue_max_pending_bytes_per_tenant", "queue_max_pending_bytes"),
+            ("queue_max_in_flight_records_per_tenant", "queue_max_in_flight_records"),
+            ("queue_max_retry_pending_records_per_tenant", "queue_max_retry_pending_records"),
+        )
+        for per_tenant, global_limit in pairs:
+            if values[per_tenant] > values[global_limit]:
+                raise ValueError(f"{per_tenant} must be <= {global_limit}")
+        if values["queue_max_in_flight_records"] > values["queue_max_pending_records"]:
+            raise ValueError("queue_max_in_flight_records must be <= queue_max_pending_records")
+        if values["queue_max_in_flight_records_per_tenant"] > values["queue_max_pending_records_per_tenant"]:
+            raise ValueError("queue_max_in_flight_records_per_tenant must be <= queue_max_pending_records_per_tenant")
+        if values["queue_max_retry_pending_records"] > values["queue_max_pending_records"]:
+            raise ValueError("queue_max_retry_pending_records must be <= queue_max_pending_records")
+        if values["queue_max_retry_pending_records_per_tenant"] > values["queue_max_pending_records_per_tenant"]:
+            raise ValueError("queue_max_retry_pending_records_per_tenant must be <= queue_max_pending_records_per_tenant")
+        if values["queue_max_single_record_bytes"] > values["queue_max_pending_bytes"]:
+            raise ValueError("queue_max_single_record_bytes must be <= queue_max_pending_bytes")
+        if values["queue_retry_after_seconds"] > 60:
+            raise ValueError("queue_retry_after_seconds must be <= 60")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +249,7 @@ def _read_cgroup_ram_limit() -> Optional[int]:
 
 class MesaConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
@@ -271,6 +420,26 @@ class MesaConfig(BaseSettings):
         validation_alias="MESA_DEAD_LETTER_QUEUE_PATH",
     )
 
+    # WAVE-004B: bounded durable queue admission. Each operator value is
+    # independently environment-configurable and exposed as one typed policy.
+    queue_max_pending_records: int = Field(10_000, validation_alias="MESA_QUEUE_MAX_PENDING_RECORDS")
+    queue_max_pending_bytes: int = Field(536_870_912, validation_alias="MESA_QUEUE_MAX_PENDING_BYTES")
+    queue_max_pending_records_per_tenant: int = Field(2_000, validation_alias="MESA_QUEUE_MAX_PENDING_RECORDS_PER_TENANT")
+    queue_max_pending_bytes_per_tenant: int = Field(134_217_728, validation_alias="MESA_QUEUE_MAX_PENDING_BYTES_PER_TENANT")
+    queue_max_in_flight_records: int = Field(32, validation_alias="MESA_QUEUE_MAX_IN_FLIGHT_RECORDS")
+    queue_max_in_flight_records_per_tenant: int = Field(8, validation_alias="MESA_QUEUE_MAX_IN_FLIGHT_RECORDS_PER_TENANT")
+    queue_max_retry_pending_records: int = Field(2_000, validation_alias="MESA_QUEUE_MAX_RETRY_PENDING_RECORDS")
+    queue_max_retry_pending_records_per_tenant: int = Field(500, validation_alias="MESA_QUEUE_MAX_RETRY_PENDING_RECORDS_PER_TENANT")
+    queue_max_single_record_bytes: int = Field(8_388_608, validation_alias="MESA_QUEUE_MAX_SINGLE_RECORD_BYTES")
+    queue_retry_after_seconds: int = Field(5, validation_alias="MESA_QUEUE_RETRY_AFTER_SECONDS")
+
+    @property
+    def queue_admission_policy(self) -> QueueAdmissionPolicy:
+        return QueueAdmissionPolicy(**{
+            field: getattr(self, field)
+            for field in QueueAdmissionPolicy.model_fields
+        })
+
     @model_validator(mode="after")
     def validate_embedding_fallback(self) -> "MesaConfig":
         if self.llm_provider.lower() == "claude" and not self.openai_api_key:
@@ -306,6 +475,8 @@ class MesaConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validate_hard_constraints(self) -> "MesaConfig":
+        # Constructing the typed policy validates all fail-closed queue bounds.
+        self.queue_admission_policy
         if self.hybrid_alpha > 0.5:
             raise ValueError(f"hybrid_alpha MUST be <= 0.5, got {self.hybrid_alpha}")
         if self.hybrid_beta > 0.5:

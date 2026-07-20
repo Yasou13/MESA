@@ -26,6 +26,7 @@ import os
 import secrets
 import sys
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
 
 from dotenv import load_dotenv
@@ -262,6 +263,8 @@ app = FastAPI(
 
 if not _cli_args.no_auth:
     _MESA_API_KEY = os.environ.get("MESA_API_KEY", "")
+    _MESA_PRINCIPAL_ID = os.environ.get("MESA_PRINCIPAL_ID", "")
+    _MESA_PRINCIPAL_TYPE = os.environ.get("MESA_PRINCIPAL_TYPE", "SERVICE")
     if not _MESA_API_KEY:
         logger.warning(
             "MESA_API_KEY is not set. Use --no-auth to bypass, or set "
@@ -290,6 +293,19 @@ if not _cli_args.no_auth:
                     "detail": "Invalid or missing API Key",
                 },
             )
+        if not _MESA_PRINCIPAL_ID:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "unauthorized",
+                    "detail": "API principal is not configured",
+                },
+            )
+        request.state.principal = SimpleNamespace(
+            principal_id=_MESA_PRINCIPAL_ID,
+            principal_type=_MESA_PRINCIPAL_TYPE,
+            status="active",
+        )
         return await call_next(request)
 
 

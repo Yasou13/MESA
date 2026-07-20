@@ -1,2 +1,6 @@
 include mesa_storage/alembic.ini
 recursive-include mesa_storage/alembic *
+global-exclude *.py[cod]
+global-exclude __pycache__
+prune mesa_storage/alembic/__pycache__
+prune mesa_storage/alembic/versions/__pycache__

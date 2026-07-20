@@ -4,8 +4,6 @@ import os
 import uuid
 from typing import Any
 
-from mem0 import Memory
-
 from mesa_evals.benchmark_adapters.base import BaseMemoryClient, QueryResult
 from mesa_memory.config import config
 
@@ -20,6 +18,12 @@ class Mem0Client(BaseMemoryClient):
     """
 
     def __init__(self, adapter: Any = None):
+        try:
+            from mem0 import Memory
+        except ImportError as exc:
+            raise RuntimeError(
+                "Mem0 benchmark adapter is optional; install mesa-memory[benchmarks] to enable it"
+            ) from exc
         mem0_config = {
             "vector_store": {
                 "provider": "qdrant",

@@ -1,0 +1,25 @@
+# Başlangıç Baseline’ı
+
+Bu kayıt, çalışma ortamı ve doğrulama sonuçlarının değişmez başlangıç noktasını tutar. Ölçülmemiş alanlar sonuç uydurulmadan işaretlenir.
+
+| Alan | Değer | Kanıt / Not |
+|---|---|---|
+| Kayıt tarihi | 2026-07-17 | Audit sistemi kurulumu sırasındaki güvenlik kontrolü |
+| Repository kökü | `/home/yasin/Desktop/MESA` | `pwd` |
+| Aktif branch | `audit/production-readiness` | `git status --short --branch` |
+| Başlangıç commit’i | `8798abc90979401d4785cc25d4627517860cb959` | `git rev-parse HEAD` |
+| Git çalışma ağacı | Kullanıcıya ait commit edilmemiş öğeler mevcut; dokunulmadı | Ayrıntılar secret içermeyecek şekilde gerekirse Faz 0’da kaydedilir |
+| İşletim sistemi / ortam | Henüz ölçülmedi | — |
+| Runtime sürümleri | Henüz ölçülmedi | — |
+| Dependency durumu | Henüz ölçülmedi | — |
+| Build sonucu | Henüz ölçülmedi | Build çalıştırılmadı |
+| Test sonucu | Henüz ölçülmedi | Test çalıştırılmadı |
+| Lint sonucu | Henüz ölçülmedi | Lint çalıştırılmadı |
+| Type-check sonucu | Henüz ölçülmedi | Type-check çalıştırılmadı |
+| Runtime sonucu | Henüz ölçülmedi | Servis başlatılmadı |
+
+## Baseline güncelleme kaydı
+
+| Tarih | Alan | Önceki değer | Yeni değer | Kanıt |
+|---|---|---|---|---|
+| — | — | — | — | — |

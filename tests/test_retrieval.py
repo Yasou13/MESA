@@ -38,6 +38,24 @@ def test_query_analyzer_fallback():
         assert isinstance(result, list)
 
 
+def test_query_analyzer_regex_fallback_without_optional_spacy(monkeypatch):
+    import mesa_memory.retrieval.core as core
+
+    monkeypatch.setattr(core, "spacy", None)
+    monkeypatch.setattr(core, "_spacy_import_attempted", False)
+    monkeypatch.setattr(
+        core, "import_module", lambda _: (_ for _ in ()).throw(ImportError())
+    )
+
+    analyzer = core.QueryAnalyzer()
+
+    assert analyzer.nlp is None
+    assert set(analyzer.extract_entities("the contract liability")) == {
+        "contract",
+        "liability",
+    }
+
+
 @pytest.mark.asyncio
 async def test_hybrid_retrieval_cold_start():
     storage = MagicMock()

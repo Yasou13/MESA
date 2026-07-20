@@ -1,9 +1,10 @@
-import os
+"""Manual Mem0 smoke script; intentionally not a pytest collection side effect."""
 
-os.environ["OPENAI_API_KEY"] = (
-    "sk-fake"  # prevent initialization errors if it requires one
-)
-try:
+
+def main() -> None:
+    import os
+
+    os.environ["OPENAI_API_KEY"] = "sk-fake"
     from mem0 import Memory
 
     config = {
@@ -12,14 +13,12 @@ try:
             "config": {"path": "./storage/test_qdrant"},
         }
     }
-    m = Memory.from_config(config_dict=config)
-    res = m.add("I like apples", user_id="user1")
-    print("Add:", res)
-    s = m.search("What do I like?", user_id="user1")
-    print("Search:", s)
-    m.delete_all(user_id="user1")
+    memory = Memory.from_config(config_dict=config)
+    print("Add:", memory.add("I like apples", user_id="user1"))
+    print("Search:", memory.search("What do I like?", user_id="user1"))
+    memory.delete_all(user_id="user1")
     print("Deleted")
-except Exception:
-    import traceback
 
-    traceback.print_exc()
+
+if __name__ == "__main__":
+    main()

@@ -19,6 +19,7 @@ import os
 import shutil
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -306,7 +307,12 @@ class TestPurgeErrors:
     def test_purge_permission_error_returns_403(self, client):
         ac_mock = MagicMock()
         ac_mock.check_access = AsyncMock(return_value=False)
+        ac_mock.check_principal_permission = AsyncMock(return_value=False)
         app = FastAPI()
+        @app.middleware("http")
+        async def attach_principal(request, call_next):
+            request.state.principal = SimpleNamespace(principal_id="principal-a", status="active")
+            return await call_next(request)
         router = create_memory_router(
             get_dao=lambda: MagicMock(),
             get_access_control=lambda: ac_mock,
@@ -324,10 +330,16 @@ class TestPurgeErrors:
     def test_purge_exception_returns_500(self, client):
         ac_mock = MagicMock()
         ac_mock.check_access = AsyncMock(return_value=True)
+        ac_mock.check_principal_permission = AsyncMock(return_value=True)
+        ac_mock.check_principal_session_access = AsyncMock(return_value=True)
         dao_mock = MagicMock()
         dao_mock.purge_memory = AsyncMock(side_effect=RuntimeError("DAO Error"))
 
         app = FastAPI()
+        @app.middleware("http")
+        async def attach_principal(request, call_next):
+            request.state.principal = SimpleNamespace(principal_id="principal-a", status="active")
+            return await call_next(request)
         router = create_memory_router(
             get_dao=lambda: dao_mock,
             get_access_control=lambda: ac_mock,
