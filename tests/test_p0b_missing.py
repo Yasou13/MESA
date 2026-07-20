@@ -1,8 +1,9 @@
+import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 os.environ["MESA_API_KEY"] = "test_key"
 
@@ -25,7 +26,7 @@ def mock_adapter():
 # -------------------------
 # API Server Tests
 # -------------------------
-def test_server_lifespan_health_metrics():
+def test_server_lifespan_health_metrics(tmp_path):
     import mesa_memory.api.server as srv
 
     previous = (srv._MESA_API_KEY, srv._MESA_PRINCIPAL_ID, srv._MESA_PRINCIPAL_STATUS)
@@ -33,40 +34,48 @@ def test_server_lifespan_health_metrics():
     srv._MESA_PRINCIPAL_ID = "test-principal"
     srv._MESA_PRINCIPAL_STATUS = "active"
     try:
+        runtime_lab_root = tmp_path / "mesa-lab"
         runtime_env = {
             "MESA_RUNTIME_PROFILE": "test-isolated",
-            "MESA_STORAGE_ROOT": "/storage/mesa-lab/fast-zero-closure/test-p0b-lifespan",
+            "MESA_RUNTIME_LAB_ROOT": str(runtime_lab_root),
+            "MESA_STORAGE_ROOT": str(runtime_lab_root / "test-p0b-lifespan"),
             "MESA_LOAD_DOTENV": "false",
             "MESA_MODEL_ENABLED": "false",
             "MESA_EXTERNAL_PROVIDER_ENABLED": "false",
         }
         with patch.dict(os.environ, runtime_env, clear=False):
-            with patch("mesa_memory.api.server.MemoryDAO") as mock_dao:
-                mock_dao.return_value.initialize = AsyncMock()
-                mock_dao.return_value.health_check = AsyncMock(return_value={"status": "ok"})
-                with TestClient(app) as client:
+            dao = MagicMock()
+            dao.health_check = AsyncMock(return_value={"status": "ok"})
+
+            async def exercise_http_contract() -> None:
+                srv.state.runtime_profile = srv.load_runtime_profile()
+                srv.state.dao = dao
+                srv.state.worker_supervisor = MagicMock()
+                srv.state.is_ready = True
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(
+                    transport=transport, base_url="http://testserver"
+                ) as client:
                     # B1 FIX: /health and /metrics now require API key
-                    assert client.get("/health").status_code == 401
-                    assert client.get("/metrics").status_code == 401
+                    assert (await client.get("/health")).status_code == 401
+                    assert (await client.get("/metrics")).status_code == 401
                     assert (
-                        client.get(
-                            "/health", headers={"X-API-Key": "test_key"}
-                        ).status_code
-                        == 200
-                    )
+                        await client.get("/health", headers={"X-API-Key": "test_key"})
+                    ).status_code == 200
                     assert (
-                        client.get(
-                            "/metrics", headers={"X-API-Key": "test_key"}
-                        ).status_code
-                        == 200
-                    )
+                        await client.get("/metrics", headers={"X-API-Key": "test_key"})
+                    ).status_code == 200
                     assert (
-                        client.get(
+                        await client.get(
                             "/v3/memory/session/test/context?agent_id=1",
                             headers={"X-API-Key": "wrong"},
-                        ).status_code
-                        == 401
-                    )
+                        )
+                    ).status_code == 401
+
+            try:
+                asyncio.run(exercise_http_contract())
+            finally:
+                srv.state.is_ready = False
     finally:
         (
             srv._MESA_API_KEY,
