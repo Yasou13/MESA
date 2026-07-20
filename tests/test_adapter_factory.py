@@ -6,6 +6,8 @@ from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.factory import AdapterFactory, DeterministicMockAdapter
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
 
+pytestmark = pytest.mark.optional_provider
+
 
 def test_deterministic_mock_adapter():
     adapter = DeterministicMockAdapter()

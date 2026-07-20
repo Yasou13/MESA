@@ -22,7 +22,7 @@ _CGROUP_V2_PATH = "/sys/fs/cgroup/memory.max"
 
 # cgroup "max" sentinel — kernels report this when no limit is set
 _CGROUP_MAX_SENTINEL = "max"
-_RUNTIME_LAB_ROOT = Path("/storage/mesa-lab").resolve()
+_DEFAULT_RUNTIME_LAB_ROOT = Path("/storage/mesa-lab").resolve()
 
 
 class RuntimeProfile(str, Enum):
@@ -34,6 +34,17 @@ class RuntimeProfile(str, Enum):
 
 class RuntimeProfileError(ValueError):
     """Fail-closed runtime configuration error with no secret material."""
+
+
+def _resolve_runtime_lab_root(values: Mapping[str, str]) -> Path:
+    """Return the explicit test-isolated trust boundary without accepting relative paths."""
+    raw_lab_root = values.get("MESA_RUNTIME_LAB_ROOT")
+    if raw_lab_root is None:
+        return _DEFAULT_RUNTIME_LAB_ROOT
+    lab_root = Path(raw_lab_root)
+    if not lab_root.is_absolute():
+        raise RuntimeProfileError("MESA_RUNTIME_LAB_ROOT must be an absolute path")
+    return lab_root.resolve(strict=False)
 
 
 def _parse_runtime_bool(value: str | bool | None, *, name: str, default: bool) -> bool:
@@ -74,8 +85,9 @@ def load_runtime_profile(environ: Mapping[str, str] | None = None) -> RuntimePro
     raw_storage = values.get("MESA_STORAGE_ROOT") or values.get("MESA_STORAGE_PATH")
     if not raw_storage:
         raise RuntimeProfileError("MESA_STORAGE_ROOT is required")
-    storage_root = Path(raw_storage).expanduser().resolve(strict=False)
-    if storage_root in {Path("/"), Path.home().resolve(), Path.cwd().resolve(), _RUNTIME_LAB_ROOT}:
+    raw_storage_path = Path(raw_storage)
+    storage_root = raw_storage_path.expanduser().resolve(strict=False)
+    if storage_root in {Path("/"), Path.home().resolve(), Path.cwd().resolve()}:
         raise RuntimeProfileError("MESA_STORAGE_ROOT is not an allowed runtime storage root")
     load_dotenv_flag = _parse_runtime_bool(values.get("MESA_LOAD_DOTENV"), name="MESA_LOAD_DOTENV", default=False)
     dotenv_raw = values.get("MESA_DOTENV_PATH")
@@ -90,10 +102,15 @@ def load_runtime_profile(environ: Mapping[str, str] | None = None) -> RuntimePro
     }
     api_enabled, worker_enabled = role_defaults[profile]
     if profile is RuntimeProfile.TEST_ISOLATED:
+        if not raw_storage_path.is_absolute():
+            raise RuntimeProfileError("test-isolated MESA_STORAGE_ROOT must be an absolute path")
+        runtime_lab_root = _resolve_runtime_lab_root(values)
+        if storage_root == runtime_lab_root:
+            raise RuntimeProfileError("MESA_STORAGE_ROOT is not an allowed runtime storage root")
         try:
-            storage_root.relative_to(_RUNTIME_LAB_ROOT)
+            storage_root.relative_to(runtime_lab_root)
         except ValueError as exc:
-            raise RuntimeProfileError("test-isolated storage must be under /storage/mesa-lab") from exc
+            raise RuntimeProfileError("test-isolated storage must be under MESA_RUNTIME_LAB_ROOT") from exc
         if load_dotenv_flag or dotenv_path is not None or model_enabled or provider_enabled:
             raise RuntimeProfileError("test-isolated forbids dotenv, model, and external provider")
         worker_enabled = _parse_runtime_bool(values.get("MESA_WORKER_ENABLED"), name="MESA_WORKER_ENABLED", default=False)

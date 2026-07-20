@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
 
+pytestmark = pytest.mark.optional_provider
+
 
 class DummySchema(BaseModel):
     decision: str

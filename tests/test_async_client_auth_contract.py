@@ -51,8 +51,8 @@ async def test_async_sdk_purge_uses_server_api_key_header(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.optional_mcp
 async def test_mcp_forget_memory_uses_configured_agent_and_async_sdk_auth(tmp_path):
-    pytest.importorskip("mcp", reason="MCP optional dependency is not installed in this environment")
     from mesa_mcp import server as mcp_server
 
     policy = AccessControl(policy_path=str(tmp_path / "mcp-rbac.db"))

@@ -51,3 +51,80 @@ def test_test_isolated_never_reads_dotenv_without_explicit_allowance(tmp_path):
     assert profile.load_dotenv is False
     assert profile.model_enabled is False
     assert profile.external_provider_enabled is False
+
+
+def test_test_isolated_default_runtime_lab_root_is_accepted(tmp_path):
+    profile = load_runtime_profile(isolated_env(tmp_path))
+    assert profile.storage_root.is_relative_to(Path('/storage/mesa-lab'))
+
+
+def test_test_isolated_accepts_explicit_runtime_lab_root(tmp_path):
+    lab_root = tmp_path / 'mesa-lab'
+    storage_root = lab_root / 'storage'
+    lab_root.mkdir()
+    profile = load_runtime_profile(
+        isolated_env(
+            tmp_path,
+            MESA_RUNTIME_LAB_ROOT=str(lab_root),
+            MESA_STORAGE_ROOT=str(storage_root),
+        )
+    )
+    assert profile.storage_root == storage_root.resolve()
+
+
+def test_test_isolated_rejects_runtime_lab_root_escapes_and_relative_paths(tmp_path):
+    lab_root = tmp_path / 'mesa-lab'
+    lab_root.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    sibling = tmp_path / 'mesa-lab-sibling' / 'storage'
+
+    with pytest.raises(RuntimeProfileError):
+        load_runtime_profile(
+            isolated_env(
+                tmp_path,
+                MESA_RUNTIME_LAB_ROOT=str(lab_root),
+                MESA_STORAGE_ROOT=str(outside / 'storage'),
+            )
+        )
+    with pytest.raises(RuntimeProfileError):
+        load_runtime_profile(
+            isolated_env(
+                tmp_path,
+                MESA_RUNTIME_LAB_ROOT=str(lab_root),
+                MESA_STORAGE_ROOT=str(sibling),
+            )
+        )
+    with pytest.raises(RuntimeProfileError):
+        load_runtime_profile(
+            isolated_env(
+                tmp_path,
+                MESA_RUNTIME_LAB_ROOT='relative-lab',
+                MESA_STORAGE_ROOT=str(lab_root / 'storage'),
+            )
+        )
+    with pytest.raises(RuntimeProfileError):
+        load_runtime_profile(
+            isolated_env(
+                tmp_path,
+                MESA_RUNTIME_LAB_ROOT=str(lab_root),
+                MESA_STORAGE_ROOT='relative-storage',
+            )
+        )
+
+
+def test_test_isolated_rejects_symlink_escape_from_runtime_lab_root(tmp_path):
+    lab_root = tmp_path / 'mesa-lab'
+    lab_root.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (lab_root / 'storage').symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(RuntimeProfileError):
+        load_runtime_profile(
+            isolated_env(
+                tmp_path,
+                MESA_RUNTIME_LAB_ROOT=str(lab_root),
+                MESA_STORAGE_ROOT=str(lab_root / 'storage'),
+            )
+        )

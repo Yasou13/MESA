@@ -5,7 +5,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["MESA_API_KEY"] = "test_key"
-import openai
 
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
 from mesa_memory.api.server import app, get_embedder
@@ -210,6 +209,7 @@ async def test_consolidation_loop_stop():
 # -------------------------
 
 
+@pytest.mark.optional_provider
 def test_openai_adapter_methods():
     adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
@@ -221,6 +221,7 @@ def test_openai_adapter_methods():
 
 
 @pytest.mark.asyncio
+@pytest.mark.optional_provider
 async def test_openai_adapter_async_methods():
     adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
@@ -233,7 +234,10 @@ async def test_openai_adapter_async_methods():
         assert await adapter.acomplete("prompt") == "Hello"
 
 
+@pytest.mark.optional_provider
 def test_openai_adapter_embed_methods():
+    import openai
+
     adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
     with patch.object(adapter._sync_client.embeddings, "create") as mock_create:
@@ -263,7 +267,10 @@ def test_openai_adapter_embed_methods():
 
 
 @pytest.mark.asyncio
+@pytest.mark.optional_provider
 async def test_openai_adapter_async_embed_methods():
+    import openai
+
     adapter = OpenAICompatibleAdapter(api_key="test_key_123", model_name="test")
 
     with patch.object(

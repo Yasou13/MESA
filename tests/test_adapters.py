@@ -1,3 +1,4 @@
+import asyncio
 import os
 from unittest.mock import MagicMock, patch
 
@@ -6,6 +7,8 @@ from pydantic import BaseModel
 
 from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.ollama import OllamaAdapter
+
+pytestmark = pytest.mark.optional_provider
 
 
 class DummySchema(BaseModel):
@@ -145,14 +148,22 @@ def test_ollama_embed():
 
 @pytest.mark.asyncio
 async def test_ollama_async_methods():
-    adapter = OllamaAdapter()
+    async def run_inline(_executor, function):
+        return function()
+
+    with patch("mesa_memory.adapter.ollama.ollama.Client", return_value=MagicMock()):
+        adapter = OllamaAdapter()
     adapter.complete = MagicMock(return_value="async res")
     adapter.embed = MagicMock(return_value=[0.3])
     adapter.embed_batch = MagicMock(return_value=[[0.3]])
+    loop = asyncio.get_running_loop()
 
-    assert await adapter.acomplete("test") == "async res"
-    assert await adapter.aembed("test") == [0.3]
-    assert await adapter.aembed_batch(["test"]) == [[0.3]]
+    with patch.object(loop, "run_in_executor", side_effect=run_inline) as executor:
+        assert await adapter.acomplete("test") == "async res"
+        assert await adapter.aembed("test") == [0.3]
+        assert await adapter.aembed_batch(["test"]) == [[0.3]]
+
+    assert executor.call_count == 3
 
 
 @patch("mesa_memory.adapter.ollama.count_tokens")

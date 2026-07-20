@@ -3,7 +3,10 @@ import functools
 import logging
 from typing import Optional, Type, Union
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 from pydantic import BaseModel
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -95,6 +98,8 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
         anthropic_api_key: Optional[str] = None,
         openai_api_key: Optional[str] = None,
     ):
+        if anthropic is None:
+            raise RuntimeError("ClaudeAdapter requires mesa-memory[adapters]")
         self.openai_api_key = openai_api_key
         self._sync_anthropic = anthropic.Anthropic(api_key=anthropic_api_key)
         self._async_anthropic = anthropic.AsyncAnthropic(api_key=anthropic_api_key)

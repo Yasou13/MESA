@@ -131,7 +131,11 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Configure isolated runtime path
-        run: echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
+        run: |
+          runtime_lab_root="$RUNNER_TEMP/mesa-lab"
+          mkdir -p "$runtime_lab_root/storage"
+          echo "MESA_RUNTIME_LAB_ROOT=$runtime_lab_root" >> "$GITHUB_ENV"
+          echo "MESA_STORAGE_ROOT=$runtime_lab_root/storage" >> "$GITHUB_ENV"
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.10"
@@ -143,6 +147,7 @@ jobs:
           python -m pytest -q --cov --cov-fail-under=82
           --cov-report=term-missing --cov-report=xml:coverage.xml
           --cov-report=html:htmlcov --cov-report=json:coverage.json
+          -m "not optional_provider and not optional_mcp and not live_external"
           --ignore=tests/test_mem0.py --ignore=tests/go_live_proofs --ignore=tests/bench
       - name: SDK coverage collection contract
         run: python -m pytest --collect-only -q tests/test_async_client_auth_contract.py tests/test_mcp_api_boundary.py
@@ -154,3 +159,26 @@ jobs:
             coverage.json
             htmlcov/
           retention-days: 10
+
+  optional-integrations:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure isolated runtime path
+        run: |
+          runtime_lab_root="$RUNNER_TEMP/mesa-lab"
+          mkdir -p "$runtime_lab_root/storage"
+          echo "MESA_RUNTIME_LAB_ROOT=$runtime_lab_root" >> "$GITHUB_ENV"
+          echo "MESA_STORAGE_ROOT=$runtime_lab_root/storage" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev,adapters,mcp]"
+      - run: python -m pip check
+      - name: Mocked optional provider and MCP integration boundaries
+        run: >-
+          python -m pytest -q
+          -m "(optional_provider or optional_mcp) and not live_external"
