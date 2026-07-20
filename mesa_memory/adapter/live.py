@@ -19,9 +19,10 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.adapter.tokenizer import count_tokens
 
 logger = logging.getLogger("MESA_Adapter")
-_RETRYABLE_OPENAI_ERRORS = (
-    (openai.RateLimitError, openai.APIConnectionError) if openai is not None else ()
-)
+_OPENAI_RATE_LIMIT_ERRORS = (openai.RateLimitError,) if openai is not None else ()
+_OPENAI_CONNECTION_ERRORS = (openai.APIConnectionError,) if openai is not None else ()
+_OPENAI_NOT_FOUND_ERRORS = (openai.NotFoundError,) if openai is not None else ()
+_RETRYABLE_OPENAI_ERRORS = _OPENAI_RATE_LIMIT_ERRORS + _OPENAI_CONNECTION_ERRORS
 
 
 class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
@@ -104,10 +105,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 except json.JSONDecodeError:
                     return schema.model_validate_json(text)
             return text
-        except openai.RateLimitError as e:
+        except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error: %s", e)
             raise
-        except openai.APIConnectionError as e:
+        except _OPENAI_CONNECTION_ERRORS as e:
             logger.error("API connection error: %s", e)
             raise
 
@@ -144,10 +145,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 except json.JSONDecodeError:
                     return schema.model_validate_json(text)
             return text
-        except openai.RateLimitError as e:
+        except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error: %s", e)
             raise
-        except openai.APIConnectionError as e:
+        except _OPENAI_CONNECTION_ERRORS as e:
             logger.error("API connection error: %s", e)
             raise
 
@@ -166,15 +167,15 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 input=text,
             )
             return response.data[0].embedding
-        except openai.NotFoundError:
+        except _OPENAI_NOT_FOUND_ERRORS:
             logger.debug("Using local embedding fallback for Groq")
             from mesa_memory.adapter.claude import _local_embed
 
             return _local_embed(text)
-        except openai.RateLimitError as e:
+        except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during embedding: %s", e)
             raise
-        except openai.APIConnectionError as e:
+        except _OPENAI_CONNECTION_ERRORS as e:
             logger.error("API connection error during embedding: %s", e)
             raise
 
@@ -193,7 +194,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 input=text,
             )
             return response.data[0].embedding
-        except openai.NotFoundError:
+        except _OPENAI_NOT_FOUND_ERRORS:
             import asyncio
             import functools
 
@@ -203,10 +204,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             return await loop.run_in_executor(
                 None, functools.partial(_local_embed, text)
             )
-        except openai.RateLimitError as e:
+        except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during async embedding: %s", e)
             raise
-        except openai.APIConnectionError as e:
+        except _OPENAI_CONNECTION_ERRORS as e:
             logger.error("API connection error during async embedding: %s", e)
             raise
 
@@ -227,23 +228,21 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             return [
                 data.embedding for data in sorted(response.data, key=lambda x: x.index)
             ]
-        except openai.NotFoundError:
+        except _OPENAI_NOT_FOUND_ERRORS:
             from mesa_memory.adapter.claude import _local_embed_batch
 
             return _local_embed_batch(texts)
-        except openai.RateLimitError as e:
+        except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during batch embedding: %s", e)
             raise
-        except openai.APIConnectionError as e:
+        except _OPENAI_CONNECTION_ERRORS as e:
             logger.error("API connection error during batch embedding: %s", e)
             raise
 
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        retry=retry_if_exception_type(
-            (openai.RateLimitError, openai.APIConnectionError)
-        ),
+        retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
         model = kwargs.get("model", "text-embedding-3-small")
@@ -255,7 +254,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             return [
                 data.embedding for data in sorted(response.data, key=lambda x: x.index)
             ]
-        except openai.NotFoundError:
+        except _OPENAI_NOT_FOUND_ERRORS:
             import asyncio
             import functools
 
@@ -265,10 +264,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             return await loop.run_in_executor(
                 None, functools.partial(_local_embed_batch, texts)
             )
-        except openai.RateLimitError as e:
+        except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during async batch embedding: %s", e)
             raise
-        except openai.APIConnectionError as e:
+        except _OPENAI_CONNECTION_ERRORS as e:
             logger.error("API connection error during async batch embedding: %s", e)
             raise
 
