@@ -33,8 +33,6 @@ permissions:
 
 env:
   MESA_RUNTIME_PROFILE: test-isolated
-  MESA_STORAGE_ROOT: ${{ runner.temp }}/mesa-storage
-  MESA_COLD_PATH_TRACE_PATH: ${{ runner.temp }}/mesa-trace/cold-path.jsonl
   MESA_LOAD_DOTENV: "false"
   MESA_MODEL_ENABLED: "false"
   MESA_EXTERNAL_PROVIDER_ENABLED: "false"
@@ -49,6 +47,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure isolated runtime paths
+        run: |
+          echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
+          echo "MESA_COLD_PATH_TRACE_PATH=$RUNNER_TEMP/mesa-trace/cold-path.jsonl" >> "$GITHUB_ENV"
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.10"
@@ -80,6 +82,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure isolated runtime paths
+        run: |
+          echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
+          echo "MESA_COLD_PATH_TRACE_PATH=$RUNNER_TEMP/mesa-trace/cold-path.jsonl" >> "$GITHUB_ENV"
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.10"
@@ -113,6 +119,10 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure isolated runtime paths
+        run: |
+          echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
+          echo "MESA_COLD_PATH_TRACE_PATH=$RUNNER_TEMP/mesa-trace/cold-path.jsonl" >> "$GITHUB_ENV"
       - name: Build, inspect, and smoke the non-root image
         run: |
           set -euo pipefail
@@ -152,6 +162,10 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure isolated runtime paths
+        run: |
+          echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
+          echo "MESA_COLD_PATH_TRACE_PATH=$RUNNER_TEMP/mesa-trace/cold-path.jsonl" >> "$GITHUB_ENV"
       - name: Render, build, start, restart, and collect topology logs
         env:
           MESA_API_KEY: ci-non-secret-placeholder
@@ -186,6 +200,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure isolated runtime paths
+        run: |
+          echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
+          echo "MESA_COLD_PATH_TRACE_PATH=$RUNNER_TEMP/mesa-trace/cold-path.jsonl" >> "$GITHUB_ENV"
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.10"
