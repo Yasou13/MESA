@@ -17,13 +17,15 @@ Refactored into focused modules following the Single Responsibility Principle:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
@@ -54,78 +56,416 @@ logger = logging.getLogger("MESA_Consolidation")
 # Persistent Queue
 # ---------------------------------------------------------------------------
 class PersistentQueue:
-    """Append-only JSONL queue with automatic file rotation.
+    """Durable JSONL DLQ with file-locked claim/ack/nack semantics.
 
-    E3 FIX: Implements a max file size cap to prevent disk exhaustion
-    under sustained failure conditions.  When the queue file exceeds
-    ``_MAX_QUEUE_BYTES``, it is rotated: the current file is renamed
-    with a ``.bak`` suffix and a fresh file is started.
+    This retains the configured JSONL representation but records ownership and
+    retry metadata in each entry.  It is deliberately not a second raw-log
+    claim implementation: raw logs keep the SQLite WAVE-003 protocol.
     """
 
-    # 100 MB rotation threshold — enough for ~500K DLQ entries
     _MAX_QUEUE_BYTES = 100 * 1024 * 1024
+    _MAX_ATTEMPTS = 4
 
-    def __init__(self, filepath: str):
+    def __init__(
+        self,
+        filepath: str,
+        *,
+        trusted_root: str | None = None,
+        require_completion_receipt: bool = False,
+        _test_crash_hook: Callable[[str], None] | None = None,
+    ):
         self.filepath = filepath
-        os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
+        self.receipt_filepath = filepath + ".receipts.jsonl"
+        self._trusted_root_input = Path(trusted_root) if trusted_root else None
+        self._trusted_root = self._trusted_root_input.resolve(strict=False) if self._trusted_root_input else None
+        self._require_completion_receipt = require_completion_receipt
+        self._file_lock = threading.Lock()
+        # This hook has no environment/configuration path and is available only
+        # to an explicit in-process test harness; production callers cannot
+        # activate crash injection accidentally.
+        self._test_crash_hook = _test_crash_hook
+        self._validate_path_policy()
+        os.makedirs(os.path.dirname(self.filepath), mode=0o700, exist_ok=True)
 
-    async def aappend(self, item: dict):
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self.append, item)
-
-    def append(self, item: dict):
-        # E3 FIX: Rotate if file exceeds size cap
+    def _validate_path_policy(self) -> None:
+        """Fail closed for configured queue paths; legacy callers are not upgraded silently."""
+        if self._trusted_root is None:
+            return
+        root = self._trusted_root
+        repo = Path.cwd().resolve()
+        home = Path.home().resolve()
+        raw = Path(self.filepath)
+        if not raw.is_absolute() or not str(raw) or ".." in raw.parts:
+            raise ValueError("queue path must be an absolute non-traversing path")
+        if root in {Path('/'), home, repo} or self._trusted_root_input is None or self._trusted_root_input.is_symlink():
+            raise ValueError("trusted queue root is forbidden or symlinked")
+        target = raw.resolve(strict=False)
+        receipt_target = Path(self.receipt_filepath).resolve(strict=False)
         try:
-            if (
-                os.path.exists(self.filepath)
-                and os.path.getsize(self.filepath) > self._MAX_QUEUE_BYTES
-            ):
-                bak_path = self.filepath + ".bak"
-                # Overwrite any existing .bak — keep only one generation
-                if os.path.exists(bak_path):
-                    os.remove(bak_path)
-                os.rename(self.filepath, bak_path)
-                logger.info(
-                    "QUEUE_ROTATED | file=%s size_exceeded=%d",
-                    self.filepath,
-                    self._MAX_QUEUE_BYTES,
-                )
-        except OSError as exc:
-            logger.warning("QUEUE_ROTATION_FAILED | error=%s", exc)
+            target.relative_to(root)
+            receipt_target.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("queue path escapes trusted root") from exc
+        for parent in (root, *target.parents):
+            if parent == root.parent:
+                break
+            if parent.exists() and parent.is_symlink():
+                raise ValueError("queue path has a symlinked parent")
+        if raw.exists() and raw.is_symlink():
+            raise ValueError("queue target must not be a symlink")
+        receipt_path = Path(self.receipt_filepath)
+        if receipt_path.exists() and receipt_path.is_symlink():
+            raise ValueError("queue receipt target must not be a symlink")
 
-        with open(self.filepath, "a") as f:
-            f.write(json.dumps(item) + "\n")
+    def _read_completion_receipts(self) -> dict[str, dict]:
+        self._validate_path_policy()
+        receipts: dict[str, dict] = {}
+        try:
+            with open(self.receipt_filepath, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    receipt = json.loads(line)
+                    queue_id = receipt.get("queue_record_id")
+                    if queue_id:
+                        receipts[queue_id] = receipt
+        except FileNotFoundError:
+            pass
+        return receipts
 
-    async def clear(self):
-        def _clear():
-            with open(self.filepath, "w") as f:  # noqa: F841
+    def _write_completion_receipt_locked(
+        self, claim: dict, *, worker_id: str, outcome: str
+    ) -> dict:
+        receipts = self._read_completion_receipts()
+        queue_id = claim["queue_id"]
+        existing = receipts.get(queue_id)
+        if existing is not None:
+            return existing
+        receipt = {
+            "receipt_id": os.urandom(16).hex(),
+            "queue_record_id": queue_id,
+            "dispatch_id": claim.get("dispatch_id", queue_id),
+            "mutation_id": claim.get("mutation_id") or claim.get("idempotency_key") or queue_id,
+            "idempotency_key": claim.get("idempotency_key") or f"dlq:{queue_id}",
+            "tenant_id": claim.get("tenant_id") or claim.get("agent_id"),
+            "agent_id": claim.get("agent_id"),
+            "worker_id": worker_id,
+            "claim_token": claim["claim_token"],
+            "attempt_number": int(claim.get("attempt_count", 0)),
+            "outcome": outcome,
+            "side_effect_verification": True,
+            "completed_at": time.time(),
+            "receipt_version": 1,
+            "error_class": None,
+        }
+        with open(self.receipt_filepath, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(receipt, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        directory_fd = os.open(os.path.dirname(os.path.abspath(self.receipt_filepath)), os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        self._inject_test_crash("after_receipt_fsync_before_ack")
+        return receipt
+
+    def _inject_test_crash(self, point: str) -> None:
+        if self._test_crash_hook is not None:
+            self._test_crash_hook(point)
+
+    @staticmethod
+    def _now() -> float:
+        return time.time()
+
+    @staticmethod
+    def _expired(value: object, now: float) -> bool:
+        try:
+            return float(value) <= now
+        except (TypeError, ValueError):
+            return True
+
+    def _normalize(self, item: dict) -> dict:
+        record = dict(item)
+        record.setdefault("queue_id", os.urandom(16).hex())
+        record.setdefault("state", "PENDING")
+        record.setdefault("attempt_count", 0)
+        record.setdefault("claimed_by", None)
+        record.setdefault("claim_token", None)
+        record.setdefault("lease_expires_at", None)
+        # Never persist raw exception text in the DLQ file.
+        record.pop("error", None)
+        record.setdefault("error_summary", "failure recorded")
+        record.setdefault("last_error_type", None)
+        return record
+
+    def _quarantine_malformed_line(self, line_number: int, raw_line: bytes, error: Exception) -> None:
+        """Persist forensic metadata without retaining a potentially sensitive payload."""
+        event = {
+            "line_number": line_number,
+            "byte_length": len(raw_line),
+            "sha256": hashlib.sha256(raw_line).hexdigest(),
+            "error_type": type(error).__name__,
+        }
+        quarantine = self.filepath + ".malformed.jsonl"
+        with open(quarantine, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def _locked_records(self) -> tuple[object, list[dict]]:
+        import fcntl
+
+        self._validate_path_policy()
+        lock_handle = open(self.filepath + ".lock", "a+")
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            records: list[dict] = []
+            malformed = False
+            try:
+                with open(self.filepath, "rb") as handle:
+                    for line_number, raw_line in enumerate(handle, start=1):
+                        if not raw_line.strip():
+                            continue
+                        try:
+                            decoded = raw_line.decode("utf-8")
+                            record = json.loads(decoded)
+                            if not isinstance(record, dict):
+                                raise ValueError("DLQ record must be a JSON object")
+                            records.append(self._normalize(record))
+                        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                            self._quarantine_malformed_line(line_number, raw_line, exc)
+                            malformed = True
+            except FileNotFoundError:
                 pass
+            if malformed:
+                # Valid records remain available; malformed input is durably
+                # quarantined and removed from the live replay file once.
+                self._rewrite_locked(records)
+        except Exception:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            lock_handle.close()
+            raise
+        return lock_handle, records
 
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _clear)
+    def _rewrite_locked(self, records: list[dict]) -> None:
+        self._validate_path_policy()
+        temporary = self.filepath + ".tmp"
+        self._inject_test_crash("before_serialization")
+        serialized = [json.dumps(record, sort_keys=True) + "\n" for record in records]
+        self._inject_test_crash("after_serialization_before_file_open")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            self._inject_test_crash("after_file_open_before_write")
+            for line in serialized:
+                if self._test_crash_hook is not None:
+                    self._inject_test_crash("before_write")
+                handle.write(line)
+                self._inject_test_crash("after_write_before_flush")
+            handle.flush()
+            self._inject_test_crash("after_flush_before_fsync")
+            os.fsync(handle.fileno())
+            self._inject_test_crash("after_fsync_before_close")
+        self._inject_test_crash("after_close_before_rename")
+        os.replace(temporary, self.filepath)
+        self._inject_test_crash("after_rename_before_directory_fsync")
+        directory_fd = os.open(os.path.dirname(os.path.abspath(self.filepath)), os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        self._inject_test_crash("after_directory_fsync")
 
-    async def alen(self):
-        def _len():
+    @staticmethod
+    def _unlock(lock_handle: object) -> None:
+        import fcntl
+
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        lock_handle.close()
+
+    async def aappend(self, item: dict) -> None:
+        await asyncio.get_running_loop().run_in_executor(None, self.append, item)
+
+    def append(self, item: dict) -> None:
+        with self._file_lock:
+            lock_handle, records = self._locked_records()
             try:
-                with open(self.filepath, "r") as f:
-                    return sum(1 for line in f if line.strip())
-            except FileNotFoundError:
-                return 0
+                if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > self._MAX_QUEUE_BYTES:
+                    raise RuntimeError("DLQ capacity limit reached")
+                record = self._normalize(item)
+                if any(existing["queue_id"] == record["queue_id"] for existing in records):
+                    raise ValueError("duplicate DLQ queue_id")
+                records.append(record)
+                self._rewrite_locked(records)
+            finally:
+                self._unlock(lock_handle)
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _len)
+    async def aclaim(self, *, worker_id: str, limit: int = 10, lease_seconds: int = 300) -> list[dict]:
+        if not worker_id or not 1 <= limit <= 1000 or not 1 <= lease_seconds <= 3600:
+            raise ValueError("invalid DLQ claim bounds")
+        return await asyncio.get_running_loop().run_in_executor(
+            None, self._claim, worker_id, limit, lease_seconds
+        )
 
-    async def agetitem(self, index):
-        def _getitem(idx):
+    def _claim(self, worker_id: str, limit: int, lease_seconds: int) -> list[dict]:
+        now = self._now()
+        claimed: list[dict] = []
+        with self._file_lock:
+            lock_handle, records = self._locked_records()
             try:
-                with open(self.filepath, "r") as f:
-                    lines = [json.loads(line) for line in f if line.strip()]
-                return lines[idx]
-            except FileNotFoundError:
-                raise IndexError("Queue is empty")
+                for record in records:
+                    eligible = record["state"] == "PENDING" or (
+                        record["state"] == "PROCESSING" and self._expired(record.get("lease_expires_at"), now)
+                    )
+                    if not eligible or len(claimed) >= limit:
+                        continue
+                    record["state"] = "PROCESSING"
+                    record["claimed_by"] = worker_id
+                    record["claim_token"] = os.urandom(16).hex()
+                    record["lease_expires_at"] = now + lease_seconds
+                    record["attempt_count"] = int(record.get("attempt_count", 0)) + 1
+                    claimed.append(dict(record))
+                self._rewrite_locked(records)
+            finally:
+                self._unlock(lock_handle)
+        return claimed
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _getitem, index)
+    async def aack(self, items: list[dict], *, worker_id: str) -> bool:
+        return await asyncio.get_running_loop().run_in_executor(None, self._ack, items, worker_id)
+
+    def _ack(self, items: list[dict], worker_id: str) -> bool:
+        wanted = {(item.get("queue_id"), item.get("claim_token")) for item in items}
+        if not wanted:
+            return True
+        with self._file_lock:
+            lock_handle, records = self._locked_records()
+            try:
+                matched = {
+                    (record.get("queue_id"), record.get("claim_token"))
+                    for record in records
+                    if record.get("state") == "PROCESSING" and record.get("claimed_by") == worker_id
+                }
+                if not wanted.issubset(matched):
+                    return False
+                if self._require_completion_receipt:
+                    receipts = self._read_completion_receipts()
+                    if any(queue_id not in receipts for queue_id, _ in wanted):
+                        return False
+                records = [record for record in records if (record.get("queue_id"), record.get("claim_token")) not in wanted]
+                self._rewrite_locked(records)
+                return True
+            finally:
+                self._unlock(lock_handle)
+
+    async def acomplete(
+        self,
+        item: dict,
+        *,
+        worker_id: str,
+        outcome: str = "SUCCEEDED",
+        side_effect_verified: bool,
+    ) -> bool:
+        """Durably receipt one verified side effect before fenced ACK."""
+        return await asyncio.get_running_loop().run_in_executor(
+            None, self._complete, item, worker_id, outcome, side_effect_verified
+        )
+
+    def _complete(
+        self, item: dict, worker_id: str, outcome: str, side_effect_verified: bool
+    ) -> bool:
+        if not side_effect_verified:
+            return False
+        identity = (item.get("queue_id"), item.get("claim_token"))
+        with self._file_lock:
+            lock_handle, records = self._locked_records()
+            try:
+                match = next(
+                    (
+                        record
+                        for record in records
+                        if (record.get("queue_id"), record.get("claim_token")) == identity
+                        and record.get("state") == "PROCESSING"
+                        and record.get("claimed_by") == worker_id
+                    ),
+                    None,
+                )
+                if match is None:
+                    return False
+                self._write_completion_receipt_locked(match, worker_id=worker_id, outcome=outcome)
+                records = [record for record in records if record is not match]
+                self._rewrite_locked(records)
+                return True
+            finally:
+                self._unlock(lock_handle)
+
+    async def acompletion_receipt(self, queue_id: str) -> dict | None:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, lambda: self._read_completion_receipts().get(queue_id)
+        )
+
+    async def areconcile_receipted_claim(self, item: dict, *, worker_id: str) -> bool:
+        """After restart, ACK a current claim whose prior durable receipt is valid."""
+        receipt = await self.acompletion_receipt(str(item.get("queue_id", "")))
+        if receipt is None or receipt.get("side_effect_verification") is not True:
+            return False
+        return await self.aack([item], worker_id=worker_id)
+
+    async def anack(self, items: list[dict], *, worker_id: str, error_type: str) -> bool:
+        return await asyncio.get_running_loop().run_in_executor(None, self._nack, items, worker_id, error_type)
+
+    def _nack(self, items: list[dict], worker_id: str, error_type: str) -> bool:
+        wanted = {(item.get("queue_id"), item.get("claim_token")) for item in items}
+        if not wanted:
+            return True
+        with self._file_lock:
+            lock_handle, records = self._locked_records()
+            try:
+                seen: set[tuple[object, object]] = set()
+                for record in records:
+                    identity = (record.get("queue_id"), record.get("claim_token"))
+                    if identity not in wanted:
+                        continue
+                    if record.get("state") != "PROCESSING" or record.get("claimed_by") != worker_id:
+                        return False
+                    record["last_error_type"] = error_type[:80]
+                    record["claimed_by"] = None
+                    record["claim_token"] = None
+                    record["lease_expires_at"] = None
+                    record["state"] = "BLOCKED" if int(record["attempt_count"]) >= self._MAX_ATTEMPTS else "PENDING"
+                    seen.add(identity)
+                if seen != wanted:
+                    return False
+                self._rewrite_locked(records)
+                return True
+            finally:
+                self._unlock(lock_handle)
+
+    async def aremove_items(self, items: list[dict]) -> None:
+        """Compatibility alias: only an owned claim may be acknowledged."""
+        if not items:
+            return
+        worker_id = items[0].get("claimed_by")
+        if not worker_id or not await self.aack(items, worker_id=worker_id):
+            raise RuntimeError("DLQ compatibility removal requires an owned claim")
+
+    async def alen(self) -> int:
+        def _len() -> int:
+            with self._file_lock:
+                lock_handle, records = self._locked_records()
+                try:
+                    return len(records)
+                finally:
+                    self._unlock(lock_handle)
+        return await asyncio.get_running_loop().run_in_executor(None, _len)
+
+    async def agetitem(self, index: int) -> dict:
+        def _getitem() -> dict:
+            with self._file_lock:
+                lock_handle, records = self._locked_records()
+                try:
+                    return records[index]
+                finally:
+                    self._unlock(lock_handle)
+        return await asyncio.get_running_loop().run_in_executor(None, _getitem)
 
 
 # ---------------------------------------------------------------------------
@@ -215,8 +555,10 @@ class ConsolidationLoop:
         _dl_path = Path(config.dead_letter_queue_path)
         _hr_path.parent.mkdir(parents=True, exist_ok=True)
         _dl_path.parent.mkdir(parents=True, exist_ok=True)
-        self.human_review_queue = PersistentQueue(str(_hr_path))
-        self.dead_letter_queue = PersistentQueue(str(_dl_path))
+        self.human_review_queue = PersistentQueue(str(_hr_path), trusted_root=config.storage_path)
+        self.dead_letter_queue = PersistentQueue(
+            str(_dl_path), trusted_root=config.storage_path, require_completion_receipt=True
+        )
 
         # Concurrency Control: Bound concurrent LLM API calls to prevent 429 Too Many Requests
         self._llm_semaphore = asyncio.Semaphore(5)
@@ -369,6 +711,7 @@ class ConsolidationLoop:
                     await self.dead_letter_queue.aappend(
                         {
                             "cmb_id": record.get("cmb_id", record.get("id", "")),
+                            "agent_id": record.get("agent_id", self._agent_id),
                             "error": str(exc),
                         }
                     )
@@ -383,6 +726,7 @@ class ConsolidationLoop:
                     await self.dead_letter_queue.aappend(
                         {
                             "cmb_id": record.get("cmb_id", record.get("id", "")),
+                            "agent_id": record.get("agent_id", self._agent_id),
                             "error": str(exc),
                         }
                     )
@@ -398,6 +742,7 @@ class ConsolidationLoop:
                     await self.dead_letter_queue.aappend(
                         {
                             "cmb_id": record.get("cmb_id", record.get("id", "")),
+                            "agent_id": record.get("agent_id", self._agent_id),
                             "error": f"unexpected: {exc}",
                         }
                     )
@@ -473,6 +818,7 @@ class ConsolidationLoop:
                 await self.dead_letter_queue.aappend(
                     {
                         "cmb_id": record.get("cmb_id", record.get("id", "")),
+                        "agent_id": record.get("agent_id", self._agent_id),
                         "error": "Extraction failed after retries: " + str(exc),
                     }
                 )
@@ -483,6 +829,7 @@ class ConsolidationLoop:
                 await self.dead_letter_queue.aappend(
                     {
                         "cmb_id": record.get("cmb_id", record.get("id", "")),
+                        "agent_id": record.get("agent_id", self._agent_id),
                         "error": "Extraction unexpected error: " + str(exc),
                     }
                 )
@@ -612,72 +959,65 @@ async def start_dlq_worker(
     sleep_interval: int = 60,
     batch_size: int = 10,
 ):
-    """
-    Background worker that periodically drains the Dead Letter Queue (DLQ),
-    fetches the original records from the database, and attempts to re-process them.
-    """
+    """Replay only leased DLQ records and retain unverified outcomes."""
+    worker_id = f"dlq-worker:{agent_id}"
     logger.info("Starting DLQ re-processing background worker...")
     while True:
         try:
-            dlq_len = await consolidation_loop.dead_letter_queue.alen()
-            if dlq_len == 0:
-                await asyncio.sleep(sleep_interval)
-                continue
-
-            logger.info(
-                "DLQ worker found %d items. Attempting re-processing...", dlq_len
+            claims = await consolidation_loop.dead_letter_queue.aclaim(
+                worker_id=worker_id, limit=batch_size
             )
-
-            # Read items up to batch_size
-            items_to_process = []
-            for i in range(min(dlq_len, batch_size)):
-                try:
-                    item = await consolidation_loop.dead_letter_queue.agetitem(i)
-                    items_to_process.append(item)
-                except IndexError:
-                    break
-
-            if not items_to_process:
+            if not claims:
                 await asyncio.sleep(sleep_interval)
                 continue
-
-            # Clear the queue since we are processing this batch (in a real system we'd pop,
-            # but PersistentQueue only has clear. We just clear it; failed items will be re-appended).
-            await consolidation_loop.dead_letter_queue.clear()
-
-            # For remaining items beyond batch size, put them back
-            if dlq_len > batch_size:
-                for i in range(batch_size, dlq_len):
-                    try:
-                        leftover = await consolidation_loop.dead_letter_queue.agetitem(
-                            i
+            batch_records: list[dict] = []
+            replayable_claims: list[dict] = []
+            for claim in claims:
+                if await consolidation_loop.dead_letter_queue.areconcile_receipted_claim(
+                    claim, worker_id=worker_id
+                ):
+                    continue
+                record_agent_id = claim.get("agent_id")
+                cmb_id = claim.get("cmb_id")
+                if not record_agent_id or not cmb_id:
+                    await consolidation_loop.dead_letter_queue.anack(
+                        [claim], worker_id=worker_id, error_type="InvalidDLQMetadata"
+                    )
+                    continue
+                record = await dao.get_memory_by_id(record_agent_id, cmb_id)
+                if record is None:
+                    await consolidation_loop.dead_letter_queue.anack(
+                        [claim], worker_id=worker_id, error_type="RecordNotFound"
+                    )
+                    continue
+                batch_records.append(record)
+                replayable_claims.append(claim)
+            for record, claim in zip(batch_records, replayable_claims):
+                try:
+                    await consolidation_loop.run_batch([record])
+                    verified = await dao.get_memory_by_id(
+                        claim["agent_id"], claim["cmb_id"]
+                    )
+                    side_effect_verified = bool(
+                        verified and verified.get("is_consolidated")
+                    )
+                    if not await consolidation_loop.dead_letter_queue.acomplete(
+                        claim,
+                        worker_id=worker_id,
+                        outcome="SUCCEEDED",
+                        side_effect_verified=side_effect_verified,
+                    ):
+                        await consolidation_loop.dead_letter_queue.anack(
+                            [claim], worker_id=worker_id, error_type="UnverifiedRecordOutcome"
                         )
-                        await consolidation_loop.dead_letter_queue.aappend(leftover)
-                    except IndexError:
-                        break
-
-            # Fetch original records
-            batch_records = []
-            for item in items_to_process:
-                cmb_id = item.get("cmb_id")
-                # Wait, getting agent_id: we'll try the default agent_id since DLQ doesn't store it
-                # If get_memory_by_id needs exact agent_id, we just use the one passed or try to find it.
-                record = await dao.get_memory_by_id(agent_id, cmb_id)
-                if record:
-                    batch_records.append(record)
-
-            if batch_records:
-                logger.info(
-                    "DLQ worker successfully fetched %d records for re-processing.",
-                    len(batch_records),
-                )
-                await consolidation_loop.run_batch(batch_records)
-
+                except Exception as exc:
+                    await consolidation_loop.dead_letter_queue.anack(
+                        [claim], worker_id=worker_id, error_type=type(exc).__name__
+                    )
             await asyncio.sleep(sleep_interval)
-
         except asyncio.CancelledError:
             logger.info("DLQ worker cancelled, shutting down.")
             break
-        except Exception as e:
-            logger.error(f"Error in DLQ worker: {e}", exc_info=True)
+        except Exception as exc:
+            logger.error("DLQ worker failure type=%s", type(exc).__name__, exc_info=True)
             await asyncio.sleep(sleep_interval)

@@ -1,188 +1,133 @@
-# Installation Guide
+# Installation and operator runbook
 
-## Deployment Modes
+This guide uses the current fail-closed runtime profiles. It never loads a
+repository `.env` automatically, starts Ollama, or enables an external model
+provider. Keep production credentials in a secret manager; do not commit them.
 
-MESA supports two deployment profiles. Choose based on your hardware and use case.
+## Requirements and clean install
 
-### Lightweight API Mode (~200 MB)
-
-**Best for:** API servers, CI pipelines, quick prototyping, and environments without GPU access.
-
-Uses pre-trained LLM providers (Groq, Claude, Ollama) for extraction and skips the local REBEL model entirely. All triplet extraction is delegated to remote LLM calls.
-
-```bash
-# Clone and set up
-git clone https://github.com/Yasou13/MESA.git
-cd MESA
-python3 -m venv venv && source venv/bin/activate
-
-# Install lightweight dependencies
-pip install -r requirements-core.txt
-
-# If you need external LLM APIs (Groq, OpenAI, Anthropic, Ollama), also install:
-pip install .[adapters]
-```
-
-**What's included:**
-- SQLite (aiosqlite) for raw log persistence
-- LanceDB for vector similarity search
-- NetworkX for in-memory knowledge graph
-- FastAPI + Uvicorn for REST API
-- Prometheus client for observability
-- LLM provider SDKs (Anthropic, OpenAI, Ollama, Groq)
-
-**What's NOT included:**
-- PyTorch / Transformers (no local model inference)
-- REBEL extraction model (1.8 GB download skipped)
-- spaCy language models
-
----
-
-### Full ML Mode (~3 GB)
-
-**Best for:** Production deployments with GPU access, offline environments, and maximum extraction throughput.
-
-Includes the local REBEL seq2seq model for zero-cost triplet extraction, with LLM fallback for records REBEL cannot process.
+- Python 3.10 or newer.
+- Docker and Docker Compose are optional and required only for the Compose
+  deployment instructions.
 
 ```bash
-# Clone and set up
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-python3 -m venv venv && source venv/bin/activate
-
-# Install full ML dependencies
-pip install -r requirements-ml.txt
-
-# Download the spaCy multilingual NER model
-python -m spacy download xx_ent_wiki_sm
+python3 -m venv venv
+. venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m pip check
 ```
 
-**Additional dependencies:**
-- PyTorch (CPU or CUDA)
-- Transformers (Hugging Face)
-- Babelscape/rebel-large model (auto-downloaded on first use)
-- spaCy with `xx_ent_wiki_sm` model
-- scikit-learn, scipy, pyod (anomaly detection)
+`pyproject.toml` is the canonical dependency definition. Optional adapters and
+benchmark integrations are not needed for the core runtime or CI profile.
 
-> [!TIP]
-> If running on a machine with an NVIDIA GPU, install the CUDA-enabled PyTorch variant for 10–50× faster REBEL extraction:
-> ```bash
-> pip install torch --index-url https://download.pytorch.org/whl/cu121
-> ```
+## Environment template
 
----
-
-## Environment Variables
-
-MESA uses `python-dotenv` to load configuration from a `.env` file. Copy the example to get started:
+Copy the template only to define variable names; replace the placeholders using
+your secret manager and do not check the result into version control.
 
 ```bash
 cp .env.example .env
 ```
 
-### Required Variables
-
-| Variable | Description | Example |
-|---|---|---|
-| `MESA_LLM_PROVIDER` | Active LLM provider | `openai_compatible`, `claude`, `ollama`, `mock` |
-| `LLM_API_KEY` | API key for the selected provider | `gsk_abc123...` |
-| `LLM_BASE_URL` | Base URL for OpenAI-compatible endpoints | `https://api.groq.com/openai/v1` |
-| `LLM_MODEL_NAME` | Model identifier | `llama-3.1-8b-instant` |
-
-### Optional Variables
-
-| Variable | Description | Default |
-|---|---|---|
-| `MESA_MAX_RAM_MB` | Override automatic RAM detection (MB) | Auto-detected |
-| `MESA_REBEL_DEVICE` | Force REBEL model device | `cpu` (auto-detects CUDA) |
-| `MESA_MAX_BATCH_TOKENS` | Max tokens per consolidation batch | `6000` |
-| `MESA_ECOD_ANOMALY_THRESHOLD` | Novelty detection sensitivity (0–1) | `0.80` |
-
-### Provider-Specific Configuration
-
-#### Groq (Recommended for Free Tier)
-
-```env
-MESA_LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://api.groq.com/openai/v1
-LLM_API_KEY=gsk_your_groq_key_here
-LLM_MODEL_NAME=llama-3.1-8b-instant
-```
-
-#### Claude (Anthropic)
-
-```env
-MESA_LLM_PROVIDER=claude
-LLM_API_KEY=sk-ant-your_anthropic_key_here
-```
-
-#### Ollama (Local, Self-Hosted)
-
-```env
-MESA_LLM_PROVIDER=ollama
-LLM_MODEL_NAME=mistral
-```
-
-> [!NOTE]
-> Ensure Ollama is running locally (`ollama serve`) before starting the MESA API.
-
-#### Mock (Development / Testing)
-
-```env
-MESA_LLM_PROVIDER=mock
-```
-
-No API key required. Uses deterministic SHA-256 embeddings and simplified triplet extraction. Ideal for CI and local development.
-
----
-
-## Docker Deployment
-
-### Build and Run
+The runtime requires these explicit values:
 
 ```bash
+export MESA_RUNTIME_PROFILE=api-only
+export MESA_STORAGE_ROOT=/srv/mesa/data
+export MESA_LOAD_DOTENV=false
+export MESA_MODEL_ENABLED=false
+export MESA_EXTERNAL_PROVIDER_ENABLED=false
+export MESA_API_KEY="$(secret-manager read mesa-api-key)"
+export MESA_PRINCIPAL_ID=service-api
+export MESA_PRINCIPAL_TYPE=SERVICE
+export MESA_PRINCIPAL_STATUS=active
+```
+
+`MESA_STORAGE_ROOT` must be an application-owned writable directory, not the
+repository root, home directory, or filesystem root. The `test-isolated`
+profile is reserved for paths under `/storage/mesa-lab`.
+
+## API-only and worker-only processes
+
+Start the API role without workers:
+
+```bash
+export MESA_RUNTIME_PROFILE=api-only
+python -m mesa_memory.runtime_entrypoint
+```
+
+In a separate terminal, start only durable worker recovery with the same
+storage root and credentials:
+
+```bash
+export MESA_RUNTIME_PROFILE=worker-only
+python -m mesa_memory.runtime_entrypoint
+```
+
+Check the API with an authenticated request:
+
+```bash
+curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
+```
+
+The worker writes `worker-readiness.json` below `MESA_STORAGE_ROOT`. Do not run
+the API profile as a worker or the worker profile as an HTTP server.
+
+## Compose deployment
+
+Compose creates separate `mesa-api` and `mesa-worker` roles sharing only the
+named `mesa-data` volume. Model, provider, and dotenv loading remain disabled.
+
+```bash
+export MESA_API_KEY="$(secret-manager read mesa-api-key)"
+export MESA_PRINCIPAL_ID=service-api
+docker compose config --quiet
 docker compose up --build -d
+docker compose ps
+curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
 ```
 
-### Verify
+Use `docker compose restart mesa-api` or `docker compose restart mesa-worker`
+for a controlled role restart. The named volume survives a normal `down`.
+
+## Migration, backup, and restore
+
+Run migrations while the application is stopped:
 
 ```bash
-curl http://localhost:8000/health
-# → {"status": "HEALTHY", "counters": {}, "gauges": {}}
+alembic -c mesa_storage/alembic.ini upgrade head
 ```
 
-### Persistent Storage
-
-The `docker-compose.yml` maps `./storage:/app/storage` to persist all databases across container restarts:
-
-| File | Engine | Purpose |
-|---|---|---|
-| `raw_log.db` | SQLite (WAL) | Append-only CMB journal |
-| `vector_index.lance/` | LanceDB | Embedding similarity index |
-| `knowledge_graph.db` | SQLite | Graph node/edge persistence |
-| `kg_history.rocks/` | RocksDB | MVCC history archive |
-
----
-
-## Verifying Installation
+The backup CLI requires an explicit trusted parent and an offline source root:
 
 ```bash
-# Run the full test suite (159+ tests)
-pytest tests/ -q
-
-# Type checking
-mypy mesa_memory/ --ignore-missing-imports --explicit-package-bases
-
-# Code quality
-black --check mesa_memory/ tests/
-ruff check mesa_memory/ tests/
-
-# Run the tutorial script
-python examples/hello_mesa.py
+mesa-recovery --trusted-root /srv/mesa backup \
+  --source-root /srv/mesa/data --backup-root /srv/mesa/backups/2026-07-20 \
+  --stores-stopped
+mesa-recovery --trusted-root /srv/mesa validate \
+  --backup-root /srv/mesa/backups/2026-07-20
+mesa-recovery --trusted-root /srv/mesa restore \
+  --backup-root /srv/mesa/backups/2026-07-20 --restore-root /srv/mesa/restore-test
 ```
 
-A successful installation produces:
+Restore into a new empty directory, validate it, and then perform the
+application's post-restore reconciliation before any production cutover.
 
+## Smoke, shutdown, rollback, and external gates
+
+For a local, model-disabled smoke check use the canonical contracts:
+
+```bash
+python -m pytest -q tests/test_deployment_assets.py tests/test_runtime_profiles_contract.py \
+  tests/test_migration_closure.py tests/test_recovery_contract.py
 ```
-159 passed in ~37s
-```
+
+On failure, collect `docker compose logs`, stop roles gracefully with
+`docker compose down`, and preserve the named volume for investigation. Use
+`docker compose down -v` only for a disposable test deployment.
+
+After a push, run **MESA CI** and **MESA external release gates** from GitHub
+Actions. The latter provides manual inputs for flow, bounded capacity, Docker,
+and documentation gates; it does not push an image or use production secrets.

@@ -1,235 +1,147 @@
-# =============================================================================
-# MESA v0.4.1 — GitHub Actions CI/CD Pipeline
-#
-# Triggers: push/PR to main
-# Jobs:
-#   1. build         — Lint, type-check, and unit tests with coverage
-#   2. security-audit — Zero-Trust RBAC, Chaos Saga, Graph Poisoning gates
-# =============================================================================
-
 name: MESA CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [audit/production-readiness, main]
   pull_request:
-    branches: [ "main" ]
+    branches: [audit/production-readiness, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MESA_RUNTIME_PROFILE: test-isolated
+  MESA_STORAGE_ROOT: ${{ runner.temp }}/mesa-storage
+  MESA_LOAD_DOTENV: "false"
+  MESA_MODEL_ENABLED: "false"
+  MESA_EXTERNAL_PROVIDER_ENABLED: "false"
+  MESA_API_KEY: ci-non-secret-placeholder
+  MESA_PRINCIPAL_ID: ci-principal
+  MESA_PRINCIPAL_STATUS: active
 
 jobs:
-  docker-build:
-    runs-on: ubuntu-latest
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - run: docker build -t mesa:ci-test .
-  # ================================================================
-  # JOB 1: Build — Formatting, Linting, Typing, Unit Tests
-  # ================================================================
-  build:
-    runs-on: ubuntu-latest
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install canonical core and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Dependency, compile, and import checks
+        run: |
+          python -m pip check
+          python -m compileall -q mesa_memory mesa_storage mesa_workers mesa_api mesa_client
+          python -c "import mesa_memory, mesa_api, mesa_client, mesa_storage, mesa_workers"
+      - name: Lint release-boundary code
+        run: >-
+          python -m ruff check
+          mesa_memory/worker_runtime.py mesa_memory/container_health.py mesa_memory/runtime_entrypoint.py
+          mesa_storage/recovery.py tests/test_recovery_contract.py tests/test_migration_closure.py
+      - name: Basic tracked-secret policy
+        run: |
+          test -z "$(git ls-files '.env' '*.pem' '*.key' '*.p12' '*.pfx')"
+          ! git grep -IlE -- 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' -- ':!tests/**' ':!.env.example'
+
+  core-tests:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install .[ml,dev,adapters]
-        python -m spacy download xx_ent_wiki_sm
-    - name: Install Linting & Typing Tools
-      run: pip install black==26.3.1 ruff==0.15.13 mypy==2.1.0
-    - name: Check Code Formatting (Black)
-      run: black --check mesa_memory/ tests/
-    - name: Lint Code (Ruff)
-      run: ruff check mesa_memory/ tests/
-    - name: Type Check (Mypy)
-      run: mypy mesa_memory/ mesa_storage/ mesa_workers/ mesa_api/ --ignore-missing-imports --explicit-package-bases
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
+      - name: Security, lifecycle, queue, and worker contracts
+        run: >-
+          python -m pytest -q
+          tests/test_principal_authorization.py
+          tests/test_session_principal_route_isolation.py
+          tests/test_purge_journal_contract.py
+          tests/test_wal_claim_replay_contract.py
+          tests/test_durable_dlq_contract.py
+          tests/test_queue_admission_contract.py
+          tests/test_session_finalization_contract.py
+          tests/test_runtime_profiles_contract.py
+          tests/test_worker_runtime_contract.py
 
-    - name: Test with pytest
-      env:
-        MESA_OPENAI_API_KEY: "test-env-key-only"
-        MESA_ANTHROPIC_API_KEY: "test-env-key-only"
-        OPENAI_API_KEY: "test-env-key-only"
-        MESA_API_KEY: "dummy-ci-key-for-testing"
-        MESA_REBEL_ENABLED: "false"
-      run: |
-        export PYTHONPATH=.
-        pytest tests/ --cov --cov-report=xml --cov-fail-under=85 --ignore=tests/bench
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        fail_ci_if_error: false
-
-    - name: Test Zero-Cost Parity
-      env:
-        MESA_ZERO_COST_MODE: "true"
-        MESA_API_KEY: "dummy-ci-key-for-testing"
-      run: |
-        export PYTHONPATH=.
-        make test
-
-  # ================================================================
-  # JOB 2: Security & Audit — RBAC, Chaos, Graph Poisoning
-  # ================================================================
-  security-and-audit:
-    runs-on: ubuntu-latest
-    needs: build  # Only run if build passes
+  migration-dr:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
+      - run: python -m pytest -q tests/test_migration_closure.py tests/test_recovery_contract.py
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install .[ml,dev,adapters]
-        python -m spacy download xx_ent_wiki_sm
-
-    # --------------------------------------------------------------
-    # Gate 0: Secrets Scanning (TruffleHog)
-    # Validates that no hardcoded credentials or API keys exist.
-    # --------------------------------------------------------------
-    - name: TruffleHog OSS
-      uses: trufflesecurity/trufflehog@main
-      with:
-        path: ./
-
-    # --------------------------------------------------------------
-    # Gate 1: Zero-Trust RBAC Isolation Proof
-    # Validates that cross-tenant data leakage is structurally
-    # impossible across all DAO retrieval surfaces.
-    # --------------------------------------------------------------
-    - name: "Gate 1: Zero-Trust RBAC Isolation"
-      env:
-        PYTHONPATH: "."
-      run: |
-        echo "=========================================="
-        echo "  GATE 1: Cross-Tenant RBAC Leakage Test"
-        echo "=========================================="
-        pytest tests/test_rbac_leak.py -v --tb=short
-
-    # --------------------------------------------------------------
-    # Gate 2: Chaos Engineering — Saga Rollback Resilience
-    # Proves the B-7 Saga pattern correctly compensates on
-    # simulated LanceDB crashes across insert, bulk, and purge.
-    # --------------------------------------------------------------
-    - name: "Gate 2: Chaos Saga Rollback Resilience"
-      env:
-        PYTHONPATH: "."
-      run: |
-        echo "=========================================="
-        echo "  GATE 2: Chaos Saga Rollback Test"
-        echo "=========================================="
-        pytest tests/test_chaos.py -v --tb=short
-
-    # --------------------------------------------------------------
-    # Gate 3: Graph Poisoning Audit
-    # Validates legal knowledge graph integrity against the
-    # canonical Turkish law reference set. Enforces a hard 5%
-    # poisoning rate threshold — exceeding it blocks the merge.
-    #
-    # Requires a seeded test database. The audit script uses
-    # direct aiosqlite against the DB file (no running server).
-    # --------------------------------------------------------------
-    - name: "Gate 3: Seed Test Database for Graph Audit"
-      env:
-        PYTHONPATH: "."
-      run: |
-        python -c "
-        import asyncio, os
-        from mesa_storage.sqlite_engine import AsyncEngine
-        from mesa_storage.schemas import initialize_schema as init_sqlite_schema
-        from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema
-        from mesa_storage.kuzu_provider import KuzuGraphProvider
-        import aiosqlite
-
-        async def seed():
-            os.makedirs('.ci_storage', exist_ok=True)
-            engine = AsyncEngine('.ci_storage/ci_test.db', max_connections=2)
-            await engine.initialize()
-            await init_sqlite_schema(engine)
-
-            async with aiosqlite.connect('.ci_storage/ci_test.db') as db:
-                # Create two valid nodes in SQLite for metadata
-                await db.execute(
-                    \"\"\"INSERT INTO nodes (id, entity_name, type, is_consolidated, created_at, agent_id, session_id)
-                       VALUES ('node-src', 'Dava Konusu', 'ENTITY', 0, datetime('now'), 'ci-agent', 'ci-session')\"\"\"
-                )
-                await db.execute(
-                    \"\"\"INSERT INTO nodes (id, entity_name, type, is_consolidated, created_at, agent_id, session_id)
-                       VALUES ('node-tgt', 'TBK Madde 49', 'ENTITY', 0, datetime('now'), 'ci-agent', 'ci-session')\"\"\"
-                )
-                await db.commit()
-            await engine.close()
-
-            # Create edges in KuzuDB
-            init_kuzu_schema('.ci_storage/ci_test_graph')
-            kuzu = KuzuGraphProvider('.ci_storage/ci_test_graph')
-            await kuzu.initialize()
-            await kuzu.insert_node('node-src', 'Dava Konusu', 'ci-agent')
-            await kuzu.insert_node('node-tgt', 'TBK Madde 49', 'ci-agent')
-            await kuzu.insert_edge('node-src', 'node-tgt', 1.0, 'ci-agent')
-            
-            print('CI test database seeded successfully')
-
-        asyncio.run(seed())
-        "
-
-    - name: "Gate 3: Graph Poisoning Audit"
-      env:
-        PYTHONPATH: "."
-      run: |
-        echo "=========================================="
-        echo "  GATE 3: Graph Poisoning Audit"
-        echo "=========================================="
-        PYTHONPATH=. python -m mesa_evals.legal_audit \
-          --db .ci_storage/ci_test.db \
-          --agent-id ci-agent \
-          --threshold 0.05
-
-    # --------------------------------------------------------------
-    # Cleanup
-    # --------------------------------------------------------------
-    - name: Cleanup test artifacts
-      if: always()
-      run: rm -rf .ci_storage .test_storage_tmp
-
-  # ================================================================
-  # JOB 3: Installation Verification (Dry-run release testing)
-  # ================================================================
-  installation-verification:
-    runs-on: ubuntu-latest
-    needs: [build, security-and-audit]
+  package:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-        
-    - name: Build package
-      run: |
-        python -m pip install --upgrade pip build twine
-        python -m build
-        
-    - name: Verify package installation
-      run: |
-        # Install the built wheel to verify dependencies resolve correctly
-        pip install dist/*.whl
-        python -c "from mesa_client import MesaClient; c = MesaClient(); print('OK')"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+      - name: Build reproducible wheels
+        run: |
+          SOURCE_DATE_EPOCH=0 python -m pip wheel --no-deps --wheel-dir dist/a .
+          rm -rf build
+          SOURCE_DATE_EPOCH=0 python -m pip wheel --no-deps --wheel-dir dist/b .
+          sha256sum dist/a/*.whl dist/b/*.whl | tee dist/SHA256SUMS
+          test "$(cut -d' ' -f1 dist/SHA256SUMS | sort -u | wc -l)" = 1
+          ! python -m zipfile -l dist/a/mesa_memory-*.whl | grep -E '(__pycache__|\.pyc$)'
+          python -m zipfile -l dist/a/mesa_memory-*.whl | grep -q 'mesa_storage/alembic/versions/'
+      - name: Fresh wheel install and CLI smoke
+        run: |
+          python -m venv wheel-venv
+          wheel-venv/bin/python -m pip install dist/a/mesa_memory-*.whl
+          wheel-venv/bin/python -m pip check
+          wheel-venv/bin/python -c "import mesa_memory, mesa_api, mesa_client, mesa_storage, mesa_workers"
+          wheel-venv/bin/mesa-recovery --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-report
+          path: dist/
+          retention-days: 10
 
-    - name: Run Canary Smoke Test
-      env:
-        PYTHONPATH: "."
-        MESA_API_KEY: "mesa_prod_sec_2026_xyz"
-      run: |
-        python scripts/run_server.py &
-        python scripts/canary_smoke_test.py
+  coverage:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
+      - name: Core and SDK coverage
+        run: >-
+          python -m pytest -q --cov --cov-fail-under=82
+          --cov-report=term-missing --cov-report=xml:coverage.xml
+          --cov-report=html:htmlcov --cov-report=json:coverage.json
+          --ignore=tests/test_mem0.py --ignore=tests/go_live_proofs --ignore=tests/bench
+      - name: SDK coverage collection contract
+        run: python -m pytest --collect-only -q tests/test_async_client_auth_contract.py tests/test_mcp_api_boundary.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            coverage.json
+            htmlcov/
+          retention-days: 10

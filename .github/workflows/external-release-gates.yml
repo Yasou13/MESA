@@ -1,0 +1,234 @@
+name: MESA external release gates
+
+on:
+  push:
+    branches: [audit/production-readiness, main]
+  pull_request:
+    branches: [audit/production-readiness, main]
+  workflow_dispatch:
+    inputs:
+      run_flow:
+        description: Run FLOW-001 lifecycle gate
+        required: false
+        default: true
+        type: boolean
+      run_performance:
+        description: Run PERF-003 bounded-capacity gate
+        required: false
+        default: true
+        type: boolean
+      run_docker:
+        description: Run Docker image and Compose gates
+        required: false
+        default: true
+        type: boolean
+      run_docs:
+        description: Run DOC-002 executable-documentation gate
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  MESA_RUNTIME_PROFILE: test-isolated
+  MESA_STORAGE_ROOT: ${{ runner.temp }}/mesa-storage
+  MESA_COLD_PATH_TRACE_PATH: ${{ runner.temp }}/mesa-trace/cold-path.jsonl
+  MESA_LOAD_DOTENV: "false"
+  MESA_MODEL_ENABLED: "false"
+  MESA_EXTERNAL_PROVIDER_ENABLED: "false"
+  MESA_API_KEY: ci-non-secret-placeholder
+  MESA_PRINCIPAL_ID: ci-principal
+  MESA_PRINCIPAL_STATUS: active
+
+jobs:
+  flow-e2e:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_flow }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
+      - name: Dispatch, receipt, restart, finalization, and isolation flow
+        run: >-
+          python -m pytest -q --junitxml=flow-e2e.xml
+          tests/test_durable_dispatch_contract.py
+          tests/test_dispatch_completion_contract.py
+          tests/test_downstream_fence_reconciliation_contract.py
+          tests/test_session_finalization_contract.py
+          tests/test_session_principal_route_isolation.py
+          tests/test_principal_authorization.py
+          tests/test_worker_runtime_contract.py | tee flow-e2e.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flow-logs
+          path: |
+            flow-e2e.log
+            flow-e2e.xml
+          retention-days: 10
+
+  performance-capacity:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_performance }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
+      - name: Bounded tenant admission, worker restart, and graph limits
+        run: >-
+          python -m pytest -q --junitxml=performance-capacity.xml
+          tests/test_queue_admission_contract.py
+          tests/test_worker_supervision_contract.py
+          tests/test_worker_runtime_contract.py
+          tests/test_pagerank_coverage.py
+          tests/test_entity_consolidation_worker.py | tee performance-capacity.log
+      - name: Write factual bounded-capacity summary
+        run: >-
+          python -c "import json,xml.etree.ElementTree as e; r=e.parse('performance-capacity.xml').getroot(); print(json.dumps({'suite':'bounded-capacity','tests':int(r.attrib.get('tests',0)),'failures':int(r.attrib.get('failures',0)),'errors':int(r.attrib.get('errors',0))},sort_keys=True))" > performance-capacity.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-capacity
+          path: |
+            performance-capacity.log
+            performance-capacity.xml
+            performance-capacity.json
+          retention-days: 10
+
+  docker-image:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_docker }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build, inspect, and smoke the non-root image
+        run: |
+          set -euo pipefail
+          docker build --pull=false --tag mesa-memory:gate . | tee docker-build.log
+          test "$(docker image inspect mesa-memory:gate --format '{{.Config.User}}')" = "mesa:mesa"
+          docker run --detach --name mesa-gate --publish 127.0.0.1:18000:8000 \
+            --volume mesa-gate-data:/var/lib/mesa \
+            --env MESA_API_KEY=ci-non-secret-placeholder \
+            --env MESA_PRINCIPAL_ID=ci-principal \
+            --env MESA_RUNTIME_PROFILE=api-only \
+            --env MESA_STORAGE_ROOT=/var/lib/mesa/data \
+            mesa-memory:gate
+          trap 'docker logs mesa-gate > docker-runtime.log 2>&1 || true; docker rm -f mesa-gate || true; docker volume rm mesa-gate-data || true' EXIT
+          for _ in $(seq 1 30); do
+            docker exec mesa-gate python -m mesa_memory.container_health && break
+            sleep 2
+          done
+          docker exec mesa-gate python -m mesa_memory.container_health
+          docker exec mesa-gate test -d /var/lib/mesa/data
+          docker exec mesa-gate sh -c 'printf persisted > /var/lib/mesa/data/gate-marker'
+          docker restart mesa-gate
+          docker exec mesa-gate test -f /var/lib/mesa/data/gate-marker
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-logs
+          path: |
+            docker-build.log
+            docker-runtime.log
+          if-no-files-found: warn
+          retention-days: 10
+
+  docker-compose:
+    needs: docker-image
+    if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.run_docker) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Render, build, start, restart, and collect topology logs
+        env:
+          MESA_API_KEY: ci-non-secret-placeholder
+          MESA_PRINCIPAL_ID: ci-principal
+        run: |
+          set -euo pipefail
+          project="mesa-gates-${GITHUB_RUN_ID}"
+          trap 'docker compose -p "$project" logs --no-color > compose.log 2>&1 || true; docker compose -p "$project" down -v || true' EXIT
+          docker compose -p "$project" config --quiet
+          docker compose -p "$project" build
+          docker compose -p "$project" up -d
+          docker compose -p "$project" ps
+          for _ in $(seq 1 30); do
+            curl --fail --silent --show-error -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health && break
+            sleep 2
+          done
+          curl --fail --silent --show-error -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
+          docker compose -p "$project" exec -T mesa-worker python -m mesa_memory.container_health
+          docker compose -p "$project" restart mesa-api mesa-worker
+          docker compose -p "$project" exec -T mesa-api test -d /var/lib/mesa/data
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compose-logs
+          path: compose.log
+          if-no-files-found: warn
+          retention-days: 10
+
+  docs-smoke:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_docs }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
+      - name: Run documented canonical commands
+        run: |
+          python -c "from mesa_memory.runtime_entrypoint import command_for_profile; print(command_for_profile())"
+          python -c "from mesa_memory.worker_runtime import run_worker_only; print(run_worker_only.__name__)"
+          mesa-recovery --help
+          python -m pytest -q tests/test_deployment_assets.py tests/test_runtime_profiles_contract.py tests/test_migration_closure.py tests/test_recovery_contract.py | tee docs-smoke.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docs-smoke
+          path: docs-smoke.log
+          if-no-files-found: warn
+          retention-days: 10
+
+  external-gates-summary:
+    needs: [flow-e2e, performance-capacity, docker-image, docker-compose, docs-smoke]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish non-authoritative gate summary
+        env:
+          FLOW: ${{ needs.flow-e2e.result }}
+          PERF: ${{ needs.performance-capacity.result }}
+          IMAGE: ${{ needs.docker-image.result }}
+          COMPOSE: ${{ needs.docker-compose.result }}
+          DOCS: ${{ needs.docs-smoke.result }}
+        run: |
+          {
+            echo '## External release gates'
+            echo '| Finding | Job | Result | Evidence artifact |'
+            echo '|---|---|---|---|'
+            echo "| FLOW-001 | flow-e2e | $FLOW | flow-logs |"
+            echo "| PERF-003 | performance-capacity | $PERF | performance-capacity |"
+            echo "| DOCKER-001 | docker-image | $IMAGE | docker-logs |"
+            echo "| DOCKER-003 | docker-compose | $COMPOSE | compose-logs |"
+            echo "| DOC-002 | docs-smoke | $DOCS | docs-smoke |"
+            echo '| CI-002 | MESA CI | see CI workflow | package-report |'
+            echo '| COVERAGE-001 | MESA CI coverage | see CI workflow | coverage-report |'
+          } >> "$GITHUB_STEP_SUMMARY"

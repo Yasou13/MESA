@@ -43,8 +43,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import traceback
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -70,6 +72,25 @@ _rebel_extractor: RebelExtractor | None = None
 MAX_CONCURRENT_WORKERS = asyncio.Semaphore(10)
 MAX_TIER3_CONCURRENT = 3
 _tier3_semaphore = asyncio.Semaphore(MAX_TIER3_CONCURRENT)
+_TRACE_ROOT = Path("/storage/mesa-lab").resolve()
+
+
+def _write_cold_path_trace(message: str) -> None:
+    """Write optional diagnostics without accepting arbitrary output paths."""
+    configured = os.getenv("MESA_COLD_PATH_TRACE_PATH")
+    if configured:
+        candidate = Path(configured).resolve()
+        try:
+            candidate.relative_to(_TRACE_ROOT)
+        except ValueError:
+            logger.warning("COLD_PATH_TRACE_DISABLED | reason=path_outside_lab_root")
+            return
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        logger.debug("COLD_PATH_TRACE_DISABLED | reason=no_explicit_lab_path")
+        return
+    with candidate.open("a", encoding="utf-8") as trace:
+        trace.write(message + "\n")
 
 
 def _get_rebel_extractor() -> RebelExtractor | None:
@@ -121,38 +142,57 @@ async def process_cold_path(
         dao: Initialised ``MemoryDAO`` instance.
     """
     t_start = time.monotonic()
+    claim: dict[str, Any] | None = None
 
-    with open("cold_path_trace.txt", "a") as f:
-        f.write(f"START {log_id}\n")
+    async def _transition(status: str, *, error_reason: str | None = None, target_agent_id: str | None = None) -> None:
+        """Use a fenced transition for the real DAO; retain mock compatibility."""
+        target_agent = target_agent_id or agent_id
+        if claim is not None:
+            transitioned = await dao.transition_claimed_raw_log(
+                target_agent,
+                log_id,
+                worker_id=claim["claimed_by"],
+                claim_token=claim["claim_token"],
+                status=status,
+                error_reason=error_reason,
+            )
+            if not transitioned:
+                logger.warning("COLD_PATH_FENCE_LOST | log_id=%d status=%s", log_id, status)
+            return
+        if error_reason is None:
+            await dao.update_raw_log_status(target_agent, log_id, status)
+        else:
+            await dao.update_raw_log_status(
+                target_agent, log_id, status, error_reason=error_reason
+            )
+
+    _write_cold_path_trace(f"START {log_id}")
     try:
         logger.info("COLD_PATH_DEBUG | Entering try block", log_id=log_id)
-        with open("cold_path_trace.txt", "a") as f:
-            f.write(f"BEFORE SEMAPHORE {log_id}\n")
+        _write_cold_path_trace(f"BEFORE SEMAPHORE {log_id}")
         async with MAX_CONCURRENT_WORKERS:
-            with open("cold_path_trace.txt", "a") as f:
-                f.write(f"INSIDE SEMAPHORE {log_id}\n")
+            _write_cold_path_trace(f"INSIDE SEMAPHORE {log_id}")
             # ==============================================================
             # 1. RETRIEVE PAYLOAD + STATUS GUARD
             # ==============================================================
             logger.info("COLD_PATH_DEBUG | Starting get_raw_log", log_id=log_id)
-            with open("cold_path_trace.txt", "a") as f:
-                f.write(f"BEFORE GET_RAW_LOG {log_id}\n")
-            raw_log = await dao.get_raw_log(agent_id, log_id)
-            with open("cold_path_trace.txt", "a") as f:
-                f.write(f"AFTER GET_RAW_LOG {log_id}\n")
+            _write_cold_path_trace(f"BEFORE GET_RAW_LOG {log_id}")
+            if type(dao) is MemoryDAO:
+                claim = await dao.claim_raw_log(agent_id, log_id, worker_id="cold-path")
+                raw_log = claim
+            else:
+                raw_log = await dao.get_raw_log(agent_id, log_id)
+            _write_cold_path_trace(f"AFTER GET_RAW_LOG {log_id}")
             logger.info("COLD_PATH_DEBUG | Finished get_raw_log", log_id=log_id)
-            with open("cold_path_trace.txt", "a") as f:
-                f.write(f"RAW_LOG {raw_log}\n")
+            _write_cold_path_trace(f"RAW_LOG {raw_log}")
 
             if raw_log is None:
-                with open("cold_path_trace.txt", "a") as f:
-                    f.write("RETURNING NOT FOUND\n")
+                _write_cold_path_trace("RETURNING NOT FOUND")
                 logger.warning("COLD_PATH_SKIP | log_id=%d reason=not_found", log_id)
                 return
 
-            if raw_log["status"] != "DEFERRED":
-                with open("cold_path_trace.txt", "a") as f:
-                    f.write(f"RETURNING WRONG STATUS {raw_log['status']}\n")
+            if claim is None and raw_log["status"] != "DEFERRED":
+                _write_cold_path_trace(f"RETURNING WRONG STATUS {raw_log['status']}")
                 logger.debug(
                     "COLD_PATH_SKIP | log_id=%d reason=status_is_%s",
                     log_id,
@@ -167,11 +207,10 @@ async def process_cold_path(
             metadata: dict = payload.get("metadata", {})
 
             if not payload_agent_id or not content:
-                await dao.update_raw_log_status(
-                    payload_agent_id,
-                    log_id,
+                await _transition(
                     "rejected",
                     error_reason="missing_agent_id_or_content",
+                    target_agent_id=agent_id,
                 )
                 logger.warning(
                     "COLD_PATH_REJECTED | log_id=%d reason=missing_required_fields",
@@ -182,7 +221,8 @@ async def process_cold_path(
             # ==============================================================
             # 2. STATUS → processing
             # ==============================================================
-            await dao.update_raw_log_status(payload_agent_id, log_id, "processing")
+            if claim is None:
+                await _transition("processing", target_agent_id=payload_agent_id)
 
             logger.info(
                 "COLD_PATH_START | log_id=%d agent_id=%s content_len=%d",
@@ -198,11 +238,10 @@ async def process_cold_path(
             ecod_passed = await _run_ecod_gate(dao, payload_agent_id, content)
 
             if not ecod_passed:
-                await dao.update_raw_log_status(
-                    payload_agent_id,
-                    log_id,
+                await _transition(
                     "rejected",
                     error_reason="ecod_novelty_below_threshold",
+                    target_agent_id=payload_agent_id,
                 )
                 logger.info(
                     "COLD_PATH_REJECTED | log_id=%d reason=ecod_novelty_gate",
@@ -210,22 +249,19 @@ async def process_cold_path(
                 )
                 return
 
-            with open("cold_path_trace.txt", "a") as f:
-                f.write(f"BEFORE REBEL {log_id}\n")
+            _write_cold_path_trace(f"BEFORE REBEL {log_id}")
             # ==============================================================
             # 4. TIER-2: REBEL TRIPLE EXTRACTION
             # ==============================================================
             logger.info("COLD_PATH_DEBUG | Starting REBEL check", log_id=log_id)
             triplets = await _run_rebel_extraction(content)
-            with open("cold_path_trace.txt", "a") as f:
-                f.write(f"AFTER REBEL {log_id}\n")
+            _write_cold_path_trace(f"AFTER REBEL {log_id}")
 
             # ==============================================================
             # 4. TIER-3 (Consensus) or GRAPH COMMIT
             # ==============================================================
             logger.info("COLD_PATH_DEBUG | Starting Commit", log_id=log_id)
-            with open("cold_path_trace.txt", "a") as f:
-                f.write(f"BEFORE COMMIT {log_id}\n")
+            _write_cold_path_trace(f"BEFORE COMMIT {log_id}")
             if triplets:
                 await _commit_triplets(
                     dao=dao,
@@ -275,7 +311,7 @@ async def process_cold_path(
             # ==============================================================
             # 6. STATUS → processed
             # ==============================================================
-            await dao.update_raw_log_status(payload_agent_id, log_id, "processed")
+            await _transition("processed", target_agent_id=payload_agent_id)
 
             elapsed_ms = int((time.monotonic() - t_start) * 1000)
             logger.info(
@@ -297,9 +333,7 @@ async def process_cold_path(
         truncated_reason = error_msg[:500]
 
         try:
-            await dao.update_raw_log_status(
-                agent_id, log_id, "failed", error_reason=truncated_reason
-            )
+            await _transition("failed", error_reason=truncated_reason, target_agent_id=agent_id)
         except Exception as status_exc:
             # Even the status update failed — log but never raise
             logger.critical(
@@ -564,8 +598,7 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
         from mesa_memory.adapter.factory import AdapterFactory
 
         adapter = AdapterFactory.get_adapter()
-        with open("cold_path_trace.txt", "a") as f:
-            f.write(f"ADAPTER IS {adapter.__class__.__name__}\n")
+        _write_cold_path_trace(f"ADAPTER IS {adapter.__class__.__name__}")
 
         prompt = _get_extraction_prompt(content)
 
@@ -1006,3 +1039,56 @@ async def _commit_raw_memory(
             exc_info=True,
         )
         raise
+
+
+async def process_session_finalization(
+    agent_id: str,
+    session_id: str,
+    dao: MemoryDAO,
+    consolidation_loop: ConsolidationLoop | None,
+) -> str:
+    """Run one fenced, restart-safe finalization attempt for an exact session."""
+    worker_id = f"session-finalizer:{agent_id}"
+    claim = await dao.claim_session_finalization(
+        agent_id, session_id, worker_id=worker_id
+    )
+    if claim is None:
+        current = await dao.get_session_finalization(agent_id, session_id)
+        return current["state"] if current else "MISSING"
+    if consolidation_loop is None:
+        await dao.fail_session_finalization(
+            agent_id,
+            session_id,
+            worker_id=worker_id,
+            claim_token=claim["claim_token"],
+            error_class="ConsolidationUnavailable",
+        )
+        current = await dao.get_session_finalization(agent_id, session_id)
+        return current["state"] if current else "MISSING"
+    try:
+        for log_id in await dao.get_pending_session_raw_logs(agent_id, session_id):
+            await process_cold_path(log_id, agent_id, dao, consolidation_loop)
+        if await dao.complete_session_finalization(
+            agent_id,
+            session_id,
+            worker_id=worker_id,
+            claim_token=claim["claim_token"],
+        ):
+            return "COMPLETED"
+        await dao.fail_session_finalization(
+            agent_id,
+            session_id,
+            worker_id=worker_id,
+            claim_token=claim["claim_token"],
+            error_class="IncompleteSessionWork",
+        )
+        return "RETRY_PENDING"
+    except Exception as exc:
+        await dao.fail_session_finalization(
+            agent_id,
+            session_id,
+            worker_id=worker_id,
+            claim_token=claim["claim_token"],
+            error_class=type(exc).__name__,
+        )
+        return "RETRY_PENDING"

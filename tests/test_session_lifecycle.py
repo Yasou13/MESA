@@ -138,7 +138,9 @@ class TestSessionLifecycle:
             json={"agent_id": agent_id},
         )
         assert end_resp.status_code == 200
-        assert end_resp.json()["status"] == "ended"
+        end_data = end_resp.json()
+        assert end_data["status"] == "pending"
+        assert end_data["finalization_id"]
 
     def test_isolation(self, client):
         """Scenario 2: Isolation"""

@@ -258,7 +258,7 @@ class AsyncMesaClient:
         self.max_retries = max_retries
         headers = {"User-Agent": "mesa-client/v0.6.1"}
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            headers["X-API-Key"] = api_key
 
         self._client = httpx.AsyncClient(
             base_url=self.base_url,

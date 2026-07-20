@@ -20,6 +20,17 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
+
+class _VerifiedPurgeGraph:
+    async def insert_node(self, *, node_id, name, agent_id):
+        return None
+
+    async def delete_nodes(self, *, purge_id, agent_id, node_ids):
+        return None
+
+    async def verify_nodes_absent(self, *, agent_id, node_ids):
+        return True
+
 TEST_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     ".test_storage_tmp",
@@ -340,6 +351,7 @@ class TestFindNodesByName:
 class TestPurgeSessionScope:
     @pytest.mark.asyncio
     async def test_session_scope_purge(self, dao):
+        dao._graph = _VerifiedPurgeGraph()
         await dao.insert_memory(
             "agent-purge",
             entity_name="A",

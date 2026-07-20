@@ -107,6 +107,9 @@ dev = [
     "datasets>=2.14.0",
 ]
 
+[project.scripts]
+mesa-recovery = "mesa_storage.recovery:main"
+
 [project.urls]
 Homepage = "https://github.com/Yasou13/MESA"
 Repository = "https://github.com/Yasou13/MESA"
@@ -114,8 +117,20 @@ Documentation = "https://github.com/Yasou13/MESA/tree/main/docs"
 Changelog = "https://github.com/Yasou13/MESA/blob/main/CHANGELOG.md"
 Issues = "https://github.com/Yasou13/MESA/issues"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*"]
+exclude = [
+    "*.__pycache__",
+    "*.__pycache__.*",
+    "mesa_storage.alembic.__pycache__",
+    "mesa_storage.alembic.versions.__pycache__",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["*.pyc", "*.pyo", "__pycache__/*", "**/__pycache__/*", "**/*.pyc", "**/*.pyo"]
 
 [tool.black]
 line-length = 88
@@ -258,10 +273,13 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["mesa_memory", "mesa_workers", "mesa_client", "mesa_storage", "mesa_api"]
-omit = ["tests/*", "examples/*", "scripts/*", "mesa_client/*"]
+omit = ["tests/*", "examples/*", "scripts/*"]
 
 [tool.coverage.report]
-fail_under = 85
+# The 85% historical figure omitted the SDK entirely.  With all canonical
+# production packages (including mesa_client) measured, the verified baseline
+# is 82.19%; keep a non-regression gate just below that complete baseline.
+fail_under = 82
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

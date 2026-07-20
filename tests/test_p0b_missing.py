@@ -27,28 +27,53 @@ def mock_adapter():
 # API Server Tests
 # -------------------------
 def test_server_lifespan_health_metrics():
-    with patch("mesa_memory.api.server.MemoryDAO") as mock_dao:
-        mock_dao.return_value.initialize = AsyncMock()
-        mock_dao.return_value.health_check = AsyncMock(return_value={"status": "ok"})
-        with TestClient(app) as client:
-            # B1 FIX: /health and /metrics now require API key
-            assert client.get("/health").status_code == 401
-            assert client.get("/metrics").status_code == 401
-            assert (
-                client.get("/health", headers={"X-API-Key": "test_key"}).status_code
-                == 200
-            )
-            assert (
-                client.get("/metrics", headers={"X-API-Key": "test_key"}).status_code
-                == 200
-            )
-            assert (
-                client.get(
-                    "/v3/memory/session/test/context?agent_id=1",
-                    headers={"X-API-Key": "wrong"},
-                ).status_code
-                == 401
-            )
+    import mesa_memory.api.server as srv
+
+    previous = (srv._MESA_API_KEY, srv._MESA_PRINCIPAL_ID, srv._MESA_PRINCIPAL_STATUS)
+    srv._MESA_API_KEY = "test_key"
+    srv._MESA_PRINCIPAL_ID = "test-principal"
+    srv._MESA_PRINCIPAL_STATUS = "active"
+    try:
+        runtime_env = {
+            "MESA_RUNTIME_PROFILE": "test-isolated",
+            "MESA_STORAGE_ROOT": "/storage/mesa-lab/fast-zero-closure/test-p0b-lifespan",
+            "MESA_LOAD_DOTENV": "false",
+            "MESA_MODEL_ENABLED": "false",
+            "MESA_EXTERNAL_PROVIDER_ENABLED": "false",
+        }
+        with patch.dict(os.environ, runtime_env, clear=False):
+            with patch("mesa_memory.api.server.MemoryDAO") as mock_dao:
+                mock_dao.return_value.initialize = AsyncMock()
+                mock_dao.return_value.health_check = AsyncMock(return_value={"status": "ok"})
+                with TestClient(app) as client:
+                    # B1 FIX: /health and /metrics now require API key
+                    assert client.get("/health").status_code == 401
+                    assert client.get("/metrics").status_code == 401
+                    assert (
+                        client.get(
+                            "/health", headers={"X-API-Key": "test_key"}
+                        ).status_code
+                        == 200
+                    )
+                    assert (
+                        client.get(
+                            "/metrics", headers={"X-API-Key": "test_key"}
+                        ).status_code
+                        == 200
+                    )
+                    assert (
+                        client.get(
+                            "/v3/memory/session/test/context?agent_id=1",
+                            headers={"X-API-Key": "wrong"},
+                        ).status_code
+                        == 401
+                    )
+    finally:
+        (
+            srv._MESA_API_KEY,
+            srv._MESA_PRINCIPAL_ID,
+            srv._MESA_PRINCIPAL_STATUS,
+        ) = previous
 
 
 def test_get_dao_embedder():

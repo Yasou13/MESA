@@ -424,13 +424,14 @@ class TestDAODualWriteSagaIntegrity:
         import inspect
 
         source = inspect.getsource(MemoryDAO.purge_memory)
+        rollback_source = inspect.getsource(MemoryDAO.rollback_purge)
 
         assert (
             "transaction" in source
         ), "purge_memory must use transaction() for atomic SAGA"
         assert (
-            "rollback" in source.lower()
-        ), "purge_memory must have a compensating rollback"
+            "rollback" in rollback_source.lower()
+        ), "the durable purge contract must expose a compensating rollback"
 
     def test_dao_is_single_source_of_truth(self):
         """MemoryDAO must be the ONLY class with insert_memory capability

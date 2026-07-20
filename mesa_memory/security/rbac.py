@@ -85,6 +85,23 @@ class AccessControl:
                     PRIMARY KEY (agent_id, session_id)
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS principal_agent_permissions (
+                    principal_id TEXT NOT NULL,
+                    agent_id TEXT NOT NULL,
+                    permission TEXT NOT NULL,
+                    PRIMARY KEY (principal_id, agent_id, permission)
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS principal_session_permissions (
+                    principal_id TEXT NOT NULL,
+                    agent_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    access_level TEXT NOT NULL,
+                    PRIMARY KEY (principal_id, session_id)
+                )
+            """)
             # Seed the reserved system daemon identity with WRITE access
             await db.execute(
                 "INSERT OR IGNORE INTO permissions "
@@ -104,6 +121,74 @@ class AccessControl:
         symmetry with other MESA engines.
         """
         self._initialized = False
+
+    async def grant_principal_permission(
+        self, principal_id: str, agent_id: str, permission: str
+    ) -> None:
+        """Provision one explicit server-side principal-to-agent permission."""
+        if permission not in {
+            "READ",
+            "WRITE",
+            "SESSION_CREATE",
+            "SESSION_READ",
+            "SESSION_UPDATE",
+            "STATUS_READ",
+            "PURGE",
+            "ADMIN",
+        }:
+            raise ValueError(f"Invalid principal permission: {permission}")
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO principal_agent_permissions "
+                "(principal_id, agent_id, permission) VALUES (?, ?, ?)",
+                (principal_id, agent_id, permission),
+            )
+            await db.commit()
+
+    async def check_principal_permission(
+        self, principal_id: str, agent_id: str, permission: str
+    ) -> bool:
+        """Return whether an explicit server-side principal mapping permits action."""
+        async with aiosqlite.connect(self.policy_path) as db:
+            async with db.execute(
+                "SELECT 1 FROM principal_agent_permissions "
+                "WHERE principal_id = ? AND agent_id = ? AND permission = ?",
+                (principal_id, agent_id, permission),
+            ) as cursor:
+                return await cursor.fetchone() is not None
+
+    async def grant_principal_session_access(
+        self, principal_id: str, agent_id: str, session_id: str, level: str
+    ) -> None:
+        """Persist a server-side principal ownership/access binding for a session."""
+        if level not in ("READ", "WRITE"):
+            raise ValueError("session access level must be READ or WRITE")
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO principal_session_permissions "
+                "(principal_id, agent_id, session_id, access_level) VALUES (?, ?, ?, ?)",
+                (principal_id, agent_id, session_id, level),
+            )
+            await db.commit()
+
+    async def check_principal_session_access(
+        self, principal_id: str, agent_id: str, session_id: str, required_level: str
+    ) -> bool:
+        """Check a trusted session binding; client agent IDs never create authority."""
+        if required_level not in ("READ", "WRITE"):
+            raise ValueError("required session access level must be READ or WRITE")
+        async with aiosqlite.connect(self.policy_path) as db:
+            async with db.execute(
+                "SELECT access_level FROM principal_session_permissions "
+                "WHERE principal_id = ? AND agent_id = ? AND session_id = ?",
+                (principal_id, agent_id, session_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return False
+        return (required_level == "READ" and row[0] in ("READ", "WRITE")) or (
+            required_level == "WRITE" and row[0] == "WRITE"
+        )
 
     async def grant_access(self, agent_id: str, session_id: str, level: str) -> None:
         """Grant READ or WRITE access to an agent/session pair."""

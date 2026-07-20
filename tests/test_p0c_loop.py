@@ -173,16 +173,19 @@ async def test_graph_spreading_no_results():
 
 
 @pytest.mark.asyncio
-async def test_persistent_queue():
-    q = PersistentQueue("./storage/test_queue.jsonl")
-    await q.clear()
+async def test_persistent_queue(tmp_path):
+    queue_path = tmp_path / "test_queue.jsonl"
+    q = PersistentQueue(str(queue_path), trusted_root=str(tmp_path))
     assert await q.alen() == 0
     await q.aappend({"a": 1})
     assert await q.alen() == 1
-    assert await q.agetitem(0) == {"a": 1}
+    item = await q.agetitem(0)
+    assert item["a"] == 1
+    assert item["state"] == "PENDING"
+    assert item["attempt_count"] == 0
     with pytest.raises(IndexError):
         _ = await q.agetitem(1)
-    os.remove("./storage/test_queue.jsonl")
+    os.remove(queue_path)
     assert await q.alen() == 0
     with pytest.raises(IndexError):
         _ = await q.agetitem(0)

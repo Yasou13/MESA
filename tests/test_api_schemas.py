@@ -437,13 +437,9 @@ class TestResponseSchemas:
             )
 
     def test_purge_response(self):
-        resp = MemoryPurgeResponse(
-            scope="session",
-            scope_id="sess_001",
-            records_affected=42,
-        )
-        assert resp.status == "PURGED"
-        assert resp.records_affected == 42
+        resp = MemoryPurgeResponse(deleted_records_count=42)
+        assert resp.status == "purged"
+        assert resp.deleted_records_count == 42
 
     def test_error_response(self):
         resp = ErrorResponse(

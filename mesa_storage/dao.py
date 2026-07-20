@@ -53,7 +53,12 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import aiosqlite
+
+if TYPE_CHECKING:
+    from mesa_memory.config import QueueAdmissionPolicy
 
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -66,6 +71,47 @@ logger = logging.getLogger("MESA_DAO")
 # ---------------------------------------------------------------------------
 
 _FORBIDDEN_AGENT_IDS = frozenset({"__unset__", "__system__", ""})
+_PURGE_MAX_RETRIES = 3
+
+
+class PurgeRetryPendingError(RuntimeError):
+    """A purge remains tombstoned and requires an idempotent retry."""
+
+
+class PurgeBlockedError(RuntimeError):
+    """A purge exceeded its bounded retry budget and needs operator action."""
+
+
+class PurgeAlreadyFinalizedError(RuntimeError):
+    """A finalized purge cannot be reported as a duplicate success."""
+
+
+class QueueAdmissionError(RuntimeError):
+    """Base class for stable, non-sensitive queue admission outcomes."""
+
+
+class QueueOverCapacityError(QueueAdmissionError):
+    def __init__(self, scope: str) -> None:
+        super().__init__("queue capacity exhausted")
+        self.scope = scope
+
+
+class QueueRecordTooLargeError(QueueAdmissionError):
+    """The deterministic serialized envelope exceeds the single-record bound."""
+
+
+class QueueUnavailableError(QueueAdmissionError):
+    """The durable admission coordinator is unavailable; callers must fail closed."""
+
+
+_ADMISSION_ACTIVE_STATES = (
+    "ENQUEUED", "PENDING", "CLAIMED", "IN_FLIGHT", "RETRY_PENDING", "DEFERRED",
+)
+
+
+def _canonical_payload_bytes(payload: dict[str, Any]) -> tuple[str, int]:
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return serialized, len(serialized.encode("utf-8"))
 
 
 def _assert_valid_agent_id(agent_id: str) -> None:
@@ -134,6 +180,14 @@ class MemoryDAO:
 
         # E1 FIX: Reconcile orphaned nodes from interrupted dual-write sagas
         await self._reconcile_orphaned_nodes()
+        recovered_logs = await self.recover_expired_raw_log_claims()
+        recovered_wal = await self.recover_expired_lancedb_wal_claims()
+        if recovered_logs or recovered_wal:
+            logger.warning(
+                "STARTUP_CLAIM_RECOVERY | raw_logs=%d lancedb_wal=%d",
+                recovered_logs,
+                recovered_wal,
+            )
 
     # ------------------------------------------------------------------
     # Properties
@@ -321,43 +375,8 @@ class MemoryDAO:
 
             # ACTION 3 (FLUSH)
             if success:
-                import json
-
-                import numpy as np
-
-                async with self._sql.transaction() as db:
-                    async with db.execute(
-                        "SELECT id, agent_id, vector, metadata FROM lancedb_wal"
-                    ) as cursor:
-                        rows = await cursor.fetchall()
-
-                    if rows:
-                        flush_records = []
-                        for row in rows:
-                            r_agent_id = row[1]
-                            vector_bytes = row[2]
-                            meta_str = row[3]
-
-                            embedding = np.frombuffer(
-                                vector_bytes, dtype=np.float32
-                            ).tolist()
-                            metadata = json.loads(meta_str)
-
-                            flush_records.append(
-                                {
-                                    "node_id": metadata["node_id"],
-                                    "agent_id": r_agent_id,
-                                    "embedding": embedding,
-                                    "content_hash": metadata.get("content_hash"),
-                                }
-                            )
-
-                        # Process bulk upsert into newly promoted table
-                        await self._vec.bulk_upsert(flush_records)
-                        logger.info("WAL_FLUSHED | count=%d", len(flush_records))
-
-                    await db.execute("DELETE FROM lancedb_wal")
-                    await db.commit()
+                flushed = await self.replay_lancedb_wal(worker_id="alignment-flush")
+                logger.info("WAL_FLUSHED | count=%d", flushed)
 
         except Exception as exc:
             logger.error("ALIGNMENT_ORCHESTRATION_ERROR | error=%s", exc)
@@ -480,7 +499,7 @@ class MemoryDAO:
             )
             raise
 
-        if self._graph is not None:
+        if self._graph is not None and not is_migrating:
             try:
                 await self._graph.insert_node(
                     node_id=node_id,
@@ -488,7 +507,25 @@ class MemoryDAO:
                     agent_id=agent_id,
                 )
             except Exception as graph_exc:
-                logger.warning("Failed to insert node into KuzuDB: %s", graph_exc)
+                logger.error(
+                    "INSERT_SAGA_GRAPH_FAILURE | agent_id=%s node_id=%s error=%s",
+                    agent_id,
+                    node_id,
+                    graph_exc,
+                )
+                if not is_migrating:
+                    try:
+                        await self._vec.soft_delete(node_id, agent_id)
+                    except Exception as compensation_exc:
+                        logger.critical(
+                            "INSERT_SAGA_COMPENSATION_FAILURE | agent_id=%s "
+                            "node_id=%s error=%s",
+                            agent_id,
+                            node_id,
+                            compensation_exc,
+                        )
+                        raise compensation_exc from graph_exc
+                raise
 
         # PHASE 2: Fast SQLite transaction
         async with self._sql.transaction() as db:
@@ -524,7 +561,11 @@ class MemoryDAO:
 
                 vector_bytes = np.array(embedding, dtype=np.float32).tobytes()
                 wal_metadata = json.dumps(
-                    {"node_id": node_id, "content_hash": content_hash}
+                    {"node_id": node_id, "content_hash": content_hash,
+                     "entity_name": entity_name, "graph_required": self._graph is not None,
+                     "canonical_agent_id": agent_id, "payload_version": 1,
+                     "expected_vector_projection": True,
+                     "expected_graph_projection": self._graph is not None}
                 )
                 wal_record_id = str(uuid.uuid4())
                 await db.execute(
@@ -610,6 +651,7 @@ class MemoryDAO:
                     "agent_id": agent_id,  # hardcoded
                     "embedding": rec["embedding"],
                     "content_hash": rec.get("content_hash"),
+                    "entity_name": rec["entity_name"],
                 }
             )
 
@@ -628,7 +670,7 @@ class MemoryDAO:
             )
             raise
 
-        if self._graph is not None:
+        if self._graph is not None and not is_migrating:
             try:
                 for rec, sql_row in zip(records, sql_rows):
                     await self._graph.insert_node(
@@ -637,7 +679,26 @@ class MemoryDAO:
                         agent_id=agent_id,
                     )
             except Exception as graph_exc:
-                logger.warning("Failed to bulk insert nodes into KuzuDB: %s", graph_exc)
+                logger.error(
+                    "BULK_INSERT_SAGA_GRAPH_FAILURE | agent_id=%s count=%d error=%s",
+                    agent_id,
+                    len(records),
+                    graph_exc,
+                )
+                if not is_migrating:
+                    try:
+                        for sql_row in sql_rows:
+                            await self._vec.soft_delete(sql_row[0], agent_id)
+                    except Exception as compensation_exc:
+                        logger.critical(
+                            "BULK_INSERT_SAGA_COMPENSATION_FAILURE | agent_id=%s "
+                            "count=%d error=%s",
+                            agent_id,
+                            len(records),
+                            compensation_exc,
+                        )
+                        raise compensation_exc from graph_exc
+                raise
 
         # PHASE 2: Fast SQLite transaction
         async with self._sql.transaction() as db:
@@ -661,6 +722,12 @@ class MemoryDAO:
                         {
                             "node_id": r["node_id"],
                             "content_hash": r.get("content_hash"),
+                            "entity_name": r["entity_name"],
+                            "graph_required": self._graph is not None,
+                            "canonical_agent_id": agent_id,
+                            "payload_version": 1,
+                            "expected_vector_projection": True,
+                            "expected_graph_projection": self._graph is not None,
                         }
                     )
                     wal_records.append(
@@ -726,9 +793,10 @@ class MemoryDAO:
             agent_id=agent_id,  # RLS: hardcoded into LanceDB WHERE clause
         )
 
-        if not include_graph or not results:
-            return results
+        if not results:
+            return []
 
+        # SQLite is canonical for tombstones: filter vector-only hits too.
         # ---- SQLite enrichment (agent_id filter hardcoded) -----------
         node_ids = [r["node_id"] for r in results]
         placeholders = ",".join("?" for _ in node_ids)
@@ -754,13 +822,16 @@ class MemoryDAO:
                     row_dict = self._sanitize_payload(dict(row))
                     graph_map[row_dict["id"]] = row_dict
 
-        # Merge vector + graph data
+        # Filter every vector result through canonical SQLite tombstones.
+        filtered_results = []
         for r in results:
             nid = r["node_id"]
-            if nid in graph_map:
+            if nid not in graph_map:
+                continue
+            if include_graph:
                 r["graph"] = graph_map[nid]
-
-        return results
+            filtered_results.append(r)
+        return filtered_results
 
     async def search_memory_fts(
         self,
@@ -954,111 +1025,212 @@ class MemoryDAO:
         *,
         scope: str = "agent",
         session_id: str | None = None,
+        principal_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> int:
-        """Soft-delete memories via ``UPDATE ... SET deleted_at``.
+        """Create an exact-scope durable purge and process it fail-closed.
 
-        **No physical DELETEs are issued.** Records are flagged with
-        ``deleted_at = CURRENT_TIMESTAMP`` on the ``nodes`` table.
-        Connected edges are cascade-invalidated via ``invalid_at``.
-        Vector records are soft-expired via the ``expired_at`` column.
-
-        The ``WHERE agent_id = ?`` predicate is hardcoded into every
-        UPDATE statement to guarantee zero cross-agent side-effects.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            scope: ``'agent'`` (purge all agent data) or ``'session'``
-                   (purge a single session within the agent).
-            session_id: Required when ``scope='session'``.
-
-        Returns:
-            Number of node records soft-deleted.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid, or if
-                        ``scope='session'`` but ``session_id`` is None.
+        SQLite is the canonical mutation coordinator. It persists the exact
+        target set and tombstones it before Kuzu or LanceDB is touched; retries
+        resume journal state rather than recomputing request scope.
         """
         _assert_valid_agent_id(agent_id)
-
-        if scope == "session" and not session_id:
-            raise ValueError("session_id is required when scope='session'.")
-
-        # ---- 1. Identify target node IDs (agent-scoped) --------------
+        if scope not in {"agent", "session"}:
+            raise ValueError("scope must be exactly 'agent' or 'session'.")
         if scope == "session":
-            # RLS: WHERE agent_id = ? AND session_id = ?
-            select_sql = (
-                "SELECT id FROM nodes "
-                "WHERE agent_id = ? "
-                "  AND session_id = ? "
-                "  AND invalid_at IS NULL "
-                "  AND deleted_at IS NULL"
-            )
-            select_params: tuple = (agent_id, session_id)
-        else:
-            # RLS: WHERE agent_id = ?
-            select_sql = (
-                "SELECT id FROM nodes "
-                "WHERE agent_id = ? "
-                "  AND invalid_at IS NULL "
-                "  AND deleted_at IS NULL"
-            )
-            select_params = (agent_id,)
+            if not session_id or session_id == "*":
+                raise ValueError("session scope requires one exact non-wildcard session_id.")
+        elif session_id is not None:
+            raise ValueError("agent scope must not carry a session_id.")
+        if idempotency_key is not None and not idempotency_key.strip():
+            raise ValueError("idempotency_key must be non-empty when supplied.")
 
-        affected_ids: list[str] = []
-
-        async with self._sql.connection() as db:
-            # Collect IDs first without holding a write transaction
-            async with db.execute(select_sql, select_params) as cursor:
-                rows = await cursor.fetchall()
-                affected_ids = [row[0] for row in rows]
-
-        if not affected_ids:
-            return 0
-
-        # ---- PHASE 1: SECONDARY STORE SOFT-DELETE FIRST ----------
-        try:
-            for nid in affected_ids:
-                await self._vec.soft_delete(nid, agent_id)
-        except Exception as vec_exc:
-            logger.error(
-                "PURGE_SAGA_ROLLBACK | agent_id=%s vector_error=%s",
-                agent_id,
-                vec_exc,
-            )
-            raise
-
-        # ---- PHASE 2: Fast SQLite transaction
+        journal_key = idempotency_key or f"purge:{uuid.uuid4()}"
+        journal_principal = principal_id or "__internal__"
+        purge_id: str | None = None
         async with self._sql.transaction() as db:
-            if scope == "session":
-                update_sql = (
-                    "UPDATE nodes "
-                    "SET invalid_at = CURRENT_TIMESTAMP "
-                    "WHERE agent_id = ? "
-                    "  AND session_id = ? "
-                    "  AND invalid_at IS NULL "
-                    "  AND deleted_at IS NULL"
-                )
-                node_cursor = await db.execute(update_sql, (agent_id, session_id))
+            async with db.execute(
+                "SELECT purge_id, agent_id, scope, session_id, state "
+                "FROM purge_journal WHERE idempotency_key = ?", (journal_key,)
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is not None:
+                if (
+                    existing["agent_id"] != agent_id
+                    or existing["scope"] != scope
+                    or existing["session_id"] != session_id
+                ):
+                    raise ValueError("idempotency key cannot be reused for a different purge scope.")
+                if existing["state"] == "FINALIZED":
+                    raise PurgeAlreadyFinalizedError("purge is already FINALIZED.")
+                purge_id = existing["purge_id"]
             else:
-                update_sql = (
-                    "UPDATE nodes "
-                    "SET invalid_at = CURRENT_TIMESTAMP "
-                    "WHERE agent_id = ? "
-                    "  AND invalid_at IS NULL "
-                    "  AND deleted_at IS NULL"
+                if scope == "session":
+                    select_sql = (
+                        "SELECT id FROM nodes WHERE agent_id = ? AND session_id = ? "
+                        "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
+                    )
+                    select_params: tuple[Any, ...] = (agent_id, session_id)
+                else:
+                    select_sql = (
+                        "SELECT id FROM nodes WHERE agent_id = ? "
+                        "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
+                    )
+                    select_params = (agent_id,)
+                async with db.execute(select_sql, select_params) as cursor:
+                    node_ids = [row[0] for row in await cursor.fetchall()]
+                if not node_ids:
+                    await db.commit()
+                    return 0
+                purge_id = str(uuid.uuid4())
+                now = datetime.now(timezone.utc).isoformat()
+                await db.execute(
+                    "INSERT INTO purge_journal "
+                    "(purge_id, idempotency_key, principal_id, agent_id, scope, session_id, "
+                    "target_node_ids, state, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'PREPARED', ?, ?)",
+                    (purge_id, journal_key, journal_principal, agent_id, scope, session_id,
+                     json.dumps(node_ids), now, now),
                 )
-                node_cursor = await db.execute(update_sql, (agent_id,))
+                placeholders = ",".join("?" for _ in node_ids)
+                await db.execute(
+                    f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP, "
+                    f"deleted_at = CURRENT_TIMESTAMP, purge_id = ? "
+                    f"WHERE agent_id = ? AND id IN ({placeholders}) "
+                    f"AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL",
+                    (purge_id, agent_id, *node_ids),
+                )
+                await db.execute(
+                    "UPDATE purge_journal SET state = 'TOMBSTONED', updated_at = ? "
+                    "WHERE purge_id = ? AND state = 'PREPARED'", (now, purge_id)
+                )
+            await db.commit()
+        assert purge_id is not None
+        return await self.resume_purge(purge_id)
 
-            nodes_deleted = node_cursor.rowcount
+    async def resume_purge(self, purge_id: str) -> int:
+        """Resume one journal-recorded purge without widening its scope."""
+        record = await self._get_purge_record(purge_id)
+        if record is None:
+            raise ValueError("unknown purge_id")
+        if record["state"] == "FINALIZED":
+            raise PurgeAlreadyFinalizedError("purge is already FINALIZED.")
+        if record["state"] in {"BLOCKED", "COMPENSATION_REQUIRED", "FAILED_SAFE"}:
+            raise PurgeBlockedError(f"purge is not resumable from {record['state']}.")
+        node_ids = json.loads(record["target_node_ids"])
+        agent_id = record["agent_id"]
+        if record["kuzu_result"] != "APPLIED":
+            try:
+                if self._graph is None:
+                    raise RuntimeError("Kuzu graph provider is required for purge finalization.")
+                await self._graph.delete_nodes(purge_id=purge_id, agent_id=agent_id, node_ids=node_ids)
+                if not await self._graph.verify_nodes_absent(agent_id=agent_id, node_ids=node_ids):
+                    raise RuntimeError("Kuzu delete verification failed.")
+                await self._advance_purge(purge_id, state="KUZU_APPLIED", kuzu_result="APPLIED")
+            except Exception as exc:
+                await self._mark_purge_retry(purge_id, exc, phase="kuzu")
+                raise PurgeRetryPendingError(f"Kuzu purge pending for {purge_id}") from exc
+        record = await self._get_purge_record(purge_id)
+        assert record is not None
+        if record["vector_result"] != "APPLIED":
+            try:
+                for node_id in node_ids:
+                    await self._vec.hard_delete(node_id, agent_id)
+                active_ids = await self._vec.get_active_node_ids(agent_id)
+                if any(node_id in active_ids for node_id in node_ids):
+                    raise RuntimeError("Vector delete verification failed.")
+                await self._advance_purge(purge_id, state="VECTOR_APPLIED", vector_result="APPLIED")
+            except Exception as exc:
+                await self._mark_purge_retry(purge_id, exc, phase="vector")
+                raise PurgeRetryPendingError(f"vector purge pending for {purge_id}") from exc
+        await self._advance_purge(purge_id, state="VERIFIED")
+        await self._advance_purge(purge_id, state="FINALIZED")
+        return len(node_ids)
+
+    async def resume_incomplete_purges(self, limit: int = 100) -> dict[str, str]:
+        """Bounded crash recovery using canonical journal scope only."""
+        if limit < 1 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000.")
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT purge_id FROM purge_journal WHERE state IN "
+                "('PREPARED', 'TOMBSTONED', 'KUZU_APPLIED', 'VECTOR_APPLIED', "
+                "'VERIFIED', 'RETRY_PENDING') ORDER BY updated_at LIMIT ?", (limit,)
+            ) as cursor:
+                purge_ids = [row[0] for row in await cursor.fetchall()]
+        outcomes: dict[str, str] = {}
+        for candidate in purge_ids:
+            try:
+                await self.resume_purge(candidate)
+                outcomes[candidate] = "FINALIZED"
+            except PurgeRetryPendingError:
+                outcomes[candidate] = "RETRY_PENDING"
+            except PurgeBlockedError:
+                outcomes[candidate] = "BLOCKED"
+        return outcomes
+
+    async def rollback_purge(self, purge_id: str) -> int:
+        """Rollback only a tombstone whose downstream deletes never succeeded."""
+        record = await self._get_purge_record(purge_id)
+        if record is None:
+            raise ValueError("unknown purge_id")
+        if (record["state"] not in {"PREPARED", "TOMBSTONED", "RETRY_PENDING"}
+                or record["kuzu_result"] != "PENDING"
+                or record["vector_result"] != "PENDING"):
+            raise PurgeBlockedError("purge compensation requires a verified pre-downstream snapshot.")
+        node_ids = json.loads(record["target_node_ids"])
+        placeholders = ",".join("?" for _ in node_ids)
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                f"UPDATE nodes SET invalid_at = NULL, deleted_at = NULL, purge_id = NULL "
+                f"WHERE purge_id = ? AND agent_id = ? AND id IN ({placeholders})",
+                (purge_id, record["agent_id"], *node_ids),
+            )
+            await db.execute(
+                "UPDATE purge_journal SET state = 'FAILED_SAFE', "
+                "last_error = 'pre-downstream tombstone rollback', updated_at = ? "
+                "WHERE purge_id = ?", (datetime.now(timezone.utc).isoformat(), purge_id)
+            )
+            await db.commit()
+        return cursor.rowcount
+
+    async def _get_purge_record(self, purge_id: str) -> dict[str, Any] | None:
+        async with self._sql.connection() as db:
+            async with db.execute("SELECT * FROM purge_journal WHERE purge_id = ?", (purge_id,)) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def _advance_purge(self, purge_id: str, *, state: str,
+                             kuzu_result: str | None = None,
+                             vector_result: str | None = None) -> None:
+        assignments = ["state = ?", "updated_at = ?", "last_error = NULL"]
+        params: list[Any] = [state, datetime.now(timezone.utc).isoformat()]
+        if kuzu_result is not None:
+            assignments.append("kuzu_result = ?")
+            params.append(kuzu_result)
+        if vector_result is not None:
+            assignments.append("vector_result = ?")
+            params.append(vector_result)
+        params.append(purge_id)
+        async with self._sql.transaction() as db:
+            await db.execute(f"UPDATE purge_journal SET {', '.join(assignments)} WHERE purge_id = ?", params)
             await db.commit()
 
-        logger.info(
-            "PURGE_MEMORY | agent_id=%s scope=%s nodes_affected=%d",
-            agent_id,
-            scope,
-            nodes_deleted,
-        )
-        return nodes_deleted
+    async def _mark_purge_retry(self, purge_id: str, exc: Exception, *, phase: str) -> None:
+        async with self._sql.transaction() as db:
+            async with db.execute("SELECT retry_count FROM purge_journal WHERE purge_id = ?", (purge_id,)) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                raise ValueError("unknown purge_id")
+            next_retry = int(row[0]) + 1
+            state = "BLOCKED" if next_retry >= _PURGE_MAX_RETRIES else "RETRY_PENDING"
+            await db.execute(
+                "UPDATE purge_journal SET state = ?, retry_count = ?, last_error = ?, "
+                "updated_at = ? WHERE purge_id = ?",
+                (state, next_retry, f"{phase}: {type(exc).__name__}",
+                 datetime.now(timezone.utc).isoformat(), purge_id),
+            )
+            await db.commit()
 
     async def _atomic_saga_commit(
         self,
@@ -1307,11 +1479,15 @@ class MemoryDAO:
         _assert_valid_agent_id(agent_id)
         graph = self._require_graph()
 
-        return await graph.get_neighbors(
+        neighbors = await graph.get_neighbors(
             node_id=node_id,
             agent_id=agent_id,
             max_hops=max_hops,
         )
+        active = await self.get_nodes_by_ids_batch(
+            agent_id, [neighbor["id"] for neighbor in neighbors]
+        )
+        return [neighbor for neighbor in neighbors if neighbor["id"] in active]
 
     # ==================================================================
     # INVALIDATION — agent-scoped soft-invalidation
@@ -1635,6 +1811,106 @@ class MemoryDAO:
     # RAW LOG INSERT — hot-path ingestion (< 50ms, pure I/O)
     # ==================================================================
 
+    async def _queue_usage(self, db: aiosqlite.Connection, agent_id: str | None = None) -> dict[str, int]:
+        placeholders = ",".join("?" for _ in _ADMISSION_ACTIVE_STATES)
+        predicate = f"state IN ({placeholders})"
+        params: list[Any] = list(_ADMISSION_ACTIVE_STATES)
+        if agent_id is not None:
+            predicate += " AND agent_id = ?"
+            params.append(agent_id)
+        async with db.execute(
+            f"SELECT COUNT(*) AS records, COALESCE(SUM(payload_bytes), 0) AS bytes, "
+            f"COALESCE(SUM(CASE WHEN state = 'IN_FLIGHT' THEN 1 ELSE 0 END), 0) AS in_flight, "
+            f"COALESCE(SUM(CASE WHEN state = 'RETRY_PENDING' THEN 1 ELSE 0 END), 0) AS retry_pending "
+            f"FROM dispatch_queue WHERE {predicate}", params
+        ) as cursor:
+            row = await cursor.fetchone()
+        return {key: int(row[key]) for key in ("records", "bytes", "in_flight", "retry_pending")}
+
+    @staticmethod
+    def _enforce_queue_capacity(
+        global_usage: dict[str, int], tenant_usage: dict[str, int], payload_bytes: int,
+        policy: "QueueAdmissionPolicy",
+    ) -> None:
+        if payload_bytes > policy.queue_max_single_record_bytes:
+            raise QueueRecordTooLargeError("queue record exceeds configured size limit")
+        checks = (
+            (global_usage["records"] + 1 > policy.queue_max_pending_records, "global"),
+            (global_usage["bytes"] + payload_bytes > policy.queue_max_pending_bytes, "global"),
+            (global_usage["in_flight"] >= policy.queue_max_in_flight_records, "global"),
+            (global_usage["retry_pending"] >= policy.queue_max_retry_pending_records, "global"),
+            (tenant_usage["records"] + 1 > policy.queue_max_pending_records_per_tenant, "tenant"),
+            (tenant_usage["bytes"] + payload_bytes > policy.queue_max_pending_bytes_per_tenant, "tenant"),
+            (tenant_usage["in_flight"] >= policy.queue_max_in_flight_records_per_tenant, "tenant"),
+            (tenant_usage["retry_pending"] >= policy.queue_max_retry_pending_records_per_tenant, "tenant"),
+        )
+        for exceeded, scope in checks:
+            if exceeded:
+                raise QueueOverCapacityError(scope)
+
+    async def admit_raw_log(
+        self, agent_id: str, payload: dict[str, Any], *, policy: "QueueAdmissionPolicy"
+    ) -> dict[str, Any]:
+        """Atomically admit a raw log and durable dispatch receipt, or persist nothing.
+
+        Capacity is measured from canonical UTF-8 serialized envelopes under the
+        SQLite writer transaction.  This prevents concurrent callers from
+        bypassing count, byte, tenant, retry, or in-flight budgets.
+        """
+        _assert_valid_agent_id(agent_id)
+        if payload.get("agent_id") not in (None, agent_id):
+            raise ValueError("payload agent_id must match the durable admission tenant")
+        serialized, payload_bytes = _canonical_payload_bytes(payload)
+        try:
+            async with self._sql.transaction() as db:
+                global_usage = await self._queue_usage(db)
+                tenant_usage = await self._queue_usage(db, agent_id)
+                self._enforce_queue_capacity(global_usage, tenant_usage, payload_bytes, policy)
+                cursor = await db.execute(
+                    "INSERT INTO raw_logs (agent_id, payload, status) VALUES (?, ?, 'DEFERRED')",
+                    (agent_id, serialized),
+                )
+                log_id = int(cursor.lastrowid)
+                dispatch_id = str(uuid.uuid4())
+                queue_id = str(uuid.uuid4())
+                idempotency_key = f"raw-log:{agent_id}:{log_id}"
+                await db.execute(
+                    "INSERT INTO dispatch_journal (dispatch_id, source_record_id, tenant_id, agent_id, "
+                    "job_type, idempotency_key, state, attempt_count, queue_record_id, dispatched_at, finalized_at, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 'cold_path', ?, 'RECEIPT_RECORDED', 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    (dispatch_id, log_id, agent_id, agent_id, idempotency_key, queue_id),
+                )
+                await db.execute(
+                    "INSERT INTO dispatch_queue (queue_record_id, dispatch_id, tenant_id, agent_id, job_type, "
+                    "payload_reference, payload_bytes, idempotency_key, state) VALUES (?, ?, ?, ?, 'cold_path', ?, ?, ?, 'ENQUEUED')",
+                    (queue_id, dispatch_id, agent_id, agent_id, log_id, payload_bytes, idempotency_key),
+                )
+                await db.execute(
+                    "INSERT INTO dispatch_receipts (receipt_id, dispatch_id, queue_record_id, tenant_id, agent_id, outcome, idempotency_key) "
+                    "VALUES (?, ?, ?, ?, ?, 'ENQUEUED', ?)",
+                    (str(uuid.uuid4()), dispatch_id, queue_id, agent_id, agent_id, idempotency_key),
+                )
+                await db.commit()
+        except (aiosqlite.Error, OSError) as exc:
+            raise QueueUnavailableError("durable admission is unavailable") from exc
+        return {
+            "admission": "DEFERRED", "log_id": log_id, "dispatch_id": dispatch_id,
+            "queue_record_id": queue_id, "payload_bytes": payload_bytes,
+        }
+
+    async def get_queue_admission_metrics(self, agent_id: str) -> dict[str, Any]:
+        """Return bounded queue pressure counts for readiness/metrics consumers."""
+        _assert_valid_agent_id(agent_id)
+        try:
+            async with self._sql.connection() as db:
+                global_usage = await self._queue_usage(db)
+                tenant_usage = await self._queue_usage(db, agent_id)
+                async with db.execute("SELECT COUNT(*) FROM dispatch_queue WHERE state = 'BLOCKED'") as cursor:
+                    blocked = int((await cursor.fetchone())[0])
+        except (aiosqlite.Error, OSError) as exc:
+            raise QueueUnavailableError("durable admission is unavailable") from exc
+        return {"global": global_usage, "tenant": tenant_usage, "blocked_records": blocked}
+
     async def insert_raw_log(self, agent_id: str, payload: dict) -> int:
         """Insert a raw payload into the ``raw_logs`` staging table.
 
@@ -1723,6 +1999,138 @@ class MemoryDAO:
                     recent_logs.append(payload)
         return recent_logs
 
+    async def request_session_finalization(self, agent_id: str, session_id: str) -> dict[str, Any]:
+        """Create one idempotent durable finalization intent for an exact session."""
+        _assert_valid_agent_id(agent_id)
+        if not session_id or session_id == "*":
+            raise ValueError("an exact session_id is required")
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT * FROM session_finalization_journal WHERE agent_id = ? AND session_id = ?",
+                (agent_id, session_id),
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is None:
+                async with db.execute(
+                    "SELECT COUNT(*) FROM raw_logs WHERE agent_id = ? AND json_extract(payload, '$.session_id') = ? "
+                    "AND status NOT LIKE 'processed%' AND status NOT LIKE 'rejected%'",
+                    (agent_id, session_id),
+                ) as cursor:
+                    pending_count = int((await cursor.fetchone())[0])
+                finalization_id = str(uuid.uuid4())
+                state = "COMPLETED" if pending_count == 0 else "PENDING"
+                await db.execute(
+                    "INSERT INTO session_finalization_journal "
+                    "(finalization_id, agent_id, session_id, idempotency_key, state, completed_at) "
+                    "VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE NULL END)",
+                    (finalization_id, agent_id, session_id, f"session-finalize:{agent_id}:{session_id}", state, state),
+                )
+            async with db.execute(
+                "SELECT * FROM session_finalization_journal WHERE agent_id = ? AND session_id = ?",
+                (agent_id, session_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+            await db.commit()
+        assert row is not None
+        return dict(row)
+
+    async def claim_session_finalization(
+        self, agent_id: str, session_id: str, *, worker_id: str, lease_seconds: int = 300
+    ) -> dict[str, Any] | None:
+        """Claim pending finalization using a durable fencing token."""
+        _assert_valid_agent_id(agent_id)
+        if not worker_id or not 1 <= lease_seconds <= 3600:
+            raise ValueError("invalid finalization claim bounds")
+        token = str(uuid.uuid4())
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE session_finalization_journal SET state = 'CLAIMED', claim_token = ?, claimed_by = ?, "
+                "lease_expires_at = datetime('now', ?), attempt_count = attempt_count + 1, "
+                "last_error_class = NULL, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ? AND session_id = ? "
+                "AND (state IN ('PENDING','RETRY_PENDING') OR (state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP))",
+                (token, worker_id, f"+{lease_seconds} seconds", agent_id, session_id),
+            )
+            if cursor.rowcount != 1:
+                await db.commit()
+                return None
+            async with db.execute(
+                "SELECT * FROM session_finalization_journal WHERE agent_id = ? AND session_id = ?",
+                (agent_id, session_id),
+            ) as rows:
+                row = await rows.fetchone()
+            await db.commit()
+        return dict(row) if row else None
+
+    async def get_session_finalization(self, agent_id: str, session_id: str) -> dict[str, Any] | None:
+        _assert_valid_agent_id(agent_id)
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT * FROM session_finalization_journal WHERE agent_id = ? AND session_id = ?",
+                (agent_id, session_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_pending_session_raw_logs(self, agent_id: str, session_id: str) -> list[int]:
+        _assert_valid_agent_id(agent_id)
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT id FROM raw_logs WHERE agent_id = ? AND json_extract(payload, '$.session_id') = ? "
+                "AND status = 'DEFERRED' ORDER BY id",
+                (agent_id, session_id),
+            ) as cursor:
+                return [int(row[0]) for row in await cursor.fetchall()]
+
+    async def complete_session_finalization(
+        self, agent_id: str, session_id: str, *, worker_id: str, claim_token: str
+    ) -> bool:
+        """Complete only when every exact-scope raw log is terminal and the fence matches."""
+        _assert_valid_agent_id(agent_id)
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM raw_logs WHERE agent_id = ? AND json_extract(payload, '$.session_id') = ? "
+                "AND status NOT LIKE 'processed%' AND status NOT LIKE 'rejected%'",
+                (agent_id, session_id),
+            ) as cursor:
+                incomplete = int((await cursor.fetchone())[0])
+            if incomplete:
+                await db.commit()
+                return False
+            cursor = await db.execute(
+                "UPDATE session_finalization_journal SET state = 'COMPLETED', completed_at = CURRENT_TIMESTAMP, "
+                "claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE agent_id = ? AND session_id = ? AND state = 'CLAIMED' AND claimed_by = ? AND claim_token = ?",
+                (agent_id, session_id, worker_id, claim_token),
+            )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def fail_session_finalization(
+        self, agent_id: str, session_id: str, *, worker_id: str, claim_token: str, error_class: str
+    ) -> bool:
+        """Persist a sanitized bounded failure; stale workers cannot mutate state."""
+        _assert_valid_agent_id(agent_id)
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE session_finalization_journal SET state = CASE WHEN attempt_count >= retry_limit THEN 'BLOCKED' "
+                "ELSE 'RETRY_PENDING' END, last_error_class = ?, claim_token = NULL, claimed_by = NULL, "
+                "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ? AND session_id = ? "
+                "AND state = 'CLAIMED' AND claimed_by = ? AND claim_token = ?",
+                (error_class[:120], agent_id, session_id, worker_id, claim_token),
+            )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def recover_expired_session_finalizations(self) -> int:
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE session_finalization_journal SET state = 'RETRY_PENDING', claim_token = NULL, "
+                "claimed_by = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP"
+            )
+            await db.commit()
+        return cursor.rowcount
+
     async def update_raw_log_status(
         self,
         agent_id: str,
@@ -1759,6 +2167,497 @@ class MemoryDAO:
             log_id,
             final_status,
         )
+
+    async def claim_raw_log(
+        self, agent_id: str, log_id: int, *, worker_id: str, lease_seconds: int = 300
+    ) -> dict[str, Any] | None:
+        """Atomically claim a deferred or expired cold-path job."""
+        _assert_valid_agent_id(agent_id)
+        if not worker_id or not 1 <= lease_seconds <= 3600:
+            raise ValueError("worker_id and a 1..3600 second lease are required.")
+        token = str(uuid.uuid4())
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE raw_logs SET status = 'processing', claim_token = ?, "
+                "claimed_by = ?, lease_expires_at = datetime('now', ?), "
+                "attempt_count = attempt_count + 1, last_error = NULL "
+                "WHERE id = ? AND agent_id = ? AND (status = 'DEFERRED' OR "
+                "(status = 'processing' AND lease_expires_at <= CURRENT_TIMESTAMP))",
+                (token, worker_id, f"+{lease_seconds} seconds", log_id, agent_id),
+            )
+            if cursor.rowcount != 1:
+                await db.commit()
+                return None
+            async with db.execute(
+                "SELECT id, agent_id, payload, status, claim_token, claimed_by, "
+                "lease_expires_at, attempt_count FROM raw_logs WHERE id = ? AND agent_id = ?",
+                (log_id, agent_id),
+            ) as rows:
+                row = await rows.fetchone()
+            await db.commit()
+        assert row is not None
+        claimed = dict(row)
+        if isinstance(claimed.get("payload"), str):
+            claimed["payload"] = json.loads(claimed["payload"])
+        return claimed
+
+    async def transition_claimed_raw_log(
+        self, agent_id: str, log_id: int, *, worker_id: str, claim_token: str,
+        status: str, error_reason: str | None = None,
+    ) -> bool:
+        """Finalize a job only when its owner and fencing token still match."""
+        _assert_valid_agent_id(agent_id)
+        if status not in {"processed", "failed", "rejected", "DEFERRED"}:
+            raise ValueError("claimed job status must be terminal or DEFERRED.")
+        final_status = f"{status}:{error_reason}" if error_reason else status
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE raw_logs SET status = ?, claim_token = NULL, claimed_by = NULL, "
+                "lease_expires_at = NULL, last_error = ?, processed_at = "
+                "CASE WHEN ? = 'processed' THEN CURRENT_TIMESTAMP ELSE processed_at END "
+                "WHERE id = ? AND agent_id = ? AND status = 'processing' "
+                "AND claimed_by = ? AND claim_token = ?",
+                (final_status, error_reason, status, log_id, agent_id, worker_id, claim_token),
+            )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def recover_expired_raw_log_claims(self) -> int:
+        """Return expired claims to DEFERRED without changing terminal rows."""
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE raw_logs SET status = 'DEFERRED', claim_token = NULL, "
+                "claimed_by = NULL, lease_expires_at = NULL "
+                "WHERE status = 'processing' AND lease_expires_at <= CURRENT_TIMESTAMP"
+            )
+            await db.commit()
+        return cursor.rowcount
+
+    async def claim_lancedb_wal_entries(
+        self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300
+    ) -> list[dict[str, Any]]:
+        """Durably claim only non-terminal projection work with a new fence."""
+        if not worker_id or not 1 <= limit <= 1000 or not 1 <= lease_seconds <= 3600:
+            raise ValueError("invalid WAL claim bounds.")
+        token = str(uuid.uuid4())
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT id FROM lancedb_wal WHERE state IN ('PENDING', 'SQLITE_COMMITTED', 'RETRY_PENDING') "
+                "OR (state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP) ORDER BY id LIMIT ?", (limit,)
+            ) as cursor:
+                identifiers = [row[0] for row in await cursor.fetchall()]
+            claimed_ids: list[str] = []
+            for identifier in identifiers:
+                cursor = await db.execute(
+                    "UPDATE lancedb_wal SET state = 'CLAIMED', claim_token = ?, claimed_by = ?, "
+                    "lease_expires_at = datetime('now', ?), attempt_count = attempt_count + 1, "
+                    "fence_epoch = fence_epoch + 1, last_error = NULL "
+                    "WHERE id = ? AND (state IN ('PENDING', 'SQLITE_COMMITTED', 'RETRY_PENDING') "
+                    "OR (state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP))",
+                    (token, worker_id, f"+{lease_seconds} seconds", identifier),
+                )
+                if cursor.rowcount == 1:
+                    claimed_ids.append(identifier)
+            if not claimed_ids:
+                await db.commit()
+                return []
+            placeholders = ",".join("?" for _ in claimed_ids)
+            async with db.execute(
+                f"SELECT id, mutation_id, idempotency_key, agent_id, vector, metadata, claim_token, "
+                f"claimed_by, attempt_count, fence_epoch, vector_state, graph_state, reconciliation_state "
+                f"FROM lancedb_wal WHERE id IN ({placeholders}) ORDER BY id",
+                claimed_ids,
+            ) as cursor:
+                rows = [dict(row) for row in await cursor.fetchall()]
+            await db.commit()
+        return rows
+
+    async def get_lancedb_mutation_state(self, wal_id: str) -> dict[str, Any] | None:
+        """Return the durable canonical state for one mutation without mutation."""
+        async with self._sql.connection() as db:
+            async with db.execute("SELECT * FROM lancedb_wal WHERE id = ?", (wal_id,)) as cursor:
+                row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def record_lancedb_projection_state(
+        self, wal_id: str, *, worker_id: str, claim_token: str, projection: str
+    ) -> bool:
+        """Fence a single projection transition; stale claimants are rejected."""
+        mapping = {
+            "VECTOR_APPLIED": ("vector_state", "VECTOR_APPLIED"),
+            "GRAPH_APPLIED": ("graph_state", "GRAPH_APPLIED"),
+            "GRAPH_NOT_REQUIRED": ("graph_state", "NOT_REQUIRED"),
+        }
+        if projection not in mapping:
+            raise ValueError("unsupported projection state")
+        column, value = mapping[projection]
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                f"UPDATE lancedb_wal SET {column} = ? WHERE id = ? AND state = 'CLAIMED' "
+                "AND claimed_by = ? AND claim_token = ?",
+                (value, wal_id, worker_id, claim_token),
+            )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def _retry_lancedb_wal_entry(
+        self, wal_id: str, *, worker_id: str, claim_token: str, error: str
+    ) -> bool:
+        """Release a fenced failure without erasing completed downstream state."""
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE lancedb_wal SET state = CASE WHEN attempt_count >= retry_limit THEN 'BLOCKED' "
+                "ELSE 'RETRY_PENDING' END, claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL, "
+                "last_error = ? WHERE id = ? AND state = 'CLAIMED' AND claimed_by = ? AND claim_token = ?",
+                (error[:500], wal_id, worker_id, claim_token),
+            )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def _graph_has_wal_node(self, *, node_id: str, agent_id: str) -> bool:
+        if self._graph is None:
+            return False
+        has_node = getattr(self._graph, "has_node", None)
+        if has_node is not None:
+            return bool(await has_node(node_id=node_id, agent_id=agent_id))
+        verify_absent = getattr(self._graph, "verify_nodes_absent", None)
+        if verify_absent is None:
+            raise RuntimeError("graph provider does not expose exact-scope verification")
+        return not bool(await verify_absent(agent_id=agent_id, node_ids=[node_id]))
+
+    async def reconcile_lancedb_wal_entry(
+        self, wal_id: str, *, worker_id: str, claim_token: str
+    ) -> str:
+        """Persist exact-scope downstream observation before final ACK."""
+        state = await self.get_lancedb_mutation_state(wal_id)
+        if state is None:
+            raise ValueError("unknown WAL mutation")
+        metadata = json.loads(state["metadata"])
+        node_id = metadata["node_id"]
+        agent_id = state["agent_id"]
+        graph_required = bool(metadata.get("graph_required", False))
+        canonical_agent_id = metadata.get("canonical_agent_id", agent_id)
+        payload_version = metadata.get("payload_version", 1)
+        expected_vector = bool(metadata.get("expected_vector_projection", True))
+        expected_graph_marker = metadata.get("expected_graph_projection")
+        try:
+            if canonical_agent_id != agent_id:
+                result = "SCOPE_MISMATCH"
+            elif payload_version != 1:
+                result = "PAYLOAD_OR_VERSION_MISMATCH"
+            else:
+                vector_present = node_id in await self._vec.get_existing_node_ids(agent_id, [node_id])
+                graph_present = (not graph_required) or await self._graph_has_wal_node(
+                    node_id=node_id, agent_id=agent_id
+                )
+                if not expected_vector and vector_present:
+                    result = "VECTOR_EXTRA"
+                elif expected_graph_marker is False and self._graph is not None and await self._graph_has_wal_node(
+                    node_id=node_id, agent_id=agent_id
+                ):
+                    result = "GRAPH_EXTRA"
+                elif expected_vector and not vector_present:
+                    result = "VECTOR_MISSING"
+                elif graph_required and not graph_present:
+                    result = "GRAPH_MISSING"
+                else:
+                    result = "ALIGNED"
+        except Exception:
+            result = "UNKNOWN_OR_UNVERIFIABLE"
+
+        if result == "ALIGNED":
+            next_state = "RECONCILED"
+            vector_state = state["vector_state"]
+            graph_state = state["graph_state"]
+            release_claim = False
+        elif result == "VECTOR_MISSING":
+            next_state = "RETRY_PENDING"
+            vector_state = "PENDING"
+            graph_state = state["graph_state"]
+            release_claim = True
+        elif result == "GRAPH_MISSING":
+            next_state = "RETRY_PENDING"
+            vector_state = state["vector_state"]
+            graph_state = "PENDING"
+            release_claim = True
+        elif result == "SCOPE_MISMATCH":
+            next_state = "BLOCKED"
+            vector_state = state["vector_state"]
+            graph_state = state["graph_state"]
+            release_claim = True
+        else:
+            next_state = "RECONCILIATION_REQUIRED"
+            vector_state = state["vector_state"]
+            graph_state = state["graph_state"]
+            release_claim = True
+
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE lancedb_wal SET reconciliation_state = ?, reconciled_at = CURRENT_TIMESTAMP, "
+                "state = ?, vector_state = ?, graph_state = ?, "
+                "claim_token = CASE WHEN ? THEN NULL ELSE claim_token END, "
+                "claimed_by = CASE WHEN ? THEN NULL ELSE claimed_by END, "
+                "lease_expires_at = CASE WHEN ? THEN NULL ELSE lease_expires_at END "
+                "WHERE id = ? AND state = 'CLAIMED' AND claimed_by = ? AND claim_token = ?",
+                (
+                    result, next_state, vector_state, graph_state,
+                    release_claim, release_claim, release_claim,
+                    wal_id, worker_id, claim_token,
+                ),
+            )
+            await db.commit()
+        if cursor.rowcount != 1:
+            return "FENCED_OUT"
+        return result
+
+    async def ack_lancedb_wal_entry(self, wal_id: str, *, worker_id: str, claim_token: str) -> bool:
+        """ACK only a reconciled mutation owned by the current durable fence."""
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE lancedb_wal SET state = 'ACKED', acknowledged_at = CURRENT_TIMESTAMP, "
+                "claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL "
+                "WHERE id = ? AND state = 'RECONCILED' AND reconciliation_state = 'ALIGNED' "
+                "AND claimed_by = ? AND claim_token = ?",
+                (wal_id, worker_id, claim_token),
+            )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def recover_expired_lancedb_wal_claims(self) -> int:
+        """Make expired, non-finalized work retryable while retaining its fence history."""
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE lancedb_wal SET state = 'RETRY_PENDING', claim_token = NULL, claimed_by = NULL, "
+                "lease_expires_at = NULL WHERE state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP"
+            )
+            await db.commit()
+        return cursor.rowcount
+
+    async def replay_claimed_lancedb_wal_entry(self, entry: dict[str, Any], *, worker_id: str) -> bool:
+        """Apply only missing projections, reconcile, then issue a fenced ACK."""
+        wal_id = entry["id"]
+        token = entry["claim_token"]
+        metadata = json.loads(entry["metadata"])
+        node_id = metadata["node_id"]
+        agent_id = entry["agent_id"]
+        import numpy as np
+        if entry.get("vector_state") != "VECTOR_APPLIED":
+            try:
+                await self._vec.upsert(
+                    node_id=node_id, agent_id=agent_id,
+                    embedding=np.frombuffer(entry["vector"], dtype=np.float32).tolist(),
+                    content_hash=metadata.get("content_hash"),
+                )
+            except Exception as exc:
+                await self._retry_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token, error=type(exc).__name__)
+                raise
+            if not await self.record_lancedb_projection_state(wal_id, worker_id=worker_id, claim_token=token, projection="VECTOR_APPLIED"):
+                return False
+        if bool(metadata.get("graph_required", False)):
+            if entry.get("graph_state") != "GRAPH_APPLIED":
+                if self._graph is None:
+                    await self._retry_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token, error="GraphProviderUnavailable")
+                    raise RuntimeError("graph projection is required but unavailable")
+                try:
+                    await self._graph.insert_node(node_id=node_id, name=metadata.get("entity_name", node_id), agent_id=agent_id)
+                except Exception as exc:
+                    await self._retry_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token, error=type(exc).__name__)
+                    raise
+                if not await self.record_lancedb_projection_state(wal_id, worker_id=worker_id, claim_token=token, projection="GRAPH_APPLIED"):
+                    return False
+        elif entry.get("graph_state") != "NOT_REQUIRED":
+            if not await self.record_lancedb_projection_state(wal_id, worker_id=worker_id, claim_token=token, projection="GRAPH_NOT_REQUIRED"):
+                return False
+        result = await self.reconcile_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token)
+        if result != "ALIGNED":
+            return False
+        return await self.ack_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token)
+
+    async def replay_lancedb_wal(self, *, worker_id: str, limit: int = 100) -> int:
+        """Replay real downstream projections without treating partial work as success."""
+        entries = await self.claim_lancedb_wal_entries(worker_id=worker_id, limit=limit)
+        completed = 0
+        for entry in entries:
+            if await self.replay_claimed_lancedb_wal_entry(entry, worker_id=worker_id):
+                completed += 1
+        return completed
+
+    async def dispatch_raw_log(
+        self, agent_id: str, log_id: int, *, worker_id: str, policy: "QueueAdmissionPolicy | None" = None
+    ) -> dict[str, Any]:
+        """Atomically materialize a bounded raw-log dispatch intent, queue row and receipt."""
+        _assert_valid_agent_id(agent_id)
+        if not worker_id:
+            raise ValueError("worker_id is required")
+        if policy is None:
+            from mesa_memory.config import config
+            policy = config.queue_admission_policy
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT id, payload FROM raw_logs WHERE id = ? AND agent_id = ?", (log_id, agent_id)
+            ) as cursor:
+                raw_log = await cursor.fetchone()
+                if raw_log is None:
+                    raise ValueError("raw log is not in the requested tenant scope")
+            raw_payload = raw_log["payload"]
+            if isinstance(raw_payload, str):
+                raw_payload = json.loads(raw_payload)
+            _, payload_bytes = _canonical_payload_bytes(raw_payload)
+            async with db.execute(
+                "SELECT * FROM dispatch_journal WHERE source_record_id = ? AND agent_id = ?",
+                (log_id, agent_id),
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is None:
+                dispatch_id = str(uuid.uuid4())
+                idempotency_key = f"raw-log:{agent_id}:{log_id}"
+                await db.execute(
+                    "INSERT INTO dispatch_journal (dispatch_id, source_record_id, tenant_id, agent_id, "
+                    "job_type, idempotency_key, state, attempt_count, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 'cold_path', ?, 'PENDING', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    (dispatch_id, log_id, agent_id, agent_id, idempotency_key),
+                )
+            else:
+                dispatch_id = existing["dispatch_id"]
+                idempotency_key = existing["idempotency_key"]
+            async with db.execute(
+                "SELECT * FROM dispatch_journal WHERE dispatch_id = ?", (dispatch_id,)
+            ) as cursor:
+                journal = await cursor.fetchone()
+            if journal["state"] != "RECEIPT_RECORDED":
+                global_usage = await self._queue_usage(db)
+                tenant_usage = await self._queue_usage(db, agent_id)
+                self._enforce_queue_capacity(global_usage, tenant_usage, payload_bytes, policy)
+                token = str(uuid.uuid4())
+                await db.execute(
+                    "UPDATE dispatch_journal SET state = 'CLAIMED', claimed_by = ?, claim_token = ?, "
+                    "attempt_count = attempt_count + 1, lease_expires_at = datetime('now', '+300 seconds'), "
+                    "updated_at = CURRENT_TIMESTAMP WHERE dispatch_id = ?", (worker_id, token, dispatch_id)
+                )
+                queue_id = journal["queue_record_id"] or str(uuid.uuid4())
+                await db.execute(
+                    "INSERT OR IGNORE INTO dispatch_queue (queue_record_id, dispatch_id, tenant_id, agent_id, "
+                    "job_type, payload_reference, payload_bytes, idempotency_key, state) VALUES (?, ?, ?, ?, 'cold_path', ?, ?, ?, 'ENQUEUED')",
+                    (queue_id, dispatch_id, agent_id, agent_id, log_id, payload_bytes, idempotency_key),
+                )
+                await db.execute(
+                    "INSERT OR IGNORE INTO dispatch_receipts (receipt_id, dispatch_id, queue_record_id, tenant_id, "
+                    "agent_id, outcome, idempotency_key) VALUES (?, ?, ?, ?, ?, 'ENQUEUED', ?)",
+                    (str(uuid.uuid4()), dispatch_id, queue_id, agent_id, agent_id, idempotency_key),
+                )
+                await db.execute(
+                    "UPDATE dispatch_journal SET state = 'RECEIPT_RECORDED', queue_record_id = ?, "
+                    "dispatched_at = CURRENT_TIMESTAMP, finalized_at = CURRENT_TIMESTAMP, claim_token = NULL, "
+                    "claimed_by = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE dispatch_id = ?",
+                    (queue_id, dispatch_id),
+                )
+            async with db.execute("SELECT * FROM dispatch_journal WHERE dispatch_id = ?", (dispatch_id,)) as cursor:
+                result = dict(await cursor.fetchone())
+            await db.commit()
+        return result
+
+    async def recover_raw_log_dispatches(self, *, worker_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Find tenant-scoped deferred raw logs that lack a durable dispatch receipt."""
+        if not worker_id or not 1 <= limit <= 1000:
+            raise ValueError("invalid dispatch recovery bounds")
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT r.id, r.agent_id FROM raw_logs r LEFT JOIN dispatch_journal j "
+                "ON j.source_record_id = r.id WHERE r.status = 'DEFERRED' AND "
+                "(j.dispatch_id IS NULL OR j.state != 'RECEIPT_RECORDED') ORDER BY r.id LIMIT ?", (limit,)
+            ) as cursor:
+                pending = [(row["agent_id"], row["id"]) for row in await cursor.fetchall()]
+        return [await self.dispatch_raw_log(aid, record_id, worker_id=worker_id) for aid, record_id in pending]
+
+    async def claim_dispatch_queue(self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300) -> list[dict[str, Any]]:
+        """Claim bounded durable queue records with a worker fencing token."""
+        if not worker_id or not 1 <= limit <= 1000 or not 1 <= lease_seconds <= 3600:
+            raise ValueError("invalid dispatch queue claim bounds")
+        token = str(uuid.uuid4())
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT queue_record_id FROM dispatch_queue WHERE state IN ('ENQUEUED', 'RETRY_PENDING') "
+                "OR (state = 'IN_FLIGHT' AND lease_expires_at <= CURRENT_TIMESTAMP) ORDER BY created_at LIMIT ?",
+                (limit,),
+            ) as cursor:
+                ids = [row[0] for row in await cursor.fetchall()]
+            claimed: list[str] = []
+            for queue_id in ids:
+                cursor = await db.execute(
+                    "UPDATE dispatch_queue SET state = 'IN_FLIGHT', claimed_by = ?, claim_token = ?, "
+                    "lease_expires_at = datetime('now', ?), attempt_count = attempt_count + 1 "
+                    "WHERE queue_record_id = ? AND (state IN ('ENQUEUED', 'RETRY_PENDING') "
+                    "OR (state = 'IN_FLIGHT' AND lease_expires_at <= CURRENT_TIMESTAMP))",
+                    (worker_id, token, f'+{lease_seconds} seconds', queue_id),
+                )
+                if cursor.rowcount == 1:
+                    claimed.append(queue_id)
+            if not claimed:
+                await db.commit()
+                return []
+            placeholders = ','.join('?' for _ in claimed)
+            async with db.execute(f"SELECT * FROM dispatch_queue WHERE queue_record_id IN ({placeholders})", claimed) as cursor:
+                rows = [dict(row) for row in await cursor.fetchall()]
+            await db.commit()
+        return rows
+
+    async def complete_dispatch_queue(
+        self, queue_record_id: str, *, worker_id: str, claim_token: str, outcome: str, side_effect_verified: bool
+    ) -> bool:
+        """Write a completion receipt before ACK/finalization; stale fences never finalize."""
+        if not worker_id or not claim_token:
+            raise ValueError("worker_id and claim_token are required")
+        async with self._sql.transaction() as db:
+            async with db.execute("SELECT * FROM dispatch_queue WHERE queue_record_id = ?", (queue_record_id,)) as cursor:
+                row = await cursor.fetchone()
+            if row is None or row['state'] != 'IN_FLIGHT' or row['claimed_by'] != worker_id or row['claim_token'] != claim_token:
+                await db.commit()
+                return False
+            if not side_effect_verified:
+                await db.execute(
+                    "UPDATE dispatch_queue SET state = 'RETRY_PENDING', claim_token = NULL, claimed_by = NULL, "
+                    "lease_expires_at = NULL, last_error_class = ? WHERE queue_record_id = ? AND claim_token = ?",
+                    (outcome[:120], queue_record_id, claim_token),
+                )
+                await db.commit()
+                return False
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO dispatch_completion_receipts (receipt_id, queue_record_id, dispatch_id, tenant_id, agent_id, "
+                "worker_id, claim_token, outcome, side_effect_verified, attempt_count, idempotency_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                (str(uuid.uuid4()), queue_record_id, row['dispatch_id'], row['tenant_id'], row['agent_id'], worker_id, claim_token, outcome, row['attempt_count'], f"completion:{row['idempotency_key']}"),
+            )
+            if cursor.rowcount != 1:
+                await db.commit()
+                return False
+            cursor = await db.execute(
+                "UPDATE dispatch_queue SET state = 'FINALIZED', claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL "
+                "WHERE queue_record_id = ? AND state = 'IN_FLIGHT' AND claim_token = ?", (queue_record_id, claim_token)
+            )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def get_dispatch_completion_receipt(self, queue_record_id: str) -> dict[str, Any] | None:
+        async with self._sql.connection() as db:
+            async with db.execute("SELECT * FROM dispatch_completion_receipts WHERE queue_record_id = ?", (queue_record_id,)) as cursor:
+                row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_dispatch_receipt(self, dispatch_id: str) -> dict[str, Any] | None:
+        async with self._sql.connection() as db:
+            async with db.execute("SELECT * FROM dispatch_receipts WHERE dispatch_id = ?", (dispatch_id,)) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def get_dispatch_receipt_by_source(self, agent_id: str, log_id: int) -> dict[str, Any] | None:
+        _assert_valid_agent_id(agent_id)
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT r.* FROM dispatch_receipts r JOIN dispatch_journal j ON j.dispatch_id = r.dispatch_id "
+                "WHERE j.agent_id = ? AND j.source_record_id = ?", (agent_id, log_id)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
 
     # ==================================================================
     # HEALTH — engine passthrough

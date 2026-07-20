@@ -13,7 +13,7 @@ from mesa_client.client import AsyncMesaClient
 app: Server = Server("mesa-mcp")
 
 # Environment variables for MESA configuration
-MESA_BASE_URL = os.getenv("MESA_BASE_URL", "http://localhost:8000/v3")
+MESA_BASE_URL = os.getenv("MESA_BASE_URL", "http://localhost:8000")
 MESA_API_KEY = os.getenv("MESA_API_KEY")
 MESA_AGENT_ID = os.getenv("MESA_AGENT_ID")
 
@@ -77,7 +77,7 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_stats",
-            description="Return memory statistics: total nodes, edges, recent admit/discard rates",
+            description="Return authenticated MESA API health without opening local storage.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -204,56 +204,16 @@ async def call_tool(
                 return [
                     types.TextContent(
                         type="text",
-                        text=f"Purge complete. Affected nodes: {purge_resp.records_affected}",
+                        text=(
+                            "Purge complete. Affected nodes: "
+                            f"{purge_resp.deleted_records_count}"
+                        ),
                     )
                 ]
 
             elif name == "get_stats":
-                from mesa_storage.dao import MemoryDAO
-                from mesa_storage.kuzu_provider import KuzuGraphProvider
-                from mesa_storage.sqlite_engine import AsyncEngine
-
-                db_path = os.path.join(
-                    os.environ.get("MESA_STORAGE_PATH", "./storage"), "mesa.db"
-                )
-                kuzu_path = os.path.join(
-                    os.environ.get("MESA_STORAGE_PATH", "./storage"), "kuzu"
-                )
-
-                sql = AsyncEngine(db_path=db_path)
-                await sql.initialize()
-
-                stats = {"total_nodes": 0, "total_edges": 0, "telemetry": {}}
-
-                async with sql.connection() as db:
-                    async with db.execute(
-                        "SELECT count(*) FROM nodes WHERE agent_id = ?", (agent_id,)
-                    ) as cur:
-                        row = await cur.fetchone()
-                        stats["total_nodes"] = row[0] if row else 0
-
-                dao = MemoryDAO(
-                    sqlite_engine=sql, vector_engine=None, graph_provider=None  # type: ignore
-                )
-                stats["telemetry"] = await dao.get_recent_telemetry_stats(
-                    agent_id=agent_id, limit=100
-                )
-                await sql.close()
-
-                graph = KuzuGraphProvider(db_path=kuzu_path)
-                await graph.initialize()
-                try:
-                    graph_res = await graph.execute_query(
-                        "MATCH ()-[r]->() RETURN count(r) as c"
-                    )
-                    if graph_res and graph_res[0]:
-                        stats["total_edges"] = graph_res[0][0]
-                except Exception:
-                    pass
-                finally:
-                    await graph.close()
-
-                return [types.TextContent(type="text", text=f"Stats: {stats}")]
+                health = await client._request("GET", "/v3/health")
+                return [types.TextContent(type="text", text=f"Health: {health}")]
 
             else:
                 raise ValueError(f"Unknown tool: {name}")
