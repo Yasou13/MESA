@@ -286,9 +286,13 @@ def create_memory_router(
         return JSONResponse(
             status_code=202,
             content={
-                "status": "DEFERRED",
+                # ``DEFERRED`` is the raw-log's internal persistence state.
+                # The public contract describes the accepted durable work,
+                # rather than exposing an implementation detail of the worker.
+                "status": "queued",
                 "agent_id": payload.agent_id,
                 "log_id": log_id,
+                "processing_mode": "async",
             },
             background=background_tasks,
         )

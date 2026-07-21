@@ -172,7 +172,8 @@ class TestInsertEndpoint:
         )
         assert resp.status_code == 202
         body = resp.json()
-        assert body["status"] == "DEFERRED"
+        assert body["status"] == "queued"
+        assert body["processing_mode"] == "async"
         assert "log_id" in body
         assert isinstance(body["log_id"], int)
 
@@ -266,16 +267,26 @@ class TestInsertEndpoint:
                 },
             )
         assert resp.status_code == 202
-        assert resp.json()["log_id"] > 0
+        result = resp.json()
+        assert result["status"] == "queued"
+        assert result["processing_mode"] == "async"
+        assert result["log_id"] > 0
 
         raw_log = loop.run_until_complete(
             MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng).get_raw_log(
-                "agent-bg", resp.json()["log_id"]
+                "agent-bg", result["log_id"]
             )
         )
         assert raw_log is not None
         assert raw_log["payload"]["content"] == "Background insert test"
-        assert raw_log["status"].startswith("failed:RuntimeError:")
+        assert raw_log["status"] == "DEFERRED"
+        receipt = loop.run_until_complete(
+            MemoryDAO(
+                sqlite_engine=sqlite_eng, vector_engine=vec_eng
+            ).get_dispatch_receipt_by_source("agent-bg", result["log_id"])
+        )
+        assert receipt is not None
+        assert receipt["outcome"] == "ENQUEUED"
         nodes = loop.run_until_complete(
             get_active_nodes(sqlite_eng, agent_id="agent-bg")
         )

@@ -389,25 +389,22 @@ class TestMemoryPurgeRequest:
 class TestResponseSchemas:
     """Validates response model construction and immutability."""
 
-    def test_insert_response_stored(self):
+    def test_insert_response_queued(self):
         resp = MemoryInsertResponse(
-            status="STORED",
-            node_id="abc-123",
+            status="queued",
+            log_id=123,
             agent_id="agent_1",
         )
-        assert resp.status == "STORED"
-        assert resp.node_id == "abc-123"
-        assert resp.timestamp is not None
+        assert resp.status == "queued"
+        assert resp.log_id == 123
+        assert resp.processing_mode == "async"
 
-    def test_insert_response_discarded(self):
-        resp = MemoryInsertResponse(
-            status="DISCARDED",
-            agent_id="agent_1",
-        )
-        assert resp.node_id is None
+    def test_insert_response_requires_durable_log_id(self):
+        with pytest.raises(ValidationError):
+            MemoryInsertResponse(status="queued", agent_id="agent_1")
 
     def test_insert_response_frozen(self):
-        resp = MemoryInsertResponse(status="STORED", agent_id="agent_1")
+        resp = MemoryInsertResponse(status="queued", log_id=1, agent_id="agent_1")
         with pytest.raises(ValidationError):
             resp.status = "MUTATED"  # type: ignore[misc]
 

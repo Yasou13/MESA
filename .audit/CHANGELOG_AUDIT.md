@@ -31,3 +31,9 @@
 - Search response retriever source score'unu ve node content'ini korur.
 - Full coverage job'ı Python 3.10 ve 3.13 matrix'ine alındı; artifact adları matrix çakışmasını önler.
 - API insert path'i artık yalnız durable dispatch admission yapar; worker runtime dispatch queue'yu fence token ile claim edip cold-path sonucundan sonra completion receipt yazar.
+
+## 2026-07-21 — Insert durable-queue response sözleşmesi
+
+- `POST /v3/memory/insert` dış yanıtı, iç raw-log `DEFERRED` durumunu sızdırmak yerine `202`, `status: queued`, `log_id` ve `processing_mode: async` döndürür.
+- SDK `MemoryInsertResponse` modeli bu gerçek response gövdesiyle eşitlendi.
+- Router regression testi, `raw_logs` iç durumunu ve dispatch receipt'in `ENQUEUED` sonucunu ayrıca doğrular; böylece public kabul ve worker iç durumu ayrıştırılır.

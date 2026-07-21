@@ -74,7 +74,7 @@ curl -X POST http://localhost:8000/v3/memory/insert \
     "session_id": "session_001",
     "content": "Tesla Q4 2025 revenue exceeded $25B, up 12% YoY."
   }'
-# → {"status": "queued", "log_id": 1}
+# → {"status": "queued", "log_id": 1, "processing_mode": "async"}
 ```
 
 The insert endpoint returns **202 Accepted** in <50ms. Heavy processing (ECOD anomaly detection, triple extraction, dual-LLM consensus) happens asynchronously on the cold path.

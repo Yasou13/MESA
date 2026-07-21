@@ -16,6 +16,7 @@
 - Search response, retriever source score'unu ve memory içeriğini taşır; structured logging dışı traceback/print çağrıları kaldırıldı.
 - Coverage job'ı Python 3.10 ve Docker'daki Python 3.13 ile çalışacak şekilde matrix'e alındı.
 - Cold-path iş sahipliği API'den ayrı durable worker'a taşındı; gerçek Compose process testi sandbox test koşusunun kesilmesi nedeniyle henüz doğrulanmadı.
+- Insert API'nin dış sözleşmesi durable kabulü açıkça belirtmek üzere `202 {"status":"queued", "log_id", "processing_mode":"async"}` olarak standardize edildi. İç raw-log durumu `DEFERRED` ve dispatch receipt sonucu `ENQUEUED` olarak worker/storage sınırında kalır.
 
 ## Faz 0 çıkış kriterleri
 

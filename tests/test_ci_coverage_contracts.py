@@ -389,7 +389,13 @@ def test_sync_sdk_requests_public_operations_and_validation() -> None:
     client._client.request = Mock(
         side_effect=[
             _response(
-                200, {"status": "STORED", "node_id": "node", "agent_id": "agent"}
+                202,
+                {
+                    "status": "queued",
+                    "log_id": 1,
+                    "agent_id": "agent",
+                    "processing_mode": "async",
+                },
             ),
             _response(200, {"context": "ctx", "retrieved_nodes": [], "metrics": {}}),
             _response(200, {"status": "purged", "deleted_records_count": 2}),
@@ -401,8 +407,8 @@ def test_sync_sdk_requests_public_operations_and_validation() -> None:
                 MemoryInsertRequest(
                     agent_id="agent", session_id="session", content="text"
                 )
-            ).node_id
-            == "node"
+            ).log_id
+            == 1
         )
         assert (
             client.search(
@@ -458,7 +464,15 @@ async def test_async_sdk_requests_public_operations_and_errors() -> None:
     client = AsyncMesaClient(base_url="http://mesa.test", api_key="key", max_retries=0)
     client._client.request = AsyncMock(
         side_effect=[
-            _response(200, {"status": "DEFERRED", "agent_id": "agent"}),
+            _response(
+                202,
+                {
+                    "status": "queued",
+                    "log_id": 1,
+                    "agent_id": "agent",
+                    "processing_mode": "async",
+                },
+            ),
             _response(200, {"context": "", "retrieved_nodes": [], "metrics": {}}),
             _response(200, {"status": "purged", "deleted_records_count": 0}),
             _response(
@@ -473,7 +487,7 @@ async def test_async_sdk_requests_public_operations_and_errors() -> None:
                     agent_id="agent", session_id="session", content="text"
                 )
             )
-        ).status == "DEFERRED"
+        ).status == "queued"
         assert (
             await client.search(
                 MemorySearchRequest(

@@ -34,7 +34,6 @@ Usage::
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -389,20 +388,17 @@ class SessionEndRequest(BaseModel):
 
 
 class MemoryInsertResponse(BaseModel):
-    """Response returned after a successful memory insertion."""
+    """Response returned after durable acceptance of a memory insertion."""
 
     model_config = ConfigDict(frozen=True)
 
-    status: Literal["STORED", "DEFERRED", "DISCARDED"] = Field(
-        ..., description="Outcome of the valence evaluation"
+    status: Literal["queued"] = Field(
+        ..., description="The raw log was durably queued for asynchronous processing"
     )
-    node_id: str | None = Field(
-        default=None, description="UUID of the stored node (None if discarded)"
-    )
+    log_id: int = Field(..., ge=1, description="Durable raw-log identifier")
     agent_id: str = Field(..., description="Echo of the tenant identifier")
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
-        description="Server-side ISO 8601 timestamp",
+    processing_mode: Literal["async"] = Field(
+        "async", description="Heavy ingestion is performed by a worker"
     )
 
 
