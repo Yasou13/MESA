@@ -77,6 +77,8 @@ def test_ci_tests_supported_python_versions_and_enforces_full_repository_lint() 
 
     assert 'python-version: ["3.10", "3.11", "3.12", "3.13"]' in workflow
     assert "uv sync --locked --extra dev" in workflow
+    assert workflow.count("uv pip check") == 2
+    assert "uv run python -m pip check" not in workflow
     assert "uv run ruff check ." in workflow
     assert "mesa_memory mesa_storage mesa_workers mesa_api mesa_client" in workflow
 

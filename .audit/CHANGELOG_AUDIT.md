@@ -18,3 +18,8 @@
 
 - Yalnız `zero-cost-contract` job'una gerekli `adapters` extra eklendi.
 - TruffleHog action Git tag'i korunurken Docker image sürümünden hatalı `v` öneki kaldırıldı.
+
+## 2026-07-21 — CI uv dependency-check remediation
+
+- `uv sync` kullanan quality ve core-tests job'ları klasik `pip` modülünü çağırmak yerine `uv pip check` kullanacak şekilde düzeltildi.
+- Deployment asset regresyonu, eski `uv run python -m pip check` çağrısının geri gelmesini engeller.
