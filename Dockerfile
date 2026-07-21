@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 ARG PYTHON_IMAGE=python:3.13.5-slim-bookworm
-FROM ghcr.io/astral-sh/uv:0.9.6 AS uv
+FROM ghcr.io/astral-sh/uv:0.11.30 AS uv
 
 FROM ${PYTHON_IMAGE} AS builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONDONTWRITEBYTECODE=1
