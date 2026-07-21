@@ -21,6 +21,9 @@ python -m pip check
 
 `pyproject.toml` is the canonical dependency definition. Optional adapters and
 benchmark integrations are not needed for the core runtime or CI profile.
+`uv.lock` freezes the resolved graph used by CI and Docker; use
+`uv sync --locked --extra dev` when `uv` is available and an exact development
+environment is required.
 
 ## Environment template
 

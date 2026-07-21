@@ -25,29 +25,31 @@ jobs:
   quality:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Configure isolated runtime path
         run: echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
-          python-version: "3.10"
-          cache: pip
-      - name: Install canonical core and test dependencies
-        run: python -m pip install -e ".[dev]"
+          python-version: ${{ matrix.python-version }}
+      - name: Install pinned uv
+        run: python -m pip install "uv==0.9.6"
+      - name: Install locked core and test dependencies
+        run: uv sync --locked --extra dev
       - name: Dependency, compile, and import checks
         run: |
-          python -m pip check
-          python -m compileall -q mesa_memory mesa_storage mesa_workers mesa_api mesa_client
-          python -c "import mesa_memory, mesa_api, mesa_client, mesa_storage, mesa_workers"
-      - name: Lint release-boundary code
-        run: >-
-          python -m ruff check
-          mesa_memory/worker_runtime.py mesa_memory/container_health.py mesa_memory/runtime_entrypoint.py
-          mesa_storage/recovery.py tests/test_recovery_contract.py tests/test_migration_closure.py
-      - name: Enforce formatting and typing at the runtime boundary
+          uv run python -m pip check
+          uv run python -m compileall -q mesa_memory mesa_storage mesa_workers mesa_api mesa_client
+          uv run python -c "import mesa_memory, mesa_api, mesa_client, mesa_storage, mesa_workers"
+      - name: Lint the repository
+        run: uv run ruff check .
+      - name: Enforce formatting and progressive typing across production packages
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           from pathlib import Path
 
           from black import FileMode, TargetVersion, WriteBack, format_file_in_place
@@ -66,10 +68,8 @@ jobs:
           if changed:
               raise SystemExit("Black would reformat: " + ", ".join(changed))
           PY
-          python -m mypy \
-            mesa_memory/worker_runtime.py \
-            mesa_memory/container_health.py \
-            mesa_memory/runtime_entrypoint.py \
+          uv run mypy \
+            mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
             --ignore-missing-imports --explicit-package-bases --follow-imports=skip
       - name: Basic tracked-secret policy
         run: |
@@ -95,7 +95,7 @@ jobs:
         uses: trufflesecurity/trufflehog@v3.95.2
         with:
           path: ./
-          version: v3.95.2
+          version: 3.95.2
       - name: Install graph-audit test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Enforce graph-poisoning guardrail
@@ -142,7 +142,7 @@ jobs:
         with:
           python-version: "3.10"
           cache: pip
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev,adapters]"
       - run: python -m pip check
       - name: Verify zero-cost provider selection and configuration parity
         run: >-
@@ -213,19 +213,23 @@ jobs:
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Configure isolated runtime path
         run: echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
-          python-version: "3.10"
-          cache: pip
-      - run: python -m pip install -e ".[dev]"
-      - run: python -m pip check
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install "uv==0.9.6"
+      - run: uv sync --locked --extra dev
+      - run: uv run python -m pip check
       - name: Security, lifecycle, queue, and worker contracts
         run: >-
-          python -m pytest -q
+          uv run python -m pytest -q
           tests/test_principal_authorization.py
           tests/test_session_principal_route_isolation.py
           tests/test_purge_journal_contract.py

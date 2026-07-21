@@ -7,19 +7,19 @@ without reintroducing a hard-coded API key or an unbounded full-suite run.
 | Assurance area | Current control | Blocking |
 |---|---|---|
 | Secrets | TruffleHog scans the changed Git history; the local tracked-secret policy remains in `quality`. | Yes |
-| Format and typing | Black and Mypy enforce the production runtime entrypoint boundary. | Yes |
-| Full-tree static debt | The weekly/manual `legacy-static-baseline` records Black and Mypy failures as artifacts. | No, intentionally visible |
+| Format, lint and typing | Black checks the runtime boundary; Ruff checks the repository; Mypy checks all canonical production packages with tracked progressive overrides. | Yes |
+| Static-debt visibility | The weekly/manual `legacy-static-baseline` remains an artifact for formatting debt and type-debt trend review. | No, intentionally visible |
 | Zero-cost mode | `zero-cost-contract` asserts configuration override and adapter selection with `MESA_ZERO_COST_MODE=true`. | Yes |
 | Tenant isolation | `test_rbac_leak.py` is run with a four-minute process bound and JUnit/log evidence. | Yes |
 | Compensating rollback | `test_chaos.py` is run with a four-minute process bound and JUnit/log evidence. | Yes |
 | Graph isolation and poisoning | Real Kuzu isolation tests plus deterministic audit/threshold tests run with a four-minute process bound. | Yes |
 | API canary | Compose verifies unauthenticated rejection plus authenticated health and readiness before restart checks. | Yes |
 
-The old all-tree Black and Mypy commands are not presented as passing release
-gates: the current verified baseline is 42 files Black would reformat and 23
-Mypy errors.  They remain scheduled/manual evidence until both commands exit
-zero.  At that point, move them into the blocking `quality` job and remove
-`legacy-static-baseline`; do not remove the results merely to make CI green.
+The production package Mypy command is a blocking quality gate. Its progressive
+overrides remain explicitly listed in `pyproject.toml`; removing an override
+requires the affected module to pass the strict defaults. The scheduled/manual
+baseline continues to surface all-tree formatting and remaining type debt,
+including paths deliberately outside the canonical production package set.
 
 The old zero-cost command was `make test`, which executes the full suite.  It
 is not used as a parity signal because that suite has a recorded hang

@@ -5,7 +5,7 @@
 | ENV-001 | Yüksek | FIXED_UNVERIFIED | Ortam / dependency | Mevcut virtual environment kullanılabilir değil | None | TBD |
 | BOOT-001 | Yüksek | FIXED_UNVERIFIED | Boot / dependency | İzole API readiness baseline’ı tamamlanamadı | None | TBD |
 | SEC-001 | Unknown | FIXED_UNVERIFIED | Unknown | Faz 1 işlemleri gerçek `.env` dosyasından izole değildi | None | TBD |
-| OPS-001 | Unknown | OPEN_EXTERNAL_BLOCKED | Dependency determinism | Hash'li production ve CI/dev lock yok; CI/Docker `--require-hashes` yerine çözümleme yapan editable install kullanıyor | `pyproject.toml`; `.github/workflows/ci.yml`; `Dockerfile`; local `pip-tools` yok/cache erişilemez | İzole clean runner'da pip-tools ile iki hash lock üret, lock drift gate'i ekle, CI/Docker install'larını frozen lock'a geçir; ardından clean install kanıtı |
+| OPS-001 | Unknown | Düzeltildi | Dependency determinism | `uv.lock` tüm çözülmüş graphı ve hashleri taşır; Docker `uv export --frozen` kullanır, quality/core CI `uv sync --locked` kullanır | `uv.lock`; `Dockerfile`; `.github/workflows/ci.yml`; Python 3.13 Docker import smoke | Diğer yardımcı CI job'larının kademeli lock geçişi sonraki CI standardizasyonunda ele alınmalı |
 | OPS-002 | Unknown | FIXED_UNVERIFIED | Unknown | Faz 1 çalışma kanıtı bağımsız tekrar üretim için yeterince ayrıntılı değil | None | TBD |
 | ARCH-001 | Yüksek | VERIFIED | Mimari-dokümantasyon | Dokümante edilen worker process izolasyonu koddaki process modeliyle uyuşmuyor | `ARCHITECTURE.md:12`; `mesa_memory/api/server.py:174-324`; `Dockerfile:CMD` | TBD |
 | ARCH-002 | Orta | VERIFIED | Mimari lifecycle | Production lifecycle tüm başlatılan kaynakları simetrik kapatmıyor | `mesa_memory/api/server.py:215-257,334-407`; `mesa_storage/vector_engine.py:995-1011` | TBD |
@@ -13,6 +13,8 @@
 | ARCH-004 | Yüksek | VERIFIED | Katman ihlali | MCP `get_stats` tool’u SDK/REST zincirini ve storage sınırını atlıyor | `mesa_mcp/server.py:call_tool`, `get_stats` kolu | TBD |
 | DOC-001 | Orta | VERIFIED | Dokümantasyon | README geliştirme entry point’i için worker/Kuzu iddiası yalanlandı | `README.md:321`; `scripts/run_server.py:146-217` | TBD |
 | DOC-002 | Yüksek | VERIFIED | Deployment mimarisi | Docker Compose mount yolları API’nin gerçek storage yollarıyla eşleşmiyor | `docker-compose.yml:15-17`; `mesa_memory/api/server.py:91-95`; `Dockerfile:VOLUME` | TBD |
+| DOC-003 | Kritik | Düzeltildi | Dokümantasyon / deployment | README Docker quickstart, zorunlu `MESA_PRINCIPAL_ID`, named volume ve fail-closed model/provider profilini açıklamıyordu | `README.md`; `tests/test_deployment_assets.py` (6 geçti); Compose config | Regression test korunmalı |
+| DOC-004 | Yüksek | Düzeltildi | Dokümantasyon / developer experience | README ve ek dokümanlardaki olmayan requirements manifesti referansları `pyproject.toml` extras ile değiştirildi | `README.md`; `docs/api-reference.md`; `docs/colab_kurulum_rehberi.md`; reference taraması | Regression test korunmalı |
 | FLOW-001 | Yüksek | VERIFIED | Veri akışı-worker dayanıklılığı | Kabul edilmiş cold-path kaydı için restart-safe teslimat yok | mesa_api/router.py:242-255; mesa_workers/ingestion_worker.py:96-278; mesa_storage/schemas.py:68-83; mesa_memory/api/server.py:145-329 | TBD |
 | DATA-001 | Yüksek | FIXED_UNVERIFIED | Veri bütünlüğü-retention | Purge journal exact-scope tombstone, Kùzu delete+verify, vector delete+verify ve idempotent retry/finalize sırasını uygular | `mesa_storage/dao.py:purge_memory,resume_purge,resume_incomplete_purges`; `mesa_storage/kuzu_provider.py:delete_nodes,verify_nodes_absent`; `tests/test_purge_journal_contract.py` | Disposable SQLite/Kùzu E2 ve restore/deployed E3 doğrulaması yerel `aiosqlite` timeout nedeniyle eksik |
 | SDK-001 | Yüksek | VERIFIED | SDK-MCP API sözleşmesi | MCP varsayılan base URL'si SDK yoluyla çifte /v3 üretir | mesa_mcp/server.py:16,109-110; mesa_client/client.py:197-208,212-238,301-342 | TBD |
@@ -31,6 +33,9 @@
 | RLS-001 | Yüksek | FIXED_UNVERIFIED | Tenant izolasyonu-politika | Valence/adaptive-routing state’i tenant-scoped değil; bir tenant diğerinin kabul eşiğini etkileyebiliyor | None | TBD |
 | INPUT-001 | Yüksek | FIXED_UNVERIFIED | Input validation-kaynak tüketimi | `metadata` doğrulaması toplam gövde, liste boyutu ve derinliği sınırlamadığı için payload sınırı aşılabiliyor | None | TBD |
 | CI-001 | Orta | FIXED_UNVERIFIED | CI | Güvenlik taraması action’ı floating `@main` referansı kullanıyor | None | TBD |
+| CI-003 | Yüksek | Düzeltildi | CI / runtime compatibility | Quality ve core test jobs Python 3.10/3.11/3.12/3.13 matrix'ine taşındı; Docker Python 3.13.5 import smoke yerelde geçti | `.github/workflows/ci.yml`; `tests/test_deployment_assets.py`; Docker smoke | GitHub Actions matrix sonucu push/PR üzerinde izlenmeli |
+| CI-004 | Orta | Düzeltildi | CI / optional dependency | `zero-cost-contract`, Ollama adapter factory testini adapters extra olmadan çalıştırıyordu | `.github/workflows/ci.yml:145`; `tests/test_deployment_assets.py` | Job yalnız gereken yerde `.[dev,adapters]` kurar |
+| CI-005 | Orta | Düzeltildi | CI / secret scanning | TruffleHog action Git tag'i doğruyken container image sürümü yanlışlıkla `v` önekiyle isteniyordu | `.github/workflows/ci.yml:95-98`; `tests/test_deployment_assets.py` | Action ref `v3.95.2`, image `version` değeri `3.95.2` kalmalı |
 | DATA-005 | Kritik | FIXED_UNVERIFIED | Veri bütünlüğü / migration / concurrency | Blue/Green alignment migration lock/WAL protokolü yazı kaybına açık | None | TBD |
 | CONC-002 | Yüksek | FIXED_UNVERIFIED | Concurrency / worker / idempotency | Raw-log claim ve terminal durum geçişi atomik değil | None | TBD |
 | CONC-003 | Yüksek | FIXED_UNVERIFIED | Concurrency / karar tutarlılığı | Adaptive valence/routing mutable state eşzamanlı güncellemelerde kayıyor | None | TBD |
@@ -44,6 +49,7 @@
 | PERF-004 | Orta | FIXED_UNVERIFIED | API N+1 veritabanı erişimi | Search response hydration sonuç başına DAO çağrısı yapıyor | None | TBD |
 | STAGE-001 | Yüksek | FIXED_UNVERIFIED | Staging-topoloji ve worker güvenliği | Worker’lar ayrı ve güvenli deployment role olarak izole edilemiyor | None | TBD |
 | CONFIG-002 | Yüksek | FIXED_UNVERIFIED | Deployment config ve secret | Config fail-closed davranışı ve dotenv izolasyonu yetersiz | None | TBD |
+| SEC-004 | Orta | Düzeltildi | Güvenlik yönetişimi / supply chain | `SECURITY.md` eklendi; Dependabot pip, GitHub Actions ve Docker ekosistemlerini izliyor | `SECURITY.md`; `.github/dependabot.yml`; deployment asset test | GitHub private vulnerability reporting ayarı repository yöneticisi tarafından etkinleştirilmeli |
 | EVIDENCE-001 | Unknown | OPEN | Unknown | Faz 9 remediation çalışıyor olarak doğrulanmış değil | `git diff -- mesa_memory/consolidation/loop.py`; boş `.audit/runtime/faz9/`; command/test kayıtları | TBD |
 | RECORD-001 | Unknown | OPEN | Unknown | Açık P0/P1 toplamı kapsamlı ve tek kaynaktan güvenilir değil | None | TBD |
 | RECORD-002 | Unknown | OPEN | Unknown | DLQ-001 aynı ID ile ana bulgu ve durum güncellemesi başlığı olarak iki kez geçiyor | None | TBD |

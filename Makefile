@@ -17,7 +17,7 @@ bench:
 	python scripts/reproduce_benchmark.py
 
 docker-up:
-	docker-compose up -d
+	docker compose up --build -d
 
 health:
 	python scripts/health_check.py

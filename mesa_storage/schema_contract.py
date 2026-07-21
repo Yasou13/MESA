@@ -304,7 +304,7 @@ def _apply_base_bridge(connection: Connection) -> None:
 
 def _stamp_base_revision(connection: Connection, alembic_config: object) -> None:
     migration_context = MigrationContext.configure(connection)
-    script = ScriptDirectory.from_config(alembic_config)  # type: ignore[arg-type]
+    script = ScriptDirectory.from_config(alembic_config)
     migration_context.stamp(script, BASE_REVISION)
 
 
@@ -397,7 +397,7 @@ def validate_postflight(
     if len(versions) != 1 or not versions[0][0]:
         raise SchemaContractError("MESA schema postflight: invalid revision state.")
     if require_head:
-        expected_head = ScriptDirectory.from_config(alembic_config).get_current_head()  # type: ignore[arg-type]
+        expected_head = ScriptDirectory.from_config(alembic_config).get_current_head()
         if versions[0][0] != expected_head:
             raise SchemaContractError(
                 "MESA schema postflight: revision is not at head."
