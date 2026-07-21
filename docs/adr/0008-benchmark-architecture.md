@@ -1,20 +1,27 @@
-# 8. Benchmark Mimarisi: Retrieval-Only vs Full QA
+# 8. Benchmark mimarisi: retrieval ve ortak Full‑QA
 
 Date: 2026-07-17
-
-## Status
-
-Accepted
+Status: Accepted and implemented
 
 ## Context
 
-MESA'nın benchmark (mesa-benchmark) sistemi, önceleri sadece retrieval metriklerine (Hit@K, vb.) odaklanıyordu (Retrieval-Only). Ancak bu yaklaşım, sistemin uçtan uca doğruluğunu ve LLM'in getirilen bağlamı sentezleme yeteneğini ölçmekte yetersiz kaldı. Çok aşamalı (multi-hop) ve zıtlık (contradiction) senaryoları tam QA gerektiriyordu.
+Retrieval-only sonuçlar bir bellek sisteminin doğru bağlamı bulup bulmadığını gösterir fakat son kullanıcı cevabını ölçmez. Her adapter’ın kendi generator’ını kullanması ise retrieval sistemiyle model kalitesini birbirine karıştırır.
 
 ## Decision
 
-Benchmark mimarisini tam (Full QA) bir yapıya geçirmeye karar verdik. `mesa_client.py`'deki `answer()` metodu, sadece alınan bağlam bloklarını döndürmek yerine, gerçek bir LLM generation çağrısı (`acomplete`) yaparak cevabı sentezler ve prompt/completion token sayılarını rapora ekler.
+Benchmark iki bağımsız hat üretir:
+
+1. Adapter yalnızca sıralı Top‑5 context ve retrieval latency döndürür.
+2. Runner bu context’leri bütün sistemler için aynı Ollama generator’a verir ve Full‑QA cevabını üretir.
+
+`BenchmarkResponse` context payload, retrieval latency, generation latency ve token kullanımını ayrı taşır. Eski alanlar uyumluluk için korunur. MESA adapter’ı generation yapmaz; semantic judge da retrieval adapter’ının parçası değildir.
+
+Full‑QA normalized EM, token F1 ve şemalı semantic judge ile ölçülür. Generator ile aynı judge yalnızca provisional kanıttır. Purge/ingest/query/generation/judge hatası bulunan koşum geçersizdir.
 
 ## Consequences
 
-- **Positive:** Sistem değerlendirmesi, uçtan uca kullanıcı deneyimiyle (ve Cognee, Mem0 gibi rakiplerle) aynı standartta olur.
-- **Negative:** Benchmark'ın çalışma süresi (latency) ve maliyeti (LLM token'ları) önemli ölçüde artar.
+- Bellek sistemleri aynı generation koşulunda karşılaştırılır.
+- Retrieval ve generation darboğazları ayrı raporlanır.
+- Full‑QA koşumları Ollama erişimi ve ek süre gerektirir.
+- Harici dataset context relevance etiketi vermiyorsa retrieval metriği uydurulmaz; `N/A` raporlanır.
+- Yayınlanabilir sonuç için bağımsız judge, external dataset provenance ve sıfır altyapı hatası gerekir.

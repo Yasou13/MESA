@@ -57,6 +57,7 @@ dependencies = [
     "alembic>=1.13.0",
     # Serialisation / Schema
     "jsonschema>=4.26.0",
+    "PyYAML>=6.0.0",
     # Anomaly detection
     "pyod>=3.3.0",
 ]
@@ -103,12 +104,12 @@ dev = [
     "mypy>=1.10.0",
     "black>=24.0.0",
     "ruff>=0.4.0",
-    "nest_asyncio>=1.6.0",
     "datasets>=2.14.0",
 ]
 
 [project.scripts]
 mesa-recovery = "mesa_storage.recovery:main"
+mesa-benchmark = "mesa_benchmark.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Yasou13/MESA"
@@ -121,7 +122,8 @@ Issues = "https://github.com/Yasou13/MESA/issues"
 include-package-data = false
 
 [tool.setuptools.packages.find]
-include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*"]
+where = [".", "mesa-benchmark"]
+include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*", "mesa_benchmark*"]
 exclude = [
     "*.__pycache__",
     "*.__pycache__.*",
@@ -307,3 +309,4 @@ exclude_lines = [
 
 [tool.setuptools.package-data]
 "mesa_storage" = ["alembic.ini", "alembic/**/*"]
+"mesa_benchmark" = ["datasets/*.json"]

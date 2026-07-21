@@ -176,7 +176,9 @@ class TestMultiModelJudge:
             MultiModelJudgeEvaluator,
         )
 
-        evaluator = MultiModelJudgeEvaluator(judge_models=["nonexistent-model"])
+        evaluator = MultiModelJudgeEvaluator(
+            judge_models=["nonexistent-model-a", "nonexistent-model-b"]
+        )
 
         question = BenchmarkQuestion(
             id="test_q",

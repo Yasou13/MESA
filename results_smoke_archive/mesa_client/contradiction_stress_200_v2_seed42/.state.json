@@ -1,8 +1,0 @@
-{
-    "run_id": "f4303d61-c1e5-4660-b82f-4c3755c41ec4",
-    "current_iteration": 1,
-    "current_scenario_idx": 2,
-    "status": "completed",
-    "results_file": "results/mesa_client/contradiction_stress_200_v2_seed42/results_f4303d61-c1e5-4660-b82f-4c3755c41ec4.jsonl",
-    "error_message": null
-}

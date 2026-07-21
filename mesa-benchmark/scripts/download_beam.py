@@ -19,6 +19,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUT = SCRIPT_DIR.parent / "datasets" / "beam" / "dataset.json"
+BEAM_REVISION = "3205395e897e7318c7b094ef4e6047b9b82dbb03"
 
 
 def download_beam_from_huggingface(cache_dir: Path, split: str) -> list:
@@ -27,7 +28,12 @@ def download_beam_from_huggingface(cache_dir: Path, split: str) -> list:
         from datasets import load_dataset  # type: ignore
 
         print(f"[INFO] Downloading BEAM split: {split}")
-        ds = load_dataset("Mohammadta/BEAM", split=split, cache_dir=str(cache_dir))
+        ds = load_dataset(
+            "Mohammadta/BEAM",
+            revision=BEAM_REVISION,
+            split=split,
+            cache_dir=str(cache_dir),
+        )
         return list(ds)
     except ImportError:
         print(

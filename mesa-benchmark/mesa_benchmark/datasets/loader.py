@@ -37,10 +37,6 @@ class DatasetManager:
         except json.JSONDecodeError as e:
             raise DatasetLoaderError(f"Failed to parse JSON dataset: {e}")
 
-        # Check if this is a mesa_evals GoldenDataset format (dict with 'entries')
-        if isinstance(data, dict) and "entries" in data:
-            data = self._convert_mesa_evals_to_scenarios(data["entries"])
-
         if not isinstance(data, list):
             raise DatasetLoaderError("Dataset root must be a list of scenarios.")
 
@@ -106,39 +102,3 @@ class DatasetManager:
 
     def __len__(self) -> int:
         return len(self.scenarios)
-
-    def _convert_mesa_evals_to_scenarios(self, entries: List[dict]) -> List[dict]:
-        """On-the-fly conversion of mesa_evals GoldenDataset to BenchmarkScenario."""
-        scenarios = []
-        for i, e in enumerate(entries):
-            contexts = []
-            context_ids = []
-            for j, frag in enumerate(e.get("context_fragments", [])):
-                c_id = f"ctx_{e.get('id')}_{j}"
-                context_ids.append(c_id)
-                contexts.append(
-                    {
-                        "id": c_id,
-                        "text": frag,
-                        "metadata": {"domain": e.get("domain", "general")},
-                    }
-                )
-
-            q = {
-                "id": e.get("id", ""),
-                "query": e.get("query", ""),
-                "ground_truth": e.get("ground_truth_answer", ""),
-                "expected_context_ids": context_ids,
-                "evaluation_strategy": "llm_judge",
-            }
-
-            scenarios.append(
-                {
-                    "id": f"scen_{e.get('id')}",
-                    "name": f"Synthetic {e.get('domain', 'Gen')} Scenario {i}",
-                    "description": f"Generated scenario (Tier {e.get('metadata', {}).get('complexity_tier', 1)})",
-                    "contexts": contexts,
-                    "questions": [q],
-                }
-            )
-        return scenarios

@@ -14,7 +14,7 @@ test:
 	pytest tests/ -x
 
 bench:
-	python scripts/reproduce_benchmark.py
+	python scripts/reproduce_benchmark.py --config mesa-benchmark/config_mini_mesa.yaml --seeds 42
 
 docker-up:
 	docker compose up --build -d

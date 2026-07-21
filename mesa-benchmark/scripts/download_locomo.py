@@ -1,208 +1,158 @@
 #!/usr/bin/env python3
-"""
-LoCoMo Dataset Downloader and Converter.
-
-Downloads the LoCoMo benchmark dataset (used in Mem0's ECAI 2025 paper)
-and converts it to MESA's BenchmarkScenario format.
-
-Usage:
-    python download_locomo.py
-    python download_locomo.py --output ../datasets/locomo/dataset.json
-"""
+"""Download a pinned official LoCoMo release and convert it to MESA format."""
 
 import argparse
+import hashlib
 import json
-import sys
+import re
+import urllib.request
+import warnings
 from pathlib import Path
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUT = SCRIPT_DIR.parent / "datasets" / "locomo" / "dataset.json"
+LOCOMO_REVISION = "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376"
+LOCOMO_SHA256 = "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+LOCOMO_URL = (
+    "https://raw.githubusercontent.com/snap-research/locomo/"
+    f"{LOCOMO_REVISION}/data/locomo10.json"
+)
 
 
-def download_locomo_from_huggingface(cache_dir: Path) -> list:
-    """Downloads LoCoMo dataset using the HuggingFace datasets library."""
-    try:
-        from datasets import load_dataset  # type: ignore
-
-        ds = load_dataset("passing2961/LoCoMo", split="test", cache_dir=str(cache_dir))
-        return list(ds)
-    except ImportError:
-        print(
-            "[ERROR] 'datasets' library required. Install with: pip install datasets",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    except Exception as e:
-        print(
-            f"[ERROR] Failed to download LoCoMo from HuggingFace: {e}", file=sys.stderr
-        )
-        print("[INFO] Attempting fallback JSON download...", file=sys.stderr)
-        return _download_locomo_json_fallback(cache_dir)
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
-def _download_locomo_json_fallback(cache_dir: Path) -> list:
-    """Fallback: download raw JSON if HuggingFace datasets fails."""
-    import urllib.request
-
-    url = (
-        "https://huggingface.co/datasets/passing2961/LoCoMo/resolve/main/data/test.json"
-    )
-    cache_file = cache_dir / "locomo_test.json"
-
+def download_locomo(cache_dir: Path) -> list[dict[str, Any]]:
+    """Download only the pinned official JSON and enforce its checksum."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"locomo10-{LOCOMO_REVISION}.json"
     if not cache_file.exists():
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[INFO] Downloading LoCoMo from {url} ...")
-        urllib.request.urlretrieve(url, str(cache_file))
+        urllib.request.urlretrieve(LOCOMO_URL, cache_file)
+    actual = sha256(cache_file)
+    if actual != LOCOMO_SHA256:
+        raise RuntimeError(
+            f"LoCoMo checksum mismatch: expected={LOCOMO_SHA256} actual={actual}"
+        )
+    value = json.loads(cache_file.read_text(encoding="utf-8"))
+    if not isinstance(value, list):
+        raise TypeError("official LoCoMo root must be a list")
+    return value
 
-    with open(cache_file, "r", encoding="utf-8") as f:
-        result: list = json.load(f)
-        return result
 
+def convert_locomo_to_mesa(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert official ``conversation`` sessions and ``qa`` evidence IDs."""
+    scenarios: list[dict[str, Any]] = []
+    for item_index, item in enumerate(raw_items):
+        sample_id = str(item.get("sample_id", item_index))
+        conversation = item.get("conversation", {})
+        contexts: list[dict[str, Any]] = []
+        known_ids: set[str] = set()
+        if not isinstance(conversation, dict):
+            raise TypeError(f"LoCoMo sample {sample_id} conversation must be an object")
+        session_keys = sorted(
+            (
+                key
+                for key in conversation
+                if key.startswith("session_") and not key.endswith("_date_time")
+            ),
+            key=lambda value: int(value.split("_")[1]),
+        )
+        for session_key in session_keys:
+            session_number = session_key.split("_")[1]
+            session_date = conversation.get(f"session_{session_number}_date_time")
+            for turn in conversation.get(session_key, []):
+                context_id = str(turn["dia_id"])
+                known_ids.add(context_id)
+                contexts.append(
+                    {
+                        "id": context_id,
+                        "text": f"[{turn['speaker']}]: {turn['text']}",
+                        "metadata": {
+                            "source": "snap-research/locomo",
+                            "speaker": turn["speaker"],
+                            "session": int(session_number),
+                            "session_date_time": session_date,
+                        },
+                    }
+                )
 
-def convert_locomo_to_mesa(raw_items: list) -> list:
-    """
-    Converts LoCoMo items to MESA BenchmarkScenario JSON format.
-
-    LoCoMo structure (typical):
-    - Each item has conversation sessions and multi-hop QA pairs
-    - Questions reference specific conversation turns as supporting facts
-    """
-    scenarios = []
-
-    for idx, item in enumerate(raw_items):
-        scenario_id = str(item.get("id", f"locomo_{idx}"))
-
-        # Extract conversation turns as contexts
-        contexts = []
-        conversations = item.get("conversation", item.get("context", []))
-        if isinstance(conversations, str):
-            # Single string context
-            contexts.append(
+        questions: list[dict[str, Any]] = []
+        for question_index, qa in enumerate(item.get("qa", [])):
+            raw_evidence = " ".join(str(value) for value in qa.get("evidence", []))
+            evidence = [
+                f"D{int(session)}:{int(turn)}"
+                for session, turn in re.findall(r"D:?(\d+):(\d+)", raw_evidence)
+            ]
+            missing = sorted(set(evidence).difference(known_ids))
+            if missing:
+                warnings.warn(
+                    f"LoCoMo sample {sample_id} contains unresolved official evidence "
+                    f"IDs {missing}; they are excluded from retrieval scoring",
+                    stacklevel=2,
+                )
+                evidence = [value for value in evidence if value in known_ids]
+            is_unanswerable_adversarial = qa.get("category") == 5 and "answer" not in qa
+            ground_truth = (
+                "Not mentioned" if is_unanswerable_adversarial else str(qa["answer"])
+            )
+            questions.append(
                 {
-                    "id": f"ctx_{idx}_0",
-                    "text": conversations,
-                    "metadata": {"source": "locomo"},
+                    "id": f"locomo_{sample_id}_q{question_index}",
+                    "query": str(qa["question"]),
+                    "ground_truth": ground_truth,
+                    "expected_context_ids": (
+                        [] if is_unanswerable_adversarial else evidence
+                    ),
+                    "evaluation_strategy": "llm_judge",
                 }
             )
-        elif isinstance(conversations, list):
-            for c_idx, turn in enumerate(conversations):
-                if isinstance(turn, dict):
-                    text = turn.get(
-                        "text", turn.get("content", turn.get("utterance", ""))
-                    )
-                    speaker = turn.get("speaker", turn.get("role", "unknown"))
-                    turn_id = str(turn.get("id", f"ctx_{idx}_{c_idx}"))
-                    if text and text.strip():
-                        contexts.append(
-                            {
-                                "id": turn_id,
-                                "text": (
-                                    f"[{speaker}]: {text}"
-                                    if speaker != "unknown"
-                                    else text
-                                ),
-                                "metadata": {"source": "locomo", "speaker": speaker},
-                            }
-                        )
-                elif isinstance(turn, str) and turn.strip():
-                    contexts.append(
-                        {
-                            "id": f"ctx_{idx}_{c_idx}",
-                            "text": turn,
-                            "metadata": {"source": "locomo"},
-                        }
-                    )
-
-        # Extract QA pairs
-        questions = []
-        qa_pairs = item.get("qa_pairs", item.get("questions", []))
-        for q_idx, qa in enumerate(qa_pairs):
-            if isinstance(qa, dict):
-                query = qa.get("question", qa.get("query", ""))
-                answer = qa.get("answer", qa.get("ground_truth", ""))
-                supporting = qa.get("supporting_facts", qa.get("evidence", []))
-
-                # Normalize supporting facts to context IDs
-                expected_ids = []
-                if isinstance(supporting, list):
-                    for sf in supporting:
-                        if isinstance(sf, str):
-                            expected_ids.append(sf)
-                        elif isinstance(sf, (int, float)):
-                            expected_ids.append(f"ctx_{idx}_{int(sf)}")
-                        elif isinstance(sf, dict):
-                            expected_ids.append(str(sf.get("id", f"ctx_{idx}_{q_idx}")))
-
-                if query and query.strip():
-                    questions.append(
-                        {
-                            "id": f"locomo_{idx}_q{q_idx}",
-                            "query": query,
-                            "ground_truth": str(answer),
-                            "expected_context_ids": expected_ids,
-                            "evaluation_strategy": "llm_judge",
-                        }
-                    )
-
         if contexts and questions:
             scenarios.append(
                 {
-                    "id": scenario_id,
-                    "name": f"LoCoMo Scenario {idx}",
-                    "description": f"LoCoMo multi-hop dialogue memory test (item {idx})",
+                    "id": f"locomo_{sample_id}",
+                    "name": f"LoCoMo conversation {sample_id}",
+                    "description": "Official LoCoMo long-term conversational memory sample",
                     "contexts": contexts,
                     "questions": questions,
                 }
             )
-
     return scenarios
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Download LoCoMo benchmark and convert to MESA format."
-    )
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", default=str(DEFAULT_OUT))
     parser.add_argument(
-        "--output",
-        type=str,
-        default=str(DEFAULT_OUT),
-        help="Output JSON path for MESA-format dataset.",
-    )
-    parser.add_argument(
-        "--cache-dir",
-        type=str,
-        default=str(SCRIPT_DIR.parent / ".cache" / "locomo"),
-        help="Cache directory for downloaded data.",
+        "--cache-dir", default=str(SCRIPT_DIR.parent / ".cache" / "locomo")
     )
     args = parser.parse_args()
-
-    cache_dir = Path(args.cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    print("=== LoCoMo Dataset Downloader ===")
-    print(f"Cache dir: {cache_dir}")
-    print(f"Output: {args.output}")
-
-    # Download
-    raw_items = download_locomo_from_huggingface(cache_dir)
-    print(f"Downloaded {len(raw_items)} raw items from LoCoMo.")
-
-    # Convert
+    raw_items = download_locomo(Path(args.cache_dir))
     scenarios = convert_locomo_to_mesa(raw_items)
-    print(f"Converted to {len(scenarios)} MESA BenchmarkScenarios.")
-
-    # Save
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(scenarios, f, indent=2, ensure_ascii=False)
-
-    print(f"Saved to {out_path}")
-    print(f"Total questions: {sum(len(s['questions']) for s in scenarios)}")
-    print(f"Total contexts: {sum(len(s['contexts']) for s in scenarios)}")
-    print("\nTo run MESA against LoCoMo:")
-    print("  cd mesa-benchmark && python -m mesa_benchmark -c config_locomo.yaml")
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(scenarios, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                "output": str(output),
+                "revision": LOCOMO_REVISION,
+                "source_sha256": LOCOMO_SHA256,
+                "scenarios": len(scenarios),
+                "questions": sum(len(item["questions"]) for item in scenarios),
+            },
+            indent=2,
+        )
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

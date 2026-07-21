@@ -1,5 +1,6 @@
 include mesa_storage/alembic.ini
 recursive-include mesa_storage/alembic *
+recursive-include mesa-benchmark/mesa_benchmark/datasets *.json
 global-exclude *.py[cod]
 global-exclude __pycache__
 prune mesa_storage/alembic/__pycache__

@@ -21,7 +21,15 @@ evaluation:
     - "hit_at_k"
     - "mrr"
     - "latency"
-  llm_judge_model: "openai/qwen3:8b"
-  multi_judge_models:
-    - "openai/qwen3:8b"
+  llm_judge_model: null
+  multi_judge_models: []
   enable_agreement: true
+
+generation:
+  enabled: true
+  model: null
+
+runtime:
+  top_k: 5
+  ollama_url: null
+  require_independent_judge: true
