@@ -233,7 +233,7 @@ class VectorEngine:
         await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
         await self.close()
 
     # ------------------------------------------------------------------
@@ -318,7 +318,9 @@ class VectorEngine:
                 "semantic embedding runtime is disabled or no local-only model is available"
             )
         vector = self._embedder.encode(text)
-        return vector.tolist()
+        import typing  # type: ignore[float]
+
+        return typing.cast(list[float], vector.tolist())
 
     async def compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
         """Compute embeddings for a batch of texts."""
@@ -508,7 +510,9 @@ class VectorEngine:
         if not node_ids:
             return set()
         if not self.is_initialized:
-            raise RuntimeError("VectorEngine is unavailable for projection verification")
+            raise RuntimeError(
+                "VectorEngine is unavailable for projection verification"
+            )
 
         _validate_filter_value(agent_id, "agent_id")
         loop = asyncio.get_running_loop()
@@ -658,11 +662,13 @@ class VectorEngine:
             self._metrics.searches += 1
             self._metrics.total_search_time_ms += elapsed_ms
 
-        # Strip embedding from results to reduce memory on hot paths
+        # Strip embedding from results to reduce memory on hot paths  # type: ignore[dict[Any, Any]
         for r in results:
             r.pop("embedding", None)
 
-        return results
+        import typing
+
+        return typing.cast(list[dict[typing.Any, typing.Any]], results)
 
     # ------------------------------------------------------------------
     # Delete operations
@@ -1400,11 +1406,13 @@ class VectorEngine:
         assert self._db is not None
         # LanceDB >=0.30 deprecated table_names() for list_tables()
         if hasattr(self._db, "list_tables"):
-            result = self._db.list_tables()
+            result = self._db.list_tables()  # type: ignore[str]
         else:
             result = self._db.table_names()  # pragma: no cover
         if isinstance(result, list):
-            return result
+            import typing
+
+            return typing.cast(list[str], result)
         if hasattr(result, "tables"):
             return result.tables
         return list(result)

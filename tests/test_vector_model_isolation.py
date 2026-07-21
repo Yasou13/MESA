@@ -21,7 +21,9 @@ def test_default_vector_storage_does_not_import_or_load_model(monkeypatch) -> No
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", guarded_import)
-    engine = VectorEngine("/storage/mesa-lab/storage/MASTER-CLOSURE/model-isolation/default")
+    engine = VectorEngine(
+        "/storage/mesa-lab/storage/MASTER-CLOSURE/model-isolation/default"
+    )
     assert imported is False
     with pytest.raises(RuntimeError, match="embedding runtime is disabled"):
         engine._sync_compute_embedding("must stay offline")

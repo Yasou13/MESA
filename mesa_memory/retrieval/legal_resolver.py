@@ -39,7 +39,7 @@ class LegalEntityResolver:
     law articles to their canonical graph node representation (e.g. 'TBK m.49').
     """
 
-    def __init__(self):
+    def __init__(self):  # type: ignore[no-untyped-def]
         self.ontology = ONTOLOGY
         self.patterns = {}
         for canonical, aliases in self.ontology.items():

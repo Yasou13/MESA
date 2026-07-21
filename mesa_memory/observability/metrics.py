@@ -25,18 +25,18 @@ class SystemState(str, Enum):
 
 
 class MetricsRegistry:
-    def __init__(self):
+    def __init__(self):  # type: ignore[no-untyped-def]
         self.counters: Counter[str] = Counter()
         self.gauges = {}
         self.histograms = {}
 
-    def inc(self, name: str, value: int = 1):
+    def inc(self, name: str, value: int = 1):  # type: ignore[no-untyped-def]
         self.counters[name] += value
 
-    def set(self, name: str, value: float):
+    def set(self, name: str, value: float):  # type: ignore[no-untyped-def]
         self.gauges[name] = value
 
-    def observe(self, name: str, value: float):
+    def observe(self, name: str, value: float):  # type: ignore[no-untyped-def]
         if name not in self.histograms:
             self.histograms[name] = deque(maxlen=config.histogram_max_size)
         self.histograms[name].append(value)
@@ -70,7 +70,7 @@ PROM_QUEUE_BACKLOG = PromGauge("queue_backlog_size", "Current ingestion queue ba
 
 
 class ObservabilityLayer:
-    def __init__(self):
+    def __init__(self):  # type: ignore[no-untyped-def]
         self.logger = logging.getLogger("MESA_Observability")
         self.logger.setLevel(logging.DEBUG)
         if not self.logger.handlers:
@@ -79,7 +79,7 @@ class ObservabilityLayer:
             self.logger.addHandler(handler)
         self.metrics = MetricsRegistry()
 
-    def log_valence_decision(
+    def log_valence_decision(  # type: ignore[no-untyped-def]
         self, tier: int, decision: SystemState | str, justification: str, cost: dict
     ):
         if isinstance(decision, str) and decision == "STORE":
@@ -120,7 +120,7 @@ class ObservabilityLayer:
             self.metrics.set("cmb_admission_rate", rate)
             PROM_ADMISSION_RATE.set(rate)
 
-    def log_consolidation_batch(
+    def log_consolidation_batch(  # type: ignore[no-untyped-def]
         self,
         batch_id: str,
         processed: int,

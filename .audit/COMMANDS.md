@@ -1,0 +1,66 @@
+# Commands
+
+| Date | Purpose | Command | Result | Related Finding |
+|---|---|---|---|---|
+| 2026-07-17 | Repository kökünü doğrulama | `pwd` | Kök doğrulandı | - |
+| 2026-07-17 | Branch ve çalışma ağacı durumunu doğrulama | `git status --short --branch` | `main`; kullanıcıya ait untracked öğeler bulundu ve değiştirilmedi | - |
+| 2026-07-17 | Başlangıç commit’ini doğrulama | `git rev-parse HEAD` | Commit kaydedildi | - |
+| 2026-07-17 | Mevcut talimat/audit/rapor dosyalarını konumlandırma | `rg --files --hidden …` | Kök `AGENTS.md` ve `.audit/` bulunmadı; `ARCHITECTURE.md` korundu | - |
+| 2026-07-17 | Faz 0 başlangıç durumu | `pwd`; `git status --short --branch`; `git rev-parse HEAD` | Kök, branch, commit ve beş untracked yol doğrulandı; üç kullanıcı yolu korundu | - |
+| 2026-07-17 | Ağaç ve boyut envanteri | `find`/`du`/`awk` (yalnızca okuma) | 3 seviye ağaç, uzantılar, büyük dosyalar ve runtime/cache alanları çıkarıldı | - |
+| 2026-07-17 | Bileşen/dependency/entry point envanteri | `rg --files`, `rg -n`, `sed -n` (yalnızca okuma) | Python paketleri, Docker, benchmark, eval, API ve worker girişleri çıkarıldı | - |
+| 2026-07-17 | Config ve dış servis envanteri | `.env.example` yalnızca değişken adları; kaynakta statik referans taraması | Secret değeri okunmadan environment adları, storage ve provider referansları haritalandı | - |
+| 2026-07-17 | Test, CI/CD ve dokümantasyon envanteri | Test dosyası sayımı, CI/githook/doküman başlık taraması | Testler/CI yalnızca listelendi; hiçbir test veya pipeline çalıştırılmadı | - |
+| 2026-07-17 | Faz 0 kayıtlarını güncelleme | Patch tabanlı audit doküman güncellemesi | Yalnızca izin verilen altı audit dosyası güncellendi | - |
+| 2026-07-17 | Faz 1 başlangıç ve ortam doğrulama | Git/runtime/disk/donanım sürüm komutları | Docker/Node/Java yok; Intel Iris Xe, 16 GiB RAM, 53 GiB disk | - |
+| 2026-07-17 | Mevcut venv doğrulama | venv/bin/python, pip check, core import | pip ve FastAPI yok; ENV-001 | ENV-001 |
+| 2026-07-17 | İzole dependency kurulumu | /tmp/mesa_phase1_venv/bin/python -m pip install -e .[dev,adapters] | /tmp %99’a ulaştı; metadata eksik kaldı; ENV-001 | ENV-001 |
+| 2026-07-17 | Dependency consistency | pip check | Kurulu paketlerde kırık requirement yok; proje/LanceDB metadata’sı yok | - |
+| 2026-07-17 | Format kontrolü | black --check mesa_memory/ tests/ | 99 dosya değişmeden kalır | - |
+| 2026-07-17 | Lint kontrolü | ruff check mesa_memory/ tests/ | Tüm kontroller geçti | - |
+| 2026-07-17 | Type-check | mypy hedefleri --no-incremental | 53 kaynak dosyada hata yok | - |
+| 2026-07-17 | Güvenli test collection | pytest --collect-only (4 seçili dosya) | 70 test toplandı | - |
+| 2026-07-17 | Güvenli test + coverage | pytest (4 seçili dosya, pytest-cov) | 70 geçti; seçili modüllerde %95 coverage | - |
+| 2026-07-17 | API startup | İzole uvicorn mesa_memory.api.server:app | Ready öncesi kapandı; BOOT-001 | BOOT-001 |
+| 2026-07-17 | MCP/build/container ön koşulu | import mcp; python -m build; Docker lookup | mcp/build/Docker mevcut değil; kurulmadı | - |
+| 2026-07-17 | Faz 1.5 kanıt doğrulaması | Branch/çalışma ağacı, audit, manifest, config import zinciri ve `/tmp` yol varlığı salt-okunur incelendi | `requirements-core.txt` ve Faz 1 geçici yolları yok; SEC-001, OPS-001, OPS-002 kaydedildi | SEC-001 |
+| 2026-07-17 | Faz 2 statik mimari doğrulaması | Audit/doküman, kaynak envanteri, import/call zinciri, lifecycle, worker, storage, SDK/MCP ve deployment dosyaları salt-okunur incelendi | Faz 2 sistem/akış haritaları ve ARCH/DOC bulguları üretildi | - |
+| 2026-07-17 | Faz 3 başlangıç ve çalışma ağacı doğrulaması | git status --short; git branch --show-current; git rev-parse --short HEAD; git diff --check | Branch doğrulandı; mevcut audit ve kullanıcı untracked yolları korundu, git diff --check geçti | - |
+| 2026-07-17 | Faz 3 statik kritik akış incelemesi | sed/nl/rg ile router, ingestion worker, DAO, retrieval, server lifecycle, maintenance, SDK, MCP ve ilgili testler | ING/RET/PURGE/session/recovery/tenant/SDK-MCP akışları, failure path'ler ve test boşlukları kanıtlandı | - |
+| 2026-07-17 | Faz 6 başlangıç/branch ve audit durumu | `git status`, branch/commit ve izinli audit kayıtları salt-okunur doğrulandı | `audit/production-readiness` ve mevcut kullanıcı değişiklikleri korundu. | - |
+| 2026-07-17 | Faz 6 statik integrity/concurrency denetimi | `sed`/`rg`/`nl` ile AsyncEngine, DAO saga/migration/WAL, VectorEngine, ingestion worker, maintenance, valence/router, lifespan ve ilgili testler | DATA-005, CONC-002, CONC-003 doğrulandı; DATA-001/002/004 ve ARCH-002 kanıtı genişletildi. | DATA-005 |
+| 2026-07-17 | Faz 6 audit kayıt güncellemesi | Yalnız `.audit/{FINDINGS,BLOCKERS,FIX_PLAN,TEST_MATRIX,COMMAND_LOG,CURRENT_PHASE,SYSTEM_MAP,DATA_FLOWS,DEFERRED,DECISIONS}.md` | Faz 6 bulgu, blocker, akış, karar ve test-gap kayıtları eklendi. | - |
+| 2026-07-17 | Faz 7 başlangıç/audit/worker envanteri | `git` metadata; `rg --files`; izinli audit ve worker kaynak sembolleri salt-okunur tarandı | Branch doğrulandı; önceki worker bulguları gerçek kaynakla yeniden eşlendi. | - |
+| 2026-07-17 | Faz 7 statik worker/queue analizi | `sed`/`rg` ile server lifespan, ingestion, REM, entity consolidation, maintenance, PageRank, consolidation/Tier-3/DLQ, config ve test kaynakları | DLQ-001, QUEUE-001, WORKER-001 doğrulandı; mevcut FLOW/CONC/LOGIC/DATA/ARCH kanıtı güncellendi. | DLQ-001 |
+| 2026-07-17 | Faz 7 audit güncellemesi | Yalnız izinli Faz 7 audit dosyaları | Worker envanteri, queue semantiği, test matrisi, blocker ve plan kayıtları eklendi. | - |
+| 2026-07-17 | Faz 8 test envanteri ve static sayım | `rg --files`, test fonksiyon/marker/mock/temp-storage sayımı; pyproject, CI, fixture, test/eval/benchmark kaynakları salt-okunur incelendi | 66 test dosyası ve 819 statik test fonksiyonu; collection sonucu bilinmiyor. | - |
+| 2026-07-17 | Faz 8 audit güncellemesi | Yalnız izinli Faz 8 audit dosyaları | TEST-001, COVERAGE-001 ve minimum production test planı kaydedildi. | TEST-001 |
+| 2026-07-17 | Faz 9 başlangıç güvenlik/diff kontrolü | `git branch/status/diff`; audit ve `loop.py` DLQ kaynakları salt-okunur incelendi | Audit dışı tracked değişiklik yok; yalnız Faz 0-8 audit değişiklikleri vardı. | - |
+| 2026-07-17 | DLQ-001 düzeltme öncesi kanıt | `.audit/runtime/faz9/` üzerinden source invariant | Replay destructive clear, tenant context eksikliği ve producer context eksikliği doğrulandı. | - |
+| 2026-07-17 | DLQ-001 remediation ve doğrulama | `loop.py` sınırlı değişiklik; source invariant, `python -m py_compile`, `git diff --check` | Static invariant ve syntax geçti; ruff/black bulunmadığı için çalıştırılamadı. | - |
+| 2026-07-17 | Faz 10 statik performans denetimi | `git` metadata; `sed`/`rg` ile retrieval, API, DAO, config, Lance/Kùzu, SQLite şema, worker/lifecycle, CI/test ve audit kaynakları | PERF-002..004 doğrulandı; iki yüksek performans blocker’ı ve izole ölçüm planı kaydedildi. | PERF-002 |
+| 2026-07-17 | Faz 10 audit güncellemesi | Yalnız izinli Faz 10 audit dosyaları | Findings, blocker, plan, test matrisi, akış/harita, deferred, decision, readiness ve current phase güncellendi. | - |
+| 2026-07-19 | Faz 13.5 audit bütünlüğü salt-okunur doğrulaması | Git başlangıç kontrolleri; 16 audit dosyası varlık/faz/ID/durum taraması; kritik kod ve Faz 9 diff hedefli kontrolü | Faz 11/12 record missing; Faz 9 partial; Faz 13 persisted; giriş `NOT_READY_FOR_PHASE_14`. | - |
+| 2026-07-19 | Faz 13.5 sınırlı audit kayıt düzeltmesi | `apply_patch` başarısız olduktan sonra marker ve exact-match kontrollü audit-only düzenleme | Yanlış Passed sınıfları düzeltildi; integrity report, blocker, plan ve current phase kaydedildi. | - |
+| 2026-07-19 | Faz 13.5 final Git doğrulaması | `git status --short`; `git diff --stat`; `git diff --check` | Çalışma ağacı ve kullanıcı dosyaları korundu; diff check temiz. | - |
+| 2026-07-19 | WAVE-001 clean restart preflight | Proje venv sürümü, pytest, `pip check`, core imports; `/storage` mount/write probe | Python 3.13.14, pytest 9.1.1, imports/pip check geçti; 193 GiB boş storage | - |
+| 2026-07-19 | WAVE-001 hedef authorization testi | `venv/bin/python -m pytest tests/test_principal_authorization.py -q -vv` | 5 geçti; unmapped=403, mapped=200, inactive=401, READ-only create reddi | - |
+| 2026-07-19 | WAVE-001 ilgili regression | `venv/bin/python -m pytest tests/test_principal_authorization.py tests/test_rbac.py tests/test_router_coverage.py tests/test_session_lifecycle.py -q` | 33 geçti, 1 TestClient deprecation warning | - |
+| 2026-07-19 | WAVE-001 syntax/diff | `venv/bin/python -m compileall mesa_memory mesa_api`; `git diff --check` | Syntax ve whitespace kontrolü geçti | - |
+| 2026-07-19 | WAVE-002 source ownership and mutation contract | Per-file `git diff`, hashes, targeted `rg`/`sed`; venv `py_compile`; WAVE-002 deterministic pytest with `--basetemp /storage/mesa-lab/storage/WAVE-002/...`; `git diff --check` | Ownership: unclassified yok. Reproduction 3 failed; fail-closed patch sonrası target 3 passed (1.41s), compile and diff check passed. DATA-001 design boundary açık. | DATA-001 |
+| 2026-07-19 | DATA-001 approved journal continuation | `git` safety checks; source/schema review; venv `py_compile`; focused pytest with `--basetemp /storage/mesa-lab/storage/WAVE-002/...`; targeted ruff; `git diff --check` | Before 5 lifecycle failures; after 7 DATA-001 and 3 existing WAVE-002 tests passed. Additive Alembic head applied twice in disposable fixture. | DATA-001 |
+| 2026-07-19 | WAVE-004B admission E2/regression/E3 | `venv/bin/python -m pytest` targeted suites; isolated SQLite rehearsal | W4B 9, W4B+A 11, W4 52, W3 2, W2 10, DAO 33 geçti; component restart accounting geçti. | - |
+| 2026-07-19 | WAVE-004C/D target ve regresyon | `venv/bin/python -m pytest` W4C/D + W4/W3/W2/DAO | W4C 3, W4D 2, combined target 16; W4 52, W3+W2+DAO 45 geçti. | - |
+| 2026-07-19 | WAVE-005 + WAVE-001/003/004-V isolated E3 | explicit `venv/bin/python` scripts and pytest | Scoped E3 passed; mandatory matrices incomplete/FBNV. | - |
+| 2026-07-19 | Continuation remaining matrix | isolated API route profile smoke + W1/W3/W4/W5 regressions | API-only readiness 200; W1 mapped/readonly/inactive semantics passed; 28+52+43 tests passed. | - |
+| 2026-07-21 | SEC-003 remediation testleri | Model/provider/dotenv kapalı `pytest -q tests/test_rate_limit_subject_contract.py` ve fresh/pre-head migration hedefleri | 5 geçti; raw credential daily-limit migration sonrası disposable DB ve SQLite backup dump'ta yok | SEC-003 |
+| 2026-07-21 | OPS-001 preflight | `pip show pip-tools`; pip cache list; `pyproject.toml`, CI ve Docker install komutları incelemesi | `pip-tools` yok ve cache erişilemez; hash lock üretimi yapılmadı. CI/Docker frozen lock kullanmıyor. | OPS-001 |
+| 2026-07-21 | MIG-002/003 coordinator | Model/provider/dotenv kapalı `pytest -q tests/test_kuzu_migration_coordinator.py`; py_compile, Ruff, script help | 7 geçti; lock, resume, rollback, wipe refusal, unjournaled startup fail-closed ve gerçek Kùzu schema staging/swap kapsandı. | MIG-002, MIG-003 |
+| 2026-07-21 | MIG-002/003 kullanıcı onaylı yerel artifact geçişi | Model/provider/dotenv kapalı `venv/bin/python scripts/migrate_kuzu_schema.py --kuzu-db storage/kuzu_db`; salt-okunur Kùzu/SQLite kontrolü; `initialize_schema` | Atomik migrate `PROMOTED` token 1; `Entity=2`, `Observed=0` korundu; journal hedef sürüm 2; runtime hazır. | MIG-002, MIG-003 |
+| 2026-07-21 | WORKER-001 keşif ve dar regresyon | Model/provider/dotenv kapalı `pytest -q tests/test_worker_supervision_contract.py tests/test_runtime_profiles_contract.py tests/test_deployment_assets.py` | Önce 3 negatif regression başarısız oldu; minimum fix sonrası 17 geçti. | WORKER-001 |
+| 2026-07-21 | WORKER-001 local subprocess ön koşulu | Disposable SQLite üzerinde `AsyncEngine.initialize()` ve doğrudan `aiosqlite.connect()` | Her iki komut bağlantı kurulmadan 20/10 saniye timeout oldu; API+worker pair denenmedi. | WORKER-001 |
+| 2026-07-21 | WORKER-001 statik kontrol | `py_compile`; hedefli `ruff check`; hedefli `git diff --check` | Geçti. | WORKER-001 |
+| 2026-07-21 | DLQ-001 rediscovery ve tekrar üretim | `pytest -q tests/test_durable_dlq_contract.py`; tek-test `-vv -s`; disposable synchronous `PersistentQueue.append/_claim/_ack` | Async testler executor geçişinde timeout; synchronous atomik claim/fenced ack/owner ack senaryosu geçti. | DLQ-001 |
+| 2026-07-21 | DATA-002 graph hata sözleşmesi | Model/provider/dotenv kapalı `pytest -q tests/test_triple_store_mutation_contract.py`; py_compile; hedefli Ruff/diff | Tekli ve ikinci-item bulk graph failure exception ile fail-closed; vector compensation, SQLite'a geçmeme; 4 test geçti. | DATA-002 |
+| 2026-07-21 | DATA-001 purge journal revalidation | Model/provider/dotenv kapalı `pytest -vv -s tests/test_purge_journal_contract.py`; py_compile; hedefli Ruff/diff | Test collection sonrası ilk disposable SQLite bağlantısında timeout; statik kontroller geçti. | DATA-001 |
+| 2026-07-21 | Remediation mypy düzeltmesi | CI ile aynı `mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases` | Kùzu migration/schema ve Alembic URL tip hataları giderildi; 72 kaynak dosyada hata yok. | MIG-001, MIG-002, MIG-003 |

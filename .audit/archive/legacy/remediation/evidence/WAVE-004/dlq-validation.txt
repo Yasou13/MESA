@@ -1,0 +1,1 @@
+E2 verifies durable enqueue, exclusive claim, unexpired owner exclusion, expiry reclaim, guarded ACK, durable attempt count, bounded retry and visible BLOCKED poison evidence. It does not verify real process crash/restart or an application-level per-record ACK.

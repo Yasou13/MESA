@@ -125,7 +125,7 @@ def _salvage_truncated_json(raw: str) -> Optional[dict]:
 
     # Fast path: maybe it's actually valid
     try:
-        return json.loads(sanitized)
+        return json.loads(sanitized)  # type: ignore[Any, Any]
     except json.JSONDecodeError:
         pass
 
@@ -170,7 +170,7 @@ def _salvage_truncated_json(raw: str) -> Optional[dict]:
     repaired = sanitized[:last_complete_element_end].rstrip(",").rstrip() + "]}"
 
     try:
-        return json.loads(repaired)
+        return json.loads(repaired)  # type: ignore[Any, Any]
     except json.JSONDecodeError:
         return None
 
@@ -202,7 +202,7 @@ class BatchResponseParser:
     """
 
     @staticmethod
-    def parse(
+    def parse(  # type: ignore[no-untyped-def]
         raw_response,
         sub_batch_size: int,
     ) -> BatchExtractionResponse:

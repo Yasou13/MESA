@@ -77,7 +77,11 @@ class PersistentQueue:
         self.filepath = filepath
         self.receipt_filepath = filepath + ".receipts.jsonl"
         self._trusted_root_input = Path(trusted_root) if trusted_root else None
-        self._trusted_root = self._trusted_root_input.resolve(strict=False) if self._trusted_root_input else None
+        self._trusted_root = (
+            self._trusted_root_input.resolve(strict=False)
+            if self._trusted_root_input
+            else None
+        )
         self._require_completion_receipt = require_completion_receipt
         self._file_lock = threading.Lock()
         # This hook has no environment/configuration path and is available only
@@ -97,7 +101,11 @@ class PersistentQueue:
         raw = Path(self.filepath)
         if not raw.is_absolute() or not str(raw) or ".." in raw.parts:
             raise ValueError("queue path must be an absolute non-traversing path")
-        if root in {Path('/'), home, repo} or self._trusted_root_input is None or self._trusted_root_input.is_symlink():
+        if (
+            root in {Path("/"), home, repo}
+            or self._trusted_root_input is None
+            or self._trusted_root_input.is_symlink()
+        ):
             raise ValueError("trusted queue root is forbidden or symlinked")
         target = raw.resolve(strict=False)
         receipt_target = Path(self.receipt_filepath).resolve(strict=False)
@@ -145,7 +153,9 @@ class PersistentQueue:
             "receipt_id": os.urandom(16).hex(),
             "queue_record_id": queue_id,
             "dispatch_id": claim.get("dispatch_id", queue_id),
-            "mutation_id": claim.get("mutation_id") or claim.get("idempotency_key") or queue_id,
+            "mutation_id": claim.get("mutation_id")
+            or claim.get("idempotency_key")
+            or queue_id,
             "idempotency_key": claim.get("idempotency_key") or f"dlq:{queue_id}",
             "tenant_id": claim.get("tenant_id") or claim.get("agent_id"),
             "agent_id": claim.get("agent_id"),
@@ -162,7 +172,9 @@ class PersistentQueue:
             handle.write(json.dumps(receipt, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
-        directory_fd = os.open(os.path.dirname(os.path.abspath(self.receipt_filepath)), os.O_RDONLY)
+        directory_fd = os.open(
+            os.path.dirname(os.path.abspath(self.receipt_filepath)), os.O_RDONLY
+        )
         try:
             os.fsync(directory_fd)
         finally:
@@ -170,6 +182,7 @@ class PersistentQueue:
         self._inject_test_crash("after_receipt_fsync_before_ack")
         return receipt
 
+    # type: ignore[arg-type]
     def _inject_test_crash(self, point: str) -> None:
         if self._test_crash_hook is not None:
             self._test_crash_hook(point)
@@ -178,8 +191,10 @@ class PersistentQueue:
     def _now() -> float:
         return time.time()
 
+    import typing
+
     @staticmethod
-    def _expired(value: object, now: float) -> bool:
+    def _expired(value: typing.Any, now: float) -> bool:
         try:
             return float(value) <= now
         except (TypeError, ValueError):
@@ -199,7 +214,9 @@ class PersistentQueue:
         record.setdefault("last_error_type", None)
         return record
 
-    def _quarantine_malformed_line(self, line_number: int, raw_line: bytes, error: Exception) -> None:
+    def _quarantine_malformed_line(
+        self, line_number: int, raw_line: bytes, error: Exception
+    ) -> None:
         """Persist forensic metadata without retaining a potentially sensitive payload."""
         event = {
             "line_number": line_number,
@@ -213,7 +230,9 @@ class PersistentQueue:
             handle.flush()
             os.fsync(handle.fileno())
 
-    def _locked_records(self) -> tuple[object, list[dict]]:
+    import typing
+
+    def _locked_records(self) -> tuple[typing.IO[typing.Any], list[dict]]:
         import fcntl
 
         self._validate_path_policy()
@@ -233,7 +252,11 @@ class PersistentQueue:
                             if not isinstance(record, dict):
                                 raise ValueError("DLQ record must be a JSON object")
                             records.append(self._normalize(record))
-                        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                        except (
+                            UnicodeDecodeError,
+                            json.JSONDecodeError,
+                            ValueError,
+                        ) as exc:
                             self._quarantine_malformed_line(line_number, raw_line, exc)
                             malformed = True
             except FileNotFoundError:
@@ -257,8 +280,8 @@ class PersistentQueue:
         with open(temporary, "w", encoding="utf-8") as handle:
             self._inject_test_crash("after_file_open_before_write")
             for line in serialized:
-                if self._test_crash_hook is not None:
-                    self._inject_test_crash("before_write")
+                if self._test_crash_hook is not None:  # type: ignore[attr-defined]
+                    self._inject_test_crash("before_write")  # type: ignore[attr-defined]
                 handle.write(line)
                 self._inject_test_crash("after_write_before_flush")
             handle.flush()
@@ -268,15 +291,19 @@ class PersistentQueue:
         self._inject_test_crash("after_close_before_rename")
         os.replace(temporary, self.filepath)
         self._inject_test_crash("after_rename_before_directory_fsync")
-        directory_fd = os.open(os.path.dirname(os.path.abspath(self.filepath)), os.O_RDONLY)
+        directory_fd = os.open(
+            os.path.dirname(os.path.abspath(self.filepath)), os.O_RDONLY
+        )
         try:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
         self._inject_test_crash("after_directory_fsync")
 
+    import typing
+
     @staticmethod
-    def _unlock(lock_handle: object) -> None:
+    def _unlock(lock_handle: typing.IO[typing.Any]) -> None:
         import fcntl
 
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
@@ -289,17 +316,24 @@ class PersistentQueue:
         with self._file_lock:
             lock_handle, records = self._locked_records()
             try:
-                if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > self._MAX_QUEUE_BYTES:
+                if (
+                    os.path.exists(self.filepath)
+                    and os.path.getsize(self.filepath) > self._MAX_QUEUE_BYTES
+                ):
                     raise RuntimeError("DLQ capacity limit reached")
                 record = self._normalize(item)
-                if any(existing["queue_id"] == record["queue_id"] for existing in records):
+                if any(
+                    existing["queue_id"] == record["queue_id"] for existing in records
+                ):
                     raise ValueError("duplicate DLQ queue_id")
                 records.append(record)
                 self._rewrite_locked(records)
             finally:
                 self._unlock(lock_handle)
 
-    async def aclaim(self, *, worker_id: str, limit: int = 10, lease_seconds: int = 300) -> list[dict]:
+    async def aclaim(
+        self, *, worker_id: str, limit: int = 10, lease_seconds: int = 300
+    ) -> list[dict]:
         if not worker_id or not 1 <= limit <= 1000 or not 1 <= lease_seconds <= 3600:
             raise ValueError("invalid DLQ claim bounds")
         return await asyncio.get_running_loop().run_in_executor(
@@ -314,7 +348,8 @@ class PersistentQueue:
             try:
                 for record in records:
                     eligible = record["state"] == "PENDING" or (
-                        record["state"] == "PROCESSING" and self._expired(record.get("lease_expires_at"), now)
+                        record["state"] == "PROCESSING"
+                        and self._expired(record.get("lease_expires_at"), now)
                     )
                     if not eligible or len(claimed) >= limit:
                         continue
@@ -330,7 +365,9 @@ class PersistentQueue:
         return claimed
 
     async def aack(self, items: list[dict], *, worker_id: str) -> bool:
-        return await asyncio.get_running_loop().run_in_executor(None, self._ack, items, worker_id)
+        return await asyncio.get_running_loop().run_in_executor(
+            None, self._ack, items, worker_id
+        )
 
     def _ack(self, items: list[dict], worker_id: str) -> bool:
         wanted = {(item.get("queue_id"), item.get("claim_token")) for item in items}
@@ -342,7 +379,8 @@ class PersistentQueue:
                 matched = {
                     (record.get("queue_id"), record.get("claim_token"))
                     for record in records
-                    if record.get("state") == "PROCESSING" and record.get("claimed_by") == worker_id
+                    if record.get("state") == "PROCESSING"
+                    and record.get("claimed_by") == worker_id
                 }
                 if not wanted.issubset(matched):
                     return False
@@ -350,7 +388,11 @@ class PersistentQueue:
                     receipts = self._read_completion_receipts()
                     if any(queue_id not in receipts for queue_id, _ in wanted):
                         return False
-                records = [record for record in records if (record.get("queue_id"), record.get("claim_token")) not in wanted]
+                records = [
+                    record
+                    for record in records
+                    if (record.get("queue_id"), record.get("claim_token")) not in wanted
+                ]
                 self._rewrite_locked(records)
                 return True
             finally:
@@ -382,7 +424,8 @@ class PersistentQueue:
                     (
                         record
                         for record in records
-                        if (record.get("queue_id"), record.get("claim_token")) == identity
+                        if (record.get("queue_id"), record.get("claim_token"))
+                        == identity
                         and record.get("state") == "PROCESSING"
                         and record.get("claimed_by") == worker_id
                     ),
@@ -390,7 +433,9 @@ class PersistentQueue:
                 )
                 if match is None:
                     return False
-                self._write_completion_receipt_locked(match, worker_id=worker_id, outcome=outcome)
+                self._write_completion_receipt_locked(
+                    match, worker_id=worker_id, outcome=outcome
+                )
                 records = [record for record in records if record is not match]
                 self._rewrite_locked(records)
                 return True
@@ -409,8 +454,12 @@ class PersistentQueue:
             return False
         return await self.aack([item], worker_id=worker_id)
 
-    async def anack(self, items: list[dict], *, worker_id: str, error_type: str) -> bool:
-        return await asyncio.get_running_loop().run_in_executor(None, self._nack, items, worker_id, error_type)
+    async def anack(
+        self, items: list[dict], *, worker_id: str, error_type: str
+    ) -> bool:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, self._nack, items, worker_id, error_type
+        )
 
     def _nack(self, items: list[dict], worker_id: str, error_type: str) -> bool:
         wanted = {(item.get("queue_id"), item.get("claim_token")) for item in items}
@@ -424,14 +473,21 @@ class PersistentQueue:
                     identity = (record.get("queue_id"), record.get("claim_token"))
                     if identity not in wanted:
                         continue
-                    if record.get("state") != "PROCESSING" or record.get("claimed_by") != worker_id:
+                    if (
+                        record.get("state") != "PROCESSING"
+                        or record.get("claimed_by") != worker_id
+                    ):
                         return False
                     record["last_error_type"] = error_type[:80]
-                    record["claimed_by"] = None
+                    record["claimed_by"] = None  # type: ignore[no-untyped-def]
                     record["claim_token"] = None
                     record["lease_expires_at"] = None
-                    record["state"] = "BLOCKED" if int(record["attempt_count"]) >= self._MAX_ATTEMPTS else "PENDING"
-                    seen.add(identity)
+                    record["state"] = (
+                        "BLOCKED"
+                        if int(record["attempt_count"]) >= self._MAX_ATTEMPTS
+                        else "PENDING"
+                    )
+                    seen.add(identity)  # type: ignore[no-untyped-def]
                 if seen != wanted:
                     return False
                 self._rewrite_locked(records)
@@ -455,6 +511,7 @@ class PersistentQueue:
                     return len(records)
                 finally:
                     self._unlock(lock_handle)
+
         return await asyncio.get_running_loop().run_in_executor(None, _len)
 
     async def agetitem(self, index: int) -> dict:
@@ -465,6 +522,7 @@ class PersistentQueue:
                     return records[index]
                 finally:
                     self._unlock(lock_handle)
+
         return await asyncio.get_running_loop().run_in_executor(None, _getitem)
 
 
@@ -525,10 +583,10 @@ class ConsolidationLoop:
     - ``TripletExtractor``: REBEL + LLM extraction with bisection retry.
     - ``Tier3Validator``: LLM consensus gate for deferred records.
     - ``GraphWriter``: Cross-validation scoring and graph commits via DAO.
-    - ``BatchResponseParser``: Response parsing and recovery.
+    - ``BatchResponseParser``: Response parsing and recovery.  # type: ignore[no-untyped-def]
 
     Retains ownership of:
-    - Batch queue management and lifecycle (start/stop).
+    - Batch queue management and lifecycle (start/stop).  # type: ignore[no-untyped-def]
     - Tier-3 validation gating.
     - Observability logging.
     """
@@ -552,15 +610,19 @@ class ConsolidationLoop:
 
         # Persistent queues — paths sourced from central config (P7 fix)
         _hr_path = Path(config.human_review_queue_path)
-        _dl_path = Path(config.dead_letter_queue_path)
+        _dl_path = Path(config.dead_letter_queue_path)  # type: ignore[no-untyped-def]
         _hr_path.parent.mkdir(parents=True, exist_ok=True)
         _dl_path.parent.mkdir(parents=True, exist_ok=True)
-        self.human_review_queue = PersistentQueue(str(_hr_path), trusted_root=config.storage_path)
+        self.human_review_queue = PersistentQueue(
+            str(_hr_path), trusted_root=config.storage_path
+        )
         self.dead_letter_queue = PersistentQueue(
-            str(_dl_path), trusted_root=config.storage_path, require_completion_receipt=True
+            str(_dl_path),
+            trusted_root=config.storage_path,
+            require_completion_receipt=True,
         )
 
-        # Concurrency Control: Bound concurrent LLM API calls to prevent 429 Too Many Requests
+        # Concurrency Control: Bound concurrent LLM API calls to prevent 429 Too Many Requests  # type: ignore[no-untyped-def]
         self._llm_semaphore = asyncio.Semaphore(5)
 
         # Delegate modules
@@ -568,17 +630,17 @@ class ConsolidationLoop:
         self.validator = Tier3Validator(llm_a=llm_a, llm_b=llm_b)
         self.router = AdaptiveRouter(
             dao=dao,
-            small_llm=llm_a,
+            small_llm=llm_a,  # type: ignore[no-untyped-def]
             dual_llm_validator=self.validator,
             obs_layer=obs_layer,
         )
-        self.graph_writer = GraphWriter(
+        self.graph_writer = GraphWriter(  # type: ignore[no-untyped-def]
             dao=dao,
             embedder=embedder,
             human_review_queue=self.human_review_queue,
             similarity_fn=calculate_composite_similarity,
             agent_id=agent_id,
-        )
+        )  # type: ignore[no-untyped-def]
 
     # Expose rebel_extractor for backward compatibility
     @property
@@ -596,7 +658,7 @@ class ConsolidationLoop:
                     include_consolidated=False,
                     limit=config.consolidation_batch_size,
                 )
-                if records:
+                if records:  # type: ignore[no-untyped-def]
                     await self.run_batch(records)
             except asyncio.CancelledError:
                 logger.info("Consolidation loop cancelled, shutting down.")
@@ -613,7 +675,7 @@ class ConsolidationLoop:
         self._running = False
 
     # -------------------------------------------------------------------
-    # Backward-compatible delegation wrappers
+    # Backward-compatible delegation wrappers  # type: ignore[no-untyped-def]
     # -------------------------------------------------------------------
 
     @staticmethod
@@ -835,7 +897,7 @@ class ConsolidationLoop:
                 )
             return
 
-        # --- Phase 4: Pre-fetch embeddings & commit via GraphWriter ---
+        # --- Phase 4: Pre-fetch embeddings & commit via GraphWriter ---  # type: ignore[no-untyped-def]
         embedding_cache = await self.graph_writer.prefetch_embeddings(
             sorted_batch,
             indexed_a,
@@ -891,7 +953,7 @@ class ConsolidationLoop:
                 )
                 llm_circuit_breaker.record_success()
                 return res
-            except Exception:
+            except Exception:  # type: ignore[no-untyped-def]
                 llm_circuit_breaker.record_failure()
                 raise
 
@@ -1008,7 +1070,9 @@ async def start_dlq_worker(
                         side_effect_verified=side_effect_verified,
                     ):
                         await consolidation_loop.dead_letter_queue.anack(
-                            [claim], worker_id=worker_id, error_type="UnverifiedRecordOutcome"
+                            [claim],
+                            worker_id=worker_id,
+                            error_type="UnverifiedRecordOutcome",
                         )
                 except Exception as exc:
                     await consolidation_loop.dead_letter_queue.anack(
@@ -1019,5 +1083,7 @@ async def start_dlq_worker(
             logger.info("DLQ worker cancelled, shutting down.")
             break
         except Exception as exc:
-            logger.error("DLQ worker failure type=%s", type(exc).__name__, exc_info=True)
+            logger.error(
+                "DLQ worker failure type=%s", type(exc).__name__, exc_info=True
+            )
             await asyncio.sleep(sleep_interval)

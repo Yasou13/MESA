@@ -1,0 +1,7 @@
+Rollback material exists at `/storage/mesa-lab/artifacts/WAVE-003/source-backup/`.
+
+- `dao.py` and `ingestion_worker.py` are direct pre-edit copies.
+- `vector_engine.py` is a deterministic pre-W3 reconstruction retaining prior WAVE-002 content and reversing only the W3 whole-alignment lock hunk.
+- The W3 migration is additive and had no prior file; its downgrade removes only its indexes and deliberately does not destructively remove SQLite columns.
+
+No rollback was executed.

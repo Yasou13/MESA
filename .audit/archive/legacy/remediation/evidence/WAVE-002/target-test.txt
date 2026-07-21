@@ -1,0 +1,7 @@
+Target regression: `tests/test_triple_store_mutation_contract.py`
+
+- `test_insert_fails_closed_and_compensates_vector_when_graph_rejects`: deterministic Kuzu failure must propagate, leave no active inserted vector, and reach no SQLite transaction.
+- `test_single_upsert_rejects_fallback_add_on_merge_failure`: a single merge failure must propagate and must not invoke `add()`.
+- `test_bulk_upsert_rejects_fallback_add_on_merge_failure`: a bulk merge failure must propagate and must not invoke `add()`.
+
+Before: 3 failed. After: 3 passed. This is E2 component/fault-injection evidence; no API/runtime E3 claim is made.

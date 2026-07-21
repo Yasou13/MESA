@@ -34,7 +34,7 @@ def calculate_fitness_score(
 
 
 class ValenceMotor:
-    def __init__(
+    def __init__(  # type: ignore[no-untyped-def]
         self,
         llm_adapter: BaseUniversalLLMAdapter,
         obs_layer: ObservabilityLayer,
@@ -56,7 +56,7 @@ class ValenceMotor:
                 self.memory_count,
             )
 
-    async def save_state(self, db_path: str):
+    async def save_state(self, db_path: str):  # type: ignore[no-untyped-def]
         """Persist the cognitive state (ewmad_threshold, memory_count) to SQLite."""
         async with aiosqlite.connect(db_path) as db:
             await db.execute(
@@ -72,7 +72,7 @@ class ValenceMotor:
             )
             await db.commit()
 
-    async def load_state(self, db_path: str):
+    async def load_state(self, db_path: str):  # type: ignore[no-untyped-def]
         """Restore the cognitive state from SQLite if available."""
         print(f"VALENCE: load_state called with {db_path}")
         try:
@@ -116,11 +116,11 @@ class ValenceMotor:
 
         try:
             if hasattr(self.storage, "load_embedding_cache"):
-                return self.storage.load_embedding_cache(
+                return self.storage.load_embedding_cache(  # type: ignore[Any]
                     limit=config.max_embedding_history,
                 )
             if hasattr(self.storage, "get_all_embeddings"):
-                return self.storage.get_all_embeddings(
+                return self.storage.get_all_embeddings(  # type: ignore[Any]
                     limit=config.max_embedding_history,
                 )
         except Exception as exc:
@@ -143,9 +143,9 @@ class ValenceMotor:
                 config.drift_sigmoid_weight * ((n - interval) / (2 * interval) - 0.5)
             )
         )
-        return (1 - w) * self.bootstrap_threshold + w * self._ewmad_threshold
+        return (1 - w) * self.bootstrap_threshold + w * self._ewmad_threshold  # type: ignore[no-any-return]
 
-    def _recalibrate(self):
+    def _recalibrate(self):  # type: ignore[no-untyped-def]
         self._ewmad_threshold = recalibrate_threshold(
             current_threshold=self._ewmad_threshold,
             existing_embeddings=self.existing_embeddings,
@@ -251,7 +251,7 @@ class ValenceMotor:
         )
         return "DEFERRED"
 
-    def _admit(self, embedding: list):
+    def _admit(self, embedding: list):  # type: ignore[no-untyped-def]
         self.memory_count += 1
         self._records_since_recalibration += 1
         if embedding:

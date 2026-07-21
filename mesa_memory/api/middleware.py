@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -5,24 +7,45 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 
-def get_agent_id(request: Request) -> str:
-    # Try to get agent_id from JSON body or query params for rate limiting
-    # If not found, fallback to remote address
-    # For a robust production API, we should extract it from the path or body reliably.
-    # We will try to read it from the body but it's async and could consume the stream.
-    # MESA v3 API expects agent_id in the payload, but slowapi doesn't easily parse bodies synchronously.
-    # Therefore we will rate limit by the API Key header, which uniquely identifies the tenant/user anyway.
+@dataclass(frozen=True)
+class RateLimitSubject:
+    """Resolved server-side identity for minute and daily rate limits."""
 
-    # Actually, we can use the API key directly:
-    api_key = request.headers.get("X-API-Key")
-    if api_key:
-        return api_key
-
-    return get_remote_address(request)
+    value: str
+    persistent: bool
 
 
-# Create a Limiter object, rate limiting to 60 requests per minute per tenant (identified by API Key)
-limiter = Limiter(key_func=get_agent_id, default_limits=["60/minute"])
+def resolve_rate_limit_subject(request: Request) -> RateLimitSubject:
+    """Resolve a rate-limit subject without ever deriving it from request input.
+
+    Authenticated memory routes receive ``request.state.principal`` only after
+    the API-key dependency has validated the credential.  The principal ID is
+    the sole persistent subject.  Requests without that verified context use a
+    process-local IP subject for SlowAPI and must never create a daily-limit DB
+    record.
+    """
+    principal = getattr(request.state, "principal", None)
+    principal_id = getattr(principal, "principal_id", None)
+    if (
+        getattr(principal, "status", None) == "active"
+        and isinstance(principal_id, str)
+        and principal_id
+    ):
+        return RateLimitSubject(value=principal_id, persistent=True)
+    return RateLimitSubject(
+        value=f"ip:{get_remote_address(request)}",
+        persistent=False,
+    )
+
+
+def get_rate_limit_subject(request: Request) -> str:
+    """SlowAPI key function backed by the shared server-side resolver."""
+    return resolve_rate_limit_subject(request).value
+
+
+# Minute and daily limits share ``resolve_rate_limit_subject``. IP subjects
+# exist only inside the process-local minute limiter; they are never persisted.
+limiter = Limiter(key_func=get_rate_limit_subject, default_limits=["60/minute"])
 
 
 def rate_limit_exceeded_handler(
@@ -47,20 +70,17 @@ async def check_daily_limit(request: Request) -> None:
     except ValueError:
         daily_limit = 10000
 
-    api_key = request.headers.get("X-API-Key") or request.headers.get("Authorization")
-    if not api_key:
+    subject = resolve_rate_limit_subject(request)
+    if not subject.persistent:
         return
-
-    # strip Bearer if present
-    agent_id = (
-        api_key.replace("Bearer ", "") if api_key.startswith("Bearer ") else api_key
-    )
 
     dao = getattr(request.app.state, "dao", None)
     if dao and daily_limit > 0:
-        allowed = await dao.increment_and_check_daily_limit(agent_id, limit=daily_limit)
+        allowed = await dao.increment_and_check_daily_limit(
+            subject.value, limit=daily_limit
+        )
         if not allowed:
             raise HTTPException(
                 status_code=429,
-                detail=f"Daily request limit ({daily_limit}) exceeded for this agent.",
+                detail=f"Daily request limit ({daily_limit}) exceeded for this principal.",
             )

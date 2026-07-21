@@ -1,0 +1,6 @@
+Focused WAVE-002 regression only:
+`/home/yasin/Desktop/MESA/venv/bin/python -m pytest tests/test_triple_store_mutation_contract.py -q --basetemp /storage/mesa-lab/storage/WAVE-002/pytest-20260719-151831-fix`
+
+Exit 0; 3 passed in 1.41s.
+
+Existing DAO/chaos suites retain repository-local cleanup paths and were intentionally not run because the wave storage policy permits test data only below `/storage/mesa-lab/storage/WAVE-002/`. No test was weakened. Full Kuzu/SQLite/Lance integration, commit-failure, restart/recovery, and purge lifecycle proofs remain absent.

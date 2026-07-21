@@ -1,0 +1,1 @@
+No external message broker was introduced. No raw exception text is persisted in newly normalized DLQ entries. WAVE-003 SQLite raw-log/WAL fencing was not duplicated. No API health/readiness endpoint was changed.

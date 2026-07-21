@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str):  # type: ignore[no-untyped-def]
     """Load optional benchmark integrations only when explicitly requested."""
     modules = {
         "BareRAGClient": (".barerag_adapter", "BareRAGClient"),

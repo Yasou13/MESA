@@ -156,6 +156,7 @@ explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 exclude = [
     "^venv/",
+    "^build/",
     "^mesa-benchmark/scratch/",
     "^mesa-benchmark/scripts/",
     "test_node\\.py$",

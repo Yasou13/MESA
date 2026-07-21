@@ -1,0 +1,1 @@
+Explicit test-isolated/api-only/worker-only profile E2/E3 passed; combined model-worker/deployment matrix remains pending.

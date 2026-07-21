@@ -1,0 +1,70 @@
+/* MESA v0.6.0 — Unified Design System Variables
+   Source of truth: demo_taslak/style.css theme
+   Deep Space Foundation & Matte Accents (Linear/Vercel/Stripe Grade) */
+
+:root {
+    /* ─── Color Palette ─── */
+    --bg-primary: #07080c;
+    --bg-secondary: #0d0f16;
+    --bg-tertiary: #131620;
+
+    --accent-primary: #8b5cf6;
+    --accent-primary-hover: #7c3aed;
+    --accent-secondary: #06b6d4;
+    --accent-tertiary: #10b981;
+    --accent-warning: #f59e0b;
+    --accent-danger: #ef4444;
+
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+
+    /* ─── Code & Terminal Colors ─── */
+    --code-bg: rgba(11, 13, 20, 0.85);
+    --code-border: rgba(255, 255, 255, 0.08);
+    --kw-color: #c084fc;
+    --str-color: #34d399;
+    --fn-color: #38bdf8;
+    --com-color: #64748b;
+
+    /* ─── Glassmorphism Surfaces & Borders ─── */
+    --glass-bg: rgba(16, 18, 28, 0.55);
+    --glass-bg-hover: rgba(24, 28, 42, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.07);
+    --glass-border-highlight: rgba(139, 92, 246, 0.35);
+    --glass-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.5);
+
+    /* ─── Metrics & Geometry ─── */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-full: 9999px;
+    --transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-fast: 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* ─── Typography ─── */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-display: 'General Sans', 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* ─── Console Theme Aliases (backward-compat) ─── */
+    --background: var(--bg-primary);
+    --sidebar: var(--bg-secondary);
+    --surface: var(--bg-tertiary);
+    --surface-raised: #18181c;
+    --surface-hover: #202024;
+
+    --border: #29292f;
+    --border-strong: #3f3f46;
+
+    --text-primary: var(--text-main);
+    --text-secondary: var(--text-muted);
+
+    --accent: var(--accent-primary);
+    --accent-hover: var(--accent-primary-hover);
+
+    --success: var(--accent-tertiary);
+    --warning: var(--accent-warning);
+    --danger: var(--accent-danger);
+    --info: #3b82f6;
+}

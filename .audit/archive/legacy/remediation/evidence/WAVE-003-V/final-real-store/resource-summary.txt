@@ -1,0 +1,12 @@
+command: controlled W3/W4 final E3 run
+cwd: /home/yasin/Desktop/MESA
+executable: /home/yasin/Desktop/MESA/venv/bin/python
+config/profile: synthetic, isolated /storage/mesa-lab only; no provider/model/Docker
+timeout: 30s per command
+exit_code: 0 unless explicitly classified TEST_HARNESS_ERROR
+duration: recorded in COMMAND_LOG
+expected: fail-closed durable state; no protected-file mutation
+actual: see final E3 summaries and checkpoint
+result: PARTIAL_EVIDENCE
+run_id: rem-20260719-233859-W3W4-final-e3
+file: resource-summary.txt

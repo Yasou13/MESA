@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    { "id": "user_ahmet", "label": "Ahmet", "type": "person", "group": 1 },
+    { "id": "loc_istanbul", "label": "İstanbul", "type": "location", "group": 2 },
+    { "id": "tech_postgres", "label": "PostgreSQL", "type": "technology", "group": 3 },
+    { "id": "prod_enterprise", "label": "Enterprise Plan", "type": "product", "group": 4 }
+  ],
+  "links": [
+    { "source": "user_ahmet", "target": "loc_istanbul", "relation": "LIVES_IN", "weight": 1.0 },
+    { "source": "user_ahmet", "target": "tech_postgres", "relation": "PREFERS", "weight": 0.8 },
+    { "source": "user_ahmet", "target": "prod_enterprise", "relation": "INTERESTED_IN", "weight": 0.9 }
+  ]
+}

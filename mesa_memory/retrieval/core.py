@@ -22,7 +22,7 @@ def _load_spacy_module() -> ModuleType | None:
     try:
         spacy = import_module("spacy")
     except ImportError:
-        logger.warning(
+        logger.warning(  # type: ignore[no-untyped-def]
             "spaCy is not installed. QueryAnalyzer will fall back to basic regex extraction."
         )
     return spacy

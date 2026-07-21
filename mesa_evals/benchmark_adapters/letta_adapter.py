@@ -55,7 +55,7 @@ class LettaAdapter(BaseMemoryClient):
             for agent in agents:
                 if getattr(agent, "name", None) == agent_name:
                     self._agent_map[agent_id] = agent.id
-                    return agent.id
+                    return agent.id  # type: ignore[no-any-return]
         except Exception:
             pass
 
@@ -79,7 +79,7 @@ class LettaAdapter(BaseMemoryClient):
                 raise RuntimeError(f"Failed to create Letta agent: {e}")
 
         self._agent_map[agent_id] = letta_id
-        return letta_id
+        return letta_id  # type: ignore[no-any-return]
 
     async def add_memory(
         self, content: str, *, agent_id: str, metadata: dict[str, Any] | None = None

@@ -1,0 +1,1 @@
+Before: 2 failed (missing `aclaim`). After: `tests/test_durable_dlq_contract.py` passed as part of the 52-pass isolated suite. It verifies two concurrent claimers produce one owner, non-owner ACK fails, expired lease is reclaimed, and bounded NACK retains a BLOCKED poison record with sanitized error type.

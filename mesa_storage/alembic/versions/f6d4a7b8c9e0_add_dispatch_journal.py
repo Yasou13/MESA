@@ -3,12 +3,16 @@
 Revision ID: f6d4a7b8c9e0
 Revises: e9b7c3a1d4f2
 """
+
 from typing import Sequence, Union
+
 from alembic import op
+
 revision: str = "f6d4a7b8c9e0"
 down_revision: Union[str, Sequence[str], None] = "e9b7c3a1d4f2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
 
 def upgrade() -> None:
     op.execute("""CREATE TABLE IF NOT EXISTS dispatch_journal (
@@ -32,7 +36,10 @@ def upgrade() -> None:
         outcome TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_dispatch_journal_recovery ON dispatch_journal(state, lease_expires_at)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dispatch_journal_recovery ON dispatch_journal(state, lease_expires_at)"
+    )
+
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_dispatch_journal_recovery")

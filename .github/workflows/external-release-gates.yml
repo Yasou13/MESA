@@ -183,6 +183,14 @@ jobs:
             sleep 2
           done
           curl --fail --silent --show-error -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
+          unauthenticated_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/v3/health)"
+          test "$unauthenticated_status" = "401"
+          curl --fail --silent --show-error \
+            -H "X-API-Key: $MESA_API_KEY" \
+            http://127.0.0.1:8000/v3/health > api-canary-health.json
+          curl --fail --silent --show-error \
+            -H "X-API-Key: $MESA_API_KEY" \
+            http://127.0.0.1:8000/health/init > api-canary-readiness.json
           docker compose -p "$project" exec -T mesa-worker python -m mesa_memory.container_health
           docker compose -p "$project" restart mesa-api mesa-worker
           docker compose -p "$project" exec -T mesa-api test -d /var/lib/mesa/data
@@ -190,7 +198,10 @@ jobs:
         if: always()
         with:
           name: compose-logs
-          path: compose.log
+          path: |
+            compose.log
+            api-canary-health.json
+            api-canary-readiness.json
           if-no-files-found: warn
           retention-days: 10
 
@@ -248,7 +259,7 @@ jobs:
             echo "| FLOW-001 | flow-e2e | $FLOW | flow-logs |"
             echo "| PERF-003 | performance-capacity | $PERF | performance-capacity |"
             echo "| DOCKER-001 | docker-image | $IMAGE | docker-logs |"
-            echo "| DOCKER-003 | docker-compose | $COMPOSE | compose-logs |"
+            echo "| DOCKER-003 / API canary | docker-compose | $COMPOSE | compose-logs |"
             echo "| DOC-002 | docs-smoke | $DOCS | docs-smoke |"
             echo '| CI-002 | MESA CI | see CI workflow | package-report |'
             echo '| COVERAGE-001 | MESA CI coverage | see CI workflow | coverage-report |'

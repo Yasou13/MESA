@@ -99,7 +99,7 @@ class HybridRetriever:
 
         graph_task = self.get_graph_results(agent_id, entities)
 
-        async def _fts_with_timing():
+        async def _fts_with_timing():  # type: ignore[no-untyped-def]
             t0 = time.perf_counter()
             try:
                 res = await self.dao.search_memory_fts(

@@ -28,23 +28,23 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
     production — emits a CRITICAL warning on construction.
     """
 
-    def __init__(self):
+    def __init__(self):  # type: ignore[no-untyped-def]
         logger.critical(
             "DeterministicMockAdapter active — no real LLM provider detected. "
             "Set MESA_OLLAMA_URL, OPENAI_API_KEY, or ANTHROPIC_API_KEY to "
             "enable a real provider."
         )
 
-    def complete(self, prompt, schema=None, **kwargs):
+    def complete(self, prompt, schema=None, **kwargs):  # type: ignore[no-untyped-def]
         text = "[MOCK] Deterministic response"
         if schema is not None:
             return schema.model_validate_json('{"results": []}')
         return text
 
-    async def acomplete(self, prompt, schema=None, **kwargs):
+    async def acomplete(self, prompt, schema=None, **kwargs):  # type: ignore[no-untyped-def]
         return self.complete(prompt, schema, **kwargs)
 
-    def embed(self, text, **kwargs):
+    def embed(self, text, **kwargs):  # type: ignore[no-untyped-def]
         import hashlib
 
         h = hashlib.sha256(text.encode("utf-8")).digest()
@@ -57,16 +57,16 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
             return [1.0] + [0.0] * (config.embedding_dimension - 1)
         return [x / mag for x in vec]
 
-    async def aembed(self, text, **kwargs):
+    async def aembed(self, text, **kwargs):  # type: ignore[no-untyped-def]
         return self.embed(text, **kwargs)
 
-    def embed_batch(self, texts, **kwargs):
+    def embed_batch(self, texts, **kwargs):  # type: ignore[no-untyped-def]
         return [self.embed(t) for t in texts]
 
-    async def aembed_batch(self, texts, **kwargs):
+    async def aembed_batch(self, texts, **kwargs):  # type: ignore[no-untyped-def]
         return self.embed_batch(texts, **kwargs)
 
-    def get_token_count(self, text):
+    def get_token_count(self, text):  # type: ignore[no-untyped-def]
         return len(text.split())
 
 

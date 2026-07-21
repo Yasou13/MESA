@@ -1,0 +1,9 @@
+branch=audit/production-readiness
+head=c69d1f9c18844c393c26291db6c67628d82167f1
+python=3.13.14
+pytest=9.1.1
+pip_check=passed
+storage=/storage ext4, about 193 GiB free, write probe passed
+state_before=READY/WAVE-003 checkpoint
+active_api_worker_runner=none observed
+canonical_counts=P0 9; P1 40; blocker 43; FBNV 7; NO_GO

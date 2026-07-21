@@ -5,6 +5,26 @@ All notable changes to the MESA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Rate-limit credential lifecycle:** Daily and minute limits now use the
+  verified server-side `principal_id`; raw API credentials and request-supplied
+  tenant/agent values are not used as rate-limit identities. The migration
+  intentionally discards legacy `daily_limits.agent_id` rows because they may
+  contain credentials, causing a one-time daily-counter reset on upgrade.
+
+### Changed
+
+- **Kùzu offline migration safety:** `scripts/migrate_to_kuzu.py` now builds
+  and validates a versioned staging artifact under a process lock and SQLite
+  journal before same-filesystem promotion. Previous live artifacts are
+  retained for explicit rollback; `--wipe` is refused.
+- **Kùzu runtime schema safety:** Startup no longer applies unversioned
+  `ALTER TABLE` statements to an existing graph. `migrate_kuzu_schema.py`
+  must first clone, checksum-validate, and promote an existing graph offline.
+
 ## [0.6.1] - 2026-07-17
 
 ### Added

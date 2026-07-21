@@ -1,0 +1,1 @@
+E3 not run. Runtime gate remains blocked by existing config isolation/runtime baseline blockers and the user-owned trace-file preservation boundary. No API or worker process was started.

@@ -1,0 +1,1 @@
+SEC-002 canonical static evidence remains open: global credential does not create a principal and session creation self-grants the request agent.

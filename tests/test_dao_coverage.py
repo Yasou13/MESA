@@ -31,6 +31,7 @@ class _VerifiedPurgeGraph:
     async def verify_nodes_absent(self, *, agent_id, node_ids):
         return True
 
+
 TEST_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     ".test_storage_tmp",

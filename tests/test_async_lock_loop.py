@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from mesa_memory.config import config
 from mesa_memory.consolidation.lock import (
     _embed_text,
     calculate_composite_similarity,
@@ -13,7 +14,6 @@ from mesa_memory.consolidation.loop import (
     start_tier3_deferred_worker,
 )
 from mesa_memory.consolidation.validator import Tier3ValidationError
-from mesa_memory.config import config
 from tests.fixtures.vectors import (
     VEC_BASE_384,
     VEC_MATCH_384,

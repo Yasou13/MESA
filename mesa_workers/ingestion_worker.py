@@ -144,7 +144,12 @@ async def process_cold_path(
     t_start = time.monotonic()
     claim: dict[str, Any] | None = None
 
-    async def _transition(status: str, *, error_reason: str | None = None, target_agent_id: str | None = None) -> None:
+    async def _transition(
+        status: str,
+        *,
+        error_reason: str | None = None,
+        target_agent_id: str | None = None,
+    ) -> None:
         """Use a fenced transition for the real DAO; retain mock compatibility."""
         target_agent = target_agent_id or agent_id
         if claim is not None:
@@ -157,7 +162,9 @@ async def process_cold_path(
                 error_reason=error_reason,
             )
             if not transitioned:
-                logger.warning("COLD_PATH_FENCE_LOST | log_id=%d status=%s", log_id, status)
+                logger.warning(
+                    "COLD_PATH_FENCE_LOST | log_id=%d status=%s", log_id, status
+                )
             return
         if error_reason is None:
             await dao.update_raw_log_status(target_agent, log_id, status)
@@ -333,7 +340,9 @@ async def process_cold_path(
         truncated_reason = error_msg[:500]
 
         try:
-            await _transition("failed", error_reason=truncated_reason, target_agent_id=agent_id)
+            await _transition(
+                "failed", error_reason=truncated_reason, target_agent_id=agent_id
+            )
         except Exception as status_exc:
             # Even the status update failed — log but never raise
             logger.critical(
@@ -390,7 +399,7 @@ async def _run_ecod_gate(
             # Cold-start: always admit — not enough data for ECOD
             logger.debug(
                 "ECOD_COLD_START | agent_id=%s pool_size=%d — admitting",
-                agent_id,
+                agent_id,  # type: ignore[no-untyped-def]
                 len(existing_memories),
             )
             return True
@@ -602,6 +611,7 @@ async def _run_llm_triplet_extraction(content: str) -> list[dict[str, str]]:
 
         prompt = _get_extraction_prompt(content)
 
+        # type: ignore[no-untyped-def]
         @retry(
             wait=wait_exponential(
                 multiplier=1,

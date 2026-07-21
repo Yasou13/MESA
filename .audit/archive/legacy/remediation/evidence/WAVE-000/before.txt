@@ -1,0 +1,1 @@
+E1 static evidence: global X-API-Key equality validation does not create a principal; session creation grants WRITE to the request agent_id. SEC-002 remains open.

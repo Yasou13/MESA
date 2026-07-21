@@ -1,0 +1,31 @@
+{
+  "query": "Kullanıcı hangi veritabanını kullanmak istiyor?",
+  "pipeline": [
+    { "step": "Query Normalization", "duration_ms": 2, "status": "success" },
+    { "step": "Embedding Generation", "duration_ms": 15, "status": "success" },
+    { "step": "Vector Search (Top 5)", "duration_ms": 5, "status": "success" },
+    { "step": "Lexical Search (Top 5)", "duration_ms": 3, "status": "success" },
+    { "step": "Alpha RRF Fusion", "duration_ms": 1, "status": "success" },
+    { "step": "Stage-2 CrossEncoder Reranking", "duration_ms": 45, "status": "success" }
+  ],
+  "results": [
+    {
+      "rank": 1,
+      "memory_id": "memory_002",
+      "content": "Kullanıcı veritabanı olarak PostgreSQL tercih ediyor.",
+      "vector_score": 0.89,
+      "keyword_score": 0.95,
+      "final_score": 0.92,
+      "decision": "Selected"
+    },
+    {
+      "rank": 2,
+      "memory_id": "memory_001",
+      "content": "Kullanıcı enterprise planla ilgileniyor. 500 seat lisans istiyor.",
+      "vector_score": 0.45,
+      "keyword_score": 0.10,
+      "final_score": 0.35,
+      "decision": "Rejected"
+    }
+  ]
+}

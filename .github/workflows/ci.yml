@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [audit/production-readiness, main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -43,10 +45,169 @@ jobs:
           python -m ruff check
           mesa_memory/worker_runtime.py mesa_memory/container_health.py mesa_memory/runtime_entrypoint.py
           mesa_storage/recovery.py tests/test_recovery_contract.py tests/test_migration_closure.py
+      - name: Enforce formatting and typing at the runtime boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          from black import FileMode, TargetVersion, WriteBack, format_file_in_place
+
+          paths = [
+              Path("mesa_memory/worker_runtime.py"),
+              Path("mesa_memory/container_health.py"),
+              Path("mesa_memory/runtime_entrypoint.py"),
+          ]
+          mode = FileMode(line_length=88, target_versions={TargetVersion.PY310})
+          changed = [
+              str(path)
+              for path in paths
+              if format_file_in_place(path, fast=False, mode=mode, write_back=WriteBack.CHECK)
+          ]
+          if changed:
+              raise SystemExit("Black would reformat: " + ", ".join(changed))
+          PY
+          python -m mypy \
+            mesa_memory/worker_runtime.py \
+            mesa_memory/container_health.py \
+            mesa_memory/runtime_entrypoint.py \
+            --ignore-missing-imports --explicit-package-bases --follow-imports=skip
       - name: Basic tracked-secret policy
         run: |
           test -z "$(git ls-files '.env' '*.pem' '*.key' '*.p12' '*.pfx')"
           ! git grep -IlE -- 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' -- ':!tests/**' ':!.env.example'
+
+  secret-and-graph-assurance:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      HF_HUB_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Scan changed history for verified secrets
+        uses: trufflesecurity/trufflehog@v3.95.2
+        with:
+          path: ./
+          version: v3.95.2
+      - name: Install graph-audit test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Enforce graph-poisoning guardrail
+        run: |
+          set +e
+          timeout 240s python -m pytest -q tests/test_rbac_leak.py --tb=short \
+            --junitxml=rbac-isolation.xml | tee rbac-isolation.log
+          rbac_status=${PIPESTATUS[0]}
+          timeout 240s python -m pytest -q tests/test_chaos.py --tb=short \
+            --junitxml=chaos-saga.xml | tee chaos-saga.log
+          chaos_status=${PIPESTATUS[0]}
+          timeout 240s python -m pytest -q tests/test_kuzu_isolation.py tests/test_legal_audit.py \
+            --tb=short --junitxml=graph-assurance.xml | tee graph-assurance.log
+          graph_status=${PIPESTATUS[0]}
+          printf 'rbac_exit=%s\nchaos_exit=%s\ngraph_exit=%s\n' \
+            "$rbac_status" "$chaos_status" "$graph_status" | tee security-assurance-summary.txt
+          test "$rbac_status" -eq 0 -a "$chaos_status" -eq 0 -a "$graph_status" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-and-graph-assurance
+          path: |
+            rbac-isolation.log
+            rbac-isolation.xml
+            chaos-saga.log
+            chaos-saga.xml
+            graph-assurance.log
+            graph-assurance.xml
+            security-assurance-summary.txt
+          if-no-files-found: warn
+          retention-days: 10
+
+  zero-cost-contract:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      MESA_ZERO_COST_MODE: "true"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure isolated runtime path
+        run: echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
+      - name: Verify zero-cost provider selection and configuration parity
+        run: >-
+          python -m pytest -q
+          tests/test_config_edge_cases.py::test_config_zero_cost_mode
+          tests/test_adapters.py::test_adapter_factory_auto_detect_zero_cost
+
+  legacy-static-baseline:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - name: Record full-tree Black and Mypy debt without masking it as a release gate
+        run: |
+          set +e
+          python - <<'PY' 2>&1 | tee legacy-black.log
+          from pathlib import Path
+
+          from black import FileMode, TargetVersion, WriteBack, format_file_in_place
+
+          roots = [
+              Path("mesa_memory"),
+              Path("mesa_storage"),
+              Path("mesa_workers"),
+              Path("mesa_api"),
+              Path("mesa_client"),
+              Path("tests"),
+          ]
+          mode = FileMode(line_length=88, target_versions={TargetVersion.PY310})
+          changed = [
+              str(path)
+              for root in roots
+              for path in root.rglob("*.py")
+              if format_file_in_place(path, fast=False, mode=mode, write_back=WriteBack.CHECK)
+          ]
+          if changed:
+              print("Black would reformat:")
+              print("\n".join(changed))
+              raise SystemExit(1)
+          print("Black check passed")
+          PY
+          black_status=${PIPESTATUS[0]}
+          python -m mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
+            --ignore-missing-imports --explicit-package-bases \
+            2>&1 | tee legacy-mypy.log
+          mypy_status=${PIPESTATUS[0]}
+          printf 'black_exit=%s\nmypy_exit=%s\n' "$black_status" "$mypy_status" \
+            | tee legacy-static-summary.txt
+          test "$black_status" -eq 0 -a "$mypy_status" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-static-baseline
+          path: |
+            legacy-black.log
+            legacy-mypy.log
+            legacy-static-summary.txt
+          retention-days: 10
 
   core-tests:
     needs: quality

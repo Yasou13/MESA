@@ -75,10 +75,16 @@ curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
 The worker writes `worker-readiness.json` below `MESA_STORAGE_ROOT`. Do not run
 the API profile as a worker or the worker profile as an HTTP server.
 
+Set `MESA_REQUIRE_WORKER_READINESS=true` when the API must fail readiness if a
+separate worker has no fresh heartbeat on the shared storage root. Compose sets
+this for the API role by default; a deliberately workerless standalone API can
+leave it unset.
+
 ## Compose deployment
 
 Compose creates separate `mesa-api` and `mesa-worker` roles sharing only the
-named `mesa-data` volume. Model, provider, and dotenv loading remain disabled.
+named `mesa-data` volume. The API readiness probe requires the worker's fresh
+shared-volume heartbeat. Model, provider, and dotenv loading remain disabled.
 
 ```bash
 export MESA_API_KEY="$(secret-manager read mesa-api-key)"

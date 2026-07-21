@@ -1,4 +1,5 @@
 """Crash-safe, manifest-backed backup and restore for an offline MESA storage root."""
+
 from __future__ import annotations
 
 import argparse
@@ -32,9 +33,15 @@ def _resolved_existing(path: Path) -> Path:
 
 def _validate_path(path: Path, trusted_root: Path, *, must_exist: bool) -> Path:
     trusted = _resolved_existing(trusted_root)
-    candidate = _resolved_existing(path) if must_exist else path.absolute().resolve(strict=False)
+    candidate = (
+        _resolved_existing(path)
+        if must_exist
+        else path.absolute().resolve(strict=False)
+    )
     if candidate == trusted or not candidate.is_relative_to(trusted):
-        raise RecoveryError(f"path must be a child of trusted root {trusted}: {candidate}")
+        raise RecoveryError(
+            f"path must be a child of trusted root {trusted}: {candidate}"
+        )
     current = candidate
     while current != trusted:
         if current.exists() and current.is_symlink():
@@ -47,7 +54,9 @@ def _reject_sensitive_name(relative: Path) -> None:
     for part in relative.parts:
         lowered = part.lower()
         if lowered in _FORBIDDEN_NAMES or lowered.startswith(".env"):
-            raise RecoveryError(f"secret-bearing path is not allowed in backup: {relative}")
+            raise RecoveryError(
+                f"secret-bearing path is not allowed in backup: {relative}"
+            )
         if Path(lowered).suffix in _FORBIDDEN_SUFFIXES:
             raise RecoveryError(f"key material is not allowed in backup: {relative}")
 
@@ -57,7 +66,9 @@ def _iter_files(root: Path) -> Iterable[Path]:
         relative = path.relative_to(root)
         _reject_sensitive_name(relative)
         if path.is_symlink():
-            raise RecoveryError(f"symlink is not allowed in storage snapshot: {relative}")
+            raise RecoveryError(
+                f"symlink is not allowed in storage snapshot: {relative}"
+            )
         if path.is_file() and path.name != MANIFEST_NAME:
             yield path
 
@@ -90,7 +101,9 @@ def _sqlite_integrity(path: Path) -> str:
         connection.close()
         return result
     except sqlite3.DatabaseError as exc:
-        raise RecoveryError(f"SQLite integrity check failed for {path.name}: {type(exc).__name__}") from exc
+        raise RecoveryError(
+            f"SQLite integrity check failed for {path.name}: {type(exc).__name__}"
+        ) from exc
 
 
 def _copy_sqlite(source: Path, destination: Path) -> None:
@@ -100,7 +113,9 @@ def _copy_sqlite(source: Path, destination: Path) -> None:
         source_connection.backup(destination_connection)
         destination_connection.commit()
     except sqlite3.DatabaseError as exc:
-        raise RecoveryError(f"SQLite snapshot failed for {source.name}: {type(exc).__name__}") from exc
+        raise RecoveryError(
+            f"SQLite snapshot failed for {source.name}: {type(exc).__name__}"
+        ) from exc
     finally:
         destination_connection.close()
         source_connection.close()
@@ -136,7 +151,9 @@ def _alembic_version(path: Path) -> str | None:
         return None
 
 
-def _write_manifest(staging: Path, *, source: Path, sqlite_files: list[str]) -> dict[str, Any]:
+def _write_manifest(
+    staging: Path, *, source: Path, sqlite_files: list[str]
+) -> dict[str, Any]:
     files = [
         {
             "path": item.relative_to(staging).as_posix(),
@@ -177,11 +194,16 @@ def _load_manifest(snapshot: Path) -> dict[str, Any]:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RecoveryError("backup manifest is missing or invalid") from exc
-    if manifest.get("format") != "mesa-storage-backup" or manifest.get("manifest_version") != MANIFEST_VERSION:
+    if (
+        manifest.get("format") != "mesa-storage-backup"
+        or manifest.get("manifest_version") != MANIFEST_VERSION
+    ):
         raise RecoveryError("unsupported backup manifest")
     if manifest.get("consistency_boundary") != "offline-stores-stopped":
         raise RecoveryError("backup does not attest an offline consistency boundary")
-    return manifest
+    from typing import cast
+
+    return cast(dict[str, Any], manifest)
 
 
 def _verify_hashes(snapshot: Path, manifest: dict[str, Any]) -> None:
@@ -193,12 +215,17 @@ def _verify_hashes(snapshot: Path, manifest: dict[str, Any]) -> None:
         if relative.as_posix() in expected:
             raise RecoveryError("manifest contains a duplicate path")
         expected[relative.as_posix()] = record
-    actual = {item.relative_to(snapshot).as_posix(): item for item in _iter_files(snapshot)}
+    actual = {
+        item.relative_to(snapshot).as_posix(): item for item in _iter_files(snapshot)
+    }
     if set(expected) != set(actual):
         raise RecoveryError("backup file set does not match manifest")
-    for relative, path in actual.items():
-        record = expected[relative]
-        if path.stat().st_size != int(record["size"]) or _sha256(path) != record["sha256"]:
+    for rel_str, path in actual.items():
+        record = expected[rel_str]
+        if (
+            path.stat().st_size != int(record["size"])
+            or _sha256(path) != record["sha256"]
+        ):
             raise RecoveryError(f"backup hash mismatch: {relative}")
 
 
@@ -212,9 +239,12 @@ def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
 def _state_counts(connection: sqlite3.Connection, table: str) -> dict[str, int]:
     if not _table_exists(connection, table):
         return {}
-    return {str(state): int(count) for state, count in connection.execute(
-        f'SELECT state, COUNT(*) FROM "{table}" GROUP BY state'
-    ).fetchall()}
+    return {
+        str(state): int(count)
+        for state, count in connection.execute(
+            f'SELECT state, COUNT(*) FROM "{table}" GROUP BY state'
+        ).fetchall()
+    }
 
 
 def _reconcile_purge_ledger(connection: sqlite3.Connection) -> dict[str, int]:
@@ -225,15 +255,25 @@ def _reconcile_purge_ledger(connection: sqlite3.Connection) -> dict[str, int]:
     ).fetchall()
     verified = 0
     protected_states = {
-        "TOMBSTONED", "KUZU_APPLIED", "VECTOR_APPLIED", "VERIFIED", "FINALIZED",
-        "RETRY_PENDING", "COMPENSATION_REQUIRED", "BLOCKED",
+        "TOMBSTONED",
+        "KUZU_APPLIED",
+        "VECTOR_APPLIED",
+        "VERIFIED",
+        "FINALIZED",
+        "RETRY_PENDING",
+        "COMPENSATION_REQUIRED",
+        "BLOCKED",
     }
     for purge_id, agent_id, raw_targets, state in records:
         try:
             targets = json.loads(raw_targets)
         except (TypeError, json.JSONDecodeError) as exc:
-            raise RecoveryError(f"purge journal has invalid target set: {purge_id}") from exc
-        if not isinstance(targets, list) or any(not isinstance(item, str) for item in targets):
+            raise RecoveryError(
+                f"purge journal has invalid target set: {purge_id}"
+            ) from exc
+        if not isinstance(targets, list) or any(
+            not isinstance(item, str) for item in targets
+        ):
             raise RecoveryError(f"purge journal has invalid target set: {purge_id}")
         if state not in protected_states:
             continue
@@ -242,8 +282,12 @@ def _reconcile_purge_ledger(connection: sqlite3.Connection) -> dict[str, int]:
                 "SELECT invalid_at, deleted_at, purge_id FROM nodes WHERE id = ? AND agent_id = ?",
                 (node_id, agent_id),
             ).fetchone()
-            if row is not None and (row[0] is None or row[1] is None or row[2] != purge_id):
-                raise RecoveryError(f"purged node would be active after restore: {node_id}")
+            if row is not None and (
+                row[0] is None or row[1] is None or row[2] != purge_id
+            ):
+                raise RecoveryError(
+                    f"purged node would be active after restore: {node_id}"
+                )
             verified += 1
     return {"records": len(records), "verified_targets": verified}
 
@@ -252,7 +296,11 @@ def validate_snapshot(snapshot: Path) -> dict[str, Any]:
     snapshot = snapshot.resolve(strict=True)
     manifest = _load_manifest(snapshot)
     _verify_hashes(snapshot, manifest)
-    result: dict[str, Any] = {"valid": True, "files": len(manifest["files"]), "sqlite": {}}
+    result: dict[str, Any] = {
+        "valid": True,
+        "files": len(manifest["files"]),
+        "sqlite": {},
+    }
     for relative in manifest.get("sqlite", {}):
         database = snapshot / relative
         if _sqlite_integrity(database) != "ok":
@@ -265,19 +313,27 @@ def validate_snapshot(snapshot: Path) -> dict[str, Any]:
                 "purge": _reconcile_purge_ledger(connection),
                 "wal_states": _state_counts(connection, "lancedb_wal"),
                 "dispatch_states": _state_counts(connection, "dispatch_queue"),
-                "finalization_states": _state_counts(connection, "session_finalization_journal"),
+                "finalization_states": _state_counts(
+                    connection, "session_finalization_journal"
+                ),
             }
         finally:
             connection.close()
     result["completion_receipt_files"] = sorted(
-        item["path"] for item in manifest["files"] if item["path"].endswith(".receipts.jsonl")
+        item["path"]
+        for item in manifest["files"]
+        if item["path"].endswith(".receipts.jsonl")
     )
     return result
 
 
-def create_backup(source: Path, destination: Path, trusted_root: Path, *, stores_stopped: bool) -> dict[str, Any]:
+def create_backup(
+    source: Path, destination: Path, trusted_root: Path, *, stores_stopped: bool
+) -> dict[str, Any]:
     if not stores_stopped:
-        raise RecoveryError("backup requires an explicit stores-stopped consistency boundary")
+        raise RecoveryError(
+            "backup requires an explicit stores-stopped consistency boundary"
+        )
     source = _validate_path(source, trusted_root, must_exist=True)
     destination = _validate_path(destination, trusted_root, must_exist=False)
     if not source.is_dir():
@@ -285,7 +341,11 @@ def create_backup(source: Path, destination: Path, trusted_root: Path, *, stores
     if destination.exists():
         raise RecoveryError("backup destination already exists")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.incomplete-", dir=destination.parent))
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.incomplete-", dir=destination.parent
+        )
+    )
     try:
         sqlite_files = _copy_snapshot(source, staging)
         if not sqlite_files:
@@ -300,14 +360,22 @@ def create_backup(source: Path, destination: Path, trusted_root: Path, *, stores
         raise
 
 
-def restore_backup(snapshot: Path, destination: Path, trusted_root: Path) -> dict[str, Any]:
+def restore_backup(
+    snapshot: Path, destination: Path, trusted_root: Path
+) -> dict[str, Any]:
     snapshot = _validate_path(snapshot, trusted_root, must_exist=True)
     destination = _validate_path(destination, trusted_root, must_exist=False)
     validation = validate_snapshot(snapshot)
     if destination.exists():
-        raise RecoveryError("restore destination already exists; overwrite is forbidden")
+        raise RecoveryError(
+            "restore destination already exists; overwrite is forbidden"
+        )
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.incomplete-", dir=destination.parent))
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.incomplete-", dir=destination.parent
+        )
+    )
     try:
         for source_file in _iter_files(snapshot):
             relative = source_file.relative_to(snapshot)
@@ -324,7 +392,11 @@ def restore_backup(snapshot: Path, destination: Path, trusted_root: Path) -> dic
         validate_snapshot(staging)
         os.replace(staging, destination)
         _fsync_dir(destination.parent)
-        return {"restored": True, "validation": validation, "destination": str(destination)}
+        return {
+            "restored": True,
+            "validation": validation,
+            "destination": str(destination),
+        }
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -350,11 +422,20 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "backup":
-            result = create_backup(args.source_root, args.backup_root, args.trusted_root, stores_stopped=args.stores_stopped)
+            result = create_backup(
+                args.source_root,
+                args.backup_root,
+                args.trusted_root,
+                stores_stopped=args.stores_stopped,
+            )
         elif args.command == "restore":
-            result = restore_backup(args.backup_root, args.restore_root, args.trusted_root)
+            result = restore_backup(
+                args.backup_root, args.restore_root, args.trusted_root
+            )
         else:
-            snapshot = _validate_path(args.backup_root, args.trusted_root, must_exist=True)
+            snapshot = _validate_path(
+                args.backup_root, args.trusted_root, must_exist=True
+            )
             result = validate_snapshot(snapshot)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

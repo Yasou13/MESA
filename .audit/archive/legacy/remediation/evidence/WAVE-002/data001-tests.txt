@@ -1,0 +1,11 @@
+## Covered E2 scenarios
+
+1. Exact session scope: SQLite tombstone → Kuzu delete/verify → vector delete/verify → `FINALIZED`; the tombstoned record is hidden while same-agent other-session and other-tenant records remain visible.
+2. Kuzu failure: journal is `RETRY_PENDING`; vector delete is never called.
+3. Vector failure after Kuzu: journal is retry-pending; `resume_incomplete_purges()` completes only vector work and preserves the already-applied Kuzu step.
+4. Wildcard scopes are rejected; exact scope does not cross tenant/session boundaries.
+5. Pre-downstream tombstone rollback restores only the recorded scope; finalized purge cannot be restored.
+6. Same finalized idempotency key raises rather than being reported as a new success.
+7. Router rejects a principal without target-agent `PURGE` permission (403) and maps retry-pending to 503 instead of success.
+
+Not covered/claimed: real Kuzu query semantics, real LanceDB durability, real API process startup, backup-restore ledger reconciliation, or E3.

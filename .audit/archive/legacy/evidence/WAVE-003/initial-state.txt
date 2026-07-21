@@ -1,0 +1,8 @@
+branch=audit/production-readiness
+head=c69d1f9c18844c393c26291db6c67628d82167f1
+python=3.13.14 (venv)
+pytest=9.1.1
+pip_check=passed
+storage=/storage ext4; free space approximately 193 GiB; write probe passed
+git_diff_check=passed before WAVE-003 edits
+state_before=RUNNING / WAVE-003 / PLAN

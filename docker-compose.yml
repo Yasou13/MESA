@@ -29,6 +29,7 @@ services:
     environment:
       <<: *mesa-environment
       MESA_RUNTIME_PROFILE: api-only
+      MESA_REQUIRE_WORKER_READINESS: "true"
     ports:
       - "127.0.0.1:${MESA_PORT:-8000}:8000"
     healthcheck:

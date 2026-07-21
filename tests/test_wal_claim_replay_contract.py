@@ -20,11 +20,17 @@ class _Vector:
     async def upsert(self, *, node_id, agent_id, embedding, content_hash=None) -> None:
         self.rows.add((agent_id, node_id))
 
-    async def get_existing_node_ids(self, agent_id: str, node_ids: list[str]) -> set[str]:
+    async def get_existing_node_ids(
+        self, agent_id: str, node_ids: list[str]
+    ) -> set[str]:
         return {node_id for node_id in node_ids if (agent_id, node_id) in self.rows}
 
     async def get_active_node_ids(self, agent_id: str | None = None) -> set[str]:
-        return {node_id for scoped_agent, node_id in self.rows if agent_id is None or scoped_agent == agent_id}
+        return {
+            node_id
+            for scoped_agent, node_id in self.rows
+            if agent_id is None or scoped_agent == agent_id
+        }
 
 
 async def _make_dao(tmp_path) -> tuple[MemoryDAO, AsyncEngine]:
@@ -35,7 +41,9 @@ async def _make_dao(tmp_path) -> tuple[MemoryDAO, AsyncEngine]:
 
 
 @pytest.mark.asyncio
-async def test_raw_log_claim_is_single_owner_and_terminal_transition_is_fenced(tmp_path):
+async def test_raw_log_claim_is_single_owner_and_terminal_transition_is_fenced(
+    tmp_path,
+):
     dao, sql = await _make_dao(tmp_path)
     try:
         log_id = await dao.insert_raw_log(
@@ -51,17 +59,27 @@ async def test_raw_log_claim_is_single_owner_and_terminal_transition_is_fenced(t
         assert claim["claimed_by"] in {"worker-a", "worker-b"}
 
         assert not await dao.transition_claimed_raw_log(
-            "tenant-a", log_id, worker_id="other-worker", claim_token=claim["claim_token"], status="processed"
+            "tenant-a",
+            log_id,
+            worker_id="other-worker",
+            claim_token=claim["claim_token"],
+            status="processed",
         )
         assert await dao.transition_claimed_raw_log(
-            "tenant-a", log_id, worker_id=claim["claimed_by"], claim_token=claim["claim_token"], status="processed"
+            "tenant-a",
+            log_id,
+            worker_id=claim["claimed_by"],
+            claim_token=claim["claim_token"],
+            status="processed",
         )
     finally:
         await sql.close()
 
 
 @pytest.mark.asyncio
-async def test_expired_claim_and_wal_item_are_replayable_once_then_acknowledged(tmp_path):
+async def test_expired_claim_and_wal_item_are_replayable_once_then_acknowledged(
+    tmp_path,
+):
     dao, sql = await _make_dao(tmp_path)
     try:
         log_id = await dao.insert_raw_log(
@@ -95,7 +113,11 @@ async def test_expired_claim_and_wal_item_are_replayable_once_then_acknowledged(
         assert not await dao.ack_lancedb_wal_entry(
             wal_id, worker_id=entry["claimed_by"], claim_token=entry["claim_token"]
         )
-        assert await dao.replay_claimed_lancedb_wal_entry(entry, worker_id=entry["claimed_by"])
-        assert await dao.claim_lancedb_wal_entries(worker_id="flusher-c", limit=10) == []
+        assert await dao.replay_claimed_lancedb_wal_entry(
+            entry, worker_id=entry["claimed_by"]
+        )
+        assert (
+            await dao.claim_lancedb_wal_entries(worker_id="flusher-c", limit=10) == []
+        )
     finally:
         await sql.close()

@@ -73,7 +73,9 @@ async def test_consolidation_divergence_paths(tmp_path, monkeypatch):
     from mesa_memory.config import config
 
     monkeypatch.setattr(config, "storage_path", str(tmp_path))
-    monkeypatch.setattr(config, "human_review_queue_path", str(tmp_path / "review.jsonl"))
+    monkeypatch.setattr(
+        config, "human_review_queue_path", str(tmp_path / "review.jsonl")
+    )
     monkeypatch.setattr(config, "dead_letter_queue_path", str(tmp_path / "dlq.jsonl"))
     obs = ObservabilityLayer()
     dao = _make_mock_dao()

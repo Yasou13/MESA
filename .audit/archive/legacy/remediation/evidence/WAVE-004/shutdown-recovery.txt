@@ -1,0 +1,1 @@
+E2 DLQ lease expiry reclaim is verified. Controlled runtime shutdown/restart is not verified. `start_dlq_worker` retains any opaque `run_batch` result via NACK rather than ACK; missing durable per-record completion receipt is an open material gap.

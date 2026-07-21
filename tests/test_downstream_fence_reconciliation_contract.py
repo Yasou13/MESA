@@ -1,4 +1,5 @@
 """WAVE-003-V durable downstream fence/reconciliation contract."""
+
 from __future__ import annotations
 
 import json
@@ -51,13 +52,26 @@ async def _dao(root: Path):
 
 
 @pytest.mark.asyncio
-async def test_downstream_failure_keeps_canonical_row_open_and_stale_fence_cannot_finalize(tmp_path: Path):
+async def test_downstream_failure_keeps_canonical_row_open_and_stale_fence_cannot_finalize(
+    tmp_path: Path,
+):
     dao, engine = await _dao(tmp_path)
     try:
         async with engine.transaction() as db:
             await db.execute(
                 "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) VALUES (?, ?, ?, ?)",
-                ("mutation-1", "tenant-a", b"\x00\x00\x80?", json.dumps({"node_id": "node-1", "entity_name": "Entity", "graph_required": True})),
+                (
+                    "mutation-1",
+                    "tenant-a",
+                    b"\x00\x00\x80?",
+                    json.dumps(
+                        {
+                            "node_id": "node-1",
+                            "entity_name": "Entity",
+                            "graph_required": True,
+                        }
+                    ),
+                ),
             )
             await db.commit()
         dao.vector_engine.fail = True
@@ -70,14 +84,28 @@ async def test_downstream_failure_keeps_canonical_row_open_and_stale_fence_canno
         assert state["acknowledged_at"] is None
 
         dao.vector_engine.fail = False
-        claim_a = (await dao.claim_lancedb_wal_entries(worker_id="worker-a", limit=1, lease_seconds=1))[0]
+        claim_a = (
+            await dao.claim_lancedb_wal_entries(
+                worker_id="worker-a", limit=1, lease_seconds=1
+            )
+        )[0]
         async with engine.transaction() as db:
-            await db.execute("UPDATE lancedb_wal SET lease_expires_at = '1970-01-01T00:00:00+00:00' WHERE id = ?", ("mutation-1",))
+            await db.execute(
+                "UPDATE lancedb_wal SET lease_expires_at = '1970-01-01T00:00:00+00:00' WHERE id = ?",
+                ("mutation-1",),
+            )
             await db.commit()
-        claim_b = (await dao.claim_lancedb_wal_entries(worker_id="worker-b", limit=1, lease_seconds=60))[0]
+        claim_b = (
+            await dao.claim_lancedb_wal_entries(
+                worker_id="worker-b", limit=1, lease_seconds=60
+            )
+        )[0]
         assert claim_a["claim_token"] != claim_b["claim_token"]
         assert not await dao.record_lancedb_projection_state(
-            "mutation-1", worker_id="worker-a", claim_token=claim_a["claim_token"], projection="VECTOR_APPLIED"
+            "mutation-1",
+            worker_id="worker-a",
+            claim_token=claim_a["claim_token"],
+            projection="VECTOR_APPLIED",
         )
         assert await dao.replay_claimed_lancedb_wal_entry(claim_b, worker_id="worker-b")
         final = await dao.get_lancedb_mutation_state("mutation-1")
@@ -94,9 +122,27 @@ async def test_downstream_failure_keeps_canonical_row_open_and_stale_fence_canno
     ("metadata_patch", "seed_vector", "seed_graph", "expected", "state"),
     [
         ({"canonical_agent_id": "tenant-b"}, True, True, "SCOPE_MISMATCH", "BLOCKED"),
-        ({"payload_version": 2}, True, True, "PAYLOAD_OR_VERSION_MISMATCH", "RECONCILIATION_REQUIRED"),
-        ({"expected_vector_projection": False}, True, False, "VECTOR_EXTRA", "RECONCILIATION_REQUIRED"),
-        ({"expected_graph_projection": False}, True, True, "GRAPH_EXTRA", "RECONCILIATION_REQUIRED"),
+        (
+            {"payload_version": 2},
+            True,
+            True,
+            "PAYLOAD_OR_VERSION_MISMATCH",
+            "RECONCILIATION_REQUIRED",
+        ),
+        (
+            {"expected_vector_projection": False},
+            True,
+            False,
+            "VECTOR_EXTRA",
+            "RECONCILIATION_REQUIRED",
+        ),
+        (
+            {"expected_graph_projection": False},
+            True,
+            True,
+            "GRAPH_EXTRA",
+            "RECONCILIATION_REQUIRED",
+        ),
     ],
 )
 async def test_reconciliation_mismatch_states_fail_closed(
@@ -122,7 +168,10 @@ async def test_reconciliation_mismatch_states_fail_closed(
             await db.commit()
         if seed_vector:
             await dao.vector_engine.upsert(
-                node_id="node-mismatch", agent_id="tenant-a", embedding=[1.0], content_hash=None
+                node_id="node-mismatch",
+                agent_id="tenant-a",
+                embedding=[1.0],
+                content_hash=None,
             )
         if seed_graph:
             await dao.graph_provider.insert_node(
@@ -147,11 +196,18 @@ async def test_unknown_reconciliation_is_never_acknowledged(tmp_path: Path):
         async with engine.transaction() as db:
             await db.execute(
                 "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) VALUES (?, ?, ?, ?)",
-                ("unknown", "tenant-a", b"\x00\x00\x80?", json.dumps({"node_id": "node-unknown"})),
+                (
+                    "unknown",
+                    "tenant-a",
+                    b"\x00\x00\x80?",
+                    json.dumps({"node_id": "node-unknown"}),
+                ),
             )
             await db.commit()
+
         async def unavailable(*args, **kwargs):
             raise RuntimeError("store-unavailable")
+
         dao.vector_engine.get_existing_node_ids = unavailable
         claim = (await dao.claim_lancedb_wal_entries(worker_id="worker", limit=1))[0]
         result = await dao.reconcile_lancedb_wal_entry(

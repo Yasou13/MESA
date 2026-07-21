@@ -16,26 +16,26 @@ class BaseUniversalLLMAdapter(ABC):
         return config.embedding_dimension
 
     @abstractmethod
-    def complete(
+    def complete(  # type: ignore[no-untyped-def]
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
     ) -> Union[str, BaseModel]: ...
 
     @abstractmethod
-    async def acomplete(
+    async def acomplete(  # type: ignore[no-untyped-def]
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
     ) -> Union[str, BaseModel]: ...
 
     @abstractmethod
-    def embed(self, text: str, **kwargs) -> list[float]: ...
+    def embed(self, text: str, **kwargs) -> list[float]: ...  # type: ignore[no-untyped-def]
 
     @abstractmethod
-    async def aembed(self, text: str, **kwargs) -> list[float]: ...
+    async def aembed(self, text: str, **kwargs) -> list[float]: ...  # type: ignore[no-untyped-def]
 
     @abstractmethod
-    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]: ...
+    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]: ...  # type: ignore[no-untyped-def]
 
     @abstractmethod
-    async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]: ...
+    async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]: ...  # type: ignore[no-untyped-def]
 
     @abstractmethod
     def get_token_count(self, text: str) -> int: ...

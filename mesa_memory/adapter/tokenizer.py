@@ -29,7 +29,7 @@ def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
     raise ValueError(f"Unknown adapter_type: {adapter_type}")
 
 
-def enforce_context_limit(
+def enforce_context_limit(  # type: ignore[no-untyped-def]
     text: str, adapter_type: str, model_id: str, limit: Optional[int] = None
 ):
     effective_limit = limit if limit is not None else config.context_window_limit

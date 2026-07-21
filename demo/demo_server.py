@@ -50,7 +50,11 @@ class DemoHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
 
 
+class ReusableTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+
 PORT = 8085
 print(f"Starting mock backend + static server at http://localhost:{PORT}")
-with socketserver.TCPServer(("", PORT), DemoHandler) as httpd:
+with ReusableTCPServer(("", PORT), DemoHandler) as httpd:
     httpd.serve_forever()
