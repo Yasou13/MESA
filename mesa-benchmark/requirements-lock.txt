@@ -128,7 +128,7 @@ nvidia-nvjitlink==13.0.88
 nvidia-nvshmem-cu13==3.4.5
 nvidia-nvtx==13.0.85
 ollama==0.6.2
-openai==2.36.0
+openai==2.46.0
 outlines==1.2.13
 outlines_core==0.2.14
 overrides==7.7.0
