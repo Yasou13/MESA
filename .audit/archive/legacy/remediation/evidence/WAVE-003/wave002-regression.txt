@@ -1,0 +1,3 @@
+Command: `venv/bin/pytest -q tests/test_purge_journal_contract.py tests/test_triple_store_mutation_contract.py && git diff --check`
+
+Result: `10 passed in 2.04s`; whitespace check passed. WAVE-003 did not regress WAVE-002 targeted lifecycle/mutation contracts.

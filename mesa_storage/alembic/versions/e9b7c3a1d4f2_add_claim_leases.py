@@ -24,17 +24,35 @@ def _add_columns(table: str, columns: dict[str, str]) -> None:
 
 def upgrade() -> None:
     """Add durable ownership metadata without deleting existing work."""
-    _add_columns("raw_logs", {
-        "claim_token": "TEXT", "claimed_by": "TEXT", "lease_expires_at": "TEXT",
-        "attempt_count": "INTEGER NOT NULL DEFAULT 0", "last_error": "TEXT", "processed_at": "TEXT",
-    })
-    _add_columns("lancedb_wal", {
-        "state": "TEXT NOT NULL DEFAULT 'PENDING'", "claim_token": "TEXT", "claimed_by": "TEXT",
-        "lease_expires_at": "TEXT", "attempt_count": "INTEGER NOT NULL DEFAULT 0",
-        "last_error": "TEXT", "acknowledged_at": "TEXT",
-    })
-    op.execute("CREATE INDEX IF NOT EXISTS idx_raw_logs_claim_recovery ON raw_logs(status, lease_expires_at)")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_lancedb_wal_replay ON lancedb_wal(state, lease_expires_at)")
+    _add_columns(
+        "raw_logs",
+        {
+            "claim_token": "TEXT",
+            "claimed_by": "TEXT",
+            "lease_expires_at": "TEXT",
+            "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+            "last_error": "TEXT",
+            "processed_at": "TEXT",
+        },
+    )
+    _add_columns(
+        "lancedb_wal",
+        {
+            "state": "TEXT NOT NULL DEFAULT 'PENDING'",
+            "claim_token": "TEXT",
+            "claimed_by": "TEXT",
+            "lease_expires_at": "TEXT",
+            "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+            "last_error": "TEXT",
+            "acknowledged_at": "TEXT",
+        },
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_raw_logs_claim_recovery ON raw_logs(status, lease_expires_at)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lancedb_wal_replay ON lancedb_wal(state, lease_expires_at)"
+    )
 
 
 def downgrade() -> None:

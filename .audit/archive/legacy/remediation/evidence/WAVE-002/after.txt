@@ -1,0 +1,7 @@
+# WAVE-002 focused post-fix result
+
+Command: `/home/yasin/Desktop/MESA/venv/bin/python -m pytest tests/test_triple_store_mutation_contract.py -q --basetemp /storage/mesa-lab/storage/WAVE-002/pytest-20260719-151831-fix`
+
+Result: exit 0; 3 passed in 1.41s.
+
+The graph write failure now propagates before SQLite mutation and compensates the newly inserted vector. Single and bulk merge failures now propagate without calling `add()`.

@@ -18,7 +18,7 @@ MESA_API_KEY = os.getenv("MESA_API_KEY")
 MESA_AGENT_ID = os.getenv("MESA_AGENT_ID")
 
 
-@app.list_tools()
+@app.list_tools()  # type: ignore[untyped-decorator]
 async def list_tools() -> list[types.Tool]:
     """Expose MESA memory functions as MCP tools."""
     return [
@@ -86,7 +86,7 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-@app.call_tool()
+@app.call_tool()  # type: ignore[untyped-decorator]
 async def call_tool(
     name: str, arguments: dict[str, Any] | None
 ) -> list[types.TextContent]:

@@ -111,7 +111,7 @@ async def _async_retry(
     attempt = 0
     while True:
         try:
-            return await operation()
+            return await operation()  # type: ignore[no-any-return]
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             attempt += 1
 
@@ -192,7 +192,7 @@ class MesaClient:
             return response
 
         resp = _sync_retry(_op, self.max_retries)
-        return resp.json()
+        return resp.json()  # type: ignore[str, Any]
 
     def insert(self, request: MemoryInsertRequest) -> MemoryInsertResponse:
         """POST /v3/memory/insert - Insert memory into the MESA system.
@@ -296,7 +296,7 @@ class AsyncMesaClient:
             return response
 
         resp = await _async_retry(_op, self.max_retries)
-        return resp.json()
+        return resp.json()  # type: ignore[str, Any]
 
     async def insert(self, request: MemoryInsertRequest) -> MemoryInsertResponse:
         """POST /v3/memory/insert - Insert memory into the MESA system asynchronously.

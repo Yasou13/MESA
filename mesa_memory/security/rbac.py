@@ -235,7 +235,7 @@ class AccessControl:
                 if required_level == "READ":
                     return granted in ("READ", "WRITE")
                 if required_level == "WRITE":
-                    return granted == "WRITE"
+                    return granted == "WRITE"  # type: ignore[no-any-return]
                 return False
 
     # -- Async context manager for lifecycle symmetry -----------------------

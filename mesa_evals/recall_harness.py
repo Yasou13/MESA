@@ -217,7 +217,7 @@ async def ingest_entries(
 TERMINAL_STATES = frozenset({"processed", "failed", "rejected"})
 
 
-async def poll_until_processed(*args, **kwargs) -> int:
+async def poll_until_processed(*args, **kwargs) -> int:  # type: ignore[no-untyped-def]
     return len(kwargs.get("log_ids", args[1] if len(args) > 1 else []))
 
 

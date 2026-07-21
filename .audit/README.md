@@ -31,3 +31,28 @@ Bu dizin, MESA’nın kapsamlı analiz, debugging ve production-readiness çalı
 | `PRODUCTION_READINESS.md` | Nihai GO/CONDITIONAL GO/NO-GO değerlendirmesi |
 
 Mevcut kayıtlar silinmez; yeni bilgi eklenir, düzeltmeler tarihçeli biçimde belirtilir. Bulgu kimlikleri tekrar kullanılmaz.
+
+## Canonical durum sözlüğü
+
+Kanonik finding, blocker ve remediation kayıtlarında aşağıdaki durumlar kullanılır. Tarihsel satırlar yalnız tarihçe olarak korunur; kanonik indekse kaynaklık etmez.
+
+| Durum | Anlamı |
+|---|---|
+| Open | Açık, henüz yeterli doğrulama/triage tamamlanmamış kayıt |
+| Confirmed open | Kanıtla doğrulanmış ve açık kayıt |
+| In remediation | Düzeltme uygulaması sürüyor |
+| Partially fixed | Düzeltmenin yalnız bir bölümü uygulanmış |
+| Fixed but not verified | Düzeltme var, gerekli regresyon/runtime doğrulaması yok |
+| Verified resolved | Gerekli kanıtla kapanmış kayıt |
+| Mitigated | Risk azaltılmış, kök neden henüz kapanmamış |
+| Deferred | Bilinçli olarak ileri faza ertelenmiş kayıt |
+| Blocked | Dış bağımlılık veya giriş kapısı nedeniyle ilerleyemeyen iş |
+| False positive | Kanıtla geçersiz olduğu gösterilmiş kayıt |
+| Duplicate | Başka bir kanonik kaydın tarihçesi veya tekrarı |
+| Superseded | Daha yeni kanonik kayıt tarafından geçersiz kılınmış tarihsel kayıt |
+| Not tested | İlgili test çalıştırılmamış |
+| Not verified | İddia veya düzeltme için yeterli kanıt yok |
+
+## Remediation wave runner
+
+Remediation runner source: `.audit/remediation/`. Checkpoint ve aktif remediation referansı: `.audit/remediation/STATE.md`. Bu altyapı Faz 14 kararını değiştirmez; varsayılan çalışma modu `supervised`’dır.

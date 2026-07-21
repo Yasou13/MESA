@@ -1,0 +1,6 @@
+Clean-restart source final hashes (unchanged from clean-restart baseline):
+a076fe157ff9f4d0b0b617216bbd978d9f0ec96fa82b4a958fd6e450e430ae8b  mesa_memory/api/server.py
+5ea8cfb74a0b4508118a53a64ea28906f6483df67c7c02e677b03551125726b6  mesa_memory/security/rbac.py
+2a19fbc24a0d95e04d21904fcddfbd79d5f10cfc073b0a9b0b5d19278b9a6b1d  mesa_api/router.py
+1e4e8de3bb2db276ad0c8a1922c3f2bde3c890c8d2fcbeeade9ad285b4f5bf24  scripts/run_server.py
+2c71ba60b3a8c8ec54e18f8974aa0aa102df3f412778495dacfb6c914a4890d9  tests/test_principal_authorization.py

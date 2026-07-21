@@ -17,12 +17,15 @@ Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consens
 
 ## ⚡ Quickstart (Local Installation)
 
-Install MESA as a Python package using `pip`. You can optionally install the `ml` group for local embedding/extraction models, and the `adapters` group for LLM API SDKs:
+Install the core package first. Add the optional groups only when your local
+development workflow needs them:
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-pip install -e .[ml,adapters]
+python -m pip install -e .
+# Optional local ML models and external-provider SDKs:
+python -m pip install -e ".[ml,adapters]"
 ```
 
 ## 🐳 Quickstart (Docker) — 60 Seconds
@@ -32,17 +35,18 @@ Copy-paste this to get a running MESA instance with zero local dependencies:
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-echo "LLM_API_KEY=your_llm_key_here" > .env
-echo "MESA_API_KEY=local-dev-key" >> .env
-echo "MESA_REBEL_ENABLED=false" >> .env  # Skips 1.8GB download for quick testing
-echo "MESA_ZERO_COST_MODE=false" >> .env # Set to true to run 100% locally with Ollama
-
-> **Data Persistence:** You MUST map the `.kuzu/` directory as a Docker volume in your `docker-compose.yml` or run command to prevent ephemeral data loss of the knowledge graph.
-
-docker-compose up -d
+export MESA_API_KEY=local-dev-key
+export MESA_PRINCIPAL_ID=local-compose-principal
+docker compose config --quiet
+docker compose up --build -d
 ```
 
-> **Why `MESA_REBEL_ENABLED=false`?**  The default REBEL extraction model (`Babelscape/rebel-large`) is 1.8 GB. Setting this to `false` uses an LLM-only zero-shot fallback for triple extraction — identical output format, no model download, and container builds that finish in seconds instead of minutes. Set to `true` for production workloads where offline extraction accuracy matters.
+> **Runtime profile:** Compose starts separate API and worker roles with the
+> persistent named `mesa-data` volume. It deliberately sets
+> `MESA_MODEL_ENABLED=false` and `MESA_EXTERNAL_PROVIDER_ENABLED=false`; this
+> quickstart neither loads `.env` nor enables an LLM provider. Configure a
+> reviewed non-Compose runtime profile only when model or external-provider
+> access is required.
 
 Verify it's running:
 
@@ -284,41 +288,43 @@ graph TB
 
 ### 1. Install
 
-MESA has been refactored for a lightweight base install. The core package avoids heavy ML dependencies unless explicitly requested.
+`pyproject.toml` is the only dependency manifest. The core package avoids heavy
+ML dependencies unless explicitly requested.
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements-core.txt
+python -m pip install -e .
 ```
-
-> **Core dependencies installed:** `aiosqlite`, `fastapi`, `lancedb`, `httpx`, `pydantic`, `uvicorn`, `kuzu`, `pyarrow`, and all supporting packages. See `requirements-core.txt` for the full manifest or `pyproject.toml` for version ranges.
 
 **Optional Heavy ML Models:** If you need the local REBEL transformer model for English-only offline triplet extraction, install the optional package:
 ```bash
-pip install -r requirements-ml.txt
-# or pip install .[ml] if using pyproject.toml
+python -m pip install -e ".[ml]"
 ```
 
 **Optional LLM Adapters:** The core package avoids installing third-party LLM SDKs to keep the footprint small. If you intend to use cloud providers (OpenAI, Anthropic, Groq, LiteLLM) or Ollama instead of pure local logic, install the adapters group:
 ```bash
-pip install .[adapters]
+python -m pip install -e ".[adapters]"
 ```
 
 ### 2. Configure
 
 ```bash
-cp .env.example .env
-# Edit .env with your credentials:
-#   LLM_API_KEY=gsk_your_groq_key
-#   MESA_API_KEY=local-dev-key
-#   MESA_REBEL_ENABLED=false    # Optional: skip 1.8GB model download
+export MESA_RUNTIME_PROFILE=api-only
+export MESA_STORAGE_ROOT=/absolute/path/to/mesa-data
+export MESA_LOAD_DOTENV=false
+export MESA_MODEL_ENABLED=false
+export MESA_EXTERNAL_PROVIDER_ENABLED=false
+export MESA_API_KEY=local-dev-key
+export MESA_PRINCIPAL_ID=local-api-principal
 ```
 
 ### 3. Launch
 
-> **WARNING:** `make dev` runs a lightweight server without background workers or KuzuDB for rapid API testing. For true production parity and background processes, you MUST use `docker-compose up -d`.
+> **WARNING:** `make dev` is not a production-parity command. For the separate
+> API/worker topology, use the Compose quickstart above or the operator
+> runbook in [`docs/installation.md`](docs/installation.md).
 
 ```bash
 uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
@@ -349,17 +355,17 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 
 | Variable | Default | Description |
 |---|---|---|
+| `MESA_RUNTIME_PROFILE` | *(required)* | `api-only`, `worker-only`, `combined` veya yalnız testler için `test-isolated` |
+| `MESA_STORAGE_ROOT` | *(required)* | Uygulamanın sahip olduğu mutlak ve yazılabilir storage dizini |
+| `MESA_LOAD_DOTENV` | `false` | `.env` yüklemeyi yalnız açıkça izin verilmiş profilde etkinleştirir |
+| `MESA_MODEL_ENABLED` | `false` | Yerel model yüklemeyi etkinleştirir; Compose bunu kapatır |
+| `MESA_EXTERNAL_PROVIDER_ENABLED` | `false` | Haricî LLM sağlayıcı kullanımını etkinleştirir; Compose bunu kapatır |
 | `MESA_API_KEY` | *(required)* | API authentication key (sent via `X-API-Key` header) |
-| `LLM_API_KEY` | *(required)* | LLM provider API key (e.g., Groq `gsk_...`) |
-| `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | OpenAI-compatible endpoint |
-| `LLM_MODEL_NAME` | `llama-3.1-8b-instant` | Model identifier |
-| `MESA_LLM_PROVIDER` | `openai_compatible` | LLM backend: `openai_compatible`, `claude`, `ollama`, `mock` |
-| `MESA_REBEL_ENABLED` | `true` | Set to `false` to skip the 1.8GB REBEL model (uses LLM fallback) |
-| `MESA_EXTRACTION_LANG` | `tr` | Zero-shot extraction language: `tr` (Turkish Legal) or `en` (English) |
-| `MESA_ZERO_COST_MODE` | `false` | When `true`, overrides provider to use local Ollama + local embeddings |
-| `MESA_OLLAMA_URL` | `http://localhost:11434` | Ollama connection URL for Zero-Cost mode |
-| `MESA_LEGAL_DOMAIN_MODE` | `false` | Force all routing through Dual-LLM consensus for legal docs |
-| `MESA_MAX_RAM_MB` | *(auto-detected)* | Override system RAM detection for memory limits |
+| `MESA_PRINCIPAL_ID` | *(required)* | API key ile ilişkilendirilen sunucu tarafı principal |
+| `MESA_PRINCIPAL_TYPE` | `SERVICE` | Principal türü |
+| `MESA_PRINCIPAL_STATUS` | `active` | Principal durumu |
+| `LLM_API_KEY` | *(provider profile)* | Yalnız external-provider erişimi açık, gözden geçirilmiş profiller için sağlayıcı anahtarı |
+| `MESA_ZERO_COST_MODE` | `false` | Yerel Ollama/embedding seçimini ister; Compose profili bunu etkinleştirmez |
 
 ---
 
@@ -373,11 +379,11 @@ pytest tests/ -q
 pytest tests/ --cov=mesa_memory --cov=mesa_api --cov=mesa_storage --cov-report=term-missing --ignore=tests/bench
 
 # Type checking
-mypy mesa_memory/ mesa_api/ mesa_storage/ --ignore-missing-imports --explicit-package-bases
+mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases
 
 # Formatting
 black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
-ruff check mesa_memory/ mesa_api/ mesa_storage/ tests/
+ruff check .
 
 # Evaluation pipeline
 python -m mesa_evals.evals        # Run 30-entry synthetic benchmark
@@ -419,7 +425,6 @@ As of v0.6.1, Hot Path (API ingestion/search) and Cold Path (consolidation worke
 
 ```
 MESA/
-├── .kuzu/                # Mandatory local volume for KuzuDB persistent graph storage
 ├── mesa_api/             # Headless FastAPI v3 REST server + Pydantic schemas
 ├── mesa_client/          # Python SDK (sync/async) + LangChain adapter
 ├── mesa_evals/           # Golden Dataset, evaluation runner, CI/CD gatekeeper
@@ -443,10 +448,10 @@ MESA/
 ├── tests/                # pytest suite + benchmarks
 ├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)
 ├── Dockerfile            # Production container
-├── docker-compose.yml    # Single-command deployment
+├── docker-compose.yml    # API + worker Compose deployment
 ├── pyproject.toml        # Package metadata + dependency ranges
-├── requirements-core.txt # Lightweight API dependencies (~200 MB)
-└── requirements-ml.txt   # Full ML dependencies (PyTorch/REBEL, ~3 GB)
+├── uv.lock               # Reproducible resolved dependency graph
+└── SECURITY.md            # Security disclosure policy
 ```
 
 ---

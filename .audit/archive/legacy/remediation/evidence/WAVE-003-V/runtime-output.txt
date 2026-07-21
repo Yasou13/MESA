@@ -1,0 +1,1 @@
+SQLite process-reopen lease expiry/reclaim/stale-fence evidence passed; WAL downstream/alignment E3 remains pending.

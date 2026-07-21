@@ -95,7 +95,7 @@ def _load_results(path: Path) -> dict[str, Any]:
         )
         sys.exit(1)
 
-    return data
+    return data  # type: ignore[str, Any]
 
 
 def _get_base_summary(summaries: dict[str, Any]) -> dict[str, Any]:
@@ -107,7 +107,7 @@ def _get_base_summary(summaries: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         sys.exit(1)
-    return summaries[BASE_PATH]
+    return summaries[BASE_PATH]  # type: ignore[str, Any]
 
 
 def enforce_cost_efficiency(

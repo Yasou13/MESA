@@ -1,0 +1,35 @@
+{
+  "summary": {
+    "system": "MESA v0.6.0",
+    "dataset": "LongMemEval",
+    "total_queries": 400,
+    "accuracy": 0.82,
+    "hit_at_1": 0.93,
+    "hit_at_3": 0.99,
+    "mrr": 0.9592,
+    "ndcg_at_10": 0.9741,
+    "average_latency_ms": 145,
+    "p95_latency_ms": 428,
+    "token_usage": 13200
+  },
+  "comparisons": [
+    {
+      "system": "MESA (Triple-Store)",
+      "accuracy": 0.82,
+      "hit_at_1": 0.93,
+      "latency_ms": 145
+    },
+    {
+      "system": "Standard Vector RAG",
+      "accuracy": 0.41,
+      "hit_at_1": 0.51,
+      "latency_ms": 85
+    },
+    {
+      "system": "SaaS Memory Provider A",
+      "accuracy": 0.65,
+      "hit_at_1": 0.72,
+      "latency_ms": 320
+    }
+  ]
+}

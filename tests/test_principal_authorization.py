@@ -28,9 +28,9 @@ def test_session_start_denies_unmapped_principal_without_self_grant():
 
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),
-            get_embedder=lambda: [0.0] * 8,
-            get_access_control=lambda: access_control,
+            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
+            get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
     )
     client = TestClient(app, raise_server_exceptions=False)
@@ -67,6 +67,7 @@ async def test_principal_permission_requires_explicit_server_mapping(tmp_path):
         is True
     )
 
+
 def test_session_start_allows_mapped_active_principal():
     access_control = MagicMock()
     access_control.check_principal_permission = AsyncMock(return_value=True)
@@ -86,9 +87,9 @@ def test_session_start_allows_mapped_active_principal():
 
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),
-            get_embedder=lambda: [0.0] * 8,
-            get_access_control=lambda: access_control,
+            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
+            get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
     )
     response = TestClient(app, raise_server_exceptions=False).post(
@@ -121,9 +122,9 @@ def test_session_start_rejects_inactive_principal():
 
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),
-            get_embedder=lambda: [0.0] * 8,
-            get_access_control=lambda: access_control,
+            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
+            get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
     )
     response = TestClient(app, raise_server_exceptions=False).post(

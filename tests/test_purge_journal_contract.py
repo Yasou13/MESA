@@ -26,10 +26,10 @@ class FakeGraph:
         for node_id in node_ids:
             self.active_node_ids.discard((agent_id, node_id))
 
-    async def verify_nodes_absent(
-        self, *, agent_id: str, node_ids: list[str]
-    ) -> bool:
-        return all((agent_id, node_id) not in self.active_node_ids for node_id in node_ids)
+    async def verify_nodes_absent(self, *, agent_id: str, node_ids: list[str]) -> bool:
+        return all(
+            (agent_id, node_id) not in self.active_node_ids for node_id in node_ids
+        )
 
 
 @dataclass
@@ -134,7 +134,9 @@ async def test_successful_exact_scope_purge_finalizes_and_hides_tombstone(tmp_pa
                 principal_id="principal-a",
                 idempotency_key="purge-success",
             )
-        assert {row["id"] for row in await dao.get_memories("agent-a")} == {"a-session-2"}
+        assert {row["id"] for row in await dao.get_memories("agent-a")} == {
+            "a-session-2"
+        }
         assert {
             result["node_id"]
             for result in await dao.search_memory(
@@ -163,7 +165,9 @@ async def test_kuzu_failure_keeps_tombstone_and_never_starts_vector_delete(tmp_p
         assert journal is not None
         assert journal["state"] == "RETRY_PENDING"
         assert vector.hard_delete_calls == []
-        assert all(row["id"] != "a-session-1" for row in await dao.get_memories("agent-a"))
+        assert all(
+            row["id"] != "a-session-1" for row in await dao.get_memories("agent-a")
+        )
     finally:
         await sql.close()
 
@@ -201,7 +205,9 @@ async def test_vector_failure_retries_only_missing_step_from_same_purge_id(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_exact_scope_rejects_wildcard_and_does_not_touch_other_tenant_or_session(tmp_path):
+async def test_exact_scope_rejects_wildcard_and_does_not_touch_other_tenant_or_session(
+    tmp_path,
+):
     dao, sql, _graph, _vector = await _make_env(tmp_path)
     try:
         with pytest.raises(ValueError):
@@ -225,7 +231,9 @@ async def test_exact_scope_rejects_wildcard_and_does_not_touch_other_tenant_or_s
 
 
 @pytest.mark.asyncio
-async def test_pre_downstream_rollback_is_scope_bound_but_finalized_purge_cannot_restore(tmp_path):
+async def test_pre_downstream_rollback_is_scope_bound_but_finalized_purge_cannot_restore(
+    tmp_path,
+):
     dao, sql, graph, _vector = await _make_env(tmp_path)
     graph.fail_delete = True
     try:
@@ -262,6 +270,7 @@ async def test_pre_downstream_rollback_is_scope_bound_but_finalized_purge_cannot
     finally:
         await sql.close()
 
+
 @pytest.mark.asyncio
 async def test_router_rejects_cross_tenant_purge_without_principal_purge_grant():
     from types import SimpleNamespace
@@ -284,24 +293,25 @@ async def test_router_rejects_cross_tenant_purge_without_principal_purge_grant()
 
     dao = SimpleNamespace(purge_memory=AsyncMock(return_value=1))
     router = create_memory_router(
-        get_dao=lambda: dao,
-        get_access_control=lambda: AccessControlStub(),
+        get_dao=lambda: dao,  # type: ignore[return-value]
+        get_access_control=lambda: AccessControlStub(),  # type: ignore[return-value]
     )
-    endpoint = next(route.endpoint for route in router.routes if route.path == "/v3/memory/purge")
+    endpoint = next(
+        route.endpoint for route in router.routes if route.path == "/v3/memory/purge"
+    )
     request = SimpleNamespace(
         state=SimpleNamespace(
             principal=SimpleNamespace(principal_id="principal-a", status="active")
         )
     )
-    payload = MemoryPurgeRequest(
-        agent_id="agent-b", scope="agent", scope_id="agent-b"
-    )
+    payload = MemoryPurgeRequest(agent_id="agent-b", scope="agent", scope_id="agent-b")
 
     with pytest.raises(HTTPException) as raised:
         await endpoint(request=request, payload=payload, dao=dao)
 
     assert raised.value.status_code == 403
     dao.purge_memory.assert_not_awaited()
+
 
 @pytest.mark.asyncio
 async def test_router_returns_retry_status_instead_of_partial_purge_success():
@@ -325,18 +335,18 @@ async def test_router_returns_retry_status_instead_of_partial_purge_success():
         purge_memory=AsyncMock(side_effect=PurgeRetryPendingError("retry pending"))
     )
     router = create_memory_router(
-        get_dao=lambda: dao,
-        get_access_control=lambda: AccessControlStub(),
+        get_dao=lambda: dao,  # type: ignore[return-value]
+        get_access_control=lambda: AccessControlStub(),  # type: ignore[return-value]
     )
-    endpoint = next(route.endpoint for route in router.routes if route.path == "/v3/memory/purge")
+    endpoint = next(
+        route.endpoint for route in router.routes if route.path == "/v3/memory/purge"
+    )
     request = SimpleNamespace(
         state=SimpleNamespace(
             principal=SimpleNamespace(principal_id="principal-a", status="active")
         )
     )
-    payload = MemoryPurgeRequest(
-        agent_id="agent-a", scope="agent", scope_id="agent-a"
-    )
+    payload = MemoryPurgeRequest(agent_id="agent-a", scope="agent", scope_id="agent-a")
 
     with pytest.raises(HTTPException) as raised:
         await endpoint(request=request, payload=payload, dao=dao)

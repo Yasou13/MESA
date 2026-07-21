@@ -189,7 +189,11 @@ class AsyncEngine:
         await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    import typing  # type: ignore[no-untyped-def]
+
+    async def __aexit__(
+        self, exc_type: typing.Any, exc_val: typing.Any, exc_tb: typing.Any
+    ) -> None:
         await self.close()
 
     # ------------------------------------------------------------------

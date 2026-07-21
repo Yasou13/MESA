@@ -1,0 +1,29 @@
+[
+  {
+    "id": "req_001",
+    "timestamp": "2026-07-20T14:10:05Z",
+    "level": "INFO",
+    "agent_id": "support_01",
+    "operation_type": "Memory Write",
+    "message": "Extracted 2 entities and 1 relation from user input.",
+    "duration_ms": 35
+  },
+  {
+    "id": "req_002",
+    "timestamp": "2026-07-20T14:12:18Z",
+    "level": "INFO",
+    "agent_id": "support_01",
+    "operation_type": "Retrieval",
+    "message": "Alpha RRF retrieved 5 candidates. Max score: 0.92",
+    "duration_ms": 145
+  },
+  {
+    "id": "req_003",
+    "timestamp": "2026-07-20T14:15:02Z",
+    "level": "ERROR",
+    "agent_id": "system",
+    "operation_type": "API Request",
+    "message": "Rate limit exceeded for agent support_02.",
+    "duration_ms": 5
+  }
+]

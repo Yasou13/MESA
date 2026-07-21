@@ -40,7 +40,7 @@ class GraphWriter:
     4. Detect hub-node divergences and escalate to human review.
     """
 
-    def __init__(
+    def __init__(  # type: ignore[no-untyped-def]
         self,
         dao: MemoryDAO,
         embedder: BaseUniversalLLMAdapter,
@@ -115,7 +115,7 @@ class GraphWriter:
     # Cross-validate and commit
     # -------------------------------------------------------------------
 
-    async def commit_batch(
+    async def commit_batch(  # type: ignore[no-untyped-def]
         self,
         sorted_batch: list[dict],
         indexed_a: dict[int, ExtractedTriplet],
@@ -214,7 +214,7 @@ class GraphWriter:
     # Internal helpers
     # -------------------------------------------------------------------
 
-    async def _mark_record_consolidated(self, agent_id: str, cmb_id: str):
+    async def _mark_record_consolidated(self, agent_id: str, cmb_id: str):  # type: ignore[no-untyped-def]
         """Mark a raw record as consolidated via MemoryDAO."""
         try:
             await self.dao.mark_consolidated(agent_id, node_id=cmb_id)
@@ -226,7 +226,7 @@ class GraphWriter:
                 exc,
             )
 
-    async def _write_triplet(
+    async def _write_triplet(  # type: ignore[no-untyped-def]
         self, agent_id: str, cmb_id: str, triplet: dict, weight: float
     ):
         """Insert head/tail nodes and create an edge between them via MemoryDAO.

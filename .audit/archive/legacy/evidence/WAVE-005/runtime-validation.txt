@@ -1,0 +1,1 @@
+E3 not run. Existing WAVE-005 config isolation/runtime blockers and unresolved WAVE-004 raw-log dispatch/readiness contract prevent a safe claim of process-runtime recovery. No API, worker process, Docker, provider, or production storage was started.

@@ -62,7 +62,7 @@ class LLMJudgeEvaluator(BaseEvaluator):
             import litellm
 
             litellm.suppress_debug_info = False
-            litellm.set_verbose = True  # type: ignore
+            litellm.set_verbose = True
             target_model = self.judge_model
 
             # Auto-prefix for Ollama-routed models without a provider prefix

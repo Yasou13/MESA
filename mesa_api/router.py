@@ -255,18 +255,35 @@ def create_memory_router(
         except QueueRecordTooLargeError:
             return JSONResponse(
                 status_code=413,
-                content={"error": "queue_record_too_large", "admission": "REJECTED_OVER_CAPACITY", "retryable": False},
+                content={
+                    "error": "queue_record_too_large",
+                    "admission": "REJECTED_OVER_CAPACITY",
+                    "retryable": False,
+                },
             )
         except QueueOverCapacityError as exc:
             return JSONResponse(
                 status_code=503,
-                headers={"Retry-After": str(config.queue_admission_policy.queue_retry_after_seconds)},
-                content={"error": "queue_over_capacity", "admission": "REJECTED_OVER_CAPACITY", "scope": exc.scope, "retryable": True},
+                headers={
+                    "Retry-After": str(
+                        config.queue_admission_policy.queue_retry_after_seconds
+                    )
+                },
+                content={
+                    "error": "queue_over_capacity",
+                    "admission": "REJECTED_OVER_CAPACITY",
+                    "scope": exc.scope,
+                    "retryable": True,
+                },
             )
         except QueueUnavailableError:
             return JSONResponse(
                 status_code=503,
-                content={"error": "queue_unavailable", "admission": "BLOCKED", "retryable": True},
+                content={
+                    "error": "queue_unavailable",
+                    "admission": "BLOCKED",
+                    "retryable": True,
+                },
             )
 
         log_id = admission["log_id"]
@@ -494,9 +511,13 @@ def create_memory_router(
         # Principal is the authorization subject; caller-supplied agent_id is only scope.
         principal = getattr(request.state, "principal", None)
         if principal is None:
-            raise HTTPException(status_code=401, detail="Authenticated principal required for purge")
+            raise HTTPException(
+                status_code=401, detail="Authenticated principal required for purge"
+            )
         if getattr(principal, "status", None) != "active":
-            raise HTTPException(status_code=401, detail="Inactive authenticated principal")
+            raise HTTPException(
+                status_code=401, detail="Inactive authenticated principal"
+            )
 
         ac = get_access_control() if get_access_control else AccessControl()
         if not await ac.check_principal_permission(
@@ -578,7 +599,9 @@ def create_memory_router(
         principal = getattr(request.state, "principal", None)
         if principal is not None:
             if getattr(principal, "status", None) != "active":
-                raise HTTPException(status_code=401, detail="Inactive authenticated principal")
+                raise HTTPException(
+                    status_code=401, detail="Inactive authenticated principal"
+                )
 
             ac = get_access_control() if get_access_control else AccessControl()
             is_authorized = await ac.check_principal_permission(
@@ -638,7 +661,9 @@ def create_memory_router(
             principal = getattr(request.state, "principal", None)
             if principal is not None:
                 if getattr(principal, "status", None) != "active":
-                    raise HTTPException(status_code=401, detail="Inactive authenticated principal")
+                    raise HTTPException(
+                        status_code=401, detail="Inactive authenticated principal"
+                    )
                 if not await ac.check_principal_session_access(
                     principal.principal_id, agent_id, session_id, "READ"
                 ):
@@ -717,7 +742,9 @@ def create_memory_router(
             principal = getattr(request.state, "principal", None)
             if principal is not None:
                 if getattr(principal, "status", None) != "active":
-                    raise HTTPException(status_code=401, detail="Inactive authenticated principal")
+                    raise HTTPException(
+                        status_code=401, detail="Inactive authenticated principal"
+                    )
                 if not await ac.check_principal_session_access(
                     principal.principal_id, payload.agent_id, session_id, "WRITE"
                 ):

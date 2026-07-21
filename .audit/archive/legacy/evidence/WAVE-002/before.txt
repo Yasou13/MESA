@@ -1,0 +1,8 @@
+# WAVE-002 deterministic reproduction
+
+Command: `/home/yasin/Desktop/MESA/venv/bin/python -m pytest tests/test_triple_store_mutation_contract.py -q --basetemp /storage/mesa-lab/storage/WAVE-002/pytest-20260719-151831`
+
+Result: exit 1; 3 failed.
+
+- Kuzu `insert_node` failure was logged and swallowed; SQLite transaction proceeded and the inserted vector remained active.
+- Single and bulk LanceDB `merge_insert` `OSError` were converted to `table.add()`, so no error propagated and idempotency could not be guaranteed.

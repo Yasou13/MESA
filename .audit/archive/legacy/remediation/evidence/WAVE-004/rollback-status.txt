@@ -1,0 +1,1 @@
+Pre-edit backups: `/storage/mesa-lab/artifacts/WAVE-004/source-backup/loop.py`, `ingestion_worker.py`, and `test_dao.py`. Source edits used deterministic exact-block replacement and syntax checks. No rollback executed.

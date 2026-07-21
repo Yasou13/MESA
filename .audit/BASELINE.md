@@ -1,40 +1,18 @@
-# Başlangıç Baseline’ı
+# BASELINE
 
-Bu kayıt, çalışma ortamı ve doğrulama sonuçlarının değişmez başlangıç noktasını tutar. Ölçülmemiş alanlar sonuç uydurulmadan işaretlenir.
+Tarih: 2026-07-21
 
-| Alan | Değer | Kanıt / Not |
-|---|---|---|
-| Kayıt tarihi | 2026-07-17 | Audit sistemi kurulumu sırasındaki güvenlik kontrolü |
-| Repository kökü | `/home/yasin/Desktop/MESA` | `pwd` |
-| Aktif branch | `audit/production-readiness` | `git status --short --branch` |
-| Başlangıç commit’i | `8798abc90979401d4785cc25d4627517860cb959` | `git rev-parse HEAD` |
-| Git çalışma ağacı | Commit edilmemiş değişiklik yok; 5 untracked yol mevcut | `git status --short --branch`; ayrıntı aşağıda |
-| İşletim sistemi / ortam | Henüz ölçülmedi | — |
-| Runtime sürümleri | Henüz ölçülmedi | — |
-| Dependency durumu | Henüz ölçülmedi | — |
-| Build sonucu | Henüz ölçülmedi | Build çalıştırılmadı |
-| Test sonucu | Henüz ölçülmedi | Test çalıştırılmadı |
-| Lint sonucu | Henüz ölçülmedi | Lint çalıştırılmadı |
-| Type-check sonucu | Henüz ölçülmedi | Type-check çalıştırılmadı |
-| Runtime sonucu | Henüz ölçülmedi | Servis başlatılmadı |
-
-## Faz 0 başlangıç kontrolü
-
-| Konu | Doğrulanmış durum |
+| Alan | Sonuç |
 |---|---|
-| Repository kökü | `/home/yasin/Desktop/MESA` |
-| Aktif Git branch | `audit/production-readiness` |
-| Commit hash | `8798abc90979401d4785cc25d4627517860cb959` |
-| Takipli çalışma ağacı | Değişiklik yok (`git status --short` yalnızca `??` girdileri döndürdü) |
-| Audit altyapısı | `.audit/` ve `AGENTS.md` önceki kurulumdan kalan untracked çalışma dokümanları |
-| Önceden mevcut kullanıcı dosyaları | `cold_path_trace.txt`, `dummy.txt`, `results/mesa_client/contradiction_stress_200_v2_seed42/` |
-| Kullanıcı dosyalarına işlem | Hiçbirine dokunulmadı, silinmedi veya commit edilmedi |
+| Branch | `remediation/production-blockers` |
+| Commit | `60c1c576918c01869294140482e4c035669aa2eb` |
+| Başlangıç çalışma ağacı | `cold_path_trace.txt`, `dummy.txt` ve `results/mesa_client/contradiction_stress_200_v2_seed42/` untracked; kullanıcıya ait kabul edilip korunuyor |
+| Sistem Python | `python` komutu yok |
+| Test Python | `venv/bin/python` = Python 3.10.12 |
+| Docker Compose | v5.3.1 |
+| Dar test | `venv/bin/python -m pytest -q tests/test_deployment_assets.py`: 3 geçti, 6.38 s |
+| Compose negatif doğrulama | `docker compose --env-file /dev/null config --quiet`: exit 1; `MESA_API_KEY` zorunlu |
+| README ortamıyla Compose doğrulaması | README'deki dört placeholder değişkeni ile `docker compose ... config --quiet`: exit 1; `MESA_PRINCIPAL_ID` zorunlu |
+| Compose pozitif doğrulama | Placeholder `MESA_API_KEY` ve `MESA_PRINCIPAL_ID` ile aynı komut: exit 0 |
 
-Bu baseline’da build, test, lint, type-check veya runtime sonucu yoktur; Faz 0 kapsamında hiçbiri çalıştırılmadı.
-
-
-## Baseline güncelleme kaydı
-
-| Tarih | Alan | Önceki değer | Yeni değer | Kanıt |
-|---|---|---|---|---|
-| 2026-07-17 | Faz 0 güvenlik ve kapsam baseline’ı | Başlatılmamış şablon | Statik keşif kanıtları eklendi | `COMMAND_LOG.md` |
+`.env` dosyası okunmadı; gerçek secret değeri hiçbir komut çıktısına veya audit kaydına alınmadı.

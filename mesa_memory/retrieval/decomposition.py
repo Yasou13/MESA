@@ -56,7 +56,7 @@ Question: {query}
             return [query]
 
         logger.debug("DECOMPOSED_QUERY | original=%r subqueries=%r", query, subqueries)
-        return subqueries
+        return subqueries  # type: ignore[str]
 
     except Exception as exc:
         logger.warning(

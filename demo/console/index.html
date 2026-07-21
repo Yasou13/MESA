@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MESA Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- CSS -->
+    <link rel="stylesheet" href="../assets/css/variables.css">
+    <link rel="stylesheet" href="../assets/css/components.css">
+    <link rel="stylesheet" href="console.css">
+</head>
+<body>
+    <!-- Premium Background Layers (EXACT match to landing page) -->
+    <div class="bg-mesh-gradient" aria-hidden="true"></div>
+    <div class="bg-radial-spot" aria-hidden="true"></div>
+    <div class="bg-noise-grain" aria-hidden="true"></div>
+
+    <!-- Animated Neural Network Canvas (same as landing) -->
+    <canvas id="neuralCanvas" aria-hidden="true" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; opacity: 0.07;"></canvas>
+
+    <!-- SVG Network Grid (same as landing) -->
+    <svg class="bg-network-svg" aria-hidden="true" viewBox="0 0 1440 900" xmlns="http://www.w3.org/2000/svg" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; opacity: 0.04;">
+        <g class="net-clusters" opacity="0.6">
+            <path d="M120 200 L340 160 L480 320 L280 440 Z" stroke="rgba(139,92,246,0.4)" stroke-width="1.2" fill="none" />
+            <path d="M920 180 L1180 240 L1260 480 L1020 540 L840 380 Z" stroke="rgba(59,130,246,0.4)" stroke-width="1.2" fill="none" />
+            <path d="M480 320 L720 300 L840 380" stroke="rgba(139,92,246,0.3)" stroke-dasharray="6 6" stroke-width="1" fill="none" />
+            <path d="M280 440 L460 680 L760 740 L1020 540" stroke="rgba(6,182,212,0.25)" stroke-width="1" fill="none" />
+            <circle cx="120" cy="200" r="4" fill="#8b5cf6" />
+            <circle cx="340" cy="160" r="5" fill="#3b82f6" />
+            <circle cx="480" cy="320" r="6" fill="#06b6d4" />
+            <circle cx="720" cy="300" r="5" fill="#3b82f6" />
+            <circle cx="920" cy="180" r="4" fill="#8b5cf6" />
+            <circle cx="1180" cy="240" r="6" fill="#06b6d4" />
+            <circle cx="1020" cy="540" r="6" fill="#8b5cf6" />
+            <circle cx="840" cy="380" r="4.5" fill="#06b6d4" />
+        </g>
+    </svg>
+
+    <div class="console-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="brand">MESA</div>
+            </div>
+            <nav class="sidebar-nav" id="sidebarNav">
+                <a href="#overview" class="nav-item" data-page="overview">Overview</a>
+                <a href="#playground" class="nav-item active" data-page="playground">Playground</a>
+                <a href="#memories" class="nav-item" data-page="memories">Memories</a>
+                <a href="#retrieval" class="nav-item" data-page="retrieval">Retrieval</a>
+                <a href="#graph" class="nav-item" data-page="graph">Knowledge Graph</a>
+                <a href="#benchmarks" class="nav-item" data-page="benchmarks">Benchmarks</a>
+                <a href="#logs" class="nav-item" data-page="logs">Logs</a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="dot green"></span> API Connected
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content" id="mainContent">
+            <!-- Pages will be rendered here dynamically -->
+        </main>
+
+        <!-- Inspector Panel -->
+        <aside class="inspector hidden" id="inspector">
+            <div class="inspector-header">
+                <h3 id="inspectorTitle">Inspector</h3>
+                <button class="close-btn" id="closeInspectorBtn">&times;</button>
+            </div>
+            <div class="inspector-tabs" id="inspectorTabs"></div>
+            <div class="inspector-body" id="inspectorBody"></div>
+        </aside>
+    </div>
+
+    <!-- Scripts: Components & Pages FIRST, then Core LAST so init functions exist -->
+    <script src="components/sidebar.js"></script>
+    <script src="components/inspector.js"></script>
+    <script src="components/modal.js"></script>
+    <script src="components/table.js"></script>
+    <script src="components/status-badge.js"></script>
+
+    <script src="pages/playground.js"></script>
+    <script src="pages/memories.js"></script>
+    <script src="pages/retrieval.js"></script>
+    <script src="pages/graph.js"></script>
+    <script src="pages/overview.js"></script>
+    <script src="pages/benchmarks.js"></script>
+    <script src="pages/logs.js"></script>
+
+    <!-- Core LAST — navigateTo() runs after all init functions are defined -->
+    <script src="console.js"></script>
+
+    <!-- Neural Canvas Animation (same as landing page) -->
+    <script>
+    (function() {
+        const canvas = document.getElementById('neuralCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let w, h, particles = [], connections = [];
+
+        function resize() {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+        }
+
+        function initParticles() {
+            particles = [];
+            const count = Math.floor((w * h) / 22000);
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    vx: (Math.random() - 0.5) * 0.4,
+                    vy: (Math.random() - 0.5) * 0.4,
+                    r: Math.random() * 2 + 1,
+                    color: ['139,92,246', '59,130,246', '6,182,212'][Math.floor(Math.random() * 3)]
+                });
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, w, h);
+
+            // Update positions
+            particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                if (p.x < 0 || p.x > w) p.vx *= -1;
+                if (p.y < 0 || p.y > h) p.vy *= -1;
+            });
+
+            // Draw connections
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 150) {
+                        const alpha = (1 - dist / 150) * 0.5;
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(${particles[i].color},${alpha})`;
+                        ctx.lineWidth = 0.6;
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            // Draw particles
+            particles.forEach(p => {
+                ctx.beginPath();
+                ctx.fillStyle = `rgba(${p.color},0.7)`;
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            requestAnimationFrame(draw);
+        }
+
+        resize();
+        initParticles();
+        draw();
+
+        window.addEventListener('resize', () => {
+            resize();
+            initParticles();
+        });
+    })();
+    </script>
+</body>
+</html>

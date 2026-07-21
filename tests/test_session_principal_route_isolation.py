@@ -27,7 +27,7 @@ async def test_authenticated_session_routes_bind_principals_server_side(tmp_path
     )
     app = FastAPI()
     app.include_router(
-        create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),
+        create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),  # type: ignore[return-value]
         dependencies=[Depends(server.get_api_key)],
     )
 
@@ -47,25 +47,52 @@ async def test_authenticated_session_routes_bind_principals_server_side(tmp_path
     headers = {"X-API-Key": "wave001-route-key"}
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
-            assert client.get("/v3/memory/session/missing/context?agent_id=agent-a").status_code == 401
-            assert client.get(
-                "/v3/memory/session/missing/context?agent_id=agent-a",
-                headers={"X-API-Key": "invalid-key"},
-            ).status_code == 401
+            assert (
+                client.get(
+                    "/v3/memory/session/missing/context?agent_id=agent-a"
+                ).status_code
+                == 401
+            )
+            assert (
+                client.get(
+                    "/v3/memory/session/missing/context?agent_id=agent-a",
+                    headers={"X-API-Key": "invalid-key"},
+                ).status_code
+                == 401
+            )
             principal("principal-read")
-            assert client.post(
-                "/v3/memory/session/start", headers=headers, json={"agent_id": "agent-a"}
-            ).status_code == 403
+            assert (
+                client.post(
+                    "/v3/memory/session/start",
+                    headers=headers,
+                    json={"agent_id": "agent-a"},
+                ).status_code
+                == 403
+            )
             principal("principal-unmapped")
-            assert client.post(
-                "/v3/memory/session/start", headers=headers, json={"agent_id": "agent-a"}
-            ).status_code == 403
+            assert (
+                client.post(
+                    "/v3/memory/session/start",
+                    headers=headers,
+                    json={"agent_id": "agent-a"},
+                ).status_code
+                == 403
+            )
             principal("principal-a", status="inactive")
-            assert client.post(
-                "/v3/memory/session/start", headers=headers, json={"agent_id": "agent-a"}
-            ).status_code == 401
+            assert (
+                client.post(
+                    "/v3/memory/session/start",
+                    headers=headers,
+                    json={"agent_id": "agent-a"},
+                ).status_code
+                == 401
+            )
             principal("principal-a")
-            started_a = client.post("/v3/memory/session/start", headers=headers, json={"agent_id": "agent-a"})
+            started_a = client.post(
+                "/v3/memory/session/start",
+                headers=headers,
+                json={"agent_id": "agent-a"},
+            )
             assert started_a.status_code == 200
             session_a = started_a.json()["session_id"]
             reopened = AccessControl(policy_path=policy.policy_path)
@@ -76,60 +103,95 @@ async def test_authenticated_session_routes_bind_principals_server_side(tmp_path
             await reopened.close()
 
             principal("principal-b")
-            started_b = client.post("/v3/memory/session/start", headers=headers, json={"agent_id": "agent-b"})
+            started_b = client.post(
+                "/v3/memory/session/start",
+                headers=headers,
+                json={"agent_id": "agent-b"},
+            )
             assert started_b.status_code == 200
             session_b = started_b.json()["session_id"]
 
             principal("principal-a")
-            assert client.get(
-                f"/v3/memory/session/{session_a}/context?agent_id=agent-a", headers=headers
-            ).status_code == 200
+            assert (
+                client.get(
+                    f"/v3/memory/session/{session_a}/context?agent_id=agent-a",
+                    headers=headers,
+                ).status_code
+                == 200
+            )
             foreign_context = client.get(
-                f"/v3/memory/session/{session_b}/context?agent_id=agent-a", headers=headers
+                f"/v3/memory/session/{session_b}/context?agent_id=agent-a",
+                headers=headers,
             )
             assert foreign_context.status_code == 403
             assert foreign_context.json()["detail"] == "Session access denied"
             forged_agent = client.get(
-                f"/v3/memory/session/{session_a}/context?agent_id=agent-b", headers=headers
+                f"/v3/memory/session/{session_a}/context?agent_id=agent-b",
+                headers=headers,
             )
             assert forged_agent.status_code == 403
             assert forged_agent.json()["detail"] == "Session access denied"
             foreign_end = client.post(
-                f"/v3/memory/session/{session_b}/end", headers=headers, json={"agent_id": "agent-a"}
+                f"/v3/memory/session/{session_b}/end",
+                headers=headers,
+                json={"agent_id": "agent-a"},
             )
             assert foreign_end.status_code == 403
             assert foreign_end.json()["detail"] == "Session access denied"
 
             await policy.grant_principal_permission("principal-a", "agent-a", "PURGE")
             own_purge = client.request(
-                "DELETE", "/v3/memory/purge", headers=headers,
+                "DELETE",
+                "/v3/memory/purge",
+                headers=headers,
                 json={"agent_id": "agent-a", "scope": "session", "scope_id": session_a},
             )
             assert own_purge.status_code == 200
             foreign_purge = client.request(
-                "DELETE", "/v3/memory/purge", headers=headers,
+                "DELETE",
+                "/v3/memory/purge",
+                headers=headers,
                 json={"agent_id": "agent-a", "scope": "session", "scope_id": session_b},
             )
             assert foreign_purge.status_code == 403
             assert foreign_purge.json()["detail"] == "Session access denied"
 
-            await policy.grant_principal_session_access("principal-read", "agent-a", session_a, "READ")
+            await policy.grant_principal_session_access(
+                "principal-read", "agent-a", session_a, "READ"
+            )
             principal("principal-read")
-            assert client.get(
-                f"/v3/memory/session/{session_a}/context?agent_id=agent-a", headers=headers
-            ).status_code == 200
-            assert client.post(
-                f"/v3/memory/session/{session_a}/end", headers=headers, json={"agent_id": "agent-a"}
-            ).status_code == 403
+            assert (
+                client.get(
+                    f"/v3/memory/session/{session_a}/context?agent_id=agent-a",
+                    headers=headers,
+                ).status_code
+                == 200
+            )
+            assert (
+                client.post(
+                    f"/v3/memory/session/{session_a}/end",
+                    headers=headers,
+                    json={"agent_id": "agent-a"},
+                ).status_code
+                == 403
+            )
 
             principal("principal-a", status="inactive")
-            assert client.get(
-                f"/v3/memory/session/{session_a}/context?agent_id=agent-a", headers=headers
-            ).status_code == 401
+            assert (
+                client.get(
+                    f"/v3/memory/session/{session_a}/context?agent_id=agent-a",
+                    headers=headers,
+                ).status_code
+                == 401
+            )
             principal("principal-unmapped")
-            assert client.get(
-                f"/v3/memory/session/{session_a}/context?agent_id=agent-a", headers=headers
-            ).status_code == 403
+            assert (
+                client.get(
+                    f"/v3/memory/session/{session_a}/context?agent_id=agent-a",
+                    headers=headers,
+                ).status_code
+                == 403
+            )
     finally:
         (
             server._MESA_API_KEY,

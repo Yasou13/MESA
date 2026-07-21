@@ -1,0 +1,5 @@
+# DATA-001 approved-design reproduction
+
+Command: `/home/yasin/Desktop/MESA/venv/bin/python -m pytest tests/test_purge_journal_contract.py -q --basetemp /storage/mesa-lab/storage/WAVE-002/pytest-data001-before`
+
+Result: exit 1; 5 failed. `MemoryDAO.purge_memory` accepted neither principal nor idempotency input; no journal/retry lifecycle existed; wildcard scope was accepted.

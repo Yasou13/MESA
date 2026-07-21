@@ -156,6 +156,7 @@ explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 exclude = [
     "^venv/",
+    "^build/",
     "^mesa-benchmark/scratch/",
     "^mesa-benchmark/scripts/",
     "test_node\\.py$",
@@ -176,7 +177,9 @@ disallow_untyped_decorators = true
 
 # ---- Progressive overrides for modules not yet remediated ----
 # Each module listed here is temporarily exempt from strict typing.
-# Remove entries as modules are remediated. Track in CHANGELOG.
+# Remove entries as modules are remediated. The CI quality gate checks every
+# canonical production package with these exceptions applied; do not add a new
+# exception without a finding, owner, and removal plan in the audit record.
 #
 # Error counts at time of enforcement (210 total across 33 files):
 #   loop.py(33) > vector_engine.py(12) > valence/core.py(12)
@@ -212,6 +215,16 @@ disallow_incomplete_defs = false
 warn_return_any = false
 disallow_untyped_decorators = false
 warn_unused_ignores = false
+
+# Pydantic's runtime validators are currently untyped in the supported
+# dependency range. Keep all other strict checks enabled while this narrow
+# third-party decorator gap is tracked.
+[[tool.mypy.overrides]]
+module = [
+    "mesa_memory.config",
+    "mesa_memory.consolidation.schemas",
+]
+disallow_untyped_decorators = false
 
 # ---- Test directory: relax strict typing for test functions ----
 # Test functions rarely benefit from return type annotations.

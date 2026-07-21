@@ -123,7 +123,7 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         self._last_update_time = 0.0
         self._update_interval = 60.0  # seconds
 
-    async def update_dynamic_threshold(self, agent_id: str):
+    async def update_dynamic_threshold(self, agent_id: str):  # type: ignore[no-untyped-def]
         """Periodically recalibrate T_route based on recent audit performance."""
         now = time.time()
         if (now - self._last_update_time) < self._update_interval:

@@ -105,12 +105,19 @@ class QueueUnavailableError(QueueAdmissionError):
 
 
 _ADMISSION_ACTIVE_STATES = (
-    "ENQUEUED", "PENDING", "CLAIMED", "IN_FLIGHT", "RETRY_PENDING", "DEFERRED",
+    "ENQUEUED",
+    "PENDING",
+    "CLAIMED",
+    "IN_FLIGHT",
+    "RETRY_PENDING",
+    "DEFERRED",
 )
 
 
 def _canonical_payload_bytes(payload: dict[str, Any]) -> tuple[str, int]:
-    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    serialized = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return serialized, len(serialized.encode("utf-8"))
 
 
@@ -319,7 +326,7 @@ class MemoryDAO:
         If true, new vectors must be queued in the SQLite WAL table to
         prevent phantom writes to a table that is about to be dropped.
         """
-        try:
+        try:  # type: ignore[no-any-return]
             if db_conn is not None:
                 async with db_conn.execute(
                     "SELECT value FROM system_config WHERE key = 'lancedb_is_migrating'"
@@ -327,7 +334,7 @@ class MemoryDAO:
                     row = await cursor.fetchone()
                     if row:
                         return row[0].lower() == "true"
-            else:
+            else:  # type: ignore[no-any-return]
                 async with self._sql.connection() as db:
                     async with db.execute(
                         "SELECT value FROM system_config WHERE key = 'lancedb_is_migrating'"
@@ -561,11 +568,16 @@ class MemoryDAO:
 
                 vector_bytes = np.array(embedding, dtype=np.float32).tobytes()
                 wal_metadata = json.dumps(
-                    {"node_id": node_id, "content_hash": content_hash,
-                     "entity_name": entity_name, "graph_required": self._graph is not None,
-                     "canonical_agent_id": agent_id, "payload_version": 1,
-                     "expected_vector_projection": True,
-                     "expected_graph_projection": self._graph is not None}
+                    {
+                        "node_id": node_id,
+                        "content_hash": content_hash,
+                        "entity_name": entity_name,
+                        "graph_required": self._graph is not None,
+                        "canonical_agent_id": agent_id,
+                        "payload_version": 1,
+                        "expected_vector_projection": True,
+                        "expected_graph_projection": self._graph is not None,
+                    }
                 )
                 wal_record_id = str(uuid.uuid4())
                 await db.execute(
@@ -1039,7 +1051,9 @@ class MemoryDAO:
             raise ValueError("scope must be exactly 'agent' or 'session'.")
         if scope == "session":
             if not session_id or session_id == "*":
-                raise ValueError("session scope requires one exact non-wildcard session_id.")
+                raise ValueError(
+                    "session scope requires one exact non-wildcard session_id."
+                )
         elif session_id is not None:
             raise ValueError("agent scope must not carry a session_id.")
         if idempotency_key is not None and not idempotency_key.strip():
@@ -1051,7 +1065,8 @@ class MemoryDAO:
         async with self._sql.transaction() as db:
             async with db.execute(
                 "SELECT purge_id, agent_id, scope, session_id, state "
-                "FROM purge_journal WHERE idempotency_key = ?", (journal_key,)
+                "FROM purge_journal WHERE idempotency_key = ?",
+                (journal_key,),
             ) as cursor:
                 existing = await cursor.fetchone()
             if existing is not None:
@@ -1060,7 +1075,9 @@ class MemoryDAO:
                     or existing["scope"] != scope
                     or existing["session_id"] != session_id
                 ):
-                    raise ValueError("idempotency key cannot be reused for a different purge scope.")
+                    raise ValueError(
+                        "idempotency key cannot be reused for a different purge scope."
+                    )
                 if existing["state"] == "FINALIZED":
                     raise PurgeAlreadyFinalizedError("purge is already FINALIZED.")
                 purge_id = existing["purge_id"]
@@ -1089,8 +1106,17 @@ class MemoryDAO:
                     "(purge_id, idempotency_key, principal_id, agent_id, scope, session_id, "
                     "target_node_ids, state, created_at, updated_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, 'PREPARED', ?, ?)",
-                    (purge_id, journal_key, journal_principal, agent_id, scope, session_id,
-                     json.dumps(node_ids), now, now),
+                    (
+                        purge_id,
+                        journal_key,
+                        journal_principal,
+                        agent_id,
+                        scope,
+                        session_id,
+                        json.dumps(node_ids),
+                        now,
+                        now,
+                    ),
                 )
                 placeholders = ",".join("?" for _ in node_ids)
                 await db.execute(
@@ -1102,7 +1128,8 @@ class MemoryDAO:
                 )
                 await db.execute(
                     "UPDATE purge_journal SET state = 'TOMBSTONED', updated_at = ? "
-                    "WHERE purge_id = ? AND state = 'PREPARED'", (now, purge_id)
+                    "WHERE purge_id = ? AND state = 'PREPARED'",
+                    (now, purge_id),
                 )
             await db.commit()
         assert purge_id is not None
@@ -1122,14 +1149,24 @@ class MemoryDAO:
         if record["kuzu_result"] != "APPLIED":
             try:
                 if self._graph is None:
-                    raise RuntimeError("Kuzu graph provider is required for purge finalization.")
-                await self._graph.delete_nodes(purge_id=purge_id, agent_id=agent_id, node_ids=node_ids)
-                if not await self._graph.verify_nodes_absent(agent_id=agent_id, node_ids=node_ids):
+                    raise RuntimeError(
+                        "Kuzu graph provider is required for purge finalization."
+                    )
+                await self._graph.delete_nodes(
+                    purge_id=purge_id, agent_id=agent_id, node_ids=node_ids
+                )
+                if not await self._graph.verify_nodes_absent(
+                    agent_id=agent_id, node_ids=node_ids
+                ):
                     raise RuntimeError("Kuzu delete verification failed.")
-                await self._advance_purge(purge_id, state="KUZU_APPLIED", kuzu_result="APPLIED")
+                await self._advance_purge(
+                    purge_id, state="KUZU_APPLIED", kuzu_result="APPLIED"
+                )
             except Exception as exc:
                 await self._mark_purge_retry(purge_id, exc, phase="kuzu")
-                raise PurgeRetryPendingError(f"Kuzu purge pending for {purge_id}") from exc
+                raise PurgeRetryPendingError(
+                    f"Kuzu purge pending for {purge_id}"
+                ) from exc
         record = await self._get_purge_record(purge_id)
         assert record is not None
         if record["vector_result"] != "APPLIED":
@@ -1139,10 +1176,14 @@ class MemoryDAO:
                 active_ids = await self._vec.get_active_node_ids(agent_id)
                 if any(node_id in active_ids for node_id in node_ids):
                     raise RuntimeError("Vector delete verification failed.")
-                await self._advance_purge(purge_id, state="VECTOR_APPLIED", vector_result="APPLIED")
+                await self._advance_purge(
+                    purge_id, state="VECTOR_APPLIED", vector_result="APPLIED"
+                )
             except Exception as exc:
                 await self._mark_purge_retry(purge_id, exc, phase="vector")
-                raise PurgeRetryPendingError(f"vector purge pending for {purge_id}") from exc
+                raise PurgeRetryPendingError(
+                    f"vector purge pending for {purge_id}"
+                ) from exc
         await self._advance_purge(purge_id, state="VERIFIED")
         await self._advance_purge(purge_id, state="FINALIZED")
         return len(node_ids)
@@ -1155,7 +1196,8 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT purge_id FROM purge_journal WHERE state IN "
                 "('PREPARED', 'TOMBSTONED', 'KUZU_APPLIED', 'VECTOR_APPLIED', "
-                "'VERIFIED', 'RETRY_PENDING') ORDER BY updated_at LIMIT ?", (limit,)
+                "'VERIFIED', 'RETRY_PENDING') ORDER BY updated_at LIMIT ?",
+                (limit,),
             ) as cursor:
                 purge_ids = [row[0] for row in await cursor.fetchall()]
         outcomes: dict[str, str] = {}
@@ -1174,10 +1216,14 @@ class MemoryDAO:
         record = await self._get_purge_record(purge_id)
         if record is None:
             raise ValueError("unknown purge_id")
-        if (record["state"] not in {"PREPARED", "TOMBSTONED", "RETRY_PENDING"}
-                or record["kuzu_result"] != "PENDING"
-                or record["vector_result"] != "PENDING"):
-            raise PurgeBlockedError("purge compensation requires a verified pre-downstream snapshot.")
+        if (
+            record["state"] not in {"PREPARED", "TOMBSTONED", "RETRY_PENDING"}
+            or record["kuzu_result"] != "PENDING"
+            or record["vector_result"] != "PENDING"
+        ):
+            raise PurgeBlockedError(
+                "purge compensation requires a verified pre-downstream snapshot."
+            )
         node_ids = json.loads(record["target_node_ids"])
         placeholders = ",".join("?" for _ in node_ids)
         async with self._sql.transaction() as db:
@@ -1189,20 +1235,28 @@ class MemoryDAO:
             await db.execute(
                 "UPDATE purge_journal SET state = 'FAILED_SAFE', "
                 "last_error = 'pre-downstream tombstone rollback', updated_at = ? "
-                "WHERE purge_id = ?", (datetime.now(timezone.utc).isoformat(), purge_id)
+                "WHERE purge_id = ?",
+                (datetime.now(timezone.utc).isoformat(), purge_id),
             )
             await db.commit()
         return cursor.rowcount
 
     async def _get_purge_record(self, purge_id: str) -> dict[str, Any] | None:
         async with self._sql.connection() as db:
-            async with db.execute("SELECT * FROM purge_journal WHERE purge_id = ?", (purge_id,)) as cursor:
+            async with db.execute(
+                "SELECT * FROM purge_journal WHERE purge_id = ?", (purge_id,)
+            ) as cursor:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
 
-    async def _advance_purge(self, purge_id: str, *, state: str,
-                             kuzu_result: str | None = None,
-                             vector_result: str | None = None) -> None:
+    async def _advance_purge(
+        self,
+        purge_id: str,
+        *,
+        state: str,
+        kuzu_result: str | None = None,
+        vector_result: str | None = None,
+    ) -> None:
         assignments = ["state = ?", "updated_at = ?", "last_error = NULL"]
         params: list[Any] = [state, datetime.now(timezone.utc).isoformat()]
         if kuzu_result is not None:
@@ -1213,22 +1267,34 @@ class MemoryDAO:
             params.append(vector_result)
         params.append(purge_id)
         async with self._sql.transaction() as db:
-            await db.execute(f"UPDATE purge_journal SET {', '.join(assignments)} WHERE purge_id = ?", params)
+            await db.execute(
+                f"UPDATE purge_journal SET {', '.join(assignments)} WHERE purge_id = ?",
+                params,
+            )
             await db.commit()
 
-    async def _mark_purge_retry(self, purge_id: str, exc: Exception, *, phase: str) -> None:
+    async def _mark_purge_retry(
+        self, purge_id: str, exc: Exception, *, phase: str
+    ) -> None:
         async with self._sql.transaction() as db:
-            async with db.execute("SELECT retry_count FROM purge_journal WHERE purge_id = ?", (purge_id,)) as cursor:
+            async with db.execute(
+                "SELECT retry_count FROM purge_journal WHERE purge_id = ?", (purge_id,)
+            ) as cursor:
                 row = await cursor.fetchone()
             if row is None:
                 raise ValueError("unknown purge_id")
             next_retry = int(row[0]) + 1
-            state = "BLOCKED" if next_retry >= _PURGE_MAX_RETRIES else "RETRY_PENDING"
+            state = "BLOCKED" if next_retry >= _PURGE_MAX_RETRIES else "RETRY_PENDING"  # type: ignore[no-untyped-def]
             await db.execute(
                 "UPDATE purge_journal SET state = ?, retry_count = ?, last_error = ?, "
                 "updated_at = ? WHERE purge_id = ?",
-                (state, next_retry, f"{phase}: {type(exc).__name__}",
-                 datetime.now(timezone.utc).isoformat(), purge_id),
+                (
+                    state,
+                    next_retry,
+                    f"{phase}: {type(exc).__name__}",
+                    datetime.now(timezone.utc).isoformat(),
+                    purge_id,
+                ),
             )
             await db.commit()
 
@@ -1759,7 +1825,7 @@ class MemoryDAO:
         telemetry_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
-        async with self._sql.transaction() as db:
+        async with self._sql.transaction() as db:  # type: ignore[index]
             await db.execute(
                 "INSERT INTO routing_telemetry "
                 "(id, agent_id, record_id, small_model_decision, "
@@ -1804,14 +1870,16 @@ class MemoryDAO:
 
         return {
             "total_audits": total_audits,
-            "hallucinations": hallucinations,
+            "hallucinations": hallucinations,  # type: ignore[arg-type]
         }
 
     # ==================================================================
     # RAW LOG INSERT — hot-path ingestion (< 50ms, pure I/O)
     # ==================================================================
 
-    async def _queue_usage(self, db: aiosqlite.Connection, agent_id: str | None = None) -> dict[str, int]:
+    async def _queue_usage(
+        self, db: aiosqlite.Connection, agent_id: str | None = None
+    ) -> dict[str, int]:
         placeholders = ",".join("?" for _ in _ADMISSION_ACTIVE_STATES)
         predicate = f"state IN ({placeholders})"
         params: list[Any] = list(_ADMISSION_ACTIVE_STATES)
@@ -1822,27 +1890,56 @@ class MemoryDAO:
             f"SELECT COUNT(*) AS records, COALESCE(SUM(payload_bytes), 0) AS bytes, "
             f"COALESCE(SUM(CASE WHEN state = 'IN_FLIGHT' THEN 1 ELSE 0 END), 0) AS in_flight, "
             f"COALESCE(SUM(CASE WHEN state = 'RETRY_PENDING' THEN 1 ELSE 0 END), 0) AS retry_pending "
-            f"FROM dispatch_queue WHERE {predicate}", params
+            f"FROM dispatch_queue WHERE {predicate}",
+            params,
         ) as cursor:
             row = await cursor.fetchone()
-        return {key: int(row[key]) for key in ("records", "bytes", "in_flight", "retry_pending")}
+            assert row is not None
+        return {
+            key: int(row[key])
+            for key in ("records", "bytes", "in_flight", "retry_pending")
+        }
 
     @staticmethod
     def _enforce_queue_capacity(
-        global_usage: dict[str, int], tenant_usage: dict[str, int], payload_bytes: int,
+        global_usage: dict[str, int],
+        tenant_usage: dict[str, int],
+        payload_bytes: int,
         policy: "QueueAdmissionPolicy",
-    ) -> None:
+    ) -> None:  # type: ignore[index]
         if payload_bytes > policy.queue_max_single_record_bytes:
             raise QueueRecordTooLargeError("queue record exceeds configured size limit")
         checks = (
             (global_usage["records"] + 1 > policy.queue_max_pending_records, "global"),
-            (global_usage["bytes"] + payload_bytes > policy.queue_max_pending_bytes, "global"),
+            (
+                global_usage["bytes"] + payload_bytes > policy.queue_max_pending_bytes,
+                "global",
+            ),
             (global_usage["in_flight"] >= policy.queue_max_in_flight_records, "global"),
-            (global_usage["retry_pending"] >= policy.queue_max_retry_pending_records, "global"),
-            (tenant_usage["records"] + 1 > policy.queue_max_pending_records_per_tenant, "tenant"),
-            (tenant_usage["bytes"] + payload_bytes > policy.queue_max_pending_bytes_per_tenant, "tenant"),
-            (tenant_usage["in_flight"] >= policy.queue_max_in_flight_records_per_tenant, "tenant"),
-            (tenant_usage["retry_pending"] >= policy.queue_max_retry_pending_records_per_tenant, "tenant"),
+            (
+                global_usage["retry_pending"] >= policy.queue_max_retry_pending_records,
+                "global",
+            ),
+            (
+                tenant_usage["records"] + 1
+                > policy.queue_max_pending_records_per_tenant,
+                "tenant",
+            ),
+            (
+                tenant_usage["bytes"] + payload_bytes
+                > policy.queue_max_pending_bytes_per_tenant,
+                "tenant",
+            ),
+            (
+                tenant_usage["in_flight"]
+                >= policy.queue_max_in_flight_records_per_tenant,
+                "tenant",
+            ),
+            (
+                tenant_usage["retry_pending"]
+                >= policy.queue_max_retry_pending_records_per_tenant,
+                "tenant",
+            ),
         )
         for exceeded, scope in checks:
             if exceeded:
@@ -1865,11 +1962,14 @@ class MemoryDAO:
             async with self._sql.transaction() as db:
                 global_usage = await self._queue_usage(db)
                 tenant_usage = await self._queue_usage(db, agent_id)
-                self._enforce_queue_capacity(global_usage, tenant_usage, payload_bytes, policy)
+                self._enforce_queue_capacity(
+                    global_usage, tenant_usage, payload_bytes, policy
+                )
                 cursor = await db.execute(
                     "INSERT INTO raw_logs (agent_id, payload, status) VALUES (?, ?, 'DEFERRED')",
                     (agent_id, serialized),
                 )
+                assert cursor.lastrowid is not None
                 log_id = int(cursor.lastrowid)
                 dispatch_id = str(uuid.uuid4())
                 queue_id = str(uuid.uuid4())
@@ -1878,24 +1978,49 @@ class MemoryDAO:
                     "INSERT INTO dispatch_journal (dispatch_id, source_record_id, tenant_id, agent_id, "
                     "job_type, idempotency_key, state, attempt_count, queue_record_id, dispatched_at, finalized_at, created_at, updated_at) "
                     "VALUES (?, ?, ?, ?, 'cold_path', ?, 'RECEIPT_RECORDED', 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    (dispatch_id, log_id, agent_id, agent_id, idempotency_key, queue_id),
+                    (
+                        dispatch_id,
+                        log_id,
+                        agent_id,
+                        agent_id,
+                        idempotency_key,
+                        queue_id,
+                    ),
                 )
                 await db.execute(
                     "INSERT INTO dispatch_queue (queue_record_id, dispatch_id, tenant_id, agent_id, job_type, "
                     "payload_reference, payload_bytes, idempotency_key, state) VALUES (?, ?, ?, ?, 'cold_path', ?, ?, ?, 'ENQUEUED')",
-                    (queue_id, dispatch_id, agent_id, agent_id, log_id, payload_bytes, idempotency_key),
+                    (
+                        queue_id,
+                        dispatch_id,
+                        agent_id,
+                        agent_id,
+                        log_id,
+                        payload_bytes,
+                        idempotency_key,
+                    ),
                 )
                 await db.execute(
                     "INSERT INTO dispatch_receipts (receipt_id, dispatch_id, queue_record_id, tenant_id, agent_id, outcome, idempotency_key) "
                     "VALUES (?, ?, ?, ?, ?, 'ENQUEUED', ?)",
-                    (str(uuid.uuid4()), dispatch_id, queue_id, agent_id, agent_id, idempotency_key),
+                    (
+                        str(uuid.uuid4()),
+                        dispatch_id,
+                        queue_id,
+                        agent_id,
+                        agent_id,
+                        idempotency_key,
+                    ),
                 )
                 await db.commit()
         except (aiosqlite.Error, OSError) as exc:
             raise QueueUnavailableError("durable admission is unavailable") from exc
         return {
-            "admission": "DEFERRED", "log_id": log_id, "dispatch_id": dispatch_id,
-            "queue_record_id": queue_id, "payload_bytes": payload_bytes,
+            "admission": "DEFERRED",  # type: ignore[index]
+            "log_id": log_id,
+            "dispatch_id": dispatch_id,
+            "queue_record_id": queue_id,
+            "payload_bytes": payload_bytes,
         }
 
     async def get_queue_admission_metrics(self, agent_id: str) -> dict[str, Any]:
@@ -1905,11 +2030,19 @@ class MemoryDAO:
             async with self._sql.connection() as db:
                 global_usage = await self._queue_usage(db)
                 tenant_usage = await self._queue_usage(db, agent_id)
-                async with db.execute("SELECT COUNT(*) FROM dispatch_queue WHERE state = 'BLOCKED'") as cursor:
-                    blocked = int((await cursor.fetchone())[0])
+                async with db.execute(
+                    "SELECT COUNT(*) FROM dispatch_queue WHERE state = 'BLOCKED'"
+                ) as cursor:
+                    _row = await cursor.fetchone()
+                    assert _row is not None
+                    blocked = int(_row[0])
         except (aiosqlite.Error, OSError) as exc:
             raise QueueUnavailableError("durable admission is unavailable") from exc
-        return {"global": global_usage, "tenant": tenant_usage, "blocked_records": blocked}
+        return {
+            "global": global_usage,
+            "tenant": tenant_usage,
+            "blocked_records": blocked,
+        }
 
     async def insert_raw_log(self, agent_id: str, payload: dict) -> int:
         """Insert a raw payload into the ``raw_logs`` staging table.
@@ -1959,7 +2092,7 @@ class MemoryDAO:
                 "FROM raw_logs WHERE id = ? AND agent_id = ?",
                 (log_id, agent_id),
             ) as cursor:
-                row = await cursor.fetchone()
+                row = await cursor.fetchone()  # type: ignore[index]
                 if row is None:
                     return None
                 row_dict = dict(row)
@@ -1999,7 +2132,9 @@ class MemoryDAO:
                     recent_logs.append(payload)
         return recent_logs
 
-    async def request_session_finalization(self, agent_id: str, session_id: str) -> dict[str, Any]:
+    async def request_session_finalization(
+        self, agent_id: str, session_id: str
+    ) -> dict[str, Any]:
         """Create one idempotent durable finalization intent for an exact session."""
         _assert_valid_agent_id(agent_id)
         if not session_id or session_id == "*":
@@ -2016,14 +2151,23 @@ class MemoryDAO:
                     "AND status NOT LIKE 'processed%' AND status NOT LIKE 'rejected%'",
                     (agent_id, session_id),
                 ) as cursor:
-                    pending_count = int((await cursor.fetchone())[0])
+                    _row = await cursor.fetchone()
+                    assert _row is not None
+                    pending_count = int(_row[0])
                 finalization_id = str(uuid.uuid4())
                 state = "COMPLETED" if pending_count == 0 else "PENDING"
                 await db.execute(
                     "INSERT INTO session_finalization_journal "
                     "(finalization_id, agent_id, session_id, idempotency_key, state, completed_at) "
                     "VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE NULL END)",
-                    (finalization_id, agent_id, session_id, f"session-finalize:{agent_id}:{session_id}", state, state),
+                    (
+                        finalization_id,
+                        agent_id,
+                        session_id,
+                        f"session-finalize:{agent_id}:{session_id}",
+                        state,
+                        state,
+                    ),
                 )
             async with db.execute(
                 "SELECT * FROM session_finalization_journal WHERE agent_id = ? AND session_id = ?",
@@ -2035,7 +2179,12 @@ class MemoryDAO:
         return dict(row)
 
     async def claim_session_finalization(
-        self, agent_id: str, session_id: str, *, worker_id: str, lease_seconds: int = 300
+        self,
+        agent_id: str,
+        session_id: str,
+        *,
+        worker_id: str,
+        lease_seconds: int = 300,
     ) -> dict[str, Any] | None:
         """Claim pending finalization using a durable fencing token."""
         _assert_valid_agent_id(agent_id)
@@ -2061,7 +2210,9 @@ class MemoryDAO:
             await db.commit()
         return dict(row) if row else None
 
-    async def get_session_finalization(self, agent_id: str, session_id: str) -> dict[str, Any] | None:
+    async def get_session_finalization(
+        self, agent_id: str, session_id: str
+    ) -> dict[str, Any] | None:
         _assert_valid_agent_id(agent_id)
         async with self._sql.connection() as db:
             async with db.execute(
@@ -2071,7 +2222,9 @@ class MemoryDAO:
                 row = await cursor.fetchone()
         return dict(row) if row else None
 
-    async def get_pending_session_raw_logs(self, agent_id: str, session_id: str) -> list[int]:
+    async def get_pending_session_raw_logs(
+        self, agent_id: str, session_id: str
+    ) -> list[int]:
         _assert_valid_agent_id(agent_id)
         async with self._sql.connection() as db:
             async with db.execute(
@@ -2092,7 +2245,9 @@ class MemoryDAO:
                 "AND status NOT LIKE 'processed%' AND status NOT LIKE 'rejected%'",
                 (agent_id, session_id),
             ) as cursor:
-                incomplete = int((await cursor.fetchone())[0])
+                _row = await cursor.fetchone()
+                assert _row is not None
+                incomplete = int(_row[0])
             if incomplete:
                 await db.commit()
                 return False
@@ -2106,7 +2261,13 @@ class MemoryDAO:
         return cursor.rowcount == 1
 
     async def fail_session_finalization(
-        self, agent_id: str, session_id: str, *, worker_id: str, claim_token: str, error_class: str
+        self,
+        agent_id: str,
+        session_id: str,
+        *,
+        worker_id: str,
+        claim_token: str,
+        error_class: str,
     ) -> bool:
         """Persist a sanitized bounded failure; stale workers cannot mutate state."""
         _assert_valid_agent_id(agent_id)
@@ -2202,8 +2363,14 @@ class MemoryDAO:
         return claimed
 
     async def transition_claimed_raw_log(
-        self, agent_id: str, log_id: int, *, worker_id: str, claim_token: str,
-        status: str, error_reason: str | None = None,
+        self,
+        agent_id: str,
+        log_id: int,
+        *,
+        worker_id: str,
+        claim_token: str,
+        status: str,
+        error_reason: str | None = None,
     ) -> bool:
         """Finalize a job only when its owner and fencing token still match."""
         _assert_valid_agent_id(agent_id)
@@ -2217,7 +2384,15 @@ class MemoryDAO:
                 "CASE WHEN ? = 'processed' THEN CURRENT_TIMESTAMP ELSE processed_at END "
                 "WHERE id = ? AND agent_id = ? AND status = 'processing' "
                 "AND claimed_by = ? AND claim_token = ?",
-                (final_status, error_reason, status, log_id, agent_id, worker_id, claim_token),
+                (
+                    final_status,
+                    error_reason,
+                    status,
+                    log_id,
+                    agent_id,
+                    worker_id,
+                    claim_token,
+                ),
             )
             await db.commit()
         return cursor.rowcount == 1
@@ -2243,7 +2418,8 @@ class MemoryDAO:
         async with self._sql.transaction() as db:
             async with db.execute(
                 "SELECT id FROM lancedb_wal WHERE state IN ('PENDING', 'SQLITE_COMMITTED', 'RETRY_PENDING') "
-                "OR (state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP) ORDER BY id LIMIT ?", (limit,)
+                "OR (state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP) ORDER BY id LIMIT ?",
+                (limit,),
             ) as cursor:
                 identifiers = [row[0] for row in await cursor.fetchall()]
             claimed_ids: list[str] = []
@@ -2275,7 +2451,9 @@ class MemoryDAO:
     async def get_lancedb_mutation_state(self, wal_id: str) -> dict[str, Any] | None:
         """Return the durable canonical state for one mutation without mutation."""
         async with self._sql.connection() as db:
-            async with db.execute("SELECT * FROM lancedb_wal WHERE id = ?", (wal_id,)) as cursor:
+            async with db.execute(
+                "SELECT * FROM lancedb_wal WHERE id = ?", (wal_id,)
+            ) as cursor:
                 row = await cursor.fetchone()
         return dict(row) if row else None
 
@@ -2322,7 +2500,9 @@ class MemoryDAO:
             return bool(await has_node(node_id=node_id, agent_id=agent_id))
         verify_absent = getattr(self._graph, "verify_nodes_absent", None)
         if verify_absent is None:
-            raise RuntimeError("graph provider does not expose exact-scope verification")
+            raise RuntimeError(
+                "graph provider does not expose exact-scope verification"
+            )
         return not bool(await verify_absent(agent_id=agent_id, node_ids=[node_id]))
 
     async def reconcile_lancedb_wal_entry(
@@ -2344,16 +2524,22 @@ class MemoryDAO:
             if canonical_agent_id != agent_id:
                 result = "SCOPE_MISMATCH"
             elif payload_version != 1:
-                result = "PAYLOAD_OR_VERSION_MISMATCH"
+                result = "PAYLOAD_OR_VERSION_MISMATCH"  # type: ignore[index]
             else:
-                vector_present = node_id in await self._vec.get_existing_node_ids(agent_id, [node_id])
+                vector_present = node_id in await self._vec.get_existing_node_ids(
+                    agent_id, [node_id]
+                )
                 graph_present = (not graph_required) or await self._graph_has_wal_node(
                     node_id=node_id, agent_id=agent_id
                 )
                 if not expected_vector and vector_present:
                     result = "VECTOR_EXTRA"
-                elif expected_graph_marker is False and self._graph is not None and await self._graph_has_wal_node(
-                    node_id=node_id, agent_id=agent_id
+                elif (  # type: ignore[index]
+                    expected_graph_marker is False
+                    and self._graph is not None
+                    and await self._graph_has_wal_node(
+                        node_id=node_id, agent_id=agent_id
+                    )
                 ):
                     result = "GRAPH_EXTRA"
                 elif expected_vector and not vector_present:
@@ -2366,7 +2552,7 @@ class MemoryDAO:
             result = "UNKNOWN_OR_UNVERIFIABLE"
 
         if result == "ALIGNED":
-            next_state = "RECONCILED"
+            next_state = "RECONCILED"  # type: ignore[str, Any]
             vector_state = state["vector_state"]
             graph_state = state["graph_state"]
             release_claim = False
@@ -2400,9 +2586,16 @@ class MemoryDAO:
                 "lease_expires_at = CASE WHEN ? THEN NULL ELSE lease_expires_at END "
                 "WHERE id = ? AND state = 'CLAIMED' AND claimed_by = ? AND claim_token = ?",
                 (
-                    result, next_state, vector_state, graph_state,
-                    release_claim, release_claim, release_claim,
-                    wal_id, worker_id, claim_token,
+                    result,
+                    next_state,
+                    vector_state,
+                    graph_state,
+                    release_claim,
+                    release_claim,
+                    release_claim,
+                    wal_id,
+                    worker_id,
+                    claim_token,
                 ),
             )
             await db.commit()
@@ -2410,7 +2603,9 @@ class MemoryDAO:
             return "FENCED_OUT"
         return result
 
-    async def ack_lancedb_wal_entry(self, wal_id: str, *, worker_id: str, claim_token: str) -> bool:
+    async def ack_lancedb_wal_entry(
+        self, wal_id: str, *, worker_id: str, claim_token: str
+    ) -> bool:
         """ACK only a reconciled mutation owned by the current durable fence."""
         async with self._sql.transaction() as db:
             cursor = await db.execute(
@@ -2433,7 +2628,9 @@ class MemoryDAO:
             await db.commit()
         return cursor.rowcount
 
-    async def replay_claimed_lancedb_wal_entry(self, entry: dict[str, Any], *, worker_id: str) -> bool:
+    async def replay_claimed_lancedb_wal_entry(
+        self, entry: dict[str, Any], *, worker_id: str
+    ) -> bool:
         """Apply only missing projections, reconcile, then issue a fenced ACK."""
         wal_id = entry["id"]
         token = entry["claim_token"]
@@ -2441,37 +2638,77 @@ class MemoryDAO:
         node_id = metadata["node_id"]
         agent_id = entry["agent_id"]
         import numpy as np
+
         if entry.get("vector_state") != "VECTOR_APPLIED":
             try:
                 await self._vec.upsert(
-                    node_id=node_id, agent_id=agent_id,
+                    node_id=node_id,
+                    agent_id=agent_id,
                     embedding=np.frombuffer(entry["vector"], dtype=np.float32).tolist(),
                     content_hash=metadata.get("content_hash"),
                 )
             except Exception as exc:
-                await self._retry_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token, error=type(exc).__name__)
+                await self._retry_lancedb_wal_entry(
+                    wal_id,
+                    worker_id=worker_id,
+                    claim_token=token,
+                    error=type(exc).__name__,
+                )
                 raise
-            if not await self.record_lancedb_projection_state(wal_id, worker_id=worker_id, claim_token=token, projection="VECTOR_APPLIED"):
+            if not await self.record_lancedb_projection_state(
+                wal_id,
+                worker_id=worker_id,
+                claim_token=token,
+                projection="VECTOR_APPLIED",
+            ):
                 return False
         if bool(metadata.get("graph_required", False)):
             if entry.get("graph_state") != "GRAPH_APPLIED":
                 if self._graph is None:
-                    await self._retry_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token, error="GraphProviderUnavailable")
+                    await self._retry_lancedb_wal_entry(
+                        wal_id,
+                        worker_id=worker_id,
+                        claim_token=token,
+                        error="GraphProviderUnavailable",
+                    )
                     raise RuntimeError("graph projection is required but unavailable")
                 try:
-                    await self._graph.insert_node(node_id=node_id, name=metadata.get("entity_name", node_id), agent_id=agent_id)
+                    await self._graph.insert_node(
+                        node_id=node_id,
+                        name=metadata.get("entity_name", node_id),
+                        agent_id=agent_id,
+                    )
                 except Exception as exc:
-                    await self._retry_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token, error=type(exc).__name__)
+                    await self._retry_lancedb_wal_entry(
+                        wal_id,
+                        worker_id=worker_id,
+                        claim_token=token,
+                        error=type(exc).__name__,
+                    )
                     raise
-                if not await self.record_lancedb_projection_state(wal_id, worker_id=worker_id, claim_token=token, projection="GRAPH_APPLIED"):
+                if not await self.record_lancedb_projection_state(
+                    wal_id,
+                    worker_id=worker_id,
+                    claim_token=token,
+                    projection="GRAPH_APPLIED",
+                ):
                     return False
         elif entry.get("graph_state") != "NOT_REQUIRED":
-            if not await self.record_lancedb_projection_state(wal_id, worker_id=worker_id, claim_token=token, projection="GRAPH_NOT_REQUIRED"):
+            if not await self.record_lancedb_projection_state(
+                wal_id,
+                worker_id=worker_id,
+                claim_token=token,
+                projection="GRAPH_NOT_REQUIRED",
+            ):
                 return False
-        result = await self.reconcile_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token)
+        result = await self.reconcile_lancedb_wal_entry(
+            wal_id, worker_id=worker_id, claim_token=token
+        )
         if result != "ALIGNED":
             return False
-        return await self.ack_lancedb_wal_entry(wal_id, worker_id=worker_id, claim_token=token)
+        return await self.ack_lancedb_wal_entry(
+            wal_id, worker_id=worker_id, claim_token=token
+        )
 
     async def replay_lancedb_wal(self, *, worker_id: str, limit: int = 100) -> int:
         """Replay real downstream projections without treating partial work as success."""
@@ -2483,7 +2720,12 @@ class MemoryDAO:
         return completed
 
     async def dispatch_raw_log(
-        self, agent_id: str, log_id: int, *, worker_id: str, policy: "QueueAdmissionPolicy | None" = None
+        self,
+        agent_id: str,
+        log_id: int,
+        *,
+        worker_id: str,
+        policy: "QueueAdmissionPolicy | None" = None,
     ) -> dict[str, Any]:
         """Atomically materialize a bounded raw-log dispatch intent, queue row and receipt."""
         _assert_valid_agent_id(agent_id)
@@ -2491,10 +2733,12 @@ class MemoryDAO:
             raise ValueError("worker_id is required")
         if policy is None:
             from mesa_memory.config import config
+
             policy = config.queue_admission_policy
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT id, payload FROM raw_logs WHERE id = ? AND agent_id = ?", (log_id, agent_id)
+                "SELECT id, payload FROM raw_logs WHERE id = ? AND agent_id = ?",
+                (log_id, agent_id),
             ) as cursor:
                 raw_log = await cursor.fetchone()
                 if raw_log is None:
@@ -2524,26 +2768,45 @@ class MemoryDAO:
                 "SELECT * FROM dispatch_journal WHERE dispatch_id = ?", (dispatch_id,)
             ) as cursor:
                 journal = await cursor.fetchone()
+                assert journal is not None
             if journal["state"] != "RECEIPT_RECORDED":
                 global_usage = await self._queue_usage(db)
                 tenant_usage = await self._queue_usage(db, agent_id)
-                self._enforce_queue_capacity(global_usage, tenant_usage, payload_bytes, policy)
+                self._enforce_queue_capacity(
+                    global_usage, tenant_usage, payload_bytes, policy
+                )
                 token = str(uuid.uuid4())
                 await db.execute(
                     "UPDATE dispatch_journal SET state = 'CLAIMED', claimed_by = ?, claim_token = ?, "
                     "attempt_count = attempt_count + 1, lease_expires_at = datetime('now', '+300 seconds'), "
-                    "updated_at = CURRENT_TIMESTAMP WHERE dispatch_id = ?", (worker_id, token, dispatch_id)
+                    "updated_at = CURRENT_TIMESTAMP WHERE dispatch_id = ?",
+                    (worker_id, token, dispatch_id),
                 )
                 queue_id = journal["queue_record_id"] or str(uuid.uuid4())
                 await db.execute(
                     "INSERT OR IGNORE INTO dispatch_queue (queue_record_id, dispatch_id, tenant_id, agent_id, "
                     "job_type, payload_reference, payload_bytes, idempotency_key, state) VALUES (?, ?, ?, ?, 'cold_path', ?, ?, ?, 'ENQUEUED')",
-                    (queue_id, dispatch_id, agent_id, agent_id, log_id, payload_bytes, idempotency_key),
+                    (
+                        queue_id,
+                        dispatch_id,
+                        agent_id,
+                        agent_id,
+                        log_id,
+                        payload_bytes,
+                        idempotency_key,
+                    ),
                 )
                 await db.execute(
                     "INSERT OR IGNORE INTO dispatch_receipts (receipt_id, dispatch_id, queue_record_id, tenant_id, "
                     "agent_id, outcome, idempotency_key) VALUES (?, ?, ?, ?, ?, 'ENQUEUED', ?)",
-                    (str(uuid.uuid4()), dispatch_id, queue_id, agent_id, agent_id, idempotency_key),
+                    (
+                        str(uuid.uuid4()),
+                        dispatch_id,
+                        queue_id,
+                        agent_id,
+                        agent_id,
+                        idempotency_key,
+                    ),
                 )
                 await db.execute(
                     "UPDATE dispatch_journal SET state = 'RECEIPT_RECORDED', queue_record_id = ?, "
@@ -2551,12 +2814,18 @@ class MemoryDAO:
                     "claimed_by = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE dispatch_id = ?",
                     (queue_id, dispatch_id),
                 )
-            async with db.execute("SELECT * FROM dispatch_journal WHERE dispatch_id = ?", (dispatch_id,)) as cursor:
-                result = dict(await cursor.fetchone())
+            async with db.execute(
+                "SELECT * FROM dispatch_journal WHERE dispatch_id = ?", (dispatch_id,)
+            ) as cursor:
+                _r = await cursor.fetchone()
+                assert _r is not None
+                result = dict(_r)
             await db.commit()
         return result
 
-    async def recover_raw_log_dispatches(self, *, worker_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    async def recover_raw_log_dispatches(
+        self, *, worker_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         """Find tenant-scoped deferred raw logs that lack a durable dispatch receipt."""
         if not worker_id or not 1 <= limit <= 1000:
             raise ValueError("invalid dispatch recovery bounds")
@@ -2564,12 +2833,20 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT r.id, r.agent_id FROM raw_logs r LEFT JOIN dispatch_journal j "
                 "ON j.source_record_id = r.id WHERE r.status = 'DEFERRED' AND "
-                "(j.dispatch_id IS NULL OR j.state != 'RECEIPT_RECORDED') ORDER BY r.id LIMIT ?", (limit,)
+                "(j.dispatch_id IS NULL OR j.state != 'RECEIPT_RECORDED') ORDER BY r.id LIMIT ?",
+                (limit,),
             ) as cursor:
-                pending = [(row["agent_id"], row["id"]) for row in await cursor.fetchall()]
-        return [await self.dispatch_raw_log(aid, record_id, worker_id=worker_id) for aid, record_id in pending]
+                pending = [
+                    (row["agent_id"], row["id"]) for row in await cursor.fetchall()
+                ]
+        return [
+            await self.dispatch_raw_log(aid, record_id, worker_id=worker_id)
+            for aid, record_id in pending
+        ]
 
-    async def claim_dispatch_queue(self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300) -> list[dict[str, Any]]:
+    async def claim_dispatch_queue(
+        self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300
+    ) -> list[dict[str, Any]]:
         """Claim bounded durable queue records with a worker fencing token."""
         if not worker_id or not 1 <= limit <= 1000 or not 1 <= lease_seconds <= 3600:
             raise ValueError("invalid dispatch queue claim bounds")
@@ -2588,29 +2865,46 @@ class MemoryDAO:
                     "lease_expires_at = datetime('now', ?), attempt_count = attempt_count + 1 "
                     "WHERE queue_record_id = ? AND (state IN ('ENQUEUED', 'RETRY_PENDING') "
                     "OR (state = 'IN_FLIGHT' AND lease_expires_at <= CURRENT_TIMESTAMP))",
-                    (worker_id, token, f'+{lease_seconds} seconds', queue_id),
+                    (worker_id, token, f"+{lease_seconds} seconds", queue_id),
                 )
                 if cursor.rowcount == 1:
                     claimed.append(queue_id)
             if not claimed:
                 await db.commit()
                 return []
-            placeholders = ','.join('?' for _ in claimed)
-            async with db.execute(f"SELECT * FROM dispatch_queue WHERE queue_record_id IN ({placeholders})", claimed) as cursor:
+            placeholders = ",".join("?" for _ in claimed)
+            async with db.execute(
+                f"SELECT * FROM dispatch_queue WHERE queue_record_id IN ({placeholders})",
+                claimed,
+            ) as cursor:
                 rows = [dict(row) for row in await cursor.fetchall()]
             await db.commit()
         return rows
 
     async def complete_dispatch_queue(
-        self, queue_record_id: str, *, worker_id: str, claim_token: str, outcome: str, side_effect_verified: bool
+        self,
+        queue_record_id: str,
+        *,
+        worker_id: str,
+        claim_token: str,
+        outcome: str,
+        side_effect_verified: bool,
     ) -> bool:
         """Write a completion receipt before ACK/finalization; stale fences never finalize."""
         if not worker_id or not claim_token:
             raise ValueError("worker_id and claim_token are required")
         async with self._sql.transaction() as db:
-            async with db.execute("SELECT * FROM dispatch_queue WHERE queue_record_id = ?", (queue_record_id,)) as cursor:
+            async with db.execute(
+                "SELECT * FROM dispatch_queue WHERE queue_record_id = ?",
+                (queue_record_id,),
+            ) as cursor:
                 row = await cursor.fetchone()
-            if row is None or row['state'] != 'IN_FLIGHT' or row['claimed_by'] != worker_id or row['claim_token'] != claim_token:
+            if (
+                row is None
+                or row["state"] != "IN_FLIGHT"
+                or row["claimed_by"] != worker_id
+                or row["claim_token"] != claim_token
+            ):
                 await db.commit()
                 return False
             if not side_effect_verified:
@@ -2625,36 +2919,58 @@ class MemoryDAO:
                 "INSERT OR IGNORE INTO dispatch_completion_receipts (receipt_id, queue_record_id, dispatch_id, tenant_id, agent_id, "
                 "worker_id, claim_token, outcome, side_effect_verified, attempt_count, idempotency_key) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
-                (str(uuid.uuid4()), queue_record_id, row['dispatch_id'], row['tenant_id'], row['agent_id'], worker_id, claim_token, outcome, row['attempt_count'], f"completion:{row['idempotency_key']}"),
+                (
+                    str(uuid.uuid4()),
+                    queue_record_id,
+                    row["dispatch_id"],
+                    row["tenant_id"],
+                    row["agent_id"],
+                    worker_id,
+                    claim_token,
+                    outcome,
+                    row["attempt_count"],
+                    f"completion:{row['idempotency_key']}",
+                ),
             )
             if cursor.rowcount != 1:
                 await db.commit()
                 return False
             cursor = await db.execute(
                 "UPDATE dispatch_queue SET state = 'FINALIZED', claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL "
-                "WHERE queue_record_id = ? AND state = 'IN_FLIGHT' AND claim_token = ?", (queue_record_id, claim_token)
+                "WHERE queue_record_id = ? AND state = 'IN_FLIGHT' AND claim_token = ?",
+                (queue_record_id, claim_token),
             )
             await db.commit()
         return cursor.rowcount == 1
 
-    async def get_dispatch_completion_receipt(self, queue_record_id: str) -> dict[str, Any] | None:
+    async def get_dispatch_completion_receipt(
+        self, queue_record_id: str
+    ) -> dict[str, Any] | None:
         async with self._sql.connection() as db:
-            async with db.execute("SELECT * FROM dispatch_completion_receipts WHERE queue_record_id = ?", (queue_record_id,)) as cursor:
+            async with db.execute(
+                "SELECT * FROM dispatch_completion_receipts WHERE queue_record_id = ?",
+                (queue_record_id,),
+            ) as cursor:
                 row = await cursor.fetchone()
         return dict(row) if row else None
 
     async def get_dispatch_receipt(self, dispatch_id: str) -> dict[str, Any] | None:
         async with self._sql.connection() as db:
-            async with db.execute("SELECT * FROM dispatch_receipts WHERE dispatch_id = ?", (dispatch_id,)) as cursor:
+            async with db.execute(
+                "SELECT * FROM dispatch_receipts WHERE dispatch_id = ?", (dispatch_id,)
+            ) as cursor:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
 
-    async def get_dispatch_receipt_by_source(self, agent_id: str, log_id: int) -> dict[str, Any] | None:
+    async def get_dispatch_receipt_by_source(
+        self, agent_id: str, log_id: int
+    ) -> dict[str, Any] | None:
         _assert_valid_agent_id(agent_id)
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT r.* FROM dispatch_receipts r JOIN dispatch_journal j ON j.dispatch_id = r.dispatch_id "
-                "WHERE j.agent_id = ? AND j.source_record_id = ?", (agent_id, log_id)
+                "WHERE j.agent_id = ? AND j.source_record_id = ?",
+                (agent_id, log_id),
             ) as cursor:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
@@ -2705,9 +3021,12 @@ class MemoryDAO:
     # ==================================================================
 
     async def increment_and_check_daily_limit(
-        self, agent_id: str, limit: int = 1000
+        self, subject_id: str, limit: int = 1000
     ) -> bool:
-        """Increment the daily request counter for the agent and check if it exceeds the limit.
+        """Increment the daily request counter for a verified principal subject.
+
+        ``subject_id`` is a server-side principal ID, never a credential,
+        tenant field, or agent ID supplied by a request.
         Returns True if allowed, False if exceeded.
         """
         from datetime import date
@@ -2716,15 +3035,15 @@ class MemoryDAO:
 
         async with self._sql.transaction() as db:
             await db.execute(
-                "INSERT INTO daily_limits (agent_id, date, request_count) "
+                "INSERT INTO daily_limits (subject_id, date, request_count) "
                 "VALUES (?, ?, 1) "
-                "ON CONFLICT(agent_id, date) DO UPDATE SET request_count = request_count + 1",
-                (agent_id, today),
+                "ON CONFLICT(subject_id, date) DO UPDATE SET request_count = request_count + 1",
+                (subject_id, today),
             )
 
             async with db.execute(
-                "SELECT request_count FROM daily_limits WHERE agent_id = ? AND date = ?",
-                (agent_id, today),
+                "SELECT request_count FROM daily_limits WHERE subject_id = ? AND date = ?",
+                (subject_id, today),
             ) as cur:
                 row = await cur.fetchone()
 

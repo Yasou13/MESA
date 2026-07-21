@@ -1,0 +1,46 @@
+[
+  {
+    "id": "memory_001",
+    "content": "Kullanıcı enterprise planla ilgileniyor. 500 seat lisans istiyor.",
+    "summary": "Enterprise plan consideration (500 seats)",
+    "type": "user_profile",
+    "importance": 0.86,
+    "confidence": 0.94,
+    "retrieval_count": 12,
+    "created_at": "2026-07-20T10:00:00Z",
+    "last_accessed": "2026-07-20T13:40:00Z",
+    "entities": [
+      { "name": "Enterprise Plan", "type": "product" },
+      { "name": "500 seats", "type": "quantity" }
+    ]
+  },
+  {
+    "id": "memory_002",
+    "content": "Kullanıcı veritabanı olarak PostgreSQL tercih ediyor.",
+    "summary": "Database preference: PostgreSQL",
+    "type": "semantic",
+    "importance": 0.75,
+    "confidence": 0.90,
+    "retrieval_count": 5,
+    "created_at": "2026-07-19T09:15:00Z",
+    "last_accessed": "2026-07-19T09:15:00Z",
+    "entities": [
+      { "name": "PostgreSQL", "type": "technology" }
+    ]
+  },
+  {
+    "id": "memory_003",
+    "content": "Kullanıcının adı Ahmet ve İstanbul'da yaşıyor.",
+    "summary": "User personal details",
+    "type": "core",
+    "importance": 0.95,
+    "confidence": 0.99,
+    "retrieval_count": 25,
+    "created_at": "2026-07-18T14:30:00Z",
+    "last_accessed": "2026-07-20T14:05:00Z",
+    "entities": [
+      { "name": "Ahmet", "type": "person" },
+      { "name": "İstanbul", "type": "location" }
+    ]
+  }
+]

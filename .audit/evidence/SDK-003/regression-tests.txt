@@ -1,0 +1,11 @@
+Focused regression command:
+`env -i PATH=/home/yasin/Desktop/MESA/venv/bin:/usr/bin:/bin PYTHON_DOTENV_DISABLED=1 MESA_LLM_PROVIDER=mock MESA_API_KEY=synthetic-test-key /home/yasin/Desktop/MESA/venv/bin/python -m pytest -q tests/test_principal_authorization.py tests/test_rbac.py tests/test_session_lifecycle.py tests/test_router_coverage.py`
+
+Result: exit 0; 30 passed; 1 Starlette/httpx deprecation warning; duration 4.40s.
+
+Direct composition-root checks:
+- Main API dependency: synthetic key + `MESA_PRINCIPAL_ID=wave001-test-principal` attached `request.state.principal`; wrong key raised 401. Exit 0.
+- `scripts/run_server.py` middleware: same synthetic key attached the active principal; wrong key returned 401. Exit 0. No lifespan, provider, worker or production storage was started.
+
+Cross-system limitation:
+`tests/test_p0b_missing.py` collection was attempted in isolated lab configuration but stopped before test execution because optional `openai` is absent from the repaired venv (`ModuleNotFoundError`). No dependency installation or test weakening was performed. SDK/MCP authenticated contract remains covered by open `SDK-003`, so E3 is not claimed.

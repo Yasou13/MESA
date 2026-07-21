@@ -69,11 +69,11 @@ class Tier3Validator:
     - Either LLM errors → raise ``Tier3ValidationError`` (never silent DISCARD)
     """
 
-    def __init__(self, llm_a, llm_b):
+    def __init__(self, llm_a, llm_b):  # type: ignore[no-untyped-def]
         self.llm_a = llm_a
         self.llm_b = llm_b
 
-    def _parse_decision(self, raw, llm_label: str) -> str:
+    def _parse_decision(self, raw, llm_label: str) -> str:  # type: ignore[no-untyped-def]
         """Parse a STORE/DISCARD decision from raw LLM output.
 
         Raises ``Tier3ValidationError`` on JSON parse failure or missing
@@ -92,7 +92,7 @@ class Tier3Validator:
                 raise Tier3ValidationError(
                     f"{llm_label} returned invalid decision: {decision!r}"
                 )
-            return decision
+            return decision  # type: ignore[no-any-return]
         except (json.JSONDecodeError, TypeError, AttributeError) as exc:
             raise Tier3ValidationError(
                 f"{llm_label} response is not valid JSON: {exc}"

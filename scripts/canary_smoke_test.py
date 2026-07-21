@@ -26,8 +26,10 @@ def run_smoke_test():
     """Basic smoke test to ensure the client can connect and execute a simple workflow."""
     try:
         logger.info("Using existing Uvicorn server on port 8000 for Canary Test...")
-        env = os.environ.copy()
-        env["MESA_API_KEY"] = env.get("MESA_API_KEY", "mesa_prod_sec_2026_xyz")
+        api_key = os.environ.get("MESA_API_KEY")
+        if not api_key:
+            logger.error("MESA_API_KEY must be explicitly configured for the canary.")
+            return 2
 
         if not wait_for_port(8000):
             logger.error("Server on port 8000 is not running.")
@@ -39,7 +41,7 @@ def run_smoke_test():
         resp = httpx.post(
             "http://127.0.0.1:8000/v3/memory/session/start",
             headers={
-                "X-API-Key": env["MESA_API_KEY"],
+                "X-API-Key": api_key,
                 "Content-Type": "application/json",
             },
             json={"agent_id": "canary-agent"},
@@ -49,9 +51,7 @@ def run_smoke_test():
         logger.info(f"Session started: {session_id}")
 
         logger.info("Server is up. Initializing MesaClient...")
-        client = MesaClient(
-            base_url="http://127.0.0.1:8000", api_key=env["MESA_API_KEY"]
-        )
+        client = MesaClient(base_url="http://127.0.0.1:8000", api_key=api_key)
 
         logger.info("Testing Insert (add_memory)...")
         agent_id = "canary-agent"

@@ -1,4 +1,5 @@
 """Validated container process entrypoint for MESA runtime profiles."""
+
 from __future__ import annotations
 
 import os
@@ -13,7 +14,14 @@ def command_for_profile() -> list[str]:
     if not runtime.api_enabled:
         raise RuntimeError("selected runtime profile does not expose an API process")
     port = os.environ.get("MESA_PORT", "8000")
-    return ["uvicorn", "mesa_memory.api.server:app", "--host", "0.0.0.0", "--port", port]
+    return [
+        "uvicorn",
+        "mesa_memory.api.server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        port,
+    ]
 
 
 def main() -> None:

@@ -1,0 +1,1 @@
+Audit/remediation checkpoint records and required canonical audit documents only; no source, test, config, schema or migration file changed.

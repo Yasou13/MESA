@@ -18,8 +18,8 @@ import asyncio
 import os
 import shutil
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -309,10 +309,14 @@ class TestPurgeErrors:
         ac_mock.check_access = AsyncMock(return_value=False)
         ac_mock.check_principal_permission = AsyncMock(return_value=False)
         app = FastAPI()
+
         @app.middleware("http")
         async def attach_principal(request, call_next):
-            request.state.principal = SimpleNamespace(principal_id="principal-a", status="active")
+            request.state.principal = SimpleNamespace(
+                principal_id="principal-a", status="active"
+            )
             return await call_next(request)
+
         router = create_memory_router(
             get_dao=lambda: MagicMock(),
             get_access_control=lambda: ac_mock,
@@ -336,10 +340,14 @@ class TestPurgeErrors:
         dao_mock.purge_memory = AsyncMock(side_effect=RuntimeError("DAO Error"))
 
         app = FastAPI()
+
         @app.middleware("http")
         async def attach_principal(request, call_next):
-            request.state.principal = SimpleNamespace(principal_id="principal-a", status="active")
+            request.state.principal = SimpleNamespace(
+                principal_id="principal-a", status="active"
+            )
             return await call_next(request)
+
         router = create_memory_router(
             get_dao=lambda: dao_mock,
             get_access_control=lambda: ac_mock,

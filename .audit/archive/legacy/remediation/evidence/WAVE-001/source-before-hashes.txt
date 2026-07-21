@@ -1,0 +1,44 @@
+mesa_memory/api/server.py
+  resolved=/home/yasin/Desktop/MESA/mesa_memory/api/server.py
+  mode=664
+  size=19296
+  sha256=4276163fe4deabe581bdc00198b081b0711b742def73d21c07552cd1402b32c3
+  backup=/storage/mesa-lab/artifacts/WAVE-001/source-backup/server.py
+  backup_sha256=4276163fe4deabe581bdc00198b081b0711b742def73d21c07552cd1402b32c3
+  backup_size=19296
+
+mesa_memory/security/rbac.py
+  resolved=/home/yasin/Desktop/MESA/mesa_memory/security/rbac.py
+  mode=664
+  size=7727
+  sha256=74dddd20fcf14a0bb07539fde55d5aad0f150bca5115a9783d5b0bcf6501543c
+  backup=/storage/mesa-lab/artifacts/WAVE-001/source-backup/rbac.py
+  backup_sha256=74dddd20fcf14a0bb07539fde55d5aad0f150bca5115a9783d5b0bcf6501543c
+  backup_size=7727
+
+mesa_api/router.py
+  resolved=/home/yasin/Desktop/MESA/mesa_api/router.py
+  mode=644
+  size=24908
+  sha256=3653c8b9f2fbbc065925cc431f643d6998b911116ba838bde6123e9fb3190554
+  backup=/storage/mesa-lab/artifacts/WAVE-001/source-backup/router.py
+  backup_sha256=3653c8b9f2fbbc065925cc431f643d6998b911116ba838bde6123e9fb3190554
+  backup_size=24908
+
+scripts/run_server.py
+  resolved=/home/yasin/Desktop/MESA/scripts/run_server.py
+  mode=664
+  size=11375
+  sha256=445df2ee0ec5df6711db6a0c5135af1daf5ff18defcdb1b28aa3f345ab9fe5c3
+  backup=/storage/mesa-lab/artifacts/WAVE-001/source-backup/run_server.py
+  backup_sha256=445df2ee0ec5df6711db6a0c5135af1daf5ff18defcdb1b28aa3f345ab9fe5c3
+  backup_size=11375
+
+tests/test_principal_authorization.py
+  resolved=/home/yasin/Desktop/MESA/tests/test_principal_authorization.py
+  mode=644
+  size=1399
+  sha256=d3516320fc475385548a31cd8f71ec8bbff1f319e93452c765b3a3bb99602ac9
+  backup=/storage/mesa-lab/artifacts/WAVE-001/source-backup/test_principal_authorization.py
+  backup_sha256=d3516320fc475385548a31cd8f71ec8bbff1f319e93452c765b3a3bb99602ac9
+  backup_size=1399

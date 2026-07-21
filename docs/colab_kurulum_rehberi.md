@@ -16,16 +16,16 @@ Bu rehber, MESA (Memory Engine for Structured Agents) sistemini Google Colab üz
 
 ## Adım 2: Bağımlılıkların Yükleneceği Ortamın Hazırlanması
 
-MESA'nın iki farklı bağımlılık seti vardır: Hafif API modu (`requirements-core.txt`) ve tam makine öğrenimi desteği (`requirements-ml.txt`). Colab ortamında olduğumuz ve kaynak kısıtlamamız olmadığı için genellikle tam sürümü kurmak en iyisidir.
+MESA bağımlılıklarını `pyproject.toml` üzerinden yönetir. Colab ortamında tam makine öğrenimi ve provider SDK'ları gerektiğinde ilgili optional extras kurulmalıdır.
 
 Aşağıdaki komutu çalıştırarak gerekli Python kütüphanelerini yükleyin:
 
 ```python
 # Tüm ML ve Core bağımlılıklarını kurar (REBEL model kullanımı vb. için)
-!pip install -r requirements-ml.txt
+!pip install -e ".[ml,adapters]"
 
 # VEYA sadece hafif versiyonu kurmak isterseniz:
-# !pip install -r requirements-core.txt
+# !pip install -e .
 ```
 
 > **İpucu:** Kurulum tamamlandıktan sonra Colab sizden "Runtime'ı (Çalışma Zamanını) Yeniden Başlatmanızı" isteyebilir. Eğer böyle bir uyarı çıkarsa "Restart Session" butonuna tıklayın ve ardından tekrar `%cd MESA` komutunu çalıştırarak dizinde olduğunuzdan emin olun.
@@ -102,7 +102,7 @@ for i in range(max_retries):
                 sys.exit(1)
             elif auth_test.status_code == 500:
                 print("🚨 HATA (500 UnknownError): İç sunucu hatası. Muhtemelen .kuzu veritabanı kilitlendi veya izin sorunu var.")
-                print("ÇÖZÜM: Colab çalışma zamanını (Runtime) yeniden başlatın veya !rm -rf .kuzu dizinini silerek sıfırlayın.")
+                print("ÇÖZÜM: Çalışma zamanını yeniden başlatın ve storage yolunu/izinlerini doğrulayın; mevcut veriyi silmeden önce backup ve recovery runbook'unu izleyin.")
                 server_process.kill()
                 sys.exit(1)
             else:

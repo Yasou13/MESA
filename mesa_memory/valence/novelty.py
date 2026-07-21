@@ -73,7 +73,7 @@ async def calculate_novelty_score(
     if len(existing_embeddings) < config.recalibration_interval:
         return max_sim < cosine_threshold
 
-    def _fit_and_score():
+    def _fit_and_score():  # type: ignore[no-untyped-def]
         clf = ECOD()
         clf.fit(existing_embeddings)
         new_score = clf.decision_function(new_embedding)[0]

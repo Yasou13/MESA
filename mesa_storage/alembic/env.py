@@ -1,10 +1,11 @@
-import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.engine.url import make_url
+
+from mesa_storage.schema_contract import preflight_schema, validate_postflight
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -27,6 +28,23 @@ target_metadata = None
 # ... etc.
 
 
+def _migration_url() -> str:
+    """Use the synchronous SQLite driver for Alembic DDL execution.
+
+    MESA's application runtime intentionally uses ``aiosqlite``.  Alembic's
+    migration operations are synchronous, however, and running them through
+    the async adapter can leave the CLI waiting on its event loop.  This
+    conversion is scoped to the migration process only.
+    """
+    configured_url = config.get_main_option("sqlalchemy.url")
+    if configured_url is None:
+        raise RuntimeError("Alembic sqlalchemy.url is required for migration")
+    url = make_url(configured_url)
+    if url.drivername == "sqlite+aiosqlite":
+        url = url.set(drivername="sqlite+pysqlite")
+    return str(url)
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -39,7 +57,13 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    x_arguments = context.get_x_argument(as_dictionary=True)
+    if x_arguments.get("mesa_legacy") == "adopt":
+        raise RuntimeError(
+            "mesa_legacy=adopt requires an online SQLite connection; offline SQL "
+            "generation cannot inspect or adopt a legacy database."
+        )
+    url = _migration_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -52,34 +76,31 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    preflight_schema(connection, config)
     context.configure(connection=connection, target_metadata=target_metadata)
-
     with context.begin_transaction():
         context.run_migrations()
-
-
-async def run_async_migrations() -> None:
-    """In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
-
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+    validate_postflight(
+        connection,
+        config,
+        require_head=bool(config.attributes.get("mesa_require_head_postflight")),
     )
-
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-
-    asyncio.run(run_async_migrations())
+    """Run migrations through Alembic's synchronous DDL connection."""
+    section = config.get_section(config.config_ini_section, {})
+    section["sqlalchemy.url"] = _migration_url()
+    connectable = engine_from_config(
+        section,
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    try:
+        with connectable.connect() as connection:
+            do_run_migrations(connection)
+    finally:
+        connectable.dispose()
 
 
 if context.is_offline_mode():

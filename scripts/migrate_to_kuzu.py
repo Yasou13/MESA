@@ -17,16 +17,18 @@ Usage:
         --kuzu-db   ./storage/kuzu_db \\
         [--csv-dir  ./storage/migration_csv]
 
-The script is idempotent: KùzuDB tables are created IF NOT EXISTS,
-and existing data is preserved.  However, COPY FROM appends rows —
-running twice will create duplicates.  Use --wipe to DROP and
-recreate tables before import for a clean migration.
+The script uses ``KuzuMigrationCoordinator``. It builds a versioned sibling
+staging database, validates counts, and atomically promotes it only after a
+SQLite journal and process-level lock agree. The prior live directory is kept
+for explicit rollback. ``--wipe`` is refused: live Kùzu data is never mutated
+in place.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import logging
 import os
 import sqlite3
@@ -35,6 +37,8 @@ import time
 from pathlib import Path
 
 import kuzu
+
+from mesa_storage.kuzu_migration import KuzuMigrationCoordinator
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -68,10 +72,6 @@ _DDL_OBSERVED = (
     "agent_id STRING"
     ")"
 )
-
-_DROP_OBSERVED = "DROP TABLE IF EXISTS Observed"
-_DROP_ENTITY = "DROP TABLE IF EXISTS Entity"
-
 
 # ---------------------------------------------------------------------------
 # Phase 1: Extract from SQLite → CSV
@@ -194,27 +194,20 @@ def bulk_import(
     kuzu_path: str,
     nodes_csv: str,
     edges_csv: str,
-    wipe: bool = False,
-) -> None:
+) -> tuple[int, int]:
     """Execute KùzuDB native bulk COPY FROM CSV files.
 
     Args:
         kuzu_path: Path to the KùzuDB database directory.
         nodes_csv: Absolute path to the Entity CSV file.
         edges_csv: Absolute path to the Observed CSV file.
-        wipe: If True, DROP and recreate tables before import.
+    Returns:
+        Verified ``(node_count, edge_count)`` in the staging graph.
     """
     db = kuzu.Database(kuzu_path)
     conn = kuzu.Connection(db)
 
     try:
-        if wipe:
-            logger.warning("WIPE MODE: Dropping existing tables…")
-            # Must drop REL table first (depends on NODE table)
-            conn.execute(_DROP_OBSERVED)
-            conn.execute(_DROP_ENTITY)
-            logger.info("Tables dropped successfully.")
-
         # Ensure schema exists
         conn.execute(_DDL_ENTITY)
         conn.execute(_DDL_OBSERVED)
@@ -256,10 +249,20 @@ def bulk_import(
             node_count,
             edge_count,
         )
+        return node_count, edge_count
 
     finally:
         conn.close()
         db.close()
+
+
+def _fingerprint_file(path: Path) -> str:
+    """Return a deterministic source fingerprint without copying source data."""
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -291,68 +294,112 @@ def main() -> None:
     parser.add_argument(
         "--wipe",
         action="store_true",
-        help="DROP and recreate KùzuDB tables before import (clean migration).",
+        help="Refused: live Kùzu directories are never wiped in place.",
+    )
+    parser.add_argument(
+        "--migration-id",
+        default="sqlite-edges-to-kuzu-v1",
+        help="Immutable operator-selected migration identifier.",
+    )
+    parser.add_argument(
+        "--target-version",
+        default="1",
+        help="Target graph layout version recorded with the migration.",
+    )
+    parser.add_argument(
+        "--journal-db",
+        default=None,
+        help="SQLite journal path; defaults beside the live Kùzu directory.",
+    )
+    parser.add_argument(
+        "--rollback",
+        action="store_true",
+        help="Explicitly restore the retained pre-promotion directory for migration-id.",
     )
     args = parser.parse_args()
+
+    if args.wipe:
+        parser.error("--wipe is refused; create a new staged migration instead")
+
+    live_path = Path(args.kuzu_db).resolve()
+    journal_path = (
+        Path(args.journal_db).resolve()
+        if args.journal_db
+        else live_path.parent / "kuzu_migration_journal.db"
+    )
+    coordinator = KuzuMigrationCoordinator(live_path, journal_path)
+
+    if args.rollback:
+        outcome = coordinator.rollback(args.migration_id)
+        logger.warning(
+            "MIGRATION ROLLBACK COMPLETE | id=%s retained_promoted=%s",
+            outcome.migration_id,
+            outcome.backup_path,
+        )
+        return
 
     # Validate SQLite path
     if not os.path.isfile(args.sqlite_db):
         logger.error("SQLite database not found: %s", args.sqlite_db)
         sys.exit(1)
 
-    # Create CSV output directory
-    csv_dir = Path(args.csv_dir)
-    csv_dir.mkdir(parents=True, exist_ok=True)
-
-    nodes_csv = str((csv_dir / "migration_nodes.csv").resolve())
-    edges_csv = str((csv_dir / "migration_edges.csv").resolve())
-
     logger.info("=" * 60)
     logger.info("MESA SQLite → KùzuDB Migration")
     logger.info("=" * 60)
     logger.info("SQLite : %s", args.sqlite_db)
-    logger.info("KùzuDB : %s", args.kuzu_db)
-    logger.info("CSV dir: %s", csv_dir)
-    logger.info("Wipe   : %s", args.wipe)
+    logger.info("KùzuDB live: %s", live_path)
+    logger.info("Migration ID: %s", args.migration_id)
+    logger.info("Journal: %s", journal_path)
     logger.info("-" * 60)
 
     # ---- Phase 1: Extract ----
     total_start = time.perf_counter()
 
-    node_count = extract_nodes(args.sqlite_db, nodes_csv)
-    edge_count = extract_edges(args.sqlite_db, edges_csv)
+    source_path = Path(args.sqlite_db).resolve()
+    csv_root = Path(args.csv_dir).resolve()
+    expected_counts: tuple[int, int] | None = None
 
-    extract_elapsed = time.perf_counter() - total_start
-    logger.info(
-        "PHASE 1 COMPLETE | Extracted %d nodes + %d edges in %.3fs",
-        node_count,
-        edge_count,
-        extract_elapsed,
+    def build_staging(staging_path: Path) -> None:
+        nonlocal expected_counts
+        csv_dir = csv_root / staging_path.name
+        csv_dir.mkdir(parents=True, exist_ok=True)
+        nodes_csv = str((csv_dir / "migration_nodes.csv").resolve())
+        edges_csv = str((csv_dir / "migration_edges.csv").resolve())
+        node_count = extract_nodes(str(source_path), nodes_csv)
+        edge_count = extract_edges(str(source_path), edges_csv)
+        imported_counts = bulk_import(str(staging_path), nodes_csv, edges_csv)
+        if imported_counts != (node_count, edge_count):
+            raise RuntimeError(
+                "staging Kùzu verification count differs from extracted SQLite data"
+            )
+        expected_counts = imported_counts
+
+    def validate_staging(staging_path: Path) -> None:
+        if expected_counts is None:
+            # A resumed staging build is self-contained; the bulk import already
+            # checked its source counts before journal state became STAGED.
+            if not staging_path.is_dir():
+                raise RuntimeError("resumable staging directory is missing")
+
+    outcome = coordinator.run(
+        migration_id=args.migration_id,
+        source_fingerprint=_fingerprint_file(source_path),
+        target_version=args.target_version,
+        build_staging=build_staging,
+        validate_staging=validate_staging,
     )
-
-    if node_count == 0:
-        logger.warning(
-            "No active nodes found in SQLite. "
-            "Skipping KùzuDB import (nothing to import)."
-        )
-        return
-
-    # ---- Phase 2: Bulk import ----
-    import_start = time.perf_counter()
-    bulk_import(args.kuzu_db, nodes_csv, edges_csv, wipe=args.wipe)
-    import_elapsed = time.perf_counter() - import_start
 
     total_elapsed = time.perf_counter() - total_start
 
     logger.info("-" * 60)
     logger.info(
-        "MIGRATION COMPLETE | %d nodes + %d edges in %.3fs "
-        "(extract: %.3fs, import: %.3fs)",
-        node_count,
-        edge_count,
+        "MIGRATION COMPLETE | state=%s token=%d in %.3fs "
+        "(live=%s retained_previous=%s)",
+        outcome.state,
+        outcome.fencing_token,
         total_elapsed,
-        extract_elapsed,
-        import_elapsed,
+        outcome.live_path,
+        outcome.backup_path,
     )
     logger.info("=" * 60)
 

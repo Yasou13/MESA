@@ -25,6 +25,7 @@ from mesa_memory.config import (
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
 )
+from mesa_memory.container_health import worker_is_ready
 from mesa_memory.observability.logger import setup_logging
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.observability.tracer import setup_telemetry_tracing
@@ -78,9 +79,7 @@ def _require_api_key() -> None:
         )
 
 
-async def get_api_key(
-    request: Request, api_key: str = Depends(_API_KEY_HEADER)
-) -> str:
+async def get_api_key(request: Request, api_key: str = Depends(_API_KEY_HEADER)) -> str:
     """Validate the API key and attach its configured server-side principal."""
     if (
         not api_key
@@ -137,15 +136,15 @@ def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ==================================================================
-    # Configure Structured Logging
+    # Configure Structured Logging  # type: ignore[no-untyped-def]
     setup_logging()
 
     runtime = load_runtime_profile()
     load_explicit_dotenv(runtime)
     _configure_runtime_paths(runtime)
-    state.runtime_profile = runtime
+    state.runtime_profile = runtime  # type: ignore[attr-defined]
 
-    # Initialize LLM telemetry (Langfuse/Langsmith) only after profile validation.
+    # Initialize LLM telemetry (Langfuse/Langsmith) only after profile validation.  # type: ignore[attr-defined]
     setup_telemetry_tracing()
 
     # Fail-fast: refuse to start without a valid API key
@@ -176,8 +175,9 @@ async def lifespan(app: FastAPI):
     # Initialize KùzuDB embedded graph database (disk-backed)
     # NOTE: Only the Database handle is created here. kuzu.Connection
     # instances must be created per-thread to avoid file-lock contention.
-    _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
-
+    if _KUZU_PATH is not None:
+        _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # type: ignore[union-attr]
     print("LIFESPAN: Before initialize_schema")
     from mesa_storage import kuzu_setup
 
@@ -213,8 +213,8 @@ async def lifespan(app: FastAPI):
     wal_task = None
     maintenance_worker = None
     rem_worker = None
-    state.consolidation_loop = None
-    if runtime.worker_enabled and runtime.model_enabled:
+    state.consolidation_loop = None  # type: ignore[assignment]
+    if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         print("LIFESPAN: Before AdapterFactory")
         # Wire the Consolidation Loop directly to the DAO
         llm_a = AdapterFactory.get_adapter()
@@ -372,7 +372,7 @@ async def lifespan(app: FastAPI):
         # Background worker: SQLite WAL Checkpointer
         # ------------------------------------------------------------------
         async def wal_checkpoint_worker():
-            while True:
+            while True:  # type: ignore[no-untyped-def]
                 try:
                     await asyncio.sleep(300)  # Checkpoint every 5 minutes
                     if hasattr(state, "sqlite_engine") and state.sqlite_engine:
@@ -384,12 +384,16 @@ async def lifespan(app: FastAPI):
                 except Exception as exc:
                     logger.warning("WAL_CHECKPOINT_FAILED | error=%s", exc)
 
-        wal_task = await state.worker_supervisor.start("wal-checkpoint", wal_checkpoint_worker, required=False)
+        wal_task = await state.worker_supervisor.start(
+            "wal-checkpoint", wal_checkpoint_worker, required=False
+        )
         state.background_tasks.add(wal_task)
         logger.info("WAL Checkpoint worker started successfully.")
 
     else:
-        logger.info("Runtime profile %s starts API/storage without workers", runtime.profile)
+        logger.info(
+            "Runtime profile %s starts API/storage without workers", runtime.profile
+        )
 
     print("LIFESPAN: READY!")
     state.is_ready = True
@@ -488,6 +492,8 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
 from mesa_memory.observability.metrics import PROM_HTTP_REQUESTS
 
+# type: ignore[no-untyped-def]
+
 
 @app.middleware("http")
 async def add_api_version_header(request: Request, call_next):
@@ -509,7 +515,7 @@ def get_dao() -> MemoryDAO:
     """Dependency injection for the MemoryDAO."""
     if not hasattr(state, "dao") or state.dao is None:
         raise HTTPException(status_code=503, detail="Storage not initialized")
-    return state.dao
+    return state.dao  # type: ignore[no-untyped-def]
 
 
 def get_embedder():
@@ -535,7 +541,7 @@ def get_access_control() -> AccessControl:
     Returns the instance initialised during lifespan startup.
     Raises 503 if called before lifespan completes.
     """
-    ac = getattr(state, "access_control", None)
+    ac = getattr(state, "access_control", None)  # type: ignore[no-any-return]
     if ac is None:
         raise HTTPException(status_code=503, detail="AccessControl not initialized")
     return ac
@@ -556,6 +562,7 @@ memory_router = create_memory_router(
 # We can't attach dependencies to the include_router directly if the router already defines some,
 # but it's simpler to inject them directly on include_router
 app.include_router(memory_router, dependencies=router_dependencies)
+# type: ignore[no-untyped-def]
 
 
 @app.get("/health/init")
@@ -568,23 +575,31 @@ async def health_init():
     workers_required = runtime is None or runtime.worker_enabled
     worker_health = state.worker_supervisor.readiness()
     if workers_required and worker_health["status"] != "healthy":
-        raise HTTPException(status_code=503, detail="Required workers degraded or blocked")
+        raise HTTPException(
+            status_code=503, detail="Required workers degraded or blocked"
+        )
+    if (
+        runtime is not None
+        and getattr(runtime, "require_worker_readiness", False)
+        and not worker_is_ready(runtime.storage_root)
+    ):
+        raise HTTPException(status_code=503, detail="External worker is not ready")
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
     ):
         if health.get("graph", {}).get("status") in ("healthy", "not_initialized"):
-            return {"status": "ready"}
+            return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")
 
 
 @app.get("/v3/health", dependencies=[Depends(get_api_key)])
-async def health_v3():
+async def health_v3():  # type: ignore[no-untyped-def]
     return await state.dao.health_check()
 
 
 @app.get("/health", dependencies=[Depends(get_api_key)])
-async def health():
+async def health():  # type: ignore[no-untyped-def]
     return await state.dao.health_check()
 
 

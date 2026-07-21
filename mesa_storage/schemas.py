@@ -44,7 +44,6 @@ async def initialize_schema(engine: AsyncEngine) -> None:
     Args:
         engine: An initialised AsyncEngine pointing to the target database.
     """
-    import asyncio
     from pathlib import Path
 
     from alembic import command
@@ -58,12 +57,12 @@ async def initialize_schema(engine: AsyncEngine) -> None:
     # Inject the SQLite URL programmatically so we don't rely on the .ini
     db_url = f"sqlite+aiosqlite:///{engine.db_path}"
     alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+    alembic_cfg.attributes["mesa_require_head_postflight"] = True
 
-    loop = asyncio.get_running_loop()
-    await asyncio.wait_for(
-        loop.run_in_executor(None, command.upgrade, alembic_cfg, "head"),
-        timeout=120.0,  # 2min ceiling — prevents indefinite startup hang
-    )
+    # Alembic DDL is synchronous.  It runs before the service accepts traffic,
+    # and keeping it in this startup call avoids the thread/executor deadlock
+    # that can occur when an async event loop launches the migration command.
+    command.upgrade(alembic_cfg, "head")
 
     async with engine.connection() as db:
         # B-6 FIX: Recover orphaned jobs

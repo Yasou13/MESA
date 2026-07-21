@@ -25,14 +25,20 @@ async def test_async_sdk_purge_uses_server_api_key_header(tmp_path):
     dao = SimpleNamespace(purge_memory=AsyncMock(return_value=0))
     app = FastAPI()
     app.include_router(
-        create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),
+        create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),  # type: ignore[return-value]
         dependencies=[Depends(server.get_api_key)],
     )
-    previous = (server._MESA_API_KEY, server._MESA_PRINCIPAL_ID, server._MESA_PRINCIPAL_STATUS)
+    previous = (
+        server._MESA_API_KEY,
+        server._MESA_PRINCIPAL_ID,
+        server._MESA_PRINCIPAL_STATUS,
+    )
     server._MESA_API_KEY = "isolated-sdk-key"
     server._MESA_PRINCIPAL_ID = "principal-a"
     server._MESA_PRINCIPAL_STATUS = "active"
-    client = AsyncMesaClient(base_url="http://mesa.test", api_key="isolated-sdk-key", max_retries=0)
+    client = AsyncMesaClient(
+        base_url="http://mesa.test", api_key="isolated-sdk-key", max_retries=0
+    )
     await client._client.aclose()
     client._client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
@@ -40,13 +46,19 @@ async def test_async_sdk_purge_uses_server_api_key_header(tmp_path):
         headers=client._client.headers,
     )
     try:
-        result = await client.purge(MemoryPurgeRequest(agent_id="agent-a", scope="agent", scope_id="agent-a"))
+        result = await client.purge(
+            MemoryPurgeRequest(agent_id="agent-a", scope="agent", scope_id="agent-a")
+        )
         assert result.status == "purged"
         assert result.deleted_records_count == 0
         dao.purge_memory.assert_awaited_once()
     finally:
         await client.aclose()
-        (server._MESA_API_KEY, server._MESA_PRINCIPAL_ID, server._MESA_PRINCIPAL_STATUS) = previous
+        (
+            server._MESA_API_KEY,
+            server._MESA_PRINCIPAL_ID,
+            server._MESA_PRINCIPAL_STATUS,
+        ) = previous
         await policy.close()
 
 
@@ -62,17 +74,27 @@ async def test_mcp_forget_memory_uses_configured_agent_and_async_sdk_auth(tmp_pa
     dao = SimpleNamespace(purge_memory=AsyncMock(return_value=0))
     app = FastAPI()
     app.include_router(
-        create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),
+        create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),  # type: ignore[return-value]
         dependencies=[Depends(server.get_api_key)],
     )
-    previous_auth = (server._MESA_API_KEY, server._MESA_PRINCIPAL_ID, server._MESA_PRINCIPAL_STATUS)
-    previous_mcp = (mcp_server.MESA_AGENT_ID, mcp_server.MESA_API_KEY, mcp_server.AsyncMesaClient)
+    previous_auth = (
+        server._MESA_API_KEY,
+        server._MESA_PRINCIPAL_ID,
+        server._MESA_PRINCIPAL_STATUS,
+    )
+    previous_mcp = (
+        mcp_server.MESA_AGENT_ID,
+        mcp_server.MESA_API_KEY,
+        mcp_server.AsyncMesaClient,
+    )
     server._MESA_API_KEY = "isolated-mcp-key"
     server._MESA_PRINCIPAL_ID = "principal-a"
     server._MESA_PRINCIPAL_STATUS = "active"
     mcp_server.MESA_AGENT_ID = "agent-a"
     mcp_server.MESA_API_KEY = "isolated-mcp-key"
-    client = AsyncMesaClient(base_url="http://mesa.test", api_key="isolated-mcp-key", max_retries=0)
+    client = AsyncMesaClient(
+        base_url="http://mesa.test", api_key="isolated-mcp-key", max_retries=0
+    )
     await client._client.aclose()
     client._client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
@@ -86,6 +108,10 @@ async def test_mcp_forget_memory_uses_configured_agent_and_async_sdk_auth(tmp_pa
         assert dao.purge_memory.await_args.kwargs["agent_id"] == "agent-a"
     finally:
         mcp_server.AsyncMesaClient = previous_mcp[2]
-        (mcp_server.MESA_AGENT_ID, mcp_server.MESA_API_KEY) = previous_mcp[:2]
-        (server._MESA_API_KEY, server._MESA_PRINCIPAL_ID, server._MESA_PRINCIPAL_STATUS) = previous_auth
+        mcp_server.MESA_AGENT_ID, mcp_server.MESA_API_KEY = previous_mcp[:2]
+        (
+            server._MESA_API_KEY,
+            server._MESA_PRINCIPAL_ID,
+            server._MESA_PRINCIPAL_STATUS,
+        ) = previous_auth
         await policy.close()

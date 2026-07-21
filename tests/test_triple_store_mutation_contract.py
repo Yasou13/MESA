@@ -49,16 +49,28 @@ class _TrackingVector:
     async def upsert(self, node_id: str, agent_id: str, **_kwargs) -> None:
         self.active_node_ids.add((node_id, agent_id))
 
+    async def bulk_upsert(self, records) -> None:
+        for record in records:
+            self.active_node_ids.add((record["node_id"], record["agent_id"]))
+
     async def soft_delete(self, node_id: str, agent_id: str) -> None:
         self.soft_delete_calls.append((node_id, agent_id))
         self.active_node_ids.discard((node_id, agent_id))
 
 
 class _FailingGraph:
-    async def insert_node(
-        self, *, node_id: str, name: str, agent_id: str
-    ) -> None:
+    async def insert_node(self, *, node_id: str, name: str, agent_id: str) -> None:
         raise GraphWriteRejected("simulated Kuzu write failure")
+
+
+class _FailingSecondGraph:
+    def __init__(self) -> None:
+        self.inserted_node_ids = []
+
+    async def insert_node(self, *, node_id: str, name: str, agent_id: str) -> None:
+        self.inserted_node_ids.append(node_id)
+        if len(self.inserted_node_ids) == 2:
+            raise GraphWriteRejected("simulated partial Kuzu bulk write failure")
 
 
 @pytest.mark.asyncio
@@ -81,10 +93,43 @@ async def test_insert_fails_closed_and_compensates_vector_when_graph_rejects():
             embedding=VEC8,
         )
 
-    assert vector.soft_delete_calls == [
-        ("node-graph-failure", "agent-wave-002")
-    ]
+    assert vector.soft_delete_calls == [("node-graph-failure", "agent-wave-002")]
     assert ("node-graph-failure", "agent-wave-002") not in vector.active_node_ids
+    assert sql.transaction_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_bulk_insert_fails_closed_and_compensates_all_vectors_on_graph_failure():
+    sql = _RecordingSql()
+    vector = _TrackingVector()
+    graph = _FailingSecondGraph()
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+
+    with pytest.raises(GraphWriteRejected):
+        await dao.bulk_insert_memory(
+            "agent-wave-002",
+            records=[
+                {
+                    "node_id": "node-bulk-1",
+                    "entity_name": "First",
+                    "content": "first content",
+                    "embedding": VEC8,
+                },
+                {
+                    "node_id": "node-bulk-2",
+                    "entity_name": "Second",
+                    "content": "second content",
+                    "embedding": VEC8,
+                },
+            ],
+        )
+
+    assert graph.inserted_node_ids == ["node-bulk-1", "node-bulk-2"]
+    assert vector.soft_delete_calls == [
+        ("node-bulk-1", "agent-wave-002"),
+        ("node-bulk-2", "agent-wave-002"),
+    ]
+    assert vector.active_node_ids == set()
     assert sql.transaction_calls == 0
 
 

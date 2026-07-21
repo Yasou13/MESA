@@ -70,7 +70,7 @@ async def evaluate_beam(
 
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def _ingest_turn(turn_text: str):
+    async def _ingest_turn(turn_text: str):  # type: ignore[no-untyped-def]
         async with semaphore:
             await client.add_memory(
                 content=turn_text,

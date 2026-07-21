@@ -217,7 +217,7 @@ Returns `True` if the agent has sufficient permissions. `WRITE` satisfies both `
 | `PermissionError` | `MemoryDAO`, `HybridRetriever` | Agent lacks required RBAC access | Call `grant_access()` first |
 | `RuntimeError` | `MemoryDAO.purge_memory` | Partial purge across storage layers | Saga pattern prevents zombie data |
 | `MemoryError` | `VectorEngine` | LanceDB memory usage exceeds configured limit | Increase `lancedb_memory_limit_bytes` or `MESA_MAX_RAM_MB` |
-| `ImportError` | `RebelExtractor` | `transformers` library not installed | Install via `requirements-ml.txt` |
+| `ImportError` | `RebelExtractor` | `transformers` library not installed | Install via `python -m pip install -e ".[ml]"` |
 | `ValueError` | `AdapterFactory` | Unknown LLM provider string | Use `openai_compatible`, `claude`, `ollama`, or `mock` |
 
 ---

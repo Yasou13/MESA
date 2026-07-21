@@ -1,0 +1,7 @@
+# DATA-001 focused E2 result
+
+Combined command: `/home/yasin/Desktop/MESA/venv/bin/python -m pytest tests/test_purge_journal_contract.py tests/test_triple_store_mutation_contract.py -q --basetemp /storage/mesa-lab/storage/WAVE-002/pytest-data001-lint-final`
+
+Result: exit 0; 10 passed in 2.47s. Targeted DATA-001 rerun after final Kuzu parameter cleanup: 7 passed in 2.29s.
+
+Evidence includes a real synthetic SQLite Alembic-head fixture (head applied twice), fake deterministic Kuzu/Lance failure injection, router principal negative checks, bounded retry/recovery, exact scope, tombstone visibility, duplicate-finalized rejection and pre-downstream rollback boundary. This is E2 only; real Kuzu/Lance runtime and E3 are not claimed.

@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1.7
 ARG PYTHON_IMAGE=python:3.13.5-slim-bookworm
+FROM ghcr.io/astral-sh/uv:0.9.6 AS uv
 
 FROM ${PYTHON_IMAGE} AS builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /build
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY mesa_memory ./mesa_memory
 COPY mesa_storage ./mesa_storage
 COPY mesa_workers ./mesa_workers
@@ -12,7 +13,10 @@ COPY mesa_api ./mesa_api
 COPY mesa_client ./mesa_client
 COPY mesa_evals ./mesa_evals
 COPY mesa_mcp ./mesa_mcp
-RUN python -m pip wheel --no-cache-dir --wheel-dir=/wheels .
+COPY --from=uv /uv /usr/local/bin/uv
+RUN uv export --quiet --frozen --no-dev --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
+    && python -m pip wheel --no-cache-dir --wheel-dir=/wheels -r /tmp/requirements.txt \
+    && python -m pip wheel --no-cache-dir --no-deps --wheel-dir=/wheels .
 
 FROM ${PYTHON_IMAGE} AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \

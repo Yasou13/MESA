@@ -33,6 +33,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import kuzu
 
@@ -87,8 +88,12 @@ _MIGRATIONS: list[tuple[str, str]] = [
 # ---------------------------------------------------------------------------
 
 
-def initialize_schema(db_path: str) -> None:
-    """Create the KùzuDB graph schema if it does not already exist.
+def initialize_schema_artifact(db_path: str) -> None:
+    """Create the current schema in a new, non-live Kùzu artifact.
+
+    This low-level helper deliberately has no migration policy. It is used by
+    the offline coordinator to build a staging artifact. Runtime callers must
+    use :func:`initialize_schema`, which validates a versioned journal first.
 
     Opens a temporary ``kuzu.Connection`` to execute DDL, then closes it
     immediately.  This avoids holding a long-lived connection at module
@@ -129,16 +134,25 @@ def initialize_schema(db_path: str) -> None:
         conn.execute(_CREATE_OBSERVED_REL)
         logger.info("KUZU_SCHEMA | Observed rel table ready")
 
-        # 3. Schema migrations for existing databases
-        _apply_migrations(conn)
-
         logger.info(
-            "KUZU_SCHEMA | initialization complete — tables=[Entity, Observed] db=%s",
+            "KUZU_SCHEMA | staging artifact initialized — tables=[Entity, Observed] db=%s",
             db_path,
         )
     finally:
         conn.close()
         db.close()
+
+
+def initialize_schema(db_path: str) -> None:
+    """Ensure a runtime graph is journaled at the supported schema version.
+
+    Existing unjournaled artifacts are never altered during startup. Operators
+    must run the offline schema migration command, which builds and validates
+    a staging artifact before atomic promotion.
+    """
+    from mesa_storage.kuzu_schema_migration import ensure_schema_ready
+
+    ensure_schema_ready(Path(db_path))
 
 
 def _apply_migrations(conn: kuzu.Connection) -> None:

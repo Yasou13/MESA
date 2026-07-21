@@ -6,7 +6,7 @@ from typing import Optional, Type, Union
 try:
     import anthropic
 except ImportError:
-    anthropic = None
+    anthropic = None  # type: ignore[assignment]
 from pydantic import BaseModel
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -36,7 +36,7 @@ except ImportError:
 # Local embedding singleton (all-MiniLM-L6-v2, ~22 MB on disk)
 # ---------------------------------------------------------------------------
 _local_embed_model = None
-_local_embed_tokenizer = None
+_local_embed_tokenizer = None  # type: ignore[no-untyped-def]
 
 
 def _get_local_embed_components():
@@ -106,7 +106,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
 
         if openai_api_key and _openai_module is not None:
             self._sync_openai = _openai_module.OpenAI(api_key=openai_api_key)
-            self._async_openai = _openai_module.AsyncOpenAI(api_key=openai_api_key)
+            self._async_openai = _openai_module.AsyncOpenAI(api_key=openai_api_key)  # type: ignore[no-untyped-def]
         else:
             self._sync_openai = None  # type: ignore[assignment]
             self._async_openai = None  # type: ignore[assignment]
@@ -125,7 +125,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text  # type: ignore[union-attr]
-
+        # type: ignore[no-untyped-def]
         if schema is not None:
             return schema.model_validate_json(text)
         return text
@@ -144,7 +144,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text  # type: ignore[union-attr]
-
+        # type: ignore[no-untyped-def]
         if schema is not None:
             return schema.model_validate_json(text)
         return text
@@ -157,7 +157,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
                 input=text,
             )
             return response.data[0].embedding
-
+        # type: ignore[no-untyped-def]
         # Graceful fallback: local transformer embedding
         logger.debug("Using local embedding fallback (no OpenAI key)")
         return _local_embed(text)
@@ -173,7 +173,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
 
         # Graceful fallback: run local embedding in executor to avoid blocking
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
+        return await loop.run_in_executor(  # type: ignore[no-untyped-def]
             None,
             functools.partial(_local_embed, text),
         )
@@ -187,7 +187,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
             )
             return [
                 data.embedding for data in sorted(response.data, key=lambda x: x.index)
-            ]
+            ]  # type: ignore[no-untyped-def]
 
         logger.debug("Using local embedding fallback (no OpenAI key) for batch")
         return _local_embed_batch(texts)

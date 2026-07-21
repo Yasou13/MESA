@@ -14,7 +14,9 @@ from mesa_memory.consolidation.loop import PersistentQueue
 @pytest.mark.asyncio
 async def test_dlq_claim_is_single_owner_and_ack_is_fenced(tmp_path: Path):
     queue = PersistentQueue(str(tmp_path / "dlq.jsonl"))
-    await queue.aappend({"cmb_id": "node-1", "agent_id": "tenant-a", "error": "secret-like failure"})
+    await queue.aappend(
+        {"cmb_id": "node-1", "agent_id": "tenant-a", "error": "secret-like failure"}
+    )
 
     batches = await asyncio.gather(
         queue.aclaim(worker_id="worker-a", limit=10),
@@ -32,11 +34,15 @@ async def test_dlq_claim_is_single_owner_and_ack_is_fenced(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_dlq_expiry_reclaims_and_bounded_nack_keeps_poison_evidence(tmp_path: Path):
+async def test_dlq_expiry_reclaims_and_bounded_nack_keeps_poison_evidence(
+    tmp_path: Path,
+):
     path = tmp_path / "dlq.jsonl"
     queue = PersistentQueue(str(path))
-    await queue.aappend({"cmb_id": "node-2", "agent_id": "tenant-a", "error": "failure"})
-    first = (await queue.aclaim(worker_id="worker-a"))[0]
+    await queue.aappend(
+        {"cmb_id": "node-2", "agent_id": "tenant-a", "error": "failure"}
+    )
+    _ = (await queue.aclaim(worker_id="worker-a"))[0]
 
     rows = [json.loads(line) for line in path.read_text().splitlines()]
     rows[0]["lease_expires_at"] = "1970-01-01T00:00:00+00:00"
@@ -45,7 +51,9 @@ async def test_dlq_expiry_reclaims_and_bounded_nack_keeps_poison_evidence(tmp_pa
     assert replay["claimed_by"] == "worker-b"
 
     for attempt in range(3):
-        assert await queue.anack([replay], worker_id="worker-b", error_type="RuntimeError")
+        assert await queue.anack(
+            [replay], worker_id="worker-b", error_type="RuntimeError"
+        )
         if attempt < 2:
             replay = (await queue.aclaim(worker_id="worker-b"))[0]
     rows = [json.loads(line) for line in path.read_text().splitlines()]
@@ -55,10 +63,14 @@ async def test_dlq_expiry_reclaims_and_bounded_nack_keeps_poison_evidence(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_dlq_quarantines_malformed_tail_and_rejects_duplicate_queue_id(tmp_path: Path):
+async def test_dlq_quarantines_malformed_tail_and_rejects_duplicate_queue_id(
+    tmp_path: Path,
+):
     path = tmp_path / "dlq.jsonl"
     queue = PersistentQueue(str(path))
-    await queue.aappend({"queue_id": "valid-1", "cmb_id": "node-1", "agent_id": "tenant-a"})
+    await queue.aappend(
+        {"queue_id": "valid-1", "cmb_id": "node-1", "agent_id": "tenant-a"}
+    )
     with path.open("ab") as handle:
         handle.write(b'{"queue_id":"truncated"')
 
@@ -67,16 +79,24 @@ async def test_dlq_quarantines_malformed_tail_and_rejects_duplicate_queue_id(tmp
     event = json.loads(quarantine.read_text().strip())
     assert event["error_type"] == "JSONDecodeError"
     assert event["byte_length"] > 0
-    assert [json.loads(line)["queue_id"] for line in path.read_text().splitlines()] == ["valid-1"]
+    assert [json.loads(line)["queue_id"] for line in path.read_text().splitlines()] == [
+        "valid-1"
+    ]
 
     with pytest.raises(ValueError, match="duplicate DLQ queue_id"):
-        await queue.aappend({"queue_id": "valid-1", "cmb_id": "node-duplicate", "agent_id": "tenant-a"})
+        await queue.aappend(
+            {"queue_id": "valid-1", "cmb_id": "node-duplicate", "agent_id": "tenant-a"}
+        )
 
 
 @pytest.mark.asyncio
-async def test_dlq_write_boundary_hook_is_explicit_and_inactive_by_default(tmp_path: Path):
+async def test_dlq_write_boundary_hook_is_explicit_and_inactive_by_default(
+    tmp_path: Path,
+):
     observed: list[str] = []
-    queue = PersistentQueue(str(tmp_path / "hooked.jsonl"), _test_crash_hook=observed.append)
+    queue = PersistentQueue(
+        str(tmp_path / "hooked.jsonl"), _test_crash_hook=observed.append
+    )
     await queue.aappend({"queue_id": "hooked-1", "agent_id": "tenant-a"})
     assert observed == [
         "before_serialization",
@@ -96,10 +116,14 @@ async def test_dlq_write_boundary_hook_is_explicit_and_inactive_by_default(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_completion_receipt_is_durable_before_ack_and_restart_reconciles(tmp_path: Path):
+async def test_completion_receipt_is_durable_before_ack_and_restart_reconciles(
+    tmp_path: Path,
+):
     path = tmp_path / "receipted.jsonl"
     queue = PersistentQueue(str(path), require_completion_receipt=True)
-    await queue.aappend({"queue_id": "record-1", "cmb_id": "node-1", "agent_id": "tenant-a"})
+    await queue.aappend(
+        {"queue_id": "record-1", "cmb_id": "node-1", "agent_id": "tenant-a"}
+    )
     claim = (await queue.aclaim(worker_id="worker-a", limit=1, lease_seconds=1))[0]
 
     assert not await queue.aack([claim], worker_id="worker-a")
@@ -122,8 +146,12 @@ async def test_completion_receipt_is_durable_before_ack_and_restart_reconciles(t
         require_completion_receipt=True,
         _test_crash_hook=crash_after_receipt,
     )
-    await crashing.aappend({"queue_id": "record-2", "cmb_id": "node-2", "agent_id": "tenant-a"})
-    crash_claim = (await crashing.aclaim(worker_id="worker-a", limit=1, lease_seconds=1))[0]
+    await crashing.aappend(
+        {"queue_id": "record-2", "cmb_id": "node-2", "agent_id": "tenant-a"}
+    )
+    crash_claim = (
+        await crashing.aclaim(worker_id="worker-a", limit=1, lease_seconds=1)
+    )[0]
     with pytest.raises(RuntimeError, match="receipt-ack-crash"):
         await crashing.acomplete(
             crash_claim, worker_id="worker-a", side_effect_verified=True

@@ -1,0 +1,2 @@
+Application source: unchanged by clean-restart-01; no source rollback required.
+Test: clean-restart pre-edit backup exists at `/storage/mesa-lab/artifacts/WAVE-001-restart/source-backup/test_principal_authorization.clean-restart.before.py`.

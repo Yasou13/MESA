@@ -6,7 +6,8 @@ from typing import Optional, Type, Union
 try:
     import openai
 except ImportError:
-    openai = None
+    openai = None  # type: ignore[assignment]
+    mistralai = None  # type: ignore[assignment]
 from pydantic import BaseModel
 from tenacity import (
     retry,
@@ -69,15 +70,13 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         if end_idx == -1 or (arr_end_idx != -1 and arr_end_idx > end_idx):
             end_idx = arr_end_idx
         if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-            return text[start_idx : end_idx + 1]
+            return text[start_idx : end_idx + 1]  # type: ignore[no-untyped-def]
         return text
 
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        retry=retry_if_exception_type(
-            _RETRYABLE_OPENAI_ERRORS
-        ),
+        retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     def complete(
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
@@ -112,12 +111,11 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             logger.error("API connection error: %s", e)
             raise
 
+    # type: ignore[no-untyped-def]
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        retry=retry_if_exception_type(
-            _RETRYABLE_OPENAI_ERRORS
-        ),
+        retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     async def acomplete(
         self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
@@ -153,11 +151,9 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             raise
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(5),  # type: ignore[no-untyped-def]
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        retry=retry_if_exception_type(
-            _RETRYABLE_OPENAI_ERRORS
-        ),
+        retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     def embed(self, text: str, **kwargs) -> list[float]:
         model = kwargs.get("model", "text-embedding-3-small")
@@ -182,9 +178,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        retry=retry_if_exception_type(
-            _RETRYABLE_OPENAI_ERRORS
-        ),
+        retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),  # type: ignore[no-untyped-def]
     )
     async def aembed(self, text: str, **kwargs) -> list[float]:
         model = kwargs.get("model", "text-embedding-3-small")
@@ -214,11 +208,9 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        retry=retry_if_exception_type(
-            _RETRYABLE_OPENAI_ERRORS
-        ),
+        retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
-    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
+    def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:  # type: ignore[no-untyped-def]
         model = kwargs.get("model", "text-embedding-3-small")
         try:
             response = self._sync_client.embeddings.create(
@@ -246,7 +238,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
     )
     async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
         model = kwargs.get("model", "text-embedding-3-small")
-        try:
+        try:  # type: ignore[no-untyped-def]
             response = await self._async_client.embeddings.create(
                 model=model,
                 input=texts,

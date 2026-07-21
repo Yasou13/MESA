@@ -24,14 +24,14 @@ class _RebelModelHolder:
     _lock = threading.Lock()
     _pipeline = None
 
-    def __new__(cls):
+    def __new__(cls):  # type: ignore[no-untyped-def]
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def get_pipeline(self, model_name: str):
+    def get_pipeline(self, model_name: str):  # type: ignore[no-untyped-def]
         """Return the cached pipeline, initializing on first call."""
         if self._pipeline is None:
             with self._lock:
@@ -49,7 +49,7 @@ class _RebelModelHolder:
         return self._pipeline
 
     @classmethod
-    def reset(cls):
+    def reset(cls):  # type: ignore[no-untyped-def]
         """Reset the singleton — intended for test teardown only."""
         with cls._lock:
             cls._pipeline = None
@@ -77,7 +77,7 @@ class RebelExtractor:
             )
 
     @property
-    def _pipeline(self):
+    def _pipeline(self):  # type: ignore[no-untyped-def]
         return _model_holder.get_pipeline(self.model_name)
 
     def extract_triplets(self, text: str) -> List[Dict[str, str]]:
