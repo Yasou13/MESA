@@ -67,7 +67,7 @@ jobs:
           tests/test_session_principal_route_isolation.py
           tests/test_principal_authorization.py
           tests/test_worker_runtime_contract.py | tee flow-e2e.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: flow-logs
@@ -103,7 +103,7 @@ jobs:
       - name: Write factual bounded-capacity summary
         run: >-
           python -c "import json,xml.etree.ElementTree as e; r=e.parse('performance-capacity.xml').getroot(); print(json.dumps({'suite':'bounded-capacity','tests':int(r.attrib.get('tests',0)),'failures':int(r.attrib.get('failures',0)),'errors':int(r.attrib.get('errors',0))},sort_keys=True))" > performance-capacity.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: performance-capacity
@@ -145,7 +145,7 @@ jobs:
           docker exec mesa-gate sh -c 'printf persisted > /var/lib/mesa/data/gate-marker'
           docker restart mesa-gate
           docker exec mesa-gate test -f /var/lib/mesa/data/gate-marker
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: docker-logs
@@ -194,7 +194,7 @@ jobs:
           docker compose -p "$project" exec -T mesa-worker python -m mesa_memory.container_health
           docker compose -p "$project" restart mesa-api mesa-worker
           docker compose -p "$project" exec -T mesa-api test -d /var/lib/mesa/data
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: compose-logs
@@ -230,7 +230,7 @@ jobs:
           python -c "from mesa_memory.worker_runtime import run_worker_only; print(run_worker_only.__name__)"
           mesa-recovery --help
           python -m pytest -q tests/test_deployment_assets.py tests/test_runtime_profiles_contract.py tests/test_migration_closure.py tests/test_recovery_contract.py | tee docs-smoke.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: docs-smoke

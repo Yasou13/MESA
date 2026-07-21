@@ -113,7 +113,7 @@ jobs:
           printf 'rbac_exit=%s\nchaos_exit=%s\ngraph_exit=%s\n' \
             "$rbac_status" "$chaos_status" "$graph_status" | tee security-assurance-summary.txt
           test "$rbac_status" -eq 0 -a "$chaos_status" -eq 0 -a "$graph_status" -eq 0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: security-and-graph-assurance
@@ -199,7 +199,7 @@ jobs:
           printf 'black_exit=%s\nmypy_exit=%s\n' "$black_status" "$mypy_status" \
             | tee legacy-static-summary.txt
           test "$black_status" -eq 0 -a "$mypy_status" -eq 0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: legacy-static-baseline
@@ -283,7 +283,7 @@ jobs:
           wheel-venv/bin/python -m pip check
           wheel-venv/bin/python -c "import mesa_memory, mesa_api, mesa_client, mesa_storage, mesa_workers"
           wheel-venv/bin/mesa-recovery --help
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-report
           path: dist/
@@ -320,7 +320,7 @@ jobs:
           --ignore=tests/test_mem0.py --ignore=tests/go_live_proofs --ignore=tests/bench
       - name: SDK coverage collection contract
         run: python -m pytest --collect-only -q tests/test_async_client_auth_contract.py tests/test_mcp_api_boundary.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-report-${{ matrix.python-version }}
           path: |
