@@ -52,10 +52,22 @@ logger = logging.getLogger("MESA_Server")
 # API Key Authentication
 # ---------------------------------------------------------------------------
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
-_MESA_API_KEY: str | None = os.environ.get("MESA_API_KEY")
-_MESA_PRINCIPAL_ID: str | None = os.environ.get("MESA_PRINCIPAL_ID")
-_MESA_PRINCIPAL_TYPE: str = os.environ.get("MESA_PRINCIPAL_TYPE", "SERVICE")
-_MESA_PRINCIPAL_STATUS: str = os.environ.get("MESA_PRINCIPAL_STATUS", "active")
+_MESA_API_KEY: str | None
+_MESA_PRINCIPAL_ID: str | None
+_MESA_PRINCIPAL_TYPE: str
+_MESA_PRINCIPAL_STATUS: str
+
+
+def _refresh_auth_config() -> None:
+    """Refresh auth settings after an explicitly allowed dotenv load."""
+    global _MESA_API_KEY, _MESA_PRINCIPAL_ID, _MESA_PRINCIPAL_TYPE, _MESA_PRINCIPAL_STATUS
+    _MESA_API_KEY = os.environ.get("MESA_API_KEY")
+    _MESA_PRINCIPAL_ID = os.environ.get("MESA_PRINCIPAL_ID")
+    _MESA_PRINCIPAL_TYPE = os.environ.get("MESA_PRINCIPAL_TYPE", "SERVICE")
+    _MESA_PRINCIPAL_STATUS = os.environ.get("MESA_PRINCIPAL_STATUS", "active")
+
+
+_refresh_auth_config()
 
 
 @dataclass(frozen=True)
@@ -141,6 +153,7 @@ async def lifespan(app: FastAPI):
 
     runtime = load_runtime_profile()
     load_explicit_dotenv(runtime)
+    _refresh_auth_config()
     _configure_runtime_paths(runtime)
     state.runtime_profile = runtime  # type: ignore[attr-defined]
 
@@ -178,16 +191,16 @@ async def lifespan(app: FastAPI):
     if _KUZU_PATH is not None:
         _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
     # type: ignore[union-attr]
-    print("LIFESPAN: Before initialize_schema")
+    logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
     from mesa_storage import kuzu_setup
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
-    print("LIFESPAN: After initialize_schema")
+    logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
 
     state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
     logger.info("KùzuDB initialised at %s", _KUZU_PATH)
-    print("LIFESPAN: After kuzu.Database")
+    logger.info("KUZU_DATABASE_OPENED")
 
     # Initialize the async-safe KuzuGraphProvider for edge operations
     state.graph_provider = KuzuGraphProvider(db_path=str(_KUZU_PATH))
@@ -215,7 +228,7 @@ async def lifespan(app: FastAPI):
     rem_worker = None
     state.consolidation_loop = None  # type: ignore[assignment]
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
-        print("LIFESPAN: Before AdapterFactory")
+        logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
         # Wire the Consolidation Loop directly to the DAO
         llm_a = AdapterFactory.get_adapter()
         llm_b = AdapterFactory.get_adapter()
@@ -230,7 +243,7 @@ async def lifespan(app: FastAPI):
             "consolidation-loop", state.consolidation_loop.start
         )
         state.background_tasks.add(consolidation_loop_task)
-        print("LIFESPAN: After ConsolidationLoop")
+        logger.info("CONSOLIDATION_LOOP_STARTED")
 
         # ------------------------------------------------------------------
         # Valence state restoration (prevents threshold amnesia on restart)
@@ -269,11 +282,11 @@ async def lifespan(app: FastAPI):
         # ------------------------------------------------------------------
         pagerank_task = None
         try:
-            print("LIFESPAN: Before pagerank")
+            logger.info("PAGERANK_WORKER_STARTING")
             pagerank_task = await state.worker_supervisor.start(
                 "pagerank", lambda: schedule_pagerank_worker(dao=state.dao)
             )
-            print("LIFESPAN: After pagerank")
+            logger.info("PAGERANK_WORKER_STARTED")
             state.background_tasks.add(pagerank_task)
             logger.info("PageRank worker scheduled successfully.")
         except Exception as exc:
@@ -281,7 +294,7 @@ async def lifespan(app: FastAPI):
 
         consolidation_task = None
         try:
-            print("LIFESPAN: Before consolidation_worker")
+            logger.info("ENTITY_CONSOLIDATION_WORKER_STARTING")
             consolidation_adapter = AdapterFactory.get_adapter()
             consolidation_task = await state.worker_supervisor.start(
                 "entity-consolidation",
@@ -289,7 +302,7 @@ async def lifespan(app: FastAPI):
                     dao=state.dao, llm_adapter=consolidation_adapter
                 ),
             )
-            print("LIFESPAN: After consolidation_worker")
+            logger.info("ENTITY_CONSOLIDATION_WORKER_STARTED")
             state.background_tasks.add(consolidation_task)
             logger.info("Consolidation worker scheduled successfully.")
         except Exception as exc:
@@ -344,11 +357,11 @@ async def lifespan(app: FastAPI):
             schedule_hours=schedule_hours,
         )
         try:
-            print("LIFESPAN: Before maintenance_worker")
+            logger.info("MAINTENANCE_WORKER_STARTING")
             await maintenance_worker.start()
             if maintenance_worker._task:
                 state.background_tasks.add(maintenance_worker._task)
-            print("LIFESPAN: After maintenance_worker")
+            logger.info("MAINTENANCE_WORKER_STARTED")
             logger.info("MaintenanceWorker started successfully.")
         except Exception as exc:
             logger.error("Failed to start MaintenanceWorker: %s", exc)
@@ -395,10 +408,10 @@ async def lifespan(app: FastAPI):
             "Runtime profile %s starts API/storage without workers", runtime.profile
         )
 
-    print("LIFESPAN: READY!")
+    logger.info("MESA_API_READY")
     state.is_ready = True
     yield
-    print("LIFESPAN: SHUTDOWN!")
+    logger.info("MESA_API_SHUTDOWN")
 
     # ==================================================================
     # Teardown — cancel all background workers

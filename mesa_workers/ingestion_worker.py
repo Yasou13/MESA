@@ -3,8 +3,8 @@
 # through the full validation pipeline.
 #
 # Architecture:
-#   Hot Path (router.py)  → INSERT into raw_logs (< 50ms, pure I/O)
-#   Cold Path (this file) → BackgroundTask processes raw_logs entry:
+#   Hot Path (router.py)  → durable dispatch queue admission (<50ms, pure I/O)
+#   Cold Path (worker runtime) → claims and processes raw_logs entries:
 #       1. Retrieve payload from raw_logs
 #       2. Tier-1 ECOD anomaly detection
 #       3. Tier-2 REBEL triple extraction
@@ -15,7 +15,7 @@
 # Safety invariant:
 #   ALL exceptions are caught within process_cold_path.
 #   Failures update raw_logs status and log the error trace.
-#   Nothing bubbles up to crash the FastAPI background task pool.
+#   Nothing bubbles up to crash the worker supervisor.
 """
 Cold-path ingestion worker for the MESA v0.6.1 decoupled pipeline.
 
@@ -36,7 +36,7 @@ Usage::
 
     from mesa_workers.ingestion_worker import process_cold_path
 
-    background_tasks.add_task(process_cold_path, log_id, dao)
+    await process_cold_path(log_id, agent_id, dao)
 """
 
 from __future__ import annotations
@@ -1007,7 +1007,19 @@ async def _commit_raw_memory(
     node_id: str | None = None
 
     try:
-        embedding = await dao.vector_engine.compute_embedding(content[:512])
+        try:
+            embedding = await dao.vector_engine.compute_embedding(content[:512])
+        except RuntimeError as exc:
+            # The isolated model-disabled Compose profile must never silently
+            # persist an all-zero vector or attempt a network model download.
+            # A deterministic non-zero fallback keeps the raw-memory write
+            # durable while FTS remains the primary retrieval signal.
+            logger.warning(
+                "RAW_MEMORY_USING_DETERMINISTIC_EMBEDDING | log_id=%d error=%s",
+                log_id,
+                exc,
+            )
+            embedding = _hash_embedding_sync(content[:512])
 
         node_id = await dao.insert_memory(
             agent_id,

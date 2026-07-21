@@ -1,4 +1,4 @@
-"""Model-disabled worker-only runtime with durable lease recovery and readiness."""
+"""Worker-only durable cold-path consumer with recovery and readiness."""
 
 from __future__ import annotations
 
@@ -20,10 +20,13 @@ from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_workers.ingestion_worker import process_cold_path
 from mesa_workers.supervision import WorkerSupervisor
 
 _READINESS_NAME = "worker-readiness.json"
 _RECOVERY_INTERVAL_SECONDS = 30.0
+_DISPATCH_POLL_SECONDS = 1.0
+_WORKER_ID = "worker-runtime"
 
 
 def _write_readiness(storage_root: Path, payload: dict[str, Any]) -> None:
@@ -56,6 +59,30 @@ async def _recover_once(engine: AsyncEngine) -> dict[str, int]:
     }
 
 
+async def _consume_dispatches_once(dao: MemoryDAO) -> dict[str, int]:
+    """Consume bounded dispatch records; only this worker runs cold-path work."""
+    claimed = await dao.claim_dispatch_queue(worker_id=_WORKER_ID, limit=25)
+    finalized = 0
+    retried = 0
+    for dispatch in claimed:
+        log_id = int(dispatch["payload_reference"])
+        agent_id = str(dispatch["agent_id"])
+        await process_cold_path(log_id, agent_id, dao)
+        raw_log = await dao.get_raw_log(agent_id, log_id)
+        status = str(raw_log.get("status", "failed") if raw_log else "failed")
+        terminal = status.split(":", 1)[0] in {"processed", "rejected", "failed"}
+        completed = await dao.complete_dispatch_queue(
+            str(dispatch["queue_record_id"]),
+            worker_id=_WORKER_ID,
+            claim_token=str(dispatch["claim_token"]),
+            outcome=status[:120],
+            side_effect_verified=terminal,
+        )
+        finalized += int(completed)
+        retried += int(not completed)
+    return {"claimed": len(claimed), "finalized": finalized, "retried": retried}
+
+
 async def run_worker_only() -> None:
     runtime = load_runtime_profile()
     if (
@@ -78,23 +105,30 @@ async def run_worker_only() -> None:
     engine = AsyncEngine(str(runtime.storage_root / "mesa.db"), max_connections=2)
     await engine.initialize()
     await initialize_schema(engine)
+    vector_engine = VectorEngine(
+        str(runtime.storage_root / "vector.lance"),
+        allow_model_loading=runtime.model_enabled,
+    )
+    await vector_engine.initialize()
+    dao = MemoryDAO(engine, vector_engine)
+    await dao.initialize()
     supervisor = WorkerSupervisor(max_restarts=3)
     initial_recovery = await _recover_once(engine)
 
     async def recovery_loop() -> None:
         while not stopped.is_set():
+            dispatch = await _consume_dispatches_once(dao)
             try:
-                await asyncio.wait_for(
-                    stopped.wait(), timeout=_RECOVERY_INTERVAL_SECONDS
-                )
+                await asyncio.wait_for(stopped.wait(), timeout=_DISPATCH_POLL_SECONDS)
             except TimeoutError:
                 recovered = await _recover_once(engine)
                 _write_readiness(
                     runtime.storage_root,
                     {
                         "status": "RUNNING",
-                        "mode": "model-disabled-recovery",
+                        "mode": "durable-cold-path-consumer",
                         "recovered": recovered,
+                        "dispatch": dispatch,
                     },
                 )
 
@@ -108,7 +142,7 @@ async def run_worker_only() -> None:
         runtime.storage_root,
         {
             "status": "RUNNING",
-            "mode": "model-disabled-recovery",
+            "mode": "durable-cold-path-consumer",
             "recovered": initial_recovery,
         },
     )
@@ -116,9 +150,11 @@ async def run_worker_only() -> None:
     print("WORKER_RUNTIME=RUNNING", flush=True)
     await stopped.wait()
     await supervisor.shutdown()
+    await vector_engine.close()
     await engine.close()
     _write_readiness(
-        runtime.storage_root, {"status": "STOPPED", "mode": "model-disabled-recovery"}
+        runtime.storage_root,
+        {"status": "STOPPED", "mode": "durable-cold-path-consumer"},
     )
     print("WORKER_RUNTIME=STOPPED", flush=True)
 

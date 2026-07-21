@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, cast
 
+from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy.engine import Connection
@@ -302,7 +303,7 @@ def _apply_base_bridge(connection: Connection) -> None:
     )
 
 
-def _stamp_base_revision(connection: Connection, alembic_config: object) -> None:
+def _stamp_base_revision(connection: Connection, alembic_config: Config) -> None:
     migration_context = MigrationContext.configure(connection)
     script = ScriptDirectory.from_config(alembic_config)
     migration_context.stamp(script, BASE_REVISION)
@@ -386,7 +387,7 @@ def preflight_schema(connection: Connection, alembic_config: object) -> bool:
 
 
 def validate_postflight(
-    connection: Connection, alembic_config: object, *, require_head: bool = False
+    connection: Connection, alembic_config: Config, *, require_head: bool = False
 ) -> None:
     """Verify the managed schema after Alembic has completed."""
     snapshot = inspect_schema(connection)

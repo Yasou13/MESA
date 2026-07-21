@@ -226,6 +226,15 @@ class HybridRetriever:
             cmb_ids = candidate_ids[:top_n]
         stage_latencies["rerank_ms"] = (time.perf_counter() - t_rerank) * 1000
 
+        source_scores: dict[str, float] = {}
+        for item in vector_results + graph_results + lexical_results:
+            cmb_id = item.get("cmb_id")
+            if not cmb_id:
+                continue
+            source_scores[cmb_id] = max(
+                source_scores.get(cmb_id, 0.0), float(item.get("score", 0.0))
+            )
+
         if collect_diagnostics:
             stage_diagnostics["extracted_entities"] = entities
             stage_diagnostics["vector_hits_count"] = len(vector_results)
@@ -286,6 +295,9 @@ class HybridRetriever:
 
         result_dict = {
             "cmb_ids": cmb_ids,
+            "source_scores": {
+                cmb_id: source_scores.get(cmb_id, 0.0) for cmb_id in cmb_ids
+            },
             "multi_hop_path": multi_hop_path,
             "latency_breakdown_ms": stage_latencies,
             "diagnostics": stage_diagnostics,

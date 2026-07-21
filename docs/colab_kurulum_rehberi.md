@@ -87,7 +87,7 @@ headers = {"X-API-Key": api_key}
 for i in range(max_retries):
     try:
         # 1. Healthcheck Kontrolü (Sunucu ayağa kalktı mı?)
-        res = requests.get(f"{base_url}/health", timeout=2)
+        res = requests.get(f"{base_url}/health", headers=headers, timeout=2)
         
         if res.status_code == 200:
             print("✅ Sunucu başarıyla ayağa kalktı!")

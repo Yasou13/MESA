@@ -78,7 +78,7 @@ def test_worker_process_start_health_and_graceful_stop(tmp_path: Path) -> None:
         assert worker_is_ready(storage)
         assert (
             json.loads(readiness.read_text(encoding="utf-8"))["mode"]
-            == "model-disabled-recovery"
+            == "durable-cold-path-consumer"
         )
         process.send_signal(signal.SIGTERM)
         assert process.wait(timeout=10) == 0

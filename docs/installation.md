@@ -61,7 +61,7 @@ export MESA_RUNTIME_PROFILE=api-only
 python -m mesa_memory.runtime_entrypoint
 ```
 
-In a separate terminal, start only durable worker recovery with the same
+In a separate terminal, start the durable cold-path worker with the same
 storage root and credentials:
 
 ```bash

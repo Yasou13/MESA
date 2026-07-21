@@ -51,7 +51,7 @@ docker compose up --build -d
 Verify it's running:
 
 ```bash
-curl http://localhost:8000/health
+curl --fail -H "X-API-Key: $MESA_API_KEY" http://localhost:8000/health
 # → {"status": "ok", ...}
 ```
 
@@ -82,7 +82,7 @@ The insert endpoint returns **202 Accepted** in <50ms. Heavy processing (ECOD an
 ### Check Ingestion Status
 
 ```bash
-curl http://localhost:8000/v3/memory/status/1 \
+curl "http://localhost:8000/v3/memory/status/1?agent_id=analyst_1" \
   -H "X-API-Key: local-dev-key"
 # → {"log_id": 1, "status": "processed"}
 ```
@@ -338,13 +338,13 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v3/memory/insert` | Queue memory ingestion (fire-and-forget, <50ms) |
+| `POST` | `/v3/memory/insert` | Atomically admit durable worker ingestion (<50ms) |
 | `POST` | `/v3/memory/search` | Hybrid vector + graph + FTS5 retrieval |
 | `GET` | `/v3/memory/status/{log_id}` | Query cold-path processing status |
 | `DELETE` | `/v3/memory/purge` | Tombstoning only (hard-delete is background-only) |
-| `POST` | `/v3/session/start` | Generate a new session with tenant isolation |
-| `GET` | `/v3/session/{session_id}/context` | Retrieve episodic + graph context scoped to session |
-| `POST` | `/v3/session/{session_id}/end` | Terminate session and trigger final consolidation |
+| `POST` | `/v3/memory/session/start` | Generate a new session with tenant isolation |
+| `GET` | `/v3/memory/session/{session_id}/context` | Retrieve episodic + graph context scoped to session |
+| `POST` | `/v3/memory/session/{session_id}/end` | Terminate session and trigger final consolidation |
 | `GET` | `/health/init` | Container orchestration readiness probe (returns 200 when workers are alive) |
 | `GET` | `/health` | System status and database health check |
 | `GET` | `/metrics` | Prometheus scrape endpoint |

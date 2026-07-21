@@ -2,14 +2,14 @@
 # Asynchronous FastAPI router with decoupled ingestion pipeline.
 #
 # Architecture:
-#   - POST /v3/memory/insert  → hot-path: raw_logs INSERT + cold-path BG task (<50ms)
+#   - POST /v3/memory/insert  → durable dispatch admission (<50ms)
 #   - POST /v3/memory/search  → synchronous await on DAO retrieval
 #   - DELETE /v3/memory/purge → soft-delete ONLY — NO VACUUM, NO hard-delete
 #
 # Critical constraint:
 #   The insert endpoint MUST NOT perform any LLM validation, ECOD, or REBEL
-#   extraction on the hot path. All heavy processing is deferred to
-#   process_cold_path via BackgroundTasks.
+#   extraction on the hot path. All heavy processing is consumed by the
+#   separate durable worker runtime.
 #
 #   The purge endpoint MUST NOT trigger VACUUM or hard-delete operations.
 #   Physical removal is exclusively handled by the MaintenanceWorker.
@@ -18,14 +18,13 @@
 Headless FastAPI v3 API routers for the MESA memory system.
 
 All endpoints enforce strict Pydantic V2 validation via the schemas
-in ``mesa_api.schemas``.  The insert endpoint is optimised for hot-path
-latency (< 50ms) by writing raw payloads to a staging table
-(``raw_logs``) and deferring heavy LLM processing to a cold-path
-background task.
+in ``mesa_api.schemas``. The insert endpoint is optimised for hot-path
+latency (< 50ms) by atomically writing its staging record and durable dispatch
+receipt; the separate worker performs cold-path processing.
 
 Endpoints::
 
-    POST   /v3/memory/insert  — Hot-path INSERT + cold-path BG task (< 50ms)
+    POST   /v3/memory/insert  — Durable cold-path dispatch admission (< 50ms)
     POST   /v3/memory/search  — Synchronous retrieval with latency metrics
     DELETE /v3/memory/purge   — Soft-delete ONLY (no VACUUM, no hard-delete)
 
@@ -77,10 +76,7 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
-from mesa_workers.ingestion_worker import (
-    process_cold_path,  # Cold-path worker (Phase 1 Part 2)
-    process_session_finalization,
-)
+from mesa_workers.ingestion_worker import process_session_finalization
 
 logger = logging.getLogger("MESA_API")
 
@@ -209,9 +205,8 @@ def create_memory_router(
         async INSERT into the ``raw_logs`` staging table and returns
         immediately with the generated ``log_id``.
 
-        All heavy processing (ECOD, REBEL extraction, LLM validation,
-        embedding, graph insertion) is deferred to ``process_cold_path``
-        via ``BackgroundTasks``.
+        All heavy processing is consumed from the durable dispatch queue by
+        the separate worker runtime. The API process never executes it.
 
         Target latency: **< 50ms**.
         """
@@ -287,14 +282,6 @@ def create_memory_router(
             )
 
         log_id = admission["log_id"]
-
-        background_tasks.add_task(
-            process_cold_path,
-            log_id,
-            payload.agent_id,
-            dao,
-            consolidation_loop=get_consolidation_loop(),
-        )
 
         return JSONResponse(
             status_code=202,
@@ -405,6 +392,7 @@ def create_memory_router(
                     agent_id=payload.agent_id,
                     session_id=payload.session_id,
                     top_n=payload.limit,
+                    collect_diagnostics=True,
                 ),
                 timeout=30.0,  # 30s hard ceiling — prevents indefinite hangs
             )
@@ -413,8 +401,10 @@ def create_memory_router(
             # when multi_hop is disabled (default), or dict when enabled.
             if isinstance(result, dict):
                 cmb_ids: list[str] = result.get("cmb_ids", [])
+                source_scores: dict[str, float] = result.get("source_scores", {})
             else:
                 cmb_ids = result
+                source_scores = {}
 
             # Hydrate node metadata from the DAO for the response contract
             retrieved_nodes: list[dict] = []
@@ -429,7 +419,7 @@ def create_memory_router(
                             "node_id": cmb_id,
                             "agent_id": payload.agent_id,
                             "source": "hybrid",
-                            "score": 0.0,
+                            "score": source_scores.get(cmb_id, 0.0),
                         }
                     )
                     continue
@@ -442,11 +432,12 @@ def create_memory_router(
                         "content_payload": node.get("content"),
                         "type": node.get("node_type", "ENTITY"),
                         "source": "hybrid",
-                        "score": 1.0,
+                        "score": source_scores.get(cmb_id, 0.0),
                         "agent_id": node.get("agent_id", payload.agent_id),
                     }
                 )
-                ctx = entity_name
+                content = node.get("content") or ""
+                ctx = f"{entity_name}: {content}" if content else entity_name
                 if not node.get("is_consolidated", True):
                     ctx += " [WARNING: UNCONSOLIDATED MEMORY]"
                 context_parts.append(ctx)
@@ -461,9 +452,6 @@ def create_memory_router(
             raise HTTPException(status_code=403, detail=str(perm_exc))
 
         except Exception as exc:
-            import traceback
-
-            traceback.print_exc()
             logger.error(
                 "SEARCH_ERROR | agent_id=%s query=%r error=%s",
                 payload.agent_id,
@@ -553,9 +541,6 @@ def create_memory_router(
         except PurgeBlockedError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         except Exception as exc:
-            import traceback
-
-            traceback.print_exc()
             logger.error(
                 "PURGE_ERROR | agent_id=%s scope=%s error=%s",
                 payload.agent_id,
@@ -697,9 +682,6 @@ def create_memory_router(
         except PermissionError:
             raise  # Re-raise RBAC errors without wrapping
         except Exception as exc:
-            import traceback
-
-            traceback.print_exc()
             logger.error(
                 "SESSION_CONTEXT_ERROR | session_id=%s agent_id=%s error=%s",
                 session_id,
@@ -782,9 +764,6 @@ def create_memory_router(
         except PermissionError:
             raise  # Re-raise RBAC errors without wrapping
         except Exception as exc:
-            import traceback
-
-            traceback.print_exc()
             logger.error(
                 "SESSION_END_ERROR | session_id=%s agent_id=%s error=%s",
                 session_id,

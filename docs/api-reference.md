@@ -226,6 +226,6 @@ Returns `True` if the agent has sufficient permissions. `WRITE` satisfies both `
 
 MESA exposes headless asynchronous endpoints:
 
-- `POST /v3/memory/insert`: Queues memory via `BackgroundTasks` for <150ms latency.
+- `POST /v3/memory/insert`: Atomically admits a durable cold-path dispatch; the separate worker consumes it asynchronously.
 - `POST /v3/memory/search`: Performs FTS5 lexical pre-filters + LanceDB vector similarity search.
 - `DELETE /v3/memory/purge`: Soft-deletes using Two-Phase Commit Saga to guarantee zero zombie data.

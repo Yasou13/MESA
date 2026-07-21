@@ -61,6 +61,18 @@ def test_readme_compose_quickstart_matches_the_fail_closed_compose_profile() -> 
     assert "MESA_EXTERNAL_PROVIDER_ENABLED=false" in readme
 
 
+def test_readme_public_api_examples_match_authenticated_route_contract() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert (
+        'curl --fail -H "X-API-Key: $MESA_API_KEY" http://localhost:8000/health'
+        in readme
+    )
+    assert "/v3/memory/status/1?agent_id=analyst_1" in readme
+    assert "/v3/memory/session/start" in readme
+    assert "/v3/session/start" not in readme
+
+
 def test_dependency_and_security_governance_assets_are_present() -> None:
     assert (ROOT / "uv.lock").is_file()
     assert (ROOT / "SECURITY.md").is_file()
@@ -83,7 +95,19 @@ def test_ci_tests_supported_python_versions_and_enforces_full_repository_lint() 
     assert "mesa_memory mesa_storage mesa_workers mesa_api mesa_client" in workflow
 
 
-def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cost() -> None:
+def test_ci_runs_the_full_coverage_suite_on_the_docker_python_version() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    coverage_job = workflow.split("  coverage:", maxsplit=1)[1].split(
+        "  optional-integrations:", maxsplit=1
+    )[0]
+    assert 'python-version: ["3.10", "3.13"]' in coverage_job
+    assert "coverage-report-${{ matrix.python-version }}" in coverage_job
+
+
+def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cost() -> (
+    None
+):
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert "uses: trufflesecurity/trufflehog@v3.95.2" in workflow
