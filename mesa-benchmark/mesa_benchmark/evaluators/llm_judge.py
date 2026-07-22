@@ -18,16 +18,17 @@ logger = logging.getLogger(__name__)
 
 # Default prompt template for LLM judging
 JUDGE_PROMPT_TEMPLATE = """You are an expert evaluator assessing a Retrieval-Augmented Generation (RAG) system's memory layer.
-Your task is to determine if the retrieved context (System Answer) contains the necessary information to logically satisfy the Ground Truth.
+Your task is to determine whether the system answer correctly answers the question and satisfies every applicable rubric criterion.
 
-Ground Truth: {ground_truth}
-Retrieved Context (System Answer): {system_answer}
+Question: {question}
+Reference Answers: {reference_answers}
+Rubric Criteria: {rubric}
+System Answer: {system_answer}
 
 Expected Context IDs: {expected_contexts}
 Retrieved Context IDs: {retrieved_contexts}
 
-Evaluate whether the retrieved context contains sufficient and accurate information to address the question based on the ground truth.
-If the system answer is just raw text/JSON chunks, that is EXPECTED. Read through them to see if the ground truth is present.
+Accept any semantically equivalent reference answer. For rubric-only questions, score only against the rubric. If the system answer is raw text/JSON chunks, inspect it as evidence.
 Respond in JSON format:
 {{
   "is_correct": true/false,
@@ -129,9 +130,11 @@ class LLMJudgeEvaluator(BaseEvaluator):
         Falls back to a simple substring check if the LLM call fails.
         """
         prompt = JUDGE_PROMPT_TEMPLATE.format(
-            ground_truth=question.ground_truth,
+            question=question.query,
+            reference_answers=question.reference_answers,
+            rubric=question.rubric,
             system_answer=response.answer_text,
-            expected_contexts=question.expected_context_ids,
+            expected_contexts=question.supporting_context_ids,
             retrieved_contexts=response.retrieved_context_ids,
         )
 

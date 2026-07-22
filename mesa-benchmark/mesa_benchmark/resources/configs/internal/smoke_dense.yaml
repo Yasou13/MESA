@@ -1,0 +1,31 @@
+suite_name: "Offline Smoke Golden"
+iterations: 1
+seed: 42
+dataset:
+  name: "mini_dataset"
+  version: "v1"
+  path: "resource://fixtures/internal/mini_dataset.json"
+  manifest_path: "resource://manifests/internal/mini-v1.json"
+  isolation: "scenario"
+  ingest_mode: "batch"
+  noise_ratio: 0.0
+client:
+  name: "dense-rag"
+  adapter_class: "mesa_benchmark.clients.dense_rag_client.DenseRagClientAdapter"
+  timeout_ms: 10000
+  parameters:
+    embedding_backend: "deterministic-hashing"
+    embedding_model: "sha256-hashing-v1"
+evaluation:
+  metrics: ["hit_at_k", "mrr", "ndcg"]
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: false
+generation:
+  enabled: false
+  model: null
+runtime:
+  top_k: 5
+  context_token_budget: 4096
+  ollama_url: null
+  require_independent_judge: false

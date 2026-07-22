@@ -1,0 +1,29 @@
+suite_name: "BEAM 1M Nightly Scale"
+iterations: 1
+seed: 42
+dataset:
+  name: "beam"
+  version: "1m-v2"
+  path: "data://generated/beam/scale/1m.json"
+  manifest_path: "resource://manifests/external/beam-1m.json"
+  isolation: "scenario"
+  ingest_mode: "sequential"
+client:
+  name: "mesa"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  timeout_ms: 30000
+  parameters: {verbose: false}
+evaluation:
+  metrics: ["full_qa", "latency", "efficiency"]
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: true
+generation:
+  enabled: true
+  model: null
+runtime:
+  top_k: 5
+  context_token_budget: 4096
+  ollama_url: null
+  require_independent_judge: true
+  track: "full-cognitive"

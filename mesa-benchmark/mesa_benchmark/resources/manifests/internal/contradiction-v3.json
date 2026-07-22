@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "contradiction_v3",
+  "dataset_version": "v3-seed42",
+  "source": {"url": "repository://synthetic/contradiction-v3", "revision": "generator-v3", "split": "internal"},
+  "checksums": {"raw_sha256": null, "converted_sha256": "704c53f52ffc47596ee70b7d1994b056fcb7e1521119defcb4bef4ae69e49d5b"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "internal-regression",
+  "isolation": "scenario",
+  "ingest_mode": "batch",
+  "chunking": {"strategy": "source", "parameters": {}},
+  "metrics": {"supported": ["hit_at_k", "mrr", "ndcg", "authoritative_hit_at_k", "forbidden_rate_at_k", "required_group_coverage"], "unsupported": []},
+  "counts": {"scenarios": 200, "contexts": 1400, "questions": 200, "categories": {"update_contradiction": 200}},
+  "converter": {"version": "contradiction-v3", "parameters": {"seed": 42, "noise_per_scenario": 5}},
+  "quality": {"normalized_duplicate_query_budget": 0.0},
+  "known_annotation_exceptions": []
+}

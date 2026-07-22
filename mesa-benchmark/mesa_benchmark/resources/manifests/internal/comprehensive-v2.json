@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "comprehensive_200",
+  "dataset_version": "v2",
+  "source": {"url": "repository://synthetic/comprehensive", "revision": "83a9862c", "split": "internal"},
+  "checksums": {"raw_sha256": null, "converted_sha256": "c0f32e9e25c0b8f51b1d7633b8d9c31b126efc4d87c81128d302a3bcaa629cd9"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "internal-regression",
+  "isolation": "scenario",
+  "ingest_mode": "batch",
+  "chunking": {"strategy": "source", "parameters": {}},
+  "metrics": {"supported": ["hit_at_k", "mrr", "ndcg", "full_qa"], "unsupported": []},
+  "counts": {"scenarios": 200, "contexts": 380, "questions": 200, "categories": {"uncategorized": 200}},
+  "converter": {"version": "legacy-v2", "parameters": {}},
+  "quality": {"normalized_duplicate_query_budget": 0.66},
+  "known_annotation_exceptions": ["Template repetition makes this dataset unsuitable for public evidence."]
+}

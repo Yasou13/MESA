@@ -17,6 +17,7 @@ from mesa_benchmark.clients.mem0_client import Mem0ClientAdapter
 from mesa_benchmark.clients.mesa_client import MesaClientAdapter
 from mesa_benchmark.core.config import apply_runtime_environment, load_config
 from mesa_benchmark.core.generation import OllamaAnswerGenerator
+from mesa_benchmark.core.paths import resolve_benchmark_path
 from mesa_benchmark.core.preflight import (
     file_sha256,
     ollama_preflight,
@@ -706,7 +707,9 @@ def test_resume_rebuilds_question_dedup_from_jsonl_not_state_list(
 
 
 def test_comprehensive_multihop_metadata_has_resolvable_entity_nodes() -> None:
-    path = Path("mesa-benchmark/mesa_benchmark/datasets/comprehensive_200_dataset.json")
+    path = resolve_benchmark_path(
+        "resource://fixtures/legacy/comprehensive_200_dataset.json"
+    )
     scenarios = json.loads(path.read_text())
     multi_hop = [item for item in scenarios if item["id"].startswith("multi_hop")]
     assert len(multi_hop) == 60

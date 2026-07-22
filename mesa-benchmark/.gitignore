@@ -14,9 +14,10 @@ __pycache__/
 
 # Benchmark outputs
 /reports/
+/results/
 *.jsonl
 state.json
+.state.json
 
 # Environment variables
 .env
-\nstress_dataset.json

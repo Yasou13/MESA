@@ -1,0 +1,37 @@
+suite_name: "LongMemEval_S Cleaned Release"
+iterations: 1
+seed: 42
+
+dataset:
+  name: "longmemeval_s_cleaned"
+  version: "98d7416c-v2"
+  path: "data://external/longmemeval/dataset.json"
+  manifest_path: "resource://manifests/external/longmemeval.json"
+  isolation: "scenario"
+  ingest_mode: "sequential"
+  noise_ratio: 0.0
+
+client:
+  name: "mesa"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  timeout_ms: 30000
+  parameters:
+    verbose: false
+    enable_multi_hop: false
+    enable_rerank: false
+
+evaluation:
+  metrics: ["hit_at_k", "mrr", "ndcg", "full_qa", "category_macro_average"]
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: true
+
+generation:
+  enabled: true
+  model: null
+
+runtime:
+  top_k: 5
+  context_token_budget: 4096
+  ollama_url: null
+  require_independent_judge: true

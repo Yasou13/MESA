@@ -24,6 +24,7 @@ class OllamaAnswerGenerator:
         timeout_s: float,
         temperature: float,
         seed: int,
+        context_token_budget: int = 4096,
     ) -> None:
         if not host or not model:
             raise ValueError("Ollama host and generator model are required")
@@ -33,6 +34,14 @@ class OllamaAnswerGenerator:
         self.model = model
         self.temperature = temperature
         self.seed = seed
+        self.context_token_budget = context_token_budget
+
+    def _bounded_context(self, text: str) -> str:
+        """Apply one deterministic approximate token budget to every system."""
+        words = text.split()
+        # A conservative provider-independent approximation: 1 token ~= 0.75 word.
+        max_words = max(1, int(self.context_token_budget * 0.75))
+        return " ".join(words[:max_words])
 
     def generate(
         self, response: BenchmarkResponse, question: BenchmarkQuestion
@@ -44,6 +53,7 @@ class OllamaAnswerGenerator:
             )
         else:
             context_text = response.answer_text
+        context_text = self._bounded_context(context_text)
         prompt = (
             "Answer the question using only the retrieved context. "
             "If the answer is absent, say that it is unknown.\n\n"

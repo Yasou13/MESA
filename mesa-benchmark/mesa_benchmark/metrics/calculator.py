@@ -37,8 +37,24 @@ class BenchmarkMetrics(BaseModel):
         0.0,
         description="Hit@5: fraction of queries where ground truth is in top-5 results.",
     )
+    hit_at_10: float = 0.0
+    hit_at_20: float = 0.0
     mrr: float = Field(0.0, description="Mean Reciprocal Rank.")
     ndcg: float = Field(0.0, description="Normalized Discounted Cumulative Gain.")
+    complete_recall_at_5: float = 0.0
+    authoritative_hit_at_5: float = 0.0
+    forbidden_rate_at_5: float = 0.0
+    required_group_coverage_at_5: float = 0.0
+    category_macro_accuracy: Optional[float] = None
+    category_accuracy: Dict[str, float] = Field(default_factory=dict)
+    rubric_criterion_score: Optional[float] = None
+    abstention_accuracy: Optional[float] = None
+    avg_ingest_latency_ms: Optional[float] = None
+    storage_size_bytes: Optional[int] = None
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_cost: Optional[float] = None
+    cost_per_correct: Optional[float] = None
     token_efficiency: Optional[float] = Field(
         None, description="Total prompt tokens / correct answers."
     )
@@ -79,6 +95,59 @@ class MetricsEngine:
             if eid in top_k:
                 return 1
         return 0
+
+    @staticmethod
+    def calculate_authoritative_hit_at_k(
+        authoritative_ids: List[str], retrieved_ids: List[str], k: int
+    ) -> int:
+        """Return a hit only for current/authoritative evidence."""
+        return MetricsEngine.calculate_hit_at_k(authoritative_ids, retrieved_ids, k)
+
+    @staticmethod
+    def calculate_forbidden_rate_at_k(
+        forbidden_ids: List[str], retrieved_ids: List[str], k: int
+    ) -> float:
+        top_k = retrieved_ids[:k]
+        if not top_k:
+            return 0.0
+        forbidden = set(forbidden_ids)
+        return sum(item in forbidden for item in top_k) / len(top_k)
+
+    @staticmethod
+    def calculate_complete_recall_at_k(
+        supporting_ids: List[str], retrieved_ids: List[str], k: int
+    ) -> float:
+        if not supporting_ids:
+            return 0.0
+        return float(set(supporting_ids).issubset(set(retrieved_ids[:k])))
+
+    @staticmethod
+    def calculate_required_group_coverage_at_k(
+        groups: List[List[str]], retrieved_ids: List[str], k: int
+    ) -> float:
+        if not groups:
+            return 0.0
+        retrieved = set(retrieved_ids[:k])
+        return sum(bool(retrieved.intersection(group)) for group in groups) / len(
+            groups
+        )
+
+    @staticmethod
+    def calculate_graded_ndcg(
+        relevance: Dict[str, float], retrieved_ids: List[str], k: int = 5
+    ) -> float:
+        if not relevance:
+            return 0.0
+
+        def dcg(scores: List[float]) -> float:
+            return sum(
+                (2**score - 1) / math.log2(index + 2)
+                for index, score in enumerate(scores[:k])
+            )
+
+        actual = dcg([float(relevance.get(item, 0.0)) for item in retrieved_ids])
+        ideal = dcg(sorted(map(float, relevance.values()), reverse=True))
+        return actual / ideal if ideal else 0.0
 
     @staticmethod
     def calculate_reciprocal_rank(
@@ -186,9 +255,15 @@ def _evaluator_family(data: Dict[str, object]) -> str:
     if recorded in {"deterministic", "semantic_judge"}:
         return str(recorded)
     strategy = str(data.get("evaluation_strategy", ""))
-    if strategy in {"llm_judge", "multi_model_judge"}:
+    if strategy in {"llm_judge", "rubric_judge", "multi_model_judge"}:
         return "semantic_judge"
-    if strategy in {"exact_match", "regex"}:
+    if strategy in {
+        "exact_match",
+        "substring_match",
+        "normalized_exact_match",
+        "recall_at_5",
+        "regex",
+    }:
         return "deterministic"
     return "other"
 
@@ -210,8 +285,16 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     hit_1_sum = 0
     hit_3_sum = 0
     hit_5_sum = 0
+    hit_10_sum = 0
+    hit_20_sum = 0
     rr_sum = 0.0
     ndcg_sum = 0.0
+    complete_recall_sum = 0.0
+    authoritative_hit_sum = 0.0
+    forbidden_rate_sum = 0.0
+    required_group_coverage_sum = 0.0
+    forbidden_evaluable_count = 0
+    required_group_evaluable_count = 0
     retrieval_evaluable_count = 0
     infrastructure_errors = 0
     answer_exact_matches: List[float] = []
@@ -221,6 +304,15 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     semantic_judge_count = 0
     semantic_judge_correct = 0
     semantic_judge_scores: List[float] = []
+    category_totals: Dict[str, int] = {}
+    category_correct: Dict[str, int] = {}
+    rubric_scores: List[float] = []
+    abstention_total = 0
+    abstention_correct = 0
+    ingest_latencies: List[float] = []
+    storage_sizes: List[int] = []
+    total_cost = 0.0
+    has_cost = False
 
     failure_counts: Dict[str, int] = {}
     stage_latencies_sum: Dict[str, float] = {}
@@ -274,6 +366,23 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
             answer_exact_matches.append(float(data["answer_exact_match"]))
         if data.get("answer_token_f1") is not None:
             answer_token_f1_scores.append(float(data["answer_token_f1"]))
+        if data.get("rubric_criterion_score") is not None:
+            rubric_scores.append(float(data["rubric_criterion_score"]))
+        if data.get("ingest_latency_ms") is not None:
+            ingest_latencies.append(float(data["ingest_latency_ms"]))
+        if isinstance(data.get("storage_size_bytes"), int):
+            storage_sizes.append(int(data["storage_size_bytes"]))
+        if data.get("cost") is not None:
+            total_cost += float(data["cost"])
+            has_cost = True
+        category = str(data.get("category") or "uncategorized")
+        category_totals[category] = category_totals.get(category, 0) + 1
+        category_correct[category] = category_correct.get(category, 0) + int(
+            bool(data.get("is_correct", False))
+        )
+        if category.casefold() == "abstention":
+            abstention_total += 1
+            abstention_correct += int(bool(data.get("is_correct", False)))
 
         if data.get("infrastructure_error", False):
             infrastructure_errors += 1
@@ -290,9 +399,36 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
             hit_1_sum += engine.calculate_hit_at_k(expected, retrieved, 1)
             hit_3_sum += engine.calculate_hit_at_k(expected, retrieved, 3)
             hit_5_sum += engine.calculate_hit_at_k(expected, retrieved, 5)
+            hit_10_sum += engine.calculate_hit_at_k(expected, retrieved, 10)
+            hit_20_sum += engine.calculate_hit_at_k(expected, retrieved, 20)
             rr_sum += engine.calculate_reciprocal_rank(expected, retrieved)
 
-            ndcg_sum += engine.calculate_ndcg(expected, retrieved, k=5)
+            relevance = data.get("relevance_grades")
+            if isinstance(relevance, dict) and relevance:
+                ndcg_sum += engine.calculate_graded_ndcg(relevance, retrieved, k=5)
+            else:
+                ndcg_sum += engine.calculate_ndcg(expected, retrieved, k=5)
+            complete_recall_sum += engine.calculate_complete_recall_at_k(
+                expected, retrieved, 5
+            )
+            authoritative_hit_sum += engine.calculate_authoritative_hit_at_k(
+                expected, retrieved, 5
+            )
+
+        forbidden = data.get("forbidden_context_ids", [])
+        if forbidden:
+            forbidden_evaluable_count += 1
+            forbidden_rate_sum += engine.calculate_forbidden_rate_at_k(
+                forbidden, retrieved, 5
+            )
+        required_groups = data.get("required_context_groups", [])
+        if required_groups:
+            required_group_evaluable_count += 1
+            required_group_coverage_sum += (
+                engine.calculate_required_group_coverage_at_k(
+                    required_groups, retrieved, 5
+                )
+            )
 
         # Diagnostics: failure attribution
         failure_attr = data.get("failure_attribution")
@@ -332,6 +468,12 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     if correct_count > 0 and total_tokens > 0:
         token_efficiency = total_tokens / correct_count
 
+    category_accuracy = {
+        category: category_correct[category] / count
+        for category, count in category_totals.items()
+        if count
+    }
+
     avg_stage_latencies = {
         stage: round(stage_latencies_sum[stage] / stage_latencies_count[stage], 2)
         for stage in stage_latencies_sum
@@ -356,9 +498,57 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         hit_at_5=(
             hit_5_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
         ),
+        hit_at_10=(
+            hit_10_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
+        ),
+        hit_at_20=(
+            hit_20_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
+        ),
         mrr=(rr_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0),
         ndcg=(
             ndcg_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
+        ),
+        complete_recall_at_5=(
+            complete_recall_sum / retrieval_evaluable_count
+            if retrieval_evaluable_count
+            else 0.0
+        ),
+        authoritative_hit_at_5=(
+            authoritative_hit_sum / retrieval_evaluable_count
+            if retrieval_evaluable_count
+            else 0.0
+        ),
+        forbidden_rate_at_5=(
+            forbidden_rate_sum / forbidden_evaluable_count
+            if forbidden_evaluable_count
+            else 0.0
+        ),
+        required_group_coverage_at_5=(
+            required_group_coverage_sum / required_group_evaluable_count
+            if required_group_evaluable_count
+            else 0.0
+        ),
+        category_macro_accuracy=(
+            sum(category_accuracy.values()) / len(category_accuracy)
+            if category_accuracy
+            else None
+        ),
+        category_accuracy=category_accuracy,
+        rubric_criterion_score=(
+            sum(rubric_scores) / len(rubric_scores) if rubric_scores else None
+        ),
+        abstention_accuracy=(
+            abstention_correct / abstention_total if abstention_total else None
+        ),
+        avg_ingest_latency_ms=(
+            sum(ingest_latencies) / len(ingest_latencies) if ingest_latencies else None
+        ),
+        storage_size_bytes=max(storage_sizes) if storage_sizes else None,
+        total_prompt_tokens=total_prompt_tokens,
+        total_completion_tokens=total_completion_tokens,
+        total_cost=total_cost if has_cost else None,
+        cost_per_correct=(
+            total_cost / correct_count if has_cost and correct_count else None
         ),
         token_efficiency=token_efficiency,
         failure_attributions=failure_counts,

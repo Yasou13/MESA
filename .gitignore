@@ -170,6 +170,8 @@ storage/
 __pycache__/
 
 # Ephemeral benchmark execution artifacts
+/results/
+mesa-benchmark/results/
 report_*.md
 reproducibility_report.json
 state.json
@@ -179,3 +181,12 @@ beam_eval_report.json
 rewrite_harness.py
 test_node.py
 test_qdrant/
+# External/generated payloads are reproduced by `mesa-benchmark dataset-sync`.
+mesa-benchmark/datasets/external/beam/v2/dataset.json
+mesa-benchmark/datasets/external/locomo/dataset.json
+mesa-benchmark/datasets/external/longmemeval/dataset.json
+mesa-benchmark/datasets/external/memoryagentbench/dataset.json
+mesa-benchmark/datasets/external/memoryagentbench/recsys.json
+mesa-benchmark/datasets/generated/beam/scale/*.json
+mesa-benchmark/datasets/generated/beam/ablations/*.json
+mesa-benchmark/datasets/external_raw/

@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "internal_holdout_600",
+  "dataset_version": "20260722-v1",
+  "source": {"url": "repository://synthetic/frozen-holdout", "revision": "20260722", "split": "internal-holdout"},
+  "checksums": {"raw_sha256": null, "converted_sha256": "14137dcaabcae2497cc40d57469fabd74be9a4e6354c46a9e142bde921dfe0b8"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "internal-regression",
+  "isolation": "scenario",
+  "ingest_mode": "batch",
+  "chunking": {"strategy": "source", "parameters": {}},
+  "metrics": {"supported": ["hit_at_k", "mrr", "ndcg", "complete_recall_at_k", "authoritative_hit_at_k", "forbidden_rate_at_k", "abstention_accuracy", "category_macro_average"], "unsupported": []},
+  "counts": {"scenarios": 600, "contexts": 2400, "questions": 600, "categories": {"abstention": 100, "fact_recall": 100, "multi_hop": 100, "near_negative_noise": 100, "preference_instruction": 100, "update_contradiction": 100}},
+  "converter": {"version": "holdout-20260722", "parameters": {"seed": 20260722, "english": 480, "turkish": 120}},
+  "quality": {"normalized_duplicate_query_budget": 0.05},
+  "known_annotation_exceptions": []
+}

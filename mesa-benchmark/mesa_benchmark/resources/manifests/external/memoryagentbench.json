@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "memoryagentbench_core",
+  "dataset_version": "7ea06698-512-v2",
+  "source": {"url": "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench", "revision": "7ea066982b140a19337e17e60d45d4076e042faf", "split": "selected-core-tracks"},
+  "checksums": {"raw_sha256": "55f72b0f8aa86e8854776b86752c7497494afaea4d51c4b18d1d4448c64d8fb6", "converted_sha256": "f4daa497789308e9f49e16d6451f7fd90e66db74029cc617cefb51975a464b3b"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "external-publishable",
+  "isolation": "scenario",
+  "ingest_mode": "sequential",
+  "chunking": {"strategy": "upstream_sentence_token", "parameters": {"tokenizer": "gpt-4o-mini", "chunk_size": 512, "overlap": 0, "preserve_order": true}},
+  "metrics": {"supported": ["full_qa", "category_macro_average"], "unsupported": ["hit_at_k", "mrr", "ndcg"]},
+  "counts": {"scenarios": 22, "contexts": 5152, "questions": 1271, "categories": {"accurate_retrieval": 500, "conflict_resolution": 200, "long_range_understanding": 71, "test_time_learning": 500}},
+  "converter": {"version": "memoryagentbench-v2", "parameters": {"tracks": ["eventqa_131072", "factconsolidation_sh_64k", "factconsolidation_mh_64k", "detective_qa", "icl_banking77", "icl_clinic150", "icl_nlu", "icl_trec_coarse", "icl_trec_fine"]}},
+  "quality": {"normalized_duplicate_query_budget": 0.08},
+  "known_annotation_exceptions": ["Official qa_pair_ids repeat across EventQA books and are deterministically namespaced by scenario.", "FactConsolidation SH and MH intentionally share 100 normalized queries and remain separate capability tracks."]
+}

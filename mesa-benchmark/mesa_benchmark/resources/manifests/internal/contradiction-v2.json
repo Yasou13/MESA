@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "contradiction_stress_200",
+  "dataset_version": "v2",
+  "source": {"url": "repository://synthetic/contradiction", "revision": "83a9862c", "split": "internal"},
+  "checksums": {"raw_sha256": null, "converted_sha256": "4f95b81303e6ff2a8728154ec231b995004d201157146c2b35bcba4e5696fb22"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "internal-regression",
+  "isolation": "scenario",
+  "ingest_mode": "batch",
+  "chunking": {"strategy": "source", "parameters": {}},
+  "metrics": {"supported": ["hit_at_k", "mrr", "ndcg"], "unsupported": ["authoritative_hit_at_k"]},
+  "counts": {"scenarios": 200, "contexts": 1600, "questions": 200, "categories": {"uncategorized": 200}},
+  "converter": {"version": "legacy-v2", "parameters": {}},
+  "quality": {"normalized_duplicate_query_budget": 0.0},
+  "known_annotation_exceptions": ["Legacy expected IDs do not distinguish outdated evidence; use contradiction v3 for authoritative scoring."]
+}

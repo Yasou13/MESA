@@ -1,0 +1,104 @@
+schema_version: "1.0"
+name: "research"
+profile: "research"
+sync: ["locomo", "beam-500k", "beam-1m", "beam-512-64-ablation", "memoryagentbench-recsys", "beam-10m-capacity-opt-in"]
+required_systems: ["mesa", "dense-rag", "mem0"]
+group_required_systems:
+  multi-hop-graph-ablation: ["mesa"]
+runs:
+  - id: "locomo-mesa"
+    group: "locomo"
+    config: "resource://configs/research/locomo.yaml"
+    client_override: &mesa
+      name: "mesa"
+      adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+      timeout_ms: 30000
+      parameters: {enable_multi_hop: false, enable_rerank: false, embedding_model: "all-MiniLM-L6-v2"}
+  - id: "locomo-dense"
+    group: "locomo"
+    config: "resource://configs/research/locomo.yaml"
+    client_override:
+      name: "dense-rag"
+      adapter_class: "mesa_benchmark.clients.dense_rag_client.DenseRagClientAdapter"
+      timeout_ms: 30000
+      parameters: {embedding_backend: "sentence-transformers", embedding_model: "all-MiniLM-L6-v2"}
+  - id: "locomo-mem0"
+    group: "locomo"
+    config: "resource://configs/research/locomo.yaml"
+    client_override:
+      name: "mem0"
+      adapter_class: "mesa_benchmark.clients.mem0_client.Mem0ClientAdapter"
+      timeout_ms: 30000
+      parameters: {embedding_model: "all-MiniLM-L6-v2"}
+  - id: "beam-500k-mesa"
+    group: "beam-500k-nightly"
+    config: "resource://configs/research/beam_500k.yaml"
+    client_override: *mesa
+  - id: "beam-500k-dense"
+    group: "beam-500k-nightly"
+    config: "resource://configs/research/beam_500k.yaml"
+    client_override: &dense
+      name: "dense-rag"
+      adapter_class: "mesa_benchmark.clients.dense_rag_client.DenseRagClientAdapter"
+      timeout_ms: 30000
+      parameters: {embedding_backend: "sentence-transformers", embedding_model: "all-MiniLM-L6-v2"}
+  - id: "beam-500k-mem0"
+    group: "beam-500k-nightly"
+    config: "resource://configs/research/beam_500k.yaml"
+    client_override: &mem0
+      name: "mem0"
+      adapter_class: "mesa_benchmark.clients.mem0_client.Mem0ClientAdapter"
+      timeout_ms: 30000
+      parameters: {embedding_model: "all-MiniLM-L6-v2"}
+  - id: "beam-1m-mesa"
+    group: "beam-1m-nightly"
+    config: "resource://configs/research/beam_1m.yaml"
+    client_override: *mesa
+  - id: "beam-1m-dense"
+    group: "beam-1m-nightly"
+    config: "resource://configs/research/beam_1m.yaml"
+    client_override: *dense
+  - id: "beam-1m-mem0"
+    group: "beam-1m-nightly"
+    config: "resource://configs/research/beam_1m.yaml"
+    client_override: *mem0
+  - id: "beam-512-64-mesa"
+    group: "beam-512-64-ablation"
+    config: "resource://configs/research/beam_512_64.yaml"
+    client_override: *mesa
+  - id: "beam-512-64-dense"
+    group: "beam-512-64-ablation"
+    config: "resource://configs/research/beam_512_64.yaml"
+    client_override: *dense
+  - id: "beam-512-64-mem0"
+    group: "beam-512-64-ablation"
+    config: "resource://configs/research/beam_512_64.yaml"
+    client_override: *mem0
+  - id: "memoryagentbench-recsys-mesa"
+    group: "memoryagentbench-recsys-secondary"
+    config: "resource://configs/research/memoryagentbench_recsys.yaml"
+    client_override: *mesa
+  - id: "memoryagentbench-recsys-dense"
+    group: "memoryagentbench-recsys-secondary"
+    config: "resource://configs/research/memoryagentbench_recsys.yaml"
+    client_override: *dense
+  - id: "memoryagentbench-recsys-mem0"
+    group: "memoryagentbench-recsys-secondary"
+    config: "resource://configs/research/memoryagentbench_recsys.yaml"
+    client_override: *mem0
+  - id: "multi-hop-raw-mesa"
+    group: "multi-hop-raw"
+    config: "resource://configs/internal/multi_hop_raw.yaml"
+    client_override: *mesa
+  - id: "multi-hop-raw-dense"
+    group: "multi-hop-raw"
+    config: "resource://configs/internal/multi_hop_raw.yaml"
+    client_override: *dense
+  - id: "multi-hop-raw-mem0"
+    group: "multi-hop-raw"
+    config: "resource://configs/internal/multi_hop_raw.yaml"
+    client_override: *mem0
+  - id: "multi-hop-graph-mesa"
+    group: "multi-hop-graph-ablation"
+    config: "resource://configs/internal/multi_hop_graph.yaml"
+    client_override: *mesa

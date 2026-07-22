@@ -1,16 +1,26 @@
+import os
 import time
 from typing import Any, Dict
 
 from ..datasets.schemas import BenchmarkQuestion, MemoryContext
 from .base import AbstractBenchmarkClient, BenchmarkResponse, RetrievedContext
 
-try:
-    from letta import Letta as LettaClient
+LettaClient: Any = None
+LETTA_AVAILABLE = False
 
+try:
+    from letta_client import Letta as _LettaClient
+
+    LettaClient = _LettaClient
     LETTA_AVAILABLE = True
 except ImportError:
-    LettaClient = None
-    LETTA_AVAILABLE = False
+    try:
+        from letta import Letta as _LettaClientAlt
+
+        LettaClient = _LettaClientAlt
+        LETTA_AVAILABLE = True
+    except ImportError:
+        pass
 
 
 class LettaClientAdapter(AbstractBenchmarkClient):
@@ -29,6 +39,8 @@ class LettaClientAdapter(AbstractBenchmarkClient):
         self.context_id_by_text: dict[str, str] = {}
         self.top_n = 5
         self.timeout_s = 30.0
+        self.agent_model: str | None = None
+        self.embedding_model: str | None = None
 
     def initialize(self, config_params: Dict[str, Any]) -> None:
         if not LETTA_AVAILABLE:
@@ -36,18 +48,25 @@ class LettaClientAdapter(AbstractBenchmarkClient):
                 "Letta library is not installed. Install with: pip install letta"
             )
 
-        base_url = config_params.get("base_url", "http://localhost:8283")
+        base_url = config_params.get("base_url") or os.environ.get("LETTA_BASE_URL")
+        if not base_url:
+            raise ValueError(
+                "Letta requires client.parameters.base_url or LETTA_BASE_URL"
+            )
         self.agent_name = config_params.get("agent_name", "mesa_benchmark_agent")
         self.top_n = int(config_params.get("top_n", 5))
         self.timeout_s = float(config_params.get("timeout_s", 30.0))
 
-        try:
-            self.client = LettaClient(base_url=base_url, timeout=self.timeout_s)
-        except TypeError as exc:
-            raise RuntimeError(
-                "Installed Letta SDK does not expose a provider-native timeout; "
-                "refusing benchmark execution"
-            ) from exc
+        self.agent_model = config_params.get("agent_model") or os.environ.get(
+            "LETTA_AGENT_MODEL"
+        )
+        self.embedding_model = config_params.get(
+            "letta_embedding_model"
+        ) or os.environ.get("LETTA_EMBEDDING_MODEL")
+        self.client = LettaClient(
+            base_url=base_url,
+            api_key=os.environ.get("LETTA_API_KEY"),
+        )
 
         # Create or reuse an agent for benchmarking
         self._ensure_agent()
@@ -58,17 +77,25 @@ class LettaClientAdapter(AbstractBenchmarkClient):
             return
 
         if hasattr(self.client, "agents"):
-            agents = self.client.agents.list()
+            agents = self.client.agents.list(request_options=self._request_options())
             for agent in agents:
                 if getattr(agent, "name", None) == self.agent_name:
                     self.agent_id = agent.id
                     return
 
         if hasattr(self.client, "agents"):
+            create_options: dict[str, Any] = {
+                "name": self.agent_name,
+                "memory_blocks": [],
+                "description": "MESA benchmark evaluation agent",
+                "request_options": self._request_options(),
+            }
+            if self.agent_model:
+                create_options["model"] = self.agent_model
+            if self.embedding_model:
+                create_options["embedding"] = self.embedding_model
             agent = self.client.agents.create(
-                name=self.agent_name,
-                memory_blocks=[],
-                description="MESA benchmark evaluation agent",
+                **create_options,
             )
             self.agent_id = agent.id
         else:
@@ -80,12 +107,17 @@ class LettaClientAdapter(AbstractBenchmarkClient):
         if not self.agent_id:
             raise RuntimeError("Failed to create Letta agent for benchmarking")
 
+    def _request_options(self) -> dict[str, float]:
+        return {"timeout_in_seconds": self.timeout_s, "max_retries": 0}
+
     def clear_memory(self) -> None:
         """Deletes and recreates the agent for a clean test environment."""
         if not self.client or not self.agent_id:
             raise RuntimeError("Letta client is not initialized")
         if hasattr(self.client, "agents"):
-            self.client.agents.delete(self.agent_id)
+            self.client.agents.delete(
+                self.agent_id, request_options=self._request_options()
+            )
         else:
             self.client.delete_agent(self.agent_id)
         self.agent_id = None
@@ -105,6 +137,7 @@ class LettaClientAdapter(AbstractBenchmarkClient):
                 agent_id=self.agent_id,
                 text=context.text,
                 metadata={"context_id": context.id},
+                request_options=self._request_options(),
             )
         else:
             self.client.insert_archival_memory(
@@ -131,6 +164,7 @@ class LettaClientAdapter(AbstractBenchmarkClient):
                 agent_id=self.agent_id,
                 query=question.query,
                 limit=self.top_n,
+                request_options=self._request_options(),
             )
         else:
             results = self.client.get_archival_memory(
@@ -177,7 +211,9 @@ class LettaClientAdapter(AbstractBenchmarkClient):
         """Delete the final benchmark agent before releasing the SDK client."""
         if self.client and self.agent_id:
             if hasattr(self.client, "agents"):
-                self.client.agents.delete(self.agent_id)
+                self.client.agents.delete(
+                    self.agent_id, request_options=self._request_options()
+                )
             else:
                 self.client.delete_agent(self.agent_id)
         self.client = None

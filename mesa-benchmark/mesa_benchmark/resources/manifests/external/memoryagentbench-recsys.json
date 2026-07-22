@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "MemoryAgentBench Recsys",
+  "dataset_version": "7ea06698-512-v2",
+  "source": {"url": "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench", "revision": "7ea066982b140a19337e17e60d45d4076e042faf", "split": "recsys_redial_full"},
+  "checksums": {"raw_sha256": "04ed684e905e345111200d76afdb9009525357ad6c9a7cf4f2b1612a03cf1ed0", "converted_sha256": "d5838ffe31785480c9718fb7727962329f20a5e10734b406f236a1fac80dbcf6"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "external-research",
+  "isolation": "scenario",
+  "ingest_mode": "sequential",
+  "chunking": {"strategy": "official_sentence_token", "parameters": {"model": "gpt-4o-mini", "max_tokens": 512, "overlap": 0}},
+  "metrics": {"supported": ["recall_at_5", "latency", "tokens"], "unsupported": ["retrieval_relevance", "publishable_primary_score"]},
+  "counts": {"scenarios": 1, "contexts": 2964, "questions": 200, "categories": {"recommendation": 200}},
+  "converter": {"version": "memoryagentbench-v2", "parameters": {"track": "recsys", "chunk_size": 512}},
+  "quality": {"normalized_duplicate_query_budget": 0.05},
+  "known_annotation_exceptions": []
+}

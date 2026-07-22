@@ -1,17 +1,51 @@
 # MESA Benchmark Kullanım Kılavuzu
 
+Canonical suite/config/manifest dosyaları kurulu wheel içindeki
+`resource://` URI’leriyle, büyük senkronize datasetler `data://` URI’leriyle
+adreslenir. `MESA_BENCHMARK_DATA_DIR` ve `MESA_BENCHMARK_RESULTS_DIR` ile
+varsayılan kökler değiştirilebilir. Eski `mesa-benchmark/config_*.yaml` adları
+yalnız geriye uyumlu alias olarak desteklenir.
+
 ## CLI
 
-Kurulumdan sonra dört ana komut vardır:
+Kurulumdan sonra tek config ve suite komutları birlikte kullanılabilir:
 
 ```bash
 mesa-benchmark config-check --config CONFIG
-mesa-benchmark dataset-check --config CONFIG
+mesa-benchmark dataset-check --config CONFIG --profile internal|publishable
 mesa-benchmark ollama-preflight --config CONFIG
 mesa-benchmark run --config CONFIG [--seed N] [--max-scenarios N]
+mesa-benchmark dataset-sync --suite smoke|release|research
+mesa-benchmark suite-check --suite smoke|release|research
+mesa-benchmark run-suite --suite SUITE --results-root results
+mesa-benchmark verify-results --bundle BUNDLE
 ```
 
-`config-check` strict Pydantic config şemasını ve ağsız canlı Full-QA sözleşmesini; `dataset-check` kimlik, expected context ve graph relation bütünlüğünü; `ollama-preflight` ise URL, tam model etiketi ve structured JSON chat davranışını doğrular.
+`config-check` strict Pydantic config şemasını ve ağsız canlı Full-QA
+sözleşmesini; `dataset-check` schema v2, manifest, checksum, lisans, ID/evidence,
+duplicate budget ve graph-fairness kapılarını; `suite-check` suite kapsamını;
+`ollama-preflight` ise URL, tam model etiketi ve structured JSON chat davranışını
+doğrular. Eksik environment/model/credential kontrollü non-zero hata üretir.
+
+Offline kabul akışı:
+
+```bash
+mesa-benchmark dataset-sync --suite smoke
+mesa-benchmark run-suite --suite smoke --results-root results
+```
+
+Release koşumundan önce `BENCHMARK_OLLAMA_URL`, exact
+`BENCHMARK_GENERATOR_MODEL`, farklı `BENCHMARK_JUDGE_MODEL`,
+`BENCHMARK_EMBEDDING_MODEL`, Letta endpoint/model değişkenleri ve en az 100
+örnekli `BENCHMARK_JUDGE_CALIBRATION_PATH` sağlanmalıdır. Secret değerleri
+config veya bundle içine yazılmaz.
+
+`research` suite LoCoMo yanında BEAM 500K ve 1M nightly scale tracklerini
+içerir; BEAM 512/64 ablation ve MemoryAgentBench Recsys `Recall@5` ikincil
+trackleri ayrı gruplardır. 10M capacity track’i varsayılan sync sırasında atlanır; yalnız
+`MESA_BENCHMARK_ENABLE_10M=1` ile üretilir ve
+`config_beam_10m_capacity.yaml` üzerinden opt-in çalıştırılır. Bu sonuç hiçbir
+koşulda publishable kalite skoruna katılmaz.
 
 ## Config şeması
 
@@ -23,7 +57,10 @@ seed: 42
 dataset:
   name: comprehensive_200
   version: v2
-  path: mesa-benchmark/mesa_benchmark/datasets/comprehensive_200_dataset.json
+  path: resource://fixtures/legacy/comprehensive_200_dataset.json
+  manifest_path: resource://manifests/internal/comprehensive-v2.json
+  isolation: scenario
+  ingest_mode: batch
   noise_ratio: 0.0
 
 client:
@@ -51,6 +88,8 @@ generation:
 
 runtime:
   top_k: 5
+  context_token_budget: 4096
+  track: full-cognitive
   ollama_url: null
   require_independent_judge: true
 ```
@@ -71,8 +110,10 @@ BENCHMARK_EMBEDDING_MODEL=nomic-embed-text:latest
 
 `results/<client>/<dataset>_<version>_seed<seed>/` altında:
 
-- `manifest_<run_id>.json`: effective config/dataset hash, seed, model ve Top‑K.
-- `results_<run_id>.jsonl`: soru seviyesinde retrieval, Full‑QA ve altyapı alanları.
+- `manifest_<run_id>.json`: config/dataset/manifest hashleri, exact modeller,
+  protokol, lisans, chunking ve Top‑K.
+- `results_<run_id>.jsonl`: JSONL v3 soru seviyesinde input/chunk hashleri,
+  retrieval, Full‑QA, latency/token/storage ve altyapı alanları.
 - `report_<run_id>.md`: özet metrik ve validity.
 - `.state.json`: hash kontrollü resume ve scenario-level checkpoint. Tamamlanan soru anahtarları dayanıklı JSONL’den resume sırasında yeniden kurulur.
 
@@ -86,8 +127,8 @@ Rapor doğrulukları üç ayrı satırda verir: tüm primary evaluator sonuçlar
 
 ```bash
 python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config.yaml \
-  --baseline-config mesa-benchmark/config_mem0.yaml \
+  --config resource://configs/legacy/default.yaml \
+  --baseline-config resource://configs/legacy/mem0.yaml \
   --seeds 42,43,44,45,46 \
   --results-root results \
   --output results/reproducibility_report.json
@@ -99,10 +140,12 @@ Her seed gerçek runner çağrısıdır. Özet mean/std/SE/%95 CI içerir. Basel
 
 ```bash
 python mesa-benchmark/scripts/download_locomo.py
-mesa-benchmark dataset-check --config mesa-benchmark/config_locomo.yaml
+mesa-benchmark dataset-check --config resource://configs/research/locomo.yaml
 ```
 
-Downloader yalnızca `datasets/SOURCES.json` içindeki tam official revision’ı kabul eder ve SHA‑256 uyuşmazlığında durur. LoCoMo CC‑BY‑NC‑4.0 lisanslıdır.
+Downloader typed manifestteki tam resmi revision’ı kabul eder ve SHA‑256
+uyuşmazlığında durur. LoCoMo CC‑BY‑NC‑4.0 lisanslıdır ve yalnız `research`
+suite’indedir.
 
 ## Yeni adapter
 
@@ -125,13 +168,13 @@ export BENCHMARK_OLLAMA_URL='http://REMOTE:11434'
 export BENCHMARK_GENERATOR_MODEL='qweb:8b'
 export BENCHMARK_JUDGE_MODEL='independent-judge:8b'
 
-mesa-benchmark ollama-preflight -c mesa-benchmark/config_mini_mesa.yaml
-mesa-benchmark run -c mesa-benchmark/config_mini_mesa.yaml
-mesa-benchmark run -c mesa-benchmark/config_mini_mem0.yaml
-mesa-benchmark run -c mesa-benchmark/config.yaml
+mesa-benchmark ollama-preflight -c resource://configs/legacy/mini_mesa.yaml
+mesa-benchmark run -c resource://configs/legacy/mini_mesa.yaml
+mesa-benchmark run -c resource://configs/legacy/mini_mem0.yaml
+mesa-benchmark run -c resource://configs/legacy/default.yaml
 python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config.yaml \
-  --baseline-config mesa-benchmark/config_mem0.yaml \
+  --config resource://configs/legacy/default.yaml \
+  --baseline-config resource://configs/legacy/mem0.yaml \
   --seeds 42,43,44,45,46
 ```
 

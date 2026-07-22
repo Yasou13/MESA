@@ -3,6 +3,7 @@
 import re
 import string
 from collections import Counter
+from collections.abc import Callable
 
 
 def normalize_answer(value: str) -> str:
@@ -31,3 +32,13 @@ def token_f1(prediction: str, ground_truth: str) -> float:
     precision = overlap / len(prediction_tokens)
     recall = overlap / len(truth_tokens)
     return 2 * precision * recall / (precision + recall)
+
+
+def best_reference_score(
+    prediction: str,
+    references: list[str],
+    scorer: Callable[[str, str], float],
+) -> float:
+    if not references:
+        return 0.0
+    return max(scorer(prediction, reference) for reference in references)

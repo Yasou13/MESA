@@ -1,0 +1,123 @@
+name: Benchmark data quality
+
+on:
+  push:
+    branches: [benchmark/**, main]
+    paths: ["mesa-benchmark/**", ".github/workflows/benchmark-quality.yml", "pyproject.toml", "uv.lock"]
+  pull_request:
+    branches: [benchmark/**, main]
+    paths: ["mesa-benchmark/**", ".github/workflows/benchmark-quality.yml", "pyproject.toml", "uv.lock"]
+  schedule:
+    - cron: "31 2 * * 3"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: External suite to execute
+        type: choice
+        options: [release, research]
+        default: release
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      HF_HUB_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install "uv==0.9.6"
+      - run: uv sync --locked --extra dev
+      - name: Unit, golden, schema, converter, and verifier contracts
+        run: uv run python -m pytest -q mesa-benchmark/tests
+      - name: Benchmark lint and type contracts
+        run: |
+          uv run ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/scripts mesa-benchmark/tests
+          uv run mypy mesa-benchmark/mesa_benchmark
+      - name: Offline dataset and suite gates
+        run: |
+          uv run mesa-benchmark dataset-sync --suite smoke
+          uv run mesa-benchmark dataset-check --config resource://configs/internal/smoke_dense.yaml --profile internal
+          uv run mesa-benchmark run-suite --suite smoke --results-root "$RUNNER_TEMP/benchmark-results"
+      - name: Artifact hygiene
+        run: |
+          test -z "$(git ls-files | grep -E '(^|/)(__pycache__|results|build/lib/mesa_benchmark)(/|$)|\.py[co]$' || true)"
+          git check-ignore --no-index results/probe.json mesa-benchmark/results/probe.json
+      - name: Installed-wheel offline smoke
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+          uv venv "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" "$RUNNER_TEMP"/dist/*.whl
+          cd "$RUNNER_TEMP"
+          MESA_BENCHMARK_DATA_DIR="$RUNNER_TEMP/wheel-data" "$RUNNER_TEMP/wheel-venv/bin/mesa-benchmark" dataset-sync --suite smoke
+          MESA_BENCHMARK_DATA_DIR="$RUNNER_TEMP/wheel-data" "$RUNNER_TEMP/wheel-venv/bin/mesa-benchmark" suite-check --suite smoke
+          MESA_BENCHMARK_DATA_DIR="$RUNNER_TEMP/wheel-data" "$RUNNER_TEMP/wheel-venv/bin/mesa-benchmark" run-suite --suite smoke --results-root "$RUNNER_TEMP/wheel-results"
+          "$RUNNER_TEMP/wheel-venv/bin/mesa-benchmark" verify-results --bundle "$(find "$RUNNER_TEMP/wheel-results" -name bundle.json -print -quit)"
+
+  nightly-external-sync:
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install "uv==0.9.6"
+      - run: uv sync --locked --extra dev
+      - name: Pinned external download, checksum, and contract smoke
+        run: |
+          uv run mesa-benchmark dataset-sync --suite release
+          uv run mesa-benchmark suite-check --suite release
+          uv run mesa-benchmark dataset-sync --suite research
+          uv run mesa-benchmark suite-check --suite research
+
+  manual-external-release:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 720
+    env:
+      BENCHMARK_OLLAMA_URL: ${{ secrets.BENCHMARK_OLLAMA_URL }}
+      BENCHMARK_GENERATOR_MODEL: ${{ vars.BENCHMARK_GENERATOR_MODEL }}
+      BENCHMARK_JUDGE_MODEL: ${{ vars.BENCHMARK_JUDGE_MODEL }}
+      BENCHMARK_EMBEDDING_MODEL: all-MiniLM-L6-v2
+      LETTA_BASE_URL: ${{ secrets.LETTA_BASE_URL }}
+      LETTA_API_KEY: ${{ secrets.LETTA_API_KEY }}
+      LETTA_AGENT_MODEL: ${{ vars.LETTA_AGENT_MODEL }}
+      LETTA_EMBEDDING_MODEL: all-MiniLM-L6-v2
+      ZEP_API_KEY: ${{ secrets.ZEP_API_KEY }}
+      ZEP_EMBEDDING_MODEL: all-MiniLM-L6-v2
+      BENCHMARK_JUDGE_CALIBRATION_PATH: ${{ runner.temp }}/judge-calibration.json
+      BENCHMARK_JUDGE_CALIBRATION_JSON: ${{ secrets.BENCHMARK_JUDGE_CALIBRATION_JSON }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install "uv==0.9.6"
+      - run: uv sync --locked --extra dev --extra adapters --extra benchmarks --extra ml
+      - name: Materialize blinded judge calibration without logging labels
+        run: python -c "import os,pathlib; pathlib.Path(os.environ['BENCHMARK_JUDGE_CALIBRATION_PATH']).write_text(os.environ['BENCHMARK_JUDGE_CALIBRATION_JSON'], encoding='utf-8')"
+      - name: Dataset and model preflight
+        run: |
+          uv run mesa-benchmark dataset-sync --suite "${{ inputs.suite }}"
+          uv run mesa-benchmark suite-check --suite "${{ inputs.suite }}"
+          uv run mesa-benchmark ollama-preflight --config resource://configs/release/beam_128k.yaml
+      - name: Full equal-protocol comparison
+        run: uv run mesa-benchmark run-suite --suite "${{ inputs.suite }}" --results-root benchmark-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: benchmark-evidence-${{ inputs.suite }}
+          path: benchmark-results/
+          retention-days: 30

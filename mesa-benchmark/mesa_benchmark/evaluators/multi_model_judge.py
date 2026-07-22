@@ -22,10 +22,12 @@ from .verdict import JudgeVerdict, parse_judge_verdict
 logger = logging.getLogger(__name__)
 
 JUDGE_PROMPT = """You are an expert evaluator assessing a memory-augmented RAG system.
-Determine if the retrieved context contains the necessary information to satisfy the ground truth.
+Determine if the answer addresses the question and satisfies every applicable rubric criterion.
 
-Ground Truth: {ground_truth}
-Retrieved Context (System Answer): {system_answer}
+Question: {question}
+Reference Answers: {reference_answers}
+Rubric Criteria: {rubric}
+System Answer: {system_answer}
 Expected Context IDs: {expected_contexts}
 Retrieved Context IDs: {retrieved_contexts}
 
@@ -133,9 +135,11 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
         and returns the majority-vote result with per-model metadata.
         """
         prompt = JUDGE_PROMPT.format(
-            ground_truth=question.ground_truth,
+            question=question.query,
+            reference_answers=question.reference_answers,
+            rubric=question.rubric,
             system_answer=response.answer_text,
-            expected_contexts=question.expected_context_ids,
+            expected_contexts=question.supporting_context_ids,
             retrieved_contexts=response.retrieved_context_ids,
         )
 
@@ -200,8 +204,14 @@ class MultiModelJudgeEvaluator(BaseEvaluator):
             reasoning=f"Majority vote: {correct_count}/{len(verdicts)} models agreed correct.",
             metadata={
                 "evaluator_type": "MultiModelJudgeEvaluator",
-                "models_queried": list(model_results.keys()),
-                "per_model_results": model_results,
+                "models_queried": [
+                    model for model in self.judge_models if model in model_results
+                ],
+                "per_model_results": {
+                    model: model_results[model]
+                    for model in self.judge_models
+                    if model in model_results
+                },
                 "majority_vote": majority_correct,
                 "inter_model_agreement_rate": inter_model_agreement_rate,
             },

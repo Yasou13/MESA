@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "locomo",
+  "dataset_version": "pinned-v2",
+  "source": {"url": "https://github.com/snap-research/locomo/blob/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json", "revision": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376", "split": "locomo10"},
+  "checksums": {"raw_sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4", "converted_sha256": "41453fa35290113e3a5252b4d53f8a421a2dc559f1052f35e56b41fa94f24717"},
+  "license": {"spdx_id": "CC-BY-NC-4.0", "redistribution": "restricted"},
+  "designation": "external-research",
+  "isolation": "scenario",
+  "ingest_mode": "sequential",
+  "chunking": {"strategy": "official_dialogue_turn", "parameters": {"chronological_sessions": true}},
+  "metrics": {"supported": ["full_qa", "hit_at_k", "mrr", "ndcg", "abstention_accuracy"], "unsupported": []},
+  "counts": {"scenarios": 10, "contexts": 5882, "questions": 1986, "categories": {"abstention": 446, "commonsense": 841, "multi_hop": 96, "single_hop": 282, "temporal_reasoning": 321}},
+  "converter": {"version": "locomo-v2", "parameters": {"preserve_chronology": true, "preserve_timestamps": true}},
+  "quality": {"normalized_duplicate_query_budget": 0.01},
+  "known_annotation_exceptions": ["conv-42 D10:19 is absent from the official conversation.", "conv-47 D4:36 is absent from the official conversation."]
+}

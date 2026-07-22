@@ -118,6 +118,8 @@ class TestClientImports:
     def test_clients_init_exports(self):
         from mesa_benchmark.clients import __all__
 
+        assert "DenseRagClientAdapter" in __all__
+        assert "Mem0ClientAdapter" in __all__
         assert "ZepClientAdapter" in __all__
         assert "LettaClientAdapter" in __all__
 
@@ -375,11 +377,13 @@ class TestReporter:
 
 
 class TestDockerfile:
-    def test_dockerfile_uses_lock_file(self):
+    def test_dockerfile_uses_uv_lock_file(self):
         dockerfile_path = REPO_ROOT / "mesa-benchmark" / "Dockerfile"
         content = dockerfile_path.read_text(encoding="utf-8")
-        assert "requirements-lock.txt" in content
-        assert "requirements.txt" not in content or "requirements-lock.txt" in content
+        assert "COPY pyproject.toml uv.lock" in content
+        assert "uv sync --frozen --no-dev --extra benchmarks" in content
+        assert "requirements-lock.txt" not in content
+        assert "requirements.txt" not in content
 
 
 # ===================================================================

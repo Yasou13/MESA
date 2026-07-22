@@ -23,13 +23,11 @@ class DatasetManager:
     def load(self) -> None:
         """Loads and validates the dataset from JSON."""
         if not self.dataset_path.exists():
-            # Fallback 1: check relative to the mesa-benchmark project root
-            project_root = Path(__file__).resolve().parent.parent.parent
-            fallback = project_root / self.dataset_path
-            if fallback.exists():
-                self.dataset_path = fallback
-            else:
-                raise DatasetLoaderError(f"Dataset file not found: {self.dataset_path}")
+            raise DatasetLoaderError(
+                f"Dataset file not found: {self.dataset_path}. "
+                "Run 'mesa-benchmark dataset-sync --suite <suite>' or set "
+                "MESA_BENCHMARK_DATA_DIR to a prepared data root."
+            )
 
         try:
             with open(self.dataset_path, "r", encoding="utf-8") as f:
@@ -72,7 +70,7 @@ class DatasetManager:
                     )
                 scenario_ids.add(scenario.id)
 
-                # Validate that expected_context_ids exist in the contexts
+                # Validate all evidence references against the scenario scope.
                 context_ids = set()
                 for ctx in scenario.contexts:
                     if ctx.id in context_ids:
@@ -82,7 +80,12 @@ class DatasetManager:
                     context_ids.add(ctx.id)
 
                 for q in scenario.questions:
-                    for ec_id in q.expected_context_ids:
+                    evidence_ids = set(q.supporting_context_ids)
+                    evidence_ids.update(q.forbidden_context_ids)
+                    evidence_ids.update(
+                        item for group in q.required_context_groups for item in group
+                    )
+                    for ec_id in evidence_ids:
                         if ec_id not in context_ids:
                             raise DatasetLoaderError(
                                 f"Question '{q.id}' references non-existent context ID '{ec_id}'"
