@@ -1,8 +1,10 @@
 import argparse
 import json
 import logging
+import math
 import os
 import sys
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,47 @@ SUMMARY_METRICS = (
     "p95_latency_ms",
     "p99_latency_ms",
 )
+
+
+def _numeric_metric(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) else None
+
+
+def _summarize_metric(runs: list[dict[str, Any]], metric: str) -> dict[str, Any]:
+    values: list[float] = []
+    excluded_seeds: list[int] = []
+    for run in runs:
+        value = _numeric_metric(run["metrics"].get(metric))
+        if value is None:
+            excluded_seeds.append(int(run["seed"]))
+        else:
+            values.append(value)
+    if not values:
+        return {
+            "mean": None,
+            "std": None,
+            "se": None,
+            "ci_95": None,
+            "min": None,
+            "max": None,
+            "n": 0,
+            "formatted_str": "N/A",
+            "status": "N/A",
+            "available_seed_count": 0,
+            "excluded_seed_count": len(excluded_seeds),
+            "excluded_seeds": excluded_seeds,
+        }
+    summary = compute_run_statistics(values)
+    summary.update(
+        status="available" if not excluded_seeds else "partial",
+        available_seed_count=len(values),
+        excluded_seed_count=len(excluded_seeds),
+        excluded_seeds=excluded_seeds,
+    )
+    return summary
 
 
 def _run_system(
@@ -56,8 +99,7 @@ def _run_system(
     summaries: dict[str, Any] = {}
     successful = [run for run in runs if run["status"] == "success"]
     for metric in SUMMARY_METRICS:
-        values = [float(run["metrics"].get(metric, 0.0)) for run in successful]
-        summaries[metric] = compute_run_statistics(values)
+        summaries[metric] = _summarize_metric(successful, metric)
     return {
         "config": config_path,
         "seeds_run": seeds,
@@ -78,19 +120,43 @@ def _compare(primary: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any
     }
     shared_seeds = sorted(set(primary_runs).intersection(baseline_runs))
     for metric in SUMMARY_METRICS:
-        values_a = [
-            float(primary_runs[seed]["metrics"].get(metric, 0.0))
+        paired_values = [
+            (
+                seed,
+                _numeric_metric(primary_runs[seed]["metrics"].get(metric)),
+                _numeric_metric(baseline_runs[seed]["metrics"].get(metric)),
+            )
             for seed in shared_seeds
         ]
-        values_b = [
-            float(baseline_runs[seed]["metrics"].get(metric, 0.0))
-            for seed in shared_seeds
+        available = [
+            (item[0], item[1], item[2])
+            for item in paired_values
+            if item[1] is not None and item[2] is not None
         ]
+        available_seeds = {item[0] for item in available}
+        excluded_seeds = [
+            item[0] for item in paired_values if item[0] not in available_seeds
+        ]
+        values_a = [item[1] for item in available]
+        values_b = [item[2] for item in available]
+        available_status = "available" if available else "N/A"
         comparison[metric] = {
-            "shared_seeds": shared_seeds,
-            "primary": compute_run_statistics(values_a),
-            "baseline": compute_run_statistics(values_b),
-            "welch_t_test": compute_t_test_p_value(values_a, values_b),
+            "shared_seeds": [item[0] for item in available],
+            "excluded_seeds": excluded_seeds,
+            "available_seed_count": len(available),
+            "excluded_seed_count": len(excluded_seeds),
+            "status": available_status,
+            "primary": _summarize_metric(
+                [{"seed": item[0], "metrics": {metric: item[1]}} for item in available],
+                metric,
+            ),
+            "baseline": _summarize_metric(
+                [{"seed": item[0], "metrics": {metric: item[2]}} for item in available],
+                metric,
+            ),
+            "welch_t_test": (
+                compute_t_test_p_value(values_a, values_b) if available else None
+            ),
         }
     paired_primary, paired_baseline = _aligned_question_scores(
         primary_runs, baseline_runs, shared_seeds
@@ -165,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
 
     primary = _run_system(args.config, seeds, args.results_root)
     report: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "primary": primary,
         "valid": primary["valid"],
     }
