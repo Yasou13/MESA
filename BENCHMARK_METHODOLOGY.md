@@ -2,14 +2,21 @@
 
 ## Amaç ve karşılaştırma birimi
 
-Karşılaştırılan bileşen bellek/retrieval sistemidir. Cevap üretme değişkenini sabitlemek için MESA, Mem0, Zep ve Letta aynı generator modelini kullanır. Her gözlem anahtarı `seed + iteration + scenario_id + question_id` birleşimidir.
+Karşılaştırılan bileşen bellek/retrieval sistemidir. Cevap üretme değişkenini
+sabitlemek için MESA, dense RAG, Mem0, Letta ve opsiyonel Zep aynı exact
+generator revision’ını kullanır. Her gözlem anahtarı
+`seed + iteration + scenario_id + question_id` birleşimidir.
 
 ## İki ayrı sonuç hattı
 
 ### Retrieval
 
 - Runner bütün adaptörlerde `Top‑K = 5` uygular.
-- `Hit@1`, `Hit@3`, `Hit@5`, MRR ve nDCG@5 yalnızca `expected_context_ids` bulunan sorularda hesaplanır.
+- Adapterlar ikincil analiz için ortak Top-20 döndürür; generator/judge yalnız
+  primary Top-5'i görür. Hit@1/3/5/10/20 aynı sıralı sonuçtan hesaplanır.
+- `Hit@1`, `Hit@3`, `Hit@5`, MRR, graded nDCG, complete recall,
+  authoritative hit, forbidden/outdated rate ve required group coverage yalnız
+  uygun relevance annotation bulunan sorularda hesaplanır.
 - Latency, adaptörün retrieval çağrısını ölçer; ortak generation süresi bu değere eklenmez.
 - BEAM’in kaynak verisi context ID relevance etiketi vermediği için retrieval metrikleri `N/A`’dır.
 
@@ -27,11 +34,14 @@ Karşılaştırılan bileşen bellek/retrieval sistemidir. Cevap üretme değiş
 
 Purge, ingest, query, provider timeout, generator ve judge hataları `TIMEOUT_OR_ERROR` altyapı hatasıdır. Hatalı soru sonuç dosyasında tanı bilgisiyle kalır fakat koşum `invalid` olur ve process non-zero döner. Başarısız ingestion boş cevap olarak değerlendirilmez.
 
-Kanıt seviyesi:
+Kanıt seviyesi ve yayın kapısı:
 
 - `invalid`: en az bir altyapı/judge hatası.
 - `provisional/self-judged`: generator yok, bağımsız semantic judge gerçekten çalışmadı veya judge generator ile aynı model.
-- `publishable`: sıfır altyapı hatası, Full‑QA generator ve ondan farklı semantic judge fiilen çalıştı.
+- `publishable`: external-publishable manifest, sıfır altyapı hatası, %100
+  kapsam, en az üç eşlenmiş sistem, aynı dataset/question/chunk/Top-K/token
+  protokolü, generator’dan farklı semantic judge, quorum ve en az 100 kör
+  örnekte Cohen’s κ ≥ 0,70 birlikte doğrulandı.
 
 Sentetik comprehensive/mini setler `internal-regression-only` sınıfındadır; kanıt seviyesi dış benchmark niteliği kazandırmaz.
 
@@ -67,7 +77,12 @@ P95/P99 latency yalnız en az 20 gözlemde nearest-rank yöntemiyle hesaplanır.
 
 ## Dataset provenance
 
-BEAM ve LoCoMo kaynakları, revision, checksum ve lisansları `mesa-benchmark/datasets/SOURCES.json` içinde tutulur. LoCoMo converter resmi category‑5 davranışını uygular: cevabı bulunmayan adversarial sorularda ground truth `Not mentioned` olur ve retrieval relevance hesaplanmaz. Resmi kaynakta çözülemeyen iki evidence referansı manifestte belgelenir.
+Her dataset revision, raw/converted SHA-256, SPDX lisans, redistribution,
+designation, isolation, ingest, chunking ve desteklenen metriklerini typed
+manifestte taşır. BEAM 128K, LongMemEval_S cleaned ve MemoryAgentBench release;
+CC-BY-NC LoCoMo research-only’dır. LoCoMo converter resmi category-5 davranışını
+uygular; resmi kaynakta çözülemeyen yalnız iki evidence referansı manifestte
+belgelenir, başka kayıp evidence reddedilir.
 
 ## Yayınlama kontrol listesi
 
@@ -79,7 +94,8 @@ Bir sonuç ancak şu koşullarla dışarı sunulmalıdır:
 4. Sonuç `valid=true`; altyapı hatası sıfır.
 5. Kullanılan dataset external benchmark ve lisans kullanıma uygun.
 6. Generator’dan farklı semantic judge fiilen çalışmış.
-7. Manifest, raw JSONL ve multi-seed raporu birlikte korunmuş.
+7. Manifest, raw JSONL v3 ve evidence bundle birlikte korunmuş.
+8. `mesa-benchmark verify-results --bundle ...` başarılı.
 
 ## Paket sınırı
 

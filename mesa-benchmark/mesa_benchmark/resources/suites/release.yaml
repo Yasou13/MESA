@@ -1,0 +1,90 @@
+schema_version: "1.0"
+name: "release"
+profile: "publishable"
+sync: ["beam-128k", "longmemeval-s", "memoryagentbench-core"]
+required_systems: ["mesa", "dense-rag", "mem0", "letta"]
+runs:
+  - &beam_mesa
+    id: "beam-mesa"
+    group: "beam-128k"
+    config: "resource://configs/release/beam_128k.yaml"
+    client_override: &mesa
+      name: "mesa"
+      adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+      timeout_ms: 30000
+      parameters: {enable_multi_hop: false, enable_rerank: false, embedding_model: "all-MiniLM-L6-v2"}
+  - id: "beam-dense"
+    group: "beam-128k"
+    config: "resource://configs/release/beam_128k.yaml"
+    client_override: &dense
+      name: "dense-rag"
+      adapter_class: "mesa_benchmark.clients.dense_rag_client.DenseRagClientAdapter"
+      timeout_ms: 30000
+      parameters: {embedding_backend: "sentence-transformers", embedding_model: "all-MiniLM-L6-v2"}
+  - id: "beam-mem0"
+    group: "beam-128k"
+    config: "resource://configs/release/beam_128k.yaml"
+    client_override: &mem0
+      name: "mem0"
+      adapter_class: "mesa_benchmark.clients.mem0_client.Mem0ClientAdapter"
+      timeout_ms: 30000
+      parameters: {embedding_model: "all-MiniLM-L6-v2"}
+  - id: "beam-letta"
+    group: "beam-128k"
+    config: "resource://configs/release/beam_128k.yaml"
+    client_override: &letta
+      name: "letta"
+      adapter_class: "mesa_benchmark.clients.letta_client.LettaClientAdapter"
+      timeout_ms: 30000
+      parameters: {embedding_model: "${LETTA_EMBEDDING_MODEL}", letta_embedding_model: "${LETTA_EMBEDDING_MODEL}", agent_model: "${LETTA_AGENT_MODEL}", base_url: "${LETTA_BASE_URL}"}
+  - id: "longmemeval-mesa"
+    group: "longmemeval-s"
+    config: "resource://configs/release/longmemeval.yaml"
+    client_override: *mesa
+  - id: "longmemeval-dense"
+    group: "longmemeval-s"
+    config: "resource://configs/release/longmemeval.yaml"
+    client_override: *dense
+  - id: "longmemeval-mem0"
+    group: "longmemeval-s"
+    config: "resource://configs/release/longmemeval.yaml"
+    client_override: *mem0
+  - id: "longmemeval-letta"
+    group: "longmemeval-s"
+    config: "resource://configs/release/longmemeval.yaml"
+    client_override: *letta
+  - id: "memoryagentbench-mesa"
+    group: "memoryagentbench-core"
+    config: "resource://configs/release/memoryagentbench.yaml"
+    client_override: *mesa
+  - id: "memoryagentbench-dense"
+    group: "memoryagentbench-core"
+    config: "resource://configs/release/memoryagentbench.yaml"
+    client_override: *dense
+  - id: "memoryagentbench-mem0"
+    group: "memoryagentbench-core"
+    config: "resource://configs/release/memoryagentbench.yaml"
+    client_override: *mem0
+  - id: "memoryagentbench-letta"
+    group: "memoryagentbench-core"
+    config: "resource://configs/release/memoryagentbench.yaml"
+    client_override: *letta
+  - id: "beam-zep"
+    group: "beam-128k"
+    config: "resource://configs/release/beam_128k.yaml"
+    optional: true
+    client_override: &zep
+      name: "zep"
+      adapter_class: "mesa_benchmark.clients.zep_client.ZepClientAdapter"
+      timeout_ms: 30000
+      parameters: {api_key: "${ZEP_API_KEY}", embedding_model: "${ZEP_EMBEDDING_MODEL}"}
+  - id: "longmemeval-zep"
+    group: "longmemeval-s"
+    config: "resource://configs/release/longmemeval.yaml"
+    optional: true
+    client_override: *zep
+  - id: "memoryagentbench-zep"
+    group: "memoryagentbench-core"
+    config: "resource://configs/release/memoryagentbench.yaml"
+    optional: true
+    client_override: *zep

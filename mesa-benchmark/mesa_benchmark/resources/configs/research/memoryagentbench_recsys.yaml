@@ -1,0 +1,29 @@
+suite_name: "MemoryAgentBench Recsys Secondary"
+iterations: 1
+seed: 42
+dataset:
+  name: "memoryagentbench_recsys"
+  version: "7ea06698-512-v2"
+  path: "data://external/memoryagentbench/recsys.json"
+  manifest_path: "resource://manifests/external/memoryagentbench-recsys.json"
+  isolation: "scenario"
+  ingest_mode: "sequential"
+client:
+  name: "mesa"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  timeout_ms: 30000
+  parameters: {verbose: false, enable_multi_hop: false, enable_rerank: false}
+evaluation:
+  metrics: ["recall_at_5", "latency", "efficiency"]
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: true
+generation:
+  enabled: true
+  model: null
+runtime:
+  top_k: 5
+  context_token_budget: 4096
+  ollama_url: null
+  require_independent_judge: true
+  track: "full-cognitive"

@@ -52,9 +52,14 @@ class Mem0ClientAdapter(AbstractBenchmarkClient):
                     "config": {"model": model, "timeout": self.timeout_s},
                 },
                 "embedder": {
-                    "provider": "ollama",
+                    "provider": (
+                        "huggingface"
+                        if config_params.get("embedding_model")
+                        else "ollama"
+                    ),
                     "config": {
-                        "model": os.environ.get(
+                        "model": config_params.get("embedding_model")
+                        or os.environ.get(
                             "BENCHMARK_EMBEDDING_MODEL", "nomic-embed-text:latest"
                         ),
                         "timeout": self.timeout_s,

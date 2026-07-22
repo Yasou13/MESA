@@ -1,0 +1,29 @@
+suite_name: "BEAM-derived 10M Opt-in Capacity"
+iterations: 1
+seed: 42
+dataset:
+  name: "beam_capacity"
+  version: "10m-v1"
+  path: "data://generated/beam/scale/10m-capacity.json"
+  manifest_path: "data://generated/beam/scale/10m-capacity-manifest.json"
+  isolation: "scenario"
+  ingest_mode: "sequential"
+client:
+  name: "mesa"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  timeout_ms: 30000
+  parameters: {verbose: false}
+evaluation:
+  metrics: ["full_qa", "latency", "efficiency"]
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: true
+generation:
+  enabled: true
+  model: null
+runtime:
+  top_k: 5
+  context_token_budget: 4096
+  ollama_url: null
+  require_independent_judge: true
+  track: "full-cognitive"

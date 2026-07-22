@@ -93,7 +93,13 @@ full = [
     "pillow>=12.0.0",
 ]
 benchmarks = [
+    "datasets>=2.14.0",
+    "sentence-transformers>=3.0.0",
     "mem0ai>=0.1.0",
+    "letta-client>=1.0.0",
+    "zep-cloud>=2.0.0",
+]
+loadtest = [
     "locust>=2.29.0",
 ]
 dev = [
@@ -310,4 +316,7 @@ exclude_lines = [
 
 [tool.setuptools.package-data]
 "mesa_storage" = ["alembic.ini", "alembic/**/*"]
-"mesa_benchmark" = ["datasets/*.json"]
+"mesa_benchmark" = [
+    "resources/**/*.json",
+    "resources/**/*.yaml",
+]

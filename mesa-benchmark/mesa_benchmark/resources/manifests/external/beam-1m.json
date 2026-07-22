@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "BEAM",
+  "dataset_version": "1m-v2",
+  "source": {"url": "https://huggingface.co/datasets/Mohammadta/BEAM", "revision": "3205395e897e7318c7b094ef4e6047b9b82dbb03", "split": "1M"},
+  "checksums": {"raw_sha256": "1d64321ec640559056703bce44709d5b486d7eb9a0a091b6ad38e016eac7ff91", "converted_sha256": "3f5e5cdb51df0762bceb119cb77173c761040439e4642577b23623967c129355"},
+  "license": {"spdx_id": "CC-BY-SA-4.0", "redistribution": "allowed"},
+  "designation": "external-research",
+  "isolation": "scenario",
+  "ingest_mode": "sequential",
+  "chunking": {"strategy": "pair_chunk", "parameters": {"official_protocol": true}},
+  "metrics": {"supported": ["rubric_criterion_score", "category_macro_average", "latency", "tokens"], "unsupported": ["hit_at_k", "mrr", "ndcg"]},
+  "counts": {"scenarios": 35, "contexts": 74630, "questions": 700, "categories": {"abstention": 70, "contradiction_resolution": 70, "event_ordering": 70, "information_extraction": 70, "instruction_following": 70, "knowledge_update": 70, "multi_session_reasoning": 70, "preference_following": 70, "summarization": 70, "temporal_reasoning": 70}},
+  "converter": {"version": "beam-v2", "parameters": {"split": "1M"}},
+  "quality": {"normalized_duplicate_query_budget": 0.05},
+  "known_annotation_exceptions": []
+}

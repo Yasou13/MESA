@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "longmemeval_s_cleaned",
+  "dataset_version": "98d7416c-v2",
+  "source": {"url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned", "revision": "98d7416c24c778c2fee6e6f3006e7a073259d48f", "split": "longmemeval_s_cleaned"},
+  "checksums": {"raw_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442", "converted_sha256": "7eae91c8ddda5db33494e8a0e5781ddef6fc6dba5135b79687dbdd85c35930a2"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "external-publishable",
+  "isolation": "scenario",
+  "ingest_mode": "sequential",
+  "chunking": {"strategy": "official_session", "parameters": {"preserve_turn_order": true}},
+  "metrics": {"supported": ["full_qa", "hit_at_k", "mrr", "ndcg", "complete_recall_at_k", "abstention_accuracy", "category_macro_average"], "unsupported": []},
+  "counts": {"scenarios": 500, "contexts": 23867, "questions": 500, "categories": {"abstention": 30, "information_extraction": 150, "knowledge_update": 72, "multi_session_reasoning": 121, "temporal_reasoning": 127}},
+  "converter": {"version": "longmemeval-v2", "parameters": {"session_granularity": true, "duplicate_filler_id_suffix": "~N"}},
+  "quality": {"normalized_duplicate_query_budget": 0.0},
+  "known_annotation_exceptions": ["Thirteen histories contain repeated official filler session IDs; later occurrences receive a deterministic ~N suffix while the official ID remains in metadata."]
+}

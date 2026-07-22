@@ -1,0 +1,16 @@
+schema_version: "1.0"
+name: "smoke"
+profile: "internal"
+sync: ["quality-synthetic"]
+required_systems: ["dense-rag"]
+dataset_checks:
+  - id: "contradiction-v3"
+    config: "resource://configs/internal/contradiction_v3.yaml"
+  - id: "holdout-600"
+    config: "resource://configs/internal/holdout_600.yaml"
+  - id: "multi-hop-raw-v2"
+    config: "resource://configs/internal/multi_hop_raw.yaml"
+runs:
+  - id: "mini-dense"
+    group: "mini"
+    config: "resource://configs/internal/smoke_dense.yaml"

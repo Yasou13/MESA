@@ -1,0 +1,31 @@
+suite_name: "Frozen Internal Holdout 600"
+iterations: 1
+seed: 42
+dataset:
+  name: "internal_holdout_600"
+  version: "20260722-v1"
+  path: "resource://fixtures/internal/internal_holdout_600.json"
+  manifest_path: "resource://manifests/internal/internal-holdout-600.json"
+  isolation: "scenario"
+  ingest_mode: "batch"
+  noise_ratio: 0.0
+client:
+  name: "dense-rag-offline"
+  adapter_class: "mesa_benchmark.clients.dense_rag_client.DenseRagClientAdapter"
+  timeout_ms: 30000
+  parameters:
+    embedding_backend: "deterministic-hashing"
+    embedding_model: "sha256-hashing-v1"
+evaluation:
+  metrics: ["hit_at_k", "mrr", "ndcg", "category_macro_average"]
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: false
+generation:
+  enabled: false
+  model: null
+runtime:
+  top_k: 5
+  context_token_budget: 4096
+  ollama_url: null
+  require_independent_judge: false

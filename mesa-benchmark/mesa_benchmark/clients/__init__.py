@@ -19,3 +19,6 @@ __all__ = [
     "ZepClientAdapter",
     "LettaClientAdapter",
 ]
+from .dense_rag_client import DenseRagClientAdapter
+
+__all__ = ["DenseRagClientAdapter"]

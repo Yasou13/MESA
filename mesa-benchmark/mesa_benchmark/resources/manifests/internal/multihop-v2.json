@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "dataset_name": "comprehensive_multihop_only",
+  "dataset_version": "v2",
+  "source": {"url": "repository://synthetic/multihop", "revision": "83a9862c", "split": "internal"},
+  "checksums": {"raw_sha256": null, "converted_sha256": "0ad39ffe4217aa5dd02ab4bba698453011b2212c445771e7c4f33702487ace0c"},
+  "license": {"spdx_id": "MIT", "redistribution": "allowed"},
+  "designation": "internal-regression",
+  "isolation": "scenario",
+  "ingest_mode": "batch",
+  "chunking": {"strategy": "source", "parameters": {}},
+  "metrics": {"supported": ["hit_at_k", "mrr", "ndcg", "full_qa"], "unsupported": []},
+  "counts": {"scenarios": 60, "contexts": 180, "questions": 60, "categories": {"uncategorized": 60}},
+  "converter": {"version": "legacy-v2", "parameters": {"graph_metadata": true}},
+  "quality": {"normalized_duplicate_query_budget": 0.84},
+  "known_annotation_exceptions": ["Graph metadata is a MESA-only ablation input."]
+}

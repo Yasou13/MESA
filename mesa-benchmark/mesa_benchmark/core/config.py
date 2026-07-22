@@ -1,12 +1,13 @@
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Literal, Mapping, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .exceptions import ConfigurationError
+from .paths import resolve_benchmark_path, resolve_config_path
 
 
 class DatasetConfig(BaseModel):
@@ -15,6 +16,15 @@ class DatasetConfig(BaseModel):
     version: str = Field("v1", description="Version of the dataset.")
     path: str = Field(
         ..., description="Relative or absolute path to the dataset folder/file."
+    )
+    manifest_path: Optional[str] = Field(
+        None, description="Typed provenance manifest for dataset schema v2."
+    )
+    isolation: Optional[str] = Field(
+        None, description="Optional protocol assertion; must match the manifest."
+    )
+    ingest_mode: Optional[str] = Field(
+        None, description="Optional ingest assertion; must match the manifest."
     )
     noise_ratio: float = Field(
         0.0, ge=0.0, le=1.0, description="Ratio of noise to be injected (0.0 to 1.0)."
@@ -73,8 +83,19 @@ class RuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     top_k: int = Field(5, ge=1, le=100)
+    secondary_top_k_sweep: list[int] = Field(default_factory=lambda: [1, 3, 5, 10, 20])
+    context_token_budget: int = Field(4096, ge=128)
     ollama_url: Optional[str] = None
     require_independent_judge: bool = True
+    track: Literal["safe-core", "full-cognitive", "graph-ablation"] = "full-cognitive"
+
+    @model_validator(mode="after")
+    def validate_top_k_sweep(self) -> "RuntimeConfig":
+        if any(value < 1 or value > 100 for value in self.secondary_top_k_sweep):
+            raise ValueError("secondary_top_k_sweep values must be between 1 and 100")
+        if len(self.secondary_top_k_sweep) != len(set(self.secondary_top_k_sweep)):
+            raise ValueError("secondary_top_k_sweep values must be unique")
+        return self
 
 
 class BenchmarkConfig(BaseModel):
@@ -167,9 +188,10 @@ def load_config(
     file_path: str | Path, *, environ: Optional[Mapping[str, str]] = None
 ) -> BenchmarkConfig:
     """Loads and validates the benchmark configuration from a YAML file."""
-    path = Path(file_path)
-    if not path.exists():
-        raise ConfigurationError(f"Configuration file not found: {path}")
+    try:
+        path = resolve_config_path(file_path)
+    except ValueError as exc:
+        raise ConfigurationError(str(exc)) from exc
 
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -183,6 +205,16 @@ def load_config(
     environment = os.environ if environ is None else environ
     data = _resolve_env_vars(data, environment)
     data = _apply_environment_overrides(data, environment)
+    dataset = dict(data.get("dataset") or {})
+    if dataset.get("path"):
+        dataset["path"] = str(
+            resolve_benchmark_path(dataset["path"], base_dir=path.parent)
+        )
+    if dataset.get("manifest_path"):
+        dataset["manifest_path"] = str(
+            resolve_benchmark_path(dataset["manifest_path"], base_dir=path.parent)
+        )
+    data["dataset"] = dataset
 
     try:
         return BenchmarkConfig(**data)

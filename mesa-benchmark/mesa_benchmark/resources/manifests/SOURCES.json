@@ -1,0 +1,54 @@
+{
+  "schema_version": "2.0",
+  "note": "This file is an index. Typed per-dataset manifests are authoritative.",
+  "datasets": {
+    "beam-128k": {
+      "designation": "external-publishable",
+      "manifest": "resource://manifests/external/beam-v2.json"
+    },
+    "beam-500k-nightly": {
+      "designation": "external-research",
+      "manifest": "resource://manifests/external/beam-500k.json"
+    },
+    "beam-1m-nightly": {
+      "designation": "external-research",
+      "manifest": "resource://manifests/external/beam-1m.json"
+    },
+    "beam-512-64-ablation": {
+      "designation": "external-research",
+      "manifest": "data://generated/beam/ablations/512-64-manifest.json"
+    },
+    "beam-10m-capacity": {
+      "designation": "internal-regression",
+      "manifest": "data://generated/beam/scale/10m-capacity-manifest.json"
+    },
+    "longmemeval-s-cleaned": {
+      "designation": "external-publishable",
+      "manifest": "resource://manifests/external/longmemeval.json"
+    },
+    "memoryagentbench-core": {
+      "designation": "external-publishable",
+      "manifest": "resource://manifests/external/memoryagentbench.json"
+    },
+    "memoryagentbench-recsys": {
+      "designation": "external-research",
+      "manifest": "resource://manifests/external/memoryagentbench-recsys.json"
+    },
+    "locomo": {
+      "designation": "external-research",
+      "manifest": "resource://manifests/external/locomo.json"
+    },
+    "contradiction-v3": {
+      "designation": "internal-regression",
+      "manifest": "resource://manifests/internal/contradiction-v3.json"
+    },
+    "internal-holdout-600": {
+      "designation": "internal-regression",
+      "manifest": "resource://manifests/internal/internal-holdout-600.json"
+    },
+    "multi-hop-raw-v2": {
+      "designation": "internal-regression",
+      "manifest": "resource://manifests/internal/multihop-raw-v2.json"
+    }
+  }
+}

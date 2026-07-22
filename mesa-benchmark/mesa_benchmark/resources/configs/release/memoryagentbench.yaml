@@ -1,0 +1,37 @@
+suite_name: "MemoryAgentBench Core Release"
+iterations: 1
+seed: 42
+
+dataset:
+  name: "memoryagentbench_core"
+  version: "7ea06698-512-v2"
+  path: "data://external/memoryagentbench/dataset.json"
+  manifest_path: "resource://manifests/external/memoryagentbench.json"
+  isolation: "scenario"
+  ingest_mode: "sequential"
+  noise_ratio: 0.0
+
+client:
+  name: "mesa"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  timeout_ms: 30000
+  parameters:
+    verbose: false
+    enable_multi_hop: false
+    enable_rerank: false
+
+evaluation:
+  metrics: ["full_qa", "category_macro_average"]
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: true
+
+generation:
+  enabled: true
+  model: null
+
+runtime:
+  top_k: 5
+  context_token_budget: 4096
+  ollama_url: null
+  require_independent_judge: true

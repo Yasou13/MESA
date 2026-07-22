@@ -1,0 +1,36 @@
+suite_name: "Letta/MemGPT Baseline Benchmark"
+iterations: 1
+seed: 42
+
+dataset:
+  name: "comprehensive_200"
+  version: "v2"
+  path: "resource://fixtures/legacy/comprehensive_200_dataset.json"
+  manifest_path: "resource://manifests/internal/comprehensive-v2.json"
+  noise_ratio: 0.0
+
+client:
+  name: "letta_client"
+  adapter_class: "mesa_benchmark.clients.letta_client.LettaClientAdapter"
+  timeout_ms: 15000
+  parameters:
+    base_url: "${LETTA_BASE_URL}"
+    agent_name: "mesa_benchmark_agent"
+
+evaluation:
+  metrics:
+    - "hit_at_k"
+    - "mrr"
+    - "latency"
+  llm_judge_model: null
+  multi_judge_models: []
+  enable_agreement: true
+
+generation:
+  enabled: true
+  model: null
+
+runtime:
+  top_k: 5
+  ollama_url: null
+  require_independent_judge: true

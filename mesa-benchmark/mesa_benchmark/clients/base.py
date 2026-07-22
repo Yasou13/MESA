@@ -103,6 +103,14 @@ class AbstractBenchmarkClient(ABC):
             total_latency_ms += float(result.get("latency_ms", 0.0))
         return {"latency_ms": total_latency_ms, "count": len(contexts)}
 
+    def storage_size_bytes(self) -> Optional[int]:
+        """Return measurable benchmark-owned storage, or ``None`` if unavailable.
+
+        Adapters must not estimate opaque provider-side storage. A missing value is
+        reported as unavailable instead of being silently converted to zero.
+        """
+        return None
+
     @abstractmethod
     def answer(self, question: BenchmarkQuestion) -> BenchmarkResponse:
         """
