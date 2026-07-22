@@ -1,1 +1,0 @@
-Initial exact reproduction: 22 passed / 13 failures. Classification and two minimal fixture repairs completed. Final `venv/bin/python -m pytest -q tests/test_dao.py` → 33 passed in 6.14s.

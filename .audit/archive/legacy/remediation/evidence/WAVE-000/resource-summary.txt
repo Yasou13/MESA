@@ -1,1 +1,0 @@
-Storage lab start: 193 GiB free; RAM available about 9.8 GiB; no test/runtime process started.

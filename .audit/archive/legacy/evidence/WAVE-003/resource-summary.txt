@@ -1,1 +1,0 @@
-Storage used only: `/storage/mesa-lab/storage/WAVE-003`, `/storage/mesa-lab/evidence/WAVE-003`, and `/storage/mesa-lab/artifacts/WAVE-003/source-backup/`. Initial capacity was approximately 193 GiB free. No Docker volume, process, port, API, worker, or production/user storage artifact was created.

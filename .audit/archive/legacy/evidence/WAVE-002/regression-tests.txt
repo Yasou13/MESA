@@ -1,5 +1,0 @@
-Command: `git diff --check && venv/bin/pytest -q tests/test_wal_claim_replay_contract.py tests/test_dao.py`
-
-Result: target tests passed, but pre-existing/general `tests/test_dao.py` fixture failures remained: 13 failed, 22 passed. Failures are `TypeError: object MagicMock can't be used in 'await' expression` in WAVE-002 graph fail-closed paths, not WAVE-003 claim/WAL paths. No source change was made to mask them.
-
-Worker caller suite was intentionally not run: `mesa_workers/ingestion_worker.py` still appends debug trace data to user-owned untracked `cold_path_trace.txt`; executing it would violate the preservation constraint. This remains an explicit validation gap.

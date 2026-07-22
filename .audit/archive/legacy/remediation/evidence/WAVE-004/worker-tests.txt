@@ -1,3 +1,0 @@
-Command used `MESA_COLD_PATH_TRACE_PATH=/storage/mesa-lab/trace/WAVE-004/cold_path_trace.txt venv/bin/python -m pytest -q tests/test_durable_dlq_contract.py tests/test_ingestion_trace_path.py tests/test_ingestion_worker.py tests/test_storage_unification.py`.
-
-Result: 52 passed in 2.78s. The protected root trace SHA-256 was equal before/after. Trace override is rejected when outside `/storage/mesa-lab`.

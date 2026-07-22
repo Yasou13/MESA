@@ -1,1 +1,0 @@
-No application-source edit was performed in clean-restart-01: current source exactly matched the prior recorded patched hashes. A bounded atomic test-only append added mapped-active, inactive, and READ-only authorization regressions; pre-edit test backup is under `/storage/mesa-lab/artifacts/WAVE-001-restart/source-backup/`.

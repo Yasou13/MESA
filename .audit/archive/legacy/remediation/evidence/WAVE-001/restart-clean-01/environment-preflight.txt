@@ -1,6 +1,0 @@
-command: project venv --version; pytest --version; pip check; core imports
-cwd: /home/yasin/Desktop/MESA
-executable: /home/yasin/Desktop/MESA/venv/bin/python
-result: Python 3.13.14; pytest 9.1.1; pip check passed; pytest/fastapi/aiosqlite/httpx/pydantic imports passed
-exit_code: 0
-evidence_level: E2

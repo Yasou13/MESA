@@ -1,4 +1,0 @@
-Protected root-level `cold_path_trace.txt` SHA-256 before and after all WAVE-004 worker tests:
-`e3f69d934dfe7f5b09efeaf08a2cb7c3776b6ef74e4bb096801c09e09a7e07a6`
-
-Equality required and observed. `tests/test_ingestion_trace_path.py` also asserts the same protection while writing to `/storage/mesa-lab/trace/WAVE-004/`.

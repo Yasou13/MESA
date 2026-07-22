@@ -1,1 +1,0 @@
-Pre-fix `tests/test_durable_dispatch_contract.py`: 2 failed, missing dispatch methods.

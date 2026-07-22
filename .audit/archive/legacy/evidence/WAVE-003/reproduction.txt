@@ -1,3 +1,0 @@
-Pre-fix command: `venv/bin/pytest -q tests/test_wal_claim_replay_contract.py`
-
-Result: 2 failed. Both failed deterministically with `AttributeError: MemoryDAO has no attribute claim_raw_log` after synthetic SQLite schema initialization. This demonstrated that no durable claim/fencing or WAL replay API existed before WAVE-003.

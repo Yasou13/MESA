@@ -1,5 +1,0 @@
-Post-fix command: `venv/bin/pytest -q tests/test_wal_claim_replay_contract.py`
-
-Result: `2 passed in 1.69s`.
-
-Coverage: concurrent raw-log claims yield exactly one owner; non-owner terminal transition is rejected; expiry permits re-claim; concurrent WAL claims yield one owner; only matching owner/token can ack and ACKED work is not re-claimed.

@@ -1,1 +1,0 @@
-Dispatch/admission/completion isolated restart evidence passed; JSONL DLQ process crash/lease E3 remains pending.

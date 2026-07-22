@@ -1,3 +1,0 @@
-Lab root: /storage/mesa-lab/storage/WAVE-002
-Test data: none persisted by the mock-based target test; pytest basetemp was under the lab root.
-Docker/provider/Ollama: not used.

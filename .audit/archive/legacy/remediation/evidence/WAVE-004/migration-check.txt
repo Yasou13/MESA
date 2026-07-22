@@ -1,1 +1,0 @@
-No WAVE-004 schema migration was added or run. The durable DLQ change preserves the configured JSONL representation; WAVE-003 SQLite claim primitives remain unchanged.
