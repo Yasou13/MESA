@@ -19,11 +19,11 @@ python -m pip install -e ".[dev]"
 python -m pip check
 ```
 
-`pyproject.toml` is the canonical dependency definition. Optional adapters and
-benchmark integrations are not needed for the core runtime or CI profile.
-`uv.lock` freezes the resolved graph used by CI and Docker; use
-`uv sync --locked --extra dev` when `uv` is available and an exact development
-environment is required.
+`pyproject.toml` is the supported dependency-range definition. Optional
+adapters and benchmark integrations are not needed for the core runtime or CI
+profile. `uv.lock` is the reproducible deployment graph used by CI and Docker;
+use `uv sync --locked --extra dev` as the primary development and operator
+installation path.
 
 ## Environment template
 
@@ -87,7 +87,11 @@ leave it unset.
 
 Compose creates separate `mesa-api` and `mesa-worker` roles sharing only the
 named `mesa-data` volume. The API readiness probe requires the worker's fresh
-shared-volume heartbeat. Model, provider, and dotenv loading remain disabled.
+shared-volume heartbeat. This is the safe-core profile: model/provider access
+and application dotenv loading remain disabled, and the worker commits durable
+raw memories without REBEL, LLM extraction, or dual-LLM consensus. Compose may
+still interpolate a project `.env` file before containers start; use exported
+variables or a secret-manager-managed interpolation file for credentials.
 
 ```bash
 export MESA_API_KEY="$(secret-manager read mesa-api-key)"

@@ -37,7 +37,14 @@ def test_compose_has_isolated_api_and_worker_roles_without_host_bind_or_dotenv(
 
 def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "python:3.13.5-slim-bookworm" in dockerfile
+    assert (
+        "python:3.13.5-slim-bookworm@sha256:"
+        "4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419"
+    ) in dockerfile
+    assert (
+        "ghcr.io/astral-sh/uv:0.11.30@sha256:"
+        "93b61e21202b1dab861092748e46bbd6e0e41dd84f59b9174efd2353186e1b47"
+    ) in dockerfile
     assert "USER mesa:mesa" in dockerfile
     assert "mesa_memory.container_health" in dockerfile
     assert 'ENTRYPOINT ["python", "-m", "mesa_memory.runtime_entrypoint"]' in dockerfile
@@ -59,6 +66,11 @@ def test_readme_compose_quickstart_matches_the_fail_closed_compose_profile() -> 
     assert "requirements-ml.txt" not in readme
     assert "MESA_MODEL_ENABLED=false" in readme
     assert "MESA_EXTERNAL_PROVIDER_ENABLED=false" in readme
+    assert "Safe core" in readme
+    assert "Full cognitive runtime" in readme
+    assert "infinite out-of-core scaling" not in readme
+    assert "returns **202 Accepted** in <50ms" not in readme
+    assert "gates every incoming record" not in readme
 
 
 def test_readme_public_api_examples_match_authenticated_route_contract() -> None:
@@ -89,10 +101,42 @@ def test_ci_tests_supported_python_versions_and_enforces_full_repository_lint() 
 
     assert 'python-version: ["3.10", "3.11", "3.12", "3.13"]' in workflow
     assert "uv sync --locked --extra dev" in workflow
-    assert workflow.count("uv pip check") == 2
+    assert workflow.count("uv pip check") >= 5
     assert "uv run python -m pip check" not in workflow
     assert "uv run ruff check ." in workflow
+    assert "uv run python scripts/check_mypy_override_ratchet.py" in workflow
     assert "mesa_memory mesa_storage mesa_workers mesa_api mesa_client" in workflow
+
+
+def test_ci_package_job_generates_locked_sbom_and_attests_tagged_artifacts() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert 'tags: ["v*"]' in workflow
+    assert "uv export --quiet --frozen --no-dev --no-emit-project" in workflow
+    assert "cyclonedx-py requirements" in workflow
+    assert "dist/mesa-runtime.cdx.json" in workflow
+    assert "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be" in workflow
+    assert "attestations: write" in workflow
+    assert "id-token: write" in workflow
+
+
+def test_external_release_gates_use_locked_dependency_sync() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "external-release-gates.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert workflow.count("uv sync --locked --extra dev") == 3
+    assert 'pip install -e ".[dev]"' not in workflow
+
+
+def test_release_preflight_documents_signed_annotated_tags() -> None:
+    script = (ROOT / "scripts" / "release_preflight.py").read_text(encoding="utf-8")
+    runbook = (ROOT / "docs" / "release.md").read_text(encoding="utf-8")
+
+    assert '"git", "cat-file", "-t", tag' in script
+    assert '"git", "verify-tag", tag' in script
+    assert "git tag -s vX.Y.Z" in runbook
+    assert "OIDC build attestations" in runbook
 
 
 def test_ci_runs_the_full_coverage_suite_on_the_docker_python_version() -> None:
@@ -112,7 +156,7 @@ def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cos
 
     assert "uses: trufflesecurity/trufflehog@v3.95.2" in workflow
     assert "version: 3.95.2" in workflow
-    assert 'python -m pip install -e ".[dev,adapters]"' in workflow
+    assert "uv sync --locked --extra dev --extra adapters" in workflow
 
 
 def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:

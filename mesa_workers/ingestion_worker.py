@@ -125,8 +125,17 @@ async def process_cold_path(
     agent_id: str,
     dao: MemoryDAO,
     consolidation_loop: ConsolidationLoop | None = None,
+    *,
+    model_processing_enabled: bool = True,
 ) -> None:
-    """Bind one safe correlation context around a cold-path job."""
+    """Bind one safe correlation context around a cold-path job.
+
+    ``model_processing_enabled`` is deliberately keyword-only so durable
+    safe-core workers can opt out of REBEL/LLM work without changing existing
+    direct callers.  When disabled, the record still receives novelty checks
+    and a durable raw-memory commit, but no model-derived triplets or Tier-3
+    consensus are attempted.
+    """
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(
         worker_id="cold-path",
@@ -134,7 +143,13 @@ async def process_cold_path(
         agent_id=_safe_context_id(agent_id),
     )
     try:
-        await _process_cold_path_impl(log_id, agent_id, dao, consolidation_loop)
+        await _process_cold_path_impl(
+            log_id,
+            agent_id,
+            dao,
+            consolidation_loop,
+            model_processing_enabled=model_processing_enabled,
+        )
     finally:
         structlog.contextvars.clear_contextvars()
 
@@ -144,6 +159,8 @@ async def _process_cold_path_impl(
     agent_id: str,
     dao: MemoryDAO,
     consolidation_loop: ConsolidationLoop | None = None,
+    *,
+    model_processing_enabled: bool = True,
 ) -> None:
     """Process a queued raw_logs entry through the full validation pipeline.
 
@@ -290,8 +307,16 @@ async def _process_cold_path_impl(
             # ==============================================================
             # 4. TIER-2: REBEL TRIPLE EXTRACTION
             # ==============================================================
-            logger.info("COLD_PATH_DEBUG | Starting REBEL check", log_id=log_id)
-            triplets = await _run_rebel_extraction(content)
+            if model_processing_enabled:
+                logger.info("COLD_PATH_DEBUG | Starting REBEL check", log_id=log_id)
+                triplets = await _run_rebel_extraction(content)
+            else:
+                triplets = []
+                logger.info(
+                    "COLD_PATH_MODEL_PROCESSING_SKIPPED",
+                    log_id=log_id,
+                    reason="safe_core_profile",
+                )
             _write_cold_path_trace(f"AFTER REBEL {log_id}")
 
             # ==============================================================
@@ -321,7 +346,7 @@ async def _process_cold_path_impl(
             # ==============================================================
             # 5b. TIER-3: DUAL-LLM CONSENSUS (Backpressure-gated)
             # ==============================================================
-            if consolidation_loop is not None:
+            if model_processing_enabled and consolidation_loop is not None:
                 record = {
                     "id": str(log_id),
                     "agent_id": payload_agent_id,

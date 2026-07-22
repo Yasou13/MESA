@@ -69,7 +69,9 @@ async def _recover_once(engine: AsyncEngine) -> dict[str, int]:
     }
 
 
-async def _consume_dispatches_once(dao: MemoryDAO) -> dict[str, int]:
+async def _consume_dispatches_once(
+    dao: MemoryDAO, *, model_processing_enabled: bool
+) -> dict[str, int]:
     """Consume bounded dispatch records; only this worker runs cold-path work."""
     claimed = await dao.claim_dispatch_queue(worker_id=_WORKER_ID, limit=25)
     finalized = 0
@@ -77,7 +79,12 @@ async def _consume_dispatches_once(dao: MemoryDAO) -> dict[str, int]:
     for dispatch in claimed:
         log_id = int(dispatch["payload_reference"])
         agent_id = str(dispatch["agent_id"])
-        await process_cold_path(log_id, agent_id, dao)
+        await process_cold_path(
+            log_id,
+            agent_id,
+            dao,
+            model_processing_enabled=model_processing_enabled,
+        )
         raw_log = await dao.get_raw_log(agent_id, log_id)
         status = str(raw_log.get("status", "failed") if raw_log else "failed")
         terminal = status.split(":", 1)[0] in {"processed", "rejected", "failed"}
@@ -127,7 +134,10 @@ async def run_worker_only() -> None:
 
     async def recovery_loop() -> None:
         while not stopped.is_set():
-            dispatch = await _consume_dispatches_once(dao)
+            dispatch = await _consume_dispatches_once(
+                dao,
+                model_processing_enabled=runtime.model_enabled,
+            )
             try:
                 await asyncio.wait_for(stopped.wait(), timeout=_DISPATCH_POLL_SECONDS)
             except TimeoutError:

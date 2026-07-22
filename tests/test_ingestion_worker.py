@@ -309,6 +309,39 @@ class TestProcessColdPath:
 
     @pytest.mark.asyncio
     @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
+    @patch(
+        "mesa_workers.ingestion_worker._run_rebel_extraction", new_callable=AsyncMock
+    )
+    @patch("mesa_workers.ingestion_worker._commit_raw_memory", new_callable=AsyncMock)
+    async def test_safe_core_skips_model_extraction_and_commits_raw_memory(
+        self, mock_commit_raw, mock_rebel, mock_ecod
+    ):
+        mock_ecod.return_value = True
+        mock_dao = MagicMock()
+        mock_dao.get_raw_log = AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {"agent_id": "test-agent", "content": "Safe core text"},
+            }
+        )
+        mock_dao.update_raw_log_status = AsyncMock()
+        mock_consolidation = AsyncMock()
+
+        await process_cold_path(
+            log_id=5,
+            agent_id="test-agent",
+            dao=mock_dao,
+            consolidation_loop=mock_consolidation,
+            model_processing_enabled=False,
+        )
+
+        mock_rebel.assert_not_awaited()
+        mock_consolidation.run_batch.assert_not_awaited()
+        mock_commit_raw.assert_awaited_once()
+        mock_dao.update_raw_log_status.assert_any_call("test-agent", 5, "processed")
+
+    @pytest.mark.asyncio
+    @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
     async def test_cold_path_ecod_reject(self, mock_ecod):
         # ECOD rejects (not novel)
         mock_ecod.return_value = False
