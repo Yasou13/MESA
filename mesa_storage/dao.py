@@ -219,9 +219,11 @@ class MemoryDAO:
     # E1 FIX: Startup orphan reconciliation
     # ------------------------------------------------------------------
 
-    def get_all_embeddings(self, limit: int = 10000) -> list[list[float]]:
+    def get_all_embeddings(
+        self, limit: int = 10000, *, agent_id: str | None = None
+    ) -> list[list[float]]:
         """Synchronously load active embeddings for ValenceMotor hydration."""
-        return self.vector_engine._sync_get_all_embeddings(limit)
+        return self.vector_engine._sync_get_all_embeddings(limit, agent_id)
 
     async def _reconcile_orphaned_nodes(self) -> None:
         """Detect and invalidate SQLite nodes with no LanceDB vector.

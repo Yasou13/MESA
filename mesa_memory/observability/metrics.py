@@ -59,6 +59,11 @@ PROM_HTTP_REQUESTS = PromCounter(
     "http_requests_total", "Total HTTP requests", ["method", "endpoint", "status"]
 )
 PROM_QUEUE_BACKLOG = PromGauge("queue_backlog_size", "Current ingestion queue backlog")
+PROM_RETRIEVAL_DEGRADED = PromCounter(
+    "mesa_retrieval_degraded_total",
+    "Hybrid retrieval requests completed with an unavailable source",
+    ["source"],
+)
 
 
 class ObservabilityLayer:

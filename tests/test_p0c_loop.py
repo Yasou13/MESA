@@ -86,6 +86,7 @@ async def test_hybrid_retrieve_full():
     # Cold start condition
     dao.find_nodes_by_name.return_value = []
     dao.get_memories.return_value = []
+    dao.get_epistemic_data_for_nodes.return_value = {}
 
     retriever.get_vector_results = AsyncMock(
         return_value=[{"cmb_id": "1", "score": 0.8, "fitness_score": 0.5}]

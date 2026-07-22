@@ -412,9 +412,12 @@ def create_memory_router(
             if isinstance(result, dict):
                 cmb_ids: list[str] = result.get("cmb_ids", [])
                 source_scores: dict[str, float] = result.get("source_scores", {})
+                diagnostics = result.get("diagnostics", {})
+                degraded_sources: list[str] = diagnostics.get("degraded_sources", [])
             else:
                 cmb_ids = result
                 source_scores = {}
+                degraded_sources = []
 
             # Hydrate node metadata from the DAO for the response contract
             retrieved_nodes: list[dict] = []
@@ -481,6 +484,7 @@ def create_memory_router(
             context=context,
             retrieved_nodes=retrieved_nodes[: payload.limit],
             metrics={"latency_ms": elapsed_ms},
+            degraded_sources=degraded_sources,
         )
 
     # ==================================================================

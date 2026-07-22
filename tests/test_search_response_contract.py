@@ -26,7 +26,11 @@ async def test_search_response_preserves_retriever_score_and_memory_content() ->
     )
     retriever = MagicMock()
     retriever.retrieve = AsyncMock(
-        return_value={"cmb_ids": ["node-1"], "source_scores": {"node-1": 0.72}}
+        return_value={
+            "cmb_ids": ["node-1"],
+            "source_scores": {"node-1": 0.72},
+            "diagnostics": {"degraded_sources": ["graph"]},
+        }
     )
     router = create_memory_router(get_dao=lambda: cast(MemoryDAO, dao))
     endpoint = next(
@@ -46,3 +50,4 @@ async def test_search_response_preserves_retriever_score_and_memory_content() ->
 
     assert response.retrieved_nodes[0].score == 0.72
     assert response.context == "Tesla: Q4 revenue was 25 billion dollars."
+    assert response.degraded_sources == ["graph"]

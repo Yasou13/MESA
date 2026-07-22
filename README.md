@@ -98,8 +98,13 @@ curl -X POST http://localhost:8000/v3/memory/search \
     "query": "What was Tesla Q4 revenue?",
     "limit": 5
   }'
-# → {"context": "...", "retrieved_nodes": [...], "metrics": {"latency_ms": 12}}
+# → {"context": "...", "retrieved_nodes": [...], "metrics": {"latency_ms": 12}, "degraded_sources": []}
 ```
+
+`degraded_sources` boş değilse istek başarılı sonuç üretmiştir, ancak ilgili
+retrieval kaynağı (`vector`, `graph` veya `lexical`) kullanılamamıştır. İstemci
+bu sonucu eksik sinyalli olarak ele almalıdır; aynı olay Prometheus'ta
+`mesa_retrieval_degraded_total{source=...}` ile sayılır.
 
 ### Purge Memories (Tombstoning)
 

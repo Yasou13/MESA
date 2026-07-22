@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
+from mesa_memory.observability.metrics import PROM_RETRIEVAL_DEGRADED
 from mesa_memory.retrieval.core import QueryAnalyzer, normalize_query
 from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
 from mesa_memory.security.rbac import AccessControl
@@ -56,6 +57,7 @@ class HybridRetriever:
         t_start = time.perf_counter()
         stage_latencies: dict[str, float] = {}
         stage_diagnostics: dict[str, Any] = {}
+        degraded_sources: set[str] = set()
 
         if not await self.access_control.check_access(agent_id, session_id, "READ"):
             raise PermissionError(
@@ -122,6 +124,7 @@ class HybridRetriever:
             time.perf_counter() - t_vec_graph
         ) * 1000
         if isinstance(graph_res, BaseException):
+            degraded_sources.add("graph")
             logger.error(
                 "HYBRID_RETRIEVAL_GRAPH_FAILED | agent_id=%s error=%s",
                 agent_id,
@@ -134,6 +137,7 @@ class HybridRetriever:
         merged_vectors: dict[str, Any] = {}
         for res in gather_results:
             if isinstance(res, BaseException):
+                degraded_sources.add("vector")
                 logger.error(
                     "HYBRID_RETRIEVAL_VECTOR_FAILED | agent_id=%s error=%s",
                     agent_id,
@@ -162,6 +166,7 @@ class HybridRetriever:
         stage_latencies["fts_search_ms"] = fts_ms
 
         if isinstance(fts_res, BaseException):
+            degraded_sources.add("lexical")
             logger.warning(
                 "FTS5_SEARCH_FAILED | agent_id=%s — falling back to empty lexical results",
                 agent_id,
@@ -180,6 +185,14 @@ class HybridRetriever:
                 for i, r in enumerate(fts_res)
             ]
 
+        if degraded_sources:
+            for source in sorted(degraded_sources):
+                PROM_RETRIEVAL_DEGRADED.labels(source=source).inc()
+            logger.warning(
+                "HYBRID_RETRIEVAL_DEGRADED | sources=%s",
+                sorted(degraded_sources),
+            )
+
         pool_multiplier = getattr(config, "crossencoder_pool_multiplier", 3)
         pool_size = max(top_n * pool_multiplier, top_n)
 
@@ -191,6 +204,10 @@ class HybridRetriever:
                 if r["cmb_id"] not in seen:
                     seen.add(r["cmb_id"])
                     combined_results.append(r)
+
+            combined_results = await self._exclude_quarantined_candidates(
+                agent_id, combined_results
+            )
 
             if not combined_results:
                 candidate_ids: list[str] = []
@@ -242,6 +259,7 @@ class HybridRetriever:
             stage_diagnostics["lexical_hits_count"] = len(lexical_results)
             stage_diagnostics["pre_rerank_candidate_ids"] = candidate_ids[:15]
             stage_diagnostics["post_rerank_ids"] = cmb_ids
+            stage_diagnostics["degraded_sources"] = sorted(degraded_sources)
 
         if not enable_multi_hop and not collect_diagnostics:
             return cmb_ids
@@ -303,6 +321,30 @@ class HybridRetriever:
             "diagnostics": stage_diagnostics,
         }
         return result_dict
+
+    async def _exclude_quarantined_candidates(
+        self, agent_id: str, candidates: list[dict]
+    ) -> list[dict]:
+        """Apply the normal-path quarantine gate to cold-start candidates.
+
+        The metadata lookup deliberately propagates failures: returning a
+        candidate whose quarantine status cannot be checked is unsafe.
+        """
+        if not candidates:
+            return []
+        candidate_ids = [candidate["cmb_id"] for candidate in candidates]
+        epistemic_data = await self.dao.get_epistemic_data_for_nodes(
+            agent_id, candidate_ids
+        )
+        if not isinstance(epistemic_data, dict):
+            epistemic_data = {}
+        return [
+            candidate
+            for candidate in candidates
+            if not epistemic_data.get(
+                candidate["cmb_id"], {"is_quarantined": False}
+            ).get("is_quarantined")
+        ]
 
     async def get_vector_results(
         self, agent_id: str, query_text: str, k: int = 10

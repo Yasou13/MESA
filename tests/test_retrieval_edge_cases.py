@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from mesa_memory.observability.metrics import PROM_RETRIEVAL_DEGRADED
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
@@ -210,6 +211,75 @@ class TestColdStartVectorOnly:
         ranked = retriever._cold_start_rerank(vector_results, top_k=3)
         assert ranked[0]["cmb_id"] == "high"
         assert ranked[-1]["cmb_id"] == "low"
+
+    @pytest.mark.asyncio
+    async def test_cold_start_excludes_quarantined_vector_and_lexical_candidates(self):
+        storage = _make_mock_storage_facade(
+            graph_nodes=[],
+            vector_results=[
+                {"node_id": "quarantined", "_distance": 0.01},
+                {"node_id": "allowed", "_distance": 0.02},
+            ],
+        )
+        storage.search_memory_fts = AsyncMock(
+            return_value=[{"id": "lexical-quarantined", "rank": -2.0}]
+        )
+        storage.get_epistemic_data_for_nodes = AsyncMock(
+            return_value={
+                "quarantined": {"is_quarantined": True},
+                "lexical-quarantined": {"is_quarantined": True},
+                "allowed": {"is_quarantined": False},
+            }
+        )
+        retriever = await _make_retriever(storage)
+
+        result = await retriever.retrieve(
+            "test query", "test_agent", "test_session", top_n=5
+        )
+
+        assert result == ["allowed"]
+        storage.get_epistemic_data_for_nodes.assert_awaited_once_with(
+            "test_agent", ["quarantined", "allowed", "lexical-quarantined"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_cold_start_fails_closed_when_quarantine_lookup_fails(self):
+        storage = _make_mock_storage_facade(
+            graph_nodes=[], vector_results=[{"node_id": "candidate", "_distance": 0.1}]
+        )
+        storage.get_epistemic_data_for_nodes = AsyncMock(
+            side_effect=RuntimeError("epistemic store unavailable")
+        )
+        retriever = await _make_retriever(storage)
+
+        with pytest.raises(RuntimeError, match="epistemic store unavailable"):
+            await retriever.retrieve("test query", "test_agent", "test_session")
+
+    @pytest.mark.asyncio
+    async def test_retrieval_reports_all_degraded_sources(self):
+        storage = _make_mock_storage_facade()
+        retriever = await _make_retriever(storage)
+        retriever.get_vector_results = AsyncMock(side_effect=RuntimeError("vector"))
+        retriever.get_graph_results = AsyncMock(side_effect=RuntimeError("graph"))
+        storage.search_memory_fts = AsyncMock(side_effect=RuntimeError("lexical"))
+        sources = ["graph", "lexical", "vector"]
+        before = {
+            source: PROM_RETRIEVAL_DEGRADED.labels(source=source)._value.get()
+            for source in sources
+        }
+
+        result = await retriever.retrieve(
+            "test query",
+            "test_agent",
+            "test_session",
+            collect_diagnostics=True,
+        )
+
+        assert result["diagnostics"]["degraded_sources"] == sources
+        for source in sources:
+            assert PROM_RETRIEVAL_DEGRADED.labels(source=source)._value.get() == (
+                before[source] + 1
+            )
 
 
 # --- format_working_memory edge cases ---

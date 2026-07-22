@@ -15,6 +15,7 @@ Features:
 import logging
 import random
 import time
+from dataclasses import dataclass
 from typing import TypedDict
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -57,6 +58,14 @@ class RoutingDecision(TypedDict):
     route: str
     decision: bool | None
     reason: str
+
+
+@dataclass
+class RoutingState:
+    """Adaptive routing values owned by exactly one tenant."""
+
+    threshold: float
+    last_update_time: float = 0.0
 
 
 class AdaptiveRouter:
@@ -106,6 +115,8 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         self.dao = dao
         self.small_llm = small_llm
         self.validator = dual_llm_validator
+        # Retained as the configured default for compatibility.  Live routing
+        # decisions use the agent-scoped state below.
         self.t_route = t_route
         self.audit_probability = audit_probability
 
@@ -119,17 +130,22 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
             storage=self.dao,
         )
 
-        # Dynamic Thresholding Cache
-        self._last_update_time = 0.0
+        # Dynamic threshold state is strictly tenant-scoped.  A noisy tenant
+        # must never alter another tenant's routing cost/quality trade-off.
+        self._routing_states: dict[str, RoutingState] = {}
         self._update_interval = 60.0  # seconds
+
+    def _state_for(self, agent_id: str) -> RoutingState:
+        return self._routing_states.setdefault(agent_id, RoutingState(self.t_route))
 
     async def update_dynamic_threshold(self, agent_id: str):  # type: ignore[no-untyped-def]
         """Periodically recalibrate T_route based on recent audit performance."""
         now = time.time()
-        if (now - self._last_update_time) < self._update_interval:
+        state = self._state_for(agent_id)
+        if (now - state.last_update_time) < self._update_interval:
             return
 
-        self._last_update_time = now
+        state.last_update_time = now
         try:
             stats = await self.dao.get_recent_telemetry_stats(agent_id, limit=100)
             total_audits = stats.get("total_audits", 0)
@@ -137,24 +153,24 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
             if total_audits > 0:
                 error_rate = hallucinations / total_audits
-                old_t = self.t_route
+                old_t = state.threshold
 
                 if error_rate > 0.05:
                     # Mathematically penalize (demand higher confidence)
-                    self.t_route = min(0.95, self.t_route + 0.05)
+                    state.threshold = min(0.95, state.threshold + 0.05)
                     logger.warning(
                         "DYNAMIC_THRESHOLD | Error rate %.2f%% > 5%%. Increased T_route from %.2f to %.2f",
                         error_rate * 100,
                         old_t,
-                        self.t_route,
+                        state.threshold,
                     )
                 elif error_rate == 0.0:
                     # Safely decay (maximize cost savings)
-                    self.t_route = max(0.60, self.t_route - 0.02)
+                    state.threshold = max(0.60, state.threshold - 0.02)
                     logger.info(
                         "DYNAMIC_THRESHOLD | Error rate 0%%. Decreased T_route from %.2f to %.2f",
                         old_t,
-                        self.t_route,
+                        state.threshold,
                     )
         except Exception as e:
             logger.error(
@@ -288,6 +304,7 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
         agent_id = record.get("agent_id", "mesa_consolidation_system")
         await self.update_dynamic_threshold(agent_id)
+        routing_state = self._state_for(agent_id)
 
         prompt = VALENCE_PROMPT_A_TEMPLATE.format(
             content=record.get("content_payload", ""),
@@ -326,7 +343,7 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
         # Routing Logic
         if not requires_fallback:
-            requires_fallback = confidence_score < self.t_route
+            requires_fallback = confidence_score < routing_state.threshold
 
         is_audit = random.random() < self.audit_probability
 

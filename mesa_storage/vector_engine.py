@@ -781,17 +781,21 @@ class VectorEngine:
             self._executor, self._sync_get_active_node_ids, agent_id
         )
 
-    async def get_all_embeddings(self, limit: int = 10000) -> list[list[float]]:
-        """Retrieve a sample of active embeddings for cognitive state hydration."""
+    async def get_all_embeddings(
+        self, limit: int = 10000, *, agent_id: str | None = None
+    ) -> list[list[float]]:
+        """Retrieve active embeddings, optionally scoped to one tenant."""
         if not self._initialized:
             raise RuntimeError("VectorEngine has not been initialized.")
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            self._executor, self._sync_get_all_embeddings, limit
+            self._executor, self._sync_get_all_embeddings, limit, agent_id
         )
 
-    def _sync_get_all_embeddings(self, limit: int) -> list[list[float]]:
+    def _sync_get_all_embeddings(
+        self, limit: int, agent_id: str | None = None
+    ) -> list[list[float]]:
         assert self._db is not None
         embeddings: list[list[float]] = []
         for table_name in self._list_table_names():
@@ -799,17 +803,21 @@ class VectorEngine:
                 continue
             try:
                 table = self._db.open_table(table_name)
+                where = "expired_at IS NULL"
+                if agent_id is not None:
+                    _validate_filter_value(agent_id, "agent_id")
+                    where += f" AND agent_id = '{agent_id}'"
                 arrow_table = (
                     table.search()
-                    .where("expired_at IS NULL")
-                    .select(["vector"])
+                    .where(where)
+                    .select(["embedding"])
                     .limit(limit - len(embeddings))
                     .to_arrow()
                 )
 
-                # Depending on pyarrow schema, vector might be FixedSizeList or similar
+                # Depending on pyarrow schema, embedding might be FixedSizeList or similar
                 # to_pylist() converts to standard python lists
-                batch = arrow_table.column("vector").to_pylist()
+                batch = arrow_table.column("embedding").to_pylist()
 
                 # Handle possible NaN/None values from pyarrow
                 for v in batch:
