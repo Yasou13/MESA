@@ -173,3 +173,31 @@ def pytest_unconfigure(config):
             f"[pytest_unconfigure] Error handling lingering threads: {e}",
             file=sys.stderr,
         )
+
+    # 4. Teardown Watchdog: Guarantee clean exit if CPython 3.13 _PyThread_Shutdown / atexit hangs
+    # After pytest_unconfigure runs, all 918 tests and coverage reports (XML/JSON/HTML) are 100% written on disk.
+    # If Python's normal interpreter shutdown blocks for >2 seconds due to C-extensions, force exit cleanly.
+    try:
+        import os
+        import time
+
+        exit_code = (
+            config.session.exitstatus
+            if hasattr(config, "session") and hasattr(config.session, "exitstatus")
+            else 0
+        )
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+        def _force_exit_watchdog():
+            time.sleep(2.0)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(exit_code)
+
+        watchdog = threading.Thread(
+            target=_force_exit_watchdog, name="mesa_exit_watchdog", daemon=True
+        )
+        watchdog.start()
+    except Exception:
+        pass
