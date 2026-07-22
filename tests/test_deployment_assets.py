@@ -162,6 +162,17 @@ def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cos
     assert "uv sync --locked --extra dev --extra adapters" in workflow
 
 
+def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "external-release-gates.yml").read_text(
+        encoding="utf-8"
+    )
+
+    docs_smoke = workflow.split("  docs-smoke:", maxsplit=1)[1]
+    assert 'uv run python -c "from mesa_memory.runtime_entrypoint' in docs_smoke
+    assert 'uv run python -c "from mesa_memory.worker_runtime' in docs_smoke
+    assert "uv run mesa-recovery --help" in docs_smoke
+
+
 def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:
     from types import SimpleNamespace
 
