@@ -167,8 +167,22 @@ def test_manifest_requires_license_and_matching_converted_checksum(
         validate_dataset_manifest(manifest, dataset_path, profile="publishable")
 
 
-def test_beam_release_fixture_has_complete_v2_labels() -> None:
+def test_beam_release_manifest_and_fixture_have_complete_v2_labels() -> None:
+    manifest_path = resolve_benchmark_path(
+        "resource://manifests/external/beam-v2.json", must_exist=True
+    )
+    manifest = DatasetManifest.model_validate_json(
+        manifest_path.read_text(encoding="utf-8")
+    )
+    assert manifest.counts.questions == 400
+    assert len(manifest.counts.categories) == 10
+
     path = resolve_benchmark_path("data://external/beam/v2/dataset.json")
+    if not path.is_file():
+        pytest.skip(
+            "BEAM release payload is download-on-demand; full validation runs "
+            "after dataset-sync in the nightly external gate"
+        )
     rows = json.loads(path.read_text(encoding="utf-8"))
     questions = [question for row in rows for question in row["questions"]]
     assert len(questions) == 400
