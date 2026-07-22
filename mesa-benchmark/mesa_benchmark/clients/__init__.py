@@ -1,5 +1,7 @@
 from .base import AbstractBenchmarkClient, BenchmarkResponse
+from .dense_rag_client import DenseRagClientAdapter
 from .dummy_client import DummyClientAdapter
+from .mem0_client import Mem0ClientAdapter
 
 # Optional competitor adapters — fail gracefully if dependencies missing
 try:
@@ -15,10 +17,9 @@ except ImportError:
 __all__ = [
     "AbstractBenchmarkClient",
     "BenchmarkResponse",
+    "DenseRagClientAdapter",
     "DummyClientAdapter",
-    "ZepClientAdapter",
     "LettaClientAdapter",
+    "Mem0ClientAdapter",
+    "ZepClientAdapter",
 ]
-from .dense_rag_client import DenseRagClientAdapter
-
-__all__ = ["DenseRagClientAdapter"]
