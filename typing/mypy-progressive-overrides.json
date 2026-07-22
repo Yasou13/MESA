@@ -1,0 +1,32 @@
+{
+  "modules": [
+    "mesa_memory.consolidation.loop",
+    "mesa_memory.consolidation.lock",
+    "mesa_memory.consolidation.writer",
+    "mesa_memory.consolidation.parser",
+    "mesa_memory.consolidation.router",
+    "mesa_memory.consolidation.validator",
+    "mesa_memory.valence.*",
+    "mesa_memory.observability.metrics",
+    "mesa_memory.retrieval.*",
+    "mesa_memory.adapter.*",
+    "mesa_memory.extraction.*",
+    "mesa_memory.security.rbac",
+    "mesa_memory.api.server",
+    "mesa_api.router",
+    "mesa_api.schemas",
+    "mesa_storage.dao",
+    "mesa_storage.vector_engine",
+    "mesa_storage.schemas",
+    "mesa_storage.sqlite_engine",
+    "mesa_storage.kuzu_provider",
+    "mesa_workers.*"
+  ],
+  "relaxed_options": [
+    "disallow_untyped_defs",
+    "disallow_incomplete_defs",
+    "warn_return_any",
+    "disallow_untyped_decorators",
+    "warn_unused_ignores"
+  ]
+}

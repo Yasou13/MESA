@@ -8,8 +8,10 @@
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/Version-0.6.1-green.svg)
 
-**Enterprise-grade cognitive memory engine for autonomous AI agents.**
-Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consensus designed to mitigate hallucination cascades.
+**A durable, tenant-isolated memory engine for autonomous AI agents.**
+The default safe-core runtime admits and retrieves durable memories without
+loading local models or contacting an LLM provider. An explicitly configured
+full cognitive runtime can add model extraction and dual-LLM consensus.
 
 </div>
 
@@ -17,15 +19,14 @@ Ingest → Validate → Extract → Store → Retrieve — with dual-LLM consens
 
 ## ⚡ Quickstart (Local Installation)
 
-Install the core package first. Add the optional groups only when your local
-development workflow needs them:
+For repeatable development and deployment, use the checked-in lock file:
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-python -m pip install -e .
+uv sync --locked --extra dev
 # Optional local ML models and external-provider SDKs:
-python -m pip install -e ".[ml,adapters]"
+uv sync --locked --extra dev --extra ml --extra adapters
 ```
 
 ## 🐳 Quickstart (Docker) — 60 Seconds
@@ -41,12 +42,14 @@ docker compose config --quiet
 docker compose up --build -d
 ```
 
-> **Runtime profile:** Compose starts separate API and worker roles with the
+> **Safe core runtime profile:** Compose starts separate API and worker roles with the
 > persistent named `mesa-data` volume. It deliberately sets
-> `MESA_MODEL_ENABLED=false` and `MESA_EXTERNAL_PROVIDER_ENABLED=false`; this
-> quickstart neither loads `.env` nor enables an LLM provider. Configure a
-> reviewed non-Compose runtime profile only when model or external-provider
-> access is required.
+> `MESA_MODEL_ENABLED=false` and `MESA_EXTERNAL_PROVIDER_ENABLED=false`.
+> The application does not load a dotenv file, nor does its worker invoke
+> REBEL, an LLM adapter, or dual-LLM consensus; it commits accepted records as
+> durable raw memories. Supply Compose variables from exported environment
+> variables or Compose's interpolation `.env` file. Use a reviewed explicit
+> full cognitive runtime when model or provider access is required.
 
 Verify it's running:
 
@@ -61,7 +64,10 @@ MESA is now live at **`http://localhost:8000`** with Swagger docs at [`/docs`](h
 
 ## 🔑 API Examples (v3)
 
-All endpoints require the `X-API-Key` header. This must match the `MESA_API_KEY` value in your `.env` file.
+All endpoints require the `X-API-Key` header. It must match the `MESA_API_KEY`
+provided to the running API process. For Compose this value may come from an
+exported environment variable or Compose's interpolation `.env` file; the
+container itself does not load `.env`.
 
 ### Insert a Memory
 
@@ -77,7 +83,13 @@ curl -X POST http://localhost:8000/v3/memory/insert \
 # → {"status": "queued", "log_id": 1, "processing_mode": "async"}
 ```
 
-The insert endpoint returns **202 Accepted** in <50ms. Heavy processing (ECOD anomaly detection, triple extraction, dual-LLM consensus) happens asynchronously on the cold path.
+The insert endpoint returns **202 Accepted** after durable admission; latency
+depends on the deployment, storage, and queue state. The safe-core cold path
+performs novelty checks and a raw-memory commit. Model extraction and dual-LLM
+consensus are available only in an explicitly enabled full cognitive runtime.
+The [historical five-minute soak result](docs/historical_benchmarks/v0.4.2_results.md)
+used 20 RPS and 30 connections and explicitly states that it is not production
+certification; do not treat it as a universal latency guarantee.
 
 ### Check Ingestion Status
 
@@ -192,13 +204,33 @@ Claude can now persist facts across conversations and recall them on demand thro
 
 ## Why MESA?
 
-Traditional agent memory is a flat buffer of text. MESA replaces that with a **multi-module pipeline** that gates every incoming record through statistical novelty checks, anomaly detection, and asymmetric dual-LLM cross-validation before committing structured knowledge triplets to a persistent graph. The result: agents that remember *accurately*, not just *recently*.
+Traditional agent memory is a flat buffer of text. MESA provides a durable,
+tenant-isolated safe core with novelty checks and hybrid retrieval. A separately
+enabled full cognitive runtime adds extraction and asymmetric dual-LLM
+cross-validation before structured graph writes; it is not part of the default
+Compose deployment.
+
+| Runtime | Safe core Compose | Full cognitive runtime |
+|---|---|---|
+| Model/provider access | Disabled | Explicitly enabled and reviewed |
+| Cold-path result | Durable raw memory | Raw memory plus configured extraction/consensus |
+| REBEL / LLM extraction | Not invoked | Opt-in |
+| Dual-LLM consensus | Not invoked | Opt-in |
+
+### Full cognitive runtime
+
+Full cognitive processing is not enabled by Compose. It requires a reviewed
+deployment that explicitly sets `MESA_MODEL_ENABLED=true`, supplies only the
+required local-model or provider credentials, and verifies the corresponding
+worker/consolidation topology before production use. It has different cost,
+latency, model-download, and provider-rate-limit characteristics from the safe
+core profile.
 
 | Capability | MESA | LangChain Memory | MemGPT |
 |---|---|---|---|
-| **Hallucination Mitigation** | Dual-LLM Consensus + Fail-safe Discard | Prompt-based | Self-correction |
-| **Validation Architecture** | 3-Tier Statistical + LLM Pipeline | None | Prompt-based |
-| **Knowledge Graph** | Automated REBEL + LLM Triplet Extraction (Turkish/English) | Manual | None |
+| **Hallucination Mitigation** | Full cognitive runtime: Dual-LLM Consensus + Fail-safe Discard | Prompt-based | Self-correction |
+| **Validation Architecture** | Safe core novelty checks; full runtime adds 3-tier LLM pipeline | None | Prompt-based |
+| **Knowledge Graph** | REBEL (English-only) or LLM extraction prompts (Turkish/English) | Manual | None |
 | **Zero-Cost Mode** | Native 100% local execution via Ollama (`MESA_ZERO_COST_MODE`) | External | External |
 | **Tenant Isolation** | Mandatory `agent_id` RLS on every query | None | None |
 | **Session Lifecycle APIs** | Native `/session/start`, `/context`, `/end` endpoints | None | Implicit |
@@ -293,8 +325,10 @@ graph TB
 
 ### 1. Install
 
-`pyproject.toml` is the only dependency manifest. The core package avoids heavy
-ML dependencies unless explicitly requested.
+`pyproject.toml` defines supported dependency ranges; `uv.lock` is the
+reproducible deployment graph consumed by Docker and CI. Prefer `uv sync
+--locked` for development and operator environments. The core package avoids
+heavy ML dependencies unless explicitly requested.
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git
@@ -410,7 +444,10 @@ onun metodolojisi, external dataset kuralları ve sonuç geçerliliği
 
 ### KùzuDB Graph Scalability
 
-MESA exclusively leverages **KùzuDB** for graph topology, enabling infinite out-of-core scaling and entirely eliminating node-related RAM exhaustion.
+MESA uses **KùzuDB** for disk-backed graph topology. This reduces the need to
+hold the complete graph topology in application memory, but capacity remains
+bounded by storage, query shape, indexes, process memory, and host resources.
+Load and soak testing are required for each production deployment.
 
 ### LLM Provider Rate Limits
 
@@ -423,7 +460,8 @@ When using Groq's free tier as the LLM backend, you may hit **30 requests/minute
 
 The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per record on CPU**. For high-throughput workloads:
 - Set `MESA_REBEL_DEVICE=cuda` if a GPU is available.
-- Set `MESA_REBEL_ENABLED=false` to use the LLM-only fallback (zero model download, uses your configured Tier-3 provider).
+- REBEL is English-only. Set `MESA_REBEL_ENABLED=false` to use the configured
+  LLM extraction prompts, which support Turkish (`tr`) and English (`en`).
 - The system automatically falls back to LLM-based extraction when REBEL fails, so extraction never blocks the pipeline.
 
 ### Current Status

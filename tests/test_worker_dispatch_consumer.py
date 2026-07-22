@@ -23,9 +23,14 @@ async def test_worker_consumes_and_finalizes_a_durable_cold_path_dispatch() -> N
     )
 
     with patch("mesa_memory.worker_runtime.process_cold_path", new=AsyncMock()) as run:
-        result = await _consume_dispatches_once(dao)
+        result = await _consume_dispatches_once(dao, model_processing_enabled=False)
 
-    run.assert_awaited_once_with(7, "tenant-a", dao)
+    run.assert_awaited_once_with(
+        7,
+        "tenant-a",
+        dao,
+        model_processing_enabled=False,
+    )
     dao.complete_dispatch_queue.assert_awaited_once_with(
         "queue-1",
         worker_id=_WORKER_ID,
