@@ -1,3 +1,0 @@
-Before WAVE-004 source patch: `venv/bin/python -m pytest -q tests/test_durable_dlq_contract.py`.
-
-Result: 2 deterministic failures, `AttributeError: PersistentQueue has no attribute aclaim`. This proved the missing owner/lease/ACK protocol. The exact prior DAO reproduction then showed 13 failures; all were classified and fixture-corrected in `GRAPH_FIXTURE_FAILURE_ANALYSIS.md`.

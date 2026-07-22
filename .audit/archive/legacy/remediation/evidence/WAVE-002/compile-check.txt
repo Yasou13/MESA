@@ -1,2 +1,0 @@
-Command: `/home/yasin/Desktop/MESA/venv/bin/python -m py_compile mesa_storage/dao.py mesa_storage/vector_engine.py tests/test_triple_store_mutation_contract.py`
-Result: exit 0.

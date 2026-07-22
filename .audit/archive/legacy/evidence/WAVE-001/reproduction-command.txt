@@ -1,4 +1,0 @@
-command: /home/yasin/Desktop/MESA/venv/bin/python -m pytest tests/test_principal_authorization.py -q -vv
-cwd: /home/yasin/Desktop/MESA
-expected legacy behavior: 200 for unmapped principal before a mapping gate
-actual clean-restart behavior: 403; current source hashes match pre-existing WAVE-001 patched hashes

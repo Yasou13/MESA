@@ -1,1 +1,0 @@
-Storage at preflight: 193 GiB available; lab directory contains only small evidence records. No runtime/test workload started.

@@ -1,6 +1,0 @@
-Classification: TOOLING_ERROR — SOURCE PATCH TRANSPORT FAILURE
-
-The normal source-patch transport was attempted once during WAVE-001 and failed with:
-`bwrap: No permissions to create a new namespace`.
-
-This is a sandbox transport failure, not a product, dependency, or source-correctness failure. It was not retried repeatedly. User-authorized controlled atomic source-edit fallback was used for the planned WAVE-001 files only.

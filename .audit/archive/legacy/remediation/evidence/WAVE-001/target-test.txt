@@ -1,9 +1,0 @@
-Before fix (deterministic reproduction):
-`env -i PATH=/home/yasin/Desktop/MESA/venv/bin:/usr/bin:/bin PYTHON_DOTENV_DISABLED=1 MESA_LLM_PROVIDER=mock MESA_API_KEY=synthetic-test-key /home/yasin/Desktop/MESA/venv/bin/python -m pytest -q tests/test_principal_authorization.py`
-Result: exit 1; expected 403, actual 200.
-
-After fix:
-Same isolated command (with the expanded regression file) returned exit 0.
-Result: 2 passed, 1 Starlette/httpx deprecation warning.
-
-Covered invariant: an active authenticated principal requesting an agent without an explicit server-side `SESSION_CREATE` mapping receives 403; the request `agent_id` does not create a grant.

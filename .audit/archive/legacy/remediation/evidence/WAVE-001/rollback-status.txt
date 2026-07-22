@@ -1,6 +1,0 @@
-Rollback status: NOT REQUIRED; post-patch syntax, diff and focused regressions passed.
-
-Verified rollback material is preserved outside Git:
-`/storage/mesa-lab/artifacts/WAVE-001/source-backup/`
-
-The backup set includes `server.py`, `rbac.py`, `router.py`, `run_server.py`, and `test_principal_authorization.py`. Each SHA-256 matched pre-edit content before transformation. If a later WAVE-001-specific rollback is required, restore only the matching named backup through the same temp+fsync+replace procedure, then rerun compile/diff/target tests. No rollback was executed in this wave.

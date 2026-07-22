@@ -1,1 +1,0 @@
-WAVE-004B cannot set count/byte/per-tenant/retry/in-flight limits or overload HTTP semantics without an approved policy. These values define public admission behavior; no safe default is specified. W4C and W4D depend on B.

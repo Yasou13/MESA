@@ -1,1 +1,0 @@
-Not applicable to decision persistence. WAVE-001 must add deterministic cross-principal E2/E3 authorization tests.

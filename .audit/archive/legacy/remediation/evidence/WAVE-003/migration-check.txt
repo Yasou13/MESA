@@ -1,1 +1,0 @@
-Synthetic SQLite `initialize_schema()` upgraded Alembic from `c4f1a8e2d9b0` to `e9b7c3a1d4f2` during both WAVE-003 target tests. The migration is additive: it adds raw-log/WAL claim metadata and recovery indexes; it deletes no data. No repository, user, staging, or production migration command was run.

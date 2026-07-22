@@ -1,1 +1,0 @@
-DEC-REM-002 records server-side principal-to-agent mapping, explicit permissions, server-owned sessions, special principal rules and bounded legacy/SDK/MCP transition. No application source changed.

@@ -1,1 +1,0 @@
-Additive f6d4a7b8c9e0 migration applied only in synthetic pytest SQLite fixtures; no production migration ran.

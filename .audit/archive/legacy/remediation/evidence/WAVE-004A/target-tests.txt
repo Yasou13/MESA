@@ -1,1 +1,0 @@
-Post-fix: 2 passed in 2.63s. Intent is idempotent; receipt and queue row persist with tenant scope; recovery enqueues receipt-less DEFERRED raw logs.
