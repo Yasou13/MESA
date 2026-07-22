@@ -84,7 +84,7 @@ jobs:
   manual-external-release:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 720
+    timeout-minutes: 360
     env:
       BENCHMARK_OLLAMA_URL: ${{ secrets.BENCHMARK_OLLAMA_URL }}
       BENCHMARK_GENERATOR_MODEL: ${{ vars.BENCHMARK_GENERATOR_MODEL }}
@@ -96,7 +96,6 @@ jobs:
       LETTA_EMBEDDING_MODEL: all-MiniLM-L6-v2
       ZEP_API_KEY: ${{ secrets.ZEP_API_KEY }}
       ZEP_EMBEDDING_MODEL: all-MiniLM-L6-v2
-      BENCHMARK_JUDGE_CALIBRATION_PATH: ${{ runner.temp }}/judge-calibration.json
       BENCHMARK_JUDGE_CALIBRATION_JSON: ${{ secrets.BENCHMARK_JUDGE_CALIBRATION_JSON }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,6 +105,8 @@ jobs:
           cache: pip
       - run: python -m pip install "uv==0.9.6"
       - run: uv sync --locked --extra dev --extra adapters --extra benchmarks --extra ml
+      - name: Configure judge calibration path
+        run: echo "BENCHMARK_JUDGE_CALIBRATION_PATH=$RUNNER_TEMP/judge-calibration.json" >> "$GITHUB_ENV"
       - name: Materialize blinded judge calibration without logging labels
         run: python -c "import os,pathlib; pathlib.Path(os.environ['BENCHMARK_JUDGE_CALIBRATION_PATH']).write_text(os.environ['BENCHMARK_JUDGE_CALIBRATION_JSON'], encoding='utf-8')"
       - name: Dataset and model preflight

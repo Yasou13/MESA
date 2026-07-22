@@ -179,6 +179,19 @@ def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None
     assert "uv run mesa-recovery --help" in docs_smoke
 
 
+def test_benchmark_workflow_defers_runner_temp_resolution_to_a_step() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "benchmark-quality.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "BENCHMARK_JUDGE_CALIBRATION_PATH: ${{ runner.temp }}" not in workflow
+    assert (
+        'echo "BENCHMARK_JUDGE_CALIBRATION_PATH=$RUNNER_TEMP/judge-calibration.json" '
+        '>> "$GITHUB_ENV"'
+    ) in workflow
+    assert "timeout-minutes: 720" not in workflow
+
+
 def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:
     from types import SimpleNamespace
 
