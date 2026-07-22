@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import tomllib
 import yaml
 
 from mesa_memory.config import RuntimeProfile
@@ -12,12 +11,13 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    dependencies = set(project["project"]["dependencies"])
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    project_metadata, separator, _ = pyproject.partition("[project.optional-dependencies]")
 
-    assert "pyod>=3.3.0" in dependencies
-    assert "numba>=0.65.0" in dependencies
-    assert "llvmlite>=0.47.0" in dependencies
+    assert separator, "project optional-dependencies section is missing"
+    assert '"pyod>=3.3.0"' in project_metadata
+    assert '"numba>=0.65.0"' in project_metadata
+    assert '"llvmlite>=0.47.0"' in project_metadata
 
 
 def test_compose_has_isolated_api_and_worker_roles_without_host_bind_or_dotenv(
