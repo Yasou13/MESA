@@ -43,10 +43,10 @@ def validate(config_path: Path, baseline_path: Path) -> list[str]:
         if re.search(rf"^{re.escape(option)}\s*=\s*false\s*$", section, re.MULTILINE)
     }
     known_relaxed = set(baseline["relaxed_options"])
-    all_relaxed = set(
-        re.findall(r"^(\w+)\s*=\s*false\s*$", section, re.MULTILINE)
+    all_relaxed = set(re.findall(r"^(\w+)\s*=\s*false\s*$", section, re.MULTILINE))
+    new_relaxations = sorted(
+        (all_relaxed - known_relaxed) | (actual_relaxed - known_relaxed)
     )
-    new_relaxations = sorted((all_relaxed - known_relaxed) | (actual_relaxed - known_relaxed))
 
     errors: list[str] = []
     if new_modules:

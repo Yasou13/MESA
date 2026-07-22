@@ -115,15 +115,18 @@ def test_ci_package_job_generates_locked_sbom_and_attests_tagged_artifacts() -> 
     assert "uv export --quiet --frozen --no-dev --no-emit-project" in workflow
     assert "cyclonedx-py requirements" in workflow
     assert "dist/mesa-runtime.cdx.json" in workflow
-    assert "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be" in workflow
+    assert (
+        "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be"
+        in workflow
+    )
     assert "attestations: write" in workflow
     assert "id-token: write" in workflow
 
 
 def test_external_release_gates_use_locked_dependency_sync() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "external-release-gates.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (
+        ROOT / ".github" / "workflows" / "external-release-gates.yml"
+    ).read_text(encoding="utf-8")
 
     assert workflow.count("uv sync --locked --extra dev") == 3
     assert 'pip install -e ".[dev]"' not in workflow

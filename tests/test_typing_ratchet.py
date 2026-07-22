@@ -17,10 +17,13 @@ def _load_module():
 
 def test_checked_in_progressive_overrides_do_not_expand() -> None:
     module = _load_module()
-    assert module.validate(
-        ROOT / "pyproject.toml",
-        ROOT / "typing" / "mypy-progressive-overrides.json",
-    ) == []
+    assert (
+        module.validate(
+            ROOT / "pyproject.toml",
+            ROOT / "typing" / "mypy-progressive-overrides.json",
+        )
+        == []
+    )
 
 
 def test_new_progressive_module_is_rejected(tmp_path: Path) -> None:
