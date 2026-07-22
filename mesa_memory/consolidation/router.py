@@ -230,13 +230,16 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
             # Layer 4: Fallback — force Dual-LLM escalation
             logger.warning(
-                "LLM_JUDGE_PARSE_FAILED | raw=%r — defaulting to 0.0",
-                score_text[:100],
+                "LLM_JUDGE_PARSE_FAILED | response_length=%d — defaulting to 0.0",
+                len(score_text),
             )
             return 0.0
 
         except Exception as exc:
-            logger.warning("LLM_JUDGE_ERROR | error=%s — defaulting to 0.0", exc)
+            logger.warning(
+                "LLM_JUDGE_ERROR | exception_type=%s — defaulting to 0.0",
+                type(exc).__name__,
+            )
             return 0.0
 
     # ------------------------------------------------------------------

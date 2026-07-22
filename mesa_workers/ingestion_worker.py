@@ -44,8 +44,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -55,12 +55,8 @@ from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
-from mesa_memory.observability.logger import setup_logging
 from mesa_memory.valence.novelty import calculate_novelty_score
 from mesa_storage.dao import MemoryDAO
-
-# Configure logging for the worker process
-setup_logging()
 
 logger = structlog.get_logger("MESA_ColdPath")
 
@@ -73,6 +69,16 @@ MAX_CONCURRENT_WORKERS = asyncio.Semaphore(10)
 MAX_TIER3_CONCURRENT = 3
 _tier3_semaphore = asyncio.Semaphore(MAX_TIER3_CONCURRENT)
 _TRACE_ROOT = Path("/storage/mesa-lab").resolve()
+_CONTEXT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _safe_context_id(value: str) -> str:
+    """Return only identifiers that are safe to propagate into log context."""
+    return (
+        value
+        if value not in {"__unset__", "__system__"} and _CONTEXT_ID_RE.fullmatch(value)
+        else "invalid"
+    )
 
 
 def _write_cold_path_trace(message: str) -> None:
@@ -115,6 +121,25 @@ def _get_rebel_extractor() -> RebelExtractor | None:
 
 
 async def process_cold_path(
+    log_id: int,
+    agent_id: str,
+    dao: MemoryDAO,
+    consolidation_loop: ConsolidationLoop | None = None,
+) -> None:
+    """Bind one safe correlation context around a cold-path job."""
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(
+        worker_id="cold-path",
+        operation_id=str(log_id),
+        agent_id=_safe_context_id(agent_id),
+    )
+    try:
+        await _process_cold_path_impl(log_id, agent_id, dao, consolidation_loop)
+    finally:
+        structlog.contextvars.clear_contextvars()
+
+
+async def _process_cold_path_impl(
     log_id: int,
     agent_id: str,
     dao: MemoryDAO,
@@ -191,7 +216,7 @@ async def process_cold_path(
                 raw_log = await dao.get_raw_log(agent_id, log_id)
             _write_cold_path_trace(f"AFTER GET_RAW_LOG {log_id}")
             logger.info("COLD_PATH_DEBUG | Finished get_raw_log", log_id=log_id)
-            _write_cold_path_trace(f"RAW_LOG {raw_log}")
+            _write_cold_path_trace(f"RAW_LOG_FETCHED {log_id}")
 
             if raw_log is None:
                 _write_cold_path_trace("RETURNING NOT FOUND")
@@ -212,6 +237,11 @@ async def process_cold_path(
             session_id: str = payload.get("session_id", "__unset__")
             content: str = payload.get("content", "")
             metadata: dict = payload.get("metadata", {})
+            job_context: dict[str, Any] = {"session_id": _safe_context_id(session_id)}
+            attempt = raw_log.get("attempt_count")
+            if isinstance(attempt, int):
+                job_context["attempt"] = attempt
+            structlog.contextvars.bind_contextvars(**job_context)
 
             if not payload_agent_id or not content:
                 await _transition(
@@ -346,18 +376,17 @@ async def process_cold_path(
         except Exception as status_exc:
             # Even the status update failed — log but never raise
             logger.critical(
-                "COLD_PATH_STATUS_UPDATE_FAILED | log_id=%d "
-                "original_error=%s status_error=%s",
-                log_id,
-                error_msg,
-                status_exc,
+                "COLD_PATH_STATUS_UPDATE_FAILED",
+                log_id=log_id,
+                original_exception_type=error_type,
+                status_exception_type=type(status_exc).__name__,
             )
 
         logger.error(
-            "COLD_PATH_FAILED | log_id=%d error=%s\n%s",
-            log_id,
-            error_msg,
-            traceback.format_exc(),
+            "COLD_PATH_FAILED",
+            log_id=log_id,
+            exception_type=error_type,
+            exc_info=True,
         )
         # CRITICAL: Do NOT re-raise — protect the BG task pool
 
@@ -752,7 +781,7 @@ def _parse_llm_triplet_response(raw: str) -> list[dict[str, str]]:
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError:
-        logger.warning("LLM_TRIPLET_PARSE_FAILED | raw=%s", raw[:200])
+        logger.warning("LLM_TRIPLET_PARSE_FAILED", raw_length=len(raw))
         return []
 
     if not isinstance(parsed, list):

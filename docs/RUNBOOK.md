@@ -54,3 +54,24 @@ MESA CI/CD executes `scripts/canary_smoke_test.py` against the built wheel befor
 ```bash
 python scripts/canary_smoke_test.py
 ```
+
+## 6. Structured Logging Operations
+
+MESA API and worker processes emit vendor-neutral JSON to stdout. Production
+defaults are `MESA_LOG_LEVEL=INFO` and `MESA_LOG_FORMAT=json`; `console` format
+is intended only for explicit local development. Invalid values stop startup.
+
+Every record uses schema version `1` and includes `timestamp`, `level`,
+`logger`, `event`, `service`, and `role`. API responses return `X-Request-ID`;
+the same value appears in request logs. Durable ingestion is correlated with
+worker events through the raw-log `operation_id`.
+
+The Compose profile uses Docker's `local` logging driver with a 10 MB file and
+five-file retention bound. A deployment platform may collect stdout without
+changing the application format, but it must preserve these fields and apply
+an equal or stricter retention policy.
+
+Alert on sustained `http_request_failed` 5xx events, worker failure events, or
+any collector JSON parse failure. Query text, content, payloads, credentials,
+raw model output, and claim tokens must never be indexed. During staging, use
+synthetic canary markers to verify that the redaction contract holds.

@@ -128,7 +128,10 @@ class TripletExtractor:
             cleaned = _strip_markdown_json(raw) if isinstance(raw, str) else ""
             return json.loads(cleaned) if cleaned else None
         except (json.JSONDecodeError, TypeError, Exception) as exc:
-            logger.warning(f"Single-record fallback failed: {exc}")
+            logger.warning(
+                "Single-record fallback failed | exception_type=%s",
+                type(exc).__name__,
+            )
             return None
 
     # -------------------------------------------------------------------
@@ -259,7 +262,11 @@ class TripletExtractor:
                     missing_a.remove(idx)
                     missing_b.remove(idx)
             except Exception as e:
-                logger.warning(f"REBEL extraction failed for record {idx}: {e}")
+                logger.warning(
+                    "REBEL extraction failed | record_index=%d exception_type=%s",
+                    idx,
+                    type(e).__name__,
+                )
 
         # --- Phase: LLM fallback for missing records ---
         if missing_a:

@@ -12,6 +12,11 @@ x-mesa-runtime: &mesa-runtime
     - /tmp:size=128m,mode=1777
   volumes:
     - mesa-data:/var/lib/mesa
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "5"
   environment: &mesa-environment
     MESA_API_KEY: ${MESA_API_KEY:?MESA_API_KEY is required}
     MESA_PRINCIPAL_ID: ${MESA_PRINCIPAL_ID:?MESA_PRINCIPAL_ID is required}
@@ -22,6 +27,8 @@ x-mesa-runtime: &mesa-runtime
     MESA_MODEL_ENABLED: "false"
     MESA_EXTERNAL_PROVIDER_ENABLED: "false"
     MESA_PORT: "8000"
+    MESA_LOG_LEVEL: ${MESA_LOG_LEVEL:-INFO}
+    MESA_LOG_FORMAT: ${MESA_LOG_FORMAT:-json}
 
 services:
   mesa-api:

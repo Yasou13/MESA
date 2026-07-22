@@ -1,18 +1,10 @@
-import json
-import logging
-import time
 from collections import Counter, deque
 from enum import Enum
 
-from prometheus_client import (
-    Counter as PromCounter,
-)
-from prometheus_client import (
-    Gauge as PromGauge,
-)
-from prometheus_client import (
-    Histogram as PromHistogram,
-)
+import structlog
+from prometheus_client import Counter as PromCounter
+from prometheus_client import Gauge as PromGauge
+from prometheus_client import Histogram as PromHistogram
 
 from mesa_memory.config import config
 
@@ -71,12 +63,7 @@ PROM_QUEUE_BACKLOG = PromGauge("queue_backlog_size", "Current ingestion queue ba
 
 class ObservabilityLayer:
     def __init__(self):  # type: ignore[no-untyped-def]
-        self.logger = logging.getLogger("MESA_Observability")
-        self.logger.setLevel(logging.DEBUG)
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            handler.setLevel(logging.DEBUG)
-            self.logger.addHandler(handler)
+        self.logger = structlog.get_logger("MESA_Observability")
         self.metrics = MetricsRegistry()
 
     def log_valence_decision(  # type: ignore[no-untyped-def]
@@ -94,15 +81,18 @@ class ObservabilityLayer:
             decision.value if isinstance(decision, SystemState) else str(decision)
         )
 
-        entry = {
-            "event": "valence_decision",
-            "tier": tier,
-            "decision": decision_val,
-            "justification": justification,
-            "cost": cost,
-            "timestamp": time.time(),
+        safe_cost = {
+            key: value
+            for key, value in cost.items()
+            if key in {"latency", "latency_ms", "token_count", "tokens", "usd"}
         }
-        self.logger.info(json.dumps(entry))
+        self.logger.info(
+            "valence_decision",
+            tier=tier,
+            decision=decision_val,
+            justification_length=len(justification),
+            cost=safe_cost,
+        )
         self.metrics.inc(f"valence_tier_{tier}_hits")
         self.metrics.inc(f"valence_decision_{decision_val}")
 
@@ -129,17 +119,15 @@ class ObservabilityLayer:
         duration_ms: float,
     ):
         divergence_rate = divergences / processed if processed > 0 else 0.0
-        entry = {
-            "event": "consolidation_batch",
-            "batch_id": batch_id,
-            "processed": processed,
-            "divergences": divergences,
-            "divergence_rate": round(divergence_rate, 4),
-            "writes": writes,
-            "duration_ms": duration_ms,
-            "timestamp": time.time(),
-        }
-        self.logger.info(json.dumps(entry))
+        self.logger.info(
+            "consolidation_batch",
+            batch_id=batch_id,
+            processed=processed,
+            divergences=divergences,
+            divergence_rate=round(divergence_rate, 4),
+            writes=writes,
+            duration_ms=duration_ms,
+        )
         self.metrics.observe("consolidation_batch_duration", duration_ms)
         self.metrics.inc("cross_validation_divergence", divergences)
         self.metrics.set("consolidation_divergence_rate", divergence_rate)
@@ -150,12 +138,11 @@ class ObservabilityLayer:
 
         if divergence_rate > config.metrics_divergence_threshold:
             self.logger.warning(
-                "BAD_BATCH: batch %s divergence_rate=%.2f exceeds 50%% threshold "
-                "(%d divergences / %d processed)",
-                batch_id,
-                divergence_rate,
-                divergences,
-                processed,
+                "BAD_BATCH",
+                batch_id=batch_id,
+                divergence_rate=round(divergence_rate, 4),
+                divergences=divergences,
+                processed=processed,
             )
 
     def get_health_status(self) -> dict:
