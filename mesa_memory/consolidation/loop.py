@@ -1010,7 +1010,11 @@ async def start_tier3_deferred_worker(
             logger.info("Tier-3 Deferred worker cancelled, shutting down.")
             break
         except Exception as e:
-            logger.error(f"Error in Tier-3 Deferred worker: {e}", exc_info=True)
+            logger.error(
+                "Error in Tier-3 Deferred worker | exception_type=%s",
+                type(e).__name__,
+                exc_info=True,
+            )
             await asyncio.sleep(sleep_interval)
 
 

@@ -10,8 +10,13 @@ from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from mesa_memory.observability.logger import setup_logging
+
+setup_logging(role="api")
+
 import kuzu
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import PlainTextResponse
 from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -26,7 +31,7 @@ from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
 )
 from mesa_memory.container_health import worker_is_ready
-from mesa_memory.observability.logger import setup_logging
+from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.observability.tracer import setup_telemetry_tracing
 from mesa_memory.security.rbac import AccessControl
@@ -149,8 +154,6 @@ def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
 async def lifespan(app: FastAPI):
     # ==================================================================
     # Configure Structured Logging  # type: ignore[no-untyped-def]
-    setup_logging()
-
     runtime = load_runtime_profile()
     load_explicit_dotenv(runtime)
     _refresh_auth_config()
@@ -497,31 +500,34 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_response(request: Request, exc: Exception) -> Response:
+    """Preserve FastAPI's generic 500 body while returning the correlation ID."""
+    request.state.exception_type = type(exc).__name__
+    request_id = getattr(request.state, "request_id", None)
+    headers = {"X-Request-ID": request_id} if request_id else None
+    return PlainTextResponse("Internal Server Error", status_code=500, headers=headers)
+
+
 from slowapi.errors import RateLimitExceeded
 
 from mesa_memory.api.middleware import limiter, rate_limit_exceeded_handler
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
-from mesa_memory.observability.metrics import PROM_HTTP_REQUESTS
 
 # type: ignore[no-untyped-def]
 
 
 @app.middleware("http")
 async def add_api_version_header(request: Request, call_next):
-    status_code = 500
-    try:
-        response = await call_next(request)
-        status_code = response.status_code
-        response.headers["X-API-Version"] = __version__
-        return response
-    finally:
-        # Exclude metrics endpoint from skewing results
-        if request.url.path != "/metrics":
-            PROM_HTTP_REQUESTS.labels(
-                method=request.method, endpoint=request.url.path, status=status_code
-            ).inc()
+    response = await call_next(request)
+    response.headers["X-API-Version"] = __version__
+    return response
+
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 def get_dao() -> MemoryDAO:

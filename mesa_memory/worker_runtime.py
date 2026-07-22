@@ -1,5 +1,7 @@
 """Worker-only durable cold-path consumer with recovery and readiness."""
 
+# ruff: noqa: E402 -- logging must be configured before runtime imports.
+
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +11,12 @@ import signal
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
+
+import structlog
+
+from mesa_memory.observability.logger import setup_logging
+
+setup_logging(role="worker")
 
 from mesa_memory.config import (
     RuntimeProfile,
@@ -22,6 +30,8 @@ from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 from mesa_workers.ingestion_worker import process_cold_path
 from mesa_workers.supervision import WorkerSupervisor
+
+logger = structlog.get_logger("MESA_WorkerRuntime")
 
 _READINESS_NAME = "worker-readiness.json"
 _RECOVERY_INTERVAL_SECONDS = 30.0
@@ -147,7 +157,7 @@ async def run_worker_only() -> None:
         },
     )
 
-    print("WORKER_RUNTIME=RUNNING", flush=True)
+    logger.info("WORKER_RUNTIME_RUNNING", worker_id=_WORKER_ID)
     await stopped.wait()
     await supervisor.shutdown()
     await vector_engine.close()
@@ -156,7 +166,7 @@ async def run_worker_only() -> None:
         runtime.storage_root,
         {"status": "STOPPED", "mode": "durable-cold-path-consumer"},
     )
-    print("WORKER_RUNTIME=STOPPED", flush=True)
+    logger.info("WORKER_RUNTIME_STOPPED", worker_id=_WORKER_ID)
 
 
 def main() -> None:

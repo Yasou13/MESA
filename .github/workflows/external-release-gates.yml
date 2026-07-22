@@ -2,9 +2,9 @@ name: MESA external release gates
 
 on:
   push:
-    branches: [audit/production-readiness, benchmark/**, main]
+    branches: [audit/production-readiness, benchmark/**, loggin/**, main]
   pull_request:
-    branches: [audit/production-readiness, benchmark/**, main]
+    branches: [audit/production-readiness, benchmark/**, loggin/**, main]
   workflow_dispatch:
     inputs:
       run_flow:

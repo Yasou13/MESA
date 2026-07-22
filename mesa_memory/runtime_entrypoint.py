@@ -1,8 +1,14 @@
 """Validated container process entrypoint for MESA runtime profiles."""
 
+# ruff: noqa: E402 -- logging must be configured before runtime imports.
+
 from __future__ import annotations
 
 import os
+
+from mesa_memory.observability.logger import setup_logging
+
+setup_logging(role="launcher")
 
 from mesa_memory.config import RuntimeProfile, load_runtime_profile
 

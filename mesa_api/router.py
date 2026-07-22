@@ -282,6 +282,12 @@ def create_memory_router(
             )
 
         log_id = admission["log_id"]
+        structlog.contextvars.bind_contextvars(operation_id=str(log_id))
+        structlog.get_logger("MESA_API").info(
+            "memory_insert_queued",
+            operation_id=str(log_id),
+            log_id=log_id,
+        )
 
         return JSONResponse(
             status_code=202,
@@ -457,10 +463,10 @@ def create_memory_router(
 
         except Exception as exc:
             logger.error(
-                "SEARCH_ERROR | agent_id=%s query=%r error=%s",
+                "SEARCH_ERROR | agent_id=%s query_length=%d exception_type=%s",
                 payload.agent_id,
-                payload.query[:50],
-                exc,
+                len(payload.query),
+                type(exc).__name__,
                 exc_info=True,
             )
             raise HTTPException(

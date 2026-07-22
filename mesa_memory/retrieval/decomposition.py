@@ -55,13 +55,17 @@ Question: {query}
         if not subqueries:
             return [query]
 
-        logger.debug("DECOMPOSED_QUERY | original=%r subqueries=%r", query, subqueries)
+        logger.debug(
+            "DECOMPOSED_QUERY | query_length=%d subquery_count=%d",
+            len(query),
+            len(subqueries),
+        )
         return subqueries  # type: ignore[str]
 
     except Exception as exc:
         logger.warning(
-            "QUERY_DECOMPOSITION_FAILED | query=%r error=%s — falling back to single query",
-            query,
-            exc,
+            "QUERY_DECOMPOSITION_FAILED | query_length=%d exception_type=%s",
+            len(query),
+            type(exc).__name__,
         )
         return [query]

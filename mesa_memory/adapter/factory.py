@@ -114,7 +114,7 @@ class AdapterFactory:
         # 1. Ollama (zero-cost local)
         ollama_url = os.environ.get("MESA_OLLAMA_URL")
         if ollama_url:
-            logger.info("Auto-detected MESA_OLLAMA_URL=%s → OllamaAdapter", ollama_url)
+            logger.info("Auto-detected MESA_OLLAMA_URL → OllamaAdapter")
             from mesa_memory.adapter.ollama import OllamaAdapter
 
             return OllamaAdapter(
