@@ -112,6 +112,12 @@ def test_ci_package_job_generates_locked_sbom_and_attests_tagged_artifacts() -> 
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert 'tags: ["v*"]' in workflow
+    package_job = workflow.split("  package:", maxsplit=1)[1].split(
+        "  coverage:", maxsplit=1
+    )[0]
+    assert "SOURCE_DATE_EPOCH=0 uv build --wheel --out-dir dist/a ." in package_job
+    assert "SOURCE_DATE_EPOCH=0 uv build --wheel --out-dir dist/b ." in package_job
+    assert "python -m pip wheel" not in package_job
     assert "uv export --quiet --frozen --no-dev --no-emit-project" in workflow
     assert "cyclonedx-py requirements" in workflow
     assert "dist/mesa-runtime.cdx.json" in workflow

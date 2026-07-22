@@ -282,9 +282,9 @@ jobs:
       - run: uv sync --locked --extra dev
       - name: Build reproducible wheels
         run: |
-          SOURCE_DATE_EPOCH=0 uv run python -m pip wheel --no-deps --wheel-dir dist/a .
+          SOURCE_DATE_EPOCH=0 uv build --wheel --out-dir dist/a .
           rm -rf build
-          SOURCE_DATE_EPOCH=0 uv run python -m pip wheel --no-deps --wheel-dir dist/b .
+          SOURCE_DATE_EPOCH=0 uv build --wheel --out-dir dist/b .
           sha256sum dist/a/*.whl dist/b/*.whl | tee dist/SHA256SUMS
           test "$(cut -d' ' -f1 dist/SHA256SUMS | sort -u | wc -l)" = 1
           ! python -m zipfile -l dist/a/mesa_memory-*.whl | grep -E '(__pycache__|\.pyc$)'
