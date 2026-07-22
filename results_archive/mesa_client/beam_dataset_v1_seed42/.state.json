@@ -1,8 +1,0 @@
-{
-    "run_id": "22ad0bd7-5aaa-4cff-a04b-6964522c1241",
-    "current_iteration": 1,
-    "current_scenario_idx": 0,
-    "status": "running",
-    "results_file": "results/mesa_client/beam_dataset_v1_seed42/results_22ad0bd7-5aaa-4cff-a04b-6964522c1241.jsonl",
-    "error_message": null
-}

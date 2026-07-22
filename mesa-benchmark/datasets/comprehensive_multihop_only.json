@@ -2,15 +2,18 @@
   {
     "id": "multi_hop_scenario_0",
     "name": "Multi-Hop Graph Traversal #0",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_0_ctx1",
         "text": "Dr. Elena Vance is the lead investigator for Project Omega-0 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Elena Vance",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Elena Vance",
               "target": "Project Omega-0",
               "type": "LEADS"
             }
@@ -22,12 +25,25 @@
         "text": "Project Omega-0 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-0",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-0",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_0_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-0.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -47,15 +63,18 @@
   {
     "id": "multi_hop_scenario_1",
     "name": "Multi-Hop Graph Traversal #1",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_1_ctx1",
         "text": "Professor Marcus Thorne is the lead investigator for Project Omega-1 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Professor Marcus Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Professor Marcus Thorne",
               "target": "Project Omega-1",
               "type": "LEADS"
             }
@@ -67,12 +86,25 @@
         "text": "Project Omega-1 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-1",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-1",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_1_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-1.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -92,15 +124,18 @@
   {
     "id": "multi_hop_scenario_2",
     "name": "Multi-Hop Graph Traversal #2",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_2_ctx1",
         "text": "Aria Montgomery is the lead investigator for Project Omega-2 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Aria Montgomery",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Aria Montgomery",
               "target": "Project Omega-2",
               "type": "LEADS"
             }
@@ -112,12 +147,25 @@
         "text": "Project Omega-2 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-2",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-2",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_2_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-2.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -137,15 +185,18 @@
   {
     "id": "multi_hop_scenario_3",
     "name": "Multi-Hop Graph Traversal #3",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_3_ctx1",
         "text": "Kenji Sato is the lead investigator for Project Omega-3 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kenji Sato",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kenji Sato",
               "target": "Project Omega-3",
               "type": "LEADS"
             }
@@ -157,12 +208,25 @@
         "text": "Project Omega-3 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-3",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-3",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_3_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-3.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -182,15 +246,18 @@
   {
     "id": "multi_hop_scenario_4",
     "name": "Multi-Hop Graph Traversal #4",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_4_ctx1",
         "text": "Clara Oswald is the lead investigator for Project Omega-4 at Hyperion Cybernetics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Clara Oswald",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Clara Oswald",
               "target": "Project Omega-4",
               "type": "LEADS"
             }
@@ -202,12 +269,25 @@
         "text": "Project Omega-4 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-4",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-4",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_4_ctx3",
+        "text": "London is the destination city entity for Project Omega-4.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -227,15 +307,18 @@
   {
     "id": "multi_hop_scenario_5",
     "name": "Multi-Hop Graph Traversal #5",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_5_ctx1",
         "text": "Dr. Aris Thorne is the lead investigator for Project Omega-5 at Veritas Legal AI.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Aris Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Aris Thorne",
               "target": "Project Omega-5",
               "type": "LEADS"
             }
@@ -247,12 +330,25 @@
         "text": "Project Omega-5 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-5",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-5",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_5_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-5.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -272,15 +368,18 @@
   {
     "id": "multi_hop_scenario_6",
     "name": "Multi-Hop Graph Traversal #6",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_6_ctx1",
         "text": "Selin Yilmaz is the lead investigator for Project Omega-6 at Apex Robotics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Selin Yilmaz",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Selin Yilmaz",
               "target": "Project Omega-6",
               "type": "LEADS"
             }
@@ -292,12 +391,25 @@
         "text": "Project Omega-6 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-6",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-6",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_6_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-6.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -317,15 +429,18 @@
   {
     "id": "multi_hop_scenario_7",
     "name": "Multi-Hop Graph Traversal #7",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_7_ctx1",
         "text": "Kaan Aksoy is the lead investigator for Project Omega-7 at Zenith Cloud.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kaan Aksoy",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kaan Aksoy",
               "target": "Project Omega-7",
               "type": "LEADS"
             }
@@ -337,12 +452,25 @@
         "text": "Project Omega-7 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-7",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-7",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_7_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-7.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -362,15 +490,18 @@
   {
     "id": "multi_hop_scenario_8",
     "name": "Multi-Hop Graph Traversal #8",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_8_ctx1",
         "text": "Amara Okafor is the lead investigator for Project Omega-8 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Amara Okafor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Amara Okafor",
               "target": "Project Omega-8",
               "type": "LEADS"
             }
@@ -382,12 +513,25 @@
         "text": "Project Omega-8 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-8",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-8",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_8_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-8.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -407,15 +551,18 @@
   {
     "id": "multi_hop_scenario_9",
     "name": "Multi-Hop Graph Traversal #9",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_9_ctx1",
         "text": "Liam O'Connor is the lead investigator for Project Omega-9 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Liam O'Connor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Liam O'Connor",
               "target": "Project Omega-9",
               "type": "LEADS"
             }
@@ -427,12 +574,25 @@
         "text": "Project Omega-9 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-9",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-9",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_9_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-9.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -452,15 +612,18 @@
   {
     "id": "multi_hop_scenario_10",
     "name": "Multi-Hop Graph Traversal #10",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_10_ctx1",
         "text": "Dr. Elena Vance is the lead investigator for Project Omega-10 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Elena Vance",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Elena Vance",
               "target": "Project Omega-10",
               "type": "LEADS"
             }
@@ -472,12 +635,25 @@
         "text": "Project Omega-10 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-10",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-10",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_10_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-10.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -497,15 +673,18 @@
   {
     "id": "multi_hop_scenario_11",
     "name": "Multi-Hop Graph Traversal #11",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_11_ctx1",
         "text": "Professor Marcus Thorne is the lead investigator for Project Omega-11 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Professor Marcus Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Professor Marcus Thorne",
               "target": "Project Omega-11",
               "type": "LEADS"
             }
@@ -517,12 +696,25 @@
         "text": "Project Omega-11 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-11",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-11",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_11_ctx3",
+        "text": "London is the destination city entity for Project Omega-11.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -542,15 +734,18 @@
   {
     "id": "multi_hop_scenario_12",
     "name": "Multi-Hop Graph Traversal #12",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_12_ctx1",
         "text": "Aria Montgomery is the lead investigator for Project Omega-12 at Hyperion Cybernetics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Aria Montgomery",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Aria Montgomery",
               "target": "Project Omega-12",
               "type": "LEADS"
             }
@@ -562,12 +757,25 @@
         "text": "Project Omega-12 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-12",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-12",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_12_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-12.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -587,15 +795,18 @@
   {
     "id": "multi_hop_scenario_13",
     "name": "Multi-Hop Graph Traversal #13",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_13_ctx1",
         "text": "Kenji Sato is the lead investigator for Project Omega-13 at Veritas Legal AI.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kenji Sato",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kenji Sato",
               "target": "Project Omega-13",
               "type": "LEADS"
             }
@@ -607,12 +818,25 @@
         "text": "Project Omega-13 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-13",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-13",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_13_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-13.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -632,15 +856,18 @@
   {
     "id": "multi_hop_scenario_14",
     "name": "Multi-Hop Graph Traversal #14",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_14_ctx1",
         "text": "Clara Oswald is the lead investigator for Project Omega-14 at Apex Robotics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Clara Oswald",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Clara Oswald",
               "target": "Project Omega-14",
               "type": "LEADS"
             }
@@ -652,12 +879,25 @@
         "text": "Project Omega-14 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-14",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-14",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_14_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-14.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -677,15 +917,18 @@
   {
     "id": "multi_hop_scenario_15",
     "name": "Multi-Hop Graph Traversal #15",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_15_ctx1",
         "text": "Dr. Aris Thorne is the lead investigator for Project Omega-15 at Zenith Cloud.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Aris Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Aris Thorne",
               "target": "Project Omega-15",
               "type": "LEADS"
             }
@@ -697,12 +940,25 @@
         "text": "Project Omega-15 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-15",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-15",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_15_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-15.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -722,15 +978,18 @@
   {
     "id": "multi_hop_scenario_16",
     "name": "Multi-Hop Graph Traversal #16",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_16_ctx1",
         "text": "Selin Yilmaz is the lead investigator for Project Omega-16 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Selin Yilmaz",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Selin Yilmaz",
               "target": "Project Omega-16",
               "type": "LEADS"
             }
@@ -742,12 +1001,25 @@
         "text": "Project Omega-16 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-16",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-16",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_16_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-16.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -767,15 +1039,18 @@
   {
     "id": "multi_hop_scenario_17",
     "name": "Multi-Hop Graph Traversal #17",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_17_ctx1",
         "text": "Kaan Aksoy is the lead investigator for Project Omega-17 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kaan Aksoy",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kaan Aksoy",
               "target": "Project Omega-17",
               "type": "LEADS"
             }
@@ -787,12 +1062,25 @@
         "text": "Project Omega-17 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-17",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-17",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_17_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-17.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -812,15 +1100,18 @@
   {
     "id": "multi_hop_scenario_18",
     "name": "Multi-Hop Graph Traversal #18",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_18_ctx1",
         "text": "Amara Okafor is the lead investigator for Project Omega-18 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Amara Okafor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Amara Okafor",
               "target": "Project Omega-18",
               "type": "LEADS"
             }
@@ -832,12 +1123,25 @@
         "text": "Project Omega-18 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-18",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-18",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_18_ctx3",
+        "text": "London is the destination city entity for Project Omega-18.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -857,15 +1161,18 @@
   {
     "id": "multi_hop_scenario_19",
     "name": "Multi-Hop Graph Traversal #19",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_19_ctx1",
         "text": "Liam O'Connor is the lead investigator for Project Omega-19 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Liam O'Connor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Liam O'Connor",
               "target": "Project Omega-19",
               "type": "LEADS"
             }
@@ -877,12 +1184,25 @@
         "text": "Project Omega-19 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-19",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-19",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_19_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-19.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -902,15 +1222,18 @@
   {
     "id": "multi_hop_scenario_20",
     "name": "Multi-Hop Graph Traversal #20",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_20_ctx1",
         "text": "Dr. Elena Vance is the lead investigator for Project Omega-20 at Hyperion Cybernetics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Elena Vance",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Elena Vance",
               "target": "Project Omega-20",
               "type": "LEADS"
             }
@@ -922,12 +1245,25 @@
         "text": "Project Omega-20 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-20",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-20",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_20_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-20.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -947,15 +1283,18 @@
   {
     "id": "multi_hop_scenario_21",
     "name": "Multi-Hop Graph Traversal #21",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_21_ctx1",
         "text": "Professor Marcus Thorne is the lead investigator for Project Omega-21 at Veritas Legal AI.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Professor Marcus Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Professor Marcus Thorne",
               "target": "Project Omega-21",
               "type": "LEADS"
             }
@@ -967,12 +1306,25 @@
         "text": "Project Omega-21 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-21",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-21",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_21_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-21.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -992,15 +1344,18 @@
   {
     "id": "multi_hop_scenario_22",
     "name": "Multi-Hop Graph Traversal #22",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_22_ctx1",
         "text": "Aria Montgomery is the lead investigator for Project Omega-22 at Apex Robotics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Aria Montgomery",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Aria Montgomery",
               "target": "Project Omega-22",
               "type": "LEADS"
             }
@@ -1012,12 +1367,25 @@
         "text": "Project Omega-22 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-22",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-22",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_22_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-22.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1037,15 +1405,18 @@
   {
     "id": "multi_hop_scenario_23",
     "name": "Multi-Hop Graph Traversal #23",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_23_ctx1",
         "text": "Kenji Sato is the lead investigator for Project Omega-23 at Zenith Cloud.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kenji Sato",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kenji Sato",
               "target": "Project Omega-23",
               "type": "LEADS"
             }
@@ -1057,12 +1428,25 @@
         "text": "Project Omega-23 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-23",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-23",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_23_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-23.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1082,15 +1466,18 @@
   {
     "id": "multi_hop_scenario_24",
     "name": "Multi-Hop Graph Traversal #24",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_24_ctx1",
         "text": "Clara Oswald is the lead investigator for Project Omega-24 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Clara Oswald",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Clara Oswald",
               "target": "Project Omega-24",
               "type": "LEADS"
             }
@@ -1102,12 +1489,25 @@
         "text": "Project Omega-24 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-24",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-24",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_24_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-24.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1127,15 +1527,18 @@
   {
     "id": "multi_hop_scenario_25",
     "name": "Multi-Hop Graph Traversal #25",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_25_ctx1",
         "text": "Dr. Aris Thorne is the lead investigator for Project Omega-25 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Aris Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Aris Thorne",
               "target": "Project Omega-25",
               "type": "LEADS"
             }
@@ -1147,12 +1550,25 @@
         "text": "Project Omega-25 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-25",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-25",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_25_ctx3",
+        "text": "London is the destination city entity for Project Omega-25.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1172,15 +1588,18 @@
   {
     "id": "multi_hop_scenario_26",
     "name": "Multi-Hop Graph Traversal #26",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_26_ctx1",
         "text": "Selin Yilmaz is the lead investigator for Project Omega-26 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Selin Yilmaz",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Selin Yilmaz",
               "target": "Project Omega-26",
               "type": "LEADS"
             }
@@ -1192,12 +1611,25 @@
         "text": "Project Omega-26 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-26",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-26",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_26_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-26.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1217,15 +1649,18 @@
   {
     "id": "multi_hop_scenario_27",
     "name": "Multi-Hop Graph Traversal #27",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_27_ctx1",
         "text": "Kaan Aksoy is the lead investigator for Project Omega-27 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kaan Aksoy",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kaan Aksoy",
               "target": "Project Omega-27",
               "type": "LEADS"
             }
@@ -1237,12 +1672,25 @@
         "text": "Project Omega-27 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-27",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-27",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_27_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-27.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1262,15 +1710,18 @@
   {
     "id": "multi_hop_scenario_28",
     "name": "Multi-Hop Graph Traversal #28",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_28_ctx1",
         "text": "Amara Okafor is the lead investigator for Project Omega-28 at Hyperion Cybernetics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Amara Okafor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Amara Okafor",
               "target": "Project Omega-28",
               "type": "LEADS"
             }
@@ -1282,12 +1733,25 @@
         "text": "Project Omega-28 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-28",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-28",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_28_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-28.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1307,15 +1771,18 @@
   {
     "id": "multi_hop_scenario_29",
     "name": "Multi-Hop Graph Traversal #29",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_29_ctx1",
         "text": "Liam O'Connor is the lead investigator for Project Omega-29 at Veritas Legal AI.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Liam O'Connor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Liam O'Connor",
               "target": "Project Omega-29",
               "type": "LEADS"
             }
@@ -1327,12 +1794,25 @@
         "text": "Project Omega-29 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-29",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-29",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_29_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-29.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1352,15 +1832,18 @@
   {
     "id": "multi_hop_scenario_30",
     "name": "Multi-Hop Graph Traversal #30",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_30_ctx1",
         "text": "Dr. Elena Vance is the lead investigator for Project Omega-30 at Apex Robotics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Elena Vance",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Elena Vance",
               "target": "Project Omega-30",
               "type": "LEADS"
             }
@@ -1372,12 +1855,25 @@
         "text": "Project Omega-30 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-30",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-30",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_30_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-30.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1397,15 +1893,18 @@
   {
     "id": "multi_hop_scenario_31",
     "name": "Multi-Hop Graph Traversal #31",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_31_ctx1",
         "text": "Professor Marcus Thorne is the lead investigator for Project Omega-31 at Zenith Cloud.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Professor Marcus Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Professor Marcus Thorne",
               "target": "Project Omega-31",
               "type": "LEADS"
             }
@@ -1417,12 +1916,25 @@
         "text": "Project Omega-31 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-31",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-31",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_31_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-31.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1442,15 +1954,18 @@
   {
     "id": "multi_hop_scenario_32",
     "name": "Multi-Hop Graph Traversal #32",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_32_ctx1",
         "text": "Aria Montgomery is the lead investigator for Project Omega-32 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Aria Montgomery",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Aria Montgomery",
               "target": "Project Omega-32",
               "type": "LEADS"
             }
@@ -1462,12 +1977,25 @@
         "text": "Project Omega-32 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-32",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-32",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_32_ctx3",
+        "text": "London is the destination city entity for Project Omega-32.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1487,15 +2015,18 @@
   {
     "id": "multi_hop_scenario_33",
     "name": "Multi-Hop Graph Traversal #33",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_33_ctx1",
         "text": "Kenji Sato is the lead investigator for Project Omega-33 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kenji Sato",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kenji Sato",
               "target": "Project Omega-33",
               "type": "LEADS"
             }
@@ -1507,12 +2038,25 @@
         "text": "Project Omega-33 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-33",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-33",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_33_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-33.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1532,15 +2076,18 @@
   {
     "id": "multi_hop_scenario_34",
     "name": "Multi-Hop Graph Traversal #34",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_34_ctx1",
         "text": "Clara Oswald is the lead investigator for Project Omega-34 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Clara Oswald",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Clara Oswald",
               "target": "Project Omega-34",
               "type": "LEADS"
             }
@@ -1552,12 +2099,25 @@
         "text": "Project Omega-34 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-34",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-34",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_34_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-34.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1577,15 +2137,18 @@
   {
     "id": "multi_hop_scenario_35",
     "name": "Multi-Hop Graph Traversal #35",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_35_ctx1",
         "text": "Dr. Aris Thorne is the lead investigator for Project Omega-35 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Aris Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Aris Thorne",
               "target": "Project Omega-35",
               "type": "LEADS"
             }
@@ -1597,12 +2160,25 @@
         "text": "Project Omega-35 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-35",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-35",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_35_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-35.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1622,15 +2198,18 @@
   {
     "id": "multi_hop_scenario_36",
     "name": "Multi-Hop Graph Traversal #36",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_36_ctx1",
         "text": "Selin Yilmaz is the lead investigator for Project Omega-36 at Hyperion Cybernetics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Selin Yilmaz",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Selin Yilmaz",
               "target": "Project Omega-36",
               "type": "LEADS"
             }
@@ -1642,12 +2221,25 @@
         "text": "Project Omega-36 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-36",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-36",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_36_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-36.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1667,15 +2259,18 @@
   {
     "id": "multi_hop_scenario_37",
     "name": "Multi-Hop Graph Traversal #37",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_37_ctx1",
         "text": "Kaan Aksoy is the lead investigator for Project Omega-37 at Veritas Legal AI.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kaan Aksoy",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kaan Aksoy",
               "target": "Project Omega-37",
               "type": "LEADS"
             }
@@ -1687,12 +2282,25 @@
         "text": "Project Omega-37 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-37",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-37",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_37_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-37.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1712,15 +2320,18 @@
   {
     "id": "multi_hop_scenario_38",
     "name": "Multi-Hop Graph Traversal #38",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_38_ctx1",
         "text": "Amara Okafor is the lead investigator for Project Omega-38 at Apex Robotics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Amara Okafor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Amara Okafor",
               "target": "Project Omega-38",
               "type": "LEADS"
             }
@@ -1732,12 +2343,25 @@
         "text": "Project Omega-38 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-38",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-38",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_38_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-38.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1757,15 +2381,18 @@
   {
     "id": "multi_hop_scenario_39",
     "name": "Multi-Hop Graph Traversal #39",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_39_ctx1",
         "text": "Liam O'Connor is the lead investigator for Project Omega-39 at Zenith Cloud.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Liam O'Connor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Liam O'Connor",
               "target": "Project Omega-39",
               "type": "LEADS"
             }
@@ -1777,12 +2404,25 @@
         "text": "Project Omega-39 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-39",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-39",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_39_ctx3",
+        "text": "London is the destination city entity for Project Omega-39.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1802,15 +2442,18 @@
   {
     "id": "multi_hop_scenario_40",
     "name": "Multi-Hop Graph Traversal #40",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_40_ctx1",
         "text": "Dr. Elena Vance is the lead investigator for Project Omega-40 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Elena Vance",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Elena Vance",
               "target": "Project Omega-40",
               "type": "LEADS"
             }
@@ -1822,12 +2465,25 @@
         "text": "Project Omega-40 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-40",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-40",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_40_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-40.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1847,15 +2503,18 @@
   {
     "id": "multi_hop_scenario_41",
     "name": "Multi-Hop Graph Traversal #41",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_41_ctx1",
         "text": "Professor Marcus Thorne is the lead investigator for Project Omega-41 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Professor Marcus Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Professor Marcus Thorne",
               "target": "Project Omega-41",
               "type": "LEADS"
             }
@@ -1867,12 +2526,25 @@
         "text": "Project Omega-41 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-41",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-41",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_41_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-41.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1892,15 +2564,18 @@
   {
     "id": "multi_hop_scenario_42",
     "name": "Multi-Hop Graph Traversal #42",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_42_ctx1",
         "text": "Aria Montgomery is the lead investigator for Project Omega-42 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Aria Montgomery",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Aria Montgomery",
               "target": "Project Omega-42",
               "type": "LEADS"
             }
@@ -1912,12 +2587,25 @@
         "text": "Project Omega-42 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-42",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-42",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_42_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-42.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1937,15 +2625,18 @@
   {
     "id": "multi_hop_scenario_43",
     "name": "Multi-Hop Graph Traversal #43",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_43_ctx1",
         "text": "Kenji Sato is the lead investigator for Project Omega-43 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kenji Sato",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kenji Sato",
               "target": "Project Omega-43",
               "type": "LEADS"
             }
@@ -1957,12 +2648,25 @@
         "text": "Project Omega-43 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-43",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-43",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_43_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-43.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -1982,15 +2686,18 @@
   {
     "id": "multi_hop_scenario_44",
     "name": "Multi-Hop Graph Traversal #44",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_44_ctx1",
         "text": "Clara Oswald is the lead investigator for Project Omega-44 at Hyperion Cybernetics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Clara Oswald",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Clara Oswald",
               "target": "Project Omega-44",
               "type": "LEADS"
             }
@@ -2002,12 +2709,25 @@
         "text": "Project Omega-44 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-44",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-44",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_44_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-44.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2027,15 +2747,18 @@
   {
     "id": "multi_hop_scenario_45",
     "name": "Multi-Hop Graph Traversal #45",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_45_ctx1",
         "text": "Dr. Aris Thorne is the lead investigator for Project Omega-45 at Veritas Legal AI.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Aris Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Aris Thorne",
               "target": "Project Omega-45",
               "type": "LEADS"
             }
@@ -2047,12 +2770,25 @@
         "text": "Project Omega-45 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-45",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-45",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_45_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-45.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2072,15 +2808,18 @@
   {
     "id": "multi_hop_scenario_46",
     "name": "Multi-Hop Graph Traversal #46",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_46_ctx1",
         "text": "Selin Yilmaz is the lead investigator for Project Omega-46 at Apex Robotics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Selin Yilmaz",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Selin Yilmaz",
               "target": "Project Omega-46",
               "type": "LEADS"
             }
@@ -2092,12 +2831,25 @@
         "text": "Project Omega-46 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-46",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-46",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_46_ctx3",
+        "text": "London is the destination city entity for Project Omega-46.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2117,15 +2869,18 @@
   {
     "id": "multi_hop_scenario_47",
     "name": "Multi-Hop Graph Traversal #47",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_47_ctx1",
         "text": "Kaan Aksoy is the lead investigator for Project Omega-47 at Zenith Cloud.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kaan Aksoy",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kaan Aksoy",
               "target": "Project Omega-47",
               "type": "LEADS"
             }
@@ -2137,12 +2892,25 @@
         "text": "Project Omega-47 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-47",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-47",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_47_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-47.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2162,15 +2930,18 @@
   {
     "id": "multi_hop_scenario_48",
     "name": "Multi-Hop Graph Traversal #48",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_48_ctx1",
         "text": "Amara Okafor is the lead investigator for Project Omega-48 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Amara Okafor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Amara Okafor",
               "target": "Project Omega-48",
               "type": "LEADS"
             }
@@ -2182,12 +2953,25 @@
         "text": "Project Omega-48 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-48",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-48",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_48_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-48.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2207,15 +2991,18 @@
   {
     "id": "multi_hop_scenario_49",
     "name": "Multi-Hop Graph Traversal #49",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_49_ctx1",
         "text": "Liam O'Connor is the lead investigator for Project Omega-49 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Liam O'Connor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Liam O'Connor",
               "target": "Project Omega-49",
               "type": "LEADS"
             }
@@ -2227,12 +3014,25 @@
         "text": "Project Omega-49 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-49",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-49",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_49_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-49.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2252,15 +3052,18 @@
   {
     "id": "multi_hop_scenario_50",
     "name": "Multi-Hop Graph Traversal #50",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_50_ctx1",
         "text": "Dr. Elena Vance is the lead investigator for Project Omega-50 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Elena Vance",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Elena Vance",
               "target": "Project Omega-50",
               "type": "LEADS"
             }
@@ -2272,12 +3075,25 @@
         "text": "Project Omega-50 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-50",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-50",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_50_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-50.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2297,15 +3113,18 @@
   {
     "id": "multi_hop_scenario_51",
     "name": "Multi-Hop Graph Traversal #51",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_51_ctx1",
         "text": "Professor Marcus Thorne is the lead investigator for Project Omega-51 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Professor Marcus Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Professor Marcus Thorne",
               "target": "Project Omega-51",
               "type": "LEADS"
             }
@@ -2317,12 +3136,25 @@
         "text": "Project Omega-51 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-51",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-51",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_51_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-51.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2342,15 +3174,18 @@
   {
     "id": "multi_hop_scenario_52",
     "name": "Multi-Hop Graph Traversal #52",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_52_ctx1",
         "text": "Aria Montgomery is the lead investigator for Project Omega-52 at Hyperion Cybernetics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Aria Montgomery",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Aria Montgomery",
               "target": "Project Omega-52",
               "type": "LEADS"
             }
@@ -2362,12 +3197,25 @@
         "text": "Project Omega-52 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-52",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-52",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_52_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-52.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2387,15 +3235,18 @@
   {
     "id": "multi_hop_scenario_53",
     "name": "Multi-Hop Graph Traversal #53",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_53_ctx1",
         "text": "Kenji Sato is the lead investigator for Project Omega-53 at Veritas Legal AI.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kenji Sato",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kenji Sato",
               "target": "Project Omega-53",
               "type": "LEADS"
             }
@@ -2407,12 +3258,25 @@
         "text": "Project Omega-53 has relocated its primary R&D headquarters to London.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-53",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-53",
               "target": "London",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_53_ctx3",
+        "text": "London is the destination city entity for Project Omega-53.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "London",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2432,15 +3296,18 @@
   {
     "id": "multi_hop_scenario_54",
     "name": "Multi-Hop Graph Traversal #54",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_54_ctx1",
         "text": "Clara Oswald is the lead investigator for Project Omega-54 at Apex Robotics.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Clara Oswald",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Clara Oswald",
               "target": "Project Omega-54",
               "type": "LEADS"
             }
@@ -2452,12 +3319,25 @@
         "text": "Project Omega-54 has relocated its primary R&D headquarters to Berlin.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-54",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-54",
               "target": "Berlin",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_54_ctx3",
+        "text": "Berlin is the destination city entity for Project Omega-54.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Berlin",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2477,15 +3357,18 @@
   {
     "id": "multi_hop_scenario_55",
     "name": "Multi-Hop Graph Traversal #55",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_55_ctx1",
         "text": "Dr. Aris Thorne is the lead investigator for Project Omega-55 at Zenith Cloud.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Dr. Aris Thorne",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Dr. Aris Thorne",
               "target": "Project Omega-55",
               "type": "LEADS"
             }
@@ -2497,12 +3380,25 @@
         "text": "Project Omega-55 has relocated its primary R&D headquarters to Singapore.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-55",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-55",
               "target": "Singapore",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_55_ctx3",
+        "text": "Singapore is the destination city entity for Project Omega-55.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Singapore",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2522,15 +3418,18 @@
   {
     "id": "multi_hop_scenario_56",
     "name": "Multi-Hop Graph Traversal #56",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_56_ctx1",
         "text": "Selin Yilmaz is the lead investigator for Project Omega-56 at Aegis Quantum Systems.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Selin Yilmaz",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Selin Yilmaz",
               "target": "Project Omega-56",
               "type": "LEADS"
             }
@@ -2542,12 +3441,25 @@
         "text": "Project Omega-56 has relocated its primary R&D headquarters to Zurich.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-56",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-56",
               "target": "Zurich",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_56_ctx3",
+        "text": "Zurich is the destination city entity for Project Omega-56.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Zurich",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2567,15 +3479,18 @@
   {
     "id": "multi_hop_scenario_57",
     "name": "Multi-Hop Graph Traversal #57",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_57_ctx1",
         "text": "Kaan Aksoy is the lead investigator for Project Omega-57 at Ephesus BioLabs.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Kaan Aksoy",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Kaan Aksoy",
               "target": "Project Omega-57",
               "type": "LEADS"
             }
@@ -2587,12 +3502,25 @@
         "text": "Project Omega-57 has relocated its primary R&D headquarters to Istanbul.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-57",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-57",
               "target": "Istanbul",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_57_ctx3",
+        "text": "Istanbul is the destination city entity for Project Omega-57.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Istanbul",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2612,15 +3540,18 @@
   {
     "id": "multi_hop_scenario_58",
     "name": "Multi-Hop Graph Traversal #58",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_58_ctx1",
         "text": "Amara Okafor is the lead investigator for Project Omega-58 at MESA Memory Corp.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Amara Okafor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Amara Okafor",
               "target": "Project Omega-58",
               "type": "LEADS"
             }
@@ -2632,12 +3563,25 @@
         "text": "Project Omega-58 has relocated its primary R&D headquarters to Tokyo.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-58",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-58",
               "target": "Tokyo",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_58_ctx3",
+        "text": "Tokyo is the destination city entity for Project Omega-58.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "Tokyo",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],
@@ -2657,15 +3601,18 @@
   {
     "id": "multi_hop_scenario_59",
     "name": "Multi-Hop Graph Traversal #59",
-    "description": "Tests multi-hop connection across two entity nodes.",
+    "description": "Tests a person-to-project-to-city graph path.",
     "contexts": [
       {
         "id": "multi_59_ctx1",
         "text": "Liam O'Connor is the lead investigator for Project Omega-59 at NovaStellar Tech.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Liam O'Connor",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Liam O'Connor",
               "target": "Project Omega-59",
               "type": "LEADS"
             }
@@ -2677,12 +3624,25 @@
         "text": "Project Omega-59 has relocated its primary R&D headquarters to San Francisco.",
         "metadata": {
           "tier": "multi_hop",
+          "entity_name": "Project Omega-59",
+          "source": "mesa-synthetic-v2",
           "relations": [
             {
+              "source": "Project Omega-59",
               "target": "San Francisco",
               "type": "LOCATED_IN"
             }
           ]
+        }
+      },
+      {
+        "id": "multi_59_ctx3",
+        "text": "San Francisco is the destination city entity for Project Omega-59.",
+        "metadata": {
+          "tier": "multi_hop",
+          "entity_name": "San Francisco",
+          "source": "mesa-synthetic-v2",
+          "relations": []
         }
       }
     ],

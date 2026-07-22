@@ -34,6 +34,11 @@ class MarkdownReporter:
         total_q = m.get("total_questions", 0)
         correct_q = m.get("correct_answers", 0)
         accuracy = m.get("accuracy", 0.0) * 100
+        valid = bool(m.get("valid", True))
+        quality_tier = m.get("quality_tier", "unclassified")
+        infrastructure_errors = int(m.get("infrastructure_errors", 0))
+        answer_em = m.get("answer_exact_match")
+        answer_f1 = m.get("answer_token_f1")
 
         # Retrieval Metrics
         hit1 = m.get("hit_at_1", 0.0) * 100
@@ -46,10 +51,14 @@ class MarkdownReporter:
         avg_lat = m.get("avg_latency_ms", 0.0)
         p95_lat = m.get("p95_latency_ms", 0.0)
         p99_lat = m.get("p99_latency_ms", 0.0)
+        latency_samples = int(m.get("latency_sample_size", 0))
+        p95_display = f"{p95_lat:.2f} ms" if p95_lat is not None else "N/A"
+        p99_display = f"{p99_lat:.2f} ms" if p99_lat is not None else "N/A"
 
         report_lines = [
             "# 📊 MESA Benchmark Report",
             f"**Suite:** `{self.config.suite_name}` | **Run ID:** `{self.run_id}` | **Graph Architecture:** `KùzuDB + HybridRetriever (Multi-Hop Enabled)`",
+            f"**Validity:** `{'VALID' if valid else 'INVALID'}` | **Evidence tier:** `{quality_tier}` | **Infrastructure errors:** `{infrastructure_errors}`",
             "",
             "---",
             "",
@@ -61,6 +70,18 @@ class MarkdownReporter:
             f"| **Total Questions** | {total_q} | Test edilen toplam soru sayısı |",
             f"| **Correct Answers** | {correct_q} | Tamamen doğru kabul edilen cevaplar |",
             f"| **Accuracy** | %{accuracy:.2f} | Sistemin genel doğruluk oranı |",
+            (
+                f"| **Full-QA Normalized EM** | %{answer_em * 100:.2f} | "
+                "Ortak generator cevabının normalize exact-match oranı |"
+                if answer_em is not None
+                else "| **Full-QA Normalized EM** | N/A | Generator çıktısı yok |"
+            ),
+            (
+                f"| **Full-QA Token F1** | %{answer_f1 * 100:.2f} | "
+                "Ortak generator cevabının token örtüşmesi |"
+                if answer_f1 is not None
+                else "| **Full-QA Token F1** | N/A | Generator çıktısı yok |"
+            ),
             "",
         ]
 
@@ -117,6 +138,7 @@ class MarkdownReporter:
                     )
 
         if "latency" in metrics_list:
+            generation_latency = m.get("avg_generation_latency_ms")
             report_lines.extend(
                 [
                     "",
@@ -126,25 +148,44 @@ class MarkdownReporter:
                     "| Metric | Time (ms) | Açıklama |",
                     "|:---|:---|:---|",
                     f"| **Average Latency** | {avg_lat:.2f} ms | Ortalama tepki süresi |",
-                    f"| **P95 Latency** | {p95_lat:.2f} ms | Sorguların %95'i bu süreden daha hızlı bitti |",
-                    f"| **P99 Latency** | {p99_lat:.2f} ms | En zorlu sorguların maksimum süresi |",
+                    f"| **P95 Latency** | {p95_display} | Sorguların %95'i bu süreden daha hızlı bitti (n={latency_samples}; n<20 ise N/A) |",
+                    f"| **P99 Latency** | {p99_display} | En zorlu sorguların gecikmesi (n={latency_samples}; n<20 ise N/A) |",
                 ]
             )
+            if generation_latency is not None:
+                report_lines.append(
+                    f"| **Average Generation Latency** | {generation_latency:.2f} ms | Ortak QA generator süresi; retrieval latency'ye dahil değildir |"
+                )
 
         if "hit_at_k" in metrics_list or "mrr" in metrics_list:
+            retrieval_count = int(m.get("retrieval_evaluable_questions", total_q))
+            if retrieval_count:
+                hit1_display = f"%{hit1:.2f}"
+                hit3_display = f"%{hit3:.2f}"
+                hit5_display = f"%{hit5:.2f}"
+                mrr_display = f"%{mrr:.2f}"
+                ndcg_display = f"%{ndcg:.2f}"
+            else:
+                hit1_display = hit3_display = hit5_display = "N/A"
+                mrr_display = ndcg_display = "N/A"
+            retrieval_note = (
+                f"Retrieval metriği hesaplanabilen soru: **{retrieval_count}/{total_q}**. "
+                "Beklenen context ID'si olmayan sorular paydaya dahil edilmez."
+            )
             report_lines.extend(
                 [
                     "",
                     "## 🔍 3. Retrieval Performance (Hafıza Bulma Başarısı)",
                     "Sistemin Vektör + KùzuDB Çizge arama mimarisinin doğru bilgiyi ne kadar isabetli bulduğunu gösterir.",
+                    retrieval_note,
                     "",
                     "| Metric | Score | Açıklama |",
                     "|:---|:---|:---|",
-                    f"| **Hit@1** | %{hit1:.2f} | Doğru bilgi 1. sırada geldi |",
-                    f"| **Hit@3** | %{hit3:.2f} | Doğru bilgi ilk 3 sonuç içinde yer aldı |",
-                    f"| **Hit@5** | %{hit5:.2f} | Doğru bilgi ilk 5 sonuç içinde yer aldı |",
-                    f"| **MRR** | %{mrr:.2f} | Ortalama İlk Bulma Sırası (Mean Reciprocal Rank) |",
-                    f"| **nDCG@5** | %{ndcg:.2f} | Normalize Edilmiş İndirgenmiş Kümülatif Kazanç (Top-5) |",
+                    f"| **Hit@1** | {hit1_display} | Doğru bilgi 1. sırada geldi |",
+                    f"| **Hit@3** | {hit3_display} | Doğru bilgi ilk 3 sonuç içinde yer aldı |",
+                    f"| **Hit@5** | {hit5_display} | Doğru bilgi ilk 5 sonuç içinde yer aldı |",
+                    f"| **MRR** | {mrr_display} | Ortalama İlk Bulma Sırası (Mean Reciprocal Rank) |",
+                    f"| **nDCG@5** | {ndcg_display} | Normalize Edilmiş İndirgenmiş Kümülatif Kazanç (Top-5) |",
                     "",
                     "> 💡 **İpucu:** `Hit@K` oranları ve Multi-Hop Çizge entegrasyonu sayesinde MESA hafıza katmanı, ilişkili varlıklar arasındaki uzun zincirli çıkarımlarda standart Vektör+SQLite sistemlerinden net şekilde ayrışmaktadır.",
                 ]

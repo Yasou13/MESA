@@ -1,100 +1,107 @@
-# MESA Benchmark Suite v4
+# MESA Benchmark
 
-MESA Benchmark Suite, yapay zeka bellek (Memory/RAG) sistemlerini objektif, adil ve yalıtılmış bir ortamda ("Apple-to-Apple") test etmek için geliştirilmiş bağımsız bir ölçümleme altyapısıdır. MESA bellek mimarisinin yanı sıra Mem0, Zep, Letta/MemGPT gibi dış sistemleri de destekler.
+MESA Benchmark, bellek/retrieval sistemlerini aynı Top‑K ve aynı cevap üreticisiyle karşılaştıran, yeniden başlatılabilir bir benchmark runner’ıdır. MESA, Mem0, Zep ve Letta adaptörlerini destekler.
 
-## Özellikler
+## Ölçüm sözleşmesi
 
-- **200+ Senaryo, 4 Zorluk Katmanı:** Single-Hop (%40), Multi-Hop (%30), Hard-Negative (%15), Out-of-Domain (%15)
-- **5 Bellek Sistemi:** MESA, Mem0, Zep, Letta/MemGPT ve BareRAG (kontrol grubu)
-- **Üç Kademeli Değerlendirme:** ExactMatch → LLM-Judge → Multi-Model Judge (majority voting)
-- **Metodolojik Doğrulama:** Keyword ↔ LLM-Judge agreement rate + Cohen's Kappa
-- **Root-Cause Attribution:** Hataların kaynağını otomatik tespit (RETRIEVAL_MISS, CONTEXT_NOISE, LLM_REASONING_ERROR)
-- **İstatistiksel Güvenilirlik:** Multi-seed çalıştırma, Mean ± Std, Welch's t-test p-value
-- **Tam İzolasyon:** Her iterasyon öncesi bellek sıfırlama, exponential backoff
-- **Kesintiden Devam:** `.state.json` ile kaldığı iterasyondan otomatik devam
-- **Reproducibility:** Docker + pinned dependencies (`requirements-lock.txt`)
+Her soru iki ayrı hatta ölçülür:
 
-## Desteklenen Sistemler
+- Retrieval: `Hit@1/3/5`, MRR, nDCG@5 ve yalnızca retrieval latency. `expected_context_ids` olmayan BEAM sorularında bu metrikler `N/A` olur.
+- Full‑QA: bütün sistemlerin getirdiği Top‑5 bağlam aynı Ollama generator’a verilir; normalized EM, token F1, semantic judge, generation latency ve token kullanımı ayrı kaydedilir.
 
-| Sistem | Adapter | Config | Kurulum |
-|--------|---------|--------|---------|
-| **MESA** | `MesaClientAdapter` | `config.yaml` | Yerleşik |
-| **Mem0** | `Mem0ClientAdapter` | `config_mem0.yaml` | `pip install mem0ai` |
-| **Zep** | `ZepClientAdapter` | `config_zep.yaml` | `pip install zep-cloud` |
-| **Letta/MemGPT** | `LettaClientAdapter` | `config_letta.yaml` | `pip install letta` |
-| **BareRAG** | `DummyClientAdapter` | — | Yerleşik |
+Her adaptörün çıktısı runner seviyesinde Top‑5’e kesilir. Purge, ingest, query, generation veya judge hatası skorlanabilir boş cevap değildir: koşum `invalid` olur ve CLI non-zero döner. Tek modelle veya bağımsız judge gerçekten çalıştırılmadan üretilen sonuç `provisional/self-judged`; generator’dan farklı judge ile hatasız sonuç `publishable` olur. Sentetik veri setleri her durumda iç regresyon verisidir.
 
-## Hazır Config Dosyaları
+## Kurulum
 
-| Config | Sistem | Veri Seti | Açıklama |
-|--------|--------|-----------|----------|
-| `config.yaml` | MESA | comprehensive_200 | Ana benchmark (200 senaryo) |
-| `config_beam.yaml` | MESA | beam | BEAM karşılaştırma (20 senaryo, 400 soru) |
-| `config_contradiction.yaml` | MESA | contradiction_200 | Çelişki çözümü odaklı (200 senaryo) |
-| `config_multi_hop.yaml` | MESA | comprehensive_multihop | Yalnızca multi-hop (60 senaryo) |
-| `config_reranking.yaml` | MESA | comprehensive_200 | CrossEncoder reranking etkin |
-| `config_mem0.yaml` | Mem0 | comprehensive_200 | Mem0 baseline |
-| `config_zep.yaml` | Zep | comprehensive_200 | Zep baseline |
-| `config_letta.yaml` | Letta | comprehensive_200 | Letta/MemGPT baseline |
-| `config_mini_mesa.yaml` | MESA | mini (2 senaryo) | Hızlı doğrulama testi |
-| `config_mini_mem0.yaml` | Mem0 | mini (2 senaryo) | Hızlı doğrulama testi |
-
-## Hızlı Başlangıç
-
-Detaylı konfigürasyon, adaptör yazımı ve daha fazlası için **[USAGE_GUIDE.md](./USAGE_GUIDE.md)** dosyasına göz atın.
-
-### 1. Kurulum
+Proje kökünden:
 
 ```bash
-cd mesa-benchmark
-pip install -r requirements-lock.txt
+python -m pip install -e '.[adapters,ml,benchmarks]'
+mesa-benchmark --help
 ```
 
-### 2. Yapılandırma
+MESA semantic retrieval için önbellekte `sentence-transformers/all-MiniLM-L6-v2` bulunmalıdır. Model yüklenemezse hash/fallback embedding ile devam edilmez; setup hata verir.
+
+## Ollama yapılandırması
+
+IP ve model adı kodda sabit değildir:
 
 ```bash
-cp .env.example .env
-# .env dosyasında API anahtarlarınızı düzenleyin
+export BENCHMARK_OLLAMA_URL='http://OLLAMA_HOST:11434'
+export BENCHMARK_GENERATOR_MODEL='qweb:8b'
+export BENCHMARK_JUDGE_MODEL='qweb:8b'
 ```
 
-### 3. Çalıştırma (Proje kök dizininden)
+Tek URL’den `MESA_OLLAMA_URL`, `OLLAMA_HOST` ve `OPENAI_BASE_URL` türetilir. Model etiketi `/api/tags` sonucuyla tam eşleşmelidir.
 
 ```bash
-# Hızlı doğrulama testi (mini dataset)
-venv/bin/python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config_mini_mesa.yaml --seeds 42
-
-# Ana benchmark (200 senaryo)
-venv/bin/python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config.yaml --seeds 42
-
-# Multi-seed reproducibility (5 seed)
-venv/bin/python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config.yaml --seeds 42,43,44,45,46
-
-# Mem0 baseline karşılaştırma
-venv/bin/python scripts/reproduce_benchmark.py \
-  --config mesa-benchmark/config_mem0.yaml --seeds 42
+mesa-benchmark config-check --config mesa-benchmark/config_mini_mesa.yaml
+mesa-benchmark dataset-check --config mesa-benchmark/config_mini_mesa.yaml
+mesa-benchmark ollama-preflight --config mesa-benchmark/config_mini_mesa.yaml
 ```
 
-### 4. Docker ile Çalıştırma
+Preflight model etiketlerini ve şemalı JSON chat yanıtını doğrular.
+
+## Önerilen çalışma sırası
 
 ```bash
-docker build -t mesa-benchmark .
-docker run --env-file .env mesa-benchmark
+# 1. MESA mini
+mesa-benchmark run --config mesa-benchmark/config_mini_mesa.yaml
+
+# 2. Mem0 mini
+mesa-benchmark run --config mesa-benchmark/config_mini_mem0.yaml
+
+# 3. Comprehensive
+mesa-benchmark run --config mesa-benchmark/config.yaml
+
+# 4. Aynı seed'lerde baseline ve eşlenmiş soru karşılaştırması
+python scripts/reproduce_benchmark.py \
+  --config mesa-benchmark/config.yaml \
+  --baseline-config mesa-benchmark/config_mem0.yaml \
+  --seeds 42,43,44,45,46 \
+  --output results/reproducibility_report.json
 ```
 
-## Testler
+Her seed ayrı dizin, manifest ve state dosyası kullanır. Resume yalnızca effective config ve dataset SHA‑256 değerleri aynıysa yapılır; soru anahtarları append-only JSONL’den yeniden kurulur. State dosyası yalnız scenario checkpoint’lerinde yazılır.
+
+## Veri kaynakları
+
+- `comprehensive_200` ve türevleri sentetiktir; yalnızca iç regresyon için kullanılır.
+- BEAM ve LoCoMo revision, checksum, lisans ve metric kısıtları `datasets/SOURCES.json` içinde sabittir.
+- LoCoMo indirme/dönüştürme: `python mesa-benchmark/scripts/download_locomo.py`. Lisansı CC‑BY‑NC‑4.0 olduğundan ticari kullanım ayrıca değerlendirilmelidir.
+
+## Docker
+
+Build context repository kökü olmalıdır:
 
 ```bash
-pip install -r requirements-dev.txt
-venv/bin/python -m pytest mesa-benchmark/tests/ -v
+docker build -f mesa-benchmark/Dockerfile -t mesa-benchmark .
+docker run --rm --env-file mesa-benchmark/.env \
+  mesa-benchmark --config mesa-benchmark/config_mini_mesa.yaml
 ```
 
-## Metodoloji
+Image semantic embedding modelini build sırasında önbelleğe alır.
 
-Benchmark metodolojisinin detayları için **[BENCHMARK_METHODOLOGY.md](../BENCHMARK_METHODOLOGY.md)** dosyasına bakın.
+## Test
 
-## Lisans
+```bash
+PYTHONPATH=mesa-benchmark python -m pytest mesa-benchmark/tests -q
+ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/tests
+```
 
-Apache License 2.0 — MESA Araştırma Ekibi tarafından geliştirilmiştir.
+P95/P99 yalnız en az 20 latency gözlemi varsa raporlanır; küçük mini koşumlarda değer `N/A` olur. Bu, maksimum gecikmenin percentile gibi sunulmasını engeller.
+
+## `mesa_evals` sınırı
+
+`mesa_evals`, MESA çekirdeğinin sentetik/golden dataset ve CI regresyon paketidir. Bu CLI, MESA ile diğer memory sistemleri arasında karşılaştırma veya yayınlanabilir sonuç üretmez. Karşılaştırmalı sonuçlar yalnız `mesa-benchmark` ile ve bu belgedeki validity sözleşmesi altında üretilir.
+
+Yerel sahte Ollama + gerçek geçici MESA storage entegrasyonu:
+
+```bash
+PYTHONPATH=mesa-benchmark \
+MESA_RUN_SOCKET_TESTS=1 MESA_RUN_REAL_STORAGE_TESTS=1 \
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+python -m pytest mesa-benchmark/tests/test_hardening.py -q
+```
+
+Ayrıntılar için [kullanım kılavuzu](USAGE_GUIDE.md), [metodoloji](../BENCHMARK_METHODOLOGY.md) ve [ADR‑0008](../docs/adr/0008-benchmark-architecture.md) belgelerine bakın.

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +28,12 @@ class ExecutionState(BaseModel):
     error_message: Optional[str] = Field(
         None, description="Last error message if failed."
     )
+    config_hash: str = ""
+    dataset_hash: str = ""
+    # Legacy state files stored a JSON list. Pydantic accepts that representation
+    # while in-memory membership stays O(1).
+    completed_questions: set[str] = Field(default_factory=set)
+    infrastructure_errors: int = 0
 
 
 class StateManager:
@@ -34,9 +41,21 @@ class StateManager:
         self.state_file = Path(state_file)
         self.state: Optional[ExecutionState] = None
 
-    def initialize_state(self, run_id: str, results_file: str) -> ExecutionState:
+    def initialize_state(
+        self,
+        run_id: str,
+        results_file: str,
+        *,
+        config_hash: str = "",
+        dataset_hash: str = "",
+    ) -> ExecutionState:
         """Initializes a fresh state."""
-        self.state = ExecutionState(run_id=run_id, results_file=str(results_file))
+        self.state = ExecutionState(
+            run_id=run_id,
+            results_file=str(results_file),
+            config_hash=config_hash,
+            dataset_hash=dataset_hash,
+        )
         self.save_state()
         return self.state
 
@@ -59,13 +78,18 @@ class StateManager:
             raise StateError("No state to save. Initialize state first.")
 
         try:
-            with open(self.state_file, "w", encoding="utf-8") as f:
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.state_file.with_suffix(self.state_file.suffix + ".tmp")
+            with open(temporary, "w", encoding="utf-8") as f:
                 state_dict = (
-                    self.state.model_dump()
+                    self.state.model_dump(mode="json")
                     if hasattr(self.state, "model_dump")
                     else self.state.dict()
                 )
                 json.dump(state_dict, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            temporary.replace(self.state_file)
         except Exception as e:
             raise StateError(f"Failed to save state to {self.state_file}: {e}")
 
@@ -90,3 +114,14 @@ class StateManager:
         self.state.status = "failed"
         self.state.error_message = error_message
         self.save_state()
+
+    def mark_question_completed(self, key: str) -> None:
+        """Update in-memory deduplication state without a per-question fsync.
+
+        The JSONL result is appended and fsynced before this call. Progress is
+        checkpointed at the scenario boundary, and resume rebuilds this set from
+        that durable JSONL source.
+        """
+        if not self.state:
+            raise StateError("State not initialized.")
+        self.state.completed_questions.add(key)

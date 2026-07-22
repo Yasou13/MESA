@@ -16,11 +16,11 @@ class BenchmarkMetrics(BaseModel):
     )
     accuracy: float = Field(0.0, description="Overall accuracy (0.0 to 1.0).")
     avg_latency_ms: float = Field(0.0, description="Average response latency in ms.")
-    p95_latency_ms: float = Field(
-        0.0, description="95th percentile response latency in ms."
+    p95_latency_ms: Optional[float] = Field(
+        None, description="95th percentile response latency in ms; null when n < 20."
     )
-    p99_latency_ms: float = Field(
-        0.0, description="99th percentile response latency in ms."
+    p99_latency_ms: Optional[float] = Field(
+        None, description="99th percentile response latency in ms; null when n < 20."
     )
     avg_score: float = Field(
         0.0, description="Average score (useful for partial scoring)."
@@ -50,6 +50,13 @@ class BenchmarkMetrics(BaseModel):
         default_factory=dict,
         description="Average response latency across each internal retrieval stage in ms.",
     )
+    latency_sample_size: int = 0
+    retrieval_evaluable_questions: int = 0
+    avg_generation_latency_ms: Optional[float] = None
+    answer_exact_match: Optional[float] = None
+    answer_token_f1: Optional[float] = None
+    infrastructure_errors: int = 0
+    valid: bool = True
 
 
 class MetricsEngine:
@@ -174,6 +181,7 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
 
     scores: List[float] = []
     latencies: List[float] = []
+    generation_latencies: List[float] = []
     correct_count = 0
     total_count = 0
     total_prompt_tokens = 0
@@ -184,6 +192,10 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     hit_5_sum = 0
     rr_sum = 0.0
     ndcg_sum = 0.0
+    retrieval_evaluable_count = 0
+    infrastructure_errors = 0
+    answer_exact_matches: List[float] = []
+    answer_token_f1_scores: List[float] = []
 
     failure_counts: Dict[str, int] = {}
     stage_latencies_sum: Dict[str, float] = {}
@@ -218,9 +230,19 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         if data.get("is_correct", False):
             correct_count += 1
 
-        raw_latency = data.get("latency_ms")
+        raw_latency = data.get("retrieval_latency_ms", data.get("latency_ms"))
         if raw_latency is not None:
             latencies.append(float(raw_latency))
+        generation_latency = data.get("generation_latency_ms")
+        if generation_latency is not None:
+            generation_latencies.append(float(generation_latency))
+        if data.get("answer_exact_match") is not None:
+            answer_exact_matches.append(float(data["answer_exact_match"]))
+        if data.get("answer_token_f1") is not None:
+            answer_token_f1_scores.append(float(data["answer_token_f1"]))
+
+        if data.get("infrastructure_error", False):
+            infrastructure_errors += 1
 
         total_prompt_tokens += int(data.get("prompt_tokens", 0))
         total_completion_tokens += int(data.get("completion_tokens", 0))
@@ -230,6 +252,7 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         retrieved = data.get("retrieved_context_ids", [])
 
         if expected:
+            retrieval_evaluable_count += 1
             hit_1_sum += engine.calculate_hit_at_k(expected, retrieved, 1)
             hit_3_sum += engine.calculate_hit_at_k(expected, retrieved, 3)
             hit_5_sum += engine.calculate_hit_at_k(expected, retrieved, 5)
@@ -262,16 +285,12 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     avg_latency = sum(latencies) / len(latencies) if latencies else 0.0
 
     # Percentile latencies
-    p95_latency = 0.0
-    p99_latency = 0.0
-    if latencies:
+    p95_latency: Optional[float] = None
+    p99_latency: Optional[float] = None
+    if len(latencies) >= 20:
         sorted_lat = sorted(latencies)
-        if len(sorted_lat) >= 20:
-            p95_latency = sorted_lat[int(len(sorted_lat) * 0.95)]
-            p99_latency = sorted_lat[int(len(sorted_lat) * 0.99)]
-        else:
-            p95_latency = max(sorted_lat)
-            p99_latency = max(sorted_lat)
+        p95_latency = sorted_lat[math.ceil(len(sorted_lat) * 0.95) - 1]
+        p99_latency = sorted_lat[math.ceil(len(sorted_lat) * 0.99) - 1]
 
     # Token efficiency
     token_efficiency = None
@@ -292,13 +311,40 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         avg_latency_ms=avg_latency,
         p95_latency_ms=p95_latency,
         p99_latency_ms=p99_latency,
+        latency_sample_size=len(latencies),
         avg_score=avg_score,
-        hit_at_1=hit_1_sum / total_count,
-        hit_at_3=hit_3_sum / total_count,
-        hit_at_5=hit_5_sum / total_count,
-        mrr=rr_sum / total_count,
-        ndcg=ndcg_sum / total_count,
+        hit_at_1=(
+            hit_1_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
+        ),
+        hit_at_3=(
+            hit_3_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
+        ),
+        hit_at_5=(
+            hit_5_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
+        ),
+        mrr=(rr_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0),
+        ndcg=(
+            ndcg_sum / retrieval_evaluable_count if retrieval_evaluable_count else 0.0
+        ),
         token_efficiency=token_efficiency,
         failure_attributions=failure_counts,
         avg_latency_breakdown_ms=avg_stage_latencies,
+        retrieval_evaluable_questions=retrieval_evaluable_count,
+        avg_generation_latency_ms=(
+            sum(generation_latencies) / len(generation_latencies)
+            if generation_latencies
+            else None
+        ),
+        answer_exact_match=(
+            sum(answer_exact_matches) / len(answer_exact_matches)
+            if answer_exact_matches
+            else None
+        ),
+        answer_token_f1=(
+            sum(answer_token_f1_scores) / len(answer_token_f1_scores)
+            if answer_token_f1_scores
+            else None
+        ),
+        infrastructure_errors=infrastructure_errors,
+        valid=infrastructure_errors == 0,
     )

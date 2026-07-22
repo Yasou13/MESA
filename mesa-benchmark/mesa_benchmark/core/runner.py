@@ -1,24 +1,29 @@
+import hashlib
 import importlib
 import json
 import logging
+import os
+import random
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from ..clients.base import AbstractBenchmarkClient
+from ..clients.base import AbstractBenchmarkClient, BenchmarkResponse
 from ..datasets.loader import DatasetManager
 from ..evaluators.agreement import compute_agreement
 from ..evaluators.base import BaseEvaluator, EvaluationResult
 from ..evaluators.exact_match import ExactMatchEvaluator
+from ..evaluators.qa_metrics import exact_match, token_f1
 from ..metrics.calculator import calculate_metrics_from_jsonl
 from ..reports.reporter import MarkdownReporter
-from .config import BenchmarkConfig, load_config
+from .config import BenchmarkConfig, apply_runtime_environment, load_config
+from .generation import OllamaAnswerGenerator
+from .preflight import file_sha256
 from .state_manager import StateManager
 
 logger = logging.getLogger(__name__)
 
-# Load .env if python-dotenv is available
 try:
     from dotenv import load_dotenv
 
@@ -27,147 +32,191 @@ except ImportError:
     pass
 
 
-class MemoryPurgeError(Exception):
-    """Critical error: memory could not be cleared. Benchmark isolation is broken."""
+class MemoryPurgeError(RuntimeError):
+    """Memory isolation could not be proven."""
 
-    pass
+
+class BenchmarkTimeoutError(TimeoutError):
+    """A benchmark operation exceeded its hard deadline."""
+
+
+class BenchmarkRunInvalid(RuntimeError):
+    """The run produced infrastructure failures and is not scoreable."""
 
 
 class BenchmarkRunner:
-    def __init__(self, config_path: str | Path):
+    def __init__(
+        self,
+        config_path: str | Path,
+        *,
+        seed: Optional[int] = None,
+        results_root: str | Path = "results",
+    ) -> None:
         self.config_path = Path(config_path)
+        self.seed_override = seed
+        self.results_root = Path(results_root)
         self.config: Optional[BenchmarkConfig] = None
         self.run_id = str(uuid.uuid4())
-
-        # Initialized in setup() after config is loaded
         self.results_dir: Optional[Path] = None
         self.state_manager: Optional[StateManager] = None
-
         self.dataset_manager: Optional[DatasetManager] = None
         self.client: Optional[AbstractBenchmarkClient] = None
+        self.generator: Optional[OllamaAnswerGenerator] = None
         self.evaluators: Dict[str, BaseEvaluator] = {}
+        self.completed_questions: set[str] = set()
+        self.judge_evaluations = 0
 
     def _register_evaluators(self) -> None:
-        """Registers evaluators based on configuration."""
+        assert self.config is not None
+        evaluation = self.config.evaluation
         self.evaluators["exact_match"] = ExactMatchEvaluator()
 
-        try:
-            from ..evaluators.regex import RegexEvaluator
+        from ..evaluators.regex import RegexEvaluator
 
-            self.evaluators["regex"] = RegexEvaluator()
-        except ImportError:
-            logger.warning("RegexEvaluator not available.")
+        self.evaluators["regex"] = RegexEvaluator()
 
-        # Single-model LLM judge
-        try:
+        if evaluation.llm_judge_model:
             from ..evaluators.llm_judge import LLMJudgeEvaluator
 
-            judge_model = "gpt-4o-mini"
-            if self.config and self.config.evaluation.llm_judge_model:
-                judge_model = self.config.evaluation.llm_judge_model
-            self.evaluators["llm_judge"] = LLMJudgeEvaluator(judge_model=judge_model)
-        except ImportError:
-            logger.warning("LLMJudgeEvaluator not available (openai not installed).")
+            self.evaluators["llm_judge"] = LLMJudgeEvaluator(
+                judge_model=evaluation.llm_judge_model,
+                ensemble_size=evaluation.judge_ensemble_size,
+                quorum=evaluation.judge_quorum,
+                timeout_s=evaluation.judge_timeout_s,
+                seed=self.config.seed,
+            )
 
-        # Multi-model judge (for independent evaluation / self-grading bias mitigation)
-        if self.config and self.config.evaluation.multi_judge_models:
-            try:
-                from ..evaluators.multi_model_judge import MultiModelJudgeEvaluator
+        distinct_models = list(
+            dict.fromkeys(
+                model.removeprefix("openai/") for model in evaluation.multi_judge_models
+            )
+        )
+        if len(distinct_models) >= 2:
+            from ..evaluators.multi_model_judge import MultiModelJudgeEvaluator
 
-                self.evaluators["multi_model_judge"] = MultiModelJudgeEvaluator(
-                    judge_models=self.config.evaluation.multi_judge_models,
-                )
-                logger.info(
-                    "MultiModelJudgeEvaluator registered with models: %s",
-                    self.config.evaluation.multi_judge_models,
-                )
-            except ImportError:
-                logger.warning(
-                    "MultiModelJudgeEvaluator not available (litellm not installed)."
-                )
+            self.evaluators["multi_model_judge"] = MultiModelJudgeEvaluator(
+                judge_models=distinct_models,
+                timeout_s=evaluation.judge_timeout_s,
+                max_concurrency=evaluation.judge_max_concurrency,
+            )
+        elif evaluation.multi_judge_models:
+            logger.warning(
+                "Only one distinct judge model is configured; run is self-judged/provisional."
+            )
 
     def _get_evaluator(self, strategy: str) -> BaseEvaluator:
-        """Returns the evaluator for the given strategy, raising ValueError if unknown."""
         if strategy in self.evaluators:
             return self.evaluators[strategy]
         raise ValueError(
-            f"Unknown evaluation strategy '{strategy}'. Known strategies: {list(self.evaluators.keys())}"
+            f"Unknown or unavailable evaluation strategy {strategy!r}; "
+            f"available={sorted(self.evaluators)}"
         )
 
+    def _validate_execution_contract(self) -> None:
+        assert self.config is not None and self.dataset_manager is not None
+        required = {
+            question.evaluation_strategy
+            for scenario in self.dataset_manager.scenarios
+            for question in scenario.questions
+        }
+        missing = sorted(required.difference(self.evaluators))
+        if missing:
+            raise ValueError(
+                f"dataset requires unavailable evaluators: {missing}; "
+                "configure the required judge model(s)"
+            )
+        if self.config.evaluation.enable_agreement and not {
+            "llm_judge",
+            "multi_model_judge",
+        }.intersection(self.evaluators):
+            raise ValueError(
+                "evaluation.enable_agreement requires at least one configured judge"
+            )
+
     def _load_client(self) -> None:
-        """Dynamically loads and initializes the client adapter."""
-        if not self.config:
-            raise ValueError("Config not loaded")
-
+        assert self.config is not None
         module_path, class_name = self.config.client.adapter_class.rsplit(".", 1)
-        logger.info(f"Loading client adapter: {class_name} from {module_path}")
-
+        module = importlib.import_module(module_path)
+        adapter_class = getattr(module, class_name)
+        client = adapter_class()
+        if not isinstance(client, AbstractBenchmarkClient):
+            raise TypeError(f"{class_name} must inherit from AbstractBenchmarkClient")
+        parameters = dict(self.config.client.parameters)
+        parameters["top_n"] = self.config.runtime.top_k
+        parameters["timeout_s"] = self.config.client.timeout_ms / 1000.0
         try:
-            module = importlib.import_module(module_path)
-            adapter_class = getattr(module, class_name)
-            self.client = adapter_class()
-            if not isinstance(self.client, AbstractBenchmarkClient):
-                raise TypeError(
-                    f"{class_name} must inherit from AbstractBenchmarkClient"
+            client.initialize(parameters)
+        except Exception:
+            try:
+                client.close()
+            except Exception:
+                logger.warning(
+                    "Partially initialized client cleanup failed", exc_info=True
                 )
-
-            self.client.initialize(self.config.client.parameters)
-            logger.info("Client adapter initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to load client adapter: {e}")
             raise
+        self.client = client
 
-    def _append_result(self, result_dict: dict) -> None:
-        """Appends a result JSON object to the JSONL results file (Atomic Transaction)."""
-        if not self.state_manager or not self.state_manager.state:
+    def _load_generator(self) -> None:
+        assert self.config is not None
+        if not self.config.generation.enabled:
             return
+        model = self.config.generation.model or os.environ.get(
+            "BENCHMARK_GENERATOR_MODEL"
+        )
+        host = os.environ.get("BENCHMARK_OLLAMA_URL", "")
+        if not model:
+            raise ValueError("generation.enabled requires a generator model")
+        self.generator = OllamaAnswerGenerator(
+            host=host,
+            model=model,
+            timeout_s=self.config.generation.timeout_s,
+            temperature=self.config.generation.temperature,
+            seed=self.config.seed,
+        )
+
+    def _question_key(self, iteration: int, scenario_id: str, question_id: str) -> str:
+        return f"{iteration}:{scenario_id}:{question_id}"
+
+    def _append_result(self, result_dict: dict, question_key: str) -> None:
+        if not self.state_manager or not self.state_manager.state:
+            raise RuntimeError("state is not initialized")
         results_file = Path(self.state_manager.state.results_file)
-        with open(results_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(result_dict) + "\n")
+        results_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(results_file, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(result_dict, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        self.completed_questions.add(question_key)
 
     def _call_with_backoff(
         self, func: Any, *args: Any, max_retries: int = 3, **kwargs: Any
     ) -> Any:
-        """Calls a function with exponential backoff and timeout on failure."""
-        import concurrent.futures
-
-        timeout_s = 120.0
-        if self.config and getattr(self.config.client, "timeout_ms", None):
-            timeout_s = self.config.client.timeout_ms / 1000.0
-
         for attempt in range(max_retries):
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(func, *args, **kwargs)
-                try:
-                    return future.result(timeout=timeout_s)
-                except concurrent.futures.TimeoutError:
-                    from ..clients.base import BenchmarkResponse
-
-                    logger.error(
-                        f"Final timeout ({timeout_s}s) reached! Overriding inner blocks. Proceeding with empty response."
-                    )
-                    return BenchmarkResponse(
-                        answer_text="",
-                        retrieved_context_ids=[],
-                        latency_ms=int(timeout_s * 1000),
-                    )
-                except Exception as e:
-                    wait_time = 2**attempt
-                    if attempt < max_retries - 1:
-                        logger.warning(
-                            f"Attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s..."
-                        )
-                        time.sleep(wait_time)
-                    else:
-                        raise
+            try:
+                return func(*args, **kwargs)
+            except TimeoutError as exc:
+                raise BenchmarkTimeoutError(
+                    f"{getattr(func, '__name__', 'operation')} exceeded its provider timeout"
+                ) from exc
+            except Exception:
+                if attempt >= max_retries - 1:
+                    raise
+                wait_time = 2**attempt
+                logger.warning(
+                    "Attempt %d/%d failed; retrying in %ds",
+                    attempt + 1,
+                    max_retries,
+                    wait_time,
+                    exc_info=True,
+                )
+                time.sleep(wait_time)
+        raise RuntimeError("unreachable retry state")
 
     def setup(self) -> None:
-        """Loads configuration, dataset, and initializes state and client."""
-        logger.info(f"Loading configuration from {self.config_path}")
         self.config = load_config(self.config_path)
-
-        # Seed random number generators for reproducibility
-        import random
+        if self.seed_override is not None:
+            self.config = self.config.model_copy(update={"seed": self.seed_override})
+        apply_runtime_environment(self.config)
 
         random.seed(self.config.seed)
         try:
@@ -177,321 +226,383 @@ class BenchmarkRunner:
         except ImportError:
             pass
 
-        # Set up dynamic results directory based on client, dataset version, and seed
         client_name = self.config.client.name
         dataset_name = self.config.dataset.name
         dataset_ver = self.config.dataset.version
         seed = self.config.seed
-
         self.results_dir = (
-            Path("results") / client_name / f"{dataset_name}_{dataset_ver}_seed{seed}"
+            self.results_root / client_name / f"{dataset_name}_{dataset_ver}_seed{seed}"
         )
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self.state_manager = StateManager(self.results_dir / ".state.json")
 
-        state_path = self.results_dir / ".state.json"
-        self.state_manager = StateManager(state_file=state_path)
-
-        logger.info(f"Loading dataset from {self.config.dataset.path}")
         self.dataset_manager = DatasetManager(
-            self.config.dataset.path, noise_ratio=self.config.dataset.noise_ratio
+            self.config.dataset.path, self.config.dataset.noise_ratio
         )
         self.dataset_manager.load()
-        logger.info(f"Successfully loaded {len(self.dataset_manager)} scenarios.")
 
-        self._load_client()
-        self._register_evaluators()
-
-        # Check if we are resuming
-        existing_state = self.state_manager.load_state()
-        if existing_state and existing_state.status == "running":
-            logger.info(f"Resuming previous run: {existing_state.run_id}")
-            self.run_id = existing_state.run_id
+        config_file_hash = file_sha256(self.config_path)
+        config_hash = hashlib.sha256(
+            self.config.model_dump_json(exclude_none=False).encode("utf-8")
+        ).hexdigest()
+        dataset_hash = file_sha256(self.config.dataset.path)
+        existing = self.state_manager.load_state()
+        if existing and existing.status == "running":
+            if not existing.config_hash or not existing.dataset_hash:
+                raise RuntimeError(
+                    "refusing resume: legacy state lacks config/dataset hashes"
+                )
+            if existing.config_hash and existing.config_hash != config_hash:
+                raise RuntimeError("refusing resume: config hash changed")
+            if existing.dataset_hash and existing.dataset_hash != dataset_hash:
+                raise RuntimeError("refusing resume: dataset hash changed")
+            self.run_id = existing.run_id
+            self.completed_questions = self._completed_keys_from_results(
+                existing.results_file, existing.run_id
+            )
+            # A legacy state may predate JSONL durability. Preserve its keys only
+            # for that one migration; all new checkpoints keep this field empty.
+            if not self.completed_questions:
+                self.completed_questions = set(existing.completed_questions)
+            existing.completed_questions.clear()
         else:
-            logger.info(f"Starting new run: {self.run_id}")
             self.state_manager.initialize_state(
-                run_id=self.run_id,
-                results_file=str(self.results_dir / f"results_{self.run_id}.jsonl"),
+                self.run_id,
+                str(self.results_dir / f"results_{self.run_id}.jsonl"),
+                config_hash=config_hash,
+                dataset_hash=dataset_hash,
             )
 
+        self._register_evaluators()
+        self._validate_execution_contract()
+        self._load_generator()
+        self._load_client()
+        self._write_manifest(config_hash, dataset_hash, config_file_hash)
+
+    def _completed_keys_from_results(self, results_file: str, run_id: str) -> set[str]:
+        """Rebuild resume deduplication from durable append-only JSONL output."""
+        path = Path(results_file)
+        if not path.exists():
+            return set()
+        completed: set[str] = set()
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if row.get("run_id") != run_id:
+                    continue
+                try:
+                    completed.add(
+                        self._question_key(
+                            int(row["iteration"]),
+                            str(row["scenario_id"]),
+                            str(row["question_id"]),
+                        )
+                    )
+                except KeyError:
+                    logger.warning("Ignoring malformed resume record in %s", path)
+        return completed
+
+    def _write_manifest(
+        self, config_hash: str, dataset_hash: str, config_file_hash: str
+    ) -> None:
+        assert self.config is not None and self.results_dir is not None
+        manifest = {
+            "schema_version": 1,
+            "run_id": self.run_id,
+            "suite": self.config.suite_name,
+            "seed": self.config.seed,
+            "top_k": self.config.runtime.top_k,
+            "config_sha256": config_hash,
+            "config_file_sha256": config_file_hash,
+            "dataset_sha256": dataset_hash,
+            "generator_model": self.config.generation.model,
+            "judge_model": self.config.evaluation.llm_judge_model,
+            "multi_judge_models": self.config.evaluation.multi_judge_models,
+            "embedding_model": (
+                "sentence-transformers/all-MiniLM-L6-v2"
+                if self.config.client.name.lower().startswith("mesa")
+                else os.environ.get("BENCHMARK_EMBEDDING_MODEL")
+            ),
+            "evidence_tier": self._quality_tier(0),
+            "dataset_designation": (
+                "internal-regression-only"
+                if self.config.dataset.name.startswith(("mini", "comprehensive"))
+                else "external-benchmark"
+            ),
+        }
+        path = self.results_dir / f"manifest_{self.run_id}.json"
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, ensure_ascii=False, indent=2, sort_keys=True)
+
     def _dual_evaluate(
-        self,
-        response: Any,
-        question: Any,
+        self, response: BenchmarkResponse, question: Any
     ) -> tuple[EvaluationResult, Optional[EvaluationResult]]:
-        """
-        Evaluates a response using both the primary evaluator and the secondary
-        evaluator (if agreement tracking is enabled).
+        primary_evaluator = self._get_evaluator(question.evaluation_strategy)
+        primary = primary_evaluator.evaluate(response, question)
+        if "JudgeEvaluator" in type(primary_evaluator).__name__:
+            self.judge_evaluations += 1
+        if not self.config or not self.config.evaluation.enable_agreement:
+            return primary, None
+        if question.evaluation_strategy in ("llm_judge", "multi_model_judge"):
+            secondary_evaluator = self.evaluators["exact_match"]
+        elif "multi_model_judge" in self.evaluators:
+            secondary_evaluator = self.evaluators["multi_model_judge"]
+        elif "llm_judge" in self.evaluators:
+            secondary_evaluator = self.evaluators["llm_judge"]
+        else:
+            raise RuntimeError("agreement is enabled but no judge is configured")
+        secondary = secondary_evaluator.evaluate(response, question)
+        if "JudgeEvaluator" in type(secondary_evaluator).__name__:
+            self.judge_evaluations += 1
+        return primary, secondary
 
-        Returns (primary_result, secondary_result_or_None).
-        """
-        primary_eval = self._get_evaluator(question.evaluation_strategy)
-        primary_result = primary_eval.evaluate(response, question)
+    def _apply_generation(
+        self, response: BenchmarkResponse, question: Any
+    ) -> BenchmarkResponse:
+        if self.generator is None:
+            return response
+        generated = self.generator.generate(response, question)
+        return response.model_copy(
+            update={
+                "answer_text": generated.answer,
+                "generation_latency_ms": generated.latency_ms,
+                "token_usage": {
+                    "prompt": generated.prompt_tokens,
+                    "completion": generated.completion_tokens,
+                },
+            }
+        )
 
-        secondary_result = None
+    def _quality_tier(self, infrastructure_errors: int) -> str:
+        assert self.config is not None
+        if infrastructure_errors:
+            return "invalid"
+        generator = (self.config.generation.model or "").removeprefix("openai/")
+        judges = {
+            item.removeprefix("openai/")
+            for item in [
+                self.config.evaluation.llm_judge_model or "",
+                *self.config.evaluation.multi_judge_models,
+            ]
+            if item
+        }
+        if (
+            not generator
+            or not any(item != generator for item in judges)
+            or self.judge_evaluations == 0
+        ):
+            return "provisional/self-judged"
+        return "publishable"
 
-        if self.config and self.config.evaluation.enable_agreement:
-            if question.evaluation_strategy in ("llm_judge", "multi_model_judge"):
-                # Primary is already judge -> secondary should be exact_match for comparison
-                secondary_eval = self.evaluators["exact_match"]
-            else:
-                # Primary is exact_match -> secondary should be best available judge
-                if "multi_model_judge" in self.evaluators:
-                    secondary_eval = self.evaluators["multi_model_judge"]
-                elif "llm_judge" in self.evaluators:
-                    secondary_eval = self.evaluators["llm_judge"]
+    def _agreement_from_results(self, result_file: str) -> dict[str, Any]:
+        paired: dict[str, tuple[float, float]] = {}
+        with open(result_file, "r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if "secondary_score" not in row:
+                    continue
+                key = self._question_key(
+                    row["iteration"], row["scenario_id"], row["question_id"]
+                )
+                if row["evaluation_strategy"] in ("llm_judge", "multi_model_judge"):
+                    paired[key] = (row["secondary_score"], row["score"])
                 else:
-                    return primary_result, None
+                    paired[key] = (row["score"], row["secondary_score"])
+        if not paired:
+            return {}
+        keyword, judge = zip(*paired.values())
+        return compute_agreement(list(keyword), list(judge))
 
-            try:
-                secondary_result = secondary_eval.evaluate(response, question)
-            except Exception as e:
-                logger.warning("Secondary evaluation failed: %s", e)
-
-        return primary_result, secondary_result
-
-    def run(self) -> None:
-        """Main execution loop."""
+    def run(self) -> dict[str, Any]:
         if not self.config or not self.dataset_manager or not self.client:
             self.setup()
-
         assert self.config is not None
         assert self.dataset_manager is not None
         assert self.client is not None
         assert self.state_manager is not None
+        assert self.state_manager.state is not None
 
-        logger.info(f"Starting benchmark suite: {self.config.suite_name}")
-
-        # Track dual scores for agreement computation (keyword vs LLM judge)
-        keyword_scores: List[float] = []
-        llm_judge_scores: List[float] = []
-
-        # Restore agreement state from previous jsonl if exists
-        try:
-            res_file = (
-                Path(self.state_manager.state.results_file)
-                if self.state_manager and self.state_manager.state
-                else None
+        state = self.state_manager.state
+        infrastructure_errors = state.infrastructure_errors
+        total_scenarios = len(self.dataset_manager)
+        if "MESA_MAX_SCENARIOS" in os.environ:
+            total_scenarios = min(
+                total_scenarios, int(os.environ["MESA_MAX_SCENARIOS"])
             )
-            if res_file and res_file.exists():
-                with open(res_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        if not line.strip():
-                            continue
-                        data = json.loads(line)
-                        strat = data.get("evaluation_strategy", "")
-                        sec_score = data.get("secondary_score")
-                        score = data.get("score")
-                        if sec_score is not None and score is not None:
-                            if strat in ("llm_judge", "multi_model_judge"):
-                                keyword_scores.append(float(sec_score))
-                                llm_judge_scores.append(float(score))
-                            else:
-                                keyword_scores.append(float(score))
-                                llm_judge_scores.append(float(sec_score))
-        except Exception as e:
-            logger.warning(f"Failed to restore agreement state: {e}")
 
         try:
-            state = self.state_manager.state
-            assert state is not None
-            start_iter = state.current_iteration
-            total_scenarios = len(self.dataset_manager)
-            import os
-
-            if "MESA_MAX_SCENARIOS" in os.environ:
-                total_scenarios = min(
-                    total_scenarios, int(os.environ["MESA_MAX_SCENARIOS"])
-                )
-
-            for iteration in range(start_iter, self.config.iterations + 1):
-                logger.info(f"--- Iteration {iteration}/{self.config.iterations} ---")
-
-                # Clear memory (Hard Fail if this fails - isolation broken)
+            start_iteration = state.current_iteration
+            for iteration in range(start_iteration, self.config.iterations + 1):
                 try:
                     self.client.clear_memory()
-                except Exception as e:
+                except Exception as exc:
                     raise MemoryPurgeError(
-                        f"clear_memory() failed. Benchmark isolation is broken: {e}"
-                    )
+                        f"clear_memory failed; isolation is unproven: {exc}"
+                    ) from exc
 
                 start_scenario = (
-                    state.current_scenario_idx if iteration == start_iter else 0
+                    state.current_scenario_idx if iteration == start_iteration else 0
                 )
+                for rebuild_index in range(start_scenario):
+                    scenario = self.dataset_manager.get_scenario(rebuild_index)
+                    self._call_with_backoff(self.client.add_memories, scenario.contexts)
 
-                if start_scenario > 0:
-                    logger.info(
-                        f"  Rebuilding database state: Ingesting scenarios 0 to {start_scenario - 1} for noise parity..."
-                    )
-                    for rebuild_idx in range(0, start_scenario):
-                        rebuild_scen = self.dataset_manager.get_scenario(rebuild_idx)
-                        for ctx in rebuild_scen.contexts:
-                            self._call_with_backoff(self.client.add_memory, ctx)
-
-                for scenario_idx in range(start_scenario, total_scenarios):
-                    scenario = self.dataset_manager.get_scenario(scenario_idx)
-                    logger.info(
-                        f"  Processing scenario {scenario_idx + 1}/{total_scenarios}: '{scenario.name}'"
-                    )
-
-                    # Ingestion phase (with backoff)
-                    logger.info(f"    Ingesting {len(scenario.contexts)} contexts...")
-                    for ctx in scenario.contexts:
-                        self._call_with_backoff(self.client.add_memory, ctx)
-
-                    # Query phase (per-question error handling)
-                    logger.info(
-                        f"    Evaluating {len(scenario.questions)} questions..."
-                    )
-                    for q in scenario.questions:
+                for scenario_index in range(start_scenario, total_scenarios):
+                    scenario = self.dataset_manager.get_scenario(scenario_index)
+                    self._call_with_backoff(self.client.add_memories, scenario.contexts)
+                    for question in scenario.questions:
+                        key = self._question_key(iteration, scenario.id, question.id)
+                        if key in self.completed_questions:
+                            continue
                         try:
-                            response = self._call_with_backoff(self.client.answer, q)
-
-                            # Dual evaluation: primary + optional secondary
-                            eval_result, secondary_result = self._dual_evaluate(
-                                response, q
+                            response = self._call_with_backoff(
+                                self.client.answer, question
                             )
-
-                            logger.info(
-                                f"      Q: {q.id} -> Score: {eval_result.score}, "
-                                f"Latency: {eval_result.latency_ms:.2f}ms"
+                            response = response.enforce_top_k(self.config.runtime.top_k)
+                            response = self._apply_generation(response, question)
+                            primary, secondary = self._dual_evaluate(response, question)
+                            expected = question.expected_context_ids
+                            has_hit = any(
+                                item in response.retrieved_context_ids
+                                for item in expected
                             )
-
-                            # Determine root-cause failure attribution for diagnostics
-                            failure_attr = "SUCCESS"
-                            if not eval_result.is_correct and eval_result.score < 0.5:
-                                has_hit = any(
-                                    eid in response.retrieved_context_ids
-                                    for eid in q.expected_context_ids
-                                )
-                                if not has_hit and q.expected_context_ids:
-                                    failure_attr = "RETRIEVAL_MISS"
-                                elif (
-                                    len(response.retrieved_context_ids)
-                                    > len(q.expected_context_ids) + 3
-                                ):
-                                    failure_attr = "CONTEXT_NOISE"
-                                else:
-                                    failure_attr = "LLM_REASONING_ERROR"
-
-                            result_record = {
+                            if primary.is_correct:
+                                failure = "SUCCESS"
+                            elif expected and not has_hit:
+                                failure = "RETRIEVAL_MISS"
+                            elif (
+                                len(response.retrieved_context_ids) > len(expected) + 3
+                            ):
+                                failure = "CONTEXT_NOISE"
+                            else:
+                                failure = "LLM_REASONING_ERROR"
+                            record: dict[str, Any] = {
+                                "schema_version": 2,
                                 "run_id": self.run_id,
                                 "iteration": iteration,
                                 "scenario_id": scenario.id,
-                                "question_id": q.id,
-                                "score": eval_result.score,
-                                "is_correct": eval_result.is_correct,
-                                "latency_ms": eval_result.latency_ms,
-                                "ground_truth": q.ground_truth,
+                                "question_id": question.id,
+                                "score": primary.score,
+                                "is_correct": primary.is_correct,
+                                "latency_ms": response.retrieval_latency_ms,
+                                "retrieval_latency_ms": response.retrieval_latency_ms,
+                                "generation_latency_ms": response.generation_latency_ms,
+                                "ground_truth": question.ground_truth,
                                 "actual_answer": response.answer_text,
-                                "expected_context_ids": q.expected_context_ids,
+                                "answer_exact_match": (
+                                    exact_match(
+                                        response.answer_text, question.ground_truth
+                                    )
+                                    if self.generator
+                                    else None
+                                ),
+                                "answer_token_f1": (
+                                    token_f1(
+                                        response.answer_text, question.ground_truth
+                                    )
+                                    if self.generator
+                                    else None
+                                ),
+                                "expected_context_ids": expected,
                                 "retrieved_context_ids": response.retrieved_context_ids,
                                 "prompt_tokens": response.token_usage.get("prompt", 0),
                                 "completion_tokens": response.token_usage.get(
                                     "completion", 0
                                 ),
-                                "evaluation_strategy": q.evaluation_strategy,
-                                "failure_attribution": failure_attr,
+                                "evaluation_strategy": question.evaluation_strategy,
+                                "failure_attribution": failure,
                                 "latency_breakdown_ms": response.metadata.get(
                                     "latency_breakdown_ms", {}
                                 ),
                                 "diagnostics": response.metadata.get("diagnostics", {}),
+                                "infrastructure_error": False,
                             }
-
-                            # Dual-scoring: record secondary score and track agreement
-                            if secondary_result is not None:
-                                result_record["secondary_score"] = (
-                                    secondary_result.score
-                                )
-                                result_record["secondary_is_correct"] = (
-                                    secondary_result.is_correct
-                                )
-                                result_record["secondary_evaluator"] = (
-                                    secondary_result.metadata.get(
+                            if secondary is not None:
+                                record.update(
+                                    secondary_score=secondary.score,
+                                    secondary_is_correct=secondary.is_correct,
+                                    secondary_evaluator=secondary.metadata.get(
                                         "evaluator_type", "unknown"
-                                    )
+                                    ),
                                 )
-                                if q.evaluation_strategy in (
-                                    "llm_judge",
-                                    "multi_model_judge",
-                                ):
-                                    keyword_scores.append(secondary_result.score)
-                                    llm_judge_scores.append(eval_result.score)
-                                else:
-                                    keyword_scores.append(eval_result.score)
-                                    llm_judge_scores.append(secondary_result.score)
+                            self._append_result(record, key)
+                        except Exception as exc:
+                            infrastructure_errors += 1
+                            state.infrastructure_errors = infrastructure_errors
+                            self._append_result(
+                                {
+                                    "schema_version": 2,
+                                    "run_id": self.run_id,
+                                    "iteration": iteration,
+                                    "scenario_id": scenario.id,
+                                    "question_id": question.id,
+                                    "score": 0.0,
+                                    "is_correct": False,
+                                    "latency_ms": None,
+                                    "retrieval_latency_ms": None,
+                                    "generation_latency_ms": None,
+                                    "ground_truth": question.ground_truth,
+                                    "actual_answer": "",
+                                    "expected_context_ids": question.expected_context_ids,
+                                    "retrieved_context_ids": [],
+                                    "prompt_tokens": 0,
+                                    "completion_tokens": 0,
+                                    "evaluation_strategy": question.evaluation_strategy,
+                                    "failure_attribution": "TIMEOUT_OR_ERROR",
+                                    "diagnostics": {"error": str(exc)},
+                                    "infrastructure_error": True,
+                                },
+                                key,
+                            )
+                    self.state_manager.update_progress(iteration, scenario_index + 1)
 
-                            self._append_result(result_record)
+            try:
+                self.client.close()
+                self.client = None
+            except Exception:
+                infrastructure_errors += 1
+                state.infrastructure_errors = infrastructure_errors
+                logger.error("Client close failed", exc_info=True)
 
-                        except Exception as e:
-                            # Per spec: ClientTimeoutError -> score=0, log, continue
-                            logger.error(f"      Q: {q.id} -> FAILED: {e}")
-                            fail_record = {
-                                "run_id": self.run_id,
-                                "iteration": iteration,
-                                "scenario_id": scenario.id,
-                                "question_id": q.id,
-                                "score": 0.0,
-                                "is_correct": False,
-                                "latency_ms": None,
-                                "ground_truth": q.ground_truth,
-                                "actual_answer": f"ERROR: {e}",
-                                "expected_context_ids": q.expected_context_ids,
-                                "retrieved_context_ids": [],
-                                "prompt_tokens": 0,
-                                "completion_tokens": 0,
-                                "evaluation_strategy": q.evaluation_strategy,
-                                "failure_attribution": "TIMEOUT_OR_ERROR",
-                                "latency_breakdown_ms": {},
-                                "diagnostics": {"error": str(e)},
-                            }
-                            self._append_result(fail_record)
-
-                    # Save state
-                    self.state_manager.update_progress(iteration, scenario_idx + 1)
-            logger.info("Benchmark execution completed.")
-            self.state_manager.mark_completed()
-
-            # Compute agreement metrics if dual-scoring was used
-            agreement_data = {}
-            if keyword_scores and llm_judge_scores:
-                agreement_data = compute_agreement(keyword_scores, llm_judge_scores)
-                logger.info(
-                    "Agreement Rate: %.2f%%, Cohen's Kappa: %.4f",
-                    agreement_data.get("agreement_rate", 0.0),
-                    agreement_data.get("cohens_kappa", 0.0),
-                )
-
-            # Trigger Reporting
-            logger.info("Calculating metrics and generating report...")
             metrics = calculate_metrics_from_jsonl(state.results_file)
-
-            # Inject agreement data into metrics for the reporter
             metrics_dict = metrics.model_dump()
-            metrics_dict["agreement"] = agreement_data
-
+            metrics_dict["agreement"] = self._agreement_from_results(state.results_file)
+            metrics_dict["valid"] = infrastructure_errors == 0
+            metrics_dict["infrastructure_errors"] = infrastructure_errors
+            metrics_dict["quality_tier"] = self._quality_tier(infrastructure_errors)
             reporter = MarkdownReporter(
                 self.run_id, self.config, output_dir=str(self.results_dir)
             )
             report_path = reporter.generate_report_from_dict(metrics_dict)
-
-            logger.info(
-                f"Benchmark finished successfully. Report generated at: {report_path}"
-            )
-
-        except MemoryPurgeError:
-            logger.critical(
-                "CRITICAL: Memory purge failed. Stopping benchmark immediately."
-            )
-            self.state_manager.mark_failed("MemoryPurgeError: isolation broken")
+            if infrastructure_errors:
+                self.state_manager.mark_failed(
+                    f"{infrastructure_errors} infrastructure error(s); run invalid"
+                )
+                raise BenchmarkRunInvalid(
+                    f"run invalid: {infrastructure_errors} infrastructure error(s)"
+                )
+            self.state_manager.mark_completed()
+            return {
+                "run_id": self.run_id,
+                "results_file": state.results_file,
+                "report_file": report_path,
+                "metrics": metrics_dict,
+            }
+        except MemoryPurgeError as exc:
+            self.state_manager.mark_failed(str(exc))
             raise
-        except Exception as e:
-            logger.error(f"Benchmark failed: {e}")
-            self.state_manager.mark_failed(str(e))
+        except BenchmarkRunInvalid:
+            raise
+        except Exception as exc:
+            self.state_manager.mark_failed(str(exc))
             raise
         finally:
-            if self.client:
+            if self.client is not None:
                 try:
                     self.client.close()
-                except Exception as e:
-                    logger.warning(f"Failed to cleanly close client adapter: {e}")
-            logger.info(f"Benchmark run {self.run_id} completely finished.")
+                except Exception:
+                    logger.warning("Client close failed", exc_info=True)

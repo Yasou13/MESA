@@ -4,7 +4,7 @@ Uses an LLM (e.g., GPT-4o, Claude, Ollama) to evaluate system answers against gr
 Routes through litellm for provider-agnostic LLM calls (supports Ollama via OPENAI_BASE_URL).
 """
 
-import json
+import concurrent.futures
 import logging
 import os
 from typing import Optional
@@ -12,6 +12,7 @@ from typing import Optional
 from ..clients.base import BenchmarkResponse
 from ..datasets.schemas import BenchmarkQuestion
 from .base import BaseEvaluator, EvaluationResult
+from .verdict import JudgeVerdict, parse_judge_verdict
 
 logger = logging.getLogger(__name__)
 
@@ -50,25 +51,26 @@ class LLMJudgeEvaluator(BaseEvaluator):
         judge_model: str = "gpt-4o",
         temperature: float = 0.0,
         ensemble_size: int = 3,
+        quorum: Optional[int] = None,
+        timeout_s: float = 120.0,
+        seed: int = 42,
     ):
         self.judge_model = judge_model
-        # Use a non-zero temperature for ensemble variance, unless explicitly 0
-        self.temperature = temperature if temperature > 0.0 else 0.7
+        self.temperature = temperature
         self.ensemble_size = ensemble_size
+        self.quorum = quorum or (ensemble_size // 2 + 1)
+        if self.quorum > ensemble_size:
+            raise ValueError("judge quorum cannot exceed ensemble size")
+        self.timeout_s = timeout_s
+        self.seed = seed
 
     def _call_litellm(self, prompt: str) -> Optional[dict]:
         """Calls the judge model via litellm and parses the JSON response."""
         try:
-            import litellm
-
-            litellm.suppress_debug_info = False
-            litellm.set_verbose = True
             target_model = self.judge_model
 
             # Auto-prefix for Ollama-routed models without a provider prefix
-            if "/" not in target_model and "11434" in os.environ.get(
-                "OPENAI_BASE_URL", ""
-            ):
+            if "/" not in target_model and os.environ.get("BENCHMARK_OLLAMA_URL"):
                 target_model = f"openai/{target_model}"
 
             # Disable thinking mode for Qwen3 models to get direct JSON output
@@ -76,64 +78,44 @@ class LLMJudgeEvaluator(BaseEvaluator):
             if "qwen3" in target_model.lower():
                 effective_prompt = "/no_think\n" + prompt
 
-            base_url = os.environ.get("OPENAI_BASE_URL", "")
-            is_litellm = False
-            if "11434" in base_url:
+            ollama_host = os.environ.get("BENCHMARK_OLLAMA_URL", "")
+            if ollama_host:
                 import ollama
 
-                host = base_url.replace("/v1", "")
-                client = ollama.Client(host=host)
+                client = ollama.Client(host=ollama_host, timeout=self.timeout_s)
                 m_name = target_model.replace("openai/", "")
                 resp = client.chat(
                     model=m_name,
                     messages=[{"role": "user", "content": effective_prompt}],
-                    options={"temperature": self.temperature},
+                    format=JudgeVerdict.model_json_schema(),
+                    think=False,
+                    options={"temperature": self.temperature, "seed": self.seed},
                 )
-                raw = resp.get("message", {}).get("content", "")
+                message = getattr(resp, "message", None) or resp.get("message", {})
+                raw = getattr(message, "content", None) or message.get("content", "")
             else:
-                is_litellm = True
+                import litellm
+
+                litellm.suppress_debug_info = True
                 response = litellm.completion(
                     model=target_model,
                     messages=[{"role": "user", "content": effective_prompt}],
                     temperature=self.temperature,
                     max_tokens=1024,
                     num_retries=0,
+                    timeout=self.timeout_s,
                 )
                 raw = response.choices[0].message.content or ""
 
             raw = raw.strip()
 
-            # Fallback: if content is empty, try reasoning_content (thinking models)
-            if not raw and is_litellm:
-                msg = response.choices[0].message
-                reasoning = getattr(msg, "reasoning_content", None) or ""
-                if reasoning:
-                    raw = reasoning.strip()
-
             if not raw:
                 logger.warning("Empty response from model=%s", self.judge_model)
                 return None
-
-            # Handle markdown code blocks
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-
-            # Robust JSON extraction
-            import re
-
-            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
-            if json_match:
-                raw = json_match.group(0)
-
-            result: dict = json.loads(raw)
-            return result
+            result = parse_judge_verdict(raw)
+            return result.model_dump()
 
         except Exception as e:
-            import traceback
-
-            traceback.print_exc()
             logger.warning(
                 "LLM Judge call failed for model=%s: %s", self.judge_model, e
             )
@@ -153,25 +135,33 @@ class LLMJudgeEvaluator(BaseEvaluator):
             retrieved_contexts=response.retrieved_context_ids,
         )
 
-        import concurrent.futures
-
         results = []
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.ensemble_size
-        ) as executor:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.ensemble_size)
+        try:
             futures = [
                 executor.submit(self._call_litellm, prompt)
                 for _ in range(self.ensemble_size)
             ]
-            for future in concurrent.futures.as_completed(futures):
-                res = future.result()
+            for future in concurrent.futures.as_completed(
+                futures, timeout=self.timeout_s
+            ):
+                res = future.result(timeout=0)
                 if res is not None:
                     results.append(res)
+        except concurrent.futures.TimeoutError as exc:
+            if len(results) < self.quorum:
+                raise RuntimeError(
+                    f"LLM Judge timed out before quorum ({len(results)}/{self.quorum})"
+                ) from exc
+        finally:
+            # Judge calls have provider-native deadlines. Waiting here prevents
+            # detached evaluation workers from accumulating across questions.
+            executor.shutdown(wait=True, cancel_futures=True)
 
-        if results:
+        if len(results) >= self.quorum:
             correct_votes = sum(1 for r in results if r.get("is_correct", False))
             avg_score = sum(float(r.get("score", 0.0)) for r in results) / len(results)
-            is_correct = avg_score >= 0.5
+            is_correct = correct_votes > len(results) / 2
             combined_reasoning = "\n---\n".join(
                 [str(r.get("reasoning", "")) for r in results]
             )
@@ -190,7 +180,8 @@ class LLMJudgeEvaluator(BaseEvaluator):
             )
 
         # Fallback: Raise an error instead of silently passing
-        logger.error("LLM Judge failed.")
+        logger.error("LLM Judge failed quorum (%d/%d).", len(results), self.quorum)
         raise RuntimeError(
-            "LLM Judge evaluation failed. Check your API keys and model availability."
+            f"LLM Judge quorum failed ({len(results)}/{self.quorum}). "
+            "Check model availability and response schema."
         )

@@ -24,6 +24,9 @@ DEFAULT_OUT_PATH = os.path.normpath(
         "comprehensive_200_dataset.json",
     )
 )
+DEFAULT_MULTI_HOP_OUT_PATH = os.path.normpath(
+    os.path.join(SCRIPT_DIR, "..", "datasets", "comprehensive_multihop_only.json")
+)
 
 ENTITIES_A = [
     "Dr. Elena Vance",
@@ -76,7 +79,15 @@ def generate_single_hop(idx: int) -> Dict[str, Any]:
         "name": f"Single-Hop Entity Role #{idx}",
         "description": "Tests direct fact retrieval from single memory node.",
         "contexts": [
-            {"id": ctx_id, "text": context_text, "metadata": {"tier": "single_hop"}}
+            {
+                "id": ctx_id,
+                "text": context_text,
+                "metadata": {
+                    "tier": "single_hop",
+                    "entity_name": person,
+                    "source": "mesa-synthetic-v2",
+                },
+            }
         ],
         "questions": [
             {
@@ -98,6 +109,7 @@ def generate_multi_hop(idx: int) -> Dict[str, Any]:
 
     ctx1_id = f"multi_{idx}_ctx1"
     ctx2_id = f"multi_{idx}_ctx2"
+    ctx3_id = f"multi_{idx}_ctx3"
 
     text1 = f"{person} is the lead investigator for {project} at {company}."
     text2 = f"{project} has relocated its primary R&D headquarters to {city}."
@@ -107,14 +119,18 @@ def generate_multi_hop(idx: int) -> Dict[str, Any]:
     return {
         "id": f"multi_hop_scenario_{idx}",
         "name": f"Multi-Hop Graph Traversal #{idx}",
-        "description": "Tests multi-hop connection across two entity nodes.",
+        "description": "Tests a person-to-project-to-city graph path.",
         "contexts": [
             {
                 "id": ctx1_id,
                 "text": text1,
                 "metadata": {
                     "tier": "multi_hop",
-                    "relations": [{"target": project, "type": "LEADS"}],
+                    "entity_name": person,
+                    "source": "mesa-synthetic-v2",
+                    "relations": [
+                        {"source": person, "target": project, "type": "LEADS"}
+                    ],
                 },
             },
             {
@@ -122,7 +138,21 @@ def generate_multi_hop(idx: int) -> Dict[str, Any]:
                 "text": text2,
                 "metadata": {
                     "tier": "multi_hop",
-                    "relations": [{"target": city, "type": "LOCATED_IN"}],
+                    "entity_name": project,
+                    "source": "mesa-synthetic-v2",
+                    "relations": [
+                        {"source": project, "target": city, "type": "LOCATED_IN"}
+                    ],
+                },
+            },
+            {
+                "id": ctx3_id,
+                "text": f"{city} is the destination city entity for {project}.",
+                "metadata": {
+                    "tier": "multi_hop",
+                    "entity_name": city,
+                    "source": "mesa-synthetic-v2",
+                    "relations": [],
                 },
             },
         ],
@@ -161,12 +191,22 @@ def generate_hard_negative(idx: int) -> Dict[str, Any]:
             {
                 "id": ctx_old,
                 "text": text_old,
-                "metadata": {"tier": "hard_negative", "outdated": True},
+                "metadata": {
+                    "tier": "hard_negative",
+                    "outdated": True,
+                    "entity_name": f"{company} preliminary guidance",
+                    "source": "mesa-synthetic-v2",
+                },
             },
             {
                 "id": ctx_new,
                 "text": text_new,
-                "metadata": {"tier": "hard_negative", "authoritative": True},
+                "metadata": {
+                    "tier": "hard_negative",
+                    "authoritative": True,
+                    "entity_name": f"{company} audited filing",
+                    "source": "mesa-synthetic-v2",
+                },
             },
         ],
         "questions": [
@@ -197,12 +237,21 @@ def generate_out_of_domain(idx: int) -> Dict[str, Any]:
             {
                 "id": ctx_real,
                 "text": f"Security briefing: {person} was assigned security clearance code {secret_code}.",
-                "metadata": {"tier": "ood"},
+                "metadata": {
+                    "tier": "ood",
+                    "entity_name": f"{person} security briefing",
+                    "source": "mesa-synthetic-v2",
+                },
             },
             {
                 "id": ctx_dist,
                 "text": distractor,
-                "metadata": {"tier": "ood", "distractor": True},
+                "metadata": {
+                    "tier": "ood",
+                    "distractor": True,
+                    "entity_name": f"{person} gossip",
+                    "source": "mesa-synthetic-v2",
+                },
             },
         ],
         "questions": [
@@ -226,6 +275,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
+    )
+    parser.add_argument(
+        "--multi-hop-output",
+        type=str,
+        default=DEFAULT_MULTI_HOP_OUT_PATH,
+        help="Output path for the derived multi-hop-only subset",
     )
     args = parser.parse_args()
 
@@ -255,7 +310,13 @@ def main() -> None:
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(scenarios, f, indent=2, ensure_ascii=False)
 
+    multi_hop = [item for item in scenarios if item["id"].startswith("multi_hop")]
+    os.makedirs(os.path.dirname(os.path.abspath(args.multi_hop_output)), exist_ok=True)
+    with open(args.multi_hop_output, "w", encoding="utf-8") as f:
+        json.dump(multi_hop, f, indent=2, ensure_ascii=False)
+
     print(f"Generated {len(scenarios)} comprehensive scenarios -> {args.output}")
+    print(f"Generated {len(multi_hop)} multi-hop scenarios -> {args.multi_hop_output}")
 
 
 if __name__ == "__main__":

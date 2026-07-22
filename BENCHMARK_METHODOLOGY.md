@@ -1,148 +1,83 @@
-# MESA Benchmark Methodology
+# MESA Benchmark Metodolojisi
 
-Bu doküman, MESA Benchmark Suite v4'ün metodolojik ilkelerini, değerlendirme pipeline'ını ve bilimsel geçerlilik garantilerini tanımlar.
+## Amaç ve karşılaştırma birimi
 
----
+Karşılaştırılan bileşen bellek/retrieval sistemidir. Cevap üretme değişkenini sabitlemek için MESA, Mem0, Zep ve Letta aynı generator modelini kullanır. Her gözlem anahtarı `seed + iteration + scenario_id + question_id` birleşimidir.
 
-## 1. Tasarım İlkeleri
+## İki ayrı sonuç hattı
 
-### 1.1 Apple-to-Apple Karşılaştırma
-Tüm bellek sistemleri (MESA, Mem0, Zep, Letta/MemGPT) aynı `AbstractBenchmarkClient` arayüzünü uygulamak zorundadır. Bu, aynı veri seti, aynı evaluator ve aynı metriklerle değerlendirilmelerini garanti eder.
+### Retrieval
 
-### 1.2 Top-K Enforcement
-Tüm sistemlere eşit retrieval limiti uygulanır: **Top-K = 5** (`top_n=5`). Hiçbir sistem daha fazla bağlam çekerek yapay avantaj elde edemez.
+- Runner bütün adaptörlerde `Top‑K = 5` uygular.
+- `Hit@1`, `Hit@3`, `Hit@5`, MRR ve nDCG@5 yalnızca `expected_context_ids` bulunan sorularda hesaplanır.
+- Latency, adaptörün retrieval çağrısını ölçer; ortak generation süresi bu değere eklenmez.
+- BEAM’in kaynak verisi context ID relevance etiketi vermediği için retrieval metrikleri `N/A`’dır.
 
-### 1.3 Embedding Model Paritesi
-MESA, yerel ortamda `sentence-transformers/all-MiniLM-L6-v2` kullanır. Baseline sistemler kendi embedding modellerini kullanabilir, ancak bu fark raporda belirtilir.
+### Full‑QA
 
-### 1.4 Tam İzolasyon
-Her iterasyon öncesi `clear_memory()` çağrılır. Bu çağrı başarısız olursa benchmark **derhal** durur (`MemoryPurgeError`). Çapraz veri kirliliği hiçbir koşulda tolere edilmez.
+- Sıralı Top‑5 context ortak Ollama generator’a verilir.
+- Normalized exact match ve token F1 deterministik hesaplanır.
+- Semantic judge yanıtı strict `{is_correct: bool, score: 0..1, reasoning: str}` şemasına uymalıdır.
+- Ensemble gerçek boolean majority vote kullanır. Quorum sağlanmazsa koşum geçersizdir.
+- Multi-model judge adı farklı en az iki model ister. Model listesinde aynı etiketi tekrarlamak bağımsızlık sayılmaz.
+- Generation latency ve prompt/completion token sayıları retrieval değerlerinden ayrı tutulur.
 
----
+## Geçerlilik
 
-## 2. Veri Seti Mimarisi
+Purge, ingest, query, provider timeout, generator ve judge hataları `TIMEOUT_OR_ERROR` altyapı hatasıdır. Hatalı soru sonuç dosyasında tanı bilgisiyle kalır fakat koşum `invalid` olur ve process non-zero döner. Başarısız ingestion boş cevap olarak değerlendirilmez.
 
-### 2.1 Comprehensive Dataset (200 Senaryo)
-Dört zorluk katmanı bulunur:
+Kanıt seviyesi:
 
-| Katman | Oran | Senaryo | Test Edilen Yetenek |
-|--------|------|---------|---------------------|
-| **Single-Hop** | %40 | 80 | Tek bellek düğümünden doğrudan bilgi getirme |
-| **Multi-Hop** | %30 | 60 | 2+ bellek düğümü arasında çizge geçişi |
-| **Hard-Negative** | %15 | 30 | Eski bilgi vs. güncel bilgi çelişki çözümü |
-| **Out-of-Domain** | %15 | 30 | İlgisiz bilgiyi karantinaya alma |
+- `invalid`: en az bir altyapı/judge hatası.
+- `provisional/self-judged`: generator yok, bağımsız semantic judge gerçekten çalışmadı veya judge generator ile aynı model.
+- `publishable`: sıfır altyapı hatası, Full‑QA generator ve ondan farklı semantic judge fiilen çalıştı.
 
-### 2.2 Özel Veri Setleri
+Sentetik comprehensive/mini setler `internal-regression-only` sınıfındadır; kanıt seviyesi dış benchmark niteliği kazandırmaz.
 
-| Veri Seti | Dosya | Senaryolar | Açıklama |
-|-----------|-------|------------|----------|
-| `comprehensive_200_dataset.json` | `mesa_benchmark/datasets/` | 200 | Ana benchmark veri seti |
-| `mini_dataset.json` | `mesa_benchmark/datasets/` | 2 | Hızlı doğrulama testi |
-| `stress_dataset.json` | `mesa_benchmark/datasets/` | 100 | Stres testi |
-| `beam/dataset.json` | `datasets/` | 20 (400 soru) | BEAM karşılaştırma seti |
-| `contradiction_200.json` | `datasets/` | 200 | Çelişki çözümü odaklı |
-| `comprehensive_multihop_only.json` | `datasets/` | 60 | Yalnızca multi-hop senaryolar |
+## Embedding ve graph ingest
 
-### 2.3 Senaryo Formatı
-Her senaryo, `contexts` (sisteme yüklenecek bilgiler) ve `questions` (sorulacak sorular + beklenen cevaplar) içerir. Sorular `expected_context_ids` ile hangi bağlamların getirilmesi gerektiğini belirtir.
+MESA, `sentence-transformers/all-MiniLM-L6-v2` semantic embedding modelini açıkça yükler. Model bulunamazsa deterministic/hash fallback yasaktır ve setup fail-fast sonlanır.
 
----
+Bir senaryonun context’leri iki geçişte yüklenir:
 
-## 3. Değerlendirme Pipeline'ı (Üç Kademeli)
+1. Bütün entity node’ları ve gerçek node ID’leri oluşturulur.
+2. Relation `source`/`target` adları bu node’lara çözülür ve edge’ler eklenir.
 
-### 3.1 Kademe 1: Exact Match (Ücretsiz)
-Alt dize (substring) eşleşmesi ile hızlı ve deterministik değerlendirme.
+Dataset doğrulayıcı duplicate kimlikleri, eksik `expected_context_ids` referanslarını ve çözülemeyen relation target’larını reddeder.
 
-### 3.2 Kademe 2: LLM-as-a-Judge (Tek Model)
-Karmaşık multi-hop ve çelişki senaryolarında basit string matching yetersiz kalır. Bu durumda bir LLM model (ör. `qwen3:8b`) anlamsal değerlendirme yapar:
-- Prompt, ground truth ve sistem çıktısını içerir
-- Model `{is_correct, score, reasoning}` JSON formatında yanıt verir
-- **Ensemble voting** (varsayılan 3 çağrı) ile güvenilirlik artırılır
+## Timeout ve izolasyon
 
-### 3.3 Kademe 3: Multi-Model Judge (Bağımsız Değerlendirme)
-Self-grading bias'ı engellemek için 2-3 farklı LLM model kullanılır:
-- Her model aynı prompt'u bağımsız olarak değerlendirir
-- **Majority voting** ile final karar verilir
-- Modeller arası **pairwise agreement** oranı hesaplanır
+SDK/provider timeout adaptör ve Ollama client seviyesinde uygulanır. Runner detached worker thread oluşturan genel bir hard-deadline wrapper kullanmaz; native timeout hatasını altyapı hatası olarak işaretler. MESA async çağrıları adaptera ait tek, `close()` ile kapatılan event-loop worker üzerinde yürür. Her iteration başında purge zorunludur; Mem0 önceki user namespace’ini fiziksel olarak siler ve purge doğrulanamazsa sonuç üretimi durur.
 
-### 3.4 Agreement Rate (Metodolojik Doğrulama)
-Keyword evaluator ile LLM-Judge arasındaki uyum otomatik hesaplanır:
-- **Agreement Rate (%)**: İki evaluator'ın aynı karara vardığı oran
-- **Cohen's Kappa**: Şans uyumunu çıkaran istatistiksel uyum katsayısı (-1.0 → 1.0)
-- **Contingency Table**: Detaylı çapraz tablo
+P95/P99 latency yalnız en az 20 gözlemde nearest-rank yöntemiyle hesaplanır. Daha küçük sample’larda değer `N/A`dır ve yayınlanabilir percentile kanıtı sayılmaz.
 
----
+## Tekrarlanabilirlik ve resume
 
-## 4. Metrikler
+- Seed, adapter/generator setup’tan önce Python ve NumPy’ye uygulanır.
+- Her seed ayrı sonuç dizini ve manifest kullanır.
+- Manifest; seed, Top‑K, effective config SHA‑256, config dosyası SHA‑256, dataset SHA‑256 ve model etiketlerini içerir.
+- Resume config/dataset hash eşleşmesi olmadan reddedilir.
+- Question-level deduplication, append-only sonuç JSONL’sinden resume başında yeniden kurulur; state dosyası her soruda yeniden yazılmaz.
+- Multi-seed raporu gerçek mean, sample std, standard error ve Student‑t %95 CI üretir.
+- Baseline karşılaştırması ortak seed’ler ve aynı soru anahtarlarında paired fark/test; ayrıca seed agregatlarında Welch testi verir.
+- Herhangi bir seed başarısızsa multi-seed komutu non-zero döner.
 
-### 4.1 Retrieval Metrikleri
+## Dataset provenance
 
-| Metrik | Formül | Açıklama |
-|--------|--------|----------|
-| **Hit@K** (K=1,3,5) | 1 if any expected ID ∈ top-K | Doğru bağlamın ilk K sonuçta bulunma oranı |
-| **MRR** | 1/rank of first relevant | Ortalama İlk Bulma Sırası |
-| **nDCG@5** | DCG/iDCG | Normalize Edilmiş İndirgenmiş Kümülatif Kazanç |
+BEAM ve LoCoMo kaynakları, revision, checksum ve lisansları `mesa-benchmark/datasets/SOURCES.json` içinde tutulur. LoCoMo converter resmi category‑5 davranışını uygular: cevabı bulunmayan adversarial sorularda ground truth `Not mentioned` olur ve retrieval relevance hesaplanmaz. Resmi kaynakta çözülemeyen iki evidence referansı manifestte belgelenir.
 
-### 4.2 Doğruluk Metrikleri
+## Yayınlama kontrol listesi
 
-| Metrik | Açıklama |
-|--------|----------|
-| **Accuracy** | Doğru cevap sayısı / Toplam soru sayısı |
-| **Avg Score** | LLM Judge'ın verdiği ortalama skor (0.0-1.0) |
+Bir sonuç ancak şu koşullarla dışarı sunulmalıdır:
 
-### 4.3 Performans Metrikleri
+1. `config-check`, `dataset-check` ve `ollama-preflight` başarılı.
+2. Mini MESA ve baseline koşumları başarılı.
+3. Comprehensive ve aynı seed’li baseline tamamlanmış.
+4. Sonuç `valid=true`; altyapı hatası sıfır.
+5. Kullanılan dataset external benchmark ve lisans kullanıma uygun.
+6. Generator’dan farklı semantic judge fiilen çalışmış.
+7. Manifest, raw JSONL ve multi-seed raporu birlikte korunmuş.
 
-| Metrik | Açıklama |
-|--------|----------|
-| **Avg Latency** | Ortalama sorgu yanıt süresi (ms) |
-| **P95 Latency** | Sorguların %95'inin tamamlanma süresi |
-| **P99 Latency** | En yavaş %1'lik sorguların süresi |
-| **Token Efficiency** | Doğru cevap başına harcanan token sayısı |
+## Paket sınırı
 
-### 4.4 Diagnostik Metrikler (Root-Cause Attribution)
-Her başarısız sorgu otomatik olarak kategorize edilir:
-
-| Kategori | Anlam |
-|----------|-------|
-| `RETRIEVAL_MISS` | Beklenen bağlam Vektör/Çizge tarafından bulunamadı |
-| `CONTEXT_NOISE` | Doğru bağlam geldi ama aşırı gürültü LLM'i şaşırttı |
-| `LLM_REASONING_ERROR` | Doğru bağlam geldi ama LLM cevabı çıkaramadı |
-| `TIMEOUT_OR_ERROR` | Sorgu zaman aşımına uğradı veya exception fırlatıldı |
-
----
-
-## 5. Reproducibility (Tekrarlanabilirlik)
-
-### 5.1 Multi-Seed Çalıştırma
-LLM'ler stokastik olduğundan, güvenilir sonuçlar için en az 5 farklı seed ile çalıştırma önerilir. `reproduce_benchmark.py` scripti:
-- Her seed için bağımsız çalıştırma yapar
-- Mean ± Std hesaplar
-- Welch's t-test ile istatistiksel anlamlılık test eder
-
-### 5.2 Determinizm
-- `seed` parametresi ile Python `random` ve `numpy.random` seed'lenir
-- Docker + `requirements-lock.txt` ile ortam sabitlenir
-- `.state.json` ile kesintiden devam mekanizması
-
-### 5.3 Resilience
-- **Exponential Backoff**: API hataları ve rate limit'lerde katlanarak artan bekleme (1s, 2s, 4s)
-- **Timeout Koruması**: `concurrent.futures.ThreadPoolExecutor` ile takılma önlenir
-- **Noise Parity**: Kaldığı yerden devam ederken önceki bağlamlar geri yüklenir
-
----
-
-## 6. Rapor Formatı
-Her benchmark çalıştırması şu çıktıları üretir:
-
-1. **`results_{run_id}.jsonl`**: Her soru için detaylı JSON kayıtları (skor, latency, diagnostik)
-2. **`report_{run_id}.md`**: İnsan tarafından okunabilir Markdown rapor
-3. **`.state.json`**: Kesintiden devam durumu
-4. **`reproducibility_report.json`**: Multi-seed istatistikleri
-
----
-
-## 7. Bilinen Kısıtlamalar
-
-1. **Yerel Ollama Modeli**: Zero-cost modda `qwen3:8b` kullanılır. Thinking token'ları nedeniyle her LLM Judge değerlendirmesi 5-15 saniye sürebilir.
-2. **Self-Judge Bias**: Aynı model hem MESA'nın retrieval pipeline'ında hem LLM Judge olarak kullanıldığında, `multi_judge_models` ile bağımsız değerlendirme önerilir.
-3. **Hit@K Sınırlaması**: `expected_context_ids` belirtilmemiş sorularda Hit@K metriği hesaplanamaz; yalnızca LLM Judge skoru kullanılır.
+`mesa_benchmark`, MESA ve haricî memory sistemlerinin eşit Top-K ve ortak generator altında karşılaştırıldığı benchmark ürünüdür. `mesa_evals` ise MESA çekirdeğinin sentetik/golden-dataset ve CI regresyon paketidir; iki paket birbirinin metric veya sonuç boru hattını çağırmaz.

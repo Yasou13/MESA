@@ -1,9 +1,0 @@
-{
-  "name": "MESA Multi-Hop Benchmark",
-  "tier": 2,
-  "description": "Tests the system's ability to chain multiple disparate facts to answer a single query.",
-  "total_scenarios": 1,
-  "average_contexts_per_scenario": 3,
-  "author": "MESA Research Team",
-  "tags": ["graph-reasoning", "multi-hop", "rag"]
-}

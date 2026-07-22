@@ -7,8 +7,6 @@ import os
 import sys
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mesa_benchmark.core.runner import BenchmarkRunner
@@ -36,10 +34,8 @@ def main():
         help="List of configuration files to run and compare.",
     )
     parser.add_argument(
-        "--override-judge",
-        action="store_true",
-        default=False,
-        help="Force all configs to use openai/qwen3:8b as the LLM judge for fairness.",
+        "--judge-model",
+        help="Exact model tag to set as BENCHMARK_JUDGE_MODEL for every system.",
     )
 
     args = parser.parse_args()
@@ -51,22 +47,12 @@ def main():
             logger.warning(f"Config file not found: {config_path}. Skipping.")
             continue
 
-        temp_config_path = config_path
-        if args.override_judge:
-            with open(config_path, "r", encoding="utf-8") as f:
-                conf_dict = yaml.safe_load(f)
-
-            if "evaluation" in conf_dict:
-                conf_dict["evaluation"]["llm_judge_model"] = "openai/qwen3:8b"
-                conf_dict["evaluation"]["multi_judge_models"] = ["openai/qwen3:8b"]
-
-            temp_config_path = f"_temp_{os.path.basename(config_path)}"
-            with open(temp_config_path, "w", encoding="utf-8") as f:
-                yaml.dump(conf_dict, f)
+        if args.judge_model:
+            os.environ["BENCHMARK_JUDGE_MODEL"] = args.judge_model
 
         logger.info(f"=== Starting benchmark for {config_path} ===")
         try:
-            runner = BenchmarkRunner(config_path=temp_config_path)
+            runner = BenchmarkRunner(config_path=config_path)
             # We just do setup to get the suite name early, and load client
             print("[DEBUG] run_comp: before runner.setup()", flush=True)
             runner.setup()
@@ -111,10 +97,6 @@ def main():
                     "error": str(e),
                 }
             )
-        finally:
-            if args.override_judge and os.path.exists(temp_config_path):
-                os.remove(temp_config_path)
-
     # Generate LEADERBOARD.md
     generate_leaderboard(results_data)
 

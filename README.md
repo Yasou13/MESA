@@ -385,10 +385,16 @@ mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing
 black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
 ruff check .
 
-# Evaluation pipeline
+# MESA çekirdek değerlendirme/CI paketi (rakip benchmarkı değildir)
 python -m mesa_evals.evals        # Run 30-entry synthetic benchmark
 python -m mesa_evals.gatekeeper   # CI/CD gate (exit 0 = PASS)
 ```
+
+`mesa_evals`, MESA çekirdeğinin sentetik golden-dataset ve CI regresyon
+paketidir. MESA, Mem0, Zep veya Letta arasında yayınlanabilir karşılaştırma
+sonucu üretmez. Bu amaçla ayrı paket ve CLI olan `mesa-benchmark` kullanılır;
+onun metodolojisi, external dataset kuralları ve sonuç geçerliliği
+`mesa-benchmark/README.md` içinde tanımlanır.
 
 ---
 
@@ -427,8 +433,8 @@ As of v0.6.1, Hot Path (API ingestion/search) and Cold Path (consolidation worke
 MESA/
 ├── mesa_api/             # Headless FastAPI v3 REST server + Pydantic schemas
 ├── mesa_client/          # Python SDK (sync/async) + LangChain adapter
-├── mesa_evals/           # Golden Dataset, evaluation runner, CI/CD gatekeeper
-├── mesa-benchmark/       # Comprehensive evaluation suite for competitor benchmarking
+├── mesa_evals/           # MESA çekirdek golden dataset + CI regresyon değerlendirmesi
+├── mesa-benchmark/       # Dış sistem karşılaştırmalı, yayınlanabilir benchmark CLI'ı
 ├── mesa_memory/
 │   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
 │   ├── api/              # FastAPI server entrypoint + auth middleware

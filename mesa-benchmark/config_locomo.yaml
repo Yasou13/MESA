@@ -21,8 +21,15 @@ evaluation:
     - "mrr"
     - "latency"
     - "efficiency"
-  llm_judge_model: "gpt-4o-mini"
-  multi_judge_models:
-    - "gpt-4o-mini"
-    - "claude-sonnet-4-20250514"
+  llm_judge_model: null
+  multi_judge_models: []
   enable_agreement: true
+
+generation:
+  enabled: true
+  model: null
+
+runtime:
+  top_k: 5
+  ollama_url: null
+  require_independent_judge: true

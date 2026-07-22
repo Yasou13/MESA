@@ -1,8 +1,0 @@
-{
-    "run_id": "eb616a73-e9cf-43d6-b9fc-11b34601b76a",
-    "current_iteration": 1,
-    "current_scenario_idx": 2,
-    "status": "completed",
-    "results_file": "results/mesa_client/mini_dataset_v1_seed42/results_eb616a73-e9cf-43d6-b9fc-11b34601b76a.jsonl",
-    "error_message": null
-}

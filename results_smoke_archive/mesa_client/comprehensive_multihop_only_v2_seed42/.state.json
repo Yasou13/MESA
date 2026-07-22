@@ -1,8 +1,0 @@
-{
-    "run_id": "6b40df2d-7a89-43dd-a9f0-1b99de42649a",
-    "current_iteration": 1,
-    "current_scenario_idx": 2,
-    "status": "completed",
-    "results_file": "results/mesa_client/comprehensive_multihop_only_v2_seed42/results_6b40df2d-7a89-43dd-a9f0-1b99de42649a.jsonl",
-    "error_message": null
-}

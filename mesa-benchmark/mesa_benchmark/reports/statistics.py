@@ -36,8 +36,12 @@ def compute_run_statistics(values: List[float]) -> Dict[str, Any]:
         variance = sum((x - mean) ** 2 for x in values) / (n - 1)
         std = math.sqrt(variance)
         se = std / math.sqrt(n)
-        # Approximate 95% confidence interval multiplier (approx 1.96 for large n, t-score approximation for small n)
-        t_mult = 1.96 if n >= 30 else 2.262
+        try:
+            from scipy import stats as sp_stats
+
+            t_mult = float(sp_stats.t.ppf(0.975, n - 1))
+        except ImportError:
+            t_mult = 1.96 if n >= 30 else 2.262
         ci_95 = se * t_mult
     else:
         std = 0.0
@@ -114,4 +118,44 @@ def compute_t_test_p_value(
         "p_value_approx": round(p_val, 4),
         "is_significant": p_val < 0.05,
         "mean_diff": round(mean_diff, 4),
+    }
+
+
+def compute_paired_test(sample_a: List[float], sample_b: List[float]) -> Dict[str, Any]:
+    """Compute a paired t-test and CI from aligned observations."""
+    if len(sample_a) != len(sample_b):
+        raise ValueError("paired samples must have the same length")
+    differences = [left - right for left, right in zip(sample_a, sample_b)]
+    summary = compute_run_statistics(differences)
+    if len(differences) < 2:
+        return {
+            "n": len(differences),
+            "mean_difference": summary["mean"],
+            "ci_95": summary["ci_95"],
+            "t_stat": 0.0,
+            "p_value": 1.0,
+            "is_significant": False,
+        }
+    se = float(summary["se"])
+    mean_difference = float(summary["mean"])
+    if se == 0:
+        t_stat = (
+            0.0 if mean_difference == 0 else math.copysign(math.inf, mean_difference)
+        )
+        p_value = 1.0 if mean_difference == 0 else 0.0
+    else:
+        t_stat = mean_difference / se
+        try:
+            from scipy import stats as sp_stats
+
+            p_value = float(sp_stats.t.sf(abs(t_stat), len(differences) - 1) * 2.0)
+        except ImportError:
+            p_value = math.erfc(abs(t_stat) / math.sqrt(2))
+    return {
+        "n": len(differences),
+        "mean_difference": round(mean_difference, 6),
+        "ci_95": summary["ci_95"],
+        "t_stat": round(t_stat, 4),
+        "p_value": round(p_value, 6),
+        "is_significant": p_value < 0.05,
     }
