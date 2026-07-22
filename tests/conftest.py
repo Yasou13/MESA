@@ -100,3 +100,54 @@ def reset_circuit_breaker():
 
     llm_circuit_breaker.failures = 0
     llm_circuit_breaker.last_failure_time = 0.0
+
+
+def pytest_unconfigure(config):
+    """Clean up background threads, executors, and singletons at test session end to prevent interpreter shutdown hang."""
+    import concurrent.futures.thread
+    import threading
+
+    # 1. Shut down any initialized MESA singletons / background workers
+    try:
+        from mesa_api.router import _state
+        if getattr(_state, "consolidation_loop", None):
+            _state.consolidation_loop.stop()
+        if getattr(_state, "maintenance_worker", None):
+            _state.maintenance_worker.stop()
+        if getattr(_state, "rem_worker", None):
+            _state.rem_worker.stop()
+    except Exception:
+        pass
+
+    # 2. Gracefully signal all ThreadPoolExecutor queues to shutdown
+    try:
+        if hasattr(concurrent.futures.thread, "_threads_queues"):
+            items = list(concurrent.futures.thread._threads_queues.items())
+            for t, q in items:
+                try:
+                    q.put(None)
+                except Exception:
+                    pass
+            for t, _ in items:
+                try:
+                    t.join(timeout=0.5)
+                except Exception:
+                    pass
+            # Clear the queues so _python_exit does not hang forever on stuck threads
+            concurrent.futures.thread._threads_queues.clear()
+    except Exception:
+        pass
+
+    # 3. Ensure threading._shutdown() does not hang forever on lingering non-daemon threads
+    try:
+        main_t = threading.main_thread()
+        for t in list(threading.enumerate()):
+            if t is not main_t and t.is_alive() and not t.daemon:
+                t.join(timeout=0.5)
+                # If still alive after join timeout, remove its shutdown lock so interpreter can exit cleanly
+                if t.is_alive() and hasattr(threading, "_shutdown_locks"):
+                    tstate_lock = getattr(t, "_tstate_lock", None)
+                    if tstate_lock and tstate_lock in threading._shutdown_locks:
+                        threading._shutdown_locks.discard(tstate_lock)
+    except Exception:
+        pass
