@@ -105,12 +105,13 @@ def reset_circuit_breaker():
 def pytest_unconfigure(config):
     """Clean up background threads, executors, and singletons at test session end to prevent interpreter shutdown hang."""
     import concurrent.futures.thread
-    import threading
     import sys
+    import threading
 
     # 1. Shut down any initialized MESA singletons / background workers
     try:
         from mesa_api.router import _state
+
         if getattr(_state, "consolidation_loop", None):
             _state.consolidation_loop.stop()
         if getattr(_state, "maintenance_worker", None):
@@ -141,9 +142,14 @@ def pytest_unconfigure(config):
     # 3. Inspect and handle lingering non-daemon threads that block Python 3.13 _thread_shutdown()
     try:
         main_t = threading.main_thread()
-        alive_threads = [t for t in threading.enumerate() if t is not main_t and t.is_alive()]
+        alive_threads = [
+            t for t in threading.enumerate() if t is not main_t and t.is_alive()
+        ]
         if alive_threads:
-            print(f"\n[pytest_unconfigure] Lingering threads detected before exit: {[ (t.name, t.daemon, getattr(t, '_target', None)) for t in alive_threads ]}", file=sys.stderr)
+            print(
+                f"\n[pytest_unconfigure] Lingering threads detected before exit: {[ (t.name, t.daemon, getattr(t, '_target', None)) for t in alive_threads ]}",
+                file=sys.stderr,
+            )
             for t in alive_threads:
                 if not t.daemon:
                     # Give it up to 1 second to finish after signals
@@ -156,9 +162,14 @@ def pytest_unconfigure(config):
                                 threading._shutdown_locks.discard(tstate_lock)
                         # In Python 3.13, _thread_shutdown() checks C-level handle or thread state.
                         # If thread is still alive and non-daemon, attempt to signal its stop event if it has one.
-                        stop_event = getattr(t, "_stop_event", None) or getattr(t, "stop_event", None)
+                        stop_event = getattr(t, "_stop_event", None) or getattr(
+                            t, "stop_event", None
+                        )
                         if stop_event and hasattr(stop_event, "set"):
                             stop_event.set()
                         t.join(timeout=0.5)
     except Exception as e:
-        print(f"[pytest_unconfigure] Error handling lingering threads: {e}", file=sys.stderr)
+        print(
+            f"[pytest_unconfigure] Error handling lingering threads: {e}",
+            file=sys.stderr,
+        )
