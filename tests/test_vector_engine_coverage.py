@@ -349,6 +349,18 @@ class TestActiveNodeIds:
             await eng.get_active_node_ids()
 
 
+class TestEmbeddingHydration:
+    @pytest.mark.asyncio
+    async def test_get_all_embeddings_scopes_to_agent(self, engine):
+        await engine.upsert("emb-a", "agent-a", [0.1] * 8)
+        await engine.upsert("emb-b", "agent-b", [0.2] * 8)
+
+        embeddings = await engine.get_all_embeddings(agent_id="agent-a")
+
+        assert len(embeddings) == 1
+        assert embeddings[0] == pytest.approx([0.1] * 8)
+
+
 # ===================================================================
 # Count records
 # ===================================================================

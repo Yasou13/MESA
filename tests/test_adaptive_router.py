@@ -106,3 +106,24 @@ async def test_scenario_b_low_confidence_triggers_tier3():
     assert decision["route"] == "dual_llm"
     assert decision["decision"] is True  # Based on our mock
     assert decision["reason"] == "dual_llm_fallback"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_threshold_and_cooldown_are_tenant_scoped():
+    """One tenant's audit history must not affect another tenant's route gate."""
+    router, _, _ = _make_router_and_mocks(t_route=0.85)
+
+    async def telemetry(agent_id: str, *, limit: int):
+        if agent_id == "agent-risky":
+            return {"total_audits": 100, "hallucinations": 10}
+        return {"total_audits": 100, "hallucinations": 0}
+
+    router.dao.get_recent_telemetry_stats.side_effect = telemetry
+    with patch("mesa_memory.consolidation.router.time.time", return_value=100.0):
+        await router.update_dynamic_threshold("agent-risky")
+        await router.update_dynamic_threshold("agent-clean")
+
+    assert router._routing_states["agent-risky"].threshold == 0.90
+    assert router._routing_states["agent-clean"].threshold == 0.83
+    assert router._routing_states["agent-risky"].last_update_time == 100.0
+    assert router._routing_states["agent-clean"].last_update_time == 100.0

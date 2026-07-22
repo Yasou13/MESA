@@ -108,7 +108,9 @@ Restores cognitive state from SQLite. Fails gracefully on fresh setups (table do
 
 **Module:** `mesa_memory.retrieval.hybrid`
 
-Fuses vector similarity search (cosine distance via LanceDB) with graph-based Personalized PageRank (via NetworkX) using Reciprocal Rank Fusion (RRF). Includes a cold-start fallback mode for sparse graphs.
+Fuses vector similarity search (cosine distance via LanceDB), Kùzu graph
+salience and FTS5 lexical results. Sparse graphs use a cold-start fallback;
+both paths exclude nodes marked as epistemically quarantined.
 
 ### Constructor
 
@@ -137,9 +139,14 @@ Executes a hybrid retrieval query and returns ranked CMB IDs.
 **Pipeline:**
 1. Normalises the query text
 2. Extracts named entities for graph seeding
-3. Runs vector search and PPR graph search concurrently
-4. Fuses results via RRF (or cold-start reranking if graph is sparse)
+3. Runs vector, graph and lexical search concurrently
+4. Excludes quarantined nodes before cold-start reranking or alpha fusion
 5. Returns the top-N CMB IDs
+
+When `collect_diagnostics=True`, the result dictionary contains
+`diagnostics.degraded_sources`. The API exposes the same stable source names
+as `MemorySearchResponse.degraded_sources`; an empty list means all sources
+were available.
 
 **Raises:**
 - `PermissionError` — Agent lacks `READ` access

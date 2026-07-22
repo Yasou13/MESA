@@ -419,6 +419,7 @@ class TestResponseSchemas:
             context="Some context",
             retrieved_nodes=[item],
             metrics={"latency_ms": 10},
+            degraded_sources=["graph"],
         )
         assert resp.context == "Some context"
         assert resp.metrics["latency_ms"] == 10

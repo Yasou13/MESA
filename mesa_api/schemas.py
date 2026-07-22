@@ -437,6 +437,10 @@ class MemorySearchResponse(BaseModel):
     metrics: dict[str, int] = Field(
         default_factory=dict, description="Query execution metrics"
     )
+    degraded_sources: list[Literal["vector", "graph", "lexical"]] = Field(
+        default_factory=list,
+        description="Retrieval sources unavailable while producing this response",
+    )
 
 
 class MemoryPurgeResponse(BaseModel):
