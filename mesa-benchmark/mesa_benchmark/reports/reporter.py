@@ -39,6 +39,20 @@ class MarkdownReporter:
         infrastructure_errors = int(m.get("infrastructure_errors", 0))
         answer_em = m.get("answer_exact_match")
         answer_f1 = m.get("answer_token_f1")
+        deterministic_count = int(m.get("deterministic_evaluable_questions", 0))
+        deterministic_correct = int(m.get("deterministic_correct_answers", 0))
+        deterministic_accuracy = m.get("deterministic_accuracy")
+        semantic_count = int(m.get("semantic_judge_evaluable_questions", 0))
+        semantic_correct = int(m.get("semantic_judge_correct_answers", 0))
+        semantic_accuracy = m.get("semantic_judge_accuracy")
+        semantic_avg_score = m.get("semantic_judge_avg_score")
+
+        def accuracy_display(
+            value: Optional[float], correct: int, denominator: int
+        ) -> str:
+            if value is None or denominator == 0:
+                return "N/A"
+            return f"%{value * 100:.2f} ({correct}/{denominator})"
 
         # Retrieval Metrics
         hit1 = m.get("hit_at_1", 0.0) * 100
@@ -69,7 +83,14 @@ class MarkdownReporter:
             "|:---|:---|:---|",
             f"| **Total Questions** | {total_q} | Test edilen toplam soru sayısı |",
             f"| **Correct Answers** | {correct_q} | Tamamen doğru kabul edilen cevaplar |",
-            f"| **Accuracy** | %{accuracy:.2f} | Sistemin genel doğruluk oranı |",
+            f"| **Overall Primary-Evaluator Accuracy** | %{accuracy:.2f} ({correct_q}/{total_q}) | Deterministic ve semantic judge sonuçlarının birleşik micro-average değeri |",
+            f"| **Deterministic Accuracy** | {accuracy_display(deterministic_accuracy, deterministic_correct, deterministic_count)} | Exact-match/regex sorularının doğruluğu |",
+            f"| **Semantic Judge Accuracy** | {accuracy_display(semantic_accuracy, semantic_correct, semantic_count)} | LLM judge/multi-model judge sorularının doğruluğu |",
+            (
+                f"| **Semantic Judge Average Score** | %{semantic_avg_score * 100:.2f} | Semantic judge sorularının ortalama 0–1 skoru |"
+                if semantic_avg_score is not None
+                else "| **Semantic Judge Average Score** | N/A | Semantic judge sonucu yok |"
+            ),
             (
                 f"| **Full-QA Normalized EM** | %{answer_em * 100:.2f} | "
                 "Ortak generator cevabının normalize exact-match oranı |"

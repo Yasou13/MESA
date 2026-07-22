@@ -228,6 +228,62 @@ def test_metrics_exclude_questions_without_expected_ids_from_retrieval_denominat
     assert metrics.hit_at_1 == 1.0
 
 
+def test_metrics_report_deterministic_and_semantic_judge_accuracy_separately(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "results.jsonl"
+    rows = [
+        {
+            "run_id": "r",
+            "iteration": 1,
+            "scenario_id": "s",
+            "question_id": "d1",
+            "score": 1.0,
+            "is_correct": True,
+            "evaluation_strategy": "exact_match",
+        },
+        {
+            "run_id": "r",
+            "iteration": 1,
+            "scenario_id": "s",
+            "question_id": "d2",
+            "score": 0.0,
+            "is_correct": False,
+            "evaluation_strategy": "regex",
+        },
+        {
+            "run_id": "r",
+            "iteration": 1,
+            "scenario_id": "s",
+            "question_id": "j1",
+            "score": 0.8,
+            "is_correct": True,
+            "evaluation_strategy": "llm_judge",
+        },
+        {
+            "run_id": "r",
+            "iteration": 1,
+            "scenario_id": "s",
+            "question_id": "j2",
+            "score": 0.2,
+            "is_correct": False,
+            "evaluation_strategy": "multi_model_judge",
+        },
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    metrics = calculate_metrics_from_jsonl(path)
+
+    assert metrics.accuracy == 0.5
+    assert metrics.deterministic_evaluable_questions == 2
+    assert metrics.deterministic_correct_answers == 1
+    assert metrics.deterministic_accuracy == 0.5
+    assert metrics.semantic_judge_evaluable_questions == 2
+    assert metrics.semantic_judge_correct_answers == 1
+    assert metrics.semantic_judge_accuracy == 0.5
+    assert metrics.semantic_judge_avg_score == 0.5
+
+
 def test_latency_percentiles_are_na_below_twenty_and_use_nearest_rank(
     tmp_path: Path,
 ) -> None:
@@ -724,6 +780,47 @@ def test_config_and_dataset_check_validate_hashes_and_structure(tmp_path: Path) 
     assert dataset_summary["dataset_sha256"] == file_sha256(tmp_path / "mini.json")
 
 
+def test_config_check_fails_fast_for_incomplete_live_full_qa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "BENCHMARK_OLLAMA_URL",
+        "BENCHMARK_GENERATOR_MODEL",
+        "BENCHMARK_JUDGE_MODEL",
+        "BENCHMARK_JUDGE_MODELS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    config = _write_dummy_run(tmp_path)
+    config.write_text(
+        config.read_text()
+        .replace("enable_agreement: false", "enable_agreement: true")
+        .replace("enabled: false", "enabled: true")
+    )
+    with pytest.raises(ValueError, match="generator model") as exc_info:
+        validate_config(config)
+    assert "BENCHMARK_OLLAMA_URL" in str(exc_info.value)
+    assert "configured judge" in str(exc_info.value)
+
+
+def test_config_check_accepts_complete_live_full_qa_from_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _write_dummy_run(tmp_path)
+    config.write_text(
+        config.read_text()
+        .replace("enable_agreement: false", "enable_agreement: true")
+        .replace("enabled: false", "enabled: true")
+    )
+    monkeypatch.setenv("BENCHMARK_OLLAMA_URL", "http://ollama.invalid:11434")
+    monkeypatch.setenv("BENCHMARK_GENERATOR_MODEL", "generator:8b")
+    monkeypatch.setenv("BENCHMARK_JUDGE_MODEL", "judge:8b")
+
+    summary = validate_config(config)
+
+    assert summary["generator_model"] == "generator:8b"
+    assert summary["judge_model"] == "judge:8b"
+
+
 def test_dataset_check_rejects_unresolved_graph_relation(tmp_path: Path) -> None:
     config = _write_dummy_run(tmp_path)
     dataset_path = tmp_path / "mini.json"
@@ -786,6 +883,48 @@ def test_reproduce_comparison_pairs_identical_seed_and_question_keys(
     paired = comparison["same_question_accuracy"]["paired_t_test"]
     assert paired["n"] == 2
     assert paired["mean_difference"] == 1.0
+
+
+def test_reproduce_summary_and_baseline_mark_unavailable_percentiles_na(
+    tmp_path: Path,
+) -> None:
+    script = Path("scripts/reproduce_benchmark.py")
+    spec = importlib.util.spec_from_file_location("reproduce_benchmark_na_test", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    left_file = tmp_path / "left.jsonl"
+    right_file = tmp_path / "right.jsonl"
+    row = {"iteration": 1, "scenario_id": "s", "question_id": "q", "is_correct": True}
+    left_file.write_text(json.dumps(row) + "\n")
+    right_file.write_text(json.dumps(row) + "\n")
+
+    runs = [
+        {"seed": 42, "metrics": {"p95_latency_ms": None}},
+        {"seed": 43, "metrics": {"p95_latency_ms": 12.0}},
+    ]
+    summary = module._summarize_metric(runs, "p95_latency_ms")
+    assert summary["status"] == "partial"
+    assert summary["available_seed_count"] == 1
+    assert summary["excluded_seeds"] == [42]
+
+    def system(path: Path, p95: float | None) -> dict[str, Any]:
+        return {
+            "runs": [
+                {
+                    "seed": 42,
+                    "status": "success",
+                    "results_file": str(path),
+                    "metrics": {"accuracy": 1.0, "p95_latency_ms": p95},
+                }
+            ]
+        }
+
+    comparison = module._compare(system(left_file, None), system(right_file, None))
+    percentile = comparison["p95_latency_ms"]
+    assert percentile["status"] == "N/A"
+    assert percentile["available_seed_count"] == 0
+    assert percentile["welch_t_test"] is None
 
 
 def test_runner_offline_end_to_end_writes_valid_manifest_and_result(

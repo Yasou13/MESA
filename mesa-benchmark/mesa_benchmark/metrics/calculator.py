@@ -55,6 +55,13 @@ class BenchmarkMetrics(BaseModel):
     avg_generation_latency_ms: Optional[float] = None
     answer_exact_match: Optional[float] = None
     answer_token_f1: Optional[float] = None
+    deterministic_evaluable_questions: int = 0
+    deterministic_correct_answers: int = 0
+    deterministic_accuracy: Optional[float] = None
+    semantic_judge_evaluable_questions: int = 0
+    semantic_judge_correct_answers: int = 0
+    semantic_judge_accuracy: Optional[float] = None
+    semantic_judge_avg_score: Optional[float] = None
     infrastructure_errors: int = 0
     valid: bool = True
 
@@ -173,6 +180,19 @@ def _normal_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
+def _evaluator_family(data: Dict[str, object]) -> str:
+    """Classify persisted evaluator records without breaking older JSONL files."""
+    recorded = data.get("evaluator_family")
+    if recorded in {"deterministic", "semantic_judge"}:
+        return str(recorded)
+    strategy = str(data.get("evaluation_strategy", ""))
+    if strategy in {"llm_judge", "multi_model_judge"}:
+        return "semantic_judge"
+    if strategy in {"exact_match", "regex"}:
+        return "deterministic"
+    return "other"
+
+
 def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     """Reads a results JSONL file and calculates aggregate metrics."""
     path = Path(file_path)
@@ -196,6 +216,11 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
     infrastructure_errors = 0
     answer_exact_matches: List[float] = []
     answer_token_f1_scores: List[float] = []
+    deterministic_count = 0
+    deterministic_correct = 0
+    semantic_judge_count = 0
+    semantic_judge_correct = 0
+    semantic_judge_scores: List[float] = []
 
     failure_counts: Dict[str, int] = {}
     stage_latencies_sum: Dict[str, float] = {}
@@ -229,6 +254,15 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
 
         if data.get("is_correct", False):
             correct_count += 1
+
+        family = _evaluator_family(data)
+        if family == "deterministic":
+            deterministic_count += 1
+            deterministic_correct += int(bool(data.get("is_correct", False)))
+        elif family == "semantic_judge":
+            semantic_judge_count += 1
+            semantic_judge_correct += int(bool(data.get("is_correct", False)))
+            semantic_judge_scores.append(score)
 
         raw_latency = data.get("retrieval_latency_ms", data.get("latency_ms"))
         if raw_latency is not None:
@@ -343,6 +377,23 @@ def calculate_metrics_from_jsonl(file_path: str | Path) -> BenchmarkMetrics:
         answer_token_f1=(
             sum(answer_token_f1_scores) / len(answer_token_f1_scores)
             if answer_token_f1_scores
+            else None
+        ),
+        deterministic_evaluable_questions=deterministic_count,
+        deterministic_correct_answers=deterministic_correct,
+        deterministic_accuracy=(
+            deterministic_correct / deterministic_count if deterministic_count else None
+        ),
+        semantic_judge_evaluable_questions=semantic_judge_count,
+        semantic_judge_correct_answers=semantic_judge_correct,
+        semantic_judge_accuracy=(
+            semantic_judge_correct / semantic_judge_count
+            if semantic_judge_count
+            else None
+        ),
+        semantic_judge_avg_score=(
+            sum(semantic_judge_scores) / len(semantic_judge_scores)
+            if semantic_judge_scores
             else None
         ),
         infrastructure_errors=infrastructure_errors,

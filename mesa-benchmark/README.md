@@ -7,7 +7,7 @@ MESA Benchmark, bellek/retrieval sistemlerini aynı Top‑K ve aynı cevap üret
 Her soru iki ayrı hatta ölçülür:
 
 - Retrieval: `Hit@1/3/5`, MRR, nDCG@5 ve yalnızca retrieval latency. `expected_context_ids` olmayan BEAM sorularında bu metrikler `N/A` olur.
-- Full‑QA: bütün sistemlerin getirdiği Top‑5 bağlam aynı Ollama generator’a verilir; normalized EM, token F1, semantic judge, generation latency ve token kullanımı ayrı kaydedilir.
+- Full‑QA: bütün sistemlerin getirdiği Top‑5 bağlam aynı Ollama generator’a verilir; normalized EM, token F1, semantic judge, generation latency ve token kullanımı ayrı kaydedilir. Rapor, deterministic doğruluk, semantic-judge doğruluğu ve bunların birleşik primary-evaluator doğruluğunu ayrı gösterir.
 
 Her adaptörün çıktısı runner seviyesinde Top‑5’e kesilir. Purge, ingest, query, generation veya judge hatası skorlanabilir boş cevap değildir: koşum `invalid` olur ve CLI non-zero döner. Tek modelle veya bağımsız judge gerçekten çalıştırılmadan üretilen sonuç `provisional/self-judged`; generator’dan farklı judge ile hatasız sonuç `publishable` olur. Sentetik veri setleri her durumda iç regresyon verisidir.
 
@@ -29,7 +29,7 @@ IP ve model adı kodda sabit değildir:
 ```bash
 export BENCHMARK_OLLAMA_URL='http://OLLAMA_HOST:11434'
 export BENCHMARK_GENERATOR_MODEL='qweb:8b'
-export BENCHMARK_JUDGE_MODEL='qweb:8b'
+export BENCHMARK_JUDGE_MODEL='independent-judge:8b'
 ```
 
 Tek URL’den `MESA_OLLAMA_URL`, `OLLAMA_HOST` ve `OPENAI_BASE_URL` türetilir. Model etiketi `/api/tags` sonucuyla tam eşleşmelidir.
@@ -40,7 +40,9 @@ mesa-benchmark dataset-check --config mesa-benchmark/config_mini_mesa.yaml
 mesa-benchmark ollama-preflight --config mesa-benchmark/config_mini_mesa.yaml
 ```
 
-Preflight model etiketlerini ve şemalı JSON chat yanıtını doğrular.
+`config-check`, canlı Full-QA için generator, Ollama URL’si ve bağımsız judge sözleşmesini ağ çağrısı yapmadan doğrular. `ollama-preflight` bunun ardından model etiketlerini ve şemalı JSON chat yanıtını doğrular. Config dosyalarındaki boş model alanları bilinçli placeholder’dır; yukarıdaki environment değişkenleri verilmeden `config-check` fail-fast sonlanır.
+
+Yalnız tek modelle iç regresyon koşumu yapılacaksa aynı modeli generator/judge olarak kullanın ve config içindeki `runtime.require_independent_judge` değerini `false` yapın. Bu sonuç otomatik olarak `provisional/self-judged` kalır; dışarı yayımlanmaz.
 
 ## Önerilen çalışma sırası
 
@@ -89,7 +91,7 @@ PYTHONPATH=mesa-benchmark python -m pytest mesa-benchmark/tests -q
 ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/tests
 ```
 
-P95/P99 yalnız en az 20 latency gözlemi varsa raporlanır; küçük mini koşumlarda değer `N/A` olur. Bu, maksimum gecikmenin percentile gibi sunulmasını engeller.
+P95/P99 yalnız en az 20 latency gözlemi varsa raporlanır; küçük mini koşumlarda değer `N/A` olur. Multi-seed özet ve baseline karşılaştırması `N/A` değerlerini sıfır kabul etmez; kullanılan ve dışlanan seed’leri JSON raporunda belirtir.
 
 ## `mesa_evals` sınırı
 

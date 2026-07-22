@@ -18,6 +18,7 @@ Karşılaştırılan bileşen bellek/retrieval sistemidir. Cevap üretme değiş
 - Sıralı Top‑5 context ortak Ollama generator’a verilir.
 - Normalized exact match ve token F1 deterministik hesaplanır.
 - Semantic judge yanıtı strict `{is_correct: bool, score: 0..1, reasoning: str}` şemasına uymalıdır.
+- Rapor, deterministic (`exact_match`/`regex`) ve semantic-judge sonuçlarını farklı paydalarda sunar; legacy `accuracy` bütün primary evaluator sonuçlarının birleşik micro-average değeridir.
 - Ensemble gerçek boolean majority vote kullanır. Quorum sağlanmazsa koşum geçersizdir.
 - Multi-model judge adı farklı en az iki model ister. Model listesinde aynı etiketi tekrarlamak bağımsızlık sayılmaz.
 - Generation latency ve prompt/completion token sayıları retrieval değerlerinden ayrı tutulur.
@@ -49,7 +50,9 @@ Dataset doğrulayıcı duplicate kimlikleri, eksik `expected_context_ids` refera
 
 SDK/provider timeout adaptör ve Ollama client seviyesinde uygulanır. Runner detached worker thread oluşturan genel bir hard-deadline wrapper kullanmaz; native timeout hatasını altyapı hatası olarak işaretler. MESA async çağrıları adaptera ait tek, `close()` ile kapatılan event-loop worker üzerinde yürür. Her iteration başında purge zorunludur; Mem0 önceki user namespace’ini fiziksel olarak siler ve purge doğrulanamazsa sonuç üretimi durur.
 
-P95/P99 latency yalnız en az 20 gözlemde nearest-rank yöntemiyle hesaplanır. Daha küçük sample’larda değer `N/A`dır ve yayınlanabilir percentile kanıtı sayılmaz.
+P95/P99 latency yalnız en az 20 gözlemde nearest-rank yöntemiyle hesaplanır. Daha küçük sample’larda değer `N/A`dır ve yayınlanabilir percentile kanıtı sayılmaz. Multi-seed ve baseline özetleri `N/A` değerlerini sıfır saymaz; yalnız sayısal, eşlenmiş seed’lerden istatistik üretir ve dışlanan seed’leri raporlar.
+
+`config-check`, ağ çağrısı yapmadan canlı Full-QA sözleşmesini doğrular: enabled generator için model ve Ollama URL’si; agreement için judge; `require_independent_judge=true` ise generator’dan farklı judge gerekir. Tek modelle yalnız iç regresyon yapılacaksa bu son seçenek `false` olmalı ve sonuç `provisional/self-judged` olarak kalmalıdır.
 
 ## Tekrarlanabilirlik ve resume
 
@@ -58,7 +61,7 @@ P95/P99 latency yalnız en az 20 gözlemde nearest-rank yöntemiyle hesaplanır.
 - Manifest; seed, Top‑K, effective config SHA‑256, config dosyası SHA‑256, dataset SHA‑256 ve model etiketlerini içerir.
 - Resume config/dataset hash eşleşmesi olmadan reddedilir.
 - Question-level deduplication, append-only sonuç JSONL’sinden resume başında yeniden kurulur; state dosyası her soruda yeniden yazılmaz.
-- Multi-seed raporu gerçek mean, sample std, standard error ve Student‑t %95 CI üretir.
+- Multi-seed raporu gerçek mean, sample std, standard error ve Student‑t %95 CI üretir; metriğin hiçbir seed’de sayısal değeri yoksa istatistik `N/A`dır.
 - Baseline karşılaştırması ortak seed’ler ve aynı soru anahtarlarında paired fark/test; ayrıca seed agregatlarında Welch testi verir.
 - Herhangi bir seed başarısızsa multi-seed komutu non-zero döner.
 

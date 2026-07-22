@@ -112,6 +112,14 @@ class BenchmarkRunner:
             f"available={sorted(self.evaluators)}"
         )
 
+    @staticmethod
+    def _evaluator_family(strategy: str) -> str:
+        if strategy in {"llm_judge", "multi_model_judge"}:
+            return "semantic_judge"
+        if strategy in {"exact_match", "regex"}:
+            return "deterministic"
+        return "other"
+
     def _validate_execution_contract(self) -> None:
         assert self.config is not None and self.dataset_manager is not None
         required = {
@@ -514,6 +522,12 @@ class BenchmarkRunner:
                                     "completion", 0
                                 ),
                                 "evaluation_strategy": question.evaluation_strategy,
+                                "primary_evaluator_type": primary.metadata.get(
+                                    "evaluator_type", type(primary).__name__
+                                ),
+                                "evaluator_family": self._evaluator_family(
+                                    question.evaluation_strategy
+                                ),
                                 "failure_attribution": failure,
                                 "latency_breakdown_ms": response.metadata.get(
                                     "latency_breakdown_ms", {}
@@ -552,6 +566,10 @@ class BenchmarkRunner:
                                     "prompt_tokens": 0,
                                     "completion_tokens": 0,
                                     "evaluation_strategy": question.evaluation_strategy,
+                                    "primary_evaluator_type": "unavailable",
+                                    "evaluator_family": self._evaluator_family(
+                                        question.evaluation_strategy
+                                    ),
                                     "failure_attribution": "TIMEOUT_OR_ERROR",
                                     "diagnostics": {"error": str(exc)},
                                     "infrastructure_error": True,

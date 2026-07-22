@@ -15,9 +15,48 @@ def file_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def validate_live_execution_contract(config: BenchmarkConfig) -> None:
+    """Fail fast for an incomplete Full-QA configuration without network access."""
+    errors: list[str] = []
+    generator = (config.generation.model or "").removeprefix("openai/")
+    judges = {
+        model.removeprefix("openai/")
+        for model in [
+            config.evaluation.llm_judge_model or "",
+            *config.evaluation.multi_judge_models,
+        ]
+        if model
+    }
+    has_supported_judge = bool(config.evaluation.llm_judge_model) or len(judges) >= 2
+
+    if config.generation.enabled:
+        if not generator:
+            errors.append("generation.enabled=true requires a generator model")
+        if not config.runtime.ollama_url:
+            errors.append(
+                "generation.enabled=true requires runtime.ollama_url or BENCHMARK_OLLAMA_URL"
+            )
+        if config.runtime.require_independent_judge:
+            if not has_supported_judge:
+                errors.append(
+                    "runtime.require_independent_judge=true requires a configured judge"
+                )
+            elif generator and not any(judge != generator for judge in judges):
+                errors.append(
+                    "runtime.require_independent_judge=true requires a judge model different from the generator"
+                )
+
+    if config.evaluation.enable_agreement and not has_supported_judge:
+        errors.append("evaluation.enable_agreement=true requires a configured judge")
+
+    if errors:
+        raise ValueError("Invalid live benchmark configuration: " + "; ".join(errors))
+
+
 def validate_config(path: str | Path) -> dict[str, Any]:
     config = load_config(path)
     apply_runtime_environment(config)
+    validate_live_execution_contract(config)
     return {
         "config": str(path),
         "client": config.client.name,
@@ -89,6 +128,7 @@ def validate_config_and_dataset(path: str | Path) -> dict[str, Any]:
 
 def ollama_preflight(config: BenchmarkConfig) -> dict[str, Any]:
     apply_runtime_environment(config)
+    validate_live_execution_contract(config)
     import os
 
     import ollama

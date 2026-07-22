@@ -40,6 +40,7 @@ async def main():
         class MockResp:
             status = "STORED"
             node_id = "mock_123"
+            log_id = 123
 
         return MockResp()
 

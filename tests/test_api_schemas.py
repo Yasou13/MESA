@@ -401,7 +401,7 @@ class TestResponseSchemas:
 
     def test_insert_response_requires_durable_log_id(self):
         with pytest.raises(ValidationError):
-            MemoryInsertResponse(status="queued", agent_id="agent_1")
+            MemoryInsertResponse(status="queued", agent_id="agent_1")  # type: ignore[call-arg]
 
     def test_insert_response_frozen(self):
         resp = MemoryInsertResponse(status="queued", log_id=1, agent_id="agent_1")

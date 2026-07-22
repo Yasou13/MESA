@@ -309,7 +309,7 @@ def _stamp_base_revision(connection: Connection, alembic_config: Config) -> None
     migration_context.stamp(script, BASE_REVISION)
 
 
-def _adopt_legacy_schema(connection: Connection, alembic_config: object) -> None:
+def _adopt_legacy_schema(connection: Connection, alembic_config: Config) -> None:
     """Atomically bridge and stamp a recognised legacy database.
 
     The bridge and its base revision are one SQLite ``BEGIN IMMEDIATE`` unit.
@@ -332,7 +332,7 @@ def _adopt_legacy_schema(connection: Connection, alembic_config: object) -> None
         raise
 
 
-def preflight_schema(connection: Connection, alembic_config: object) -> bool:
+def preflight_schema(connection: Connection, alembic_config: Config) -> bool:
     """Validate a SQLite schema and optionally adopt a known legacy layout.
 
     Returns ``True`` only when this invocation adopted a legacy database.

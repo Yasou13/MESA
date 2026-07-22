@@ -11,7 +11,7 @@ mesa-benchmark ollama-preflight --config CONFIG
 mesa-benchmark run --config CONFIG [--seed N] [--max-scenarios N]
 ```
 
-`config-check` strict Pydantic config şemasını; `dataset-check` kimlik, expected context ve graph relation bütünlüğünü; `ollama-preflight` ise URL, tam model etiketi ve structured JSON chat davranışını doğrular.
+`config-check` strict Pydantic config şemasını ve ağsız canlı Full-QA sözleşmesini; `dataset-check` kimlik, expected context ve graph relation bütünlüğünü; `ollama-preflight` ise URL, tam model etiketi ve structured JSON chat davranışını doğrular.
 
 ## Config şeması
 
@@ -60,12 +60,12 @@ Environment config değerlerini ezebilir:
 ```bash
 BENCHMARK_OLLAMA_URL=http://host:11434
 BENCHMARK_GENERATOR_MODEL=qweb:8b
-BENCHMARK_JUDGE_MODEL=qweb:8b
+BENCHMARK_JUDGE_MODEL=independent-judge:8b
 BENCHMARK_JUDGE_MODELS=judge-a:tag,judge-b:tag
 BENCHMARK_EMBEDDING_MODEL=nomic-embed-text:latest
 ```
 
-`runtime.top_k` bütün adapter parametrelerinin üzerine yazılır. Generator/judge modeli config veya environment içinde bulunmazsa live Full‑QA setup hata verir.
+`runtime.top_k` bütün adapter parametrelerinin üzerine yazılır. Config’teki `null` model değerleri bilinçli placeholder’dır. `generation.enabled=true` iken generator model ve Ollama URL’si; agreement veya independent judge isteniyorsa uygun judge modeli `config-check` sırasında zorunludur. Bu kontrol ağ erişimi gerektirmez.
 
 ## Sonuç dosyaları
 
@@ -78,7 +78,9 @@ BENCHMARK_EMBEDDING_MODEL=nomic-embed-text:latest
 
 Eski hash içermeyen state otomatik resume edilmez. Mevcut raw sonuçlar silinmez veya üzerine yazılmaz.
 
-P95/P99 yalnızca en az 20 retrieval-latency gözlemi için nearest-rank yöntemiyle hesaplanır; daha küçük sample’larda rapor `N/A` gösterir.
+P95/P99 yalnızca en az 20 retrieval-latency gözlemi için nearest-rank yöntemiyle hesaplanır; daha küçük sample’larda rapor `N/A` gösterir. Multi-seed JSON özetinde `N/A` metrikler sıfır olarak ortalanmaz; her metrik için kullanılan/dışlanan seed’ler yazılır.
+
+Rapor doğrulukları üç ayrı satırda verir: tüm primary evaluator sonuçlarının birleşik micro-average değeri, exact-match/regex deterministic doğruluğu ve LLM judge/multi-model judge semantic doğruluğu. Semantic judge sorusu yoksa ilgili satır `N/A` olur.
 
 ## Multi-seed ve baseline
 
@@ -121,7 +123,7 @@ Provider hataları loglanıp boş/sahte başarıya çevrilmemelidir. Query limit
 ```bash
 export BENCHMARK_OLLAMA_URL='http://REMOTE:11434'
 export BENCHMARK_GENERATOR_MODEL='qweb:8b'
-export BENCHMARK_JUDGE_MODEL='qweb:8b'
+export BENCHMARK_JUDGE_MODEL='independent-judge:8b'
 
 mesa-benchmark ollama-preflight -c mesa-benchmark/config_mini_mesa.yaml
 mesa-benchmark run -c mesa-benchmark/config_mini_mesa.yaml
@@ -133,4 +135,4 @@ python scripts/reproduce_benchmark.py \
   --seeds 42,43,44,45,46
 ```
 
-Aynı `qweb:8b` hem generator hem judge ise rapor bilinçli olarak `provisional/self-judged` olur. `publishable` için `BENCHMARK_JUDGE_MODEL` değerini generator’dan farklı bağımsız bir model etiketi yapın.
+Varsayılan config `require_independent_judge: true` olduğu için generator ile aynı judge etiketi `config-check` tarafından reddedilir. Yalnız iç regresyon için aynı `qweb:8b` kullanılacaksa bu değeri `false` yapın; rapor bilinçli olarak `provisional/self-judged` olur. `publishable` için `BENCHMARK_JUDGE_MODEL` generator’dan farklı bağımsız bir model etiketi olmalıdır.

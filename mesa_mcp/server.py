@@ -137,7 +137,7 @@ async def call_tool(
                         type="text",
                         text=(
                             f"Memory successfully recorded. Status: {response.status}. "
-                            f"Node ID: {response.node_id}"
+                            f"Log ID: {response.log_id}"
                         ),
                     )
                 ]
