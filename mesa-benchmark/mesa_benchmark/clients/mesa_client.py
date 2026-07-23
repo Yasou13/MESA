@@ -6,6 +6,8 @@ import queue
 import tempfile
 import threading
 import time
+from inspect import signature
+from pathlib import Path
 from typing import Any, Dict
 
 from ..datasets.schemas import BenchmarkQuestion, MemoryContext
@@ -113,6 +115,42 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         self.timeout_s: float = 30.0
         self._worker: _MesaEventLoopWorker | None = None
         self.context_id_map: Dict[str, str] = {}
+        self.native_ingest = False
+        self.consolidation_loop: Any = None
+
+    def _create_consolidation_loop(self) -> Any:
+        """Build the native loop with isolated queues across MESA versions."""
+        from mesa_memory.config import config as mesa_config
+        from mesa_memory.consolidation.loop import ConsolidationLoop
+        from mesa_memory.observability.metrics import ObservabilityLayer
+
+        loop_args: dict[str, Any] = {
+            "dao": self.memory_dao,
+            "embedder": AdapterFactory.get_adapter("auto"),
+            "llm_a": AdapterFactory.get_adapter("auto"),
+            "llm_b": AdapterFactory.get_adapter("auto"),
+            "obs_layer": ObservabilityLayer(),
+            "agent_id": "benchmark",
+        }
+        queue_root = Path(self.temp_dir.name) / "queues"
+        if "queue_root" in signature(ConsolidationLoop).parameters:
+            loop_args["queue_root"] = queue_root
+            return ConsolidationLoop(**loop_args)
+
+        queue_root.mkdir(parents=True, exist_ok=True)
+        isolated = {
+            "storage_path": str(queue_root),
+            "human_review_queue_path": str(queue_root / "human-review.jsonl"),
+            "dead_letter_queue_path": str(queue_root / "dead-letter.jsonl"),
+        }
+        original = {name: getattr(mesa_config, name) for name in isolated}
+        try:
+            for name, value in isolated.items():
+                object.__setattr__(mesa_config, name, value)
+            return ConsolidationLoop(**loop_args)
+        finally:
+            for name, value in original.items():
+                object.__setattr__(mesa_config, name, value)
 
     def initialize(self, config_params: Dict[str, Any]) -> None:
         """Initializes MESA storage engines (SQLite, LanceDB, KùzuDB), HybridRetriever, and CrossEncoder Reranker."""
@@ -126,6 +164,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             "reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"
         )
         self.timeout_s = float(config_params.get("timeout_s", 30.0))
+        self.native_ingest = bool(config_params.get("native_ingest", False))
 
         self.temp_dir = tempfile.TemporaryDirectory()
         db_path = f"{self.temp_dir.name}/mesa.db"
@@ -160,6 +199,9 @@ class MesaClientAdapter(AbstractBenchmarkClient):
                 graph_provider=self.graph_provider,
             )
             await self.memory_dao.initialize()
+
+            if self.native_ingest:
+                self.consolidation_loop = self._create_consolidation_loop()
 
             logger.info("Initializing reranker")
             reranker_instance = None
@@ -230,6 +272,40 @@ class MesaClientAdapter(AbstractBenchmarkClient):
         start_time = time.time()
 
         async def _add() -> None:
+            if self.native_ingest:
+                from mesa_workers.ingestion_worker import process_cold_path
+
+                for context in contexts:
+                    before = {
+                        str(item.get("id") or item.get("cmb_id"))
+                        for item in await self.memory_dao.get_memories("benchmark")
+                    }
+                    log_id = await self.memory_dao.insert_raw_log(
+                        "benchmark",
+                        {
+                            "agent_id": "benchmark",
+                            "session_id": "dashboard-native",
+                            "content": context.text,
+                            "metadata": {
+                                **dict(context.metadata or {}),
+                                "original_context_id": context.id,
+                            },
+                        },
+                    )
+                    await process_cold_path(
+                        log_id,
+                        "benchmark",
+                        self.memory_dao,
+                        self.consolidation_loop,
+                        model_processing_enabled=True,
+                    )
+                    after = await self.memory_dao.get_memories("benchmark")
+                    for item in after:
+                        node_id = str(item.get("id") or item.get("cmb_id"))
+                        if node_id and node_id not in before:
+                            self.context_id_map[node_id] = context.id
+                return
+
             local_entities: dict[str, str] = {}
             inserted: list[tuple[MemoryContext, str]] = []
             for context in contexts:

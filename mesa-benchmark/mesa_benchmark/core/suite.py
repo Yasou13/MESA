@@ -101,61 +101,67 @@ def sync_suite(value: str | Path) -> dict[str, Any]:
     _, suite = load_suite(value)
     completed: list[str] = []
     for target in suite.sync:
-        if target == "quality-synthetic":
-            completed.append("quality-synthetic:packaged")
-            continue
-        elif target == "beam-128k":
-            _script(
-                "download_beam.py",
-                "--output",
-                str(data_root() / "external" / "beam" / "v2" / "dataset.json"),
-                "--split",
-                "100K",
-            )
-        elif target in {"beam-500k", "beam-1m"}:
-            split = "500K" if target == "beam-500k" else "1M"
-            filename = "500k.json" if split == "500K" else "1m.json"
-            _script(
-                "download_beam.py",
-                "--output",
-                str(data_root() / "generated" / "beam" / "scale" / filename),
-                "--split",
-                split,
-            )
-        elif target == "beam-10m-capacity-opt-in":
-            if os.environ.get("MESA_BENCHMARK_ENABLE_10M") == "1":
-                _script("generate_beam_capacity.py", "--target-tokens", "10000000")
-            else:
-                completed.append(f"{target}:skipped")
-                continue
-        elif target == "beam-512-64-ablation":
-            _script(
-                "generate_beam_chunk_ablation.py",
-                "--chunk-size",
-                "512",
-                "--overlap",
-                "64",
-            )
-        elif target == "longmemeval-s":
-            _script("download_longmemeval.py")
-        elif target == "memoryagentbench-core":
-            _script("download_memoryagentbench.py", "--chunk-size", "512")
-        elif target == "memoryagentbench-recsys":
-            _script(
-                "download_memoryagentbench.py",
-                "--track",
-                "recsys",
-                "--chunk-size",
-                "512",
-            )
-        elif target == "locomo":
-            _script("download_locomo.py")
+        result = sync_target(target)
+        if result.get("reason") == "packaged":
+            completed.append(f"{target}:packaged")
         else:
-            raise ValueError(f"unknown dataset sync target: {target}")
-        completed.append(target)
+            completed.append(f"{target}:skipped" if result["skipped"] else target)
     result = check_suite(value)
     result["synced"] = completed
     return result
+
+
+def sync_target(target: str) -> dict[str, Any]:
+    """Synchronize one allow-listed dataset target for dashboard use."""
+    if target == "quality-synthetic":
+        return {"target": target, "skipped": True, "reason": "packaged"}
+    if target == "beam-128k":
+        _script(
+            "download_beam.py",
+            "--output",
+            str(data_root() / "external" / "beam" / "v2" / "dataset.json"),
+            "--split",
+            "100K",
+        )
+    elif target in {"beam-500k", "beam-1m"}:
+        split = "500K" if target == "beam-500k" else "1M"
+        filename = "500k.json" if split == "500K" else "1m.json"
+        _script(
+            "download_beam.py",
+            "--output",
+            str(data_root() / "generated" / "beam" / "scale" / filename),
+            "--split",
+            split,
+        )
+    elif target == "beam-10m-capacity-opt-in":
+        if os.environ.get("MESA_BENCHMARK_ENABLE_10M") != "1":
+            return {"target": target, "skipped": True, "reason": "explicit opt-in"}
+        _script("generate_beam_capacity.py", "--target-tokens", "10000000")
+    elif target == "beam-512-64-ablation":
+        _script(
+            "generate_beam_chunk_ablation.py",
+            "--chunk-size",
+            "512",
+            "--overlap",
+            "64",
+        )
+    elif target == "longmemeval-s":
+        _script("download_longmemeval.py")
+    elif target == "memoryagentbench-core":
+        _script("download_memoryagentbench.py", "--chunk-size", "512")
+    elif target == "memoryagentbench-recsys":
+        _script(
+            "download_memoryagentbench.py",
+            "--track",
+            "recsys",
+            "--chunk-size",
+            "512",
+        )
+    elif target == "locomo":
+        _script("download_locomo.py")
+    else:
+        raise ValueError(f"unknown dataset sync target: {target}")
+    return {"target": target, "skipped": False}
 
 
 def _resolved_config_path(run: SuiteRun, directory: Path) -> Path:

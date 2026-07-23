@@ -41,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     suite_run_parser.add_argument("--results-root")
     verify_parser = subparsers.add_parser("verify-results")
     verify_parser.add_argument("--bundle", required=True)
+    dashboard_parser = subparsers.add_parser(
+        "dashboard", help="Start the local MESA Benchmark Console"
+    )
+    dashboard_parser.add_argument("--host", default="127.0.0.1")
+    dashboard_parser.add_argument("--port", type=int, default=8765)
+    dashboard_parser.add_argument("--results-root")
     return parser
 
 
@@ -66,6 +72,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "verify-results":
         print_json(verify_results(args.bundle))
+        return 0
+    if args.command == "dashboard":
+        if args.host not in {"127.0.0.1", "localhost", "::1"}:
+            raise SystemExit(
+                "Benchmark Console is local-only; host must be a loopback address"
+            )
+        import uvicorn
+
+        from .dashboard.app import create_dashboard_app
+
+        uvicorn.run(
+            create_dashboard_app(results_root=args.results_root),
+            host=args.host,
+            port=args.port,
+            log_level="info",
+        )
         return 0
     if args.command == "run":
         if args.max_scenarios is not None:

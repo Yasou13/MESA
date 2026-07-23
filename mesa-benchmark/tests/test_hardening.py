@@ -350,10 +350,55 @@ def test_mem0_enforces_limit_and_propagates_failures() -> None:
     adapter.top_n = 5
     mock_memory.search.return_value = []
     adapter.answer(BenchmarkQuestion(id="q", query="query", ground_truth="answer"))
-    assert mock_memory.search.call_args.kwargs["limit"] == 5
+    assert mock_memory.search.call_args.kwargs == {
+        "filters": {"user_id": adapter.current_user_id},
+        "top_k": 5,
+    }
     mock_memory.add.side_effect = RuntimeError("provider down")
     with pytest.raises(RuntimeError, match="provider down"):
         adapter.add_memory(MemoryContext(id="c", text="text"))
+
+
+def test_mem0_maps_sdk_memory_ids_when_search_metadata_is_null() -> None:
+    adapter = Mem0ClientAdapter()
+    memory = MagicMock()
+    memory.add.return_value = [{"id": "mem-1", "memory": "stored"}]
+    memory.search.return_value = {
+        "results": [
+            {
+                "id": "mem-1",
+                "memory": "stored",
+                "metadata": None,
+                "score": 0.9,
+            }
+        ]
+    }
+    adapter.memory = cast(Any, memory)
+
+    adapter.add_memory(MemoryContext(id="ctx-1", text="stored"))
+    response = adapter.answer(
+        BenchmarkQuestion(id="q", query="query", ground_truth="stored")
+    )
+
+    assert response.retrieved_context_ids == ["ctx-1"]
+    assert response.retrieved_contexts[0].id == "ctx-1"
+
+
+def test_mem0_quality_ingest_can_disable_llm_inference() -> None:
+    adapter = Mem0ClientAdapter()
+    adapter.infer = False
+    memory = MagicMock()
+    memory.add.return_value = {"results": []}
+    adapter.memory = cast(Any, memory)
+
+    adapter.add_memory(MemoryContext(id="ctx-1", text="stored"))
+
+    memory.add.assert_called_once_with(
+        "stored",
+        user_id=adapter.current_user_id,
+        metadata={"id": "ctx-1"},
+        infer=False,
+    )
 
 
 def test_mem0_applies_provider_native_timeout() -> None:
@@ -368,6 +413,58 @@ def test_mem0_applies_provider_native_timeout() -> None:
         adapter.initialize({"mem0_config": {}, "timeout_s": 1.25})
     assert fake_memory.llm.client.timeout == 1.25
     assert fake_memory.embedding_model.client.timeout == 1.25
+
+
+def test_mem0_does_not_pass_timeout_to_sdk_component_configs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BENCHMARK_GENERATOR_MODEL", "generator:8b")
+    client = SimpleNamespace(timeout=None)
+    fake_memory = SimpleNamespace(
+        llm=SimpleNamespace(client=client),
+        embedding_model=SimpleNamespace(client=SimpleNamespace(timeout=None)),
+    )
+    with patch("mesa_benchmark.clients.mem0_client.Memory") as memory_class:
+        memory_class.from_config.return_value = fake_memory
+        adapter = Mem0ClientAdapter()
+        adapter.initialize({"embedding_model": "all-MiniLM-L6-v2", "timeout_s": 1.25})
+
+    mem0_config = memory_class.from_config.call_args.args[0]
+    assert "timeout" not in mem0_config["llm"]["config"]
+    assert "timeout" not in mem0_config["embedder"]["config"]
+    assert mem0_config["embedder"]["config"]["embedding_dims"] == 384
+    assert mem0_config["vector_store"]["config"] == {
+        "path": ":memory:",
+        "embedding_model_dims": 384,
+    }
+
+
+def test_mem0_direct_ingest_does_not_require_generator_or_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BENCHMARK_GENERATOR_MODEL", raising=False)
+    client = SimpleNamespace(timeout=None)
+    fake_memory = SimpleNamespace(
+        llm=SimpleNamespace(client=client),
+        embedding_model=SimpleNamespace(client=SimpleNamespace(timeout=None)),
+    )
+    with patch("mesa_benchmark.clients.mem0_client.Memory") as memory_class:
+        memory_class.from_config.return_value = fake_memory
+        adapter = Mem0ClientAdapter()
+        adapter.initialize(
+            {
+                "embedding_model": "all-MiniLM-L6-v2",
+                "infer": False,
+                "timeout_s": 1.25,
+            }
+        )
+
+    llm_config = memory_class.from_config.call_args.args[0]["llm"]["config"]
+    assert llm_config == {
+        "model": "unused-direct-ingest",
+        "api_key": "not-used",
+        "openai_base_url": "http://127.0.0.1:9/v1",
+    }
 
 
 def test_mem0_purges_previous_namespace_on_clear_and_close() -> None:
@@ -423,6 +520,60 @@ def test_mesa_adapter_owns_and_closes_one_event_loop_worker() -> None:
     adapter.close()
     assert not worker.thread.is_alive()
     assert asyncio.get_event_loop_policy() is policy
+
+
+def test_mesa_native_loop_isolates_queues_with_legacy_constructor(
+    tmp_path: Path,
+) -> None:
+    adapter = MesaClientAdapter()
+    adapter.temp_dir = SimpleNamespace(name=str(tmp_path))
+    adapter.memory_dao = object()
+    captured: dict[str, str] = {}
+
+    class LegacyConsolidationLoop:
+        def __init__(
+            self,
+            dao: object,
+            embedder: object,
+            llm_a: object,
+            llm_b: object,
+            obs_layer: object,
+            agent_id: str = "mesa_consolidation_system",
+        ) -> None:
+            from mesa_memory.config import config
+
+            captured["storage_path"] = config.storage_path
+            captured["human_review_queue_path"] = config.human_review_queue_path
+            captured["dead_letter_queue_path"] = config.dead_letter_queue_path
+
+    from mesa_memory.config import config
+
+    original = (
+        config.storage_path,
+        config.human_review_queue_path,
+        config.dead_letter_queue_path,
+    )
+    with (
+        patch(
+            "mesa_memory.consolidation.loop.ConsolidationLoop",
+            LegacyConsolidationLoop,
+        ),
+        patch(
+            "mesa_benchmark.clients.mesa_client.AdapterFactory.get_adapter",
+            return_value=MagicMock(),
+        ),
+    ):
+        loop = adapter._create_consolidation_loop()
+
+    assert isinstance(loop, LegacyConsolidationLoop)
+    assert Path(captured["storage_path"]) == tmp_path / "queues"
+    assert Path(captured["human_review_queue_path"]).parent == tmp_path / "queues"
+    assert Path(captured["dead_letter_queue_path"]).parent == tmp_path / "queues"
+    assert (
+        config.storage_path,
+        config.human_review_queue_path,
+        config.dead_letter_queue_path,
+    ) == original
 
 
 class _FakeOllamaHandler(BaseHTTPRequestHandler):
@@ -607,6 +758,7 @@ def test_mesa_runner_end_to_end_with_real_storage_and_fake_ollama(
     config.write_text(
         config.read_text()
         .replace("name: dummy", "name: mesa")
+        .replace("timeout_ms: 2000", "timeout_ms: 30000")
         .replace(
             "mesa_benchmark.clients.dummy_client.DummyClientAdapter",
             "mesa_benchmark.clients.mesa_client.MesaClientAdapter",

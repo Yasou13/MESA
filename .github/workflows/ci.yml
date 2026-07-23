@@ -98,6 +98,7 @@ jobs:
         with:
           path: ./
           version: 3.95.2
+          extra_args: --results=verified,unknown
       - name: Install graph-audit test dependencies
         run: |
           python -m pip install "uv==0.9.6"
