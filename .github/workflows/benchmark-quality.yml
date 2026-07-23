@@ -34,8 +34,19 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mesa-benchmark/dashboard-ui/package-lock.json
       - run: python -m pip install "uv==0.9.6"
       - run: uv sync --locked --extra dev
+      - name: Benchmark Console build and component tests
+        working-directory: mesa-benchmark/dashboard-ui
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm run build
       - name: Unit, golden, schema, converter, and verifier contracts
         run: uv run python -m pytest -q mesa-benchmark/tests
       - name: Benchmark lint and type contracts
@@ -47,6 +58,9 @@ jobs:
           uv run mesa-benchmark dataset-sync --suite smoke
           uv run mesa-benchmark dataset-check --config resource://configs/internal/smoke_dense.yaml --profile internal
           uv run mesa-benchmark run-suite --suite smoke --results-root "$RUNNER_TEMP/benchmark-results"
+      - name: Benchmark Console browser smoke
+        working-directory: mesa-benchmark/dashboard-ui
+        run: npm run test:e2e
       - name: Artifact hygiene
         run: |
           test -z "$(git ls-files | grep -E '(^|/)(__pycache__|results|build/lib/mesa_benchmark)(/|$)|\.py[co]$' || true)"

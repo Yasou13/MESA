@@ -108,6 +108,27 @@ class StateManager:
         self.state.status = "completed"
         self.save_state()
 
+    def mark_running(self) -> None:
+        if not self.state:
+            return
+        self.state.status = "running"
+        self.state.error_message = None
+        self.save_state()
+
+    def mark_paused(self) -> None:
+        if not self.state:
+            return
+        self.state.status = "paused"
+        self.state.error_message = None
+        self.save_state()
+
+    def mark_cancelled(self) -> None:
+        if not self.state:
+            return
+        self.state.status = "cancelled"
+        self.state.error_message = None
+        self.save_state()
+
     def mark_failed(self, error_message: str) -> None:
         if not self.state:
             return

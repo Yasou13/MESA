@@ -319,4 +319,5 @@ exclude_lines = [
 "mesa_benchmark" = [
     "resources/**/*.json",
     "resources/**/*.yaml",
+    "dashboard/static/**/*",
 ]

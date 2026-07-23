@@ -27,6 +27,23 @@ mesa-benchmark dataset-sync --suite research
 mesa-benchmark suite-check --suite research
 ```
 
+## Yerel Benchmark Console
+
+Benchmark planlama, deterministic sharding, canlı ilerleme, güvenli
+duraklatma/devam ve sonuç karşılaştırması için:
+
+```bash
+cd mesa-benchmark/dashboard-ui
+npm ci
+npm run build
+cd ../..
+mesa-benchmark dashboard
+```
+
+Panel yalnız `http://127.0.0.1:8765` adresinde açılır. `Yeni Benchmark`
+sihirbazı profile uygun ingest semantiğini uygular; çalışma sırasında görülen
+metrikler verification tamamlanana kadar `Geçici` olarak işaretlenir.
+
 `smoke` deterministik ve internal’dır. `release`, BEAM 128K,
 LongMemEval_S cleaned ve MemoryAgentBench ana track’lerini MESA + dense RAG +
 Mem0 + Letta ile çalıştırır. `research`, CC-BY-NC LoCoMo’yu ana ticari skordan

@@ -27,6 +27,7 @@ from .config import BenchmarkConfig, apply_runtime_environment, load_config
 from .generation import OllamaAnswerGenerator
 from .paths import resolve_config_path, resolve_results_root
 from .preflight import file_sha256, validate_live_execution_contract
+from .progress import BenchmarkControlRequested, ProgressSink
 from .state_manager import StateManager
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,8 @@ class BenchmarkRunner:
         *,
         seed: Optional[int] = None,
         results_root: str | Path | None = None,
+        event_file: str | Path | None = None,
+        control_file: str | Path | None = None,
     ) -> None:
         try:
             self.config_path = resolve_config_path(config_path)
@@ -79,6 +82,9 @@ class BenchmarkRunner:
         self.judge_evaluations = 0
         self.dataset_manifest: Optional[DatasetManifest] = None
         self.ingest_latency_ms = 0.0
+        self.progress = ProgressSink(
+            self.run_id, event_file=event_file, control_file=control_file
+        )
 
     def _register_evaluators(self) -> None:
         assert self.config is not None
@@ -253,6 +259,7 @@ class BenchmarkRunner:
         raise RuntimeError("unreachable retry state")
 
     def setup(self) -> None:
+        self.progress.emit("setup", "started", message="Benchmark hazırlanıyor")
         self.config = load_config(self.config_path)
         if self.seed_override is not None:
             self.config = self.config.model_copy(update={"seed": self.seed_override})
@@ -312,7 +319,7 @@ class BenchmarkRunner:
         ).hexdigest()
         dataset_hash = file_sha256(self.config.dataset.path)
         existing = self.state_manager.load_state()
-        if existing and existing.status == "running":
+        if existing and existing.status in {"running", "paused"}:
             if not existing.config_hash or not existing.dataset_hash:
                 raise RuntimeError(
                     "refusing resume: legacy state lacks config/dataset hashes"
@@ -330,6 +337,7 @@ class BenchmarkRunner:
             if not self.completed_questions:
                 self.completed_questions = set(existing.completed_questions)
             existing.completed_questions.clear()
+            self.state_manager.mark_running()
         else:
             self.state_manager.initialize_state(
                 self.run_id,
@@ -343,6 +351,25 @@ class BenchmarkRunner:
         self._load_generator()
         self._load_client()
         self._write_manifest(config_hash, dataset_hash, config_file_hash)
+        assert self.dataset_manager is not None
+        self.progress.run_id = self.run_id
+        self.progress.emit(
+            "setup",
+            "completed",
+            message="Benchmark hazır",
+            scenario_total=len(self.dataset_manager),
+            question_total=sum(
+                len(item.questions) for item in self.dataset_manager.scenarios
+            )
+            * self.config.iterations,
+            metadata={
+                "results_file": (
+                    self.state_manager.state.results_file
+                    if self.state_manager.state is not None
+                    else None
+                )
+            },
+        )
 
     def _completed_keys_from_results(self, results_file: str, run_id: str) -> set[str]:
         """Rebuild resume deduplication from durable append-only JSONL output."""
@@ -554,17 +581,58 @@ class BenchmarkRunner:
             for index, context in enumerate(scenario.contexts)
         ]
 
-    def _ingest_scenario(self, scenario: Any) -> float:
+    def _ingest_scenario(
+        self,
+        scenario: Any,
+        *,
+        iteration: int | None = None,
+        scenario_index: int | None = None,
+        scenario_total: int | None = None,
+    ) -> float:
         assert self.client is not None
         started = time.perf_counter()
         mode = self.dataset_manifest.ingest_mode if self.dataset_manifest else "batch"
+        context_total = len(scenario.contexts)
+        self.progress.emit(
+            "ingest",
+            "started",
+            iteration=iteration,
+            scenario_index=scenario_index,
+            scenario_total=scenario_total,
+            scenario_id=scenario.id,
+            context_index=0,
+            context_total=context_total,
+        )
         if mode == "sequential":
-            for context in scenario.contexts:
+            for context_index, context in enumerate(scenario.contexts, start=1):
+                self.progress.check_control()
                 self._call_with_backoff(self.client.add_memory, context)
+                self.progress.emit(
+                    "ingest",
+                    "progress",
+                    iteration=iteration,
+                    scenario_index=scenario_index,
+                    scenario_total=scenario_total,
+                    scenario_id=scenario.id,
+                    context_index=context_index,
+                    context_total=context_total,
+                )
         else:
+            self.progress.check_control()
             self._call_with_backoff(self.client.add_memories, scenario.contexts)
         latency = (time.perf_counter() - started) * 1000.0
         self.ingest_latency_ms += latency
+        self.progress.emit(
+            "ingest",
+            "completed",
+            iteration=iteration,
+            scenario_index=scenario_index,
+            scenario_total=scenario_total,
+            scenario_id=scenario.id,
+            context_index=context_total,
+            context_total=context_total,
+            elapsed_ms=latency,
+        )
         return latency
 
     def _agreement_from_results(self, result_file: str) -> dict[str, Any]:
@@ -607,13 +675,34 @@ class BenchmarkRunner:
 
         try:
             start_iteration = state.current_iteration
+            total_questions = (
+                sum(
+                    len(item.questions)
+                    for item in self.dataset_manager.scenarios[:total_scenarios]
+                )
+                * self.config.iterations
+            )
+            completed_question_count = len(self.completed_questions)
             for iteration in range(start_iteration, self.config.iterations + 1):
+                self.progress.check_control()
+                self.progress.emit(
+                    "purge",
+                    "started",
+                    iteration=iteration,
+                    scenario_total=total_scenarios,
+                )
                 try:
                     self.client.clear_memory()
                 except Exception as exc:
                     raise MemoryPurgeError(
                         f"clear_memory failed; isolation is unproven: {exc}"
                     ) from exc
+                self.progress.emit(
+                    "purge",
+                    "completed",
+                    iteration=iteration,
+                    scenario_total=total_scenarios,
+                )
 
                 start_scenario = (
                     state.current_scenario_idx if iteration == start_iteration else 0
@@ -626,9 +715,15 @@ class BenchmarkRunner:
                 if isolation == "cumulative":
                     for rebuild_index in range(start_scenario):
                         scenario = self.dataset_manager.get_scenario(rebuild_index)
-                        self._ingest_scenario(scenario)
+                        self._ingest_scenario(
+                            scenario,
+                            iteration=iteration,
+                            scenario_index=rebuild_index + 1,
+                            scenario_total=total_scenarios,
+                        )
 
                 for scenario_index in range(start_scenario, total_scenarios):
+                    self.progress.check_control()
                     scenario = self.dataset_manager.get_scenario(scenario_index)
                     if isolation == "scenario":
                         try:
@@ -638,16 +733,48 @@ class BenchmarkRunner:
                                 "scenario purge failed; isolation is unproven: "
                                 f"{exc}"
                             ) from exc
-                    scenario_ingest_latency = self._ingest_scenario(scenario)
+                    scenario_ingest_latency = self._ingest_scenario(
+                        scenario,
+                        iteration=iteration,
+                        scenario_index=scenario_index + 1,
+                        scenario_total=total_scenarios,
+                    )
                     storage_size_bytes = self.client.storage_size_bytes()
                     chunk_hashes = self._chunk_hashes(scenario)
                     for question in scenario.questions:
                         key = self._question_key(iteration, scenario.id, question.id)
                         if key in self.completed_questions:
                             continue
+                        self.progress.check_control()
+                        question_position = completed_question_count + 1
                         try:
+                            retrieval_started = time.perf_counter()
+                            self.progress.emit(
+                                "retrieval",
+                                "started",
+                                iteration=iteration,
+                                scenario_index=scenario_index + 1,
+                                scenario_total=total_scenarios,
+                                scenario_id=scenario.id,
+                                question_index=question_position,
+                                question_total=total_questions,
+                                question_id=question.id,
+                            )
                             retrieval_response = self._call_with_backoff(
                                 self.client.answer, question
+                            )
+                            self.progress.emit(
+                                "retrieval",
+                                "completed",
+                                iteration=iteration,
+                                scenario_index=scenario_index + 1,
+                                scenario_total=total_scenarios,
+                                scenario_id=scenario.id,
+                                question_index=question_position,
+                                question_total=total_questions,
+                                question_id=question.id,
+                                elapsed_ms=(time.perf_counter() - retrieval_started)
+                                * 1000.0,
                             )
                             retrieval_response = retrieval_response.enforce_top_k(
                                 max(
@@ -660,7 +787,46 @@ class BenchmarkRunner:
                             response = retrieval_response.enforce_top_k(
                                 self.config.runtime.top_k
                             )
-                            response = self._apply_generation(response, question)
+                            if self.generator is not None:
+                                generation_started = time.perf_counter()
+                                self.progress.emit(
+                                    "generation",
+                                    "started",
+                                    iteration=iteration,
+                                    scenario_index=scenario_index + 1,
+                                    scenario_total=total_scenarios,
+                                    scenario_id=scenario.id,
+                                    question_index=question_position,
+                                    question_total=total_questions,
+                                    question_id=question.id,
+                                )
+                                response = self._apply_generation(response, question)
+                                self.progress.emit(
+                                    "generation",
+                                    "completed",
+                                    iteration=iteration,
+                                    scenario_index=scenario_index + 1,
+                                    scenario_total=total_scenarios,
+                                    scenario_id=scenario.id,
+                                    question_index=question_position,
+                                    question_total=total_questions,
+                                    question_id=question.id,
+                                    elapsed_ms=(
+                                        time.perf_counter() - generation_started
+                                    )
+                                    * 1000.0,
+                                )
+                            self.progress.emit(
+                                "evaluation",
+                                "started",
+                                iteration=iteration,
+                                scenario_index=scenario_index + 1,
+                                scenario_total=total_scenarios,
+                                scenario_id=scenario.id,
+                                question_index=question_position,
+                                question_total=total_questions,
+                                question_id=question.id,
+                            )
                             primary, secondary = self._dual_evaluate(response, question)
                             expected = question.supporting_context_ids
                             has_hit = any(
@@ -688,6 +854,7 @@ class BenchmarkRunner:
                                 "latency_ms": response.retrieval_latency_ms,
                                 "retrieval_latency_ms": response.retrieval_latency_ms,
                                 "generation_latency_ms": response.generation_latency_ms,
+                                "query": question.query,
                                 "ground_truth": question.ground_truth,
                                 "reference_answers": question.reference_answers,
                                 "rubric": question.rubric,
@@ -761,6 +928,23 @@ class BenchmarkRunner:
                                     ),
                                 )
                             self._append_result(record, key)
+                            completed_question_count += 1
+                            self.progress.emit(
+                                "evaluation",
+                                "completed",
+                                iteration=iteration,
+                                scenario_index=scenario_index + 1,
+                                scenario_total=total_scenarios,
+                                scenario_id=scenario.id,
+                                question_index=completed_question_count,
+                                question_total=total_questions,
+                                question_id=question.id,
+                                metadata={
+                                    "score": primary.score,
+                                    "is_correct": primary.is_correct,
+                                    "retrieved_context_ids": response.retrieved_context_ids,
+                                },
+                            )
                         except Exception as exc:
                             infrastructure_errors += 1
                             state.infrastructure_errors = infrastructure_errors
@@ -776,6 +960,7 @@ class BenchmarkRunner:
                                     "latency_ms": None,
                                     "retrieval_latency_ms": None,
                                     "generation_latency_ms": None,
+                                    "query": question.query,
                                     "ground_truth": question.ground_truth,
                                     "reference_answers": question.reference_answers,
                                     "rubric": question.rubric,
@@ -808,6 +993,7 @@ class BenchmarkRunner:
                                 },
                                 key,
                             )
+                            completed_question_count += 1
                     self.state_manager.update_progress(iteration, scenario_index + 1)
 
             try:
@@ -818,6 +1004,7 @@ class BenchmarkRunner:
                 state.infrastructure_errors = infrastructure_errors
                 logger.error("Client close failed", exc_info=True)
 
+            self.progress.emit("reporting", "started")
             metrics = calculate_metrics_from_jsonl(state.results_file)
             metrics_dict = metrics.model_dump()
             metrics_dict["agreement"] = self._agreement_from_results(state.results_file)
@@ -840,11 +1027,37 @@ class BenchmarkRunner:
                     f"run invalid: {infrastructure_errors} infrastructure error(s)"
                 )
             self.state_manager.mark_completed()
+            self.progress.emit(
+                "reporting",
+                "completed",
+                question_index=completed_question_count,
+                question_total=total_questions,
+                metadata={"valid": True, "metrics": metrics_dict},
+            )
             return {
                 "run_id": self.run_id,
                 "results_file": state.results_file,
                 "report_file": report_path,
                 "metrics": metrics_dict,
+            }
+        except BenchmarkControlRequested as exc:
+            if exc.action == "pause":
+                self.state_manager.mark_paused()
+            else:
+                self.state_manager.mark_cancelled()
+            self.progress.emit(
+                "control",
+                exc.action,
+                message=(
+                    "Benchmark güvenli checkpointte duraklatıldı"
+                    if exc.action == "pause"
+                    else "Benchmark güvenli checkpointte durduruldu"
+                ),
+            )
+            return {
+                "run_id": self.run_id,
+                "status": "paused" if exc.action == "pause" else "cancelled",
+                "results_file": state.results_file,
             }
         except MemoryPurgeError as exc:
             self.state_manager.mark_failed(str(exc))
