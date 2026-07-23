@@ -10,7 +10,7 @@ runs:
     config: "resource://configs/release/beam_128k.yaml"
     client_override: &mesa
       name: "mesa"
-      adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+      adapter_class: "mesa_benchmark.clients.mesa_client.MesaV4ClientAdapter"
       timeout_ms: 30000
       parameters: {enable_multi_hop: false, enable_rerank: false, embedding_model: "all-MiniLM-L6-v2"}
   - id: "beam-dense"

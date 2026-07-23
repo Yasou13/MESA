@@ -460,6 +460,16 @@ class KuzuGraphProvider(BaseGraphProvider):
         if not node_ids:
             return
         composite_ids = [self._composite_id(agent_id, node_id) for node_id in node_ids]
+        # Assertions are immutable facts, but their validity depends on their
+        # exact entity artifacts.  Delete every assertion attached to a
+        # purged entity before deleting the entity itself; otherwise Graph V2
+        # retains provenance records that can never be reached or invalidated.
+        for relation_table in ("AssertionSubject", "AssertionObject"):
+            await self.execute_write(
+                f"MATCH (a:Assertion)-[:{relation_table}]->(n:Entity {{agent_id: $agent_id}}) "
+                "WHERE n.id IN $node_ids DETACH DELETE a",
+                {"agent_id": agent_id, "node_ids": composite_ids},
+            )
         await self.execute_write(
             "MATCH (n:Entity {agent_id: $agent_id}) "
             "WHERE n.id IN $node_ids DETACH DELETE n",
@@ -512,8 +522,9 @@ class KuzuGraphProvider(BaseGraphProvider):
             epistemic_uncertainty: Uncertainty score (0.0 = certain,
                 1.0 = fully uncertain).  Calculated as
                 ``1.0 - consensus_score`` during ingestion.  Used by
-                the Damped PageRank quarantine scanner to penalise
-                edges with low epistemic confidence.
+                PageRank observation telemetry to weight paths with low
+                epistemic confidence. It does not determine retrieval
+                eligibility.
 
         Note:
             If either ``source_id`` or ``target_id`` does not exist in
@@ -531,6 +542,111 @@ class KuzuGraphProvider(BaseGraphProvider):
                 "agent_id": agent_id,
                 "epistemic_uncertainty": epistemic_uncertainty,
             },
+        )
+
+    async def insert_assertion(
+        self,
+        *,
+        assertion_id: str,
+        subject_id: str,
+        object_id: str | None,
+        object_value: str | None = None,
+        agent_id: str,
+        predicate: str,
+        mutation_id: str,
+        source_ref: str = "",
+        evidence_span: str = "",
+        jurisdiction: str = "",
+        authority_level: str = "",
+        valid_from: str = "",
+        valid_to: str = "",
+        observed_at: str = "",
+        confidence: float = 1.0,
+        pipeline_run_id: str = "",
+        status: str = "ACTIVE",
+    ) -> None:
+        """Idempotently persist one provenance-preserving Graph V2 assertion."""
+        if (object_id is None) == (object_value is None):
+            raise ValueError("assertion requires exactly one object target")
+        assertion_key = self._composite_id(agent_id, assertion_id)
+        subject_key = self._composite_id(agent_id, subject_id)
+        object_key = self._composite_id(agent_id, object_id) if object_id else None
+        object_match = (
+            ", (o:Entity {id: $object_id, agent_id: $agent_id}) "
+            if object_key
+            else " "
+        )
+        object_link = (
+            " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
+        )
+        query = (
+            "MATCH (s:Entity {id: $subject_id, agent_id: $agent_id})"
+            + object_match
+            + "MERGE (a:Assertion {id: $assertion_id}) "
+            "ON CREATE SET a.agent_id = $agent_id, a.predicate = $predicate, "
+            "a.object_value = $object_value, "
+            "a.source_ref = $source_ref, a.evidence_span = $evidence_span, "
+            "a.jurisdiction = $jurisdiction, a.authority_level = $authority_level, "
+            "a.valid_from = $valid_from, a.valid_to = $valid_to, "
+            "a.observed_at = $observed_at, a.confidence = $confidence, "
+            "a.status = $status, a.mutation_id = $mutation_id, "
+            "a.pipeline_run_id = $pipeline_run_id "
+            "MERGE (a)-[:AssertionSubject]->(s)"
+            + object_link
+        )
+        parameters = {
+            "assertion_id": assertion_key,
+            "subject_id": subject_key,
+            "object_value": object_value,
+            "agent_id": agent_id,
+            "predicate": predicate,
+            "source_ref": source_ref,
+            "evidence_span": evidence_span,
+            "jurisdiction": jurisdiction,
+            "authority_level": authority_level,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+            "observed_at": observed_at,
+            "confidence": confidence,
+            "status": status,
+            "mutation_id": mutation_id,
+            "pipeline_run_id": pipeline_run_id,
+        }
+        if object_key:
+            parameters["object_id"] = object_key
+        await self.execute_write(query, parameters)
+
+    async def link_assertions(
+        self, *, source_assertion_id: str, target_assertion_id: str,
+        agent_id: str, relation_type: str,
+    ) -> None:
+        """Persist ``CONTRADICTS``/``SUPERSEDES`` without losing predicate identity."""
+        await self.execute_write(
+            "MATCH (a:Assertion {id: $source_id, agent_id: $agent_id}), "
+            "(b:Assertion {id: $target_id, agent_id: $agent_id}) "
+            "MERGE (a)-[r:AssertionLink]->(b) ON CREATE SET r.relation_type = $relation_type",
+            {
+                "source_id": self._composite_id(agent_id, source_assertion_id),
+                "target_id": self._composite_id(agent_id, target_assertion_id),
+                "agent_id": agent_id,
+                "relation_type": relation_type,
+            },
+        )
+
+    async def delete_assertions(
+        self, *, agent_id: str, assertion_ids: list[str]
+    ) -> None:
+        """Idempotently remove exact tenant-scoped Assertion artifacts."""
+        if not assertion_ids:
+            return
+        composite_ids = [
+            self._composite_id(agent_id, assertion_id)
+            for assertion_id in assertion_ids
+        ]
+        await self.execute_write(
+            "MATCH (a:Assertion {agent_id: $agent_id}) "
+            "WHERE a.id IN $assertion_ids DETACH DELETE a",
+            {"agent_id": agent_id, "assertion_ids": composite_ids},
         )
 
     # ------------------------------------------------------------------
@@ -639,9 +755,10 @@ class KuzuGraphProvider(BaseGraphProvider):
         KùzuDB engine via a single Cypher traversal.  No N+1 Python
         round-trips, no intermediate materialisation.
 
-        **Phase 4.1 integration**: Quarantined nodes
-        (``is_quarantined = true``) are excluded from results, ensuring
-        self-healing graph hygiene propagates into retrieval.
+        **V4 safety rule**: PageRank is topology telemetry only.  Graph
+        retrieval does not exclude a node merely because it has low centrality
+        or a legacy graph-only quarantine flag. Evidence-based validation and
+        assertion status determine retrieval eligibility.
 
         **Zero-Trust**: Both the seed node MATCH and the traversal
         destination enforce ``agent_id`` via parameterised binding.
@@ -670,7 +787,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 ]
 
             Empty list if the seed node doesn't exist, no reachable
-            non-quarantined nodes are found, or the query fails.
+            nodes are found, or the query fails.
 
         Raises:
             ValueError: If *max_hops* is not in the allowed set {1, 2, 3}.
@@ -691,7 +808,6 @@ class KuzuGraphProvider(BaseGraphProvider):
         cypher = (
             f"MATCH (seed:Entity {{id: $seed_id, agent_id: $agent_id}}) "
             f"MATCH (seed)-[r*1..{max_hops}]-(n:Entity {{agent_id: $agent_id}}) "
-            f"WHERE n.is_quarantined = false "
             f"WITH n, min(length(r)) AS hops "
             f"OPTIONAL MATCH (n)-[:Observed]->(m:Entity) "
             f"WITH n, hops, count(m) AS fan "

@@ -73,7 +73,7 @@ async def _consume_dispatches_once(
     dao: MemoryDAO, *, model_processing_enabled: bool
 ) -> dict[str, int]:
     """Consume bounded dispatch records; only this worker runs cold-path work."""
-    claimed = await dao.claim_dispatch_queue(worker_id=_WORKER_ID, limit=25)
+    claimed = await dao.claim_dispatch_queue(worker_id=_WORKER_ID, limit=1)
     finalized = 0
     retried = 0
     for dispatch in claimed:
@@ -87,7 +87,7 @@ async def _consume_dispatches_once(
         )
         raw_log = await dao.get_raw_log(agent_id, log_id)
         status = str(raw_log.get("status", "failed") if raw_log else "failed")
-        terminal = status.split(":", 1)[0] in {"processed", "rejected", "failed"}
+        terminal = status.split(":", 1)[0] in {"processed", "rejected"}
         completed = await dao.complete_dispatch_queue(
             str(dispatch["queue_record_id"]),
             worker_id=_WORKER_ID,

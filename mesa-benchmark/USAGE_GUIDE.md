@@ -6,6 +6,10 @@ adreslenir. `MESA_BENCHMARK_DATA_DIR` ve `MESA_BENCHMARK_RESULTS_DIR` ile
 varsayılan kökler değiştirilebilir. Eski `mesa-benchmark/config_*.yaml` adları
 yalnız geriye uyumlu alias olarak desteklenir.
 
+`release` ve `research` MESA config’leri v4 dataset/provenance hattını kullanan
+`mesa_benchmark.clients.mesa_client.MesaV4ClientAdapter` ile çalışır. Legacy
+config’lerdeki `MesaClientAdapter` v3 lexical-core uyumluluğu içindir.
+
 ## CLI
 
 Kurulumdan sonra tek config ve suite komutları birlikte kullanılabilir:
@@ -65,7 +69,7 @@ dataset:
 
 client:
   name: mesa_client
-  adapter_class: mesa_benchmark.clients.mesa_client.MesaClientAdapter
+  adapter_class: mesa_benchmark.clients.mesa_client.MesaV4ClientAdapter
   timeout_ms: 30000
   parameters:
     enable_multi_hop: true
@@ -160,6 +164,12 @@ Adapter `AbstractBenchmarkClient` uygulamalıdır:
 Varsayılan `add_memories()` sıralı ingest yapar. Graph sistemi batch içindeki bütün node’ları edge’lerden önce oluşturmak için override etmelidir. `BenchmarkResponse.retrieved_contexts` sıralı ID/text/rank/score taşır; `retrieval_latency_ms`, `generation_latency_ms` ve token kullanımı ayrı alanlardır. Eski `answer_text`, `retrieved_context_ids` ve `latency_ms` alanları uyumluluk için korunur.
 
 Provider hataları loglanıp boş/sahte başarıya çevrilmemelidir. Query limiti adapter içinde de Top‑5 olmalı; runner ayrıca sözleşmeyi zorlar.
+
+MESA v4 adapter’ı `initialize()` sırasında izole catalog scope’u, ingest
+sırasında immutable source chunk + mutation ve answer sırasında dataset
+filtreli RRF kullanır. Bir projection lane’i tamamlanmadan sonraki lane claim
+edilemez. V4 benchmark sonucu `tenant_id`, `workspace_id`, `dataset_id`,
+`mutation_id` ve artifact provenance’ını kaybetmemelidir.
 
 ## Uzak Ollama çalıştırma sırası
 

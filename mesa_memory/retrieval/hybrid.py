@@ -220,7 +220,7 @@ class HybridRetriever:
                     )
                 ]
         else:
-            fused_ids = await self._apply_alpha_reranking(
+            fused_ids = await self._apply_rrf_reranking(
                 agent_id,
                 vector_results,
                 graph_results,
@@ -430,40 +430,37 @@ class HybridRetriever:
 
         return ranked
 
-    async def _apply_alpha_reranking(
+    async def _apply_rrf_reranking(
         self,
         agent_id: str,
         vector_ranks: list[dict],
         graph_ranks: list[dict],
         lexical_ranks: list[dict],
     ) -> list[str]:
-        """Apply Score-Based Bonus (Alpha-Reranking) with Epistemic Dampening."""
-        alpha = getattr(config, "hybrid_alpha", 0.0)
-        beta = getattr(config, "hybrid_beta", 0.0)
+        """Fuse vector, graph and lexical lanes using true RRF.
 
-        # Union Set Candidate Pool
-        union_ids = set()
-        for ranks in (vector_ranks, graph_ranks, lexical_ranks):
-            for item in ranks:
-                if cmb_id := item.get("cmb_id"):
-                    union_ids.add(cmb_id)
+        Each lane contributes ``1 / (rrf_k + rank)`` once per candidate.
+        This deliberately ignores incomparable raw similarity, BM25 and graph
+        salience score spaces.  The final ID tie-breaker makes a fixed corpus
+        replay deterministic.
+        """
+        rank_maps: list[dict[str, int]] = []
+        for lane in (vector_ranks, graph_ranks, lexical_ranks):
+            ranks: dict[str, int] = {}
+            for position, item in enumerate(lane, start=1):
+                candidate_id = str(item.get("cmb_id", ""))
+                if not candidate_id:
+                    continue
+                supplied_rank = item.get("rank", position)
+                try:
+                    rank = int(supplied_rank)
+                except (TypeError, ValueError):
+                    rank = position
+                # A malformed/non-positive rank must never amplify a lane.
+                ranks[candidate_id] = max(1, rank)
+            rank_maps.append(ranks)
 
-        # Index raw scores by ID
-        vector_scores = {
-            item.get("cmb_id", ""): item.get("score", 0.0)
-            for item in vector_ranks
-            if item.get("cmb_id", "")
-        }
-        graph_scores = {
-            item.get("cmb_id", ""): item.get("score", 0.0)
-            for item in graph_ranks
-            if item.get("cmb_id", "")
-        }
-        lexical_scores = {
-            item.get("cmb_id", ""): item.get("score", 0.0)
-            for item in lexical_ranks
-            if item.get("cmb_id", "")
-        }
+        union_ids = set().union(*(set(ranks) for ranks in rank_maps))
 
         # DP3: Fetch Epistemic Data (Confidence & Quarantine flags)
         epistemic_data = await self.dao.get_epistemic_data_for_nodes(
@@ -471,8 +468,7 @@ class HybridRetriever:
         )
 
         final_scores: dict[str, float] = {}
-
-        # Alpha Reranking Formula with Epistemic Confidence Multiplier
+        rrf_k = config.rrf_k
         for cmb_id in union_ids:
             e_data = epistemic_data.get(
                 cmb_id, {"confidence": 1.0, "is_quarantined": False}
@@ -482,25 +478,30 @@ class HybridRetriever:
             if e_data.get("is_quarantined"):
                 continue
 
-            confidence = e_data.get("confidence", 1.0)
-
-            s_vec = vector_scores.get(cmb_id, 0.0)
-            s_graph_raw = graph_scores.get(cmb_id, 0.0)
-            s_lex_raw = lexical_scores.get(cmb_id, 0.0)
-
-            # Deterministic Normalization
-            s_graph_norm = min(s_graph_raw * 10.0, 1.0)
-            s_lex_norm = min(s_lex_raw / 10.0, 1.0)
-
-            raw_rrf = s_vec + (alpha * s_graph_norm) + (beta * s_lex_norm)
-
-            # Apply Epistemic Dampening
-            final_scores[cmb_id] = raw_rrf * confidence
+            confidence = float(e_data.get("confidence", 1.0))
+            rrf_score = sum(
+                1.0 / (rrf_k + ranks[cmb_id])
+                for ranks in rank_maps
+                if cmb_id in ranks
+            )
+            final_scores[cmb_id] = rrf_score * confidence
 
         sorted_ids = sorted(
-            final_scores.keys(), key=lambda cid: final_scores[cid], reverse=True
+            final_scores.keys(), key=lambda cid: (-final_scores[cid], cid)
         )
         return sorted_ids
+
+    async def _apply_alpha_reranking(
+        self,
+        agent_id: str,
+        vector_ranks: list[dict],
+        graph_ranks: list[dict],
+        lexical_ranks: list[dict],
+    ) -> list[str]:
+        """Compatibility alias for callers predating the V4 RRF contract."""
+        return await self._apply_rrf_reranking(
+            agent_id, vector_ranks, graph_ranks, lexical_ranks
+        )
 
     def _cold_start_rerank(self, vector_results: list[dict], top_k: int) -> list[dict]:
         reranked = []

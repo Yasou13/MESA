@@ -207,6 +207,92 @@ jobs:
           if-no-files-found: warn
           retention-days: 10
 
+  v4-compose:
+    needs: docker-image
+    if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.run_docker) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Render and start the single-owner V4 topology
+        env:
+          MESA_API_KEY: ci-non-secret-placeholder
+          MESA_PRINCIPAL_ID: ci-principal
+          MESA_MODEL_ENABLED: "false"
+          MESA_EXTERNAL_PROVIDER_ENABLED: "false"
+        run: |
+          set -euo pipefail
+          project="mesa-v4-gates-${GITHUB_RUN_ID}"
+          compose=(docker compose -f docker-compose.v4.yml -p "$project")
+          cleanup() {
+            status=$?
+            "${compose[@]}" ps -a || true
+            "${compose[@]}" logs --no-color 2>&1 | tee v4-compose.log || true
+            "${compose[@]}" down --remove-orphans -v || true
+            return "$status"
+          }
+          wait_for_health() {
+            for _ in $(seq 1 60); do
+              if curl --fail --silent --show-error \
+                -H "X-API-Key: $MESA_API_KEY" \
+                http://127.0.0.1:8000/health; then
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+          trap cleanup EXIT
+          "${compose[@]}" config --quiet
+          test "$("${compose[@]}" config --services)" = "mesa-v4"
+          "${compose[@]}" build
+          # Bootstrap grants before the combined runtime starts so the release
+          # gate never introduces a second writer beside the storage owner.
+          "${compose[@]}" run --rm --no-deps --entrypoint mesa-v4-admin \
+            mesa-v4 grant-role \
+            --principal ci-principal --tenant ci-tenant --role OWNER
+          "${compose[@]}" run --rm --no-deps --entrypoint mesa-v4-admin \
+            mesa-v4 grant-agent \
+            --principal ci-principal --agent ci-agent --permission SESSION_CREATE
+          "${compose[@]}" up -d --wait --wait-timeout 180
+          wait_for_health
+          curl --fail --silent --show-error \
+            -H "X-API-Key: $MESA_API_KEY" \
+            http://127.0.0.1:8000/health > v4-health.json
+          curl --fail --silent --show-error -X POST \
+            -H "X-API-Key: $MESA_API_KEY" \
+            -H "Content-Type: application/json" \
+            http://127.0.0.1:8000/v4/catalog/workspaces \
+            -d '{"tenant_id":"ci-tenant","workspace_id":"ci-workspace","tenant_name":"CI Tenant","workspace_name":"CI Workspace"}' \
+            > v4-workspace.json
+          curl --fail --silent --show-error -X POST \
+            -H "X-API-Key: $MESA_API_KEY" \
+            -H "Content-Type: application/json" \
+            http://127.0.0.1:8000/v4/catalog/datasets \
+            -d '{"tenant_id":"ci-tenant","workspace_id":"ci-workspace","dataset_id":"ci-dataset","dataset_name":"CI Dataset"}' \
+            > v4-dataset.json
+          curl --fail --silent --show-error -X POST \
+            -H "X-API-Key: $MESA_API_KEY" \
+            -H "Content-Type: application/json" \
+            http://127.0.0.1:8000/v4/sessions/start \
+            -d '{"tenant_id":"ci-tenant","workspace_id":"ci-workspace","dataset_ids":["ci-dataset"],"agent_id":"ci-agent"}' \
+            > v4-session.json
+          "${compose[@]}" restart mesa-v4
+          wait_for_health
+          "${compose[@]}" exec -T mesa-v4 python -m mesa_memory.container_health
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: v4-compose-logs
+          path: |
+            v4-compose.log
+            v4-health.json
+            v4-workspace.json
+            v4-dataset.json
+            v4-session.json
+          if-no-files-found: warn
+          retention-days: 10
+
   docs-smoke:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_docs }}
     runs-on: ubuntu-24.04
@@ -231,8 +317,13 @@ jobs:
         run: |
           uv run python -c "from mesa_memory.runtime_entrypoint import command_for_profile; print(command_for_profile())"
           uv run python -c "from mesa_memory.worker_runtime import run_worker_only; print(run_worker_only.__name__)"
+          uv run python -c "from mesa_api import create_v4_router; from mesa_client import AsyncMesaV4Client, MesaV4Client"
           uv run mesa-recovery --help
-          uv run python -m pytest -q tests/test_deployment_assets.py tests/test_runtime_profiles_contract.py tests/test_migration_closure.py tests/test_recovery_contract.py | tee docs-smoke.log
+          uv run mesa-v4-admin --help
+          MESA_API_KEY=docs-placeholder MESA_PRINCIPAL_ID=docs-principal \
+            MESA_MODEL_ENABLED=false MESA_EXTERNAL_PROVIDER_ENABLED=false \
+            docker compose -f docker-compose.v4.yml config --quiet
+          uv run python -m pytest -q tests/test_deployment_assets.py tests/test_runtime_profiles_contract.py tests/test_migration_closure.py tests/test_recovery_contract.py tests/test_v4_sdk_contract.py | tee docs-smoke.log
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -242,7 +333,7 @@ jobs:
           retention-days: 10
 
   external-gates-summary:
-    needs: [flow-e2e, performance-capacity, docker-image, docker-compose, docs-smoke]
+    needs: [flow-e2e, performance-capacity, docker-image, docker-compose, v4-compose, docs-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -253,6 +344,7 @@ jobs:
           PERF: ${{ needs.performance-capacity.result }}
           IMAGE: ${{ needs.docker-image.result }}
           COMPOSE: ${{ needs.docker-compose.result }}
+          V4_COMPOSE: ${{ needs.v4-compose.result }}
           DOCS: ${{ needs.docs-smoke.result }}
         run: |
           {
@@ -263,6 +355,7 @@ jobs:
             echo "| PERF-003 | performance-capacity | $PERF | performance-capacity |"
             echo "| DOCKER-001 | docker-image | $IMAGE | docker-logs |"
             echo "| DOCKER-003 / API canary | docker-compose | $COMPOSE | compose-logs |"
+            echo "| V4 single storage owner | v4-compose | $V4_COMPOSE | v4-compose-logs |"
             echo "| DOC-002 | docs-smoke | $DOCS | docs-smoke |"
             echo '| CI-002 | MESA CI | see CI workflow | package-report |'
             echo '| COVERAGE-001 | MESA CI coverage | see CI workflow | coverage-report |'

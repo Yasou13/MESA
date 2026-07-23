@@ -383,9 +383,11 @@ class MesaConfig(BaseSettings):
     drift_clamp_min: float = 0.50
     drift_clamp_max: float = 0.90
 
-    # Hybrid retrieval parameters (Module 9)
-    hybrid_alpha: float = Field(0.0, validation_alias="MESA_HYBRID_ALPHA")
-    hybrid_beta: float = Field(0.0, validation_alias="MESA_HYBRID_BETA")
+    # Hybrid retrieval parameters (Module 9).  V4 fuses independent
+    # vector/lexical/graph rankings with Reciprocal Rank Fusion; do not add
+    # score-space weights here because scores from those lanes are not
+    # comparable.
+    rrf_k: int = Field(60, validation_alias="MESA_RRF_K")
     t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
     cold_start_min_nodes: int = 10
     cold_start_fitness_weight: float = 0.5
@@ -572,10 +574,8 @@ class MesaConfig(BaseSettings):
     def validate_hard_constraints(self) -> "MesaConfig":
         # Constructing the typed policy validates all fail-closed queue bounds.
         self.queue_admission_policy
-        if self.hybrid_alpha > 0.5:
-            raise ValueError(f"hybrid_alpha MUST be <= 0.5, got {self.hybrid_alpha}")
-        if self.hybrid_beta > 0.5:
-            raise ValueError(f"hybrid_beta MUST be <= 0.5, got {self.hybrid_beta}")
+        if not 1 <= self.rrf_k <= 10_000:
+            raise ValueError(f"rrf_k MUST be between 1 and 10000, got {self.rrf_k}")
         if not (0.5 < self.t_route < 0.99):
             raise ValueError(
                 f"t_route MUST be strictly between 0.5 and 0.99, got {self.t_route}"

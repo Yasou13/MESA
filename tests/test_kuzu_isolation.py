@@ -21,15 +21,11 @@ Test Scenarios:
     5. Bidirectional isolation — symmetry check (A↛B AND B↛A).
 """
 
-import os
-import shutil
-
 import pytest
 import pytest_asyncio
 
 from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema
-from tests.conftest import make_test_storage_dir
+from mesa_storage.kuzu_setup import initialize_schema_artifact
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -37,7 +33,6 @@ from tests.conftest import make_test_storage_dir
 
 AGENT_A = "agent_alpha_sec"
 AGENT_B = "agent_beta_sec"
-KUZU_TEST_DIR = make_test_storage_dir("kuzu_isolation")
 
 
 # ---------------------------------------------------------------------------
@@ -46,25 +41,23 @@ KUZU_TEST_DIR = make_test_storage_dir("kuzu_isolation")
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def kuzu_provider():
+async def kuzu_provider(tmp_path):
     """Provision a fresh KùzuDB instance per test module.
 
     Creates a temporary database, initializes the schema, yields a
     fully-initialized provider, then tears down the database directory.
     """
-    os.makedirs(KUZU_TEST_DIR, exist_ok=True)
-    db_path = os.path.join(KUZU_TEST_DIR, "isolation_db")
+    db_path = tmp_path / "isolation_db"
 
     # Initialize schema (Entity node table + Observed rel table)
-    initialize_schema(db_path)
+    initialize_schema_artifact(str(db_path))
 
-    provider = KuzuGraphProvider(db_path=db_path)
+    provider = KuzuGraphProvider(db_path=str(db_path))
     await provider.initialize()
 
     yield provider
 
     await provider.close()
-    shutil.rmtree(KUZU_TEST_DIR, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

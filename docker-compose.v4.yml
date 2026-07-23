@@ -1,0 +1,47 @@
+name: mesa-v4
+
+x-mesa-v4-runtime: &mesa-v4-runtime
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+  image: ${MESA_V4_IMAGE:-mesa-memory:v4-dev}
+  restart: "on-failure:5"
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  volumes:
+    - mesa-v4-data:/var/lib/mesa
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "5"
+  environment:
+    MESA_API_KEY: ${MESA_API_KEY:?MESA_API_KEY is required}
+    MESA_PRINCIPAL_ID: ${MESA_PRINCIPAL_ID:?MESA_PRINCIPAL_ID is required}
+    MESA_PRINCIPAL_TYPE: SERVICE
+    MESA_PRINCIPAL_STATUS: active
+    MESA_STORAGE_ROOT: /var/lib/mesa/data
+    MESA_RUNTIME_PROFILE: combined
+    MESA_LOAD_DOTENV: "false"
+    MESA_MODEL_ENABLED: ${MESA_MODEL_ENABLED:?MESA_MODEL_ENABLED must be explicitly enabled for v4}
+    MESA_EXTERNAL_PROVIDER_ENABLED: ${MESA_EXTERNAL_PROVIDER_ENABLED:?MESA_EXTERNAL_PROVIDER_ENABLED must be explicit}
+    MESA_PORT: "8000"
+    MESA_LOG_LEVEL: ${MESA_LOG_LEVEL:-INFO}
+    MESA_LOG_FORMAT: ${MESA_LOG_FORMAT:-json}
+
+services:
+  mesa-v4:
+    <<: *mesa-v4-runtime
+    ports:
+      - "127.0.0.1:${MESA_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-m", "mesa_memory.container_health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  mesa-v4-data:

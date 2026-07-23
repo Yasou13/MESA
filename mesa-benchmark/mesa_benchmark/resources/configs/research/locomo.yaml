@@ -13,7 +13,7 @@ dataset:
 
 client:
   name: "mesa_client"
-  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaV4ClientAdapter"
   timeout_ms: 15000
   parameters:
     verbose: false

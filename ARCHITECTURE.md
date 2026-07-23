@@ -2,6 +2,12 @@
 
 > **Version:** 0.6.1
 > **Last Updated:** 2026-07-17
+>
+> **Historical v3 record:** This whitepaper documents the published v0.6.1
+> lexical-core architecture and is retained for compatibility and migration
+> review. It is not the current v4 design. The canonical unreleased v4
+> architecture is [`docs/architecture-v4.md`](docs/architecture-v4.md), which
+> supersedes v3 Saga, agent-as-tenant and PageRank-quarantine assumptions.
 
 ---
 

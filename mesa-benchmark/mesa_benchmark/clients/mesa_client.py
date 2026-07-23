@@ -1,6 +1,7 @@
 # ruff: noqa: E402
 import asyncio
 import concurrent.futures
+import hashlib
 import logging
 import queue
 import tempfile
@@ -8,7 +9,7 @@ import threading
 import time
 from inspect import signature
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from ..datasets.schemas import BenchmarkQuestion, MemoryContext
 from .base import AbstractBenchmarkClient, BenchmarkResponse, RetrievedContext
@@ -16,6 +17,7 @@ from .base import AbstractBenchmarkClient, BenchmarkResponse, RetrievedContext
 logger = logging.getLogger(__name__)
 
 from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
@@ -25,6 +27,7 @@ from mesa_storage.kuzu_setup import initialize_schema as kuzu_initialize_schema
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_workers.projection_worker import process_projection_outbox_once
 
 
 class _MesaEventLoopWorker:
@@ -466,3 +469,205 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             self._worker = None
         if hasattr(self, "temp_dir") and self.temp_dir:
             self.temp_dir.cleanup()
+
+
+class MesaV4ClientAdapter(MesaClientAdapter):
+    """In-process V4 benchmark adapter using the durable projection contract.
+
+    Legacy benchmark configurations keep ``MesaClientAdapter`` for historical
+    v3 comparability. Release/research V4 runs use this adapter so dataset
+    filtering, mutation ownership, Graph V2 and true RRF are measured together.
+    """
+
+    tenant_id = "benchmark-tenant"
+    workspace_id = "benchmark-workspace"
+    dataset_id = "benchmark-dataset"
+    agent_id = "benchmark-agent"
+    session_id = "benchmark-session"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._raw_log_id = 0
+
+    async def _ensure_v4_scope(self) -> None:
+        await self.memory_dao.ensure_v4_catalog_scope(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+        )
+
+    def initialize(self, config_params: Dict[str, Any]) -> None:
+        parameters = dict(config_params)
+        parameters["native_ingest"] = False
+        super().initialize(parameters)
+        self._run(self._ensure_v4_scope())
+
+    def clear_memory(self) -> None:
+        async def _clear() -> None:
+            await self.sqlite.execute_script(
+                "DELETE FROM v4_assertion_links;"
+                "DELETE FROM v4_assertions;"
+                "DELETE FROM artifact_cleanup_outbox;"
+                "DELETE FROM artifact_sources;"
+                "DELETE FROM artifact_registry;"
+                "DELETE FROM projection_attempts;"
+                "DELETE FROM projection_outbox;"
+                "DELETE FROM memory_artifacts;"
+                "DELETE FROM memory_mutations;"
+                "DELETE FROM pipeline_run_events;"
+                "DELETE FROM pipeline_runs;"
+                "DELETE FROM source_chunks;"
+                "DELETE FROM document_revisions;"
+                "DELETE FROM documents;"
+                "DELETE FROM entity_external_ids;"
+                "DELETE FROM entity_aliases;"
+                "DELETE FROM v4_entities;"
+                "DELETE FROM datasets;"
+                "DELETE FROM workspaces;"
+                "DELETE FROM tenants;"
+                "DELETE FROM raw_logs;"
+            )
+            if self.vector and getattr(self.vector, "_db", None):
+                listing = self.vector._db.list_tables()
+                table_names = getattr(listing, "tables", listing)
+                for table_name in table_names:
+                    self.vector._db.drop_table(table_name)
+                self.vector._tables.clear()
+            if self.graph_provider and hasattr(self.graph_provider, "clear"):
+                await self.graph_provider.clear()
+            await self._ensure_v4_scope()
+
+        self._run(_clear())
+        self.context_id_map.clear()
+        self._raw_log_id = 0
+
+    def add_memories(self, contexts: list[MemoryContext]) -> Dict[str, Any]:
+        start_time = time.time()
+
+        async def _add() -> None:
+            for context in contexts:
+                self._raw_log_id += 1
+                safe_id = hashlib.sha256(context.id.encode("utf-8")).hexdigest()[:24]
+                document_id = f"benchmark-document-{safe_id}"
+                revision_id = f"benchmark-revision-{safe_id}"
+                chunk_id = f"benchmark-chunk-{safe_id}"
+                source_ref = f"benchmark://{context.id}"
+                await self.memory_dao.create_v4_source_chunk(
+                    tenant_id=self.tenant_id,
+                    dataset_id=self.dataset_id,
+                    document_id=document_id,
+                    revision_id=revision_id,
+                    chunk_id=chunk_id,
+                    title=context.id,
+                    content_payload=context.text,
+                    source_ref=source_ref,
+                )
+                candidate = MemoryCandidate.from_raw_log(
+                    raw_log_id=self._raw_log_id,
+                    tenant_id=self.tenant_id,
+                    workspace_id=self.workspace_id,
+                    dataset_id=self.dataset_id,
+                    document_id=document_id,
+                    revision_id=revision_id,
+                    chunk_id=chunk_id,
+                    source_ref=source_ref,
+                    agent_id=self.agent_id,
+                    session_id=self.session_id,
+                    content_payload=context.text,
+                    metadata={
+                        **dict(context.metadata or {}),
+                        "original_context_id": context.id,
+                    },
+                ).as_consolidation_record()
+                await self.memory_dao.record_mutation(
+                    candidate, raw_log_id=self._raw_log_id
+                )
+                await self.memory_dao.record_mutation_extraction(
+                    self.agent_id,
+                    str(candidate["mutation_id"]),
+                    [
+                        {
+                            "head": context.text,
+                            "relation": "SOURCE_CONTEXT",
+                            "literal_value": context.text,
+                            "confidence": 1.0,
+                        }
+                    ],
+                )
+                await self.memory_dao.set_mutation_state(
+                    self.agent_id,
+                    str(candidate["mutation_id"]),
+                    "VALIDATED",
+                )
+                outcome = {
+                    "claimed": 0,
+                    "completed": 0,
+                    "retry_pending": 0,
+                    "dead_letter": 0,
+                }
+                for _ in range(3):
+                    step = await process_projection_outbox_once(
+                        self.memory_dao,
+                        worker_id="benchmark-v4-projector",
+                    )
+                    for key in outcome:
+                        outcome[key] += step[key]
+                if outcome["completed"] != 3 or outcome["dead_letter"]:
+                    raise RuntimeError(
+                        f"V4 benchmark projection did not commit: {outcome}"
+                    )
+                entity_id = self.memory_dao.v4_entity_id(self.tenant_id, context.text)
+                self.context_id_map[entity_id] = context.id
+
+        self._run(_add())
+        return {
+            "latency_ms": (time.time() - start_time) * 1000,
+            "count": len(contexts),
+            "pipeline": "v4",
+        }
+
+    def answer(self, question: BenchmarkQuestion) -> BenchmarkResponse:
+        start_time = time.time()
+
+        async def _answer() -> list[dict[str, Any]]:
+            return cast(
+                list[dict[str, Any]],
+                await self.memory_dao.search_v4_memory(
+                    tenant_id=self.tenant_id,
+                    agent_id=self.agent_id,
+                    dataset_ids=[self.dataset_id],
+                    query=question.query,
+                    limit=self.top_n,
+                ),
+            )
+
+        results = self._run(_answer())
+        retrieved_contexts: list[RetrievedContext] = []
+        for item in results:
+            entity = item.get("entity") or {}
+            entity_id = str(entity.get("entity_id") or item.get("entity_id") or "")
+            original_id = self.context_id_map.get(entity_id)
+            if not original_id:
+                continue
+            retrieved_contexts.append(
+                RetrievedContext(
+                    id=original_id,
+                    text=str(entity.get("canonical_name") or ""),
+                    rank=len(retrieved_contexts) + 1,
+                )
+            )
+        latency = (time.time() - start_time) * 1000
+        return BenchmarkResponse(
+            answer_text="\n".join(item.text for item in retrieved_contexts)
+            or "No relevant context found.",
+            retrieved_context_ids=[item.id for item in retrieved_contexts],
+            retrieved_contexts=retrieved_contexts,
+            latency_ms=latency,
+            retrieval_latency_ms=latency,
+            metadata={
+                "mesa_api_contract": "v4",
+                "retrieval": "dataset-filtered-rrf",
+                "graph_model": "Graph V2 Assertion",
+                "dataset_id": self.dataset_id,
+            },
+        )

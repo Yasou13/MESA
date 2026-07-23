@@ -8,10 +8,11 @@
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/Version-0.6.1-green.svg)
 
-**A durable, tenant-isolated memory engine for autonomous AI agents.**
-The default safe-core runtime admits and retrieves durable memories without
-loading local models or contacting an LLM provider. An explicitly configured
-full cognitive runtime can add model extraction and dual-LLM consensus.
+**A durable, tenant- and dataset-isolated memory engine for autonomous AI agents.**
+The v3 compatibility runtime remains a model-disabled lexical core. The
+unreleased v4 runtime adds canonical source provenance, mandatory validation,
+idempotent SQL/vector/graph projection and Graph V2 in one storage-owner
+process. V4 remains `NO-GO` until its external release and soak gates pass.
 
 </div>
 
@@ -59,6 +60,60 @@ curl --fail -H "X-API-Key: $MESA_API_KEY" http://localhost:8000/health
 ```
 
 MESA is now live at **`http://localhost:8000`** with Swagger docs at [`/docs`](http://localhost:8000/docs).
+
+### v4 full cognitive runtime
+
+`docker-compose.yml` is the backwards-compatible v3 lexical-core topology.
+For v4, use the single storage-owner topology in `docker-compose.v4.yml`.
+It deliberately requires explicit model/provider enablement and never starts a
+second process against the same SQLite, LanceDB, or Kùzu storage directory:
+
+```bash
+export MESA_API_KEY=replace-with-a-secret
+export MESA_PRINCIPAL_ID=production-principal
+export MESA_MODEL_ENABLED=true
+export MESA_EXTERNAL_PROVIDER_ENABLED=true
+docker compose -f docker-compose.v4.yml config --quiet
+docker compose -f docker-compose.v4.yml up --build -d
+```
+
+Provision hash-backed keys and catalog authorization with the offline operator
+CLI (the generated credential is shown once):
+
+```bash
+mesa-v4-admin issue-key --principal production-principal
+mesa-v4-admin grant-role --principal production-principal \
+  --tenant tenant-a --role OWNER
+mesa-v4-admin grant-agent --principal production-principal \
+  --agent agent-a --permission SESSION_CREATE
+```
+
+The selected adapter and its credentials must be configured by the deployment
+platform; do not put credentials in the Compose file. v4 is not production
+ready until its validation, migration, backup/restore and soak gates pass.
+The canonical design is
+[`docs/architecture-v4.md`](docs/architecture-v4.md); root
+`ARCHITECTURE.md` is a preserved historical v3 record.
+
+The v4 catalog and provenance hierarchy is
+`Tenant → Workspace → Dataset → Document → DocumentRevision → SourceChunk`.
+Sessions are created by the server with an immutable authorized dataset set;
+insert and search derive tenant/agent scope from that session. Canonical entity
+IDs use tenant, entity type and ontology URI (or a normalized canonical name).
+Mutation status, replay and source-owned rollback remain durable operations:
+
+```text
+POST /v4/catalog/workspaces        GET /v4/catalog/workspaces
+POST /v4/catalog/datasets          GET /v4/catalog/datasets
+POST /v4/catalog/documents         GET /v4/catalog/documents
+POST /v4/catalog/revisions         GET /v4/catalog/revisions
+POST /v4/catalog/source-chunks
+POST /v4/sessions/start
+POST /v4/memory/insert             POST /v4/memory/search
+GET  /v4/mutations/{id}
+POST /v4/mutations/{id}/replay
+POST /v4/mutations/{id}/rollback
+```
 
 ---
 
@@ -135,9 +190,35 @@ curl -X DELETE http://localhost:8000/v3/memory/purge \
 
 ## 🐍 Python SDK
 
+V4 applications use the version-specific client:
+
+```python
+from mesa_client import MesaV4Client
+
+with MesaV4Client("http://localhost:8000", api_key=credential) as client:
+    session = client.start_session(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_ids=["dataset-a"],
+        agent_id="agent-a",
+    )
+    accepted = client.insert(
+        session_id=session["session_id"],
+        dataset_id="dataset-a",
+        document_id="doc-a",
+        revision_id="rev-1",
+        chunk_id="chunk-1",
+        source_ref="contract://a",
+        content="Exact source text",
+    )
+    client.wait_until_committed(accepted["mutation_id"])
+```
+
+The following client remains the v3 compatibility SDK:
+
 ```python
 from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
-from mesa_client.client import MesaClient
+from mesa_client import MesaClient
 
 client = MesaClient(base_url="http://localhost:8000", api_key="local-dev-key")
 
@@ -164,7 +245,9 @@ for r in results.results:
 
 ## 🤖 Integrations: Claude Desktop (MCP)
 
-MESA includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server (`mesa_mcp.server`) that exposes memory insert and search as MCP tools. This lets Claude Desktop read from and write to your local MESA instance natively.
+MESA includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/)
+server (`mesa_mcp.server`) that uses the same v4 catalog, session, memory,
+status, replay and rollback API as the Python SDK.
 
 ### Setup
 
@@ -180,61 +263,69 @@ MESA includes a built-in [Model Context Protocol](https://modelcontextprotocol.i
       "args": ["-m", "mesa_mcp.server"],
       "cwd": "/absolute/path/to/MESA",
       "env": {
-        "MESA_BASE_URL": "http://localhost:8000/v3",
-        "MESA_API_KEY": "local-dev-key"
+        "MESA_BASE_URL": "http://localhost:8000",
+        "MESA_API_KEY": "local-dev-key",
+        "MESA_TENANT_ID": "tenant-a",
+        "MESA_WORKSPACE_ID": "workspace-a",
+        "MESA_DATASET_IDS": "dataset-a",
+        "MESA_AGENT_ID": "agent-a"
       }
     }
   }
 }
 ```
 
-3. **Restart Claude Desktop.** You'll see two new tools available:
+3. **Restart Claude Desktop.** The principal behind the API key must already
+   have the required tenant/workspace/dataset role and agent permission.
 
 | MCP Tool | Description |
 |---|---|
-| `record_memory` | Store a new memory (maps to `POST /v3/memory/insert`) |
-| `search_memory` | Retrieve relevant memories (maps to `POST /v3/memory/search`) |
+| `catalog` | Create/list authorized workspaces, datasets, documents and revisions |
+| `start_session` | Create an immutable authorized v4 session |
+| `record_memory` | Admit an exact source chunk and return its mutation ID |
+| `search_memory` | Run dataset-filtered vector/BM25/graph RRF retrieval |
+| `mutation_status` | Read durable pipeline and projection state |
+| `rollback_mutation` / `replay_mutation` | Operate an authorized mutation |
+| `get_context` / `end_session` | Read provenance context or finalize a session |
 
 Claude can now persist facts across conversations and recall them on demand through your local MESA instance.
 
 > [!TIP]
-> Set the `agent_id` to `"claude-desktop"` for clean tenant isolation. Each conversation can use its own `session_id` for scoped retrieval.
+> `agent_id` is a persona/compute context, not a tenant boundary. Isolation
+> comes from the API-key principal, tenant/workspace/dataset ACL and the
+> server-created session. Give each conversation its own v4 session.
 
 ---
 
 ## Why MESA?
 
-Traditional agent memory is a flat buffer of text. MESA provides a durable,
-tenant-isolated safe core with novelty checks and hybrid retrieval. A separately
-enabled full cognitive runtime adds extraction and asymmetric dual-LLM
-cross-validation before structured graph writes; it is not part of the default
-Compose deployment.
+Traditional agent memory is a flat buffer of text. MESA v3 preserves a durable
+lexical core. V4 adds dataset isolation, source provenance, mandatory
+validation and ordered structured projections before retrieval.
 
-| Runtime | Safe core Compose | Full cognitive runtime |
+| Runtime | V3 lexical-core Compose | V4 combined runtime |
 |---|---|---|
 | Model/provider access | Disabled | Explicitly enabled and reviewed |
-| Cold-path result | Durable raw memory | Raw memory plus configured extraction/consensus |
+| Cold-path result | Durable raw memory | Validated mutation plus ordered projections |
 | REBEL / LLM extraction | Not invoked | Opt-in |
 | Dual-LLM consensus | Not invoked | Opt-in |
 
 ### Full cognitive runtime
 
-Full cognitive processing is not enabled by Compose. It requires a reviewed
-deployment that explicitly sets `MESA_MODEL_ENABLED=true`, supplies only the
-required local-model or provider credentials, and verifies the corresponding
-worker/consolidation topology before production use. It has different cost,
-latency, model-download, and provider-rate-limit characteristics from the safe
-core profile.
+Full cognitive processing uses `docker-compose.v4.yml`, explicitly sets
+`MESA_MODEL_ENABLED=true`, supplies only the required provider credentials and
+runs one combined storage owner. It has different cost, latency,
+model-download and provider-rate-limit characteristics from v3.
 
 | Capability | MESA | LangChain Memory | MemGPT |
 |---|---|---|---|
-| **Hallucination Mitigation** | Full cognitive runtime: Dual-LLM Consensus + Fail-safe Discard | Prompt-based | Self-correction |
-| **Validation Architecture** | Safe core novelty checks; full runtime adds 3-tier LLM pipeline | None | Prompt-based |
-| **Knowledge Graph** | REBEL (English-only) or LLM extraction prompts (Turkish/English) | Manual | None |
+| **Hallucination Mitigation** | Mandatory Tier-3 gate; rejected mutations create no active artifact | Prompt-based | Self-correction |
+| **Validation Architecture** | Versioned pipeline with ledger, retries, DLQ and rollback | None | Prompt-based |
+| **Knowledge Graph** | Graph V2 Entity/Assertion projection with provenance | Manual | None |
 | **Zero-Cost Mode** | Native 100% local execution via Ollama (`MESA_ZERO_COST_MODE`) | External | External |
-| **Tenant Isolation** | Mandatory `agent_id` RLS on every query | None | None |
+| **Tenant Isolation** | V4 principal → tenant → workspace → dataset ACL and server-bound session | None | None |
 | **Session Lifecycle APIs** | Native `/session/start`, `/context`, `/end` endpoints | None | Implicit |
-| **Fault Tolerance** | Circuit Breaker + DLQ + Exponential Backoff | Try/Catch | Retry Decorator |
+| **Fault Tolerance** | Fenced leases + bounded retry + DLQ + reconciliation | Try/Catch | Retry Decorator |
 | **Local-First** | Yes (SQLite WAL, LanceDB, KùzuDB) | Cloud-dependent | Cloud-dependent |
 | **Observability** | Prometheus + structured JSON logs | Basic logging | Basic logging |
 
@@ -242,81 +333,48 @@ core profile.
 
 ## Features & Capabilities
 
-MESA v0.6.1 introduces advanced cognitive memory features:
-1. **Multi-Stage CrossEncoder Reranking**: Substantially improves retrieval precision using Stage 2 learned reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`).
-2. **MESA Benchmark Suite**: Rigorous multi-tier evaluation pipeline with Apple-to-Apple competitor integrations (Zep, Letta, Mem0).
-3. **Phase 4.1: Self-Healing Graphs**: Async Damped PageRank for hallucination quarantine.
-4. **Phase 4.2: Cognitive Salience**: Spreading Activation routed through KuzuDB using `OPTIONAL MATCH`.
-5. **Phase 4.3: Continuous Learning**: Blue/Green Procrustes vector alignment with persistent SQLite WAL to prevent phantom writes.
-6. **Zero-Cost Mode**: 100% local, air-gapped execution orchestrating `OllamaAdapter`, local embeddings, and REBEL without any cloud dependencies (`MESA_ZERO_COST_MODE=true`).
+The published v0.6.1/v3 line and unreleased v4 line have different contracts.
+Current v4 capabilities include:
+
+1. **Canonical ingestion:** exact source, version and pipeline provenance from
+   admission through every projection.
+2. **Mutation ledger/outbox:** ordered, idempotent SQLite → vector → graph
+   projection with fenced leases, retry, DLQ, rollback and reconciliation.
+3. **Graph V2:** deterministic tenant-scoped entities, immutable
+   provenance-rich assertions and source-owned rollback.
+4. **Dataset security:** principal/tenant/workspace/dataset roles plus explicit
+   purge and rollback permissions.
+5. **Retrieval V2:** dataset-filtered vector/BM25/graph rank fusion with true
+   RRF and deterministic bounded legal reranking.
+6. **Versioned clients:** matching v4 REST, sync/async SDK and MCP lifecycle
+   operations.
 
 ---
 
 ## Architecture Overview
 
-MESA is designed around a **Triple Storage Engine** architecture to maximize scalability and guarantee data integrity:
-1. **SQLite:** Handles relational metadata and multi-worker Write-Ahead Log (WAL) orchestration.
-2. **LanceDB:** Handles vector embeddings with Blue/Green deployment and Procrustes alignment.
-3. **KuzuDB:** Handles the Knowledge Graph and Cognitive Salience routing (Spreading Activation).
+MESA uses three physical stores, but v4 has one decision source:
+1. **SQLite:** mutation/pipeline ledger, catalog, authorization, artifact
+   ownership, assertions and ordered outbox.
+2. **LanceDB:** idempotent vector projection with embedding provenance.
+3. **KuzuDB:** idempotent Graph V2 projection; it is not the assertion decision
+   source.
 
 ```mermaid
-graph TB
-    subgraph "API Layer"
-        T["FastAPI v3<br/>Daemon :8000"] --> INS["POST /v3/memory/insert"]
-        T --> SCH["POST /v3/memory/search"]
-        T --> PRG["DELETE /v3/memory/purge"]
-    end
-
-    subgraph "Ingestion Layer"
-        INS --> B["Valence Motor"]
-        B --> C{"Tier-1<br/>Fitness Gate"}
-        C -->|DISCARD| X1["❌ Rejected"]
-        C -->|PASS| D["ECOD Anomaly Detection"]
-        D --> E{"Tier-2<br/>Novelty Check"}
-        E -->|DISCARD| X1
-        E -->|UNCERTAIN| F["Tier-3 Deferred Queue"]
-    end
-
-    subgraph "Consolidation Layer"
-        F --> G["ConsolidationLoop"]
-        G --> H["REBEL Extractor<br/>(Local, Zero-Cost)"]
-        H --> I["Dual-LLM<br/>Cross-Validation"]
-        I -->|AGREE| J["GraphWriter"]
-        I -->|DISAGREE| X2["❌ Discarded<br/>(Fail-Safe)"]
-    end
-
-    subgraph "Storage Layer"
-        J --> K["SQLite WAL<br/>+ FTS5"]
-        J --> L["LanceDB<br/>Vector Index"]
-        J --> M["KùzuDB<br/>Knowledge Graph"]
-    end
-
-    subgraph "Retrieval Layer"
-        SCH --> O["MemoryDAO Search"]
-        O --> P["Vector Search"]
-        O --> Q["Graph Search<br/>(PPR + k-hop)"]
-        O --> R["FTS5 Lexical<br/>Pre-Filter"]
-        P --> S["Stage 1: RRF Fusion"]
-        Q --> S
-        R --> S
-        S --> T["Stage 2: CrossEncoder Reranking"]
-        T --> RES["Ranked Results"]
-    end
-
-    subgraph "Background Workers"
-        MW["MaintenanceWorker<br/>(VACUUM, Hard-Delete)"]
-        REM["rem_cycle.py<br/>(Consolidation)"]
-    end
-
-    E -->|ADMIT| K
-    E -->|ADMIT| L
-
-    style T fill:#0f3460,stroke:#16213e,color:#fff
-    style J fill:#1a1a2e,stroke:#0f3460,color:#fff
-    style RES fill:#1a1a2e,stroke:#e94560,color:#fff
-    style X1 fill:#3d0000,stroke:#e94560,color:#fff
-    style X2 fill:#3d0000,stroke:#e94560,color:#fff
-    style MW fill:#3d0000,stroke:#e94560,color:#fff
+flowchart LR
+    C[Authorized v4 session] --> A[Admission + mutation]
+    A --> V{Tier-3 validation}
+    V -->|reject| R[REJECTED: no active artifact]
+    V -->|accept| L[SQLite ledger and SQL projection]
+    L --> X[Vector projection]
+    X --> G[Graph V2 projection]
+    G --> M[COMMITTED]
+    S[Dataset-scoped search] --> B[BM25]
+    S --> E[Vector]
+    S --> Q[Graph assertions]
+    B --> F[True RRF + bounded legal rerank]
+    E --> F
+    Q --> F
 ```
 
 ---
@@ -377,11 +435,11 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v3/memory/insert` | Atomically admit durable worker ingestion (<50ms) |
+| `POST` | `/v3/memory/insert` | Admit durable lexical-core worker ingestion |
 | `POST` | `/v3/memory/search` | Hybrid vector + graph + FTS5 retrieval |
 | `GET` | `/v3/memory/status/{log_id}` | Query cold-path processing status |
 | `DELETE` | `/v3/memory/purge` | Tombstoning only (hard-delete is background-only) |
-| `POST` | `/v3/memory/session/start` | Generate a new session with tenant isolation |
+| `POST` | `/v3/memory/session/start` | Generate a v3 agent/session-scoped session |
 | `GET` | `/v3/memory/session/{session_id}/context` | Retrieve episodic + graph context scoped to session |
 | `POST` | `/v3/memory/session/{session_id}/end` | Terminate session and trigger final consolidation |
 | `GET` | `/health/init` | Container orchestration readiness probe (returns 200 when workers are alive) |
@@ -397,9 +455,9 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 | `MESA_RUNTIME_PROFILE` | *(required)* | `api-only`, `worker-only`, `combined` veya yalnız testler için `test-isolated` |
 | `MESA_STORAGE_ROOT` | *(required)* | Uygulamanın sahip olduğu mutlak ve yazılabilir storage dizini |
 | `MESA_LOAD_DOTENV` | `false` | `.env` yüklemeyi yalnız açıkça izin verilmiş profilde etkinleştirir |
-| `MESA_MODEL_ENABLED` | `false` | Yerel model yüklemeyi etkinleştirir; Compose bunu kapatır |
-| `MESA_EXTERNAL_PROVIDER_ENABLED` | `false` | Haricî LLM sağlayıcı kullanımını etkinleştirir; Compose bunu kapatır |
-| `MESA_API_KEY` | *(required)* | API authentication key (sent via `X-API-Key` header) |
+| `MESA_MODEL_ENABLED` | `false` | Model hattını etkinleştirir; v4 Compose açık değer ister |
+| `MESA_EXTERNAL_PROVIDER_ENABLED` | `false` | Haricî provider erişimini etkinleştirir; v4 Compose açık değer ister |
+| `MESA_API_KEY` | *(required)* | V3 bootstrap key veya v4 `key_id.secret` credential |
 | `MESA_PRINCIPAL_ID` | *(required)* | API key ile ilişkilendirilen sunucu tarafı principal |
 | `MESA_PRINCIPAL_TYPE` | `SERVICE` | Principal türü |
 | `MESA_PRINCIPAL_STATUS` | `active` | Principal durumu |
@@ -464,9 +522,14 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
   LLM extraction prompts, which support Turkish (`tr`) and English (`en`).
 - The system automatically falls back to LLM-based extraction when REBEL fails, so extraction never blocks the pipeline.
 
-### Current Status
+### Current status
 
-As of v0.6.1, Hot Path (API ingestion/search) and Cold Path (consolidation workers) concurrency are fully isolated via atomic Saga dual-writes, executor-offloaded embeddings, and strict input sanitization (including hard 1MB payload limits to prevent memory exhaustion DoS attacks). Furthermore, the system now supports safe multi-worker asynchronous writes via a persistent SQLite WAL queue, and automated background WAL checkpointing, preventing phantom writes and disk bloat during continuous ingestion.
+V0.6.1 is the preserved v3 lexical-core compatibility release. Its queue and
+compensating-write behavior must not be read as a v4 guarantee. Unreleased v4
+uses a mutation/pipeline ledger, ordered outbox, artifact ownership and
+reconciliation. Production status remains `NO-GO` until real-provider,
+production-like crash/concurrency, migration/restore and 24-hour soak evidence
+is complete.
 
 ---
 
@@ -474,8 +537,8 @@ As of v0.6.1, Hot Path (API ingestion/search) and Cold Path (consolidation worke
 
 ```
 MESA/
-├── mesa_api/             # Headless FastAPI v3 REST server + Pydantic schemas
-├── mesa_client/          # Python SDK (sync/async) + LangChain adapter
+├── mesa_api/             # Versioned FastAPI v3 compatibility + v4 routers
+├── mesa_client/          # Versioned Python SDKs (v3 and v4, sync/async)
 ├── mesa_evals/           # MESA çekirdek golden dataset + CI regresyon değerlendirmesi
 ├── mesa-benchmark/       # Dış sistem karşılaştırmalı, yayınlanabilir benchmark CLI'ı
 ├── mesa_memory/
@@ -497,7 +560,8 @@ MESA/
 ├── tests/                # pytest suite + benchmarks
 ├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)
 ├── Dockerfile            # Production container
-├── docker-compose.yml    # API + worker Compose deployment
+├── docker-compose.yml    # V3 lexical-core API + worker deployment
+├── docker-compose.v4.yml # V4 single combined storage-owner deployment
 ├── pyproject.toml        # Package metadata + dependency ranges
 ├── uv.lock               # Reproducible resolved dependency graph
 └── SECURITY.md            # Security disclosure policy

@@ -242,6 +242,93 @@ class TestCommitLogic:
 class TestProcessColdPath:
     @pytest.mark.asyncio
     @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
+    @patch("mesa_workers.ingestion_worker._run_rebel_extraction", new_callable=AsyncMock)
+    @patch("mesa_workers.ingestion_worker._commit_raw_memory", new_callable=AsyncMock)
+    @patch("mesa_workers.ingestion_worker._commit_triplets", new_callable=AsyncMock)
+    async def test_full_cognitive_validates_canonical_candidate_before_projection(
+        self, mock_commit_triplets, mock_commit_raw, mock_rebel, mock_ecod
+    ):
+        mock_ecod.return_value = True
+        mock_dao = MagicMock()
+        mock_dao.get_raw_log = AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {
+                    "agent_id": "test-agent",
+                    "session_id": "session-1",
+                    "content": "Validated content",
+                    "metadata": {"source": "test"},
+                },
+            }
+        )
+        mock_dao.update_raw_log_status = AsyncMock()
+        loop = MagicMock()
+
+        async def accept(records):
+            record = records[0]
+            assert record["content_payload"] == "Validated content"
+            assert record["tier3_deferred"] is True
+            assert record["raw_log_id"] == 17
+            assert record["candidate_id"] == record["cmb_id"]
+            return {"accepted": [record["candidate_id"]], "rejected": [], "deferred": []}
+
+        loop.run_batch = AsyncMock(side_effect=accept)
+
+        await process_cold_path(
+            log_id=17,
+            agent_id="test-agent",
+            dao=mock_dao,
+            consolidation_loop=loop,
+            model_processing_enabled=True,
+            require_tier3_validation=True,
+        )
+
+        mock_rebel.assert_not_awaited()
+        mock_commit_raw.assert_not_awaited()
+        mock_commit_triplets.assert_not_awaited()
+        mock_dao.update_raw_log_status.assert_any_call("test-agent", 17, "processed")
+
+    @pytest.mark.asyncio
+    @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
+    @patch("mesa_workers.ingestion_worker._commit_raw_memory", new_callable=AsyncMock)
+    async def test_full_cognitive_rejection_creates_no_legacy_projection(
+        self, mock_commit_raw, mock_ecod
+    ):
+        mock_ecod.return_value = True
+        mock_dao = MagicMock()
+        mock_dao.get_raw_log = AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {
+                    "agent_id": "test-agent",
+                    "session_id": "session-1",
+                    "content": "Rejected content",
+                },
+            }
+        )
+        mock_dao.update_raw_log_status = AsyncMock()
+        loop = MagicMock()
+
+        async def reject(records):
+            return {"accepted": [], "rejected": [records[0]["candidate_id"]], "deferred": []}
+
+        loop.run_batch = AsyncMock(side_effect=reject)
+
+        await process_cold_path(
+            log_id=18,
+            agent_id="test-agent",
+            dao=mock_dao,
+            consolidation_loop=loop,
+            require_tier3_validation=True,
+        )
+
+        mock_commit_raw.assert_not_awaited()
+        mock_dao.update_raw_log_status.assert_any_call(
+            "test-agent", 18, "rejected", error_reason="tier3_validation_rejected"
+        )
+
+    @pytest.mark.asyncio
+    @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
     @patch(
         "mesa_workers.ingestion_worker._run_rebel_extraction", new_callable=AsyncMock
     )

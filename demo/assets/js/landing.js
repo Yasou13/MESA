@@ -29,7 +29,7 @@ const I18N = {
         // Layer 1: Above the Fold (Hero)
         hero_badge: "v0.6.0 Enterprise Triple-Store Engine",
         hero_title: "The Open-Source <span class='gradient-text'>Triple-Store Memory Engine</span> for Enterprise AI Agents",
-        hero_desc: "Eliminate context amnesia, tenant leakage, and multi-hop reasoning loops. Built with high-throughput native C++ KùzuDB graph traversal, LanceDB dense vectors, and Stage-2 CrossEncoder reranking.",
+        hero_desc: "Durable v3 lexical memory and an unreleased v4 pipeline with dataset-scoped provenance, ordered projections, Graph V2, and RRF retrieval.",
         hero_cta_sandbox: "Test Live Sandbox",
         hero_cta_visualizer: "Try the System (Visual Demo)",
         hero_cta_bench: "View Benchmarks",
@@ -48,7 +48,7 @@ const I18N = {
         
         // Layer 2: Architectural Superiority (Why MESA)
         why_title: "Architectural Superiority: The Triple-Store Advantage",
-        why_subtitle: "Why standard vector-only RAG breaks in production, and how MESA solves it with synchronous multi-store isolation.",
+        why_subtitle: "Why vector-only RAG loses provenance, and how MESA v4 uses a mutation ledger, ordered projections, and dataset isolation.",
         
         p1_title: "SQLite WAL (Relational)",
         p1_desc: "Provides strict ACID compliance, operational state management, and FTS5 lexical keyword indexing. Guarantees zero data corruption and fast exact-match lookup.",
@@ -148,7 +148,7 @@ const I18N = {
         zc_i3: "<strong>Zero Token Overhead:</strong> Eliminate recurring API fees and data exfiltration risks completely.",
         
         zt_title: "Zero-Trust & Epistemic Row-Level Security",
-        zt_desc: "Every database operation is cryptographically bound to the tenant's agent identifier, ensuring zero cross-agent leakage.",
+        zt_desc: "V4 resolves principal, tenant, workspace, dataset, agent, and server-created session scope before data access.",
         zt_i1: "<strong>Mathematical Epistemic RLS:</strong> Hard-coded where clauses (`WHERE agent_id = ?`) across vector, lexical, and graph engines.",
         zt_i2: "<strong>Role-Based Access Control (RBAC):</strong> Fine-grained permission matrices (`mesa_memory/security/rbac.py`) for read/write enforcement.",
         zt_i3: "<strong>Timing-Attack & Prompt Injection Shield:</strong> Constant-time API key rotation and Valence Motor pre-filtering against malicious payloads.",
@@ -159,12 +159,12 @@ const I18N = {
         
         e1_title: "LangChain & LlamaIndex",
         e1_desc: "Drop-in memory store classes and retriever adapters for instant agentic memory replacement.",
-        e2_title: "FastAPI v3 & Python SDK",
+        e2_title: "Versioned FastAPI v3/v4 & Python SDK",
         e2_desc: "Strict Pydantic v2 schemas (`MemoryInsertRequest`) and clean async client (`MesaClient`).",
         e3_title: "Model Context Protocol (MCP)",
         e3_desc: "Native MCP server tools for seamless connection to Claude Desktop and AI IDEs.",
         e4_title: "Docker & Kubernetes Deployment",
-        e4_desc: "Ready-to-run Docker images, Docker Compose manifests, and production Helm charts.",
+        e4_desc: "Docker and separate v3/v4 Compose manifests; production GO still requires the documented external gates.",
         
         docs_bridge_title: "Explore the Complete Developer Documentation",
         docs_bridge_desc: "Inspect live interactive API endpoints, OpenAPI JSON schemas, and thorough whitepapers.",
@@ -318,7 +318,7 @@ const I18N = {
         
         e1_title: "LangChain & LlamaIndex",
         e1_desc: "Hazır bellek sınıfları ve arama adaptörleri ile ajanınızın hafızasını tek satırda değiştirin.",
-        e2_title: "FastAPI v3 & Python SDK",
+        e2_title: "Sürümlü FastAPI v3/v4 ve Python SDK",
         e2_desc: "Katı Pydantic v2 şemaları (`MemoryInsertRequest`) ve temiz asenkron istemci (`MesaClient`).",
         e3_title: "Model Context Protocol (MCP)",
         e3_desc: "Claude Desktop ve AI IDE'lerle anında bağlantı kuran yerleşik MCP sunucu araçları.",

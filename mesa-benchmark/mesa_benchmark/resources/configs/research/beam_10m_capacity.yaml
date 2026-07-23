@@ -10,7 +10,7 @@ dataset:
   ingest_mode: "sequential"
 client:
   name: "mesa"
-  adapter_class: "mesa_benchmark.clients.mesa_client.MesaClientAdapter"
+  adapter_class: "mesa_benchmark.clients.mesa_client.MesaV4ClientAdapter"
   timeout_ms: 30000
   parameters: {verbose: false}
 evaluation:

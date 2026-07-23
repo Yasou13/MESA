@@ -54,6 +54,7 @@ from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
+from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
 from mesa_memory.valence.novelty import calculate_novelty_score
 from mesa_storage.dao import MemoryDAO
@@ -127,6 +128,8 @@ async def process_cold_path(
     consolidation_loop: ConsolidationLoop | None = None,
     *,
     model_processing_enabled: bool = True,
+    require_tier3_validation: bool = False,
+    retry_on_failure: bool = False,
 ) -> None:
     """Bind one safe correlation context around a cold-path job.
 
@@ -149,6 +152,8 @@ async def process_cold_path(
             dao,
             consolidation_loop,
             model_processing_enabled=model_processing_enabled,
+            require_tier3_validation=require_tier3_validation,
+            retry_on_failure=retry_on_failure,
         )
     finally:
         structlog.contextvars.clear_contextvars()
@@ -161,6 +166,8 @@ async def _process_cold_path_impl(
     consolidation_loop: ConsolidationLoop | None = None,
     *,
     model_processing_enabled: bool = True,
+    require_tier3_validation: bool = False,
+    retry_on_failure: bool = False,
 ) -> None:
     """Process a queued raw_logs entry through the full validation pipeline.
 
@@ -307,7 +314,7 @@ async def _process_cold_path_impl(
             # ==============================================================
             # 4. TIER-2: REBEL TRIPLE EXTRACTION
             # ==============================================================
-            if model_processing_enabled:
+            if model_processing_enabled and not require_tier3_validation:
                 logger.info("COLD_PATH_DEBUG | Starting REBEL check", log_id=log_id)
                 triplets = await _run_rebel_extraction(content)
             else:
@@ -320,7 +327,67 @@ async def _process_cold_path_impl(
             _write_cold_path_trace(f"AFTER REBEL {log_id}")
 
             # ==============================================================
-            # 4. TIER-3 (Consensus) or GRAPH COMMIT
+            # 4. Full-cognitive Tier-3 admission before any projection
+            # ==============================================================
+            if require_tier3_validation:
+                if not model_processing_enabled or consolidation_loop is None:
+                    raise RuntimeError(
+                        "full-cognitive processing requires a Tier-3 consolidation loop"
+                    )
+                candidate = MemoryCandidate.from_raw_log(
+                    raw_log_id=log_id,
+                    agent_id=payload_agent_id,
+                    session_id=session_id,
+                    content_payload=content,
+                    metadata=metadata,
+                )
+                candidate_record = candidate.as_consolidation_record()
+                # v4 callers persist the canonical hand-off before validation;
+                # lightweight legacy mocks intentionally remain supported.
+                if type(dao) is MemoryDAO:
+                    await dao.record_mutation(candidate_record, raw_log_id=log_id)
+                async with _tier3_semaphore:
+                    outcome = await consolidation_loop.run_batch(
+                        [candidate_record]
+                    )
+                if candidate.candidate_id in outcome.get("accepted", []):
+                    if type(dao) is MemoryDAO:
+                        await dao.set_mutation_state(
+                            payload_agent_id, candidate.mutation_id, "VALIDATED"
+                        )
+                    await _transition("processed", target_agent_id=payload_agent_id)
+                    logger.info(
+                        "COLD_PATH_VALIDATED_AND_PROJECTED | log_id=%d candidate_id=%s",
+                        log_id,
+                        candidate.candidate_id,
+                    )
+                    return
+                if candidate.candidate_id in outcome.get("rejected", []):
+                    if type(dao) is MemoryDAO:
+                        await dao.set_mutation_state(
+                            payload_agent_id,
+                            candidate.mutation_id,
+                            "REJECTED",
+                            failure_class="Tier3Rejected",
+                        )
+                    await _transition(
+                        "rejected",
+                        error_reason="tier3_validation_rejected",
+                        target_agent_id=payload_agent_id,
+                    )
+                    return
+                if type(dao) is MemoryDAO:
+                    await dao.set_mutation_state(
+                        payload_agent_id,
+                        candidate.mutation_id,
+                        "RETRY_PENDING",
+                        failure_class="Tier3Unavailable",
+                    )
+                await _transition("DEFERRED", target_agent_id=payload_agent_id)
+                return
+
+            # ==============================================================
+            # 5. Legacy v3 projection path
             # ==============================================================
             logger.info("COLD_PATH_DEBUG | Starting Commit", log_id=log_id)
             _write_cold_path_trace(f"BEFORE COMMIT {log_id}")
@@ -395,9 +462,12 @@ async def _process_cold_path_impl(
         truncated_reason = error_msg[:500]
 
         try:
-            await _transition(
-                "failed", error_reason=truncated_reason, target_agent_id=agent_id
-            )
+            if retry_on_failure:
+                await _transition("DEFERRED", target_agent_id=agent_id)
+            else:
+                await _transition(
+                    "failed", error_reason=truncated_reason, target_agent_id=agent_id
+                )
         except Exception as status_exc:
             # Even the status update failed — log but never raise
             logger.critical(

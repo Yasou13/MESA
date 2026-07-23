@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from mesa_benchmark.clients.base import BenchmarkResponse, RetrievedContext
 from mesa_benchmark.clients.mem0_client import Mem0ClientAdapter
-from mesa_benchmark.clients.mesa_client import MesaClientAdapter
+from mesa_benchmark.clients.mesa_client import MesaClientAdapter, MesaV4ClientAdapter
 from mesa_benchmark.core.config import apply_runtime_environment, load_config
 from mesa_benchmark.core.generation import OllamaAnswerGenerator
 from mesa_benchmark.core.paths import resolve_benchmark_path
@@ -508,6 +508,59 @@ def test_mesa_two_pass_ingest_resolves_batch_relation_to_real_node() -> None:
         )
     finally:
         adapter.close()
+
+
+def test_mesa_v4_adapter_uses_dataset_scoped_projection_and_rrf() -> None:
+    adapter = MesaV4ClientAdapter()
+    adapter.memory_dao = SimpleNamespace(
+        create_v4_source_chunk=AsyncMock(),
+        record_mutation=AsyncMock(),
+        record_mutation_extraction=AsyncMock(),
+        set_mutation_state=AsyncMock(),
+        v4_entity_id=MagicMock(return_value="entity-a"),
+        search_v4_memory=AsyncMock(
+            return_value=[
+                {
+                    "entity_id": "entity-a",
+                    "entity": {
+                        "entity_id": "entity-a",
+                        "canonical_name": "exact benchmark context",
+                    },
+                }
+            ]
+        ),
+    )
+    adapter.context_id_map["entity-a"] = "context-a"
+    with patch(
+        "mesa_benchmark.clients.mesa_client.process_projection_outbox_once",
+        new=AsyncMock(
+            side_effect=[
+                {"claimed": 1, "completed": 1, "retry_pending": 0, "dead_letter": 0},
+                {"claimed": 1, "completed": 1, "retry_pending": 0, "dead_letter": 0},
+                {"claimed": 1, "completed": 1, "retry_pending": 0, "dead_letter": 0},
+            ]
+        ),
+    ):
+        adapter.add_memories(
+            [MemoryContext(id="context-a", text="exact benchmark context")]
+        )
+    adapter.context_id_map["entity-a"] = "context-a"
+    response = adapter.answer(
+        BenchmarkQuestion(
+            id="question-a",
+            query="benchmark context",
+            reference_answers=["exact benchmark context"],
+        )
+    )
+    assert response.retrieved_context_ids == ["context-a"]
+    adapter.memory_dao.search_v4_memory.assert_awaited_once_with(
+        tenant_id="benchmark-tenant",
+        agent_id="benchmark-agent",
+        dataset_ids=["benchmark-dataset"],
+        query="benchmark context",
+        limit=5,
+    )
+    adapter.close()
 
 
 def test_mesa_adapter_owns_and_closes_one_event_loop_worker() -> None:

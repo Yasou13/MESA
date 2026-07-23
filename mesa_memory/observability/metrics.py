@@ -64,6 +64,47 @@ PROM_RETRIEVAL_DEGRADED = PromCounter(
     "Hybrid retrieval requests completed with an unavailable source",
     ["source"],
 )
+PROM_V4_PROJECTION_BACKLOG = PromGauge(
+    "mesa_v4_projection_backlog",
+    "Pending, retrying or in-flight V4 projection lanes",
+)
+PROM_V4_PROJECTION_DLQ = PromGauge(
+    "mesa_v4_projection_dead_letter",
+    "V4 projection lanes in dead letter",
+)
+PROM_V4_STUCK_LEASES = PromGauge(
+    "mesa_v4_projection_stuck_leases",
+    "Expired in-flight V4 projection leases",
+)
+PROM_V4_CLEANUP_BACKLOG = PromGauge(
+    "mesa_v4_cleanup_backlog",
+    "Pending, retrying or in-flight V4 artifact cleanup work",
+)
+PROM_V4_CLEANUP_BLOCKED = PromGauge(
+    "mesa_v4_cleanup_blocked",
+    "Blocked V4 artifact cleanup work",
+)
+PROM_V4_ORPHAN_REGISTRY = PromGauge(
+    "mesa_v4_orphan_registry",
+    "Active V4 registry artifacts without an active source owner",
+)
+PROM_V4_SHARED_ARTIFACTS = PromGauge(
+    "mesa_v4_shared_artifacts",
+    "V4 physical artifacts with multiple active source owners",
+)
+
+
+def update_v4_health_metrics(health: dict) -> None:  # type: ignore[type-arg]
+    """Publish the durable health snapshot without content/provenance labels."""
+    projection = health.get("v4_projection") or {}
+    ownership = health.get("v4_ownership") or {}
+    PROM_V4_PROJECTION_BACKLOG.set(float(projection.get("backlog", 0)))
+    PROM_V4_PROJECTION_DLQ.set(float(projection.get("dead_letter", 0)))
+    PROM_V4_STUCK_LEASES.set(float(projection.get("stuck_claims", 0)))
+    PROM_V4_CLEANUP_BACKLOG.set(float(ownership.get("cleanup_backlog", 0)))
+    PROM_V4_CLEANUP_BLOCKED.set(float(ownership.get("cleanup_blocked", 0)))
+    PROM_V4_ORPHAN_REGISTRY.set(float(ownership.get("orphan_registry", 0)))
+    PROM_V4_SHARED_ARTIFACTS.set(float(ownership.get("shared_artifacts", 0)))
 
 
 class ObservabilityLayer:

@@ -166,30 +166,13 @@ async def test_alpha_reranking_logic():
         {"cmb_id": "D", "score": 20.0},
     ]
 
-    from mesa_memory.config import config
+    fused_ids = await retriever._apply_rrf_reranking(
+        "test_agent", vector_ranks, graph_ranks, lexical_ranks
+    )
 
-    original_alpha = getattr(config, "hybrid_alpha", 0.0)
-    original_beta = getattr(config, "hybrid_beta", 0.0)
-    config.hybrid_alpha = 0.5
-    config.hybrid_beta = 0.2
-
-    try:
-        fused_ids = await retriever._apply_alpha_reranking(
-            "test_agent", vector_ranks, graph_ranks, lexical_ranks
-        )
-
-        # S_vec + (alpha * S_graph_norm) + (beta * S_lex_norm)
-        # A: 0.9 + 0 + 0 = 0.9
-        # B: 0.7 + 0.5 * min(0.05*10, 1) = 0.7 + 0.25 = 0.95
-        # C: 0.0 + 0.5 * min(0.2*10, 1) = 0.0 + 0.5 = 0.5
-        # D: 0.0 + 0 + 0.2 * min(20/10, 1) = 0.2
-        assert fused_ids[0] == "B"
-        assert fused_ids[1] == "A"
-        assert fused_ids[2] == "C"
-        assert fused_ids[3] == "D"
-    finally:
-        config.hybrid_alpha = original_alpha
-        config.hybrid_beta = original_beta
+    # B appears in two lanes and therefore wins true RRF.  A and D both
+    # occupy rank 1 in one lane; the stable candidate-id tie-breaker follows.
+    assert fused_ids == ["B", "A", "D", "C"]
 
 
 # ===================================================================

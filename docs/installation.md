@@ -1,146 +1,177 @@
-# Installation and operator runbook
+# Installation and deployment
 
-This guide uses the current fail-closed runtime profiles. It never loads a
-repository `.env` automatically, starts Ollama, or enables an external model
-provider. Keep production credentials in a secret manager; do not commit them.
+Bu rehber v3 lexical-core uyumluluk topology’si ile yayınlanmamış v4
+full-cognitive topology’sini ayrı tutar. Repository `.env` dosyasını
+kendiliğinden yüklemez. Gerçek secret’ları bir secret manager’da saklayın.
 
-## Requirements and clean install
+## Gereksinimler
 
-- Python 3.10 or newer.
-- Docker and Docker Compose are optional and required only for the Compose
-  deployment instructions.
+- Python 3.10–3.13
+- Kilitli kurulum için `uv`
+- Compose kullanılıyorsa Docker Engine ve Docker Compose
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-python3 -m venv venv
-. venv/bin/activate
-python -m pip install -e ".[dev]"
-python -m pip check
+python -m pip install "uv==0.9.6"
+uv sync --locked --extra dev
+uv pip check
 ```
 
-`pyproject.toml` is the supported dependency-range definition. Optional
-adapters and benchmark integrations are not needed for the core runtime or CI
-profile. `uv.lock` is the reproducible deployment graph used by CI and Docker;
-use `uv sync --locked --extra dev` as the primary development and operator
-installation path.
+`pyproject.toml` desteklenen dependency aralıklarını, `uv.lock` CI/Docker
+tarafından kullanılan tekrarlanabilir grafiği tanımlar. Model adapter’ları ve
+benchmark bağımlılıkları yalnız gerekli profillerde kurulmalıdır.
 
-## Environment template
-
-Copy the template only to define variable names; replace the placeholders using
-your secret manager and do not check the result into version control.
+## Ortak ortam ilkeleri
 
 ```bash
-cp .env.example .env
-```
-
-The runtime requires these explicit values:
-
-```bash
-export MESA_RUNTIME_PROFILE=api-only
-export MESA_STORAGE_ROOT=/srv/mesa/data
+export MESA_STORAGE_ROOT=/srv/mesa/v4-data
 export MESA_LOAD_DOTENV=false
-export MESA_MODEL_ENABLED=false
-export MESA_EXTERNAL_PROVIDER_ENABLED=false
-export MESA_API_KEY="$(secret-manager read mesa-api-key)"
+export MESA_LOG_LEVEL=INFO
+export MESA_LOG_FORMAT=json
+```
+
+Storage root uygulamaya ait, yazılabilir ve açıkça seçilmiş bir dizin olmalıdır.
+Repository, home veya filesystem root kullanmayın. V3 ve v4 için ayrı fiziksel
+root kullanın.
+
+## V4 combined runtime
+
+V4’ün desteklenen storage-writing topology’si tek `combined` process’tir:
+
+```bash
+export MESA_RUNTIME_PROFILE=combined
+export MESA_MODEL_ENABLED=true
+export MESA_EXTERNAL_PROVIDER_ENABLED=true
 export MESA_PRINCIPAL_ID=service-api
 export MESA_PRINCIPAL_TYPE=SERVICE
 export MESA_PRINCIPAL_STATUS=active
-```
-
-`MESA_STORAGE_ROOT` must be an application-owned writable directory, not the
-repository root, home directory, or filesystem root. The `test-isolated`
-profile is reserved for paths under `/storage/mesa-lab`.
-
-## API-only and worker-only processes
-
-Start the API role without workers:
-
-```bash
-export MESA_RUNTIME_PROFILE=api-only
 python -m mesa_memory.runtime_entrypoint
 ```
 
-In a separate terminal, start the durable cold-path worker with the same
-storage root and credentials:
+Provider’a özel adapter/model/credential değişkenleri deployment tarafından
+sağlanır. Release adayı provider seçimi performans, maliyet ve güvenlik kanıtı
+olmadan sabitlenmez. Model-disabled çalıştırma topology smoke testinde
+kullanılabilir ancak full-cognitive production kanıtı değildir.
+
+V4 credentials ve ACL:
 
 ```bash
-export MESA_RUNTIME_PROFILE=worker-only
-python -m mesa_memory.runtime_entrypoint
+export MESA_STORAGE_ROOT=/srv/mesa/v4-data
+mesa-v4-admin issue-key --principal service-api
+mesa-v4-admin grant-role --principal service-api \
+  --tenant tenant-a --role OWNER
+mesa-v4-admin grant-agent --principal service-api \
+  --agent agent-a --permission SESSION_CREATE
 ```
 
-Check the API with an authenticated request:
+Üretilen `key_id.secret` credential’ı secret manager’a aktarın ve runtime’a
+`MESA_API_KEY` olarak sağlayın. Plaintext yalnız oluşturma/rotate anında
+gösterilir.
+
+### V4 Compose
 
 ```bash
-curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
+export MESA_API_KEY="$(secret-manager read mesa-v4-api-key)"
+export MESA_PRINCIPAL_ID=service-api
+export MESA_MODEL_ENABLED=true
+export MESA_EXTERNAL_PROVIDER_ENABLED=true
+docker compose -f docker-compose.v4.yml config --quiet
+docker compose -f docker-compose.v4.yml up --build -d
+docker compose -f docker-compose.v4.yml ps
+curl --fail -H "X-API-Key: $MESA_API_KEY" \
+  http://127.0.0.1:8000/health
 ```
 
-The worker writes `worker-readiness.json` below `MESA_STORAGE_ROOT`. Do not run
-the API profile as a worker or the worker profile as an HTTP server.
+`docker-compose.v4.yml` yalnız `mesa-v4` service’ini ve tek v4 volume’ünü
+çalıştırır. Aynı volume’ü başka writer’a mount etmeyin.
 
-Set `MESA_REQUIRE_WORKER_READINESS=true` when the API must fail readiness if a
-separate worker has no fresh heartbeat on the shared storage root. Compose sets
-this for the API role by default; a deliberately workerless standalone API can
-leave it unset.
+## İlk v4 catalog ve session
 
-## Compose deployment
+ACL verildikten sonra `MesaV4Client` ile catalog oluşturulur:
 
-Compose creates separate `mesa-api` and `mesa-worker` roles sharing only the
-named `mesa-data` volume. The API readiness probe requires the worker's fresh
-shared-volume heartbeat. This is the safe-core profile: model/provider access
-and application dotenv loading remain disabled, and the worker commits durable
-raw memories without REBEL, LLM extraction, or dual-LLM consensus. Compose may
-still interpolate a project `.env` file before containers start; use exported
-variables or a secret-manager-managed interpolation file for credentials.
+```python
+from mesa_client import MesaV4Client
+
+with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
+    client.create_workspace(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        tenant_name="Tenant A",
+        workspace_name="Workspace A",
+    )
+    client.create_dataset(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_id="dataset-a",
+        dataset_name="Dataset A",
+    )
+    session = client.start_session(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_ids=["dataset-a"],
+        agent_id="agent-a",
+    )
+```
+
+Session ID sunucu tarafından üretilir ve dataset kapsamı sonradan değişmez.
+
+## V3 lexical-core compatibility
+
+`docker-compose.yml`, ayrı `api-only` + `worker-only` process’lerle v3
+lexical-core topology’sini korur:
 
 ```bash
-export MESA_API_KEY="$(secret-manager read mesa-api-key)"
+export MESA_API_KEY="$(secret-manager read mesa-v3-api-key)"
 export MESA_PRINCIPAL_ID=service-api
 docker compose config --quiet
 docker compose up --build -d
-docker compose ps
-curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
 ```
 
-Use `docker compose restart mesa-api` or `docker compose restart mesa-worker`
-for a controlled role restart. The named volume survives a normal `down`.
+Process’leri elle başlatmak için:
 
-## Migration, backup, and restore
+```bash
+MESA_RUNTIME_PROFILE=api-only python -m mesa_memory.runtime_entrypoint
+MESA_RUNTIME_PROFILE=worker-only python -m mesa_memory.runtime_entrypoint
+```
 
-Run migrations while the application is stopped:
+Bu topology v4 Graph V2, dataset ACL veya projection-ledger garantisi sunmaz.
+
+## Migration, backup ve restore
+
+Migration yalnız uygulama durmuşken ve release runbook onayıyla çalıştırılır:
 
 ```bash
 alembic -c mesa_storage/alembic.ini upgrade head
 ```
 
-The backup CLI requires an explicit trusted parent and an offline source root:
+Offline backup/restore:
 
 ```bash
 mesa-recovery --trusted-root /srv/mesa backup \
-  --source-root /srv/mesa/data --backup-root /srv/mesa/backups/2026-07-20 \
+  --source-root /srv/mesa/v4-data \
+  --backup-root /srv/mesa/backups/v4-2026-07-23 \
   --stores-stopped
 mesa-recovery --trusted-root /srv/mesa validate \
-  --backup-root /srv/mesa/backups/2026-07-20
+  --backup-root /srv/mesa/backups/v4-2026-07-23
 mesa-recovery --trusted-root /srv/mesa restore \
-  --backup-root /srv/mesa/backups/2026-07-20 --restore-root /srv/mesa/restore-test
+  --backup-root /srv/mesa/backups/v4-2026-07-23 \
+  --restore-root /srv/mesa/restore-v4-test
 ```
 
-Restore into a new empty directory, validate it, and then perform the
-application's post-restore reconciliation before any production cutover.
+Restore her zaman yeni boş hedefe yapılır. V3 storage yerinde migrate edilmez;
+backup sonrası ayrı v4 root’ta offline rebuild ve parity kontrolü yapılır.
 
-## Smoke, shutdown, rollback, and external gates
-
-For a local, model-disabled smoke check use the canonical contracts:
+## Yerel doğrulama
 
 ```bash
-python -m pytest -q tests/test_deployment_assets.py tests/test_runtime_profiles_contract.py \
-  tests/test_migration_closure.py tests/test_recovery_contract.py
+uv run ruff check .
+uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
+  --ignore-missing-imports --explicit-package-bases --follow-imports=skip
+uv run pytest -q
+uv run pytest -q mesa-benchmark/tests
 ```
 
-On failure, collect `docker compose logs`, stop roles gracefully with
-`docker compose down`, and preserve the named volume for investigation. Use
-`docker compose down -v` only for a disposable test deployment.
-
-After a push, run **MESA CI** and **MESA external release gates** from GitHub
-Actions. The latter provides manual inputs for flow, bounded capacity, Docker,
-and documentation gates; it does not push an image or use production secrets.
+V4 dar sözleşme paketi `tests/test_v4_*.py`, Graph V2 testleri ve
+`tests/test_api_key_store.py` dosyalarını kapsar. Bu kontroller release kanıtı
+için gereklidir fakat 24 saat soak kapısının yerine geçmez.

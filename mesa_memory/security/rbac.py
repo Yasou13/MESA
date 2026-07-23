@@ -102,6 +102,42 @@ class AccessControl:
                     PRIMARY KEY (principal_id, session_id)
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS principal_tenant_roles (
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    PRIMARY KEY (principal_id, tenant_id)
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS principal_workspace_roles (
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    PRIMARY KEY (principal_id, workspace_id)
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS principal_dataset_roles (
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    dataset_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    PRIMARY KEY (principal_id, dataset_id)
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS principal_dataset_permissions (
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    dataset_id TEXT NOT NULL,
+                    permission TEXT NOT NULL,
+                    PRIMARY KEY (principal_id, dataset_id, permission)
+                )
+            """)
             # Seed the reserved system daemon identity with WRITE access
             await db.execute(
                 "INSERT OR IGNORE INTO permissions "
@@ -111,6 +147,129 @@ class AccessControl:
             await db.commit()
 
         self._initialized = True
+
+    async def grant_scope_role(
+        self,
+        principal_id: str,
+        *,
+        tenant_id: str,
+        role: str,
+        workspace_id: str | None = None,
+        dataset_id: str | None = None,
+    ) -> None:
+        """Grant OWNER/WRITER/READER at exactly one catalog scope."""
+        normalized = role.upper()
+        if normalized not in {"OWNER", "WRITER", "READER"}:
+            raise ValueError("invalid catalog role")
+        params: tuple[str, ...]
+        if dataset_id:
+            if not workspace_id:
+                raise ValueError("dataset role requires workspace")
+            statement = (
+                "INSERT OR REPLACE INTO principal_dataset_roles "
+                "(principal_id, tenant_id, workspace_id, dataset_id, role) "
+                "VALUES (?, ?, ?, ?, ?)"
+            )
+            params = (
+                principal_id,
+                tenant_id,
+                workspace_id,
+                dataset_id,
+                normalized,
+            )
+        elif workspace_id:
+            statement = (
+                "INSERT OR REPLACE INTO principal_workspace_roles "
+                "(principal_id, tenant_id, workspace_id, role) VALUES (?, ?, ?, ?)"
+            )
+            params = (principal_id, tenant_id, workspace_id, normalized)
+        else:
+            statement = (
+                "INSERT OR REPLACE INTO principal_tenant_roles "
+                "(principal_id, tenant_id, role) VALUES (?, ?, ?)"
+            )
+            params = (principal_id, tenant_id, normalized)
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(statement, params)
+            await db.commit()
+
+    async def check_scope_role(
+        self,
+        principal_id: str,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        required_role: str,
+    ) -> bool:
+        """Apply inherited tenant → workspace → dataset role precedence."""
+        levels = {"READER": 1, "WRITER": 2, "OWNER": 3}
+        required = levels.get(required_role.upper())
+        if required is None:
+            raise ValueError("invalid required catalog role")
+        async with aiosqlite.connect(self.policy_path) as db:
+            queries = (
+                (
+                    "SELECT role FROM principal_tenant_roles "
+                    "WHERE principal_id = ? AND tenant_id = ?",
+                    (principal_id, tenant_id),
+                ),
+                (
+                    "SELECT role FROM principal_workspace_roles "
+                    "WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?",
+                    (principal_id, tenant_id, workspace_id),
+                ),
+                (
+                    "SELECT role FROM principal_dataset_roles "
+                    "WHERE principal_id = ? AND tenant_id = ? "
+                    "AND workspace_id = ? AND dataset_id = ?",
+                    (principal_id, tenant_id, workspace_id, dataset_id),
+                ),
+            )
+            granted = 0
+            for statement, params in queries:
+                async with db.execute(statement, params) as cursor:
+                    row = await cursor.fetchone()
+                if row:
+                    granted = max(granted, levels.get(str(row[0]).upper(), 0))
+        return granted >= required
+
+    async def grant_dataset_permission(
+        self,
+        principal_id: str,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        permission: str,
+    ) -> None:
+        normalized = permission.upper()
+        if normalized not in {"PURGE", "ROLLBACK"}:
+            raise ValueError("invalid dataset permission")
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO principal_dataset_permissions "
+                "(principal_id, tenant_id, dataset_id, permission) "
+                "VALUES (?, ?, ?, ?)",
+                (principal_id, tenant_id, dataset_id, normalized),
+            )
+            await db.commit()
+
+    async def check_dataset_permission(
+        self,
+        principal_id: str,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        permission: str,
+    ) -> bool:
+        async with aiosqlite.connect(self.policy_path) as db:
+            async with db.execute(
+                "SELECT 1 FROM principal_dataset_permissions "
+                "WHERE principal_id = ? AND tenant_id = ? "
+                "AND dataset_id = ? AND permission = ?",
+                (principal_id, tenant_id, dataset_id, permission.upper()),
+            ) as cursor:
+                return await cursor.fetchone() is not None
 
     async def close(self) -> None:
         """Mark the controller as closed.

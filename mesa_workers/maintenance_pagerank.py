@@ -1,15 +1,15 @@
-# MESA v0.6.1 — Phase 4.1: Self-Healing Graphs — Damped PageRank Quarantine Scanner
-# Background worker that detects and quarantines hallucinated nodes by
-# computing a Damped PageRank variant where epistemic_uncertainty acts
-# as a per-edge damping penalty.
+# MESA — PageRank graph-observation worker.
+#
+# PageRank describes graph topology; it does not establish whether a fact is
+# true. A new or deliberately narrow fact is often a leaf, so PageRank must
+# never be used as an automatic quarantine signal.
 #
 # Architecture:
 #   - Extracts the agent-scoped subgraph from KùzuDB via MemoryDAO
 #   - Builds a sparse adjacency matrix using scipy.sparse (no NetworkX)
 #   - Runs power-iteration PageRank with per-edge damping from
 #     epistemic_uncertainty values
-#   - Nodes whose quarantine index (1.0 - normalised_pagerank) exceeds
-#     the threshold are marked is_quarantined = true in KùzuDB
+#   - Low-rank nodes are reported as structural-review candidates only
 #
 # Invariants:
 #   - Zero-Trust: EVERY database read/write is parameterised with agent_id
@@ -18,26 +18,25 @@
 #   - This worker is designed to be invoked as a periodic cron-job,
 #     from the existing MaintenanceWorker, or as a standalone asyncio task
 """
-Damped PageRank quarantine scanner for MESA self-healing graphs.
+Damped PageRank graph-observation worker for MESA.
 
-Periodically analyses the per-agent knowledge graph to detect nodes that
-are structurally suspect — i.e. nodes whose incoming edges carry high
-``epistemic_uncertainty`` (injected during ingestion from the Dual-LLM
-consensus pipeline).
+Periodically analyses the per-agent knowledge graph and reports nodes whose
+incoming edges carry high ``epistemic_uncertainty`` (injected during
+ingestion from the Dual-LLM consensus pipeline).
 
 The algorithm computes a variant of PageRank where each edge's
 contribution is damped by ``(1.0 - epistemic_uncertainty)``.  Nodes
 that receive rank almost exclusively through uncertain edges will have
-a low PageRank score, translating to a high **quarantine index** (QI).
-Nodes exceeding the configurable ``threshold_qi`` are marked as
-quarantined in KùzuDB.
+a low PageRank score, translating to a high **structural-review index**.
+These scores are telemetry only. Validation, contradiction assertions and
+their provenance remain the only evidence that can affect retrieval state.
 
 Usage::
 
-    from mesa_workers.maintenance_pagerank import run_quarantine_scan
+    from mesa_workers.maintenance_pagerank import run_pagerank_observation
 
     # Called from a background scheduler or maintenance worker:
-    await run_quarantine_scan(
+    await run_pagerank_observation(
         agent_id="agent_alpha",
         graph_provider=kuzu_provider,
         threshold_qi=0.85,
@@ -76,8 +75,7 @@ _CONVERGENCE_EPSILON: float = 1e-6
 # Maximum power-iteration steps to prevent infinite loops
 _MAX_ITERATIONS: int = 100
 
-# Minimum graph size to run quarantine analysis (below this, the
-# algorithm produces unstable results and quarantine is skipped)
+# Minimum graph size to produce stable structural-review telemetry.
 _MIN_GRAPH_SIZE: int = 3
 
 
@@ -86,19 +84,19 @@ _MIN_GRAPH_SIZE: int = 3
 # ---------------------------------------------------------------------------
 
 
-async def run_quarantine_scan(
+async def run_pagerank_observation(
     agent_id: str,
     graph_provider: KuzuGraphProvider,
     *,
     threshold_qi: float = 0.85,
     damping_factor: float = _DEFAULT_DAMPING_FACTOR,
 ) -> dict[str, Any]:
-    """Detect and quarantine hallucinated nodes via Damped PageRank.
+    """Report low-authority graph nodes without changing retrieval state.
 
     Extracts the agent-scoped subgraph from KùzuDB, computes Damped
-    PageRank where ``epistemic_uncertainty`` penalises edge contributions,
-    and sets ``is_quarantined = true`` on nodes whose quarantine index
-    (``1.0 - normalised_pagerank``) exceeds ``threshold_qi``.
+    PageRank where ``epistemic_uncertainty`` penalises edge contributions.
+    A low score is a topological property, not evidence of hallucination,
+    so this function never writes ``is_quarantined`` in any store.
 
     **Zero-Trust**: Every KùzuDB read/write is parameterised with
     ``agent_id``.
@@ -108,11 +106,12 @@ async def run_quarantine_scan(
     FastAPI event loop blocking.
 
     Args:
-        agent_id: Tenant isolation key — scopes all graph queries.
+        agent_id: Legacy graph partition key; v4 tenant security is enforced
+            independently by the authorized catalog/session context.
         graph_provider: Initialised ``KuzuGraphProvider`` instance.
-        threshold_qi: Quarantine index threshold (0.0–1.0).  Nodes with
-            ``qi >= threshold_qi`` are quarantined.  Default 0.85 means
-            only nodes with very low structural authority are flagged.
+        threshold_qi: Structural-review threshold (0.0–1.0). Nodes with
+            ``1 - normalised_pagerank >= threshold_qi`` are reported as
+            candidates only. Default 0.85 flags very low authority nodes.
         damping_factor: Standard PageRank damping factor (default 0.85).
 
     Returns:
@@ -121,15 +120,18 @@ async def run_quarantine_scan(
             {
                 "agent_id": str,
                 "total_nodes": int,
-                "quarantined_count": int,
-                "quarantined_ids": list[str],
+                "review_candidate_count": int,
+                "review_candidate_ids": list[str],
+                "mode": "OBSERVE_ONLY",
+                "quarantined_count": 0,
+                "quarantined_ids": [],
                 "elapsed_ms": float,
             }
     """
     t_start = time.monotonic()
 
     logger.info(
-        "QUARANTINE_SCAN_START | agent_id=%s threshold_qi=%.3f",
+        "PAGERANK_OBSERVATION_START | agent_id=%s threshold_qi=%.3f",
         agent_id,
         threshold_qi,
     )
@@ -139,13 +141,18 @@ async def run_quarantine_scan(
 
     if len(nodes) < _MIN_GRAPH_SIZE:
         logger.info(
-            "QUARANTINE_SCAN_SKIP | agent_id=%s nodes=%d reason=graph_too_small",
+            "PAGERANK_OBSERVATION_SKIP | agent_id=%s nodes=%d reason=graph_too_small",
             agent_id,
             len(nodes),
         )
         return {
             "agent_id": agent_id,
             "total_nodes": len(nodes),
+            "review_candidate_count": 0,
+            "review_candidate_ids": [],
+            "mode": "OBSERVE_ONLY",
+            # Legacy callers may still read these fields. They are pinned to
+            # zero because PageRank no longer has quarantine authority.
             "quarantined_count": 0,
             "quarantined_ids": [],
             "elapsed_ms": (time.monotonic() - t_start) * 1000,
@@ -161,39 +168,43 @@ async def run_quarantine_scan(
         damping_factor,
     )
 
-    # ---- 3. Identify quarantine candidates ----------------------------
-    quarantine_ids: list[str] = []
+    # ---- 3. Identify structural-review candidates ---------------------
+    review_candidate_ids: list[str] = []
     for node_id, pr_score in pagerank_scores.items():
         qi = 1.0 - pr_score  # quarantine index
         if qi >= threshold_qi:
-            quarantine_ids.append(node_id)
+            review_candidate_ids.append(node_id)
 
     logger.info(
-        "QUARANTINE_SCAN_CANDIDATES | agent_id=%s total_nodes=%d candidates=%d",
+        "PAGERANK_OBSERVATION_CANDIDATES | agent_id=%s total_nodes=%d candidates=%d",
         agent_id,
         len(nodes),
-        len(quarantine_ids),
+        len(review_candidate_ids),
     )
-
-    # ---- 4. Mark quarantined nodes in KùzuDB (executor-offloaded) -----
-    if quarantine_ids:
-        await _quarantine_nodes(graph_provider, agent_id, quarantine_ids)
 
     elapsed_ms = (time.monotonic() - t_start) * 1000
     logger.info(
-        "QUARANTINE_SCAN_DONE | agent_id=%s quarantined=%d elapsed_ms=%.1f",
+        "PAGERANK_OBSERVATION_DONE | agent_id=%s candidates=%d elapsed_ms=%.1f",
         agent_id,
-        len(quarantine_ids),
+        len(review_candidate_ids),
         elapsed_ms,
     )
 
     return {
         "agent_id": agent_id,
         "total_nodes": len(nodes),
-        "quarantined_count": len(quarantine_ids),
-        "quarantined_ids": quarantine_ids,
+        "review_candidate_count": len(review_candidate_ids),
+        "review_candidate_ids": review_candidate_ids,
+        "mode": "OBSERVE_ONLY",
+        "quarantined_count": 0,
+        "quarantined_ids": [],
         "elapsed_ms": elapsed_ms,
     }
+
+
+# Backwards-compatible import name. It deliberately has observation-only
+# behaviour: PageRank has no mutation authority in V4.
+run_quarantine_scan = run_pagerank_observation
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +227,7 @@ async def _extract_subgraph(
     """
     # ---- Fetch nodes (agent-scoped) -----------------------------------
     node_rows = await provider.execute_query(
-        "MATCH (n:Entity {agent_id: $agent_id}) "
-        "WHERE n.is_quarantined = false OR n.is_quarantined IS NULL "
-        "RETURN n.id",
+        "MATCH (n:Entity {agent_id: $agent_id}) RETURN n.id",
         {"agent_id": agent_id},
     )
     node_ids = [row[0] for row in node_rows]
@@ -359,55 +368,13 @@ def _compute_damped_pagerank(
     return {node_ids[i]: float(pr[i]) for i in range(n)}
 
 
-# ---------------------------------------------------------------------------
-# Quarantine execution — mark nodes in KùzuDB
-# ---------------------------------------------------------------------------
-
-
-async def _quarantine_nodes(
-    provider: KuzuGraphProvider,
-    agent_id: str,
-    node_ids: list[str],
-) -> None:
-    """Set ``is_quarantined = true`` on specified Entity nodes.
-
-    Each UPDATE is parameterised with ``agent_id`` for Zero-Trust
-    isolation.  Failures on individual nodes are caught and logged
-    without aborting the batch.
-
-    Args:
-        provider: Initialised ``KuzuGraphProvider``.
-        agent_id: Tenant isolation key (mandatory).
-        node_ids: List of Entity node IDs to quarantine.
-    """
-    for node_id in node_ids:
-        try:
-            await provider.execute_write(
-                "MATCH (n:Entity {id: $id, agent_id: $agent_id}) "
-                "SET n.is_quarantined = true",
-                {"id": node_id, "agent_id": agent_id},
-            )
-            logger.info(
-                "NODE_QUARANTINED | agent_id=%s node_id=%s",
-                agent_id,
-                node_id,
-            )
-        except Exception as exc:
-            logger.warning(
-                "QUARANTINE_FAILED | agent_id=%s node_id=%s error=%s",
-                agent_id,
-                node_id,
-                exc,
-            )
-
-
 async def schedule_pagerank_worker(dao: Any, interval_sec: int = 3600) -> None:
-    """Background loop to periodically run quarantine scans across all agents.
+    """Background loop to periodically collect PageRank telemetry.
 
     Runs continuously in the background, querying all distinct agent_ids
-    via the DAO layer and running the quarantine scan for each.
+    via the DAO layer and running an observation-only scan for each.
     """
-    logger.info("PageRank quarantine worker scheduled (interval=%ds)", interval_sec)
+    logger.info("PageRank observation worker scheduled (interval=%ds)", interval_sec)
 
     while True:
         try:
@@ -417,7 +384,7 @@ async def schedule_pagerank_worker(dao: Any, interval_sec: int = 3600) -> None:
                 if dao.graph_provider is None:
                     continue
                 try:
-                    await run_quarantine_scan(
+                    await run_pagerank_observation(
                         agent_id=agent_id,
                         graph_provider=dao.graph_provider,
                     )

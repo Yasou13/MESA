@@ -12,7 +12,7 @@ import kuzu
 from mesa_storage.kuzu_migration import KuzuMigrationCoordinator, MigrationOutcome
 from mesa_storage.kuzu_setup import initialize_schema_artifact
 
-CURRENT_SCHEMA_VERSION = "2"
+CURRENT_SCHEMA_VERSION = "3"
 
 
 @dataclass(frozen=True)
