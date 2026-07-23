@@ -132,7 +132,7 @@ DATASETS: tuple[dict[str, Any], ...] = (
 CLIENTS: dict[str, dict[str, Any]] = {
     "mesa": {
         "name": "MESA",
-        "adapter_class": "mesa_benchmark.clients.mesa_client.MesaClientAdapter",
+        "adapter_class": "mesa_benchmark.clients.mesa_client.MesaV4ClientAdapter",
         "module": "mesa_memory",
         "parameters": {
             "enable_multi_hop": False,

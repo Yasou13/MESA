@@ -12,7 +12,9 @@ ROOT = Path(__file__).parents[1]
 
 def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    project_metadata, separator, _ = pyproject.partition("[project.optional-dependencies]")
+    project_metadata, separator, _ = pyproject.partition(
+        "[project.optional-dependencies]"
+    )
 
     assert separator, "project optional-dependencies section is missing"
     assert '"pyod>=3.3.0"' in project_metadata
@@ -179,9 +181,9 @@ def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cos
 
 
 def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "external-release-gates.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (
+        ROOT / ".github" / "workflows" / "external-release-gates.yml"
+    ).read_text(encoding="utf-8")
 
     docs_smoke = workflow.split("  docs-smoke:", maxsplit=1)[1]
     assert 'uv run python -c "from mesa_memory.runtime_entrypoint' in docs_smoke

@@ -118,7 +118,7 @@
                 The Open-Source <span class="gradient-text">Triple-Store Memory Engine</span> for Enterprise AI Agents
             </h1>
             <p class="hero-description" data-i18n="hero_desc">
-                Eliminate context amnesia, tenant leakage, and multi-hop reasoning loops. Built with high-throughput native C++ KùzuDB graph traversal, LanceDB dense vectors, and Stage-2 CrossEncoder reranking.
+                Durable v3 lexical memory and an unreleased v4 pipeline with dataset-scoped provenance, ordered projections, Graph V2, and RRF retrieval.
             </p>
             <div class="hero-actions">
                 <a href="console/index.html" class="btn btn-primary" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);">
@@ -193,7 +193,7 @@ context = client.search(agent_id="support_01", query="Kullanıcı ne satın alma
     <section id="why-mesa" class="section">
         <div class="section-header">
             <h2 class="section-title" data-i18n="why_title">Architectural Superiority: The Triple-Store Advantage</h2>
-            <p class="section-subtitle" data-i18n="why_subtitle">Why standard vector-only RAG breaks in production, and how MESA solves it with synchronous multi-store isolation.</p>
+            <p class="section-subtitle" data-i18n="why_subtitle">Why vector-only RAG loses provenance, and how MESA v4 uses a mutation ledger, ordered projections, and dataset isolation.</p>
         </div>
 
         <!-- Triple-Store Pillars -->
@@ -449,7 +449,7 @@ Total Execution Time: 88.14s | Zero Context Leakage Violations Detected</pre>
             </div>
             <div class="security-card">
                 <h3 data-i18n="zt_title">Zero-Trust & Epistemic Row-Level Security</h3>
-                <p data-i18n="zt_desc">Every database operation is cryptographically bound to the tenant's agent identifier, ensuring zero cross-agent leakage.</p>
+                <p data-i18n="zt_desc">V4 resolves principal, tenant, workspace, dataset, agent, and server-created session scope before data access.</p>
                 <ul class="security-list">
                     <li data-i18n="zt_i1"><strong>Mathematical Epistemic RLS:</strong> Hard-coded where clauses (`WHERE agent_id = ?`) across vector, lexical, and graph engines.</li>
                     <li data-i18n="zt_i2"><strong>Role-Based Access Control (RBAC):</strong> Fine-grained permission matrices (`mesa_memory/security/rbac.py`) for read/write enforcement.</li>
@@ -472,7 +472,7 @@ Total Execution Time: 88.14s | Zero Context Leakage Violations Detected</pre>
                 <p data-i18n="e1_desc">Drop-in memory store classes and retriever adapters for instant agentic memory replacement.</p>
             </div>
             <div class="eco-item">
-                <h4 data-i18n="e2_title">FastAPI v3 & Python SDK</h4>
+                <h4 data-i18n="e2_title">Versioned FastAPI v3/v4 & Python SDK</h4>
                 <p data-i18n="e2_desc">Strict Pydantic v2 schemas (`MemoryInsertRequest`) and clean async client (`MesaClient`).</p>
             </div>
             <div class="eco-item">
@@ -481,7 +481,7 @@ Total Execution Time: 88.14s | Zero Context Leakage Violations Detected</pre>
             </div>
             <div class="eco-item">
                 <h4 data-i18n="e4_title">Docker & Kubernetes Deployment</h4>
-                <p data-i18n="e4_desc">Ready-to-run Docker images, Docker Compose manifests, and production Helm charts.</p>
+                <p data-i18n="e4_desc">Docker and separate v3/v4 Compose manifests; production GO still requires the documented external gates.</p>
             </div>
         </div>
 

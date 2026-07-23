@@ -1,13 +1,18 @@
-# Deprecation Notice
+# Compatibility namespace notice
 
-The `mesa_memory` package is being deprecated and superseded by new modular packages.
+`mesa_memory` is still the supported runtime/orchestration package. It is not
+scheduled for removal in v0.6.1; that historical target is obsolete.
 
-**Target Removal:** v0.6.1
+Public boundaries that already have dedicated packages should be imported from
+their versioned homes:
 
-## Migration Guide
+- REST routers and schemas: `mesa_api`
+- sync/async SDKs: `mesa_client`
+- storage engines and DAO: `mesa_storage`
+- workers/projectors: `mesa_workers`
+- MCP integration: `mesa_mcp`
 
-Please update your codebase to use the new parallel packages:
-- `mesa_memory.storage` -> Migrate to `mesa_storage`
-- `mesa_memory.api` -> Migrate to `mesa_api`
-- `mesa_memory.workers` -> Migrate to `mesa_workers`
-- `mesa_memory.mcp` -> Migrate to `mesa_mcp`
+`mesa_memory` continues to own runtime entrypoints, configuration, model
+adapters, validation, retrieval orchestration, security and observability.
+Moving another module out of this namespace requires a new deprecation window,
+release note and compatibility tests; no implicit removal version is active.

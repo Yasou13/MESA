@@ -63,6 +63,21 @@ _CREATE_OBSERVED_REL = (
     ")"
 )
 
+# Graph V2 keeps the legacy Observed projection for compatibility, while new
+# cognitive writes use immutable assertion records.  Predicate and provenance
+# therefore remain queryable rather than being collapsed into an endpoint pair.
+_CREATE_ASSERTION_NODE = (
+    "CREATE NODE TABLE IF NOT EXISTS Assertion ("
+    "id STRING, agent_id STRING, predicate STRING, object_value STRING, "
+    "source_ref STRING, evidence_span STRING, jurisdiction STRING, "
+    "authority_level STRING, valid_from STRING, valid_to STRING, observed_at STRING, "
+    "confidence DOUBLE, status STRING, mutation_id STRING, pipeline_run_id STRING, "
+    "PRIMARY KEY (id))"
+)
+_CREATE_ASSERTION_SUBJECT = "CREATE REL TABLE IF NOT EXISTS AssertionSubject (FROM Assertion TO Entity)"
+_CREATE_ASSERTION_OBJECT = "CREATE REL TABLE IF NOT EXISTS AssertionObject (FROM Assertion TO Entity)"
+_CREATE_ASSERTION_LINK = "CREATE REL TABLE IF NOT EXISTS AssertionLink (FROM Assertion TO Assertion, relation_type STRING)"
+
 # ---------------------------------------------------------------------------
 # Schema migrations — ALTER TABLE for existing databases
 # ---------------------------------------------------------------------------
@@ -134,8 +149,14 @@ def initialize_schema_artifact(db_path: str) -> None:
         conn.execute(_CREATE_OBSERVED_REL)
         logger.info("KUZU_SCHEMA | Observed rel table ready")
 
+        conn.execute(_CREATE_ASSERTION_NODE)
+        conn.execute(_CREATE_ASSERTION_SUBJECT)
+        conn.execute(_CREATE_ASSERTION_OBJECT)
+        conn.execute(_CREATE_ASSERTION_LINK)
+        logger.info("KUZU_SCHEMA | Assertion graph-v2 tables ready")
+
         logger.info(
-            "KUZU_SCHEMA | staging artifact initialized — tables=[Entity, Observed] db=%s",
+            "KUZU_SCHEMA | staging artifact initialized — tables=[Entity, Observed, Assertion] db=%s",
             db_path,
         )
     finally:

@@ -397,14 +397,6 @@ class TestAlphaRerankingEdgeCases:
             {"cmb_id": "g2", "score": 0.01},
         ]
 
-        from mesa_memory.config import config
-
-        original_alpha = getattr(config, "hybrid_alpha", 0.0)
-        config.hybrid_alpha = 0.5
-
-        try:
-            result = await retriever._apply_alpha_reranking("test_agent", [], graph, [])
-            assert result[0] == "g1"
-            assert result[1] == "g2"
-        finally:
-            config.hybrid_alpha = original_alpha
+        result = await retriever._apply_rrf_reranking("test_agent", [], graph, [])
+        assert result[0] == "g1"
+        assert result[1] == "g2"

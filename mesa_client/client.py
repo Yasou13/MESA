@@ -342,3 +342,551 @@ class AsyncMesaClient:
             return MemoryPurgeResponse(**data)
         except ValidationError as e:
             raise MesaValidationError(f"Response validation failed: {e}") from e
+
+
+_V4_TERMINAL_MUTATION_STATES = frozenset(
+    {"COMMITTED", "REJECTED", "DEAD_LETTER", "ROLLED_BACK", "BLOCKED"}
+)
+
+
+class MesaV4Client(MesaClient):
+    """Client for the breaking V4 full-cognitive lifecycle contract.
+
+    V3 methods intentionally remain on :class:`MesaClient`.  A separate
+    class prevents an application silently mixing a lexical-core insert with
+    V4 mutation polling.
+    """
+
+    def create_workspace(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        tenant_name: str | None = None,
+        workspace_name: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v4/catalog/workspaces",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "tenant_name": tenant_name,
+                "workspace_name": workspace_name,
+            },
+        )
+
+    def list_workspaces(self, *, tenant_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET", "/v4/catalog/workspaces", params={"tenant_id": tenant_id}
+        )
+
+    def create_dataset(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        tenant_name: str | None = None,
+        workspace_name: str | None = None,
+        dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v4/catalog/datasets",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "tenant_name": tenant_name,
+                "workspace_name": workspace_name,
+                "dataset_name": dataset_name,
+            },
+        )
+
+    def list_datasets(self, *, tenant_id: str, workspace_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v4/catalog/datasets",
+            params={"tenant_id": tenant_id, "workspace_id": workspace_id},
+        )
+
+    def create_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        external_ref: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v4/catalog/documents",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+                "title": title,
+                "external_ref": external_ref,
+            },
+        )
+
+    def list_documents(
+        self, *, tenant_id: str, workspace_id: str, dataset_id: str
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v4/catalog/documents",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
+    def create_revision(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str,
+        revision_number: int,
+        content_sha256: str,
+        supersedes_revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v4/catalog/revisions",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+                "revision_id": revision_id,
+                "revision_number": revision_number,
+                "content_sha256": content_sha256,
+                "supersedes_revision_id": supersedes_revision_id,
+            },
+        )
+
+    def list_revisions(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v4/catalog/revisions",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+            },
+        )
+
+    def start_session(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_ids: list[str],
+        agent_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v4/sessions/start",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_ids": dataset_ids,
+                "agent_id": agent_id,
+            },
+        )
+
+    def insert(  # type: ignore[override]
+        self,
+        *,
+        session_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str,
+        chunk_id: str,
+        title: str,
+        source_ref: str,
+        content: str,
+        evidence_span: str = "",
+        revision_number: int = 1,
+        chunk_ordinal: int = 0,
+        supersedes_revision_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v4/memory/insert",
+            json={
+                "session_id": session_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+                "revision_id": revision_id,
+                "chunk_id": chunk_id,
+                "title": title,
+                "source_ref": source_ref,
+                "content": content,
+                "evidence_span": evidence_span,
+                "revision_number": revision_number,
+                "chunk_ordinal": chunk_ordinal,
+                "supersedes_revision_id": supersedes_revision_id,
+                "metadata": metadata or {},
+            },
+        )
+
+    def search(  # type: ignore[override]
+        self,
+        *,
+        session_id: str,
+        query: str,
+        dataset_ids: list[str] | None = None,
+        limit: int = 10,
+        jurisdiction: str | None = None,
+        valid_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v4/memory/search",
+            json={
+                "session_id": session_id,
+                "dataset_ids": dataset_ids,
+                "query": query,
+                "limit": limit,
+                "jurisdiction": jurisdiction,
+                "valid_at": valid_at,
+            },
+        )
+
+    def status(self, mutation_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v4/mutations/{mutation_id}")
+
+    def wait_until_committed(
+        self,
+        mutation_id: str,
+        *,
+        timeout_seconds: float = 60.0,
+        poll_interval_seconds: float = 0.25,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            status = self.status(mutation_id)
+            if status.get("state") in _V4_TERMINAL_MUTATION_STATES:
+                return status
+            if time.monotonic() >= deadline:
+                raise MesaNetworkError(f"Timed out waiting for mutation {mutation_id}")
+            time.sleep(poll_interval_seconds)
+
+    def rollback(self, mutation_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/v4/mutations/{mutation_id}/rollback")
+
+    def replay(self, mutation_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/v4/mutations/{mutation_id}/replay")
+
+    def purge_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "DELETE",
+            f"/v4/catalog/documents/{document_id}",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
+    def end_session(self, *, session_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/v4/sessions/{session_id}/end")
+
+    def get_context(self, *, session_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v4/sessions/{session_id}/context")
+
+
+class AsyncMesaV4Client(AsyncMesaClient):
+    """Async counterpart of :class:`MesaV4Client`."""
+
+    async def create_workspace(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        tenant_name: str | None = None,
+        workspace_name: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v4/catalog/workspaces",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "tenant_name": tenant_name,
+                "workspace_name": workspace_name,
+            },
+        )
+
+    async def list_workspaces(self, *, tenant_id: str) -> dict[str, Any]:
+        return await self._request(
+            "GET", "/v4/catalog/workspaces", params={"tenant_id": tenant_id}
+        )
+
+    async def create_dataset(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        tenant_name: str | None = None,
+        workspace_name: str | None = None,
+        dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v4/catalog/datasets",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "tenant_name": tenant_name,
+                "workspace_name": workspace_name,
+                "dataset_name": dataset_name,
+            },
+        )
+
+    async def list_datasets(
+        self, *, tenant_id: str, workspace_id: str
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v4/catalog/datasets",
+            params={"tenant_id": tenant_id, "workspace_id": workspace_id},
+        )
+
+    async def create_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        external_ref: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v4/catalog/documents",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+                "title": title,
+                "external_ref": external_ref,
+            },
+        )
+
+    async def list_documents(
+        self, *, tenant_id: str, workspace_id: str, dataset_id: str
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v4/catalog/documents",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
+    async def create_revision(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str,
+        revision_number: int,
+        content_sha256: str,
+        supersedes_revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v4/catalog/revisions",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+                "revision_id": revision_id,
+                "revision_number": revision_number,
+                "content_sha256": content_sha256,
+                "supersedes_revision_id": supersedes_revision_id,
+            },
+        )
+
+    async def list_revisions(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v4/catalog/revisions",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+            },
+        )
+
+    async def start_session(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_ids: list[str],
+        agent_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v4/sessions/start",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_ids": dataset_ids,
+                "agent_id": agent_id,
+            },
+        )
+
+    async def insert(  # type: ignore[override]
+        self,
+        *,
+        session_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str,
+        chunk_id: str,
+        title: str,
+        source_ref: str,
+        content: str,
+        evidence_span: str = "",
+        revision_number: int = 1,
+        chunk_ordinal: int = 0,
+        supersedes_revision_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v4/memory/insert",
+            json={
+                "session_id": session_id,
+                "dataset_id": dataset_id,
+                "document_id": document_id,
+                "revision_id": revision_id,
+                "chunk_id": chunk_id,
+                "title": title,
+                "source_ref": source_ref,
+                "content": content,
+                "evidence_span": evidence_span,
+                "revision_number": revision_number,
+                "chunk_ordinal": chunk_ordinal,
+                "supersedes_revision_id": supersedes_revision_id,
+                "metadata": metadata or {},
+            },
+        )
+
+    async def search(  # type: ignore[override]
+        self,
+        *,
+        session_id: str,
+        query: str,
+        dataset_ids: list[str] | None = None,
+        limit: int = 10,
+        jurisdiction: str | None = None,
+        valid_at: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v4/memory/search",
+            json={
+                "session_id": session_id,
+                "dataset_ids": dataset_ids,
+                "query": query,
+                "limit": limit,
+                "jurisdiction": jurisdiction,
+                "valid_at": valid_at,
+            },
+        )
+
+    async def status(self, mutation_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/v4/mutations/{mutation_id}")
+
+    async def wait_until_committed(
+        self,
+        mutation_id: str,
+        *,
+        timeout_seconds: float = 60.0,
+        poll_interval_seconds: float = 0.25,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            status = await self.status(mutation_id)
+            if status.get("state") in _V4_TERMINAL_MUTATION_STATES:
+                return status
+            if time.monotonic() >= deadline:
+                raise MesaNetworkError(f"Timed out waiting for mutation {mutation_id}")
+            await asyncio.sleep(poll_interval_seconds)
+
+    async def rollback(self, mutation_id: str) -> dict[str, Any]:
+        return await self._request("POST", f"/v4/mutations/{mutation_id}/rollback")
+
+    async def replay(self, mutation_id: str) -> dict[str, Any]:
+        return await self._request("POST", f"/v4/mutations/{mutation_id}/replay")
+
+    async def purge_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "DELETE",
+            f"/v4/catalog/documents/{document_id}",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
+    async def end_session(self, *, session_id: str) -> dict[str, Any]:
+        return await self._request("POST", f"/v4/sessions/{session_id}/end")
+
+    async def get_context(self, *, session_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/v4/sessions/{session_id}/context")

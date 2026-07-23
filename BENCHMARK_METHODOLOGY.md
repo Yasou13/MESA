@@ -100,3 +100,17 @@ Bir sonuç ancak şu koşullarla dışarı sunulmalıdır:
 ## Paket sınırı
 
 `mesa_benchmark`, MESA ve haricî memory sistemlerinin eşit Top-K ve ortak generator altında karşılaştırıldığı benchmark ürünüdür. `mesa_evals` ise MESA çekirdeğinin sentetik/golden-dataset ve CI regresyon paketidir; iki paket birbirinin metric veya sonuç boru hattını çağırmaz.
+
+## MESA sürüm sınırı
+
+`release` ve `research` suite’lerindeki MESA satırı
+`MesaV4ClientAdapter` kullanır. Her scenario izole tenant/workspace/dataset
+catalog’unda çalışır; exact source chunk ve mutation oluşturur, sıralı
+SQL→vector→graph projection’ı tamamlar ve aynı dataset filtresiyle gerçek RRF
+retrieval yapar. Mutation/artifact/source provenance sonuç metadata’sında
+korunur.
+
+`legacy` config’lerdeki `MesaClientAdapter` yalnız v3 lexical-core uyumluluk
+ölçümüdür. V3 ve v4 koşumları aynı sistem etiketiyle birleştirilemez. Küçük
+`mesa_evals.v4_rrf_ablation` corpus’u CI regresyon kanıtıdır; harici release
+dataseti veya production-benzeri kapasite kanıtı değildir.

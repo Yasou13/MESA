@@ -15,7 +15,7 @@ from mesa_storage import schema_contract
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
-HEAD = "c3d4e5f6a7b8"
+HEAD = "9a1b2c3d4e5f"
 PRE_REMEDIATION_REVISION = "c4f1a8e2d9b0"
 
 

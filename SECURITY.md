@@ -26,3 +26,18 @@ This policy covers the MESA source repository, published Python package, and
 the Docker image built from this repository. Deployment-specific credentials,
 third-party LLM accounts, and self-managed infrastructure remain the operator's
 responsibility.
+
+## V4 security boundary
+
+The unreleased v4 API resolves authorization as
+principal → tenant → workspace → dataset → agent → server-created session.
+Agent IDs are compute/persona context and are not standalone tenant
+credentials. Purge and rollback require explicit dataset permissions.
+
+V4 API credentials are issued as `key_id.secret`; only salted scrypt digests
+are stored. Plaintext is displayed once by `mesa-v4-admin`. Reports must never
+include credentials, source content, claim tokens or production data.
+
+V3 remains a compatibility surface with its historical agent/session
+partitioning. A v3 isolation control must not be represented as a v4
+tenant/dataset guarantee.

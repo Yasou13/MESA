@@ -13,8 +13,10 @@ RLS-enforced methods.  ``MemoryDAO`` is the single source of truth.
 """
 
 import asyncio
+import inspect
 import logging
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -160,7 +162,10 @@ class GraphWriter:
             )
 
             if sim_score >= config.relation_similarity_threshold:
-                await self._write_triplet(agent_id, cmb_id, trip_a, weight=1.0)
+                await self._write_triplet(
+                    agent_id, cmb_id, trip_a, weight=1.0,
+                    mutation_id=str(record.get("mutation_id", cmb_id)),
+                )
                 successful_writes += 1
 
             elif (
@@ -169,7 +174,10 @@ class GraphWriter:
                 < config.relation_similarity_threshold
             ):
                 divergence_count += 1
-                await self._write_triplet(agent_id, cmb_id, trip_a, weight=0.5)
+                await self._write_triplet(
+                    agent_id, cmb_id, trip_a, weight=0.5,
+                    mutation_id=str(record.get("mutation_id", cmb_id)),
+                )
                 successful_writes += 1
 
             else:
@@ -227,7 +235,8 @@ class GraphWriter:
             )
 
     async def _write_triplet(  # type: ignore[no-untyped-def]
-        self, agent_id: str, cmb_id: str, triplet: dict, weight: float
+        self, agent_id: str, cmb_id: str, triplet: dict, weight: float,
+        mutation_id: str | None = None,
     ):
         """Insert head/tail nodes and create an edge between them via MemoryDAO.
 
@@ -265,10 +274,30 @@ class GraphWriter:
             tail_emb = [0.0] * dim
 
         # Insert head entity node
+        # V4 Entity identity is tenant-scoped and canonical.  Legacy records
+        # keep their historical per-record node identifiers for V3
+        # compatibility, while mutation-backed writes converge identical
+        # normalized entities to one stable graph identity.
+        head_node_id = None
+        tail_node_id = None
+        if mutation_id:
+            head_node_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"mesa:v4:entity:{agent_id}:ENTITY:{triplet['head'].strip().casefold()}",
+                )
+            )
+            tail_node_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"mesa:v4:entity:{agent_id}:ENTITY:{triplet['tail'].strip().casefold()}",
+                )
+            )
         head_node_id = await self.dao.insert_memory(
             agent_id,
+            node_id=head_node_id,
             entity_name=triplet["head"],
-            content=f"[{cmb_id}] {triplet['head']}",
+            content=triplet["head"] if mutation_id else f"[{cmb_id}] {triplet['head']}",
             embedding=head_emb,
             node_type="ENTITY",
         )
@@ -276,11 +305,49 @@ class GraphWriter:
         # Insert tail entity node
         tail_node_id = await self.dao.insert_memory(
             agent_id,
+            node_id=tail_node_id,
             entity_name=triplet["tail"],
-            content=f"[{cmb_id}] {triplet['tail']}",
+            content=triplet["tail"] if mutation_id else f"[{cmb_id}] {triplet['tail']}",
             embedding=tail_emb,
             node_type="ENTITY",
         )
+
+        if mutation_id and type(self.dao) is MemoryDAO:
+            # ``insert_memory`` owns the SQL + LanceDB saga and inserts the
+            # Entity projection into Kùzu when configured.  Persist each
+            # concrete artifact identity so status, reconciliation and later
+            # invalidation have one immutable mutation owner.
+            for entity_id, entity_name in (
+                (head_node_id, triplet["head"]),
+                (tail_node_id, triplet["tail"]),
+            ):
+                metadata = {
+                    "entity_name": entity_name,
+                    "embedding_model": getattr(self.embedder, "model_name", None),
+                    "embedding_dimension": len(head_emb),
+                }
+                await self.dao.record_mutation_artifact(
+                    mutation_id,
+                    store_name="SQL",
+                    artifact_kind="ENTITY",
+                    artifact_id=entity_id,
+                    metadata=metadata,
+                )
+                await self.dao.record_mutation_artifact(
+                    mutation_id,
+                    store_name="VECTOR",
+                    artifact_kind="ENTITY_VECTOR",
+                    artifact_id=entity_id,
+                    metadata=metadata,
+                )
+                if self.dao.graph_provider is not None:
+                    await self.dao.record_mutation_artifact(
+                        mutation_id,
+                        store_name="GRAPH",
+                        artifact_kind="ENTITY",
+                        artifact_id=entity_id,
+                        metadata=metadata,
+                    )
 
         # Link head → tail via the extracted relation
         await self.dao.insert_edge(
@@ -290,6 +357,38 @@ class GraphWriter:
             relation_type=triplet["relation"],
             weight=weight,
         )
+        graph = self.dao.graph_provider
+        insert_assertion = getattr(graph, "insert_assertion", None)
+        # Test and legacy DAO doubles may expose arbitrary MagicMock
+        # attributes.  An assertion is a v4 Graph V2 artifact only when a
+        # concrete async provider implements the operation; never pretend a
+        # mock/legacy provider produced it in the mutation ledger.
+        if callable(insert_assertion) and inspect.iscoroutinefunction(insert_assertion):
+            assertion_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"mesa:v4:assertion:{agent_id}:{mutation_id or cmb_id}:"
+                    f"{head_node_id}:{triplet['relation']}:{tail_node_id}",
+                )
+            )
+            await insert_assertion(
+                assertion_id=assertion_id,
+                subject_id=head_node_id,
+                object_id=tail_node_id,
+                agent_id=agent_id,
+                predicate=triplet["relation"],
+                mutation_id=mutation_id or cmb_id,
+                source_ref=cmb_id,
+                confidence=weight,
+            )
+            if mutation_id:
+                await self.dao.record_mutation_artifact(
+                    mutation_id,
+                    store_name="GRAPH",
+                    artifact_kind="ASSERTION",
+                    artifact_id=assertion_id,
+                    metadata={"predicate": triplet["relation"]},
+                )
 
     async def _check_hub_node(self, agent_id: str, *entity_names: str) -> bool:
         """Check if any of the given entities are hub nodes (high degree)."""

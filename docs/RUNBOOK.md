@@ -1,77 +1,170 @@
-# MESA Operations Runbook
+# MESA operations runbook
 
-This runbook outlines operational procedures for the MESA Enterprise Memory system.
+Bu runbook yayınlanmamış v4 full-cognitive runtime için kanonik operasyon
+rehberidir. V3 lexical-core uyumluluk işlemleri ayrıca belirtilir.
 
-## 1. Deadlock Mitigation
-**Symptom:** The MESA API hangs or times out on `POST /v3/memory/insert` and `DELETE /v3/memory/purge`, with CPU utilization remaining normal but SQLite/Kuzu operations stalling indefinitely.
+## 1. Desteklenen v4 topology
 
-**Root Cause:** Prior to v0.6.1, MESA utilized a nested transaction architecture where `MemoryDAO` held an SQLite `transaction()` lock while making blocking I/O calls to LanceDB and KùzuDB. Exhausting connection pools during bulk operations led to a circular wait deadlock (lock starvation).
+V4 aynı storage root’a yazan tek bir `combined` process ile çalışır. API
+admission, durable consumer, validation ve SQLite/LanceDB/Kùzu projection
+işleri bu process’tedir.
 
-**Resolution (Implemented in v0.6.1):**
-MESA now strictly follows the **Compensating Transaction Saga Pattern**. Secondary stores (LanceDB and KùzuDB) are written to *before* opening the primary SQLite transaction. If secondary stores fail, compensating transactions are executed. This eliminates the lock inversion completely.
-*Action:* No manual intervention is required. This is structurally mitigated.
-
-## 2. API Rate Limiting & Cost Control
-**Symptom:** Clients receive `HTTP 429 Too Many Requests`.
-
-**Root Cause:** MESA enforces two layers of API protection:
-1. **Burst Protection:** SlowAPI enforces a strict 60 requests per minute limit per Agent ID.
-2. **Daily Quota:** MESA enforces a 1,000 requests per day limit per Agent ID, tracked persistently in the `daily_limits` SQLite table.
-
-**Resolution:**
-- Advise the client to implement exponential backoff logic (already standard in `mesa_client`).
-- For legitimate traffic spikes exceeding 1,000 req/day, administrators can manually override the limit for a tenant via SQLite:
-  ```bash
-  sqlite3 storage/mesa.db "UPDATE daily_limits SET request_count = 0 WHERE agent_id = '<agent-id>' AND date = date('now');"
-  ```
-
-## 3. Database Compaction and Maintenance
-**Symptom:** Storage space utilization increases indefinitely. `DELETE /v3/memory/purge` does not reclaim space.
-
-**Root Cause:** MESA employs a soft-delete mechanism for all hot-path operations. `purge` only updates `invalid_at = CURRENT_TIMESTAMP`. This prevents catastrophic WAL contention during peak hours.
-
-**Resolution:**
-- Hard-deletes and physical space reclamation are performed strictly by the `MaintenanceWorker` during configured idle windows (default: 3 AM).
-- You can force a manual maintenance cycle by running:
-  ```bash
-  python -m mesa_workers.maintenance --force
-  ```
-
-## 4. Key Rotation and Secrets Management
-**Symptom:** Need to rotate the MESA Master API Key.
-
-**Root Cause:** API key leaked or standard rotation policy dictates a change.
-
-**Resolution:**
-1. Update the environment variable `MESA_API_KEY` on the hosting infrastructure.
-2. The CI/CD pipeline enforces `TruffleHog` OSS scanning on every commit to prevent hardcoded credentials. If TruffleHog fails the build, immediately revoke the offending keys.
-
-## 5. Deployment Smoke Testing
-**Symptom:** Post-deployment validation required.
-
-**Resolution:**
-MESA CI/CD executes `scripts/canary_smoke_test.py` against the built wheel before final release. Administrators can manually execute the smoke test to verify basic dependency and runtime sanity:
 ```bash
-python scripts/canary_smoke_test.py
+export MESA_RUNTIME_PROFILE=combined
+export MESA_STORAGE_ROOT=/srv/mesa/v4-data
+export MESA_LOAD_DOTENV=false
+python -m mesa_memory.runtime_entrypoint
 ```
 
-## 6. Structured Logging Operations
+Aynı storage root’u ikinci API, worker veya combined process’e yazılabilir
+olarak mount etmeyin. Yatay ölçekleme öncesi storage ownership protokolü
+gerekir. V3 ile v4 farklı fiziksel storage root kullanmalıdır.
 
-MESA API and worker processes emit vendor-neutral JSON to stdout. Production
-defaults are `MESA_LOG_LEVEL=INFO` and `MESA_LOG_FORMAT=json`; `console` format
-is intended only for explicit local development. Invalid values stop startup.
+## 2. İlk credential ve ACL kurulumu
 
-Every record uses schema version `1` and includes `timestamp`, `level`,
-`logger`, `event`, `service`, and `role`. API responses return `X-Request-ID`;
-the same value appears in request logs. Durable ingestion is correlated with
-worker events through the raw-log `operation_id`.
+Uygulama durdurulmuşken veya policy DB’yi kullanan tek operator olarak:
 
-The Compose profile uses Docker's `local` logging driver with a 10 MB file and
-five-file retention bound. A deployment platform may collect stdout without
-changing the application format, but it must preserve these fields and apply
-an equal or stricter retention policy.
+```bash
+export MESA_STORAGE_ROOT=/srv/mesa/v4-data
+mesa-v4-admin issue-key --principal service-api
+mesa-v4-admin grant-role --principal service-api \
+  --tenant tenant-a --role OWNER
+mesa-v4-admin grant-agent --principal service-api \
+  --agent agent-a --permission SESSION_CREATE
+```
 
-Alert on sustained `http_request_failed` 5xx events, worker failure events, or
-any collector JSON parse failure. Query text, content, payloads, credentials,
-raw model output, and claim tokens must never be indexed. During staging, use
-synthetic canary markers to verify that the redaction contract holds.
+İlk komut credential’ı yalnız bir kez stdout’a yazar. Secret manager’a aktarın;
+log, shell history veya dokümana koymayın. Rotate edilen eski key aynı işlemde
+revoke edilir:
+
+```bash
+mesa-v4-admin rotate-key --key-id KEY_ID
+mesa-v4-admin revoke-key --key-id KEY_ID
+```
+
+Purge/rollback rol ile örtük gelmez:
+
+```bash
+mesa-v4-admin grant-dataset-permission --principal service-api \
+  --tenant tenant-a --dataset dataset-a --permission ROLLBACK
+```
+
+## 3. Projection backlog ve DLQ
+
+Önce `/health`, `/health/init` ve `/metrics` kontrol edilir. İzlenecek temel
+metrikler:
+
+- `mesa_v4_projection_backlog`
+- `mesa_v4_projection_dead_letter`
+- `mesa_v4_projection_stuck_leases`
+- `mesa_v4_cleanup_backlog`
+- `mesa_v4_cleanup_blocked`
+- `mesa_v4_orphan_registry`
+- `mesa_v4_shared_artifacts`
+
+Backlog artıyorsa process loglarında mutation/pipeline run ID, failure class ve
+lane aranır. İçerik, credential veya claim token loglanmamalıdır. Geçici hata
+bounded retry ile ilerler; permanent/poison hata DLQ’ya gider.
+
+Replay’den önce kök neden giderilir ve mutation’ın aynı tenant/dataset
+kapsamında olduğu doğrulanır. Yetkili API çağrısı:
+
+```bash
+curl --fail -X POST \
+  -H "X-API-Key: $MESA_API_KEY" \
+  "http://127.0.0.1:8000/v4/mutations/$MUTATION_ID/replay"
+```
+
+Fenced lease nedeniyle claim token’ı kaybetmiş worker sonucu finalize edemez.
+Lease’e elle müdahale etmek yerine process’i yeniden başlatın ve reconciler’ın
+expired claim’i almasını bekleyin.
+
+## 4. Rollback ve BLOCKED
+
+Commit edilmemiş başarısız run rollback’i önce SQLite retrieval tombstone’u,
+sonra vector/graph cleanup outbox’ı oluşturur. Yalnız ilgili
+`artifact_sources` sahipliği kaldırılır. Başka aktif sahibi olan ortak artifact
+silinmez.
+
+Cleanup tamamlanamazsa run `BLOCKED` olur; bunu başarılı saymayın. Store
+erişimini düzeltin, health parity’yi kontrol edin ve idempotent cleanup/replay
+akışını yeniden çalıştırın. Fiziksel store’da manuel silme yapmayın; ledger ile
+store daha fazla ayrışır.
+
+## 5. Reconciliation
+
+Reconciliation tenant ve dataset sınırında iki yönlüdür:
+
+- ledger’da olup store’da olmayan artifact yeniden project edilir;
+- store’da olup ledger/owner kaydı olmayan artifact karantinaya alınır ve
+  cleanup kuyruğuna taşınır.
+
+Release veya cutover öncesi projection backlog, blocked cleanup ve ownerless
+orphan sıfır olmalıdır. Shared artifact sayısının sıfır olması gerekmez; ortak
+sahiplik beklenen bir durumdur.
+
+## 6. Backup, restore ve v4 rebuild
+
+Uygulamayı durdurun ve kaynak storage’ı offline hale getirin:
+
+```bash
+mesa-recovery --trusted-root /srv/mesa backup \
+  --source-root /srv/mesa/v4-data \
+  --backup-root /srv/mesa/backups/v4-2026-07-23 \
+  --stores-stopped
+mesa-recovery --trusted-root /srv/mesa validate \
+  --backup-root /srv/mesa/backups/v4-2026-07-23
+mesa-recovery --trusted-root /srv/mesa restore \
+  --backup-root /srv/mesa/backups/v4-2026-07-23 \
+  --restore-root /srv/mesa/restore-v4-test
+```
+
+Restore mevcut hedefi ezmemelidir. V3 migration yerinde yapılmaz: manifestli
+backup alınır, ayrı v4 root’a offline rebuild yapılır, parity raporu geçerse
+atomik cutover gerçekleştirilir. Backup rollback süresi boyunca korunur.
+
+## 7. Model/provider olayı
+
+`MESA_MODEL_ENABLED` ve `MESA_EXTERNAL_PROVIDER_ENABLED` açıkça ayarlanır.
+Provider timeout/rate-limit hatası retryable; bozuk şema permanent; sürekli
+aynı toksik payload poison olarak sınıflanır. Tier-3 geçmeden SQL/vector/graph
+projection başlamaz. Provider’ı atlamak için mutation’ı doğrudan VALIDATED
+duruma çekmeyin.
+
+## 8. PageRank
+
+V4 PageRank çıktısı yalnız telemetridir. Düşük merkezilik bir memory,
+assertion, vector veya source’u karantinaya alamaz. PageRank temelli
+`hallucination`/delete davranışı görülürse deploy durdurulmalı; bu v4
+sözleşmesine aykırıdır.
+
+## 9. Session finalization
+
+Session end durable finalization kaydı oluşturur. Restart sonrası pending işler
+combined consumer tarafından alınır. Uzun süre pending kalırsa session,
+finalization ID, lease ve DLQ durumu kontrol edilir; FastAPI process içi
+`BackgroundTasks` çalışmasına güvenilmez.
+
+## 10. Logging ve olay kanıtı
+
+Production varsayılanı `MESA_LOG_LEVEL=INFO` ve `MESA_LOG_FORMAT=json`’dır.
+Loglarda request/operation/mutation/pipeline run kimlikleri bulunabilir;
+query, source content, payload, credential, raw model output ve claim token
+bulunamaz. Docker `local` driver 10 MB × 5 dosya sınırı kullanır.
+
+Incident kanıtı olarak maskelenmiş log, mutation status, health/metrics anlık
+görüntüsü, image digest ve storage manifesti saklanır.
+
+## 11. V3 compatibility
+
+`docker-compose.yml` ayrı API + worker lexical-core topology’sidir. V3’teki
+telafi edici Saga, agent/session RBAC, soft-delete ve maintenance davranışı
+v4’e genellenmez. V3 sorunlarında mevcut `mesa-recovery`, worker readiness ve
+maintenance prosedürleri uygulanır; aynı storage root v4’e bağlanmaz.
+
+## 12. Release durumu
+
+Unit/integration/contract testlerinin geçmesi production GO değildir. Gerçek
+provider ve production-benzeri store ile backup→restore→rebuild→cutover,
+queue saturation, worker crash, cross-tenant concurrency ve 24 saat soak
+kanıtları tamamlanana kadar karar `NO-GO` kalır.

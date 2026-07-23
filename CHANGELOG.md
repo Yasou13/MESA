@@ -7,8 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **V4 full-cognitive contract:** Added a breaking, versioned catalog/session/
+  mutation API while preserving all v3 lexical-core endpoints.
+- **Canonical provenance model:** Added tenant-scoped UUID5 entities, aliases,
+  external identifiers, immutable document revisions/source chunks and
+  SQLite-authoritative Graph V2 assertions.
+- **Durable projection ownership:** Added pipeline-run events, ordered
+  SQL→vector→graph projection outbox processing, shared artifact ownership,
+  fenced cleanup and two-way reconciliation.
+- **V4 clients:** Added synchronous/asynchronous SDK methods and MCP tools for
+  catalog, session, insert, search, status, context, replay and rollback.
+- **V4 combined deployment:** Added the single-storage-owner
+  `docker-compose.v4.yml` topology.
+
 ### Security
 
+- **Catalog authorization:** Added principal roles at tenant, workspace and
+  dataset scope plus explicit purge/rollback permissions. Agent identifiers
+  remain compute/persona context and are not the v4 tenant boundary.
+- **Rotation-safe API keys:** Added key-ID addressed salted scrypt hashes,
+  revocation, rotation and multiple active principal-bound credentials.
 - **Rate-limit credential lifecycle:** Daily and minute limits now use the
   verified server-side `principal_id`; raw API credentials and request-supplied
   tenant/agent values are not used as rate-limit identities. The migration
@@ -17,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Retrieval V2:** Dataset-filtered vector, BM25 and graph ranks now use true
+  reciprocal rank fusion followed by a bounded legal/provenance rerank.
+- **PageRank safety:** PageRank is observation-only telemetry and can no longer
+  quarantine or invalidate retrieval artifacts.
+- **V4 write path:** Tier-3 validation precedes all active projections; direct
+  cross-store Saga writes remain only in the v3 compatibility path.
 - **Kùzu offline migration safety:** `scripts/migrate_to_kuzu.py` now builds
   and validates a versioned staging artifact under a process lock and SQLite
   journal before same-filesystem promotion. Previous live artifacts are

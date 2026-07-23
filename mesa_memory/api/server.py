@@ -21,8 +21,10 @@ from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from mesa_api.router import create_memory_router
+from mesa_api.v4_router import create_v4_router
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import (
+    RuntimeProfile,
     RuntimeProfileConfig,
     load_explicit_dotenv,
     load_runtime_profile,
@@ -32,8 +34,12 @@ from mesa_memory.consolidation.loop import (
 )
 from mesa_memory.container_health import worker_is_ready
 from mesa_memory.observability.http import RequestLoggingMiddleware
-from mesa_memory.observability.metrics import ObservabilityLayer
+from mesa_memory.observability.metrics import (
+    ObservabilityLayer,
+    update_v4_health_metrics,
+)
 from mesa_memory.observability.tracer import setup_telemetry_tracing
+from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
@@ -41,8 +47,16 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 from mesa_workers.entity_consolidation_worker import schedule_consolidation_worker
+from mesa_workers.ingestion_worker import (
+    process_cold_path,
+    process_session_finalization,
+)
 from mesa_workers.maintenance import MaintenanceWorker
 from mesa_workers.maintenance_pagerank import schedule_pagerank_worker
+from mesa_workers.projection_worker import (
+    process_artifact_cleanup_once,
+    process_projection_outbox_once,
+)
 from mesa_workers.rem_cycle import REMCycleWorker
 from mesa_workers.supervision import WorkerSupervisor
 
@@ -84,13 +98,16 @@ class PrincipalContext:
     status: str = "active"
 
 
-def _require_api_key() -> None:
-    """Raise at startup if the API key is missing.
+async def _require_api_key() -> None:
+    """Raise at startup if neither bootstrap nor provisioned key exists.
 
     Called inside ``lifespan`` so test imports don't crash at module level
     while the production server still refuses to start without a key.
     """
-    if not _MESA_API_KEY:
+    key_store = getattr(state, "api_key_store", None)
+    if not _MESA_API_KEY and (
+        key_store is None or not await key_store.has_active_key()
+    ):
         raise RuntimeError(
             "MESA_API_KEY environment variable must be set. No local fallback allowed."
         )
@@ -98,6 +115,17 @@ def _require_api_key() -> None:
 
 async def get_api_key(request: Request, api_key: str = Depends(_API_KEY_HEADER)) -> str:
     """Validate the API key and attach its configured server-side principal."""
+    key_store = getattr(state, "api_key_store", None)
+    if key_store is not None:
+        verified = await key_store.verify(api_key)
+        if verified is None:
+            raise HTTPException(status_code=401, detail="Invalid or missing API Key")
+        request.state.principal = PrincipalContext(
+            principal_id=verified.principal_id,
+            principal_type=verified.principal_type,
+            status=verified.status,
+        )
+        return api_key or ""
     if (
         not api_key
         or not _MESA_API_KEY
@@ -124,6 +152,7 @@ class AppState:
     obs_layer: ObservabilityLayer
     consolidation_loop: ConsolidationLoop
     access_control: AccessControl
+    api_key_store: APIKeyStore
     background_tasks: set[asyncio.Task]
     worker_supervisor: WorkerSupervisor
     is_ready: bool
@@ -150,6 +179,90 @@ def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
     _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
 
 
+async def _consume_combined_durable_work_once(
+    dao: MemoryDAO,
+    *,
+    consolidation_loop: ConsolidationLoop | None,
+    model_processing_enabled: bool,
+) -> dict[str, int]:
+    """Consume bounded durable work in the single storage-owner runtime."""
+    worker_id = "combined-runtime"
+    claimed = await dao.claim_dispatch_queue(worker_id=worker_id, limit=1)
+    for dispatch in claimed:
+        log_id = int(dispatch["payload_reference"])
+        agent_id = str(dispatch["agent_id"])
+        processing = asyncio.create_task(
+            process_cold_path(
+                log_id,
+                agent_id,
+                dao,
+                consolidation_loop=consolidation_loop,
+                model_processing_enabled=model_processing_enabled,
+                require_tier3_validation=model_processing_enabled,
+                retry_on_failure=True,
+            )
+        )
+        while not processing.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(processing), timeout=60)
+            except TimeoutError:
+                renewed = await dao.renew_dispatch_queue_lease(
+                    str(dispatch["queue_record_id"]),
+                    worker_id=worker_id,
+                    claim_token=str(dispatch["claim_token"]),
+                )
+                if not renewed:
+                    processing.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await processing
+                    raise RuntimeError("combined dispatch lease ownership was lost")
+        await processing
+        raw_log = await dao.get_raw_log(agent_id, log_id)
+        status = str(raw_log.get("status", "DEFERRED") if raw_log else "DEFERRED")
+        await dao.complete_dispatch_queue(
+            str(dispatch["queue_record_id"]),
+            worker_id=worker_id,
+            claim_token=str(dispatch["claim_token"]),
+            outcome=status[:120],
+            side_effect_verified=status.split(":", 1)[0] in {"processed", "rejected"},
+        )
+    finalizations = await dao.list_pending_session_finalizations(limit=1)
+    for finalization in finalizations:
+        await process_session_finalization(
+            str(finalization["agent_id"]),
+            str(finalization["session_id"]),
+            dao,
+            consolidation_loop,
+        )
+    projections = {"completed": 0}
+    cleanup = {"completed": 0}
+    if type(dao) is MemoryDAO:
+        projections = await process_projection_outbox_once(dao, worker_id=worker_id)
+        cleanup = await process_artifact_cleanup_once(dao, worker_id=worker_id)
+    return {
+        "dispatches": len(claimed),
+        "finalizations": len(finalizations),
+        "projections": projections["completed"],
+        "cleanup": cleanup["completed"],
+    }
+
+
+async def _run_combined_durable_consumer(
+    dao: MemoryDAO,
+    *,
+    consolidation_loop: ConsolidationLoop | None,
+    model_processing_enabled: bool,
+) -> None:
+    """Poll the durable journal without introducing a second storage writer."""
+    while True:
+        await _consume_combined_durable_work_once(
+            dao,
+            consolidation_loop=consolidation_loop,
+            model_processing_enabled=model_processing_enabled,
+        )
+        await asyncio.sleep(0.25)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ==================================================================
@@ -162,9 +275,6 @@ async def lifespan(app: FastAPI):
 
     # Initialize LLM telemetry (Langfuse/Langsmith) only after profile validation.  # type: ignore[attr-defined]
     setup_telemetry_tracing()
-
-    # Fail-fast: refuse to start without a valid API key
-    _require_api_key()
 
     # Ensure the validated base storage directory exists before any DB initialization
     assert _STORAGE_BASE is not None
@@ -223,6 +333,17 @@ async def lifespan(app: FastAPI):
     )
     await state.access_control.initialize()
     logger.info("AccessControl initialised at %s", _STORAGE_BASE / "rbac_policy.db")
+    state.api_key_store = APIKeyStore(str(_STORAGE_BASE / "rbac_policy.db"))
+    await state.api_key_store.initialize()
+    await state.api_key_store.bootstrap_legacy_key(
+        secret=_MESA_API_KEY,
+        principal_id=_MESA_PRINCIPAL_ID,
+        principal_type=_MESA_PRINCIPAL_TYPE,
+    )
+    # Keep existing deployments fail-closed: their bootstrap secret must be
+    # configured on first start.  Thereafter issued rotation keys are checked
+    # from the hashed registry by ``get_api_key``.
+    await _require_api_key()
 
     # Model/provider and worker startup are explicit profile decisions.
     pagerank_task = None
@@ -411,6 +532,18 @@ async def lifespan(app: FastAPI):
             "Runtime profile %s starts API/storage without workers", runtime.profile
         )
 
+    if runtime.profile is RuntimeProfile.COMBINED:
+        combined_task = await state.worker_supervisor.start(
+            "combined-durable-consumer",
+            lambda: _run_combined_durable_consumer(
+                state.dao,
+                consolidation_loop=state.consolidation_loop,
+                model_processing_enabled=runtime.model_enabled,
+            ),
+        )
+        state.background_tasks.add(combined_task)
+        logger.info("COMBINED_DURABLE_CONSUMER_STARTED")
+
     logger.info("MESA_API_READY")
     state.is_ready = True
     yield
@@ -581,6 +714,8 @@ memory_router = create_memory_router(
 # We can't attach dependencies to the include_router directly if the router already defines some,
 # but it's simpler to inject them directly on include_router
 app.include_router(memory_router, dependencies=router_dependencies)
+v4_router = create_v4_router(get_dao=get_dao, get_access_control=get_access_control)
+app.include_router(v4_router, dependencies=router_dependencies)
 # type: ignore[no-untyped-def]
 
 
@@ -624,4 +759,5 @@ async def health():  # type: ignore[no-untyped-def]
 
 @app.get("/metrics", dependencies=[Depends(get_api_key)])
 async def metrics():
+    update_v4_health_metrics(await state.dao.health_check())
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

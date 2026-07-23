@@ -2,6 +2,7 @@ from .base import AbstractBenchmarkClient, BenchmarkResponse
 from .dense_rag_client import DenseRagClientAdapter
 from .dummy_client import DummyClientAdapter
 from .mem0_client import Mem0ClientAdapter
+from .mesa_client import MesaClientAdapter, MesaV4ClientAdapter
 
 # Optional competitor adapters — fail gracefully if dependencies missing
 try:
@@ -21,5 +22,7 @@ __all__ = [
     "DummyClientAdapter",
     "LettaClientAdapter",
     "Mem0ClientAdapter",
+    "MesaClientAdapter",
+    "MesaV4ClientAdapter",
     "ZepClientAdapter",
 ]

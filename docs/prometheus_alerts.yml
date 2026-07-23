@@ -10,14 +10,14 @@ groups:
       summary: "High API error rate"
       description: "More than 5% of requests are failing in the last 5 minutes."
 
-  - alert: DualWriteSagaFailure
+  - alert: LegacyV3DualWriteSagaFailure
     expr: rate(saga_failure_total[5m]) > 0
     for: 1m
     labels:
       severity: critical
     annotations:
-      summary: "Dual-write saga failures detected"
-      description: "Inconsistencies may exist between SQLite and LanceDB/KuzuDB."
+      summary: "Legacy v3 dual-write saga failures detected"
+      description: "The v3 lexical-core compatibility path reported a compensation failure."
 
   - alert: HighDiskUsage
     expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 90
@@ -36,3 +36,57 @@ groups:
     annotations:
       summary: "High ingestion queue backlog"
       description: "There are over 1000 items waiting in the ingestion queue."
+
+  - alert: V4ProjectionBacklog
+    expr: mesa_v4_projection_backlog > 100
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "V4 projection backlog is not draining"
+      description: "More than 100 ordered SQL/vector/graph lanes remain pending."
+
+  - alert: V4ProjectionDeadLetter
+    expr: mesa_v4_projection_dead_letter > 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "V4 projection entered dead letter"
+      description: "At least one mutation could not safely complete its projection lanes."
+
+  - alert: V4ProjectionLeaseStuck
+    expr: mesa_v4_projection_stuck_leases > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Expired V4 projection lease detected"
+      description: "An in-flight projection lease expired and requires recovery."
+
+  - alert: V4CleanupBacklog
+    expr: mesa_v4_cleanup_backlog > 50
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "V4 rollback cleanup backlog is not draining"
+      description: "Source-owned tombstones are waiting for physical cleanup."
+
+  - alert: V4CleanupBlocked
+    expr: mesa_v4_cleanup_blocked > 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "V4 cleanup is blocked"
+      description: "A pipeline run cannot complete rollback safely."
+
+  - alert: V4OwnerlessArtifact
+    expr: mesa_v4_orphan_registry > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "V4 active artifact has no source owner"
+      description: "Reconciliation found an active registry artifact without active ownership."

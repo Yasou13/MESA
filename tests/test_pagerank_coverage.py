@@ -5,8 +5,7 @@ Unit tests for mesa_workers/maintenance_pagerank.py.
 Covers:
   - _compute_damped_pagerank (pure function, no I/O)
   - _extract_subgraph (mocked KuzuGraphProvider)
-  - _quarantine_nodes (mocked KuzuGraphProvider)
-  - run_quarantine_scan (integration with mocks)
+  - run_pagerank_observation (integration with mocks)
   - _fetch_agent_ids_sync (sync SQLite query)
   - schedule_pagerank_worker (background loop, tested with cancellation)
 """
@@ -21,8 +20,7 @@ import pytest
 from mesa_workers.maintenance_pagerank import (
     _compute_damped_pagerank,
     _extract_subgraph,
-    _quarantine_nodes,
-    run_quarantine_scan,
+    run_pagerank_observation,
     schedule_pagerank_worker,
 )
 
@@ -191,37 +189,11 @@ class TestExtractSubgraph:
 
 
 # ===================================================================
-# _quarantine_nodes — mocked KuzuGraphProvider
+# run_pagerank_observation — integration with mocked provider
 # ===================================================================
 
 
-class TestQuarantineNodes:
-    @pytest.mark.asyncio
-    async def test_marks_all_nodes(self):
-        mock_provider = MagicMock()
-        mock_provider.execute_write = AsyncMock()
-
-        await _quarantine_nodes(mock_provider, "agent-q", ["n1", "n2", "n3"])
-        assert mock_provider.execute_write.call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_handles_individual_failure(self):
-        """A failure on one node should not abort the batch."""
-        mock_provider = MagicMock()
-        mock_provider.execute_write = AsyncMock(
-            side_effect=[None, RuntimeError("DB error"), None]
-        )
-        # Should not raise
-        await _quarantine_nodes(mock_provider, "agent-q", ["n1", "n2", "n3"])
-        assert mock_provider.execute_write.call_count == 3
-
-
-# ===================================================================
-# run_quarantine_scan — integration with mocked provider
-# ===================================================================
-
-
-class TestRunQuarantineScan:
+class TestRunPagerankObservation:
     @pytest.mark.asyncio
     async def test_skips_small_graph(self):
         """Graphs with < 5 nodes are skipped (too small for meaningful PR)."""
@@ -232,16 +204,17 @@ class TestRunQuarantineScan:
                 [],  # No edges
             ]
         )
-        result = await run_quarantine_scan(
+        result = await run_pagerank_observation(
             agent_id="agent-small",
             graph_provider=mock_provider,
         )
-        assert result["quarantined_count"] == 0
+        assert result["review_candidate_count"] == 0
+        assert result["mode"] == "OBSERVE_ONLY"
         assert result["total_nodes"] == 2
 
     @pytest.mark.asyncio
-    async def test_quarantines_low_authority_nodes(self):
-        """Nodes with no incoming edges get quarantined (high QI)."""
+    async def test_low_authority_nodes_are_reported_not_quarantined(self):
+        """A correct but peripheral fact must not be excluded by PageRank."""
         # Star topology: hub has 6 incoming edges, 6 isolated leaves.
         # With threshold_qi=0.5 the leaf nodes (PR ≈ teleport only)
         # should have QI > 0.5 while hub has QI ≈ 0.
@@ -252,16 +225,18 @@ class TestRunQuarantineScan:
         mock_provider.execute_query = AsyncMock(side_effect=[nodes, edges])
         mock_provider.execute_write = AsyncMock()
 
-        result = await run_quarantine_scan(
+        result = await run_pagerank_observation(
             agent_id="agent-star",
             graph_provider=mock_provider,
             threshold_qi=0.50,  # Lower threshold to catch leaf nodes
         )
         assert result["total_nodes"] == 7
-        # Leaf nodes with no incoming edges should be quarantined
-        assert result["quarantined_count"] >= 1
-        # Hub should NOT be quarantined
-        assert "hub" not in result["quarantined_ids"]
+        assert result["review_candidate_count"] >= 1
+        assert "hub" not in result["review_candidate_ids"]
+        assert result["mode"] == "OBSERVE_ONLY"
+        assert result["quarantined_count"] == 0
+        assert result["quarantined_ids"] == []
+        mock_provider.execute_write.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_result_dict_shape(self):
@@ -275,14 +250,15 @@ class TestRunQuarantineScan:
         mock_provider.execute_query = AsyncMock(side_effect=[nodes, edges])
         mock_provider.execute_write = AsyncMock()
 
-        result = await run_quarantine_scan(
+        result = await run_pagerank_observation(
             agent_id="agent-shape",
             graph_provider=mock_provider,
         )
         assert "agent_id" in result
         assert "total_nodes" in result
-        assert "quarantined_count" in result
-        assert "quarantined_ids" in result
+        assert "review_candidate_count" in result
+        assert "review_candidate_ids" in result
+        assert result["mode"] == "OBSERVE_ONLY"
         assert "elapsed_ms" in result
 
 

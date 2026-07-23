@@ -3,10 +3,28 @@ name: Benchmark data quality
 on:
   push:
     branches: [benchmark/**, main]
-    paths: ["mesa-benchmark/**", ".github/workflows/benchmark-quality.yml", "pyproject.toml", "uv.lock"]
+    paths:
+      - "mesa-benchmark/**"
+      - "mesa_evals/**"
+      - "mesa_memory/retrieval/**"
+      - "mesa_storage/**"
+      - "mesa_workers/projection_worker.py"
+      - "tests/test_v4_rrf_ablation.py"
+      - ".github/workflows/benchmark-quality.yml"
+      - "pyproject.toml"
+      - "uv.lock"
   pull_request:
     branches: [benchmark/**, main]
-    paths: ["mesa-benchmark/**", ".github/workflows/benchmark-quality.yml", "pyproject.toml", "uv.lock"]
+    paths:
+      - "mesa-benchmark/**"
+      - "mesa_evals/**"
+      - "mesa_memory/retrieval/**"
+      - "mesa_storage/**"
+      - "mesa_workers/projection_worker.py"
+      - "tests/test_v4_rrf_ablation.py"
+      - ".github/workflows/benchmark-quality.yml"
+      - "pyproject.toml"
+      - "uv.lock"
   schedule:
     - cron: "31 2 * * 3"
   workflow_dispatch:
@@ -53,6 +71,10 @@ jobs:
         run: |
           uv run ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/scripts mesa-benchmark/tests
           uv run mypy mesa-benchmark/mesa_benchmark
+      - name: Deterministic V4 RRF lane-ablation evidence
+        run: |
+          uv run python -m pytest -q tests/test_v4_rrf_ablation.py
+          uv run python -m mesa_evals.v4_rrf_ablation --output v4-rrf-ablation.json
       - name: Offline dataset and suite gates
         run: |
           uv run mesa-benchmark dataset-sync --suite smoke
@@ -75,6 +97,13 @@ jobs:
           MESA_BENCHMARK_DATA_DIR="$RUNNER_TEMP/wheel-data" "$RUNNER_TEMP/wheel-venv/bin/mesa-benchmark" suite-check --suite smoke
           MESA_BENCHMARK_DATA_DIR="$RUNNER_TEMP/wheel-data" "$RUNNER_TEMP/wheel-venv/bin/mesa-benchmark" run-suite --suite smoke --results-root "$RUNNER_TEMP/wheel-results"
           "$RUNNER_TEMP/wheel-venv/bin/mesa-benchmark" verify-results --bundle "$(find "$RUNNER_TEMP/wheel-results" -name bundle.json -print -quit)"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: v4-rrf-ablation
+          path: v4-rrf-ablation.json
+          if-no-files-found: error
+          retention-days: 30
 
   nightly-external-sync:
     if: ${{ github.event_name == 'schedule' }}

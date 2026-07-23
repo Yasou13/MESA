@@ -67,51 +67,46 @@ async def test_async_sdk_purge_uses_server_api_key_header(tmp_path):
 async def test_mcp_forget_memory_uses_configured_agent_and_async_sdk_auth(tmp_path):
     from mesa_mcp import server as mcp_server
 
-    policy = AccessControl(policy_path=str(tmp_path / "mcp-rbac.db"))
-    await policy.initialize()
-    await policy.grant_principal_permission("principal-a", "agent-a", "PURGE")
-    await policy.grant_access("agent-a", "__any__", "WRITE")
-    dao = SimpleNamespace(purge_memory=AsyncMock(return_value=0))
-    app = FastAPI()
-    app.include_router(
-        create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),  # type: ignore[return-value]
-        dependencies=[Depends(server.get_api_key)],
-    )
-    previous_auth = (
-        server._MESA_API_KEY,
-        server._MESA_PRINCIPAL_ID,
-        server._MESA_PRINCIPAL_STATUS,
-    )
     previous_mcp = (
         mcp_server.MESA_AGENT_ID,
+        mcp_server.MESA_TENANT_ID,
+        mcp_server.MESA_WORKSPACE_ID,
         mcp_server.MESA_API_KEY,
-        mcp_server.AsyncMesaClient,
+        mcp_server.AsyncMesaV4Client,
     )
-    server._MESA_API_KEY = "isolated-mcp-key"
-    server._MESA_PRINCIPAL_ID = "principal-a"
-    server._MESA_PRINCIPAL_STATUS = "active"
+    purge = AsyncMock(return_value={"state": "PURGE_PENDING"})
+
+    class FakeV4Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        purge_document = purge
+
     mcp_server.MESA_AGENT_ID = "agent-a"
+    mcp_server.MESA_TENANT_ID = "tenant-a"
+    mcp_server.MESA_WORKSPACE_ID = "workspace-a"
     mcp_server.MESA_API_KEY = "isolated-mcp-key"
-    client = AsyncMesaClient(
-        base_url="http://mesa.test", api_key="isolated-mcp-key", max_retries=0
-    )
-    await client._client.aclose()
-    client._client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://mesa.test",
-        headers=client._client.headers,
-    )
-    mcp_server.AsyncMesaClient = lambda **_kwargs: client
+    mcp_server.AsyncMesaV4Client = lambda **_kwargs: FakeV4Client()
     try:
-        result = await mcp_server.call_tool("forget_memory", {"agent_id": "agent-b"})
-        assert "Purge complete" in result[0].text
-        assert dao.purge_memory.await_args.kwargs["agent_id"] == "agent-a"
+        result = await mcp_server.call_tool(
+            "forget_memory",
+            {"dataset_id": "dataset-a", "document_id": "document-a"},
+        )
+        assert "Document purge accepted" in result[0].text
+        purge.assert_awaited_once_with(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+            document_id="document-a",
+        )
     finally:
-        mcp_server.AsyncMesaClient = previous_mcp[2]
-        mcp_server.MESA_AGENT_ID, mcp_server.MESA_API_KEY = previous_mcp[:2]
         (
-            server._MESA_API_KEY,
-            server._MESA_PRINCIPAL_ID,
-            server._MESA_PRINCIPAL_STATUS,
-        ) = previous_auth
-        await policy.close()
+            mcp_server.MESA_AGENT_ID,
+            mcp_server.MESA_TENANT_ID,
+            mcp_server.MESA_WORKSPACE_ID,
+            mcp_server.MESA_API_KEY,
+            mcp_server.AsyncMesaV4Client,
+        ) = previous_mcp

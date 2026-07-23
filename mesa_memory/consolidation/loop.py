@@ -43,6 +43,7 @@ from mesa_memory.consolidation.parser import (  # noqa: F401
     _sanitize_llm_response,
 )
 from mesa_memory.consolidation.router import AdaptiveRouter
+from mesa_memory.consolidation.schemas import ExtractedTriplet
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 from mesa_memory.consolidation.writer import GraphWriter
 from mesa_memory.extraction.triplet_extractor import TripletExtractor
@@ -599,6 +600,7 @@ class ConsolidationLoop:
         llm_b: BaseUniversalLLMAdapter,
         obs_layer: ObservabilityLayer,
         agent_id: str = "mesa_consolidation_system",
+        queue_root: str | Path | None = None,
     ):
         self.dao = dao
         self.embedder = embedder
@@ -609,16 +611,23 @@ class ConsolidationLoop:
         self._running = False
 
         # Persistent queues — paths sourced from central config (P7 fix)
-        _hr_path = Path(config.human_review_queue_path)
-        _dl_path = Path(config.dead_letter_queue_path)  # type: ignore[no-untyped-def]
+        if queue_root is None:
+            _hr_path = Path(config.human_review_queue_path)
+            _dl_path = Path(config.dead_letter_queue_path)  # type: ignore[no-untyped-def]
+            queue_trusted_root = config.storage_path
+        else:
+            isolated_queue_root = Path(queue_root)
+            _hr_path = isolated_queue_root / "human-review.jsonl"
+            _dl_path = isolated_queue_root / "dead-letter.jsonl"
+            queue_trusted_root = str(isolated_queue_root)
         _hr_path.parent.mkdir(parents=True, exist_ok=True)
         _dl_path.parent.mkdir(parents=True, exist_ok=True)
         self.human_review_queue = PersistentQueue(
-            str(_hr_path), trusted_root=config.storage_path
+            str(_hr_path), trusted_root=queue_trusted_root
         )
         self.dead_letter_queue = PersistentQueue(
             str(_dl_path),
-            trusted_root=config.storage_path,
+            trusted_root=queue_trusted_root,
             require_completion_receipt=True,
         )
 
@@ -736,7 +745,7 @@ class ConsolidationLoop:
     # Core batch orchestrator
     # -------------------------------------------------------------------
 
-    async def run_batch(self, batch: Optional[list[dict]] = None):
+    async def run_batch(self, batch: Optional[list[dict]] = None) -> dict[str, list[str]]:
         """Process a batch of raw log records through the consolidation pipeline.
 
         P0-A compliant flow:
@@ -754,8 +763,9 @@ class ConsolidationLoop:
                 limit=config.consolidation_batch_size,
             )
 
+        outcome: dict[str, list[str]] = {"accepted": [], "rejected": [], "deferred": []}
         if not batch:
-            return
+            return outcome
 
         # --- Phase 1: Tier-3 validation gate ---
         ready_batch = []
@@ -777,6 +787,7 @@ class ConsolidationLoop:
                             "error": str(exc),
                         }
                     )
+                    outcome["deferred"].append(str(record.get("cmb_id", record.get("id", ""))))
                     continue
                 except Tier3ValidationError as exc:
                     # Infrastructure error — do NOT treat as cognitive DISCARD
@@ -792,6 +803,7 @@ class ConsolidationLoop:
                             "error": str(exc),
                         }
                     )
+                    outcome["deferred"].append(str(record.get("cmb_id", record.get("id", ""))))
                     continue
                 except (asyncio.TimeoutError, Exception) as exc:
                     # LLM timeout or unexpected error — dead-letter, don't crash
@@ -808,6 +820,7 @@ class ConsolidationLoop:
                             "error": f"unexpected: {exc}",
                         }
                     )
+                    outcome["deferred"].append(str(record.get("cmb_id", record.get("id", ""))))
                     continue
 
                 is_pass = False
@@ -829,6 +842,7 @@ class ConsolidationLoop:
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
                     ready_batch.append(record)
+                    outcome["accepted"].append(str(record.get("cmb_id", record.get("id", ""))))
                 else:
                     self.obs_layer.log_valence_decision(
                         tier=3,
@@ -840,7 +854,8 @@ class ConsolidationLoop:
                     record_id = record.get("cmb_id", record.get("id", ""))
                     agent_id = record.get("agent_id", self._agent_id)
                     try:
-                        await self.dao.invalidate_node(agent_id, node_id=record_id)
+                        if not record.get("candidate_id"):
+                            await self.dao.invalidate_node(agent_id, node_id=record_id)
                     except sqlite3.OperationalError as db_exc:
                         if "database is locked" in str(db_exc):
                             # Infrastructure error (SQLite WAL lock) -> Do NOT mark as invalid, skip so it retries
@@ -858,12 +873,14 @@ class ConsolidationLoop:
                             record_id,
                             inv_exc,
                         )
+                    outcome["rejected"].append(str(record_id))
             else:
                 ready_batch.append(record)
+                outcome["accepted"].append(str(record.get("cmb_id", record.get("id", ""))))
 
         batch = ready_batch
         if not batch:
-            return
+            return outcome
 
         start_ms = time.time() * 1000
         batch_id = f"batch_{int(start_ms)}"
@@ -884,7 +901,11 @@ class ConsolidationLoop:
                         "error": "Extraction failed after retries: " + str(exc),
                     }
                 )
-            return
+                candidate_id = str(record.get("cmb_id", record.get("id", "")))
+                if candidate_id in outcome["accepted"]:
+                    outcome["accepted"].remove(candidate_id)
+                outcome["deferred"].append(candidate_id)
+            return outcome
         except Exception as exc:
             logger.error("Extraction unexpected error: %s", exc)
             for record in sorted_batch:
@@ -895,23 +916,52 @@ class ConsolidationLoop:
                         "error": "Extraction unexpected error: " + str(exc),
                     }
                 )
-            return
+                candidate_id = str(record.get("cmb_id", record.get("id", "")))
+                if candidate_id in outcome["accepted"]:
+                    outcome["accepted"].remove(candidate_id)
+                outcome["deferred"].append(candidate_id)
+            return outcome
 
-        # --- Phase 4: Pre-fetch embeddings & commit via GraphWriter ---  # type: ignore[no-untyped-def]
-        embedding_cache = await self.graph_writer.prefetch_embeddings(
-            sorted_batch,
-            indexed_a,
-            indexed_b,
-        )
+        # --- Phase 4: durable V4 extraction / legacy direct projection ---
+        # V4 must not write an active SQL/vector/graph artifact from this
+        # validator path.  Persist the exact extracted triplet first; the
+        # combined runtime's outbox consumer performs each projection lane
+        # only after the worker marks the mutation VALIDATED.
+        legacy_batch: list[dict] = []
+        legacy_a: dict[int, ExtractedTriplet] = {}
+        legacy_b: dict[int, ExtractedTriplet] = {}
+        for original_index, record in enumerate(sorted_batch):
+            mutation_id = record.get("mutation_id")
+            if mutation_id and type(self.dao) is MemoryDAO:
+                triplet = self.graph_writer._to_dict(indexed_a.get(original_index))
+                triplets = [triplet] if triplet.get("head") else []
+                await self.dao.record_mutation_extraction(
+                    str(record["agent_id"]), str(mutation_id), triplets
+                )
+                continue
+            legacy_index = len(legacy_batch)
+            legacy_batch.append(record)
+            if original_index in indexed_a:
+                legacy_a[legacy_index] = indexed_a[original_index]
+            if original_index in indexed_b:
+                legacy_b[legacy_index] = indexed_b[original_index]
 
-        successful_writes, divergence_count = await self.graph_writer.commit_batch(
-            sorted_batch,
-            indexed_a,
-            indexed_b,
-            embedding_cache,
-            batch_id,
-            similarity_fn=calculate_composite_similarity,
-        )
+        successful_writes = 0
+        divergence_count = 0
+        if legacy_batch:
+            embedding_cache = await self.graph_writer.prefetch_embeddings(
+                legacy_batch,
+                legacy_a,
+                legacy_b,
+            )
+            successful_writes, divergence_count = await self.graph_writer.commit_batch(
+                legacy_batch,
+                legacy_a,
+                legacy_b,
+                embedding_cache,
+                batch_id,
+                similarity_fn=calculate_composite_similarity,
+            )
 
         duration_ms = (time.time() * 1000) - start_ms
         self.obs_layer.log_consolidation_batch(
@@ -921,6 +971,7 @@ class ConsolidationLoop:
             writes=successful_writes,
             duration_ms=duration_ms,
         )
+        return outcome
 
     # -------------------------------------------------------------------
     # Async Dual-LLM validation with timeout protection

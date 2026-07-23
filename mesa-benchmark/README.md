@@ -5,6 +5,28 @@ token bütçesi ve cevap üreticisiyle karşılaştıran, yeniden başlatılabil
 benchmark runner’ıdır. MESA, dense RAG, Mem0, Letta ve opsiyonel Zep
 adaptörlerini destekler.
 
+## MESA v4 benchmark sözleşmesi
+
+`release` ve `research` suite’lerindeki MESA satırları
+`MesaV4ClientAdapter` kullanır. Adapter her scenario için izole tenant,
+workspace ve dataset catalog’u kurar; source chunk ve mutation oluşturur;
+SQL→vector→graph outbox’ını işler ve aramayı aynı dataset sınırında gerçek RRF
+ile yapar. Dönen context mutation, artifact ve kaynak provenance’ını taşır.
+
+`legacy` ve bazı internal smoke config’leri, v3 lexical-core uyumluluğunu
+ölçmek için `MesaClientAdapter` kullanmaya devam eder. V3 ile v4 sonuçları
+aynı runtime etiketi altında birleştirilmemelidir.
+
+Deterministik çekirdek lane-ablation evaluator’ı vector-only,
+vector+BM25, vector+graph ve tüm-lane RRF MRR değerlerini raporlar:
+
+```bash
+python -m mesa_evals.v4_rrf_ablation --output results/v4-rrf-ablation.json
+```
+
+Bu küçük corpus regresyon kanıtıdır; harici release dataset sonucunun yerine
+geçmez.
+
 Suite, config, manifest ve küçük offline fixture’lar wheel içinde
 `resource://` URI’leriyle taşınır. Büyük datasetler `data://` URI’leriyle
 çözülür. Veri kökü sırasıyla `MESA_BENCHMARK_DATA_DIR`, source checkout’taki
@@ -166,6 +188,8 @@ Image semantic embedding modelini build sırasında önbelleğe alır.
 ```bash
 PYTHONPATH=mesa-benchmark python -m pytest mesa-benchmark/tests -q
 ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/tests
+mypy mesa-benchmark/mesa_benchmark
+python -m pytest tests/test_v4_rrf_ablation.py -q
 ```
 
 P95/P99 yalnız en az 20 latency gözlemi varsa raporlanır; küçük mini koşumlarda değer `N/A` olur. Multi-seed özet ve baseline karşılaştırması `N/A` değerlerini sıfır kabul etmez; kullanılan ve dışlanan seed’leri JSON raporunda belirtir.
