@@ -375,7 +375,7 @@ def test_tokenizer_fallback_contract(monkeypatch) -> None:
         tokenizer.enforce_context_limit("one two", "openai", "", limit=1)
 
 
-def _response(status: int, payload: dict, *, version: str = "0.6.1") -> httpx.Response:
+def _response(status: int, payload: dict, *, version: str = "0.7.0") -> httpx.Response:
     return httpx.Response(
         status,
         json=payload,

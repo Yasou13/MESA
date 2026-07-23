@@ -443,7 +443,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             latency_ms=latency,
             retrieval_latency_ms=latency,
             metadata={
-                "mesa_version": "0.6.1",
+                "mesa_version": "0.7.0",
                 "multi_hop_enabled": self.enable_multi_hop,
                 "rerank_enabled": self.enable_rerank,
                 "graph_backend": "KuzuDB",

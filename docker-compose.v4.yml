@@ -5,7 +5,7 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     context: .
     dockerfile: Dockerfile
     target: runtime
-  image: ${MESA_V4_IMAGE:-mesa-memory:v4-dev}
+  image: ${MESA_V4_IMAGE:-mesa-memory:0.7.0}
   restart: "on-failure:5"
   read_only: true
   tmpfs:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# MESA v0.6.1 — Lightweight Dev/Load-Test Server
+# MESA v0.7.0 — Lightweight Dev/Load-Test Server
 # Boots the MESA FastAPI app on port 8000 for local development and
 # load testing without requiring the full ML stack (REBEL, transformers).
 #
@@ -81,7 +81,7 @@ _state = _AppState()
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="run_server",
-        description="MESA v0.6.1 — Dev/Load-Test Server",
+        description="MESA v0.7.0 — Dev/Load-Test Server",
     )
     parser.add_argument(
         "--port",
@@ -252,7 +252,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="MESA Dev Server",
-    version="0.6.1",
+    version="0.7.0",
     lifespan=lifespan,
 )
 
@@ -329,7 +329,7 @@ async def health():
         "status": "healthy",
         "sqlite": "ok" if _state.sqlite_engine else "not_initialized",
         "vector": "ok" if _state.vector_engine else "not_initialized",
-        "version": "0.4.0-dev",
+        "version": "0.7.0",
     }
 
 
@@ -349,7 +349,7 @@ def main() -> None:
 
     auth_status = "DISABLED (--no-auth)" if _cli_args.no_auth else "ENABLED"
     print(f"\n{'=' * 60}")
-    print("  MESA v0.6.1 Dev Server")
+    print("  MESA v0.7.0 Dev Server")
     print(f"  Bind:    {_cli_args.host}:{_cli_args.port}")
     print(f"  Auth:    {auth_status}")
     print("  Storage: ./storage/mesa.db + ./storage/vector.lance")

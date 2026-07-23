@@ -1,4 +1,4 @@
-"""MESA v0.6.1 — Phase 4B: Soak Test — Memory Leak & Queue Stability Monitor.
+"""MESA v0.7.0 — Phase 4B: Soak Test — Memory Leak & Queue Stability Monitor.
 
 Sends a constant, moderate load to ``POST /v3/memory/insert`` over a
 configurable duration (default: 12 hours) and monitors system health via
@@ -596,7 +596,7 @@ async def run_soak(
 def main() -> None:
     """CLI entrypoint for the MESA Soak Test."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.6.1 — Phase 4B: Soak Test (Memory Leak & Queue Stability)",
+        description="MESA v0.7.0 — Phase 4B: Soak Test (Memory Leak & Queue Stability)",
     )
     parser.add_argument(
         "--base-url",
@@ -695,7 +695,7 @@ def main() -> None:
 
     # Print final summary
     print("\n" + "=" * 72)
-    print("  MESA v0.6.1 SOAK TEST — FINAL REPORT")
+    print("  MESA v0.7.0 SOAK TEST — FINAL REPORT")
     print("=" * 72)
     print(json.dumps(final_report, ensure_ascii=False, indent=2))
     print("=" * 72)

@@ -1,4 +1,4 @@
-// MESA v0.6.0 — Enterprise Developer-First (DX) Showcase & RAG Sandbox Logic
+// MESA v0.7.0 — Enterprise Developer-First (DX) Showcase & RAG Sandbox Logic
 
 const API_BASE = "/v3/memory";
 
@@ -27,7 +27,7 @@ const I18N = {
         btn_connect: "Connect Sandbox",
         
         // Layer 1: Above the Fold (Hero)
-        hero_badge: "v0.6.0 Enterprise Triple-Store Engine",
+        hero_badge: "v0.7.0 Enterprise Triple-Store Engine",
         hero_title: "The Open-Source <span class='gradient-text'>Triple-Store Memory Engine</span> for Enterprise AI Agents",
         hero_desc: "Durable v3 lexical memory and an unreleased v4 pipeline with dataset-scoped provenance, ordered projections, Graph V2, and RRF retrieval.",
         hero_cta_sandbox: "Test Live Sandbox",
@@ -37,7 +37,7 @@ const I18N = {
         
         install_label: "Instant Installation & Daemon Setup:",
         cmd_pip: "pip install mesa-memory",
-        cmd_docker: "docker run -d --name mesa -p 8000:8000 mesa-engine:v0.6.0",
+        cmd_docker: "docker run -d --name mesa -p 8000:8000 mesa-engine:v0.7.0",
         btn_copy: "Copy",
         btn_copied: "Copied!",
         
@@ -62,7 +62,7 @@ const I18N = {
         
         cmp_col_feature: "Engineering Dimension",
         cmp_col_vector: "Standard RAG (Vector Only / SaaS Wrappers)",
-        cmp_col_mesa: "MESA Triple-Store Engine (v0.6.0)",
+        cmp_col_mesa: "MESA Triple-Store Engine (v0.7.0)",
         
         row1_feat: "Multi-Hop Reasoning & Entity Salience",
         row1_vec: "❌ Fails on complex chains; vector distance ignores relational links between entities.",
@@ -186,7 +186,7 @@ const I18N = {
         btn_connect: "Sandbox Bağlantısı",
         
         // Layer 1: Above the Fold (Hero)
-        hero_badge: "v0.6.0 Kurumsal Üçlü Depolama Motoru",
+        hero_badge: "v0.7.0 Kurumsal Üçlü Depolama Motoru",
         hero_title: "Kurumsal Yapay Zeka Ajanları İçin Açık Kaynaklı <span class='gradient-text'>Üçlü Depolama Bellek Motoru</span>",
         hero_desc: "Bağlam amnezisini, kiracı veri sızıntılarını ve çok adımlı çıkarım hatalarını ortadan kaldırın. Yüksek hızlı KùzuDB C++ çizge gezintisi, LanceDB yoğun vektörleri ve Stage-2 CrossEncoder yeniden sıralaması ile güçlendirildi.",
         hero_cta_sandbox: "Canlı Sandbox'ı Test Et",
@@ -196,7 +196,7 @@ const I18N = {
         
         install_label: "Hızlı Kurulum & Sunucu Başlatma:",
         cmd_pip: "pip install mesa-memory",
-        cmd_docker: "docker run -d --name mesa -p 8000:8000 mesa-engine:v0.6.0",
+        cmd_docker: "docker run -d --name mesa -p 8000:8000 mesa-engine:v0.7.0",
         btn_copy: "Kopyala",
         btn_copied: "Kopyalandı!",
         
@@ -221,7 +221,7 @@ const I18N = {
         
         cmp_col_feature: "Mühendislik Boyutu",
         cmp_col_vector: "Standart RAG (Sadece Vektör / SaaS Ara Katmanlar)",
-        cmp_col_mesa: "MESA Üçlü Depolama Motoru (v0.6.0)",
+        cmp_col_mesa: "MESA Üçlü Depolama Motoru (v0.7.0)",
         
         row1_feat: "Çok Adımlı Çıkarım (Multi-Hop) & Varlık Bağlantısı",
         row1_vec: "❌ Karmaşık zincirlerde başarısız olur; vektör mesafesi varlıklar arası ilişkileri göremez.",

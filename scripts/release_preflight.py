@@ -61,7 +61,7 @@ def validate(tag: str) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag", help="release tag, for example v0.6.2")
+    parser.add_argument("tag", help="release tag, for example v0.7.0")
     args = parser.parse_args()
     errors = validate(args.tag)
     if errors:

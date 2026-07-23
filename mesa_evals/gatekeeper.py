@@ -351,7 +351,7 @@ def main() -> None:
         python -m mesa_evals.gatekeeper --results /path/to/eval_results.json
     """
     parser = argparse.ArgumentParser(
-        description="MESA v0.3.0 CI/CD Evaluation Gatekeeper",
+        description="MESA v0.7.0 CI/CD Evaluation Gatekeeper",
     )
     parser.add_argument(
         "--results",

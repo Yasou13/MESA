@@ -1,4 +1,4 @@
-"""MESA v0.6.1 — Phase 3A: Legal Golden Dataset Generator with Adversarial Traps.
+"""MESA v0.7.0 — Phase 3A: Legal Golden Dataset Generator with Adversarial Traps.
 
 Generates multi-hop legal evaluation entries based on Turkish Supreme Court
 (Yargıtay) decisions and Turkish Law (Kanunlar), with adversarial traps for
@@ -31,7 +31,7 @@ import sys
 import uuid
 
 # ---------------------------------------------------------------------------
-# Deterministic seeding — MESA v0.6.1 Phase 2 epoch
+# Deterministic seeding — MESA v0.7.0 Phase 2 epoch
 # ---------------------------------------------------------------------------
 SEED = 20260526
 random.seed(SEED)
@@ -362,7 +362,7 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
 def main() -> None:
     """CLI entrypoint for the Legal Golden Dataset generator."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.6.1 Phase 3A — Legal Golden Dataset Generator with Adversarial Traps",
+        description="MESA v0.7.0 Phase 3A — Legal Golden Dataset Generator with Adversarial Traps",
     )
     parser.add_argument(
         "--out",
