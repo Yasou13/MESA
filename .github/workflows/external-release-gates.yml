@@ -223,25 +223,42 @@ jobs:
         run: |
           set -euo pipefail
           project="mesa-v4-gates-${GITHUB_RUN_ID}"
-          compose="docker compose -f docker-compose.v4.yml -p $project"
-          trap '$compose logs --no-color > v4-compose.log 2>&1 || true; $compose down -v || true' EXIT
-          $compose config --quiet
-          $compose build
-          $compose up -d
-          test "$($compose config --services)" = "mesa-v4"
-          for _ in $(seq 1 30); do
-            curl --fail --silent --show-error \
-              -H "X-API-Key: $MESA_API_KEY" \
-              http://127.0.0.1:8000/health && break
-            sleep 2
-          done
+          compose=(docker compose -f docker-compose.v4.yml -p "$project")
+          cleanup() {
+            status=$?
+            "${compose[@]}" ps -a || true
+            "${compose[@]}" logs --no-color 2>&1 | tee v4-compose.log || true
+            "${compose[@]}" down --remove-orphans -v || true
+            return "$status"
+          }
+          wait_for_health() {
+            for _ in $(seq 1 60); do
+              if curl --fail --silent --show-error \
+                -H "X-API-Key: $MESA_API_KEY" \
+                http://127.0.0.1:8000/health; then
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+          trap cleanup EXIT
+          "${compose[@]}" config --quiet
+          test "$("${compose[@]}" config --services)" = "mesa-v4"
+          "${compose[@]}" build
+          # Bootstrap grants before the combined runtime starts so the release
+          # gate never introduces a second writer beside the storage owner.
+          "${compose[@]}" run --rm --no-deps --entrypoint mesa-v4-admin \
+            mesa-v4 grant-role \
+            --principal ci-principal --tenant ci-tenant --role OWNER
+          "${compose[@]}" run --rm --no-deps --entrypoint mesa-v4-admin \
+            mesa-v4 grant-agent \
+            --principal ci-principal --agent ci-agent --permission SESSION_CREATE
+          "${compose[@]}" up -d --wait --wait-timeout 180
+          wait_for_health
           curl --fail --silent --show-error \
             -H "X-API-Key: $MESA_API_KEY" \
             http://127.0.0.1:8000/health > v4-health.json
-          $compose exec -T mesa-v4 mesa-v4-admin grant-role \
-            --principal ci-principal --tenant ci-tenant --role OWNER
-          $compose exec -T mesa-v4 mesa-v4-admin grant-agent \
-            --principal ci-principal --agent ci-agent --permission SESSION_CREATE
           curl --fail --silent --show-error -X POST \
             -H "X-API-Key: $MESA_API_KEY" \
             -H "Content-Type: application/json" \
@@ -260,8 +277,9 @@ jobs:
             http://127.0.0.1:8000/v4/sessions/start \
             -d '{"tenant_id":"ci-tenant","workspace_id":"ci-workspace","dataset_ids":["ci-dataset"],"agent_id":"ci-agent"}' \
             > v4-session.json
-          $compose restart mesa-v4
-          $compose exec -T mesa-v4 python -m mesa_memory.container_health
+          "${compose[@]}" restart mesa-v4
+          wait_for_health
+          "${compose[@]}" exec -T mesa-v4 python -m mesa_memory.container_health
       - uses: actions/upload-artifact@v7
         if: always()
         with:
