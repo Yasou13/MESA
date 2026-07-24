@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("mcp")
+
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.errors import MCPError
