@@ -290,6 +290,46 @@ class TestProcessColdPath:
 
     @pytest.mark.asyncio
     @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
+    async def test_full_cognitive_low_novelty_is_deferred_to_tier3(self, mock_ecod):
+        """Potentially contradictory updates must not be rejected by ECOD alone."""
+        mock_ecod.return_value = False
+        mock_dao = MagicMock()
+        mock_dao.get_raw_log = AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {
+                    "agent_id": "test-agent",
+                    "session_id": "session-1",
+                    "content": "The policy now permits remote work.",
+                },
+            }
+        )
+        mock_dao.update_raw_log_status = AsyncMock()
+        loop = MagicMock()
+
+        async def accept(records):
+            return {"accepted": [records[0]["candidate_id"]], "rejected": [], "deferred": []}
+
+        loop.run_batch = AsyncMock(side_effect=accept)
+
+        await process_cold_path(
+            log_id=19,
+            agent_id="test-agent",
+            dao=mock_dao,
+            consolidation_loop=loop,
+            model_processing_enabled=True,
+            require_tier3_validation=True,
+        )
+
+        loop.run_batch.assert_awaited_once()
+        mock_dao.update_raw_log_status.assert_any_call("test-agent", 19, "processed")
+        assert all(
+            call.args[2] != "rejected"
+            for call in mock_dao.update_raw_log_status.await_args_list
+        )
+
+    @pytest.mark.asyncio
+    @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
     @patch("mesa_workers.ingestion_worker._commit_raw_memory", new_callable=AsyncMock)
     async def test_full_cognitive_rejection_creates_no_legacy_projection(
         self, mock_commit_raw, mock_ecod

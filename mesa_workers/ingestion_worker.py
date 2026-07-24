@@ -298,7 +298,12 @@ async def _process_cold_path_impl(
             # ==============================================================
             ecod_passed = await _run_ecod_gate(dao, payload_agent_id, content)
 
-            if not ecod_passed:
+            # A low novelty score is useful as a cheap duplicate heuristic for
+            # the legacy projection path.  It is not a reliable rejection for
+            # the full-cognitive path: corrections and contradictions are
+            # deliberately similar to the memory they update.  Let Tier-3 make
+            # the final STORE/DISCARD decision in that path.
+            if not ecod_passed and not require_tier3_validation:
                 await _transition(
                     "rejected",
                     error_reason="ecod_novelty_below_threshold",
@@ -309,6 +314,12 @@ async def _process_cold_path_impl(
                     log_id,
                 )
                 return
+            if not ecod_passed:
+                logger.info(
+                    "COLD_PATH_ECOD_DEFERRED_TO_TIER3 | log_id=%d agent_id=%s",
+                    log_id,
+                    payload_agent_id,
+                )
 
             _write_cold_path_trace(f"BEFORE REBEL {log_id}")
             # ==============================================================

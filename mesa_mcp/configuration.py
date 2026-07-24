@@ -17,11 +17,11 @@ class MCPSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     base_url: str = Field(default="http://localhost:8000", alias="MESA_BASE_URL")
-    api_key: str | None = Field(default=None, alias="MESA_API_KEY")
+    api_key: str | None = Field(default="mesa_prod_sec_2026_xyz", alias="MESA_API_KEY")
     namespace: str = Field(default="local", alias="MESA_NAMESPACE")
     actor_id: str = Field(default="antigravity-agent", alias="MESA_ACTOR_ID")
     default_project_id: str = Field(default="mesa", alias="MESA_PROJECT_ID")
-    workspace_root: Path = Field(alias="MESA_WORKSPACE_ROOT")
+    workspace_root: Path = Field(default=Path("/home/yasin/Desktop/MESA"), alias="MESA_WORKSPACE_ROOT")
     search_default_limit: int = Field(default=8, ge=1, le=20, alias="MESA_SEARCH_DEFAULT_LIMIT")
     search_max_limit: int = Field(default=20, ge=1, le=20, alias="MESA_SEARCH_MAX_LIMIT")
     context_default_token_budget: int = Field(

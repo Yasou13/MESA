@@ -246,54 +246,62 @@ for r in results.results:
 ## 🤖 Integrations: Claude Desktop (MCP)
 
 MESA includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/)
-server (`mesa_mcp.server`) that uses the same v4 catalog, session, memory,
-status, replay and rollback API as the Python SDK.
+stdio server (`mesa_mcp.server`). It calls MESA's public v3 HTTP API and
+scopes each MCP project to a deterministic `mcp-{namespace}-{project_id}`
+session; it never opens the storage databases directly.
 
 ### Setup
 
 1. **Start MESA** (Docker or local — must be running on `localhost:8000`).
 
-2. **Add to your Claude Desktop config** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+2. **Install the MCP extra and add the server config** (the same `mcpServers`
+entry also works in Antigravity and other stdio MCP hosts):
+
+```bash
+uv sync --locked --extra mcp
+```
 
 ```json
 {
   "mcpServers": {
     "mesa-memory": {
-      "command": "python",
-      "args": ["-m", "mesa_mcp.server"],
+      "command": "uv",
+      "args": ["run", "mesa-mcp"],
       "cwd": "/absolute/path/to/MESA",
       "env": {
         "MESA_BASE_URL": "http://localhost:8000",
-        "MESA_API_KEY": "local-dev-key",
-        "MESA_TENANT_ID": "tenant-a",
-        "MESA_WORKSPACE_ID": "workspace-a",
-        "MESA_DATASET_IDS": "dataset-a",
-        "MESA_AGENT_ID": "agent-a"
+        "MESA_API_KEY": "the-key-configured-on-your-MESA-server",
+        "MESA_WORKSPACE_ROOT": "/absolute/path/to/MESA",
+        "MESA_NAMESPACE": "local",
+        "MESA_ACTOR_ID": "antigravity-agent",
+        "MESA_PROJECT_ID": "mesa"
       }
     }
   }
 }
 ```
 
-3. **Restart Claude Desktop.** The principal behind the API key must already
-   have the required tenant/workspace/dataset role and agent permission.
+`MESA_WORKSPACE_ROOT` zorunlu, mevcut ve mutlak bir dizindir; `source_file`
+doğrulamasının güvenlik sınırını oluşturur. API anahtarını kaynak koda veya
+paylaşılan bir config dosyasına sabit yazmayın.
+
+3. **Restart the MCP host.** The configured actor must have READ/WRITE access
+   to its generated project session in the running MESA service.
 
 | MCP Tool | Description |
 |---|---|
-| `catalog` | Create/list authorized workspaces, datasets, documents and revisions |
-| `start_session` | Create an immutable authorized v4 session |
-| `record_memory` | Admit an exact source chunk and return its mutation ID |
-| `search_memory` | Run dataset-filtered vector/BM25/graph RRF retrieval |
-| `mutation_status` | Read durable pipeline and projection state |
-| `rollback_mutation` / `replay_mutation` | Operate an authorized mutation |
-| `get_context` / `end_session` | Read provenance context or finalize a session |
+| `mesa_health` | Check MCP and MESA service readiness |
+| `mesa_store_memory` | Queue durable project knowledge |
+| `mesa_search_memory` | Search memories in one MCP project session |
+| `mesa_get_memory` | Retrieve an exact memory by ID in one project session |
+| `mesa_get_context` | Build a token-bounded project context bundle |
 
 Claude can now persist facts across conversations and recall them on demand through your local MESA instance.
 
 > [!TIP]
-> `agent_id` is a persona/compute context, not a tenant boundary. Isolation
-> comes from the API-key principal, tenant/workspace/dataset ACL and the
-> server-created session. Give each conversation its own v4 session.
+> Set a distinct `MESA_NAMESPACE` when independent MCP installations share a
+> MESA service. The server derives the session from namespace and `project_id`;
+> callers cannot supply a raw MESA session ID.
 
 ---
 
