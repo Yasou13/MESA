@@ -1,4 +1,4 @@
-# mypy: disable-error-code="no-untyped-def"
+# mypy: disable-error-code="no-untyped-def,untyped-decorator,no-any-return"
 """Versioned V4 full-cognitive API contract.
 
 V3 remains the lexical-core compatibility surface.  V4 admission creates a

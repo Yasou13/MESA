@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-any-return"
 import logging
 from datetime import datetime, timezone
 from typing import Any

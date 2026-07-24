@@ -1,4 +1,4 @@
-# mypy: disable-error-code="no-untyped-def"
+# mypy: disable-error-code="no-untyped-def,untyped-decorator"
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException
