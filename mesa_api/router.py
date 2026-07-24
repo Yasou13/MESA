@@ -299,6 +299,7 @@ def create_memory_router(
                 "agent_id": payload.agent_id,
                 "log_id": log_id,
                 "processing_mode": "async",
+                "deduplicated": bool(admission.get("deduplicated", False)),
             },
             background=background_tasks,
         )
@@ -486,6 +487,61 @@ def create_memory_router(
             metrics={"latency_ms": elapsed_ms},
             degraded_sources=degraded_sources,
         )
+
+    @router.get(
+        "/records/{memory_id}",
+        summary="Retrieve one memory record within an agent and session scope",
+    )
+    async def get_memory_record(
+        memory_id: str,
+        agent_id: str,
+        session_id: str,
+        dao: MemoryDAO = Depends(get_dao),
+    ) -> dict:
+        """Return one scoped node or durable raw record without leaking other scopes.
+
+        ``raw_<log_id>`` is the stable identifier returned by the MCP store
+        tool while asynchronous ingestion is still processing the record.
+        """
+        ac = get_access_control() if get_access_control else AccessControl()
+        if not await ac.check_access(agent_id, session_id, "READ"):
+            # Deliberately use not-found to avoid revealing memory existence.
+            raise HTTPException(status_code=404, detail="Memory not found")
+        if memory_id.startswith("raw_"):
+            raw_id = memory_id.removeprefix("raw_")
+            if not raw_id.isdecimal():
+                raise HTTPException(status_code=404, detail="Memory not found")
+            record = await dao.get_raw_log(agent_id, int(raw_id))
+            if record is None or record.get("payload", {}).get("session_id") != session_id:
+                raise HTTPException(status_code=404, detail="Memory not found")
+            payload = record["payload"]
+            return {
+                "memory": {
+                    "id": memory_id,
+                    "content": payload.get("content", ""),
+                    "project_id": payload.get("metadata", {}).get("mesa_mcp_project_id"),
+                    "memory_type": payload.get("metadata", {}).get("memory_type", "unknown"),
+                    "status": record.get("status", "queued"),
+                    "created_at": record.get("created_at"),
+                    "source": {"file": payload.get("metadata", {}).get("source_file")},
+                    "metadata": payload.get("metadata", {}),
+                }
+            }
+        node = await dao.get_memory_by_id(agent_id, memory_id, session_id=session_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Memory not found")
+        return {
+            "memory": {
+                "id": memory_id,
+                "content": node.get("content", ""),
+                "project_id": node.get("session_id"),
+                "memory_type": node.get("node_type", "unknown"),
+                "status": "active",
+                "created_at": node.get("created_at"),
+                "source": {},
+                "metadata": {},
+            }
+        }
 
     # ==================================================================
     # DELETE /v3/memory/purge

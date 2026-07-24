@@ -400,6 +400,9 @@ class MemoryInsertResponse(BaseModel):
     processing_mode: Literal["async"] = Field(
         "async", description="Heavy ingestion is performed by a worker"
     )
+    deduplicated: bool = Field(
+        default=False, description="Whether an existing durable raw log was reused"
+    )
 
 
 class SearchResultItem(BaseModel):

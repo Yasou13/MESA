@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "mesa-memory": {
+      "command": "/home/yasin/Desktop/MESA/.venv/bin/python",
+      "args": ["-m", "mesa_mcp.server"],
+      "cwd": "/home/yasin/Desktop/MESA",
+      "env": {
+        "PYTHONPATH": "/home/yasin/Desktop/MESA",
+        "MESA_BASE_URL": "http://localhost:8000",
+        "MESA_NAMESPACE": "local",
+        "MESA_PROJECT_ID": "mesa",
+        "MESA_ACTOR_ID": "antigravity-agent",
+        "MESA_WORKSPACE_ROOT": "/home/yasin/Desktop/MESA",
+        "MESA_LOG_LEVEL": "INFO"
+      },
+      "disabled": false
+    }
+  }
+}

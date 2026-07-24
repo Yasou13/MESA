@@ -2,64 +2,107 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("mcp")
+
+from mesa_mcp.adapter import MesaMCPAdapter
+from mesa_mcp.configuration import MCPSettings
+from mesa_mcp.errors import MCPError
+from mesa_mcp.server import MESA_BASE_URL, _tools
+
 pytestmark = pytest.mark.optional_mcp
 
 
-def test_mcp_default_base_url_has_no_version_suffix():
-    from mesa_mcp import server
+class FakeMemoryService:
+    def __init__(self) -> None:
+        self.created: dict | None = None
 
-    assert server.MESA_BASE_URL == "http://localhost:8000"
+    async def health(self) -> dict:
+        return {"status": "healthy", "components": {"storage": "healthy"}}
+
+    async def create_memory(self, **kwargs: object) -> dict:
+        self.created = kwargs
+        return {"id": "raw_1", "content": kwargs["content"], "status": "queued"}
+
+    async def search_memories(self, **_kwargs: object) -> list[dict]:
+        return [
+            {
+                "memory_id": "mem_1",
+                "content": "Use async services for all repository boundaries.",
+                "memory_type": "convention",
+                "score": 0.9,
+            },
+            {
+                "memory_id": "mem_2",
+                "content": "This second result does not fit the tiny context budget.",
+                "memory_type": "architecture",
+                "score": 0.8,
+            },
+        ]
+
+    async def get_memory(self, **kwargs: object) -> dict | None:
+        return {"id": kwargs["memory_id"], "content": "Scoped memory"}
+
+
+@pytest.fixture()
+def adapter(tmp_path: Path) -> MesaMCPAdapter:
+    settings = MCPSettings(MESA_WORKSPACE_ROOT=tmp_path)
+    return MesaMCPAdapter(FakeMemoryService(), settings)
+
+
+def test_mcp_default_base_url_has_no_version_suffix() -> None:
+    assert MESA_BASE_URL == "http://localhost:8000"
+
+
+def test_mcp_exposes_only_the_v1_tool_set() -> None:
+    assert {tool.name for tool in _tools()} == {
+        "mesa_health",
+        "mesa_store_memory",
+        "mesa_search_memory",
+        "mesa_get_memory",
+        "mesa_get_context",
+    }
 
 
 @pytest.mark.asyncio
-async def test_mcp_catalog_tool_uses_v4_sdk(monkeypatch):
-    from mesa_mcp import server
-
-    listed = []
-
-    class FakeV4Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def list_documents(self, **kwargs):
-            listed.append(kwargs)
-            return {"documents": []}
-
-    class FakeV3Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-    monkeypatch.setattr(server, "MESA_AGENT_ID", "agent-a")
-    monkeypatch.setattr(server, "MESA_TENANT_ID", "tenant-a")
-    monkeypatch.setattr(server, "MESA_WORKSPACE_ID", "workspace-a")
-    monkeypatch.setattr(server, "AsyncMesaV4Client", lambda **_kwargs: FakeV4Client())
-    monkeypatch.setattr(server, "AsyncMesaClient", lambda **_kwargs: FakeV3Client())
-
-    result = await server.call_tool(
-        "catalog",
-        {"action": "list", "resource": "document", "dataset_id": "dataset-a"},
+async def test_store_scopes_actor_namespace_and_normalized_source(adapter: MesaMCPAdapter) -> None:
+    response = await adapter.store_memory(
+        {
+            "content": "All repository services use async interfaces.",
+            "project_id": "mesa",
+            "memory_type": "convention",
+            "source_file": "mesa_api/router.py",
+        }
     )
 
-    assert "documents" in result[0].text
-    assert listed == [
-        {
-            "tenant_id": "tenant-a",
-            "workspace_id": "workspace-a",
-            "dataset_id": "dataset-a",
-        }
-    ]
+    assert response["memory"]["id"] == "raw_1"
+    assert response["operation"] == "created"
 
 
-def test_mcp_stats_never_opens_storage_directly():
-    from mesa_mcp import server
+@pytest.mark.asyncio
+async def test_store_rejects_secrets_before_the_service(adapter: MesaMCPAdapter) -> None:
+    with pytest.raises(MCPError, match="secret"):
+        await adapter.store_memory(
+            {
+                "content": "api_key=definitely-not-a-real-key",
+                "memory_type": "fact",
+            }
+        )
 
-    source = Path(server.__file__).read_text(encoding="utf-8")
-    assert "mesa_storage.dao" not in source
-    assert "AsyncEngine" not in source
-    assert 'client._request("GET", "/v3/health")' in source
+
+@pytest.mark.asyncio
+async def test_context_packs_results_to_the_requested_budget(adapter: MesaMCPAdapter) -> None:
+    response = await adapter.get_context({"query": "service conventions", "token_budget": 15})
+
+    assert response["usage"] == {
+        "estimated_tokens": 13,
+        "token_budget": 15,
+        "truncated": True,
+    }
+    assert len(response["context"]["relevant_memories"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_memory_delegates_a_project_scoped_lookup(adapter: MesaMCPAdapter) -> None:
+    assert await adapter.get_memory({"memory_id": "raw_1", "project_id": "mesa"}) == {
+        "memory": {"id": "raw_1", "content": "Scoped memory"}
+    }

@@ -118,6 +118,7 @@ dev = [
 mesa-recovery = "mesa_storage.recovery:main"
 mesa-benchmark = "mesa_benchmark.cli:main"
 mesa-v4-admin = "mesa_memory.security.admin_cli:main"
+mesa-mcp = "mesa_mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/Yasou13/MESA"

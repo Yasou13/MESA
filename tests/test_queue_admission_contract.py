@@ -147,6 +147,34 @@ async def test_admission_enforces_serialized_byte_budget(tmp_path, policy):
 
 
 @pytest.mark.asyncio
+async def test_admission_deduplicates_the_same_scoped_memory_type(tmp_path, policy):
+    dao, sql = await _env(tmp_path)
+    payload = {
+        "agent_id": "tenant-a",
+        "session_id": "session-a",
+        "content": "MESA uses durable queues.",
+        "metadata": {
+            "memory_type": "architecture",
+            "content_sha256": "a" * 64,
+        },
+    }
+    try:
+        first = await dao.admit_raw_log("tenant-a", payload, policy=policy)
+        duplicate = await dao.admit_raw_log("tenant-a", payload, policy=policy)
+
+        assert first["admission"] == "DEFERRED"
+        assert duplicate == {
+            "admission": "DEDUPLICATED",
+            "log_id": first["log_id"],
+            "deduplicated": True,
+        }
+        metrics = await dao.get_queue_admission_metrics("tenant-a")
+        assert metrics["tenant"]["records"] == 1
+    finally:
+        await sql.close()
+
+
+@pytest.mark.asyncio
 async def test_router_maps_admission_rejections_to_stable_http_contracts():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
@@ -334,3 +362,59 @@ async def test_unauthorized_router_call_does_not_reach_admission():
         )
     assert getattr(denied.value, "status_code", None) == 403
     dao.admit_raw_log.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scoped_memory_lookup_returns_only_its_requested_session():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from mesa_api.router import create_memory_router
+
+    class AccessControlStub:
+        async def check_access(self, *_args):
+            return True
+
+    dao = SimpleNamespace(
+        get_raw_log=AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "created_at": "2026-07-24T00:00:00Z",
+                "payload": {
+                    "session_id": "session-a",
+                    "content": "Scoped raw memory",
+                    "metadata": {
+                        "mesa_mcp_project_id": "mesa",
+                        "memory_type": "architecture",
+                        "source_file": "docs/architecture.md",
+                    },
+                },
+            }
+        ),
+        get_memory_by_id=AsyncMock(
+            return_value={
+                "session_id": "session-a",
+                "content": "Projected scoped memory",
+                "node_type": "ENTITY",
+                "created_at": "2026-07-24T00:00:00Z",
+            }
+        ),
+    )
+    router = create_memory_router(
+        get_dao=lambda: dao, get_access_control=lambda: AccessControlStub()
+    )
+    endpoint = next(
+        route.endpoint
+        for route in router.routes
+        if route.path == "/v3/memory/records/{memory_id}"
+    )
+
+    raw = await endpoint("raw_17", "tenant-a", "session-a", dao)
+    assert raw["memory"]["content"] == "Scoped raw memory"
+    assert raw["memory"]["source"] == {"file": "docs/architecture.md"}
+
+    projected = await endpoint("node-1", "tenant-a", "session-a", dao)
+    assert projected["memory"]["content"] == "Projected scoped memory"
+    dao.get_memory_by_id.assert_awaited_once_with(
+        "tenant-a", "node-1", session_id="session-a"
+    )
