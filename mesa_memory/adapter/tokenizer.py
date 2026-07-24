@@ -11,8 +11,17 @@ logger = logging.getLogger("MESA_Tokenizer")
 
 def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
     if adapter_type in ("claude", "openai"):
-        enc = tiktoken.get_encoding("cl100k_base")
-        return len(enc.encode(text))
+        try:
+            enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(text))
+        except Exception as exc:
+            # tiktoken lazily downloads its encoding table on a cold cache.
+            # Token budgeting must remain available in offline CI and local
+            # development, so use the same conservative fallback as Ollama.
+            logger.warning(
+                "tiktoken encoding is unavailable, using word-count estimate: %s", exc
+            )
+            return int(len(text.split()) * 1.3)
     if adapter_type == "ollama":
         try:
             from transformers import AutoTokenizer

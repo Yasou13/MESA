@@ -375,6 +375,17 @@ def test_tokenizer_fallback_contract(monkeypatch) -> None:
         tokenizer.enforce_context_limit("one two", "openai", "", limit=1)
 
 
+def test_tokenizer_openai_falls_back_when_encoding_cache_is_unavailable(monkeypatch) -> None:
+    from mesa_memory.adapter import tokenizer
+
+    monkeypatch.setattr(
+        tokenizer.tiktoken,
+        "get_encoding",
+        lambda _name: (_ for _ in ()).throw(OSError("offline")),
+    )
+    assert tokenizer.count_tokens("one two three", "openai") == 3
+
+
 def _response(status: int, payload: dict, *, version: str = "0.7.0") -> httpx.Response:
     return httpx.Response(
         status,

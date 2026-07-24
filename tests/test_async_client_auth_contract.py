@@ -64,49 +64,37 @@ async def test_async_sdk_purge_uses_server_api_key_header(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.optional_mcp
-async def test_mcp_forget_memory_uses_configured_agent_and_async_sdk_auth(tmp_path):
-    from mesa_mcp import server as mcp_server
+async def test_mcp_http_service_uses_configured_api_key_and_service_boundary(tmp_path, monkeypatch):
+    from mesa_mcp import http_service as mcp_http_service
+    from mesa_mcp.configuration import MCPSettings
+    from mesa_mcp.http_service import MesaHttpMemoryService
 
-    previous_mcp = (
-        mcp_server.MESA_AGENT_ID,
-        mcp_server.MESA_TENANT_ID,
-        mcp_server.MESA_WORKSPACE_ID,
-        mcp_server.MESA_API_KEY,
-        mcp_server.AsyncMesaV4Client,
-    )
-    purge = AsyncMock(return_value={"state": "PURGE_PENDING"})
+    captured: dict[str, object] = {}
 
-    class FakeV4Client:
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *_args):
             return None
 
-        purge_document = purge
+        async def _request(self, method, path):
+            assert (method, path) == ("GET", "/v3/health")
+            return {"status": "healthy"}
 
-    mcp_server.MESA_AGENT_ID = "agent-a"
-    mcp_server.MESA_TENANT_ID = "tenant-a"
-    mcp_server.MESA_WORKSPACE_ID = "workspace-a"
-    mcp_server.MESA_API_KEY = "isolated-mcp-key"
-    mcp_server.AsyncMesaV4Client = lambda **_kwargs: FakeV4Client()
-    try:
-        result = await mcp_server.call_tool(
-            "forget_memory",
-            {"dataset_id": "dataset-a", "document_id": "document-a"},
-        )
-        assert "Document purge accepted" in result[0].text
-        purge.assert_awaited_once_with(
-            tenant_id="tenant-a",
-            workspace_id="workspace-a",
-            dataset_id="dataset-a",
-            document_id="document-a",
-        )
-    finally:
-        (
-            mcp_server.MESA_AGENT_ID,
-            mcp_server.MESA_TENANT_ID,
-            mcp_server.MESA_WORKSPACE_ID,
-            mcp_server.MESA_API_KEY,
-            mcp_server.AsyncMesaV4Client,
-        ) = previous_mcp
+    monkeypatch.setattr(mcp_http_service, "AsyncMesaClient", FakeClient)
+    settings = MCPSettings(
+        MESA_WORKSPACE_ROOT=tmp_path,
+        MESA_BASE_URL="http://mesa.test",
+        MESA_API_KEY="isolated-mcp-key",
+    )
+    assert await MesaHttpMemoryService(settings).health() == {"status": "healthy"}
+    assert captured == {
+        "base_url": "http://mesa.test",
+        "api_key": "isolated-mcp-key",
+        "timeout": 10.0,
+        "max_retries": 2,
+    }
