@@ -4444,6 +4444,8 @@ class MemoryDAO:
         self,
         agent_id: str,
         node_id: str,
+        *,
+        session_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Retrieve a single memory node by its primary key.
 
@@ -4470,9 +4472,13 @@ class MemoryDAO:
             "  AND invalid_at IS NULL "
             "  AND deleted_at IS NULL"
         )
+        params: tuple[str, ...] = (node_id, agent_id)
+        if session_id is not None:
+            query += " AND session_id = ?"
+            params = (node_id, agent_id, session_id)
 
         async with self._sql.connection() as db:
-            async with db.execute(query, (node_id, agent_id)) as cursor:
+            async with db.execute(query, params) as cursor:
                 row = await cursor.fetchone()
                 return self._sanitize_payload(dict(row)) if row else None
 
@@ -4666,8 +4672,40 @@ class MemoryDAO:
         if payload.get("agent_id") not in (None, agent_id):
             raise ValueError("payload agent_id must match the durable admission tenant")
         serialized, payload_bytes = _canonical_payload_bytes(payload)
+        metadata = payload.get("metadata", {})
+        idempotency_key = metadata.get("idempotency_key") if isinstance(metadata, dict) else None
+        content_hash = metadata.get("content_sha256") if isinstance(metadata, dict) else None
+        memory_type = metadata.get("memory_type") if isinstance(metadata, dict) else None
         try:
             async with self._sql.transaction() as db:
+                if (isinstance(idempotency_key, str) and idempotency_key) or (
+                    isinstance(content_hash, str) and content_hash
+                ):
+                    async with db.execute(
+                        "SELECT id FROM raw_logs WHERE agent_id = ? "
+                        "AND json_extract(payload, '$.session_id') = ? "
+                        "AND json_extract(payload, '$.metadata.memory_type') = ? "
+                        "AND ((? IS NOT NULL AND json_extract(payload, '$.metadata.idempotency_key') = ?) "
+                        "OR (? IS NOT NULL AND json_extract(payload, '$.metadata.content_sha256') = ?)) "
+                        "ORDER BY id ASC LIMIT 1",
+                        (
+                            agent_id,
+                            payload.get("session_id"),
+                            memory_type,
+                            idempotency_key,
+                            idempotency_key,
+                            content_hash,
+                            content_hash,
+                        ),
+                    ) as cursor:
+                        existing = await cursor.fetchone()
+                    if existing is not None:
+                        await db.commit()
+                        return {
+                            "admission": "DEDUPLICATED",
+                            "log_id": int(existing[0]),
+                            "deduplicated": True,
+                        }
                 global_usage = await self._queue_usage(db)
                 tenant_usage = await self._queue_usage(db, agent_id)
                 self._enforce_queue_capacity(
@@ -4729,6 +4767,7 @@ class MemoryDAO:
             "dispatch_id": dispatch_id,
             "queue_record_id": queue_id,
             "payload_bytes": payload_bytes,
+            "deduplicated": False,
         }
 
     async def get_queue_admission_metrics(self, agent_id: str) -> dict[str, Any]:
