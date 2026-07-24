@@ -37,7 +37,7 @@ class MCPSettings(BaseSettings):
     default_project_id: str = Field(default="mesa", alias="MESA_PROJECT_ID")
 
     workspace_root: Path = Field(
-        default=Path("/home/yasin/Desktop/MESA"), alias="MESA_WORKSPACE_ROOT"
+        default_factory=Path.cwd, alias="MESA_WORKSPACE_ROOT"
     )
     search_default_limit: int = Field(
         default=8, ge=1, le=20, alias="MESA_SEARCH_DEFAULT_LIMIT"
