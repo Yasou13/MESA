@@ -358,9 +358,7 @@ async def _process_cold_path_impl(
                 if type(dao) is MemoryDAO:
                     await dao.record_mutation(candidate_record, raw_log_id=log_id)
                 async with _tier3_semaphore:
-                    outcome = await consolidation_loop.run_batch(
-                        [candidate_record]
-                    )
+                    outcome = await consolidation_loop.run_batch([candidate_record])
                 if candidate.candidate_id in outcome.get("accepted", []):
                     if type(dao) is MemoryDAO:
                         await dao.set_mutation_state(

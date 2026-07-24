@@ -480,9 +480,7 @@ class HybridRetriever:
 
             confidence = float(e_data.get("confidence", 1.0))
             rrf_score = sum(
-                1.0 / (rrf_k + ranks[cmb_id])
-                for ranks in rank_maps
-                if cmb_id in ranks
+                1.0 / (rrf_k + ranks[cmb_id]) for ranks in rank_maps if cmb_id in ranks
             )
             final_scores[cmb_id] = rrf_score * confidence
 

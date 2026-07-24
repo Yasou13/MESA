@@ -21,27 +21,24 @@ def upgrade() -> None:
     op.execute("ALTER TABLE memory_mutations ADD COLUMN revision_id TEXT")
     op.execute("ALTER TABLE memory_mutations ADD COLUMN chunk_id TEXT")
     op.execute("ALTER TABLE memory_mutations ADD COLUMN source_ref TEXT")
-    op.execute("ALTER TABLE memory_mutations ADD COLUMN evidence_span TEXT NOT NULL DEFAULT ''")
     op.execute(
-        """CREATE TABLE IF NOT EXISTS tenants (
+        "ALTER TABLE memory_mutations ADD COLUMN evidence_span TEXT NOT NULL DEFAULT ''"
+    )
+    op.execute("""CREATE TABLE IF NOT EXISTS tenants (
             tenant_id TEXT PRIMARY KEY,
             display_name TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'ACTIVE',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS workspaces (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS workspaces (
             workspace_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             name TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'ACTIVE',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(tenant_id, name)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS datasets (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS datasets (
             dataset_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
@@ -49,10 +46,8 @@ def upgrade() -> None:
             status TEXT NOT NULL DEFAULT 'ACTIVE',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(workspace_id, name)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS documents (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS documents (
             document_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             dataset_id TEXT NOT NULL REFERENCES datasets(dataset_id),
@@ -61,10 +56,8 @@ def upgrade() -> None:
             status TEXT NOT NULL DEFAULT 'ACTIVE',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(dataset_id, external_ref)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS document_revisions (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS document_revisions (
             revision_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             document_id TEXT NOT NULL REFERENCES documents(document_id),
@@ -75,10 +68,8 @@ def upgrade() -> None:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(document_id, revision_number),
             UNIQUE(document_id, content_hash)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS source_chunks (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS source_chunks (
             chunk_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             dataset_id TEXT NOT NULL REFERENCES datasets(dataset_id),
@@ -89,10 +80,8 @@ def upgrade() -> None:
             source_ref TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(revision_id, ordinal)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS v4_sessions (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS v4_sessions (
             session_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
@@ -101,17 +90,13 @@ def upgrade() -> None:
             status TEXT NOT NULL DEFAULT 'ACTIVE',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             ended_at TEXT
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS v4_session_datasets (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS v4_session_datasets (
             session_id TEXT NOT NULL REFERENCES v4_sessions(session_id),
             dataset_id TEXT NOT NULL REFERENCES datasets(dataset_id),
             PRIMARY KEY(session_id, dataset_id)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS v4_entities (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS v4_entities (
             entity_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             entity_type TEXT NOT NULL,
@@ -124,10 +109,8 @@ def upgrade() -> None:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(tenant_id, entity_type, identity_key)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS entity_aliases (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS entity_aliases (
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             entity_id TEXT NOT NULL REFERENCES v4_entities(entity_id),
             entity_type TEXT NOT NULL,
@@ -135,10 +118,8 @@ def upgrade() -> None:
             normalized_alias TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(tenant_id, entity_type, normalized_alias)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS entity_external_ids (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS entity_external_ids (
             tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             entity_id TEXT NOT NULL REFERENCES v4_entities(entity_id),
             entity_type TEXT NOT NULL,
@@ -148,40 +129,30 @@ def upgrade() -> None:
             is_primary INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(tenant_id, entity_type, scheme, normalized_external_id)
-        )"""
-    )
-    op.execute(
-        """CREATE VIRTUAL TABLE IF NOT EXISTS v4_entities_fts
+        )""")
+    op.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS v4_entities_fts
            USING fts5(canonical_name, entity_type,
-                      content='v4_entities', content_rowid='rowid')"""
-    )
-    op.execute(
-        """CREATE TRIGGER IF NOT EXISTS trg_v4_entities_fts_insert
+                      content='v4_entities', content_rowid='rowid')""")
+    op.execute("""CREATE TRIGGER IF NOT EXISTS trg_v4_entities_fts_insert
            AFTER INSERT ON v4_entities BEGIN
              INSERT INTO v4_entities_fts(rowid, canonical_name, entity_type)
              VALUES (NEW.rowid, NEW.canonical_name, NEW.entity_type);
-           END"""
-    )
-    op.execute(
-        """CREATE TRIGGER IF NOT EXISTS trg_v4_entities_fts_delete
+           END""")
+    op.execute("""CREATE TRIGGER IF NOT EXISTS trg_v4_entities_fts_delete
            AFTER DELETE ON v4_entities BEGIN
              INSERT INTO v4_entities_fts(v4_entities_fts, rowid,
                                          canonical_name, entity_type)
              VALUES ('delete', OLD.rowid, OLD.canonical_name, OLD.entity_type);
-           END"""
-    )
-    op.execute(
-        """CREATE TRIGGER IF NOT EXISTS trg_v4_entities_fts_update
+           END""")
+    op.execute("""CREATE TRIGGER IF NOT EXISTS trg_v4_entities_fts_update
            AFTER UPDATE ON v4_entities BEGIN
              INSERT INTO v4_entities_fts(v4_entities_fts, rowid,
                                          canonical_name, entity_type)
              VALUES ('delete', OLD.rowid, OLD.canonical_name, OLD.entity_type);
              INSERT INTO v4_entities_fts(rowid, canonical_name, entity_type)
              VALUES (NEW.rowid, NEW.canonical_name, NEW.entity_type);
-           END"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS pipeline_runs (
+           END""")
+    op.execute("""CREATE TABLE IF NOT EXISTS pipeline_runs (
             pipeline_run_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
             workspace_id TEXT,
@@ -198,10 +169,8 @@ def upgrade() -> None:
             retry_limit INTEGER NOT NULL DEFAULT 5,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS pipeline_run_events (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS pipeline_run_events (
             event_id TEXT PRIMARY KEY,
             pipeline_run_id TEXT NOT NULL REFERENCES pipeline_runs(pipeline_run_id),
             from_state TEXT,
@@ -209,10 +178,8 @@ def upgrade() -> None:
             event_type TEXT NOT NULL,
             detail_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS v4_assertions (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS v4_assertions (
             assertion_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
             dataset_id TEXT NOT NULL,
@@ -236,20 +203,16 @@ def upgrade() -> None:
             pipeline_run_id TEXT NOT NULL REFERENCES pipeline_runs(pipeline_run_id),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CHECK ((object_entity_id IS NOT NULL) != (literal_value IS NOT NULL))
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS v4_assertion_links (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS v4_assertion_links (
             source_assertion_id TEXT NOT NULL REFERENCES v4_assertions(assertion_id),
             target_assertion_id TEXT NOT NULL REFERENCES v4_assertions(assertion_id),
             relation_type TEXT NOT NULL,
             mutation_id TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(source_assertion_id, target_assertion_id, relation_type)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS artifact_registry (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS artifact_registry (
             registry_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
             agent_id TEXT NOT NULL,
@@ -262,10 +225,8 @@ def upgrade() -> None:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             invalidated_at TEXT,
             UNIQUE(tenant_id, agent_id, store_name, artifact_kind, physical_artifact_id)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS artifact_sources (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS artifact_sources (
             source_ownership_id TEXT PRIMARY KEY,
             registry_id TEXT NOT NULL REFERENCES artifact_registry(registry_id),
             mutation_id TEXT NOT NULL REFERENCES memory_mutations(mutation_id),
@@ -280,10 +241,8 @@ def upgrade() -> None:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             invalidated_at TEXT,
             UNIQUE(registry_id, mutation_id, chunk_id)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS artifact_cleanup_outbox (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS artifact_cleanup_outbox (
             cleanup_id TEXT PRIMARY KEY,
             pipeline_run_id TEXT NOT NULL REFERENCES pipeline_runs(pipeline_run_id),
             registry_id TEXT NOT NULL REFERENCES artifact_registry(registry_id),
@@ -297,8 +256,7 @@ def upgrade() -> None:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(pipeline_run_id, registry_id)
-        )"""
-    )
+        )""")
 
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_v4_entities_lookup "
@@ -324,8 +282,7 @@ def upgrade() -> None:
     # Preserve already-created V4 receipts as canonical physical artifacts and
     # ownership links. Legacy rows may not have dataset/document provenance;
     # those fields remain NULL until an offline rebuild supplies it.
-    op.execute(
-        """INSERT OR IGNORE INTO pipeline_runs
+    op.execute("""INSERT OR IGNORE INTO pipeline_runs
            (pipeline_run_id, tenant_id, session_id, agent_id, state, failure_class)
            SELECT DISTINCT COALESCE(pipeline_run_id, mutation_id), tenant_id,
                   session_id, agent_id,
@@ -338,15 +295,11 @@ def upgrade() -> None:
                     ELSE state
                   END,
                   failure_class
-           FROM memory_mutations"""
-    )
-    op.execute(
-        """UPDATE memory_mutations
+           FROM memory_mutations""")
+    op.execute("""UPDATE memory_mutations
            SET pipeline_run_id = mutation_id
-           WHERE pipeline_run_id IS NULL"""
-    )
-    op.execute(
-        """INSERT OR IGNORE INTO artifact_registry
+           WHERE pipeline_run_id IS NULL""")
+    op.execute("""INSERT OR IGNORE INTO artifact_registry
            (registry_id, tenant_id, agent_id, store_name, artifact_kind,
             physical_artifact_id, state, metadata_json, created_at, invalidated_at)
            SELECT m.tenant_id || '|' ||
@@ -358,10 +311,8 @@ def upgrade() -> None:
                   a.store_name, a.artifact_kind, a.artifact_id,
                   a.state, a.metadata_json, a.created_at, a.invalidated_at
            FROM memory_artifacts a
-           JOIN memory_mutations m ON m.mutation_id = a.mutation_id"""
-    )
-    op.execute(
-        """INSERT OR IGNORE INTO artifact_sources
+           JOIN memory_mutations m ON m.mutation_id = a.mutation_id""")
+    op.execute("""INSERT OR IGNORE INTO artifact_sources
            (source_ownership_id, registry_id, mutation_id, pipeline_run_id,
             source_ref, state, created_at, invalidated_at)
            SELECT a.artifact_row_id,
@@ -373,8 +324,7 @@ def upgrade() -> None:
                   COALESCE(CAST(m.raw_log_id AS TEXT), ''),
                   a.state, a.created_at, a.invalidated_at
            FROM memory_artifacts a
-           JOIN memory_mutations m ON m.mutation_id = a.mutation_id"""
-    )
+           JOIN memory_mutations m ON m.mutation_id = a.mutation_id""")
 
 
 def downgrade() -> None:

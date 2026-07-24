@@ -10,7 +10,9 @@ from mesa_memory.consolidation.writer import GraphWriter
 @pytest.mark.asyncio
 async def test_v4_triplet_uses_stable_tenant_scoped_entity_ids() -> None:
     dao = MagicMock()
-    dao.insert_memory = AsyncMock(side_effect=lambda _agent, **kwargs: kwargs["node_id"])
+    dao.insert_memory = AsyncMock(
+        side_effect=lambda _agent, **kwargs: kwargs["node_id"]
+    )
     dao.insert_edge = AsyncMock()
     dao.graph_provider = None
     embedder = MagicMock()

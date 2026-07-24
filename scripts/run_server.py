@@ -39,7 +39,8 @@ if _project_root not in sys.path:
 load_dotenv()
 
 from fastapi import FastAPI, Request  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from mesa_api.router import create_memory_router  # noqa: E402
 from mesa_memory.security.rbac import AccessControl  # noqa: E402
@@ -60,6 +61,8 @@ logger = logging.getLogger("MESA_DevServer")
 class _AppState:
     sqlite_engine: AsyncEngine | None = None
     vector_engine: VectorEngine | None = None
+    graph_engine: Any | None = None
+    gateway_heartbeat: Any | None = None
     graph_provider: KuzuGraphProvider | None = None
     dao: MemoryDAO | None = None
     access_control: AccessControl | None = None
@@ -68,6 +71,14 @@ class _AppState:
     consolidation_loop: Any | None = None
     maintenance_worker: Any | None = None
     rem_worker: Any | None = None
+
+    # Control Plane
+    client_repo: Any | None = None
+    conn_repo: Any | None = None
+    settings_repo: Any | None = None
+    policy_repo: Any | None = None
+    activity_repo: Any | None = None
+    approval_repo: Any | None = None
 
 
 _state = _AppState()
@@ -136,13 +147,34 @@ async def lifespan(app: FastAPI):
     logger.info("SQLite engine initialized: ./storage/mesa.db")
 
     # --- Schema DDL (single source of truth) ---
-    await initialize_schema(_state.sqlite_engine)
-    logger.info("Schema initialized via schemas.py")
+    try:
+        await initialize_schema(_state.sqlite_engine)
+        logger.info("Schema initialized via schemas.py")
+    except BaseException as e:
+        logger.error(
+            f"Error initializing schema: {e.__class__.__name__}: {e}", exc_info=True
+        )
+        raise
 
     # --- LanceDB vector engine ---
     _state.vector_engine = VectorEngine(uri="./storage/vector.lance")
     await _state.vector_engine.initialize()
     logger.info("Vector engine initialized: ./storage/vector.lance")
+
+    # --- Mount Control Plane Router ---
+    from mesa_storage.control.activity_repo import ActivityRecorder
+    from mesa_storage.control.approval_repo import ApprovalRepository
+    from mesa_storage.control.client_repo import ClientRepository
+    from mesa_storage.control.connection_repo import ConnectionRepository
+    from mesa_storage.control.policy_repo import PolicyRepository
+    from mesa_storage.control.settings_repo import SettingsRepository
+
+    _state.client_repo = ClientRepository(sqlite_engine=_state.sqlite_engine)
+    _state.conn_repo = ConnectionRepository(sqlite_engine=_state.sqlite_engine)
+    _state.settings_repo = SettingsRepository(sqlite_engine=_state.sqlite_engine)
+    _state.policy_repo = PolicyRepository(sqlite_engine=_state.sqlite_engine)
+    _state.activity_repo = ActivityRecorder(sqlite_engine=_state.sqlite_engine)
+    _state.approval_repo = ApprovalRepository(sqlite_engine=_state.sqlite_engine)
 
     # --- KuzuDB graph engine ---
     from mesa_storage import kuzu_setup
@@ -231,6 +263,119 @@ async def lifespan(app: FastAPI):
     app.include_router(router)
     logger.info("v3 memory router mounted")
 
+    # --- Mount Control Plane Router ---
+    from mesa_api.routers.control.router import create_control_router
+    from mesa_api.v4_router import create_v4_router
+    from mesa_storage.control.activity_repo import ActivityRecorder
+    from mesa_storage.control.approval_repo import ApprovalRepository
+    from mesa_storage.control.client_repo import ClientRepository
+    from mesa_storage.control.connection_repo import ConnectionRepository
+    from mesa_storage.control.policy_repo import PolicyRepository
+    from mesa_storage.control.settings_repo import SettingsRepository
+
+    _state.client_repo = ClientRepository(sqlite_engine=_state.sqlite_engine)
+    _state.conn_repo = ConnectionRepository(sqlite_engine=_state.sqlite_engine)
+    _state.settings_repo = SettingsRepository(sqlite_engine=_state.sqlite_engine)
+    _state.policy_repo = PolicyRepository(sqlite_engine=_state.sqlite_engine)
+    _state.activity_repo = ActivityRecorder(sqlite_engine=_state.sqlite_engine)
+    _state.approval_repo = ApprovalRepository(sqlite_engine=_state.sqlite_engine)
+
+    def get_client_repo():
+        return _state.client_repo
+
+    def get_conn_repo():
+        return _state.conn_repo
+
+    def get_settings_repo():
+        return _state.settings_repo
+
+    def get_policy_repo():
+        return _state.policy_repo
+
+    def get_activity_repo():
+        return _state.activity_repo
+
+    def get_approval_repo():
+        return _state.approval_repo
+
+    control_router = create_control_router(
+        get_client_repo=get_client_repo,
+        get_conn_repo=get_conn_repo,
+        get_settings_repo=get_settings_repo,
+        get_policy_repo=get_policy_repo,
+        get_activity_repo=get_activity_repo,
+        get_approval_repo=get_approval_repo,
+    )
+    app.include_router(control_router)
+    logger.info("Control plane router mounted")
+
+    # --- Mount V4 Router ---
+    v4_router = create_v4_router(get_dao=get_dao, get_access_control=get_ac)
+    app.include_router(v4_router)
+    logger.info("v4 memory router mounted")
+
+    # --- Mount MCP HTTP Gateway ---
+    from mesa_mcp.adapter import MesaMCPAdapter
+    from mesa_mcp.configuration import MCPSettings
+    from mesa_mcp.gateway.auth import GatewayAuth
+    from mesa_mcp.gateway.heartbeat import HeartbeatMonitor
+    from mesa_mcp.gateway.http_gateway import create_gateway_router
+    from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
+    from mesa_mcp.http_service import MesaHttpMemoryService
+    from mesa_mcp.v4_service import MesaHttpV4Service
+
+    gateway_settings = MCPSettings()
+    gateway_auth = GatewayAuth(client_repo=_state.client_repo)
+    gateway_heartbeat = HeartbeatMonitor(conn_repo=_state.conn_repo)
+
+    _state.gateway_heartbeat = gateway_heartbeat
+    await gateway_heartbeat.start()
+
+    # We need an adapter to process gateway calls locally.
+    v4_svc = MesaHttpV4Service(gateway_settings) if gateway_settings.use_v4 else None
+    v3_svc = MesaHttpMemoryService(gateway_settings)
+    adapter = MesaMCPAdapter(v3_svc, gateway_settings, v4_svc)
+
+    gateway_middleware = ControlPlaneMiddleware(engine=_state.sqlite_engine)
+
+    gateway_router = create_gateway_router(
+        adapter=adapter,
+        auth=gateway_auth,
+        heartbeat=gateway_heartbeat,
+        conn_repo=_state.conn_repo,
+        middleware=gateway_middleware,
+    )
+    app.include_router(gateway_router)
+    logger.info("HTTP MCP Gateway mounted")
+
+    # --- Mount Dashboard ---
+    dashboard_path = os.path.join(_project_root, "mesa_dashboard", "dist")
+    if os.path.isdir(dashboard_path):
+        # Mount only the assets folder using StaticFiles
+        assets_path = os.path.join(dashboard_path, "assets")
+        if os.path.isdir(assets_path):
+            app.mount(
+                "/dashboard/assets",
+                StaticFiles(directory=assets_path),
+                name="dashboard-assets",
+            )
+
+        # Manually serve index.html for any other route under /dashboard to support React SPA
+        @app.get("/dashboard/{full_path:path}")
+        async def serve_dashboard_spa(full_path: str):
+            # If the file exists in the root of dist (e.g. favicon.svg, vite.svg), serve it directly
+            file_path = os.path.join(dashboard_path, full_path)
+            if full_path and os.path.isfile(file_path):
+                return FileResponse(file_path)
+            # Otherwise return index.html for client-side routing
+            return FileResponse(os.path.join(dashboard_path, "index.html"))
+
+        logger.info("Dashboard mounted at /dashboard")
+    else:
+        logger.warning(
+            f"Dashboard dist folder not found at {dashboard_path}. Build it with 'npm run build'"
+        )
+
     yield
 
     # --- Shutdown ---
@@ -244,6 +389,9 @@ async def lifespan(app: FastAPI):
     if _state.sqlite_engine:
         await _state.sqlite_engine.close()
         logger.info("SQLite engine closed")
+
+    if getattr(_state, "gateway_heartbeat", None):
+        await _state.gateway_heartbeat.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -274,12 +422,19 @@ if not _cli_args.no_auth:
     @app.middleware("http")
     async def api_key_middleware(request: Request, call_next):
         # Skip auth for demo and health/metrics/docs endpoints
-        if request.url.path.startswith("/demo") or request.url.path in (
-            "/health",
-            "/metrics",
-            "/docs",
-            "/openapi.json",
-            "/redoc",
+        if (
+            request.url.path.startswith("/demo")
+            or request.url.path.startswith("/dashboard")
+            or request.url.path.startswith("/control")
+            or request.url.path.startswith("/mcp")
+            or request.url.path
+            in (
+                "/health",
+                "/metrics",
+                "/docs",
+                "/openapi.json",
+                "/redoc",
+            )
         ):
             return await call_next(request)
         api_key = request.headers.get("X-API-Key", "")

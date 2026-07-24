@@ -79,8 +79,8 @@ async def test_mcp_session_write_is_denied_then_allowed_by_rbac(tmp_path):
     app = FastAPI()
     app.include_router(
         create_memory_router(
-            get_dao=lambda: dao,  # type: ignore[arg-type]
-            get_access_control=lambda: policy,  # type: ignore[arg-type]
+            get_dao=lambda: dao,  # type: ignore[return-value]
+            get_access_control=lambda: policy,  # type: ignore[return-value]
         )
     )
 

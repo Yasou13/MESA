@@ -1,3 +1,4 @@
+# mypy: disable-error-code="return-value"
 """WAVE-004B admission/backpressure contracts."""
 
 from __future__ import annotations

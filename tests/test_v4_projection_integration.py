@@ -46,13 +46,25 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
         with patch.object(
             VectorEngine, "compute_embedding", new=AsyncMock(return_value=[0.1] * 8)
         ):
-            result = {"claimed": 0, "completed": 0, "retry_pending": 0, "dead_letter": 0}
+            result = {
+                "claimed": 0,
+                "completed": 0,
+                "retry_pending": 0,
+                "dead_letter": 0,
+            }
             for _ in range(3):
-                single = await process_projection_outbox_once(dao, worker_id="projector-a")
+                single = await process_projection_outbox_once(
+                    dao, worker_id="projector-a"
+                )
                 for key in result:
                     result[key] += single[key]
 
-        assert result == {"claimed": 3, "completed": 3, "retry_pending": 0, "dead_letter": 0}
+        assert result == {
+            "claimed": 3,
+            "completed": 3,
+            "retry_pending": 0,
+            "dead_letter": 0,
+        }
         mutation = await dao.get_mutation("tenant-a", candidate["mutation_id"])
         assert mutation is not None and mutation["state"] == "COMMITTED"
         vector_ids = await vector.get_active_node_ids("tenant-a")
