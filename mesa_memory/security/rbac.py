@@ -8,6 +8,20 @@ from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_
 
 logger = logging.getLogger("MESA_Security")
 
+_ACCESS_LEVELS = {"READ": 1, "WRITE": 2, "ADMIN": 3}
+
+
+def _validate_access_level(level: str, *, field_name: str) -> None:
+    """Validate one level from the READ < WRITE < ADMIN hierarchy."""
+    if level not in _ACCESS_LEVELS:
+        allowed = ", ".join(_ACCESS_LEVELS)
+        raise ValueError(f"{field_name} must be one of: {allowed}")
+
+
+def _access_level_satisfies(granted: str, required: str) -> bool:
+    """Return whether a granted level includes the required level."""
+    return _ACCESS_LEVELS.get(granted, 0) >= _ACCESS_LEVELS.get(required, 0)
+
 # ---------------------------------------------------------------------------
 # Advisory prompt injection patterns — logged for observability but NOT used
 # to hard-block content.  MESA's primary injection defense is architectural:
@@ -309,6 +323,15 @@ class AccessControl:
     ) -> bool:
         """Return whether an explicit server-side principal mapping permits action."""
         async with aiosqlite.connect(self.policy_path) as db:
+            if permission in _ACCESS_LEVELS:
+                async with db.execute(
+                    "SELECT permission FROM principal_agent_permissions "
+                    "WHERE principal_id = ? AND agent_id = ? "
+                    "AND permission IN ('READ', 'WRITE', 'ADMIN')",
+                    (principal_id, agent_id),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                return any(_access_level_satisfies(row[0], permission) for row in rows)
             async with db.execute(
                 "SELECT 1 FROM principal_agent_permissions "
                 "WHERE principal_id = ? AND agent_id = ? AND permission = ?",
@@ -320,12 +343,19 @@ class AccessControl:
         self, principal_id: str, agent_id: str, session_id: str, level: str
     ) -> None:
         """Persist a server-side principal ownership/access binding for a session."""
-        if level not in ("READ", "WRITE"):
-            raise ValueError("session access level must be READ or WRITE")
+        _validate_access_level(level, field_name="session access level")
         async with aiosqlite.connect(self.policy_path) as db:
             await db.execute(
-                "INSERT OR REPLACE INTO principal_session_permissions "
-                "(principal_id, agent_id, session_id, access_level) VALUES (?, ?, ?, ?)",
+                "INSERT INTO principal_session_permissions "
+                "(principal_id, agent_id, session_id, access_level) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(principal_id, session_id) DO UPDATE SET "
+                "agent_id = excluded.agent_id, "
+                "access_level = CASE WHEN "
+                "CASE principal_session_permissions.access_level "
+                "WHEN 'ADMIN' THEN 3 WHEN 'WRITE' THEN 2 WHEN 'READ' THEN 1 ELSE 0 END "
+                ">= CASE excluded.access_level "
+                "WHEN 'ADMIN' THEN 3 WHEN 'WRITE' THEN 2 WHEN 'READ' THEN 1 ELSE 0 END "
+                "THEN principal_session_permissions.access_level ELSE excluded.access_level END",
                 (principal_id, agent_id, session_id, level),
             )
             await db.commit()
@@ -334,8 +364,9 @@ class AccessControl:
         self, principal_id: str, agent_id: str, session_id: str, required_level: str
     ) -> bool:
         """Check a trusted session binding; client agent IDs never create authority."""
-        if required_level not in ("READ", "WRITE"):
-            raise ValueError("required session access level must be READ or WRITE")
+        _validate_access_level(
+            required_level, field_name="required session access level"
+        )
         async with aiosqlite.connect(self.policy_path) as db:
             async with db.execute(
                 "SELECT access_level FROM principal_session_permissions "
@@ -345,20 +376,26 @@ class AccessControl:
                 row = await cursor.fetchone()
         if row is None:
             return False
-        return (required_level == "READ" and row[0] in ("READ", "WRITE")) or (
-            required_level == "WRITE" and row[0] == "WRITE"
-        )
+        return _access_level_satisfies(row[0], required_level)
 
     async def grant_access(self, agent_id: str, session_id: str, level: str) -> None:
-        """Grant READ or WRITE access to an agent/session pair."""
-        if level not in ("READ", "WRITE"):
-            raise ValueError(
-                f"Invalid access level: {level}. Must be 'READ' or 'WRITE'."
-            )
+        """Grant access without lowering an existing agent/session permission.
+
+        Permissions are stored as one level per ``(agent_id, session_id)``.
+        The upsert preserves the higher of the existing and requested levels.
+        """
+        _validate_access_level(level, field_name="Invalid access level")
         async with aiosqlite.connect(self.policy_path) as db:
             await db.execute(
-                "INSERT OR REPLACE INTO permissions "
-                "(agent_id, session_id, access_level) VALUES (?, ?, ?)",
+                "INSERT INTO permissions (agent_id, session_id, access_level) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(agent_id, session_id) DO UPDATE SET "
+                "access_level = CASE WHEN "
+                "CASE permissions.access_level "
+                "WHEN 'ADMIN' THEN 3 WHEN 'WRITE' THEN 2 WHEN 'READ' THEN 1 ELSE 0 END "
+                ">= CASE excluded.access_level "
+                "WHEN 'ADMIN' THEN 3 WHEN 'WRITE' THEN 2 WHEN 'READ' THEN 1 ELSE 0 END "
+                "THEN permissions.access_level ELSE excluded.access_level END",
                 (agent_id, session_id, level),
             )
             await db.commit()
@@ -378,9 +415,12 @@ class AccessControl:
         """Check whether an agent/session has the required access level.
 
         Returns True if the granted level satisfies the requirement:
-        - READ is satisfied by READ or WRITE.
-        - WRITE is satisfied only by WRITE.
+        - READ is satisfied by READ, WRITE, or ADMIN.
+        - WRITE is satisfied by WRITE or ADMIN.
+        - ADMIN is satisfied only by ADMIN.
         """
+        if required_level not in _ACCESS_LEVELS:
+            return False
         async with aiosqlite.connect(self.policy_path) as db:
             async with db.execute(
                 "SELECT access_level FROM permissions "
@@ -390,12 +430,7 @@ class AccessControl:
                 row = await cursor.fetchone()
                 if not row:
                     return False
-                granted = row[0]
-                if required_level == "READ":
-                    return granted in ("READ", "WRITE")
-                if required_level == "WRITE":
-                    return granted == "WRITE"  # type: ignore[no-any-return]
-                return False
+                return _access_level_satisfies(row[0], required_level)
 
     # -- Async context manager for lifecycle symmetry -----------------------
 

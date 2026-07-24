@@ -150,14 +150,32 @@ class TestAccessLevelEnforcement:
         assert await ac.check_access("agent_rw", "session_rw", "WRITE") is True
 
     @pytest.mark.asyncio
-    async def test_downgrade_write_to_read(self, ac):
-        """Re-granting with READ downgrades from WRITE."""
+    async def test_regranting_read_preserves_write(self, ac):
+        """A lower re-grant must not downgrade WRITE access."""
         await ac.grant_access("agent_dg", "session_dg", "WRITE")
         assert await ac.check_access("agent_dg", "session_dg", "WRITE") is True
 
         await ac.grant_access("agent_dg", "session_dg", "READ")
-        assert await ac.check_access("agent_dg", "session_dg", "WRITE") is False
+        assert await ac.check_access("agent_dg", "session_dg", "WRITE") is True
         assert await ac.check_access("agent_dg", "session_dg", "READ") is True
+
+    @pytest.mark.asyncio
+    async def test_admin_regrant_with_read_preserves_admin(self, ac):
+        """A lower re-grant must not downgrade ADMIN access."""
+        await ac.grant_access("agent_admin", "session_admin", "ADMIN")
+        await ac.grant_access("agent_admin", "session_admin", "READ")
+
+        assert await ac.check_access("agent_admin", "session_admin", "ADMIN") is True
+        assert await ac.check_access("agent_admin", "session_admin", "WRITE") is True
+        assert await ac.check_access("agent_admin", "session_admin", "READ") is True
+
+    @pytest.mark.asyncio
+    async def test_regranting_same_level_is_idempotent(self, ac):
+        """Repeating one grant preserves its effective permission."""
+        await ac.grant_access("agent_repeat", "session_repeat", "WRITE")
+        await ac.grant_access("agent_repeat", "session_repeat", "WRITE")
+
+        assert await ac.check_access("agent_repeat", "session_repeat", "WRITE") is True
 
 
 # --- Edge cases ---
@@ -171,10 +189,18 @@ class TestEdgeCases:
         assert await ac.check_access("ghost_agent", "ghost_session", "WRITE") is False
 
     @pytest.mark.asyncio
+    async def test_admin_access_level_is_supported(self, ac):
+        """ADMIN includes the lower READ and WRITE permissions."""
+        await ac.grant_access("agent_admin", "session_admin", "ADMIN")
+        assert await ac.check_access("agent_admin", "session_admin", "ADMIN") is True
+        assert await ac.check_access("agent_admin", "session_admin", "WRITE") is True
+        assert await ac.check_access("agent_admin", "session_admin", "READ") is True
+
+    @pytest.mark.asyncio
     async def test_invalid_access_level_raises(self, ac):
-        """Granting an invalid level (not READ/WRITE) raises ValueError."""
+        """Granting an unknown level raises ValueError."""
         with pytest.raises(ValueError, match="Invalid access level"):
-            await ac.grant_access("agent_inv", "session_inv", "ADMIN")
+            await ac.grant_access("agent_inv", "session_inv", "SUPERUSER")
 
     @pytest.mark.asyncio
     async def test_invalid_level_superuser_rejected(self, ac):
@@ -191,8 +217,8 @@ class TestEdgeCases:
         assert await ac.check_access("", "", "READ") is False
 
     @pytest.mark.asyncio
-    async def test_check_unknown_required_level(self, ac):
-        """Checking an unknown required_level returns False."""
+    async def test_write_does_not_satisfy_admin(self, ac):
+        """WRITE remains insufficient when an operation explicitly requires ADMIN."""
         await ac.grant_access("agent_unk", "session_unk", "WRITE")
         assert await ac.check_access("agent_unk", "session_unk", "ADMIN") is False
 

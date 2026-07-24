@@ -1,9 +1,14 @@
 import os
 import sqlite3
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from mesa_api.router import create_memory_router
+from mesa_mcp.configuration import MCPSettings
 from mesa_memory.security.rbac import AccessControl, sanitize_cmb_content
 
 
@@ -36,6 +41,74 @@ async def test_access_control_permissions(tmp_path):
     await ac.grant_access("agent_2", "session_B", "READ")
     assert await ac.check_access("agent_2", "session_B", "READ") is True
     assert await ac.check_access("agent_2", "session_B", "WRITE") is False
+
+
+@pytest.mark.asyncio
+async def test_read_grant_upgrades_to_write(tmp_path):
+    """A higher grant upgrades the stored access level."""
+    ac = AccessControl(policy_path=str(tmp_path / "test_rbac_policy.db"))
+    await ac.initialize()
+
+    await ac.grant_access("agent_upgrade", "session_upgrade", "READ")
+    await ac.grant_access("agent_upgrade", "session_upgrade", "WRITE")
+
+    assert await ac.check_access("agent_upgrade", "session_upgrade", "WRITE") is True
+
+
+@pytest.mark.asyncio
+async def test_grants_remain_isolated_between_sessions(tmp_path):
+    """An upsert for one session cannot affect the agent's other sessions."""
+    ac = AccessControl(policy_path=str(tmp_path / "test_rbac_policy.db"))
+    await ac.initialize()
+
+    await ac.grant_access("agent_isolated", "session-a", "WRITE")
+    await ac.grant_access("agent_isolated", "session-b", "READ")
+
+    assert await ac.check_access("agent_isolated", "session-a", "WRITE") is True
+    assert await ac.check_access("agent_isolated", "session-b", "WRITE") is False
+
+
+@pytest.mark.asyncio
+async def test_mcp_session_write_is_denied_then_allowed_by_rbac(tmp_path):
+    """The MCP-derived session receives the same V3 WRITE gate as all callers."""
+    policy = AccessControl(policy_path=str(tmp_path / "rbac_policy.db"))
+    await policy.initialize()
+    settings = MCPSettings(MESA_WORKSPACE_ROOT=tmp_path)
+    session_id = settings.session_id_for("project-a")
+    dao = SimpleNamespace(admit_raw_log=AsyncMock(return_value={"log_id": 42}))
+    app = FastAPI()
+    app.include_router(
+        create_memory_router(
+            get_dao=lambda: dao,  # type: ignore[arg-type]
+            get_access_control=lambda: policy,  # type: ignore[arg-type]
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        denied = client.post(
+            "/v3/memory/insert",
+            json={
+                "agent_id": settings.actor_id,
+                "session_id": session_id,
+                "content": "MCP write denied without a grant.",
+            },
+        )
+        assert denied.status_code == 403
+        dao.admit_raw_log.assert_not_awaited()
+
+        await policy.grant_access(settings.actor_id, session_id, "WRITE")
+        allowed = client.post(
+            "/v3/memory/insert",
+            json={
+                "agent_id": settings.actor_id,
+                "session_id": session_id,
+                "content": "MCP write accepted with a grant.",
+            },
+        )
+
+    assert allowed.status_code == 202
+    assert allowed.json()["status"] == "queued"
+    dao.admit_raw_log.assert_awaited_once()
 
 
 @pytest.mark.asyncio
