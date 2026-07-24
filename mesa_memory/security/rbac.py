@@ -22,6 +22,7 @@ def _access_level_satisfies(granted: str, required: str) -> bool:
     """Return whether a granted level includes the required level."""
     return _ACCESS_LEVELS.get(granted, 0) >= _ACCESS_LEVELS.get(required, 0)
 
+
 # ---------------------------------------------------------------------------
 # Advisory prompt injection patterns — logged for observability but NOT used
 # to hard-block content.  MESA's primary injection defense is architectural:

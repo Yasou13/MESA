@@ -46,7 +46,9 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
                 "confidence": float(item.get("confidence", 1.0)),
             }
         except KeyError as exc:
-            raise PermanentProjectionError("incomplete durable projection extraction") from exc
+            raise PermanentProjectionError(
+                "incomplete durable projection extraction"
+            ) from exc
         if (
             not triplet["head"]
             or not triplet["relation"]
@@ -68,7 +70,9 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         "GRAPH_APPLIED",
         "RETRY_PENDING",
     }:
-        raise PermanentProjectionError(f"mutation is not projectable: {mutation['state']}")
+        raise PermanentProjectionError(
+            f"mutation is not projectable: {mutation['state']}"
+        )
     triplets = _triplets(mutation)
     entities = sorted(
         {
@@ -92,7 +96,9 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         raise PermanentProjectionError(f"unknown projection lane: {lane}")
 
 
-async def _apply_with_lease_heartbeat(dao: MemoryDAO, projection: dict[str, Any], worker_id: str) -> None:
+async def _apply_with_lease_heartbeat(
+    dao: MemoryDAO, projection: dict[str, Any], worker_id: str
+) -> None:
     """Keep ownership alive while a model/vector/graph call is in progress."""
     task = asyncio.create_task(_apply_projection(dao, projection))
     while not task.done():
@@ -110,7 +116,9 @@ async def _apply_with_lease_heartbeat(dao: MemoryDAO, projection: dict[str, Any]
                     await task
                 except asyncio.CancelledError:
                     pass
-                raise ProjectionLeaseLostError("projection outbox lease ownership was lost")
+                raise ProjectionLeaseLostError(
+                    "projection outbox lease ownership was lost"
+                )
     await task
 
 
@@ -119,8 +127,15 @@ async def process_projection_outbox_once(
 ) -> dict[str, int]:
     """Claim and apply a bounded set of fenced V4 projection lanes."""
     claimed = await dao.claim_projection_outbox(worker_id=worker_id, limit=limit)
-    result = {"claimed": len(claimed), "completed": 0, "retry_pending": 0, "dead_letter": 0}
-    for projection in sorted(claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)):
+    result = {
+        "claimed": len(claimed),
+        "completed": 0,
+        "retry_pending": 0,
+        "dead_letter": 0,
+    }
+    for projection in sorted(
+        claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
+    ):
         projection_id = str(projection["projection_id"])
         try:
             await _apply_with_lease_heartbeat(dao, projection, worker_id)
@@ -140,7 +155,11 @@ async def process_projection_outbox_once(
                 retryable=False,
             )
             result["dead_letter"] += int(changed)
-            logger.warning("V4_PROJECTION_PERMANENT_FAILURE | projection_id=%s error=%s", projection_id, exc)
+            logger.warning(
+                "V4_PROJECTION_PERMANENT_FAILURE | projection_id=%s error=%s",
+                projection_id,
+                exc,
+            )
         except Exception as exc:
             changed = await dao.fail_projection_outbox(
                 projection_id,
@@ -157,7 +176,11 @@ async def process_projection_outbox_once(
                     result["dead_letter"] += 1
                 else:
                     result["retry_pending"] += 1
-            logger.warning("V4_PROJECTION_RETRYABLE_FAILURE | projection_id=%s error=%s", projection_id, exc)
+            logger.warning(
+                "V4_PROJECTION_RETRYABLE_FAILURE | projection_id=%s error=%s",
+                projection_id,
+                exc,
+            )
     return result
 
 
@@ -178,9 +201,7 @@ async def process_artifact_cleanup_once(
                 error_class=type(exc).__name__,
             )
             if changed:
-                pipeline = await dao.get_pipeline_run(
-                    str(cleanup["pipeline_run_id"])
-                )
+                pipeline = await dao.get_pipeline_run(str(cleanup["pipeline_run_id"]))
                 if pipeline and pipeline["state"] == "BLOCKED":
                     result["blocked"] += 1
                 else:

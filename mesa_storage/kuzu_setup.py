@@ -74,8 +74,12 @@ _CREATE_ASSERTION_NODE = (
     "confidence DOUBLE, status STRING, mutation_id STRING, pipeline_run_id STRING, "
     "PRIMARY KEY (id))"
 )
-_CREATE_ASSERTION_SUBJECT = "CREATE REL TABLE IF NOT EXISTS AssertionSubject (FROM Assertion TO Entity)"
-_CREATE_ASSERTION_OBJECT = "CREATE REL TABLE IF NOT EXISTS AssertionObject (FROM Assertion TO Entity)"
+_CREATE_ASSERTION_SUBJECT = (
+    "CREATE REL TABLE IF NOT EXISTS AssertionSubject (FROM Assertion TO Entity)"
+)
+_CREATE_ASSERTION_OBJECT = (
+    "CREATE REL TABLE IF NOT EXISTS AssertionObject (FROM Assertion TO Entity)"
+)
 _CREATE_ASSERTION_LINK = "CREATE REL TABLE IF NOT EXISTS AssertionLink (FROM Assertion TO Assertion, relation_type STRING)"
 
 # ---------------------------------------------------------------------------

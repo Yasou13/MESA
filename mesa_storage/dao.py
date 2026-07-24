@@ -4673,9 +4673,15 @@ class MemoryDAO:
             raise ValueError("payload agent_id must match the durable admission tenant")
         serialized, payload_bytes = _canonical_payload_bytes(payload)
         metadata = payload.get("metadata", {})
-        idempotency_key = metadata.get("idempotency_key") if isinstance(metadata, dict) else None
-        content_hash = metadata.get("content_sha256") if isinstance(metadata, dict) else None
-        memory_type = metadata.get("memory_type") if isinstance(metadata, dict) else None
+        idempotency_key = (
+            metadata.get("idempotency_key") if isinstance(metadata, dict) else None
+        )
+        content_hash = (
+            metadata.get("content_sha256") if isinstance(metadata, dict) else None
+        )
+        memory_type = (
+            metadata.get("memory_type") if isinstance(metadata, dict) else None
+        )
         try:
             async with self._sql.transaction() as db:
                 if (isinstance(idempotency_key, str) and idempotency_key) or (

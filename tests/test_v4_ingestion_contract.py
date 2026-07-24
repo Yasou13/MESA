@@ -91,7 +91,9 @@ async def test_combined_owner_consumes_one_dispatch_and_pending_finalization() -
 
 
 @pytest.mark.asyncio
-async def test_unverified_dispatch_moves_to_durable_dlq_after_five_attempts(tmp_path) -> None:
+async def test_unverified_dispatch_moves_to_durable_dlq_after_five_attempts(
+    tmp_path,
+) -> None:
     engine = AsyncEngine(str(tmp_path / "dispatch.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
@@ -128,7 +130,9 @@ async def test_unverified_dispatch_moves_to_durable_dlq_after_five_attempts(tmp_
 
 
 @pytest.mark.asyncio
-async def test_mutation_ledger_is_idempotent_and_creates_projection_outbox(tmp_path) -> None:
+async def test_mutation_ledger_is_idempotent_and_creates_projection_outbox(
+    tmp_path,
+) -> None:
     engine = AsyncEngine(str(tmp_path / "ledger.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
@@ -198,16 +202,38 @@ async def test_outbox_projects_each_lane_then_commits_mutation(tmp_path) -> None
         )
         await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
         with (
-            patch.object(MemoryDAO, "project_v4_sql_entity", new=AsyncMock(return_value="sql")),
-            patch.object(MemoryDAO, "project_v4_vector_entity", new=AsyncMock(return_value="vector")),
-            patch.object(MemoryDAO, "project_v4_graph_triplet", new=AsyncMock(return_value="assertion")),
+            patch.object(
+                MemoryDAO, "project_v4_sql_entity", new=AsyncMock(return_value="sql")
+            ),
+            patch.object(
+                MemoryDAO,
+                "project_v4_vector_entity",
+                new=AsyncMock(return_value="vector"),
+            ),
+            patch.object(
+                MemoryDAO,
+                "project_v4_graph_triplet",
+                new=AsyncMock(return_value="assertion"),
+            ),
         ):
-            result = {"claimed": 0, "completed": 0, "retry_pending": 0, "dead_letter": 0}
+            result = {
+                "claimed": 0,
+                "completed": 0,
+                "retry_pending": 0,
+                "dead_letter": 0,
+            }
             for _ in range(3):
-                single = await process_projection_outbox_once(dao, worker_id="projector-a")
+                single = await process_projection_outbox_once(
+                    dao, worker_id="projector-a"
+                )
                 for key in result:
                     result[key] += single[key]
-        assert result == {"claimed": 3, "completed": 3, "retry_pending": 0, "dead_letter": 0}
+        assert result == {
+            "claimed": 3,
+            "completed": 3,
+            "retry_pending": 0,
+            "dead_letter": 0,
+        }
         stored = await dao.get_mutation("tenant-a", candidate["mutation_id"])
         assert stored is not None and stored["state"] == "COMMITTED"
     finally:
@@ -242,7 +268,9 @@ async def test_rejected_mutation_cancels_all_blocked_projection_lanes(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(tmp_path) -> None:
+async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(
+    tmp_path,
+) -> None:
     engine = AsyncEngine(str(tmp_path / "projection-dlq.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
@@ -262,7 +290,9 @@ async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(tmp_path)
         )
         await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
         with patch.object(
-            MemoryDAO, "project_v4_sql_entity", new=AsyncMock(side_effect=RuntimeError("transient"))
+            MemoryDAO,
+            "project_v4_sql_entity",
+            new=AsyncMock(side_effect=RuntimeError("transient")),
         ):
             outcomes = [
                 await process_projection_outbox_once(dao, worker_id="projector-a")

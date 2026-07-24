@@ -242,7 +242,9 @@ class TestCommitLogic:
 class TestProcessColdPath:
     @pytest.mark.asyncio
     @patch("mesa_workers.ingestion_worker._run_ecod_gate", new_callable=AsyncMock)
-    @patch("mesa_workers.ingestion_worker._run_rebel_extraction", new_callable=AsyncMock)
+    @patch(
+        "mesa_workers.ingestion_worker._run_rebel_extraction", new_callable=AsyncMock
+    )
     @patch("mesa_workers.ingestion_worker._commit_raw_memory", new_callable=AsyncMock)
     @patch("mesa_workers.ingestion_worker._commit_triplets", new_callable=AsyncMock)
     async def test_full_cognitive_validates_canonical_candidate_before_projection(
@@ -270,7 +272,11 @@ class TestProcessColdPath:
             assert record["tier3_deferred"] is True
             assert record["raw_log_id"] == 17
             assert record["candidate_id"] == record["cmb_id"]
-            return {"accepted": [record["candidate_id"]], "rejected": [], "deferred": []}
+            return {
+                "accepted": [record["candidate_id"]],
+                "rejected": [],
+                "deferred": [],
+            }
 
         loop.run_batch = AsyncMock(side_effect=accept)
 
@@ -308,7 +314,11 @@ class TestProcessColdPath:
         loop = MagicMock()
 
         async def accept(records):
-            return {"accepted": [records[0]["candidate_id"]], "rejected": [], "deferred": []}
+            return {
+                "accepted": [records[0]["candidate_id"]],
+                "rejected": [],
+                "deferred": [],
+            }
 
         loop.run_batch = AsyncMock(side_effect=accept)
 
@@ -350,7 +360,11 @@ class TestProcessColdPath:
         loop = MagicMock()
 
         async def reject(records):
-            return {"accepted": [], "rejected": [records[0]["candidate_id"]], "deferred": []}
+            return {
+                "accepted": [],
+                "rejected": [records[0]["candidate_id"]],
+                "deferred": [],
+            }
 
         loop.run_batch = AsyncMock(side_effect=reject)
 

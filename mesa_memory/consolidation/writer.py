@@ -163,7 +163,10 @@ class GraphWriter:
 
             if sim_score >= config.relation_similarity_threshold:
                 await self._write_triplet(
-                    agent_id, cmb_id, trip_a, weight=1.0,
+                    agent_id,
+                    cmb_id,
+                    trip_a,
+                    weight=1.0,
                     mutation_id=str(record.get("mutation_id", cmb_id)),
                 )
                 successful_writes += 1
@@ -175,7 +178,10 @@ class GraphWriter:
             ):
                 divergence_count += 1
                 await self._write_triplet(
-                    agent_id, cmb_id, trip_a, weight=0.5,
+                    agent_id,
+                    cmb_id,
+                    trip_a,
+                    weight=0.5,
                     mutation_id=str(record.get("mutation_id", cmb_id)),
                 )
                 successful_writes += 1
@@ -235,7 +241,11 @@ class GraphWriter:
             )
 
     async def _write_triplet(  # type: ignore[no-untyped-def]
-        self, agent_id: str, cmb_id: str, triplet: dict, weight: float,
+        self,
+        agent_id: str,
+        cmb_id: str,
+        triplet: dict,
+        weight: float,
         mutation_id: str | None = None,
     ):
         """Insert head/tail nodes and create an edge between them via MemoryDAO.

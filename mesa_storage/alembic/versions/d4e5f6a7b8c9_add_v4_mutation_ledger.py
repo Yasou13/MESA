@@ -15,8 +15,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS memory_mutations (
+    op.execute("""CREATE TABLE IF NOT EXISTS memory_mutations (
             mutation_id TEXT PRIMARY KEY,
             candidate_id TEXT NOT NULL UNIQUE,
             raw_log_id INTEGER UNIQUE,
@@ -35,10 +34,8 @@ def upgrade() -> None:
             failure_class TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS memory_artifacts (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS memory_artifacts (
             artifact_row_id TEXT PRIMARY KEY,
             mutation_id TEXT NOT NULL REFERENCES memory_mutations(mutation_id),
             store_name TEXT NOT NULL,
@@ -49,10 +46,8 @@ def upgrade() -> None:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             invalidated_at TEXT,
             UNIQUE(mutation_id, store_name, artifact_kind, artifact_id)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS projection_outbox (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS projection_outbox (
             projection_id TEXT PRIMARY KEY,
             mutation_id TEXT NOT NULL REFERENCES memory_mutations(mutation_id),
             projection_name TEXT NOT NULL,
@@ -66,10 +61,8 @@ def upgrade() -> None:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(mutation_id, projection_name)
-        )"""
-    )
-    op.execute(
-        """CREATE TABLE IF NOT EXISTS projection_attempts (
+        )""")
+    op.execute("""CREATE TABLE IF NOT EXISTS projection_attempts (
             attempt_id TEXT PRIMARY KEY,
             projection_id TEXT NOT NULL REFERENCES projection_outbox(projection_id),
             attempt_number INTEGER NOT NULL,
@@ -78,8 +71,7 @@ def upgrade() -> None:
             started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             finished_at TEXT,
             UNIQUE(projection_id, attempt_number)
-        )"""
-    )
+        )""")
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_memory_mutations_scope_state "
         "ON memory_mutations(agent_id, session_id, state, updated_at)"

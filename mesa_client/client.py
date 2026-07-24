@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional, TypeVar
 
 import httpx
 from pydantic import ValidationError
+from typing_extensions import Self
 
 from mesa_api.schemas import (
     ErrorResponse,
@@ -166,7 +167,7 @@ class MesaClient:
         """Closes the underlying HTTP client."""
         self._client.close()
 
-    def __enter__(self) -> "MesaClient":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -270,7 +271,7 @@ class AsyncMesaClient:
         """Closes the underlying HTTP client."""
         await self._client.aclose()
 
-    async def __aenter__(self) -> "AsyncMesaClient":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:

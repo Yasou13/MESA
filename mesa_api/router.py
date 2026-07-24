@@ -512,15 +512,22 @@ def create_memory_router(
             if not raw_id.isdecimal():
                 raise HTTPException(status_code=404, detail="Memory not found")
             record = await dao.get_raw_log(agent_id, int(raw_id))
-            if record is None or record.get("payload", {}).get("session_id") != session_id:
+            if (
+                record is None
+                or record.get("payload", {}).get("session_id") != session_id
+            ):
                 raise HTTPException(status_code=404, detail="Memory not found")
             payload = record["payload"]
             return {
                 "memory": {
                     "id": memory_id,
                     "content": payload.get("content", ""),
-                    "project_id": payload.get("metadata", {}).get("mesa_mcp_project_id"),
-                    "memory_type": payload.get("metadata", {}).get("memory_type", "unknown"),
+                    "project_id": payload.get("metadata", {}).get(
+                        "mesa_mcp_project_id"
+                    ),
+                    "memory_type": payload.get("metadata", {}).get(
+                        "memory_type", "unknown"
+                    ),
                     "status": record.get("status", "queued"),
                     "created_at": record.get("created_at"),
                     "source": {"file": payload.get("metadata", {}).get("source_file")},

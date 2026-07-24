@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,untyped-decorator,no-any-return"
 """Versioned V4 full-cognitive API contract.
 
 V3 remains the lexical-core compatibility surface.  V4 admission creates a
@@ -9,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, cast
+from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -139,7 +140,7 @@ class V4SearchRequest(BaseModel):
     valid_at: datetime | None = None
 
 
-def _active_principal(request: Request):  # type: ignore[no-untyped-def]
+def _active_principal(request: Request):
     principal = getattr(request.state, "principal", None)
     if principal is None or getattr(principal, "status", None) != "active":
         raise HTTPException(
@@ -229,9 +230,7 @@ def create_v4_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/v4", tags=["v4-full-cognitive"])
 
-    @router.post(  # type: ignore[untyped-decorator]
-        "/catalog/workspaces", status_code=201
-    )
+    @router.post("/catalog/workspaces", status_code=201)
     async def create_workspace(
         request: Request,
         payload: V4WorkspaceRequest,
@@ -256,7 +255,7 @@ def create_v4_router(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
 
-    @router.get("/catalog/workspaces")  # type: ignore[untyped-decorator]
+    @router.get("/catalog/workspaces")
     async def list_workspaces(
         tenant_id: str,
         request: Request,
@@ -280,7 +279,7 @@ def create_v4_router(
             visible.append(workspace)
         return {"workspaces": visible}
 
-    @router.post("/catalog/datasets", status_code=201)  # type: ignore[untyped-decorator]
+    @router.post("/catalog/datasets", status_code=201)
     async def create_dataset(
         request: Request,
         payload: V4DatasetRequest,
@@ -306,9 +305,9 @@ def create_v4_router(
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
-        return cast(dict[str, Any], payload.model_dump())
+        return payload.model_dump()
 
-    @router.get("/catalog/datasets")  # type: ignore[untyped-decorator]
+    @router.get("/catalog/datasets")
     async def list_datasets(
         tenant_id: str,
         workspace_id: str,
@@ -335,9 +334,7 @@ def create_v4_router(
             visible.append(dataset)
         return {"datasets": visible}
 
-    @router.post(  # type: ignore[untyped-decorator]
-        "/catalog/documents", status_code=201
-    )
+    @router.post("/catalog/documents", status_code=201)
     async def create_document(
         request: Request,
         payload: V4DocumentRequest,
@@ -363,7 +360,7 @@ def create_v4_router(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
 
-    @router.get("/catalog/documents")  # type: ignore[untyped-decorator]
+    @router.get("/catalog/documents")
     async def list_documents(
         tenant_id: str,
         workspace_id: str,
@@ -386,9 +383,7 @@ def create_v4_router(
             )
         }
 
-    @router.post(  # type: ignore[untyped-decorator]
-        "/catalog/revisions", status_code=201
-    )
+    @router.post("/catalog/revisions", status_code=201)
     async def create_revision(
         request: Request,
         payload: V4RevisionRequest,
@@ -415,7 +410,7 @@ def create_v4_router(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
 
-    @router.get("/catalog/revisions")  # type: ignore[untyped-decorator]
+    @router.get("/catalog/revisions")
     async def list_revisions(
         tenant_id: str,
         workspace_id: str,
@@ -439,9 +434,7 @@ def create_v4_router(
             )
         }
 
-    @router.post(  # type: ignore[untyped-decorator]
-        "/catalog/source-chunks", status_code=201
-    )
+    @router.post("/catalog/source-chunks", status_code=201)
     async def create_source_chunk(
         request: Request,
         payload: V4SourceChunkRequest,
@@ -471,9 +464,7 @@ def create_v4_router(
             supersedes_revision_id=payload.supersedes_revision_id,
         )
 
-    @router.delete(  # type: ignore[untyped-decorator]
-        "/catalog/documents/{document_id}", status_code=202
-    )
+    @router.delete("/catalog/documents/{document_id}", status_code=202)
     async def purge_document(
         document_id: str,
         tenant_id: str,
@@ -508,7 +499,7 @@ def create_v4_router(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 
-    @router.post("/sessions/start", status_code=201)  # type: ignore[untyped-decorator]
+    @router.post("/sessions/start", status_code=201)
     async def start_session(
         request: Request,
         payload: V4SessionStartRequest,
@@ -547,7 +538,7 @@ def create_v4_router(
         )
         return {"status": "started", **session}
 
-    @router.post("/memory/insert", status_code=202)  # type: ignore[untyped-decorator]
+    @router.post("/memory/insert", status_code=202)
     async def insert_memory(
         request: Request,
         payload: V4MemoryInsertRequest,
@@ -630,7 +621,7 @@ def create_v4_router(
             "raw_log_id": admission["log_id"],
         }
 
-    @router.post("/memory/search")  # type: ignore[untyped-decorator]
+    @router.post("/memory/search")
     async def search_memory(
         request: Request,
         payload: V4SearchRequest,
@@ -660,9 +651,7 @@ def create_v4_router(
             "results": results,
         }
 
-    @router.get(  # type: ignore[untyped-decorator]
-        "/mutations/{mutation_id}", response_model=V4MutationStatusResponse
-    )
+    @router.get("/mutations/{mutation_id}", response_model=V4MutationStatusResponse)
     async def mutation_status(
         mutation_id: str,
         request: Request,
@@ -694,9 +683,7 @@ def create_v4_router(
             projections=mutation["projections"],
         )
 
-    @router.post(  # type: ignore[untyped-decorator]
-        "/mutations/{mutation_id}/rollback", status_code=202
-    )
+    @router.post("/mutations/{mutation_id}/rollback", status_code=202)
     async def rollback_mutation(
         mutation_id: str,
         request: Request,
@@ -723,9 +710,7 @@ def create_v4_router(
             raise HTTPException(status_code=403, detail="ROLLBACK permission required")
         return await dao.request_pipeline_rollback(str(mutation["pipeline_run_id"]))
 
-    @router.post(  # type: ignore[untyped-decorator]
-        "/mutations/{mutation_id}/replay", status_code=202
-    )
+    @router.post("/mutations/{mutation_id}/replay", status_code=202)
     async def replay_mutation(
         mutation_id: str,
         request: Request,
@@ -752,7 +737,7 @@ def create_v4_router(
             raise HTTPException(status_code=403, detail="ROLLBACK permission required")
         return await dao.replay_pipeline_run(str(mutation["pipeline_run_id"]))
 
-    @router.get("/sessions/{session_id}/context")  # type: ignore[untyped-decorator]
+    @router.get("/sessions/{session_id}/context")
     async def get_context(
         session_id: str,
         request: Request,
@@ -779,7 +764,7 @@ def create_v4_router(
             "mutations": mutations,
         }
 
-    @router.post("/sessions/{session_id}/end")  # type: ignore[untyped-decorator]
+    @router.post("/sessions/{session_id}/end")
     async def end_session(
         session_id: str,
         request: Request,

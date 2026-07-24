@@ -31,9 +31,10 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
             workspace_name="Legal",
         )
         assert workspace["tenant_id"] == "tenant-a"
-        assert [item["workspace_id"] for item in await dao.list_v4_workspaces(
-            tenant_id="tenant-a"
-        )] == ["workspace-a"]
+        assert [
+            item["workspace_id"]
+            for item in await dao.list_v4_workspaces(tenant_id="tenant-a")
+        ] == ["workspace-a"]
         await dao.ensure_v4_catalog_scope(
             tenant_id="tenant-a",
             workspace_id="workspace-a",
@@ -250,9 +251,9 @@ async def test_rollback_preserves_shared_entity_until_last_owner_is_released(
         assert second_rollback["cleanup_count"] == 1
         cleanup = await process_artifact_cleanup_once(dao, worker_id="cleanup-a")
         assert cleanup["completed"] == 1
-        assert (await dao.get_pipeline_run(str(second["pipeline_run_id"])))["state"] == (
-            "ROLLED_BACK"
-        )
+        assert (await dao.get_pipeline_run(str(second["pipeline_run_id"])))[
+            "state"
+        ] == ("ROLLED_BACK")
         async with engine.connection() as db:
             async with db.execute(
                 "SELECT 1 FROM v4_entities WHERE entity_id = ?",
@@ -395,9 +396,7 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         await dao.project_v4_vector_entity(
             mutation=allowed, entity_name="Allowed Court"
         )
-        await dao.project_v4_vector_entity(
-            mutation=denied, entity_name="Denied Court"
-        )
+        await dao.project_v4_vector_entity(mutation=denied, entity_name="Denied Court")
         vector.search.return_value = [
             {"node_id": denied_id, "_distance": 0.01},
             {"node_id": allowed_id, "_distance": 0.02},

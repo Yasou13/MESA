@@ -15,7 +15,7 @@ from mesa_storage import schema_contract
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
-HEAD = "9a1b2c3d4e5f"
+HEAD = "087de6628c51"
 PRE_REMEDIATION_REVISION = "c4f1a8e2d9b0"
 
 
@@ -350,6 +350,10 @@ def test_offline_operator_cli_adopts_recognised_legacy_schema(tmp_path: Path) ->
         .replace(
             "script_location = %(here)s/alembic",
             f"script_location = {ini_path.parent / 'alembic'}",
+        )
+        .replace(
+            "sqlalchemy.url = sqlite+pysqlite:///storage/mesa.db",
+            f"sqlalchemy.url = sqlite+aiosqlite:///{database}",
         )
         .replace(
             "sqlalchemy.url = driver://user:pass@localhost/dbname",

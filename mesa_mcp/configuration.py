@@ -17,27 +17,49 @@ class MCPSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     base_url: str = Field(default="http://localhost:8000", alias="MESA_BASE_URL")
-    api_key: str | None = Field(default="mesa_prod_sec_2026_xyz", alias="MESA_API_KEY")
+    api_key: str | None = Field(default=None, alias="MESA_API_KEY")
+    actor_id: str = Field(default="system", alias="MESA_ACTOR_ID")
+    log_level: str = Field(default="INFO", alias="MESA_LOG_LEVEL")
+    search_min_score: float = Field(default=0.0, alias="MESA_MIN_SCORE")
+
+    # V4 Configuration
+    use_v4: bool = Field(default=False, alias="MESA_USE_V4")
+    default_tenant_id: str = Field(default="default", alias="MESA_TENANT_ID")
+    default_workspace_id: str = Field(default="default", alias="MESA_WORKSPACE_ID")
+    default_dataset_id: str = Field(default="default", alias="MESA_DATASET_ID")
+
+    # Transport / Gateway Settings
+    transport: str = Field(default="stdio", alias="MESA_TRANSPORT")
+    gateway_url: str | None = Field(default=None, alias="MESA_GATEWAY_URL")
+    heartbeat_interval_seconds: int = Field(default=30, alias="MESA_HEARTBEAT_INTERVAL")
+
     namespace: str = Field(default="local", alias="MESA_NAMESPACE")
-    actor_id: str = Field(default="antigravity-agent", alias="MESA_ACTOR_ID")
     default_project_id: str = Field(default="mesa", alias="MESA_PROJECT_ID")
-    workspace_root: Path = Field(default=Path("/home/yasin/Desktop/MESA"), alias="MESA_WORKSPACE_ROOT")
-    search_default_limit: int = Field(default=8, ge=1, le=20, alias="MESA_SEARCH_DEFAULT_LIMIT")
-    search_max_limit: int = Field(default=20, ge=1, le=20, alias="MESA_SEARCH_MAX_LIMIT")
+
+    workspace_root: Path = Field(
+        default_factory=Path.cwd, alias="MESA_WORKSPACE_ROOT"
+    )
+    search_default_limit: int = Field(
+        default=8, ge=1, le=20, alias="MESA_SEARCH_DEFAULT_LIMIT"
+    )
+    search_max_limit: int = Field(
+        default=20, ge=1, le=20, alias="MESA_SEARCH_MAX_LIMIT"
+    )
     context_default_token_budget: int = Field(
         default=2500, ge=1, le=8000, alias="MESA_CONTEXT_DEFAULT_TOKEN_BUDGET"
     )
     context_max_token_budget: int = Field(
         default=8000, ge=1, le=8000, alias="MESA_CONTEXT_MAX_TOKEN_BUDGET"
     )
-    log_level: str = Field(default="INFO", alias="MESA_LOG_LEVEL")
 
     @field_validator("namespace", "actor_id", "default_project_id")
     @classmethod
     def validate_identifier(cls, value: str) -> str:
         value = value.strip()
         if not _IDENTIFIER.fullmatch(value):
-            raise ValueError("must be 1-96 characters of letters, digits, '.', '_' or '-'")
+            raise ValueError(
+                "must be 1-96 characters of letters, digits, '.', '_' or '-'"
+            )
         return value
 
     @field_validator("workspace_root")

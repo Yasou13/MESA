@@ -572,13 +572,9 @@ class KuzuGraphProvider(BaseGraphProvider):
         subject_key = self._composite_id(agent_id, subject_id)
         object_key = self._composite_id(agent_id, object_id) if object_id else None
         object_match = (
-            ", (o:Entity {id: $object_id, agent_id: $agent_id}) "
-            if object_key
-            else " "
+            ", (o:Entity {id: $object_id, agent_id: $agent_id}) " if object_key else " "
         )
-        object_link = (
-            " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
-        )
+        object_link = " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
         query = (
             "MATCH (s:Entity {id: $subject_id, agent_id: $agent_id})"
             + object_match
@@ -591,8 +587,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "a.observed_at = $observed_at, a.confidence = $confidence, "
             "a.status = $status, a.mutation_id = $mutation_id, "
             "a.pipeline_run_id = $pipeline_run_id "
-            "MERGE (a)-[:AssertionSubject]->(s)"
-            + object_link
+            "MERGE (a)-[:AssertionSubject]->(s)" + object_link
         )
         parameters = {
             "assertion_id": assertion_key,
@@ -617,8 +612,12 @@ class KuzuGraphProvider(BaseGraphProvider):
         await self.execute_write(query, parameters)
 
     async def link_assertions(
-        self, *, source_assertion_id: str, target_assertion_id: str,
-        agent_id: str, relation_type: str,
+        self,
+        *,
+        source_assertion_id: str,
+        target_assertion_id: str,
+        agent_id: str,
+        relation_type: str,
     ) -> None:
         """Persist ``CONTRADICTS``/``SUPERSEDES`` without losing predicate identity."""
         await self.execute_write(
@@ -640,8 +639,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         if not assertion_ids:
             return
         composite_ids = [
-            self._composite_id(agent_id, assertion_id)
-            for assertion_id in assertion_ids
+            self._composite_id(agent_id, assertion_id) for assertion_id in assertion_ids
         ]
         await self.execute_write(
             "MATCH (a:Assertion {agent_id: $agent_id}) "

@@ -375,7 +375,9 @@ def test_tokenizer_fallback_contract(monkeypatch) -> None:
         tokenizer.enforce_context_limit("one two", "openai", "", limit=1)
 
 
-def test_tokenizer_openai_falls_back_when_encoding_cache_is_unavailable(monkeypatch) -> None:
+def test_tokenizer_openai_falls_back_when_encoding_cache_is_unavailable(
+    monkeypatch,
+) -> None:
     from mesa_memory.adapter import tokenizer
 
     monkeypatch.setattr(

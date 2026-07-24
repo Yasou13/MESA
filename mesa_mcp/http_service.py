@@ -35,7 +35,9 @@ class MesaHttpMemoryService:
                 "mesa_mcp_project_id": project_id,
                 "memory_type": kwargs["memory_type"],
                 "importance": kwargs["importance"],
-                "content_sha256": hashlib.sha256(kwargs["content"].encode()).hexdigest(),
+                "content_sha256": hashlib.sha256(
+                    kwargs["content"].encode()
+                ).hexdigest(),
             }
         )
         if kwargs["source_file"]:
@@ -132,14 +134,22 @@ def _map_exception(exc: Exception) -> MCPError:
     if isinstance(exc, MCPError):
         return exc
     if isinstance(exc, MesaNetworkError):
-        return MCPError("BACKEND_UNAVAILABLE", "MESA service is unavailable", retryable=True)
+        return MCPError(
+            "BACKEND_UNAVAILABLE", "MESA service is unavailable", retryable=True
+        )
     if isinstance(exc, MesaAPIError):
         if exc.status_code in {400, 422}:
             return MCPError("INVALID_ARGUMENT", "MESA rejected the request")
         if exc.status_code in {401, 403}:
-            return MCPError("ACCESS_DENIED", "MESA denied access to the requested scope")
+            return MCPError(
+                "ACCESS_DENIED", "MESA denied access to the requested scope"
+            )
         if exc.status_code == 404:
             return MCPError("NOT_FOUND", "memory was not found")
         if exc.status_code in {408, 429, 503, 504}:
-            return MCPError("BACKEND_UNAVAILABLE", "MESA service is temporarily unavailable", retryable=True)
+            return MCPError(
+                "BACKEND_UNAVAILABLE",
+                "MESA service is temporarily unavailable",
+                retryable=True,
+            )
     return MCPError("INTERNAL_ERROR", "MESA operation failed")

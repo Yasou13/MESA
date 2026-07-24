@@ -745,7 +745,9 @@ class ConsolidationLoop:
     # Core batch orchestrator
     # -------------------------------------------------------------------
 
-    async def run_batch(self, batch: Optional[list[dict]] = None) -> dict[str, list[str]]:
+    async def run_batch(
+        self, batch: Optional[list[dict]] = None
+    ) -> dict[str, list[str]]:
         """Process a batch of raw log records through the consolidation pipeline.
 
         P0-A compliant flow:
@@ -787,7 +789,9 @@ class ConsolidationLoop:
                             "error": str(exc),
                         }
                     )
-                    outcome["deferred"].append(str(record.get("cmb_id", record.get("id", ""))))
+                    outcome["deferred"].append(
+                        str(record.get("cmb_id", record.get("id", "")))
+                    )
                     continue
                 except Tier3ValidationError as exc:
                     # Infrastructure error — do NOT treat as cognitive DISCARD
@@ -803,7 +807,9 @@ class ConsolidationLoop:
                             "error": str(exc),
                         }
                     )
-                    outcome["deferred"].append(str(record.get("cmb_id", record.get("id", ""))))
+                    outcome["deferred"].append(
+                        str(record.get("cmb_id", record.get("id", "")))
+                    )
                     continue
                 except (asyncio.TimeoutError, Exception) as exc:
                     # LLM timeout or unexpected error — dead-letter, don't crash
@@ -820,7 +826,9 @@ class ConsolidationLoop:
                             "error": f"unexpected: {exc}",
                         }
                     )
-                    outcome["deferred"].append(str(record.get("cmb_id", record.get("id", ""))))
+                    outcome["deferred"].append(
+                        str(record.get("cmb_id", record.get("id", "")))
+                    )
                     continue
 
                 is_pass = False
@@ -842,7 +850,9 @@ class ConsolidationLoop:
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
                     ready_batch.append(record)
-                    outcome["accepted"].append(str(record.get("cmb_id", record.get("id", ""))))
+                    outcome["accepted"].append(
+                        str(record.get("cmb_id", record.get("id", "")))
+                    )
                 else:
                     self.obs_layer.log_valence_decision(
                         tier=3,
@@ -876,7 +886,9 @@ class ConsolidationLoop:
                     outcome["rejected"].append(str(record_id))
             else:
                 ready_batch.append(record)
-                outcome["accepted"].append(str(record.get("cmb_id", record.get("id", ""))))
+                outcome["accepted"].append(
+                    str(record.get("cmb_id", record.get("id", "")))
+                )
 
         batch = ready_batch
         if not batch:

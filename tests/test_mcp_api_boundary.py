@@ -60,11 +60,17 @@ def test_mcp_exposes_only_the_v1_tool_set() -> None:
         "mesa_search_memory",
         "mesa_get_memory",
         "mesa_get_context",
+        "mesa_remember",
+        "mesa_recall",
+        "mesa_improve",
+        "mesa_forget",
     }
 
 
 @pytest.mark.asyncio
-async def test_store_scopes_actor_namespace_and_normalized_source(adapter: MesaMCPAdapter) -> None:
+async def test_store_scopes_actor_namespace_and_normalized_source(
+    adapter: MesaMCPAdapter,
+) -> None:
     response = await adapter.store_memory(
         {
             "content": "All repository services use async interfaces.",
@@ -79,7 +85,9 @@ async def test_store_scopes_actor_namespace_and_normalized_source(adapter: MesaM
 
 
 @pytest.mark.asyncio
-async def test_store_rejects_secrets_before_the_service(adapter: MesaMCPAdapter) -> None:
+async def test_store_rejects_secrets_before_the_service(
+    adapter: MesaMCPAdapter,
+) -> None:
     with pytest.raises(MCPError, match="secret"):
         await adapter.store_memory(
             {
@@ -90,8 +98,12 @@ async def test_store_rejects_secrets_before_the_service(adapter: MesaMCPAdapter)
 
 
 @pytest.mark.asyncio
-async def test_context_packs_results_to_the_requested_budget(adapter: MesaMCPAdapter) -> None:
-    response = await adapter.get_context({"query": "service conventions", "token_budget": 15})
+async def test_context_packs_results_to_the_requested_budget(
+    adapter: MesaMCPAdapter,
+) -> None:
+    response = await adapter.get_context(
+        {"query": "service conventions", "token_budget": 15}
+    )
 
     assert response["usage"] == {
         "estimated_tokens": 13,
@@ -102,7 +114,9 @@ async def test_context_packs_results_to_the_requested_budget(adapter: MesaMCPAda
 
 
 @pytest.mark.asyncio
-async def test_get_memory_delegates_a_project_scoped_lookup(adapter: MesaMCPAdapter) -> None:
+async def test_get_memory_delegates_a_project_scoped_lookup(
+    adapter: MesaMCPAdapter,
+) -> None:
     assert await adapter.get_memory({"memory_id": "raw_1", "project_id": "mesa"}) == {
         "memory": {"id": "raw_1", "content": "Scoped memory"}
     }

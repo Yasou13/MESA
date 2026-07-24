@@ -64,7 +64,9 @@ async def test_async_sdk_purge_uses_server_api_key_header(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.optional_mcp
-async def test_mcp_http_service_uses_configured_api_key_and_service_boundary(tmp_path, monkeypatch):
+async def test_mcp_http_service_uses_configured_api_key_and_service_boundary(
+    tmp_path, monkeypatch
+):
     from mesa_mcp import http_service as mcp_http_service
     from mesa_mcp.configuration import MCPSettings
     from mesa_mcp.http_service import MesaHttpMemoryService
