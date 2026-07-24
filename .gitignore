@@ -196,3 +196,7 @@ mesa-benchmark/datasets/external/memoryagentbench/recsys.json
 mesa-benchmark/datasets/generated/beam/scale/*.json
 mesa-benchmark/datasets/generated/beam/ablations/*.json
 mesa-benchmark/datasets/external_raw/
+
+.gemini_diff.txt
+mcp_test1.md
+mesa_control_panel.md
