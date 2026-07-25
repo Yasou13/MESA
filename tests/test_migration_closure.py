@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from mesa_storage import schema_contract
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
+
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
 HEAD = "41402f316580"

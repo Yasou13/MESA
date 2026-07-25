@@ -225,14 +225,14 @@ async def fts5_search(
         "AND n.invalid_at IS NULL "
         "AND n.deleted_at IS NULL"
     )
-    
+
     params = [query, agent_id]
-    
+
     if temporal_filter:
         valid_at = temporal_filter.get("valid_at")
         valid_from = temporal_filter.get("valid_from")
         valid_to = temporal_filter.get("valid_to")
-        
+
         if valid_at:
             base_sql += " AND (n.valid_from IS NULL OR n.valid_from <= ?) AND (n.valid_to IS NULL OR n.valid_to >= ?)"
             params.extend([valid_at, valid_at])

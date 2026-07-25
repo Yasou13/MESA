@@ -3539,7 +3539,7 @@ class MemoryDAO:
             valid_at = temporal_filter.get("valid_at")
             valid_from = temporal_filter.get("valid_from")
             valid_to = temporal_filter.get("valid_to")
-            
+
             if valid_at:
                 base_query += " AND (valid_from IS NULL OR valid_from <= ?) AND (valid_to IS NULL OR valid_to >= ?)"
                 params.extend([valid_at, valid_at])
