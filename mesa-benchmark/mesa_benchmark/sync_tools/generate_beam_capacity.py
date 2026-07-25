@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.paths import data_root
+from .tokenizers import cl100k_tokenizer
 
 SOURCE = data_root() / "generated" / "beam" / "scale" / "1m.json"
 OUTPUT = data_root() / "generated" / "beam" / "scale" / "10m-capacity.json"
@@ -26,9 +27,7 @@ def sha256(path: Path) -> str:
 def build_capacity(
     source: list[dict[str, Any]], target_tokens: int
 ) -> tuple[list[dict[str, Any]], int]:
-    import tiktoken
-
-    encoding = tiktoken.get_encoding("cl100k_base")
+    encoding = cl100k_tokenizer()
     contexts: list[dict[str, Any]] = []
     total_tokens = 0
     final_questions: list[dict[str, Any]] = []

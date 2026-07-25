@@ -173,12 +173,13 @@ def preview_plan(
         blockers.append(
             "Bu dataset Capacity profiliyle kullanılamaz; evaluator için judge gerekir"
         )
-    if (
+    is_self_judged = (
         request.judge_enabled
         and request.judge_model
         and generator_model
         and request.judge_model == generator_model
-    ):
+    )
+    if is_self_judged and not request.allow_self_judge:
         blockers.append("Generator ve judge aynı model olamaz")
     requires_ollama = (
         request.profile == "native" or generation_enabled or request.judge_enabled
@@ -236,6 +237,7 @@ def preview_plan(
         ),
         "requires_ollama": requires_ollama,
         "generator_model": generator_model,
+        "self_judged": is_self_judged,
         "required_evaluators": sorted(required_evaluators),
         "blockers": blockers,
         "ready": not blockers,
@@ -371,11 +373,17 @@ def materialize_plan(
             runtime = config.setdefault("runtime", {})
             runtime["top_k"] = request.top_k
             runtime["context_token_budget"] = request.context_token_budget
+            is_self_judged = bool(
+                request.judge_enabled
+                and request.allow_self_judge
+                and selected_model
+                and request.judge_model == selected_model
+            )
             if request.judge_enabled:
                 evaluation["llm_judge_model"] = request.judge_model
                 evaluation["multi_judge_models"] = []
                 evaluation["enable_agreement"] = True
-                runtime["require_independent_judge"] = True
+                runtime["require_independent_judge"] = not is_self_judged
             else:
                 evaluation["llm_judge_model"] = None
                 evaluation["multi_judge_models"] = []

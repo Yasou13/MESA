@@ -186,6 +186,7 @@ export interface PlanPreview {
   eta_confidence: string;
   requires_ollama: boolean;
   generator_model: string | null;
+  self_judged: boolean;
 }
 
 export interface QuestionRow {

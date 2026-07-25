@@ -147,6 +147,27 @@ def test_semantic_dataset_is_blocked_before_run_without_judge(
     )
 
 
+def test_dashboard_allows_explicit_self_judged_internal_plan(
+    tmp_path: Path, available_test_clients: None
+) -> None:
+    request = _request(
+        generation_enabled=True,
+        generator_model="qwen3:8b",
+        judge_enabled=True,
+        judge_model="qwen3:8b",
+        allow_self_judge=True,
+        shard_mode="fixed_count",
+        shard_count=1,
+    )
+    preview = preview_plan(request, ollama_configured=True)
+    assert preview["ready"] is True
+    assert preview["self_judged"] is True
+
+    plan = materialize_plan(request, results_root=tmp_path)
+    config = yaml.safe_load(Path(plan["tasks"][0]["config"]).read_text())
+    assert config["runtime"]["require_independent_judge"] is False
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

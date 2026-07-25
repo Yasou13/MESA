@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.paths import data_root
+from .tokenizers import cl100k_tokenizer
 
 SOURCE = data_root() / "external" / "beam" / "v2" / "dataset.json"
 OUTPUT = data_root() / "generated" / "beam" / "ablations" / "512-64.json"
@@ -27,9 +28,7 @@ def sha256(path: Path) -> str:
 def rechunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     if chunk_size < 1 or overlap < 0 or overlap >= chunk_size:
         raise ValueError("chunk_size must be positive and 0 <= overlap < chunk_size")
-    import tiktoken
-
-    encoding = tiktoken.get_encoding("cl100k_base")
+    encoding = cl100k_tokenizer()
     tokens = encoding.encode(text)
     step = chunk_size - overlap
     return [
