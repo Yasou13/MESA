@@ -34,8 +34,11 @@ def _load_encoding(
     import tiktoken
     from tiktoken.load import load_tiktoken_bpe
 
-    asset = resources.files("mesa_benchmark").joinpath(
-        "resources", "tokenizers", filename
+    asset = (
+        resources.files("mesa_benchmark")
+        .joinpath("resources")
+        .joinpath("tokenizers")
+        .joinpath(filename)
     )
     with resources.as_file(asset) as tokenizer_path:
         mergeable_ranks = load_tiktoken_bpe(
