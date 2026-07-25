@@ -404,6 +404,7 @@ def create_memory_router(
                     session_id=payload.session_id,
                     top_n=payload.limit,
                     collect_diagnostics=True,
+                    temporal_filter=payload.temporal_filter,
                 ),
                 timeout=30.0,  # 30s hard ceiling — prevents indefinite hangs
             )
