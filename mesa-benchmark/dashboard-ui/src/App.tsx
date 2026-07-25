@@ -1915,17 +1915,28 @@ function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [connected, setConnected] = useState(true);
+  const hasProbedOllama = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [nextCatalog, nextSystem, nextJobs, nextOllama] = await Promise.all([
+      const [nextCatalog, nextJobs, nextOllama] = await Promise.all([
         api.catalog(),
-        api.system(),
         api.jobs(),
         api.ollama(),
       ]);
+      const hasActiveJob = nextJobs.some(
+        (job) => job.status === "queued" || job.status === "running",
+      );
+      // /api/system probes Ollama's /api/ps endpoint. Keep one initial status
+      // check for the connection badge, but do not repeatedly contact Ollama
+      // while all benchmark jobs are terminal.
+      const nextSystem =
+        hasActiveJob || !hasProbedOllama.current ? await api.system() : null;
       setCatalog(nextCatalog);
-      setSystem(nextSystem);
+      if (nextSystem) {
+        hasProbedOllama.current = true;
+        setSystem(nextSystem);
+      }
       setJobs(nextJobs);
       setOllama(nextOllama);
       setConnected(true);
