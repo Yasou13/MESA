@@ -21,6 +21,7 @@ sync logic required.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import aiosqlite
 
@@ -226,7 +227,7 @@ async def fts5_search(
         "AND n.deleted_at IS NULL"
     )
 
-    params = [query, agent_id]
+    params: list[Any] = [query, agent_id]
 
     if temporal_filter:
         valid_at = temporal_filter.get("valid_at")
