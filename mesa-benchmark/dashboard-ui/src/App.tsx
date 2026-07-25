@@ -307,6 +307,7 @@ function NewBenchmark({
   const [temperature, setTemperature] = useState(0);
   const [judgeEnabled, setJudgeEnabled] = useState(false);
   const [judgeModel, setJudgeModel] = useState("");
+  const [allowSelfJudge, setAllowSelfJudge] = useState(false);
   const [warmupEnabled, setWarmupEnabled] = useState(true);
   const [draggedClient, setDraggedClient] = useState<string | null>(null);
   const [preview, setPreview] = useState<PlanPreview | null>(null);
@@ -316,6 +317,16 @@ function NewBenchmark({
   useEffect(() => {
     if (!generatorModel && ollama?.model) setGeneratorModel(ollama.model);
   }, [generatorModel, ollama?.model]);
+
+  const toggleSelfJudge = (enabled: boolean) => {
+    setAllowSelfJudge(enabled);
+    if (!enabled) return;
+    const selectedModel = generatorModel || ollama?.model || "";
+    setGenerationEnabled(true);
+    setJudgeEnabled(true);
+    setGeneratorModel(selectedModel);
+    setJudgeModel((current) => current || selectedModel);
+  };
 
   const body = useMemo(
     () => ({
@@ -332,6 +343,7 @@ function NewBenchmark({
       generation_temperature: temperature,
       judge_enabled: profile === "capacity" ? false : judgeEnabled,
       judge_model: judgeModel || null,
+      allow_self_judge: profile === "capacity" ? false : allowSelfJudge,
       shard_mode: shardMode,
       target_shard_minutes: targetMinutes,
       shard_count: shardMode === "fixed_count" ? shardCount : null,
@@ -354,6 +366,7 @@ function NewBenchmark({
       temperature,
       judgeEnabled,
       judgeModel,
+      allowSelfJudge,
       shardMode,
       targetMinutes,
       shardCount,
@@ -525,8 +538,9 @@ function NewBenchmark({
                   ["full_qa", "rubric_score"].includes(metric),
                 ) && (
                   <div className="alert alert--warning">
-                    Bu dataset semantik/rubric değerlendirmesi ister. Ollama
-                    bağlantısı ve bağımsız judge modeli olmadan preflight geçmez.
+                    Bu dataset semantik/rubric değerlendirmesi ister. Publishable
+                    sonuç için bağımsız judge gerekir; tek model yalnız iç testte
+                    provisional olarak kullanılabilir.
                   </div>
                 )}
               </>
@@ -769,6 +783,11 @@ function NewBenchmark({
                   <input list="ollama-models" value={judgeModel} disabled={!judgeEnabled || profile === "capacity"} onChange={(event) => setJudgeModel(event.target.value)} />
                 </label>
                 <label className="field toggle-field">
+                  <span>Tek modelle iç test</span>
+                  <input type="checkbox" checked={allowSelfJudge} disabled={profile === "capacity"} onChange={(event) => toggleSelfJudge(event.target.checked)} />
+                  <small className="field-help">Aynı generator/judge modeline yalnız iç test için izin verir; sonuç publishable değildir.</small>
+                </label>
+                <label className="field toggle-field">
                   <span>Skorlanmayan warm-up</span>
                   <input type="checkbox" checked={warmupEnabled} disabled={profile === "capacity"} onChange={(event) => setWarmupEnabled(event.target.checked)} />
                 </label>
@@ -839,6 +858,12 @@ function NewBenchmark({
             </div>
             {preview.blockers.length > 0 && (
               <div className="alert alert--bad">{preview.blockers.join(" · ")}</div>
+            )}
+            {preview.self_judged && (
+              <div className="alert alert--warning">
+                Tek modelle judge seçildi. Sonuç yalnız iç test içindir ve
+                provisional/self-judged olarak işaretlenecek.
+              </div>
             )}
             {timeLimit &&
               preview.estimated_total_seconds &&

@@ -3481,6 +3481,7 @@ class MemoryDAO:
         query_vector: list[float],
         limit: int = 10,
         include_graph: bool = False,
+        temporal_filter: dict | None = None,
     ) -> list[dict[str, Any]]:
         """Search memories scoped exclusively to ``agent_id``.
 
@@ -3523,7 +3524,7 @@ class MemoryDAO:
 
         # RLS: agent_id = ? hardcoded — even if a node_id existed under
         # a different agent, it will NOT be returned.
-        query = (
+        base_query = (
             f"SELECT id, entity_name, type, content_payload, is_consolidated, "
             f"       created_at, session_id, confidence, is_quarantined "
             f"FROM nodes "
@@ -3534,9 +3535,25 @@ class MemoryDAO:
         )
         params: list[Any] = [agent_id, *node_ids]
 
+        if temporal_filter:
+            valid_at = temporal_filter.get("valid_at")
+            valid_from = temporal_filter.get("valid_from")
+            valid_to = temporal_filter.get("valid_to")
+
+            if valid_at:
+                base_query += " AND (valid_from IS NULL OR valid_from <= ?) AND (valid_to IS NULL OR valid_to >= ?)"
+                params.extend([valid_at, valid_at])
+            else:
+                if valid_from:
+                    base_query += " AND (valid_to IS NULL OR valid_to >= ?)"
+                    params.append(valid_from)
+                if valid_to:
+                    base_query += " AND (valid_from IS NULL OR valid_from <= ?)"
+                    params.append(valid_to)
+
         graph_map: dict[str, dict] = {}
         async with self._sql.connection() as db:
-            async with db.execute(query, params) as cursor:
+            async with db.execute(base_query, params) as cursor:
                 rows = await cursor.fetchall()
                 for row in rows:
                     row_dict = self._sanitize_payload(dict(row))

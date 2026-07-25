@@ -2,7 +2,7 @@ name: Benchmark data quality
 
 on:
   push:
-    branches: [benchmark/**, main]
+    branches: [benchmark/**, feature/mesa-law-readiness, main]
     paths:
       - "mesa-benchmark/**"
       - "mesa_evals/**"
@@ -14,7 +14,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
   pull_request:
-    branches: [benchmark/**, main]
+    branches: [benchmark/**, feature/mesa-law-readiness, main]
     paths:
       - "mesa-benchmark/**"
       - "mesa_evals/**"

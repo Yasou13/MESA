@@ -21,6 +21,7 @@ sync logic required.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import aiosqlite
 
@@ -194,6 +195,7 @@ async def fts5_search(
     query: str,
     *,
     agent_id: str,
+    temporal_filter: dict | None = None,
     limit: int = 20,
 ) -> list[dict]:
     """Execute an FTS5 MATCH query against entity names and types.
@@ -215,21 +217,40 @@ async def fts5_search(
     if not query or not query.strip():
         return []
 
-    sql = (
+    base_sql = (
         "SELECT n.*, rank "
         "FROM nodes_fts "
         "JOIN nodes n ON n.rowid = nodes_fts.rowid "
         "WHERE nodes_fts MATCH ? "
         "AND n.agent_id = ? "
         "AND n.invalid_at IS NULL "
-        "AND n.deleted_at IS NULL "
-        "ORDER BY rank "
-        "LIMIT ?"
+        "AND n.deleted_at IS NULL"
     )
+
+    params: list[Any] = [query, agent_id]
+
+    if temporal_filter:
+        valid_at = temporal_filter.get("valid_at")
+        valid_from = temporal_filter.get("valid_from")
+        valid_to = temporal_filter.get("valid_to")
+
+        if valid_at:
+            base_sql += " AND (n.valid_from IS NULL OR n.valid_from <= ?) AND (n.valid_to IS NULL OR n.valid_to >= ?)"
+            params.extend([valid_at, valid_at])
+        else:
+            if valid_from:
+                base_sql += " AND (n.valid_to IS NULL OR n.valid_to >= ?)"
+                params.append(valid_from)
+            if valid_to:
+                base_sql += " AND (n.valid_from IS NULL OR n.valid_from <= ?)"
+                params.append(valid_to)
+
+    base_sql += " ORDER BY rank LIMIT ?"
+    params.append(limit)
 
     async with engine.connection() as db:
         try:
-            async with db.execute(sql, (query, agent_id, limit)) as cursor:
+            async with db.execute(base_sql, tuple(params)) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
         except aiosqlite.OperationalError as exc:

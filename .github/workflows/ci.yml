@@ -2,10 +2,10 @@ name: MESA CI
 
 on:
   push:
-    branches: [audit/production-readiness, benchmark/**, loggin/**, main]
+    branches: [audit/production-readiness, benchmark/**, feature/mesa-law-readiness, loggin/**, main]
     tags: ["v*"]
   pull_request:
-    branches: [audit/production-readiness, benchmark/**, loggin/**, main]
+    branches: [audit/production-readiness, benchmark/**, feature/mesa-law-readiness, loggin/**, main]
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1"

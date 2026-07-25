@@ -205,6 +205,11 @@ class MemoryInsertRequest(BaseModel):
         default_factory=dict,
         description="Optional key-value metadata (max 64 keys, flat structure)",
     )
+    idempotency_key: str | None = Field(
+        default=None,
+        description="Optional idempotency key to prevent duplicate ingestion",
+        max_length=128,
+    )
 
     @field_validator("agent_id")
     @classmethod
@@ -268,6 +273,10 @@ class MemorySearchRequest(BaseModel):
         ge=1,
         le=_MAX_SEARCH_LIMIT,
         description=f"Maximum results to return (1-{_MAX_SEARCH_LIMIT})",
+    )
+    temporal_filter: dict[str, str | None] | None = Field(
+        default=None,
+        description="Optional dict with 'valid_from', 'valid_to', or 'valid_at' ISO-8601 strings",
     )
 
     @field_validator("agent_id")
@@ -405,6 +414,17 @@ class MemoryInsertResponse(BaseModel):
     )
 
 
+class SourceLocatorV2(BaseModel):
+    """V2 Document Locator for precise citation tracking."""
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str | None = Field(default=None, description="External document reference")
+    revision: str | None = Field(default=None, description="Document revision tag")
+    chunk_id: str | None = Field(default=None, description="Specific chunk reference")
+    page_number: int | None = Field(default=None, description="Physical page number")
+    temporal_version: str | None = Field(default=None, description="Temporal version label (e.g. 2023-01-01)")
+
 class SearchResultItem(BaseModel):
     """Single result item in a search response."""
 
@@ -423,8 +443,10 @@ class SearchResultItem(BaseModel):
     content_payload: str | None = Field(
         default=None, description="The full raw text content of the node"
     )
+    locator: SourceLocatorV2 | None = Field(
+        default=None, description="Precise source locator"
+    )
     agent_id: str = Field(..., description="Owning tenant identifier")
-
 
 class MemorySearchResponse(BaseModel):
     """Response returned after a memory search query."""

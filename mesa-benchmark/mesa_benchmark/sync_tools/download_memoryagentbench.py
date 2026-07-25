@@ -11,14 +11,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..core.paths import cache_root, data_root
+from .tokenizers import gpt4o_tokenizer
 
 REVISION = "7ea066982b140a19337e17e60d45d4076e042faf"
 SELECTED_RAW_SHA256 = "55f72b0f8aa86e8854776b86752c7497494afaea4d51c4b18d1d4448c64d8fb6"
 RECSYS_RAW_SHA256 = "04ed684e905e345111200d76afdb9009525357ad6c9a7cf4f2b1612a03cf1ed0"
 DATASET_ID = "ai-hyz/MemoryAgentBench"
 DEFAULT_OUT = data_root() / "external" / "memoryagentbench" / "dataset.json"
-
-
 def selected_source(source: str, track: str = "core") -> bool:
     if track == "recsys":
         return source == "recsys_redial_full"
@@ -63,9 +62,7 @@ def _sentences(text: str) -> Iterable[str]:
 
 def chunk_text(text: str, chunk_size: int) -> list[str]:
     """Mirror upstream sentence-bounded token chunking without runtime downloads."""
-    import tiktoken
-
-    encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+    encoding = gpt4o_tokenizer()
     chunks: list[str] = []
     current: list[str] = []
     current_tokens = 0

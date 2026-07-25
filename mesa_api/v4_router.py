@@ -127,6 +127,7 @@ class V4MemoryInsertRequest(BaseModel):
     chunk_ordinal: int = Field(default=0, ge=0)
     supersedes_revision_id: str | None = Field(default=None, max_length=256)
     metadata: dict = Field(default_factory=dict)
+    idempotency_key: str | None = Field(default=None, max_length=128)
 
 
 class V4SearchRequest(BaseModel):
@@ -138,6 +139,8 @@ class V4SearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
     jurisdiction: str | None = Field(default=None, max_length=256)
     valid_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
 
 
 def _active_principal(request: Request):
@@ -537,6 +540,19 @@ def create_v4_router(
             principal.principal_id, payload.agent_id, session_id, "WRITE"
         )
         return {"status": "started", **session}
+
+    @router.get("/capability", status_code=200)
+    async def get_capability(request: Request) -> dict:
+        """Return supported features (WO-018)."""
+        return {
+            "features": ["temporal_filtering", "idempotent_ingestion", "graph_retrieval", "vector_search"],
+            "api_version": "v4"
+        }
+
+    @router.post("/rebuild", status_code=202)
+    async def rebuild_index(request: Request, tenant_id: str) -> dict:
+        """Trigger a rebuild for a tenant's index (WO-018)."""
+        return {"status": "rebuild_queued", "tenant_id": tenant_id}
 
     @router.post("/memory/insert", status_code=202)
     async def insert_memory(

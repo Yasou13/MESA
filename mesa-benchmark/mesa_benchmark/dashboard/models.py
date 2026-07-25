@@ -32,6 +32,7 @@ class PlanRequest(BaseModel):
     generation_temperature: float = Field(0.0, ge=0.0, le=2.0)
     judge_enabled: bool = False
     judge_model: str | None = None
+    allow_self_judge: bool = False
     shard_mode: ShardMode = "auto_duration"
     target_shard_minutes: int = Field(20, ge=1, le=1_440)
     shard_count: int | None = Field(None, ge=1, le=10_000)

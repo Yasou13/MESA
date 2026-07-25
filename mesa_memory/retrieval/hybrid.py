@@ -53,6 +53,7 @@ class HybridRetriever:
         top_n: int = 5,
         enable_multi_hop: bool = False,
         collect_diagnostics: bool = False,
+        temporal_filter: dict | None = None,
     ) -> list[str] | dict:
         t_start = time.perf_counter()
         stage_latencies: dict[str, float] = {}
@@ -94,10 +95,10 @@ class HybridRetriever:
 
             subqueries = await decompose_query(normalized, self.embedder)
             vector_tasks = [
-                self.get_vector_results(agent_id, sq, k=100) for sq in subqueries
+                self.get_vector_results(agent_id, sq, k=100, temporal_filter=temporal_filter) for sq in subqueries
             ]
         else:
-            vector_tasks = [self.get_vector_results(agent_id, normalized, k=100)]
+            vector_tasks = [self.get_vector_results(agent_id, normalized, k=100, temporal_filter=temporal_filter)]
 
         graph_task = self.get_graph_results(agent_id, entities)
 
@@ -347,14 +348,14 @@ class HybridRetriever:
         ]
 
     async def get_vector_results(
-        self, agent_id: str, query_text: str, k: int = 10
+        self, agent_id: str, query_text: str, k: int = 10, temporal_filter: dict | None = None
     ) -> list[dict]:
         """Search via MemoryDAO vector search (LanceDB + RLS)."""
         # Use the VectorEngine to compute the embedding instead of the LLM adapter
         embedding = await self.dao.vector_engine.compute_embedding(query_text)
 
         raw_results = await self.dao.search_memory(
-            agent_id, query_vector=embedding, limit=k
+            agent_id, query_vector=embedding, limit=k, temporal_filter=temporal_filter
         )
 
         results = []

@@ -27,7 +27,7 @@ python -m mesa_evals.v4_rrf_ablation --output results/v4-rrf-ablation.json
 Bu küçük corpus regresyon kanıtıdır; harici release dataset sonucunun yerine
 geçmez.
 
-Suite, config, manifest ve küçük offline fixture’lar wheel içinde
+Suite, config, manifest, tokenizer ve küçük offline fixture’lar wheel içinde
 `resource://` URI’leriyle taşınır. Büyük datasetler `data://` URI’leriyle
 çözülür. Veri kökü sırasıyla `MESA_BENCHMARK_DATA_DIR`, source checkout’taki
 `mesa-benchmark/datasets` ve kullanıcı cache dizinidir. Sonuç kökü
