@@ -23,6 +23,33 @@ def test_live_adapter_init_success():
     assert adapter.base_url == "http://localhost"
 
 
+def test_live_adapter_configures_bounded_clients(monkeypatch):
+    sync_client = MagicMock()
+    async_client = MagicMock()
+    monkeypatch.setattr("mesa_memory.adapter.live.openai.OpenAI", sync_client)
+    monkeypatch.setattr("mesa_memory.adapter.live.openai.AsyncOpenAI", async_client)
+
+    adapter = OpenAICompatibleAdapter(
+        api_key="test-key", base_url="http://localhost", timeout_seconds=7.5
+    )
+
+    assert adapter.timeout_seconds == 7.5
+    expected = {
+        "api_key": "test-key",
+        "base_url": "http://localhost",
+        "timeout": 7.5,
+        "max_retries": 0,
+    }
+    sync_client.assert_called_once_with(**expected)
+    async_client.assert_called_once_with(**expected)
+
+
+@pytest.mark.parametrize("timeout_seconds", [0, -1, float("inf")])
+def test_live_adapter_rejects_invalid_timeout(timeout_seconds):
+    with pytest.raises(ValueError, match="positive finite"):
+        OpenAICompatibleAdapter(api_key="test-key", timeout_seconds=timeout_seconds)
+
+
 def test_live_sanitize_json():
     adapter = OpenAICompatibleAdapter(api_key="test-key")
     text = 'Here is the result: ```json\n{"decision": "STORE"}\n```'

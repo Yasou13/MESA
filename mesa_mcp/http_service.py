@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+import httpx
+
 from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
 from mesa_client.client import AsyncMesaClient, MesaAPIError, MesaNetworkError
 
@@ -17,11 +19,22 @@ class MesaHttpMemoryService:
 
     def __init__(self, settings: MCPSettings):
         self._settings = settings
+        # The MCP process is long lived.  Keep one client for its lifetime so
+        # keep-alive connections and DNS/socket state are reused between tool
+        # calls instead of creating a new TCP connection per request.
+        self._http_client = AsyncMesaClient(
+            base_url=settings.base_url,
+            api_key=settings.api_key,
+            timeout=httpx.Timeout(connect=2.0, read=8.0, write=8.0, pool=2.0),
+            max_retries=0,
+        )
+
+    async def close(self) -> None:
+        await self._http_client.aclose()
 
     async def health(self) -> dict[str, Any]:
         try:
-            async with self._client() as client:
-                response = await client._request("GET", "/v3/health")
+            response = await self._http_client._request("GET", "/v3/health")
         except Exception as exc:  # mapped below to keep protocol errors stable
             raise _map_exception(exc) from exc
         return response
@@ -51,8 +64,7 @@ class MesaHttpMemoryService:
             metadata=metadata,
         )
         try:
-            async with self._client() as client:
-                accepted = await client.insert(request)
+            accepted = await self._http_client.insert(request)
         except Exception as exc:
             raise _map_exception(exc) from exc
         return {
@@ -74,8 +86,7 @@ class MesaHttpMemoryService:
             limit=kwargs["limit"],
         )
         try:
-            async with self._client() as client:
-                response = await client.search(request)
+            response = await self._http_client.search(request)
         except Exception as exc:
             raise _map_exception(exc) from exc
         requested_types = set(kwargs["memory_types"] or ())
@@ -104,15 +115,14 @@ class MesaHttpMemoryService:
     async def get_memory(self, **kwargs: Any) -> dict[str, Any] | None:
         project_id = str(kwargs["project_id"])
         try:
-            async with self._client() as client:
-                response = await client._request(
-                    "GET",
-                    f"/v3/memory/records/{kwargs['memory_id']}",
-                    params={
-                        "agent_id": self._settings.actor_id,
-                        "session_id": self._settings.session_id_for(project_id),
-                    },
-                )
+            response = await self._http_client._request(
+                "GET",
+                f"/v3/memory/records/{kwargs['memory_id']}",
+                params={
+                    "agent_id": self._settings.actor_id,
+                    "session_id": self._settings.session_id_for(project_id),
+                },
+            )
         except MesaAPIError as exc:
             if exc.status_code == 404:
                 return None
@@ -120,14 +130,6 @@ class MesaHttpMemoryService:
         except Exception as exc:
             raise _map_exception(exc) from exc
         return response.get("memory")
-
-    def _client(self) -> AsyncMesaClient:
-        return AsyncMesaClient(
-            base_url=self._settings.base_url,
-            api_key=self._settings.api_key,
-            timeout=10.0,
-            max_retries=2,
-        )
 
 
 def _map_exception(exc: Exception) -> MCPError:

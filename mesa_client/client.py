@@ -529,6 +529,7 @@ class MesaV4Client(MesaClient):
         chunk_ordinal: int = 0,
         supersedes_revision_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -547,6 +548,7 @@ class MesaV4Client(MesaClient):
                 "chunk_ordinal": chunk_ordinal,
                 "supersedes_revision_id": supersedes_revision_id,
                 "metadata": metadata or {},
+                **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
         )
 
@@ -799,6 +801,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         chunk_ordinal: int = 0,
         supersedes_revision_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -817,6 +820,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "chunk_ordinal": chunk_ordinal,
                 "supersedes_revision_id": supersedes_revision_id,
                 "metadata": metadata or {},
+                **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
         )
 

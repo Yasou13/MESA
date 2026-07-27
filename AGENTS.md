@@ -1,5 +1,14 @@
 # Repository Çalışma Kuralları
 
+## MESA Memory
+
+Kapsamlı repository görevlerinde ilgili mimari kararları, kısıtları, kuralları ve
+önceki çözümleri almak için önce `mesa_recall` kullanılır. `mesa_remember` yalnız
+doğrulanmış ve kalıcı bilgi için; `mesa_improve` değişen karar için; `mesa_forget`
+yalnızca eski veya hatalı bilgi için kullanılır. Credential, secret, geçici ilerleme,
+tam kaynak dosyası, ham komut çıktısı ve spekülatif sonuçlar MESA hafızasına yazılmaz.
+Kalıcı yazılar MESA onayı gerektirebilir.
+
 Bu dosya, repository üzerinde çalışan ajanların genel çalışma sözleşmesidir. Amaç; kullanıcının verdiği görevi doğru anlamak, mevcut çalışmayı korumak, gerekli değişikliği eksiksiz uygulamak, sonucu uygun testlerle doğrulamak ve dürüst biçimde teslim etmektir.
 
 Bu kurallar belirli bir audit, faz, rapor veya geçmiş görev akışına bağlı değildir. Kullanıcının güncel isteği her çalışmanın ana kapsamını belirler.

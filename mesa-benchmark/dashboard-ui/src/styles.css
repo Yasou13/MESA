@@ -162,6 +162,11 @@ button {
   box-shadow: 0 5px 16px rgba(139, 92, 246, 0.32);
 }
 
+img.brand__mark {
+  display: block;
+  object-fit: cover;
+}
+
 .brand div {
   display: grid;
   gap: 2px;

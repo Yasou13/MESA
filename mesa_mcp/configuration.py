@@ -32,6 +32,12 @@ class MCPSettings(BaseSettings):
     transport: str = Field(default="stdio", alias="MESA_TRANSPORT")
     gateway_url: str | None = Field(default=None, alias="MESA_GATEWAY_URL")
     heartbeat_interval_seconds: int = Field(default=30, alias="MESA_HEARTBEAT_INTERVAL")
+    gateway_control_db: Path = Field(
+        default=Path("./storage/mesa.db"), alias="MESA_GATEWAY_CONTROL_DB"
+    )
+    gateway_encryption_key: str | None = Field(
+        default=None, alias="MESA_GATEWAY_ENCRYPTION_KEY"
+    )
 
     namespace: str = Field(default="local", alias="MESA_NAMESPACE")
     default_project_id: str = Field(default="mesa", alias="MESA_PROJECT_ID")

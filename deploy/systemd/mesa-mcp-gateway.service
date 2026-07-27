@@ -1,0 +1,19 @@
+[Unit]
+Description=MESA MCP Gateway
+Wants=network-online.target
+After=network-online.target mesa-api.service
+
+[Service]
+Type=simple
+User=mesa
+WorkingDirectory=/opt/mesa
+EnvironmentFile=/etc/mesa/mcp-gateway.env
+ExecStart=/opt/mesa/.venv/bin/mesa-mcp-gateway
+Restart=on-failure
+RestartSec=2
+StartLimitBurst=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

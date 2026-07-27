@@ -4,10 +4,12 @@ import pytest
 
 pytest.importorskip("mcp")
 
+import mcp.types as types
+
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.errors import MCPError
-from mesa_mcp.server import MESA_BASE_URL, _tools
+from mesa_mcp.server import MESA_BASE_URL, _tools, create_mcp_server
 
 pytestmark = pytest.mark.optional_mcp
 
@@ -65,6 +67,20 @@ def test_mcp_exposes_only_the_v1_tool_set() -> None:
         "mesa_improve",
         "mesa_forget",
     }
+
+
+@pytest.mark.asyncio
+async def test_protocol_errors_are_marked_as_mcp_errors(tmp_path: Path) -> None:
+    server = create_mcp_server(
+        FakeMemoryService(), MCPSettings(MESA_WORKSPACE_ROOT=tmp_path)
+    )
+    handler = server.request_handlers[types.CallToolRequest]
+    result = await handler(
+        types.CallToolRequest(
+            params=types.CallToolRequestParams(name="unknown_tool", arguments={})
+        )
+    )
+    assert result.root.isError is True
 
 
 @pytest.mark.asyncio

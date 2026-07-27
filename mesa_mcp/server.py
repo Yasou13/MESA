@@ -34,6 +34,10 @@ def create_mcp_server(
 ) -> Server:
     """Create an MCP server with injectable MESA services for testability."""
     app = Server("mesa-memory")
+    # Kept on the server only for process-lifecycle ownership.  Tool handlers
+    # still depend on the injected adapters, which keeps tests isolated.
+    app._mesa_service = service  # type: ignore[attr-defined]
+    app._mesa_v4_service = v4_service  # type: ignore[attr-defined]
     adapter = MesaMCPAdapter(service, settings, v4_service)
     middleware = ControlPlaneMiddleware()
 
@@ -44,13 +48,13 @@ def create_mcp_server(
     @app.call_tool()  # type: ignore[untyped-decorator]
     async def call_tool(
         name: str, arguments: dict[str, Any] | None
-    ) -> list[types.TextContent]:
+    ) -> types.CallToolResult:
         # If in bridge mode, forward to HTTP Gateway
         if settings.transport == "bridge" and settings.gateway_url:
             try:
                 # We do a direct HTTP call to the Gateway
                 # Note: this requires httpx
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
                     headers = (
                         {"Authorization": f"Bearer {settings.api_key}"}
                         if settings.api_key
@@ -66,27 +70,38 @@ def create_mcp_server(
                     data = resp.json()
                     # The gateway returns {"content": [...], "isError": ...}
                     if data.get("isError"):
-                        return [
+                        return types.CallToolResult(
+                            isError=True,
+                            content=[
+                                types.TextContent(
+                                    type="text",
+                                    text=data.get("content", [{}])[0].get(
+                                        "text", "Error in gateway"
+                                    ),
+                                )
+                            ],
+                        )
+                    return types.CallToolResult(
+                        isError=False,
+                        content=[
                             types.TextContent(
                                 type="text",
-                                text=data.get("content", [{}])[0].get(
-                                    "text", "Error in gateway"
-                                ),
+                                text=data.get("content", [{}])[0].get("text", "{}"),
                             )
-                        ]
-                    return [
+                        ],
+                    )
+            except Exception as e:
+                return types.CallToolResult(
+                    isError=True,
+                    content=[
                         types.TextContent(
                             type="text",
-                            text=data.get("content", [{}])[0].get("text", "{}"),
+                            text=json.dumps(
+                                {"error": "bridge_failure", "detail": str(e)}
+                            ),
                         )
-                    ]
-            except Exception as e:
-                return [
-                    types.TextContent(
-                        type="text",
-                        text=json.dumps({"error": "bridge_failure", "detail": str(e)}),
-                    )
-                ]
+                    ],
+                )
 
         # Normal execution (stdio or internal HTTP)
         handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {
@@ -110,14 +125,35 @@ def create_mcp_server(
                 raise MCPError("NOT_FOUND", "unknown MCP tool")
         except MCPError as exc:
             result = exc.as_dict()
+            return types.CallToolResult(
+                isError=True,
+                content=[
+                    types.TextContent(
+                        type="text", text=json.dumps(result, ensure_ascii=False)
+                    )
+                ],
+            )
         except Exception:
             logging.getLogger(__name__).exception(
                 "MCP tool failed", extra={"tool": name}
             )
             result = MCPError("INTERNAL_ERROR", "MESA operation failed").as_dict()
-        return [
-            types.TextContent(type="text", text=json.dumps(result, ensure_ascii=False))
-        ]
+            return types.CallToolResult(
+                isError=True,
+                content=[
+                    types.TextContent(
+                        type="text", text=json.dumps(result, ensure_ascii=False)
+                    )
+                ],
+            )
+        return types.CallToolResult(
+            isError=False,
+            content=[
+                types.TextContent(
+                    type="text", text=json.dumps(result, ensure_ascii=False)
+                )
+            ],
+        )
 
     return app
 
@@ -269,8 +305,21 @@ def _search_schema() -> dict[str, Any]:
 
 async def _run() -> None:
     app, _settings = create_application()
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await app.run(
+                read_stream, write_stream, app.create_initialization_options()
+            )
+    finally:
+        # Direct mode owns the local HTTP adapters.  A bridge/gateway owns its
+        # own clients and follows the same explicit shutdown contract.
+        for service in (
+            getattr(app, "_mesa_service", None),
+            getattr(app, "_mesa_v4_service", None),
+        ):
+            close = getattr(service, "close", None)
+            if close is not None:
+                await close()
 
 
 def main() -> None:

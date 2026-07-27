@@ -8,7 +8,9 @@ from mesa_mcp.gateway.policy.engine import PolicyEngine
 from mesa_storage.control.activity_repo import ActivityRecorder
 from mesa_storage.control.approval_repo import ApprovalRepository
 from mesa_storage.control.client_repo import ClientRepository
+from mesa_storage.control.codex_profile_repo import BindingContextProfileRepository
 from mesa_storage.control.connection_repo import ConnectionRepository
+from mesa_storage.control.credential_repo import CredentialRepository
 from mesa_storage.control.policy_repo import PolicyRepository
 from mesa_storage.control.settings_repo import SettingsRepository
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -23,6 +25,9 @@ class ControlPlaneMiddleware:
         self.engine = engine or AsyncEngine(db_path)
         self.client_repo = ClientRepository(self.engine)
         self.conn_repo = ConnectionRepository(self.engine)
+        self.credential_repo = CredentialRepository(self.engine)
+        self.binding_profile_repo = BindingContextProfileRepository(self.engine)
+        self.codex_profile_repo = self.binding_profile_repo
         self.policy_repo = PolicyRepository(self.engine)
         self.settings_repo = SettingsRepository(self.engine)
         self.activity_repo = ActivityRecorder(self.engine)

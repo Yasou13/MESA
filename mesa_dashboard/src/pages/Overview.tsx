@@ -25,9 +25,9 @@ export const Overview: React.FC = () => {
 
   const statCards = [
     { label: 'Total Clients', value: stats?.total_clients || 0, icon: Users, color: 'var(--accent-primary)' },
-    { label: 'Active Connections', value: stats?.active_connections || 0, icon: Network, color: 'var(--success)' },
+    { label: 'Active Connections', value: stats?.connections_by_status?.CONNECTED || 0, icon: Network, color: 'var(--success)' },
     { label: 'Pending Approvals', value: stats?.pending_approvals || 0, icon: CheckSquare, color: 'var(--warning)' },
-    { label: 'Recent Activity', value: Object.values(stats?.activity_summary || {}).reduce((a, b) => a + b, 0), icon: ActivitySquare, color: 'var(--text-primary)' },
+    { label: 'Recent Activity', value: Object.values(stats?.calls_by_status || {}).reduce((a, b) => a + b, 0), icon: ActivitySquare, color: 'var(--text-primary)' },
   ];
 
   return (
@@ -53,9 +53,9 @@ export const Overview: React.FC = () => {
       
       <div className="glass-panel" style={{ padding: '24px', minHeight: '300px' }}>
         <h3 style={{ marginBottom: '20px' }}>Activity Summary</h3>
-        {stats?.activity_summary && Object.keys(stats.activity_summary).length > 0 ? (
+        {stats?.calls_by_status && Object.keys(stats.calls_by_status).length > 0 ? (
           <div className="flex flex-col gap-4">
-            {Object.entries(stats.activity_summary).map(([status, count]) => (
+            {Object.entries(stats.calls_by_status).map(([status, count]) => (
               <div key={status} className="flex items-center justify-between" style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-sm)' }}>
                 <span className="flex items-center gap-2">
                   <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: status === 'SUCCESS' ? 'var(--success)' : status === 'DENIED' ? 'var(--error)' : 'var(--accent-primary)' }} />

@@ -145,6 +145,16 @@ class ClientRepository:
                     return None
                 return dict(row)
 
+    async def get_project_binding_by_id(self, binding_id: str) -> dict[str, Any] | None:
+        async with self._sql.connection() as db:
+            db.row_factory = __import__("aiosqlite").Row
+            async with db.execute(
+                "SELECT * FROM mcp_project_bindings WHERE binding_id = :binding_id AND enabled = 1",
+                {"binding_id": binding_id},
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
     async def toggle_client_enabled(self, client_id: str, enabled: bool) -> None:
         now = datetime.now(timezone.utc).isoformat()
         async with self._sql.transaction() as db:

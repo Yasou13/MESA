@@ -3373,12 +3373,14 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "anyio" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jsonschema" },
     { name = "kuzu" },
     { name = "lancedb" },
     { name = "llvmlite" },
+    { name = "mcp" },
     { name = "numba" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -3445,9 +3447,6 @@ langchain = [
 loadtest = [
     { name = "locust" },
 ]
-mcp = [
-    { name = "mcp" },
-]
 ml = [
     { name = "huggingface-hub" },
     { name = "safetensors" },
@@ -3465,6 +3464,7 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'adapters'", specifier = ">=0.100.0" },
     { name = "anyio", specifier = ">=4.0.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
+    { name = "cryptography", specifier = ">=42.0.0" },
     { name = "cyclonedx-bom", marker = "extra == 'dev'", specifier = ">=5.1.0" },
     { name = "datasets", marker = "extra == 'benchmarks'", specifier = ">=2.14.0" },
     { name = "datasets", marker = "extra == 'dev'", specifier = ">=2.14.0" },
@@ -3481,7 +3481,7 @@ requires-dist = [
     { name = "llvmlite", specifier = ">=0.47.0" },
     { name = "locust", marker = "extra == 'loadtest'", specifier = ">=2.29.0" },
     { name = "matplotlib", marker = "extra == 'full'", specifier = ">=3.10.0" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
+    { name = "mcp", specifier = ">=1.0.0" },
     { name = "mem0ai", marker = "extra == 'benchmarks'", specifier = ">=0.1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },
     { name = "numba", specifier = ">=0.65.0" },

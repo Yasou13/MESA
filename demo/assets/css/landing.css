@@ -177,12 +177,8 @@ a {
     width: 34px;
     height: 34px;
     border-radius: var(--radius-sm);
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    color: white;
+    display: block;
+    object-fit: cover;
     box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
 }
 

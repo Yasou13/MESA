@@ -118,6 +118,9 @@ code, pre, .mono {
 }
 
 .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     font-family: 'General Sans', 'Geist', -apple-system, sans-serif;
     font-weight: 700;
     font-size: 1.25rem;
@@ -126,6 +129,14 @@ code, pre, .mono {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+}
+
+.brand img {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex: 0 0 auto;
 }
 
 .sidebar-nav {
