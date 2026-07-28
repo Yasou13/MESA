@@ -558,10 +558,14 @@ def create_v4_router(
             "api_version": "v4",
         }
 
-    @router.post("/rebuild", status_code=202)
+    @router.post("/rebuild", status_code=501)
     async def rebuild_index(request: Request, tenant_id: str) -> dict:
-        """Trigger a rebuild for a tenant's index (WO-018)."""
-        return {"status": "rebuild_queued", "tenant_id": tenant_id}
+        """Fail closed until an authorized rebuild workflow exists."""
+        _active_principal(request)
+        raise HTTPException(
+            status_code=501,
+            detail="V4 index rebuild is not implemented",
+        )
 
     @router.post("/memory/insert", status_code=202)
     async def insert_memory(

@@ -203,6 +203,30 @@ def test_v4_session_start_binds_server_generated_session_to_principal() -> None:
     )
 
 
+def test_v4_rebuild_requires_an_active_principal_and_has_no_side_effect() -> None:
+    dao = MagicMock()
+    access = _access()
+    unauthenticated_app = FastAPI()
+    unauthenticated_app.include_router(
+        create_v4_router(
+            get_dao=lambda: dao,
+            get_access_control=lambda: access,
+        )
+    )
+
+    denied = TestClient(unauthenticated_app, raise_server_exceptions=False).post(
+        "/v4/rebuild", params={"tenant_id": "tenant-a"}
+    )
+    disabled = _app(dao, access).post(
+        "/v4/rebuild", params={"tenant_id": "tenant-a"}
+    )
+
+    assert denied.status_code == 401
+    assert disabled.status_code == 501
+    assert dao.mock_calls == []
+    assert access.mock_calls == []
+
+
 def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
     session = {
         "tenant_id": "tenant-a",

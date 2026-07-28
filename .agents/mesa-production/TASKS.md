@@ -20,7 +20,7 @@
   - Doğrulama: Insert/search/status/record cross-principal testleri
   - Bağımlılık: P0-001
 
-- [ ] P0-003 — Sahte V4 rebuild kabulünü fail-closed yap
+- [x] P0-003 — Sahte V4 rebuild kabulünü fail-closed yap
   - Kapsam: `mesa_api/v4_router.py`, rebuild operation
   - Doğrulama: Yetkisiz ve side-effect içermeyen çağrı testleri
   - Bağımlılık: P0-001
