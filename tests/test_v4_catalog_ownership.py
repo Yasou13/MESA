@@ -48,6 +48,7 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
         )
         first = await dao.create_v4_revision(
             tenant_id="tenant-a",
+            dataset_id="dataset-a",
             document_id="document-a",
             revision_id="revision-1",
             revision_number=1,
@@ -56,6 +57,7 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
         assert first["status"] == "ACTIVE"
         await dao.create_v4_revision(
             tenant_id="tenant-a",
+            dataset_id="dataset-a",
             document_id="document-a",
             revision_id="revision-2",
             revision_number=2,
@@ -63,18 +65,36 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
             supersedes_revision_id="revision-1",
         )
         revisions = await dao.list_v4_revisions(
-            tenant_id="tenant-a", document_id="document-a"
+            tenant_id="tenant-a", dataset_id="dataset-a", document_id="document-a"
         )
         assert [item["status"] for item in revisions] == ["SUPERSEDED", "ACTIVE"]
         with pytest.raises(ValueError, match="immutable"):
             await dao.create_v4_revision(
                 tenant_id="tenant-a",
+                dataset_id="dataset-a",
                 document_id="document-a",
                 revision_id="revision-2",
                 revision_number=2,
                 content_hash=first_hash,
                 supersedes_revision_id="revision-1",
             )
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-b",
+        )
+        with pytest.raises(ValueError, match="does not belong to dataset"):
+            await dao.create_v4_revision(
+                tenant_id="tenant-a",
+                dataset_id="dataset-b",
+                document_id="document-a",
+                revision_id="revision-other-dataset",
+                revision_number=3,
+                content_hash=hashlib.sha256(b"cross dataset").hexdigest(),
+            )
+        assert await dao.list_v4_revisions(
+            tenant_id="tenant-a", dataset_id="dataset-b", document_id="document-a"
+        ) == []
     finally:
         await engine.close()
 

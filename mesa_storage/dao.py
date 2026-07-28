@@ -417,6 +417,7 @@ class MemoryDAO:
         self,
         *,
         tenant_id: str,
+        dataset_id: str,
         document_id: str,
         revision_id: str,
         revision_number: int,
@@ -435,13 +436,17 @@ class MemoryDAO:
             raise ValueError("complete revision identity and SHA-256 hash are required")
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT tenant_id FROM documents WHERE document_id = ? "
+                "SELECT tenant_id, dataset_id FROM documents WHERE document_id = ? "
                 "AND status != 'PURGED'",
                 (document_id,),
             ) as cursor:
                 document = await cursor.fetchone()
-            if document is None or document[0] != tenant_id:
-                raise ValueError("document does not belong to tenant")
+            if (
+                document is None
+                or document["tenant_id"] != tenant_id
+                or document["dataset_id"] != dataset_id
+            ):
+                raise ValueError("document does not belong to dataset")
             if supersedes_revision_id:
                 async with db.execute(
                     "SELECT document_id FROM document_revisions "
@@ -505,15 +510,17 @@ class MemoryDAO:
         return dict(row)
 
     async def list_v4_revisions(
-        self, *, tenant_id: str, document_id: str
+        self, *, tenant_id: str, dataset_id: str, document_id: str
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
             async with db.execute(
-                "SELECT revision_id, tenant_id, document_id, revision_number, "
-                "content_hash, status, supersedes_revision_id, created_at "
-                "FROM document_revisions WHERE tenant_id = ? AND document_id = ? "
-                "ORDER BY revision_number, revision_id",
-                (tenant_id, document_id),
+                "SELECT r.revision_id, r.tenant_id, r.document_id, r.revision_number, "
+                "r.content_hash, r.status, r.supersedes_revision_id, r.created_at "
+                "FROM document_revisions r JOIN documents d "
+                "ON d.document_id = r.document_id "
+                "WHERE r.tenant_id = ? AND d.dataset_id = ? AND r.document_id = ? "
+                "ORDER BY r.revision_number, r.revision_id",
+                (tenant_id, dataset_id, document_id),
             ) as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
 

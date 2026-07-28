@@ -32,7 +32,7 @@
 
 ## Aşama 2 — Mimari Düzen
 
-- [ ] P0-005 — Revision işlemlerini gerçek dataset sahipliğine bağla
+- [x] P0-005 — Revision işlemlerini gerçek dataset sahipliğine bağla
   - Kapsam: `mesa_api/v4_router.py`, `mesa_storage/dao.py`
   - Doğrulama: Aynı tenant cross-dataset revision negatif testleri
   - Bağımlılık: P0-001

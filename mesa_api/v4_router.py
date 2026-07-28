@@ -408,6 +408,7 @@ def create_v4_router(
         try:
             return await dao.create_v4_revision(
                 tenant_id=payload.tenant_id,
+                dataset_id=payload.dataset_id,
                 document_id=payload.document_id,
                 revision_id=payload.revision_id,
                 revision_number=payload.revision_number,
@@ -437,7 +438,9 @@ def create_v4_router(
         )
         return {
             "revisions": await dao.list_v4_revisions(
-                tenant_id=tenant_id, document_id=document_id
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
             )
         }
 
