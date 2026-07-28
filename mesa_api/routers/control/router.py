@@ -226,18 +226,31 @@ def create_control_router(
 
     class DecideApprovalReq(BaseModel):
         status: str
-        decided_by: str
         reason: str | None = None
 
     @router.post("/approvals/{approval_id}/decide")
     async def decide_approval_endpoint(
-        approval_id: str, req: DecideApprovalReq, repo=Depends(get_approval_repo)
+        approval_id: str,
+        req: DecideApprovalReq,
+        request: Request,
+        repo=Depends(get_approval_repo),
     ):
         if req.status not in ("APPROVED", "REJECTED"):
             raise HTTPException(
                 status_code=400, detail="Status must be APPROVED or REJECTED"
             )
-        await repo.decide_approval(approval_id, req.status, req.decided_by, req.reason)
+        principal = getattr(request.state, "principal", None)
+        if principal is None or getattr(principal, "status", None) != "active":
+            raise HTTPException(
+                status_code=401, detail="Active authenticated principal required"
+            )
+        decided = await repo.decide_approval(
+            approval_id, req.status, str(principal.principal_id), req.reason
+        )
+        if not decided:
+            if await repo.get_approval_request(approval_id) is None:
+                raise HTTPException(status_code=404, detail="Approval not found")
+            raise HTTPException(status_code=409, detail="Approval is no longer pending")
         return {"status": "decided", "approval_id": approval_id, "decision": req.status}
 
     @router.get("/overview")

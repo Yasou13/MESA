@@ -42,7 +42,7 @@
   - Doğrulama: Cross-tenant workspace ve ID collision migration testleri
   - Bağımlılık: P0-005
 
-- [ ] P0-007 — Approval kararını authenticated aktör ve CAS ile sınırla
+- [x] P0-007 — Approval kararını authenticated aktör ve CAS ile sınırla
   - Kapsam: control router, `approval_repo`
   - Doğrulama: PENDING dışı, yarışan ve bilinmeyen approval testleri
   - Bağımlılık: P0-001
