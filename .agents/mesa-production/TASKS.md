@@ -47,7 +47,7 @@
   - Doğrulama: PENDING dışı, yarışan ve bilinmeyen approval testleri
   - Bağımlılık: P0-001
 
-- [ ] P0-008 — Approval payload hash ve audit kaydını güvenli hale getir
+- [x] P0-008 — Approval payload hash ve audit kaydını güvenli hale getir
   - Kapsam: MCP middleware, operation ledger, activity repository
   - Doğrulama: Hash mismatch ve secret canary storage/log testleri
   - Bağımlılık: P0-007

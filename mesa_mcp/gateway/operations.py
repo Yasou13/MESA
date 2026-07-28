@@ -19,7 +19,7 @@ from ..errors import MCPError
 from ..security import MEMORY_TYPES
 from ..v4_service import MesaHttpV4Service
 from .auth import GatewayPrincipal
-from .middleware import ControlPlaneMiddleware
+from .middleware import ControlPlaneMiddleware, canonical_payload_hash
 
 _WRITE_TOOLS = frozenset({"mesa_remember", "mesa_improve", "mesa_forget"})
 _POLICY_OPERATIONS = {
@@ -244,6 +244,14 @@ class GatewayOperationService:
                 continue
             if approval["status"] != "APPROVED":
                 await self._set_operation(operation["operation_id"], "DENIED")
+                completed += 1
+                continue
+            if approval["payload_hash"] != operation["payload_hash"]:
+                await self._set_operation(
+                    operation["operation_id"],
+                    "DENIED",
+                    error_code="APPROVAL_PAYLOAD_MISMATCH",
+                )
                 completed += 1
                 continue
             binding, client = await self._scope_for_operation(operation)
@@ -503,7 +511,7 @@ class GatewayOperationService:
         canonical = json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
-        digest = hashlib.sha256(canonical.encode()).hexdigest()
+        digest = canonical_payload_hash(payload)
         async with self._engine.transaction() as db:
             await db.execute(
                 "INSERT OR IGNORE INTO mcp_operations (operation_id, client_id, binding_id, connection_id, tool_name, idempotency_key, payload_hash, payload_encrypted, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED')",
@@ -537,6 +545,15 @@ class GatewayOperationService:
         payload = json.loads(
             self._cipher.decrypt(operation["payload_encrypted"]).decode()
         )
+        if canonical_payload_hash(payload) != operation["payload_hash"]:
+            await self._set_operation(
+                operation["operation_id"],
+                "DENIED",
+                error_code="OPERATION_PAYLOAD_MISMATCH",
+            )
+            return await self.operation_status(
+                str(operation["client_id"]), str(operation["operation_id"])
+            )
         scope = {
             "tenant_id": binding["tenant_id"],
             "workspace_id": binding["workspace_id"],

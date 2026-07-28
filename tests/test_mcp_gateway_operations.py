@@ -120,6 +120,32 @@ async def test_write_is_durable_pending_approval_and_idempotent(gateway) -> None
 
 
 @pytest.mark.asyncio
+async def test_approved_operation_fails_closed_when_approval_hash_differs(gateway) -> None:
+    service, fake, connection_id, middleware = gateway
+    pending = await service.call_tool(
+        client_id="antigravity",
+        connection_id=connection_id,
+        tool_name="mesa_remember",
+        arguments={"content": "protected", "idempotency_key": "idem-hash-mismatch"},
+    )
+    await middleware.approval_repo.decide_approval(
+        pending["approval_id"], "APPROVED", "dashboard"
+    )
+    async with service._engine.transaction() as db:
+        await db.execute(
+            "UPDATE mcp_approval_requests SET payload_hash = ? WHERE approval_id = ?",
+            ("tampered", pending["approval_id"]),
+        )
+        await db.commit()
+
+    assert await service.process_approved_operations() == 1
+    status = await service.operation_status("antigravity", pending["operation_id"])
+    assert status["status"] == "DENIED"
+    assert status["error"]["code"] == "APPROVAL_PAYLOAD_MISMATCH"
+    assert fake.remember_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_operation_status_tracks_final_v4_mutation_state(gateway) -> None:
     service, fake, connection_id, middleware = gateway
 

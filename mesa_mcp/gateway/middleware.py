@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import os
 import time
@@ -16,6 +18,21 @@ from mesa_storage.control.settings_repo import SettingsRepository
 from mesa_storage.sqlite_engine import AsyncEngine
 
 logger = logging.getLogger(__name__)
+
+
+def canonical_payload_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def audit_payload_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep operator-visible audit data free of caller-provided values."""
+    return {
+        "argument_keys": sorted(str(key) for key in payload),
+        "payload_sha256": canonical_payload_hash(payload),
+    }
 
 
 class ControlPlaneMiddleware:
@@ -106,7 +123,7 @@ class ControlPlaneMiddleware:
             decision=effect,
             connection_id=conn_id,
             principal_id=principal_id,
-            metadata={"arguments": arguments},
+            metadata=audit_payload_metadata(arguments),
         )
 
         start_time = time.time()
@@ -123,7 +140,7 @@ class ControlPlaneMiddleware:
                 return result
 
             elif effect == "REQUIRE_APPROVAL":
-                payload_hash = "mock-hash"
+                payload_hash = canonical_payload_hash(arguments)
                 approval_id = f"appr-{uuid.uuid4().hex}"
 
                 await self.approval_repo.create_approval_request(
