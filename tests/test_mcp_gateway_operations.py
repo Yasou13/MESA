@@ -205,6 +205,21 @@ async def test_idempotency_key_cannot_be_reused_for_another_payload(gateway) -> 
 
 
 @pytest.mark.asyncio
+async def test_gateway_write_rejects_secret_before_creating_operation(gateway) -> None:
+    service, _fake, connection_id, _middleware = gateway
+    with pytest.raises(Exception, match="secret"):
+        await service.call_tool(
+            client_id="antigravity",
+            connection_id=connection_id,
+            tool_name="mesa_remember",
+            arguments={
+                "content": "Bearer do-not-store-this-secret-token-value",
+                "idempotency_key": "idem-secret",
+            },
+        )
+
+
+@pytest.mark.asyncio
 async def test_recall_uses_typed_context_and_singleflight(gateway) -> None:
     service, _, connection_id, _ = gateway
     first, second = await __import__("asyncio").gather(

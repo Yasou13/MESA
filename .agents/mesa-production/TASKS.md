@@ -69,7 +69,7 @@
 
 ## Aşama 3 — Güvenlik ve Hata Düzeltmeleri
 
-- [ ] P0-009 — V4 HTTP ve MCP yazma girişlerini ortak sınırlandır
+- [x] P0-009 — V4 HTTP ve MCP yazma girişlerini ortak sınırlandır
   - Kapsam: V4 schema, MCP adapter, request middleware
   - Doğrulama: Body, metadata depth/byte ve secret rejection testleri
   - Bağımlılık: P0-001

@@ -13,6 +13,7 @@ from typing import Any
 
 from cryptography.fernet import Fernet
 
+from mesa_memory.security.input_validation import validate_write_payload
 from mesa_storage.sqlite_engine import AsyncEngine
 
 from ..errors import MCPError
@@ -196,6 +197,7 @@ class GatewayOperationService:
             return await self._recall(binding, client, arguments)
         if tool_name not in _WRITE_TOOLS:
             raise MCPError("NOT_FOUND", "unknown MCP tool")
+        _validate_write_arguments(arguments)
         idempotency_key = _required(arguments, "idempotency_key")
         operation = await self._create_operation(
             client_id, binding, connection_id, tool_name, idempotency_key, arguments
@@ -297,6 +299,7 @@ class GatewayOperationService:
             return await self._recall(binding, client, arguments)
         if tool_name not in _WRITE_TOOLS:
             raise MCPError("NOT_FOUND", "unknown MCP tool")
+        _validate_write_arguments(arguments)
         idempotency_key = _required(arguments, "idempotency_key")
         operation = await self._create_operation(
             principal.client_id,
@@ -730,6 +733,19 @@ def _required(arguments: dict[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise MCPError("INVALID_ARGUMENT", f"{field} is required")
     return value.strip()
+
+
+def _validate_write_arguments(arguments: dict[str, Any]) -> None:
+    content = arguments.get("content")
+    metadata = arguments.get("metadata", {})
+    if content is None:
+        return
+    if not isinstance(content, str) or not isinstance(metadata, dict):
+        raise MCPError("INVALID_ARGUMENT", "content and metadata must be valid")
+    try:
+        validate_write_payload(content, metadata)
+    except ValueError as exc:
+        raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
 
 
 def _remember_provenance(payload: dict[str, Any]) -> dict[str, Any]:

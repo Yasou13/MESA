@@ -3,10 +3,12 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from mesa_api.v4_router import create_v4_router
+from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
 from mesa_storage.dao import (
     QueueOverCapacityError,
     QueueRecordTooLargeError,
@@ -43,6 +45,23 @@ def _access(*, allowed: bool = True) -> MagicMock:
     access.grant_access = AsyncMock()
     access.grant_principal_session_access = AsyncMock()
     return access
+
+
+def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
+    payload = {
+        "session_id": "session-a",
+        "dataset_id": "dataset-a",
+        "document_id": "document-a",
+        "revision_id": "revision-a",
+        "chunk_id": "chunk-a",
+        "title": "Document A",
+        "source_ref": "source-a",
+        "content": "safe content",
+    }
+    with pytest.raises(ValidationError, match="secret"):
+        V4MemoryInsertRequest(**(payload | {"content": "password=not-for-storage"}))
+    with pytest.raises(ValidationError, match="metadata exceeds"):
+        V4MemoryInsertRequest(**(payload | {"metadata": {"x": "a" * (16 * 1024)}}))
 
 
 def test_v4_insert_creates_canonical_mutation_after_authorized_admission() -> None:

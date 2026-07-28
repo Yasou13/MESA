@@ -15,10 +15,11 @@ from datetime import datetime
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_memory.config import config
 from mesa_memory.consolidation.schemas import MemoryCandidate
+from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
     MemoryDAO,
@@ -132,6 +133,11 @@ class V4MemoryInsertRequest(BaseModel):
     supersedes_revision_id: str | None = Field(default=None, max_length=256)
     metadata: dict = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_write_boundary(self) -> "V4MemoryInsertRequest":
+        validate_write_payload(self.content, self.metadata)
+        return self
 
 
 class V4SearchRequest(BaseModel):

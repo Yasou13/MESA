@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from mesa_memory.security.input_validation import validate_write_payload
+
 from .configuration import MCPSettings
 from .errors import MCPError
 from .security import MEMORY_TYPES, reject_secrets, validate_source_file
@@ -214,10 +216,17 @@ class MesaMCPAdapter:
             raise MCPError("UNIMPLEMENTED", "V4 service is not enabled")
         dataset_id = arguments.get("dataset_id")
         content = _required_string(arguments, "content", max_length=_MAX_CONTENT_LENGTH)
+        metadata = arguments.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise MCPError("INVALID_ARGUMENT", "metadata must be an object")
+        try:
+            validate_write_payload(content, metadata)
+        except ValueError as exc:
+            raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
         return await self._v4_service.v4_remember(
             dataset_id=dataset_id,
             content=content,
-            metadata=arguments.get("metadata", {}),
+            metadata=metadata,
         )
 
     async def mesa_recall(self, arguments: dict[str, Any]) -> dict[str, Any]:
