@@ -37,6 +37,8 @@ class V4MutationStatusResponse(BaseModel):
     candidate_id: str
     state: str
     failure_class: str | None = None
+    rejection_reason: str | None = None
+    tier3_audit: dict | None = None
     pipeline_run: dict | None = None
     artifacts: list[dict] = Field(default_factory=list)
     projections: list[dict] = Field(default_factory=list)
@@ -633,6 +635,7 @@ def create_v4_router(
             "revision_id": payload.revision_id,
             "chunk_id": payload.chunk_id,
             "source_ref": payload.source_ref,
+            "evidence_span": payload.evidence_span,
             "agent_id": session["agent_id"],
             "session_id": payload.session_id,
             "content": payload.content,
@@ -745,6 +748,8 @@ def create_v4_router(
             candidate_id=str(mutation["candidate_id"]),
             state=str(mutation["state"]),
             failure_class=mutation.get("failure_class"),
+            rejection_reason=mutation.get("rejection_reason"),
+            tier3_audit=mutation.get("tier3_audit"),
             pipeline_run=pipeline,
             artifacts=mutation["artifacts"],
             projections=mutation["projections"],

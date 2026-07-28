@@ -18,6 +18,9 @@ class FinalityV4:
             "mutation_id": mutation_id,
             "state": self.state,
             "failure_class": "Tier3Rejected" if self.state == "REJECTED" else None,
+            "rejection_reason": (
+                "dual_llm_consensus_discard" if self.state == "REJECTED" else None
+            ),
         }
 
 
@@ -63,6 +66,8 @@ async def test_operation_status_refreshes_from_v4_mutation(
             operation["error_code"] = kwargs["error_code"]
         if kwargs.get("error_message"):
             operation["error_message"] = kwargs["error_message"]
+        if kwargs.get("response"):
+            operation["response_json"] = json.dumps(kwargs["response"])
 
     service._get_operation = AsyncMock(side_effect=lambda _operation_id: dict(operation))
     service._set_operation = set_operation  # type: ignore[method-assign]
@@ -72,6 +77,8 @@ async def test_operation_status_refreshes_from_v4_mutation(
     assert result["status"] == expected_status
     if expected_error:
         assert result["error"]["code"] == expected_error
+    if v4_state == "REJECTED":
+        assert result["rejection_reason"] == "dual_llm_consensus_discard"
 
 
 @pytest.mark.asyncio

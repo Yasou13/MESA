@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet
 from mesa_storage.sqlite_engine import AsyncEngine
 
 from ..errors import MCPError
+from ..security import MEMORY_TYPES
 from ..v4_service import MesaHttpV4Service
 from .auth import GatewayPrincipal
 from .middleware import ControlPlaneMiddleware
@@ -545,12 +546,13 @@ class GatewayOperationService:
         }
         try:
             if operation["tool_name"] == "mesa_remember":
+                provenance = _remember_provenance(payload)
                 response = await self._breaker.call(
                     lambda: self._v4.v4_remember(
                         **scope,
                         content=_required(payload, "content"),
                         title=payload.get("title"),
-                        metadata=payload.get("metadata", {}),
+                        **provenance,
                     )
                 )
             elif operation["tool_name"] == "mesa_improve":
@@ -634,9 +636,14 @@ class GatewayOperationService:
             )
         else:
             status, error_code, error_message = _mcp_status_from_mutation(mutation)
+            response = _operation_result_payload(operation)
+            rejection_reason = mutation.get("rejection_reason")
+            if isinstance(rejection_reason, str) and rejection_reason:
+                response["rejection_reason"] = rejection_reason[:120]
             await self._set_operation(
                 operation["operation_id"],
                 status,
+                response=response,
                 error_code=error_code,
                 error_message=error_message,
             )
@@ -708,6 +715,48 @@ def _required(arguments: dict[str, Any], field: str) -> str:
     return value.strip()
 
 
+def _remember_provenance(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate optional MCP provenance before forwarding it to V4."""
+    metadata = payload.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise MCPError("INVALID_ARGUMENT", "metadata must be an object")
+    normalized_metadata = dict(metadata)
+    memory_type = payload.get("memory_type")
+    if memory_type is not None:
+        if not isinstance(memory_type, str) or memory_type not in MEMORY_TYPES:
+            raise MCPError("INVALID_ARGUMENT", "memory_type is not supported")
+        normalized_metadata["memory_type"] = memory_type
+    importance = payload.get("importance")
+    if importance is not None:
+        if (
+            isinstance(importance, bool)
+            or not isinstance(importance, (int, float))
+            or not 0 <= importance <= 1
+        ):
+            raise MCPError("INVALID_ARGUMENT", "importance must be between 0 and 1")
+        normalized_metadata["importance"] = float(importance)
+    result: dict[str, Any] = {"metadata": normalized_metadata}
+    for field, limit in (("source_ref", 2048), ("evidence_span", 4096)):
+        value = payload.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip() or len(value) > limit:
+            raise MCPError("INVALID_ARGUMENT", f"{field} must be a non-empty string")
+        result[field] = value.strip()
+    return result
+
+
+def _operation_result_payload(operation: dict[str, Any]) -> dict[str, Any]:
+    raw = operation.get("response_json")
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _operation_response(operation: dict[str, Any]) -> dict[str, Any]:
     result = {
         "operation_id": operation["operation_id"],
@@ -716,7 +765,10 @@ def _operation_response(operation: dict[str, Any]) -> dict[str, Any]:
         "approval_id": operation.get("approval_id"),
     }
     if operation.get("response_json"):
-        result["result"] = json.loads(operation["response_json"])
+        response = json.loads(operation["response_json"])
+        result["result"] = response
+        if isinstance(response, dict) and isinstance(response.get("rejection_reason"), str):
+            result["rejection_reason"] = response["rejection_reason"]
     if operation.get("error_code"):
         result["error"] = {
             "code": operation["error_code"],
@@ -735,6 +787,9 @@ def _mcp_status_from_mutation(
     if state == "COMMITTED":
         return "COMMITTED", None, None
     if state == "REJECTED":
+        reason = mutation.get("rejection_reason")
+        if isinstance(reason, str) and reason:
+            return "REJECTED", "MUTATION_REJECTED", f"V4 rejected the mutation: {reason[:120]}"
         return "REJECTED", "MUTATION_REJECTED", "V4 rejected the mutation"
     if state in {"DEAD_LETTER", "ROLLED_BACK", "BLOCKED", "FAILED"}:
         return "FAILED", "MUTATION_FAILED", f"V4 mutation ended as {state}"
