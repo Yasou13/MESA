@@ -99,7 +99,7 @@
   - Doğrulama: Principal bazlı minute ve günlük 429 testleri
   - Bağımlılık: P0-001
 
-- [ ] P0-015 — Approval dashboard sözleşmesini düzelt
+- [x] P0-015 — Approval dashboard sözleşmesini düzelt
   - Kapsam: `mesa_dashboard/src/api/controlApi.ts`, `Approvals.tsx`
   - Doğrulama: Pending approval görünürlüğü ve non-2xx UI testleri
   - Bağımlılık: P0-007

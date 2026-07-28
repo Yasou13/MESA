@@ -10,7 +10,7 @@ export const Approvals: React.FC = () => {
   const loadApprovals = () => {
     setLoading(true);
     fetchPendingApprovals()
-      .then(res => setApprovals(res.items || []))
+      .then(res => setApprovals(res.approvals || []))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   };
