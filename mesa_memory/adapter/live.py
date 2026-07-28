@@ -35,6 +35,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = None,
+        embedding_model_name: Optional[str] = None,
         timeout_seconds: float = 20.0,
     ):
         if openai is None:
@@ -42,6 +43,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         self.api_key = api_key
         self.base_url = base_url
         self.model_name = model_name or "llama-3.1-8b-instant"
+        self.embedding_model_name = embedding_model_name or "text-embedding-3-small"
         self.timeout_seconds = float(timeout_seconds)
 
         if not api_key:
@@ -170,7 +172,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     def embed(self, text: str, **kwargs) -> list[float]:
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:
             response = self._sync_client.embeddings.create(
                 model=model,
@@ -195,7 +197,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),  # type: ignore[no-untyped-def]
     )
     async def aembed(self, text: str, **kwargs) -> list[float]:
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:
             response = await self._async_client.embeddings.create(
                 model=model,
@@ -225,7 +227,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:  # type: ignore[no-untyped-def]
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:
             response = self._sync_client.embeddings.create(
                 model=model,
@@ -251,7 +253,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:  # type: ignore[no-untyped-def]
             response = await self._async_client.embeddings.create(
                 model=model,

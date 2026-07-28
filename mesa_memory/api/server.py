@@ -21,7 +21,9 @@ from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from mesa_api.router import create_memory_router
+from mesa_api.routers.control.router import create_control_router
 from mesa_api.v4_router import create_v4_router
+from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import (
     RuntimeProfile,
@@ -155,6 +157,7 @@ class AppState:
     api_key_store: APIKeyStore
     background_tasks: set[asyncio.Task]
     worker_supervisor: WorkerSupervisor
+    mcp_control: ControlPlaneMiddleware
     is_ready: bool
 
 
@@ -293,8 +296,16 @@ async def lifespan(app: FastAPI):
     # Schema DDL — single source of truth (B-1 fix)
     await initialize_schema(state.sqlite_engine)
 
+    embedding_provider = None
+    if runtime.external_provider_enabled:
+        # The V4 retrieval lane must embed queries with the same configured
+        # external model used by projection.  Falling back to an unavailable
+        # local model creates a dimension mismatch and turns recall into 500.
+        embedding_provider = AdapterFactory.get_adapter().aembed
     state.vector_engine = VectorEngine(
-        uri=str(_VECTOR_PATH), allow_model_loading=runtime.model_enabled
+        uri=str(_VECTOR_PATH),
+        allow_model_loading=runtime.model_enabled,
+        embedding_provider=embedding_provider,
     )
     await state.vector_engine.initialize()
 
@@ -326,6 +337,10 @@ async def lifespan(app: FastAPI):
         graph_provider=state.graph_provider,
     )
     await state.dao.initialize()
+
+    # The dashboard control plane shares the API's single SQLite storage
+    # owner.  It must not construct or close a second AsyncEngine lifecycle.
+    state.mcp_control = ControlPlaneMiddleware(engine=state.sqlite_engine)
 
     # Initialize RBAC policy engine — MUST complete before port opens
     state.access_control = AccessControl(
@@ -699,6 +714,13 @@ def get_access_control() -> AccessControl:
     return ac
 
 
+def get_mcp_control() -> ControlPlaneMiddleware:
+    control = getattr(state, "mcp_control", None)
+    if control is None:
+        raise HTTPException(status_code=503, detail="MCP control plane not initialized")
+    return control
+
+
 from mesa_memory.api.middleware import check_daily_limit
 
 # Setup v3 API Router utilizing Dependency Injection
@@ -716,6 +738,19 @@ memory_router = create_memory_router(
 app.include_router(memory_router, dependencies=router_dependencies)
 v4_router = create_v4_router(get_dao=get_dao, get_access_control=get_access_control)
 app.include_router(v4_router, dependencies=router_dependencies)
+app.include_router(
+    create_control_router(
+        lambda: get_mcp_control().client_repo,
+        lambda: get_mcp_control().conn_repo,
+        lambda: get_mcp_control().settings_repo,
+        lambda: get_mcp_control().policy_repo,
+        lambda: get_mcp_control().activity_repo,
+        lambda: get_mcp_control().approval_repo,
+        lambda: get_mcp_control().credential_repo,
+        lambda: get_mcp_control().binding_profile_repo,
+    ),
+    dependencies=router_dependencies,
+)
 # type: ignore[no-untyped-def]
 
 

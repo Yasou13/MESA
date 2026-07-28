@@ -200,7 +200,7 @@ class GatewayOperationService:
             client_id, binding, connection_id, tool_name, idempotency_key, arguments
         )
         if operation["status"] not in {"CREATED", "APPROVED"}:
-            return _operation_response(operation)
+            return await self.operation_status(client_id, operation["operation_id"])
         effect = await self._middleware.policy_engine.evaluate(
             client_id, binding["external_project_id"], _POLICY_OPERATIONS[tool_name]
         )
@@ -257,6 +257,7 @@ class GatewayOperationService:
         operation = await self._get_operation(operation_id)
         if operation is None or operation["client_id"] != client_id:
             raise MCPError("NOT_FOUND", "operation was not found")
+        operation = await self._refresh_operation_finality(operation)
         return _operation_response(operation)
 
     async def operation_status_for_principal(
@@ -269,6 +270,7 @@ class GatewayOperationService:
             or operation["binding_id"] != principal.binding_id
         ):
             raise MCPError("NOT_FOUND", "operation was not found")
+        operation = await self._refresh_operation_finality(operation)
         return _operation_response(operation)
 
     async def call_tool_for_principal(
@@ -296,7 +298,9 @@ class GatewayOperationService:
             arguments,
         )
         if operation["status"] not in {"CREATED", "APPROVED"}:
-            return _operation_response(operation)
+            return await self.operation_status_for_principal(
+                principal, operation["operation_id"]
+            )
         effect = await self._middleware.policy_engine.evaluate(
             principal.client_id,
             binding["external_project_id"],
@@ -574,16 +578,70 @@ class GatewayOperationService:
         mutation_id = (
             response.get("mutation_id") if isinstance(response, dict) else None
         )
+        # V4 returns 202 once the mutation is durably admitted, not when the
+        # worker has committed it.  Do not expose that admission as success.
+        status = "SUBMITTED" if mutation_id else "COMMITTED"
         await self._set_operation(
-            operation["operation_id"],
-            "ACCEPTED",
-            mutation_id=mutation_id,
-            response=response,
+            operation["operation_id"], status, mutation_id=mutation_id, response=response
         )
         self._invalidate_recall_cache(binding["binding_id"])
         return await self.operation_status(
             operation["client_id"], operation["operation_id"]
         )
+
+    async def _refresh_operation_finality(
+        self, operation: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Synchronize non-terminal MCP writes with the V4 mutation ledger.
+
+        This deliberately happens when a caller polls rather than in a
+        background task, so a gateway restart cannot lose or invent finality.
+        ``ACCEPTED`` is a legacy admission status and is refreshed as well.
+        """
+        if operation["status"] not in {"SUBMITTED", "PROCESSING", "ACCEPTED"}:
+            return operation
+
+        mutation_id = operation.get("mutation_id")
+        if not mutation_id:
+            # Pre-finality versions used ACCEPTED for synchronous calls too.
+            # A remember without a mutation ID cannot be proven committed.
+            if operation["tool_name"] == "mesa_remember":
+                await self._set_operation(
+                    operation["operation_id"],
+                    "FAILED",
+                    error_code="FINALITY_UNAVAILABLE",
+                    error_message="V4 mutation identifier is unavailable",
+                )
+            else:
+                await self._set_operation(operation["operation_id"], "COMMITTED")
+            refreshed = await self._get_operation(operation["operation_id"])
+            return refreshed or operation
+
+        try:
+            mutation = await self._breaker.call(
+                lambda: self._v4.v4_mutation_status(str(mutation_id))
+            )
+        except MCPError as exc:
+            # The durable MCP ledger remains authoritative while V4 is
+            # temporarily unreachable; callers can retry their status poll.
+            if exc.retryable:
+                return operation
+            await self._set_operation(
+                operation["operation_id"],
+                "FAILED",
+                error_code=exc.code,
+                error_message=exc.message,
+            )
+        else:
+            status, error_code, error_message = _mcp_status_from_mutation(mutation)
+            await self._set_operation(
+                operation["operation_id"],
+                status,
+                error_code=error_code,
+                error_message=error_message,
+            )
+        refreshed = await self._get_operation(operation["operation_id"])
+        return refreshed or operation
 
     async def _set_operation(
         self,
@@ -596,10 +654,10 @@ class GatewayOperationService:
         error_code: str | None = None,
         error_message: str | None = None,
     ) -> None:
-        terminal = status in {"ACCEPTED", "DENIED", "FAILED"}
+        terminal = status in {"COMMITTED", "REJECTED", "DENIED", "FAILED"}
         async with self._engine.transaction() as db:
             await db.execute(
-                "UPDATE mcp_operations SET status = ?, approval_id = COALESCE(?, approval_id), mutation_id = COALESCE(?, mutation_id), response_json = COALESCE(?, response_json), error_code = COALESCE(?, error_code), error_message = COALESCE(?, error_message), updated_at = CURRENT_TIMESTAMP, completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE operation_id = ?",
+                "UPDATE mcp_operations SET status = ?, approval_id = COALESCE(?, approval_id), mutation_id = COALESCE(?, mutation_id), response_json = COALESCE(?, response_json), error_code = COALESCE(?, error_code), error_message = COALESCE(?, error_message), updated_at = CURRENT_TIMESTAMP, completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END WHERE operation_id = ?",
                 (
                     status,
                     approval_id,
@@ -664,6 +722,20 @@ def _operation_response(operation: dict[str, Any]) -> dict[str, Any]:
             "code": operation["error_code"],
             "message": operation.get("error_message"),
         }
-    if operation["status"] == "PENDING_APPROVAL":
+    if operation["status"] in {"PENDING_APPROVAL", "SUBMITTED", "PROCESSING"}:
         result["poll_after_ms"] = 2000
     return result
+
+
+def _mcp_status_from_mutation(
+    mutation: dict[str, Any],
+) -> tuple[str, str | None, str | None]:
+    """Map V4's durable mutation ledger to the public MCP operation state."""
+    state = str(mutation.get("state", "")).upper()
+    if state == "COMMITTED":
+        return "COMMITTED", None, None
+    if state == "REJECTED":
+        return "REJECTED", "MUTATION_REJECTED", "V4 rejected the mutation"
+    if state in {"DEAD_LETTER", "ROLLED_BACK", "BLOCKED", "FAILED"}:
+        return "FAILED", "MUTATION_FAILED", f"V4 mutation ended as {state}"
+    return "PROCESSING", None, None

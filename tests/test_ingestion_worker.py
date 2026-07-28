@@ -260,6 +260,13 @@ class TestProcessColdPath:
                     "session_id": "session-1",
                     "content": "Validated content",
                     "metadata": {"source": "test"},
+                    "tenant_id": "tenant-v4",
+                    "workspace_id": "workspace-v4",
+                    "dataset_id": "dataset-v4",
+                    "document_id": "document-v4",
+                    "revision_id": "revision-v4",
+                    "chunk_id": "chunk-v4",
+                    "source_ref": "mcp-tool",
                 },
             }
         )
@@ -272,6 +279,13 @@ class TestProcessColdPath:
             assert record["tier3_deferred"] is True
             assert record["raw_log_id"] == 17
             assert record["candidate_id"] == record["cmb_id"]
+            assert record["tenant_id"] == "tenant-v4"
+            assert record["workspace_id"] == "workspace-v4"
+            assert record["dataset_id"] == "dataset-v4"
+            assert record["document_id"] == "document-v4"
+            assert record["revision_id"] == "revision-v4"
+            assert record["chunk_id"] == "chunk-v4"
+            assert record["source_ref"] == "mcp-tool"
             return {
                 "accepted": [record["candidate_id"]],
                 "rejected": [],

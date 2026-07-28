@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from mesa_memory.observability.logger import setup_logging
 
@@ -16,11 +17,13 @@ from mesa_memory.config import RuntimeProfile, load_runtime_profile
 def command_for_profile() -> list[str]:
     runtime = load_runtime_profile()
     if runtime.profile is RuntimeProfile.WORKER_ONLY:
-        return ["python", "-m", "mesa_memory.worker_runtime"]
+        return [sys.executable, "-m", "mesa_memory.worker_runtime"]
     if not runtime.api_enabled:
         raise RuntimeError("selected runtime profile does not expose an API process")
     port = os.environ.get("MESA_PORT", "8000")
     return [
+        sys.executable,
+        "-m",
         "uvicorn",
         "mesa_memory.api.server:app",
         "--host",

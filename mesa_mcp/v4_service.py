@@ -68,7 +68,21 @@ class MesaHttpV4Service:
         tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
         workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
         actor_id = kwargs.get("actor_id") or self._settings.actor_id
-        document_id = kwargs.get("document_id") or f"doc_{uuid.uuid4().hex[:8]}"
+        idempotency_key = kwargs.get("idempotency_key")
+        if isinstance(idempotency_key, str) and idempotency_key:
+            # V4 provenance IDs are global, while an MCP retry must retain the
+            # same physical identities.  Derive all three from the durable
+            # idempotency key instead of reusing `rev_1` / `chunk_1` across
+            # unrelated documents.
+            seed = hashlib.sha256(idempotency_key.encode()).hexdigest()[:24]
+            document_id = kwargs.get("document_id") or f"doc_{seed}"
+            revision_id = f"rev_{seed}"
+            chunk_id = f"chunk_{seed}"
+        else:
+            seed = uuid.uuid4().hex
+            document_id = kwargs.get("document_id") or f"doc_{seed[:24]}"
+            revision_id = f"rev_{seed}"
+            chunk_id = f"chunk_{seed}"
         content = kwargs["content"]
 
         client = self._http_client
@@ -96,14 +110,21 @@ class MesaHttpV4Service:
                 session_id=session_id,
                 dataset_id=dataset_id,
                 document_id=document_id,
-                revision_id="rev_1",
-                chunk_id="chunk_1",
+                revision_id=revision_id,
+                chunk_id=chunk_id,
                 title=kwargs.get("title", f"Memory {document_id}"),
                 source_ref=kwargs.get("source_ref", "mcp_tool"),
                 content=content,
                 metadata=kwargs.get("metadata", {}),
                 idempotency_key=kwargs.get("idempotency_key"),
             )
+        except Exception as exc:
+            raise _map_exception(exc) from exc
+
+    async def v4_mutation_status(self, mutation_id: str) -> dict[str, Any]:
+        """Return the durable V4 mutation state for an admitted write."""
+        try:
+            return await self._http_client.status(mutation_id)
         except Exception as exc:
             raise _map_exception(exc) from exc
 
@@ -173,16 +194,34 @@ class MesaHttpV4Service:
 
 
 def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
-    metadata = item.get("metadata") or {}
+    entity = item.get("entity")
+    entity = entity if isinstance(entity, dict) else {}
+    raw_provenance = item.get("provenance")
+    assertions = raw_provenance if isinstance(raw_provenance, list) else []
+    primary_assertion = next(
+        (assertion for assertion in assertions if isinstance(assertion, dict)), {}
+    )
+    metadata = item.get("metadata") or primary_assertion.get("metadata") or {}
+    metadata = metadata if isinstance(metadata, dict) else {}
+    provenance: dict[str, Any]
+    if assertions:
+        provenance = {
+            "entity_id": entity.get("entity_id"),
+            "assertions": assertions,
+        }
+    elif isinstance(raw_provenance, dict):
+        provenance = raw_provenance
+    else:
+        provenance = {}
     return {
-        "memory_id": item.get("memory_id") or item.get("chunk_id"),
-        "document_id": item.get("document_id"),
-        "chunk_id": item.get("chunk_id"),
-        "content": item.get("content"),
+        "memory_id": item.get("memory_id") or entity.get("entity_id") or item.get("chunk_id"),
+        "document_id": item.get("document_id") or primary_assertion.get("document_id"),
+        "chunk_id": item.get("chunk_id") or primary_assertion.get("chunk_id"),
+        "content": item.get("content") or entity.get("canonical_name"),
         "memory_type": metadata.get("memory_type", "unknown"),
-        "status": item.get("status", "active"),
-        "score": item.get("score", 0.0),
-        "provenance": item.get("provenance", {}),
+        "status": item.get("status") or entity.get("status", "active"),
+        "score": item.get("score") or item.get("final_score") or item.get("rrf_score", 0.0),
+        "provenance": provenance,
     }
 
 

@@ -44,6 +44,14 @@ def test_live_adapter_configures_bounded_clients(monkeypatch):
     async_client.assert_called_once_with(**expected)
 
 
+def test_live_adapter_uses_configured_embedding_model():
+    adapter = OpenAICompatibleAdapter(
+        api_key="test-key", embedding_model_name="nvidia/nv-embed-v1"
+    )
+
+    assert adapter.embedding_model_name == "nvidia/nv-embed-v1"
+
+
 @pytest.mark.parametrize("timeout_seconds", [0, -1, float("inf")])
 def test_live_adapter_rejects_invalid_timeout(timeout_seconds):
     with pytest.raises(ValueError, match="positive finite"):

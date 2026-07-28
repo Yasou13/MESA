@@ -339,6 +339,9 @@ class MesaConfig(BaseSettings):
     llm_model_name: str | None = Field(
         "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
     )
+    llm_embedding_model_name: str = Field(
+        "text-embedding-3-small", validation_alias="LLM_EMBEDDING_MODEL"
+    )
     llm_timeout_seconds: float = Field(
         20.0, validation_alias="LLM_TIMEOUT_SECONDS"
     )

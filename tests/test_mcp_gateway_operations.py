@@ -14,13 +14,27 @@ from mesa_storage.sqlite_engine import AsyncEngine
 class FakeV4Service:
     def __init__(self) -> None:
         self.remember_calls = 0
+        self.mutation_states: dict[str, str] = {}
 
     async def health(self) -> dict[str, Any]:
         return {"status": "healthy"}
 
     async def v4_remember(self, **_kwargs: Any) -> dict[str, Any]:
         self.remember_calls += 1
-        return {"status": "accepted", "mutation_id": "mut_gateway_1"}
+        mutation_id = f"mut_gateway_{self.remember_calls}"
+        self.mutation_states[mutation_id] = "RECEIVED"
+        return {"status": "accepted", "mutation_id": mutation_id}
+
+    async def v4_mutation_status(self, mutation_id: str) -> dict[str, Any]:
+        return {
+            "mutation_id": mutation_id,
+            "state": self.mutation_states[mutation_id],
+            "failure_class": (
+                "Tier3Rejected"
+                if self.mutation_states[mutation_id] == "REJECTED"
+                else None
+            ),
+        }
 
     async def v4_improve(self, **_kwargs: Any) -> dict[str, Any]:
         return {"mutation_id": "mut_gateway_2"}
@@ -100,9 +114,50 @@ async def test_write_is_durable_pending_approval_and_idempotent(gateway) -> None
     )
     assert await service.process_approved_operations() == 1
     status = await service.operation_status("antigravity", first["operation_id"])
-    assert status["status"] == "ACCEPTED"
+    assert status["status"] == "PROCESSING"
     assert status["mutation_id"] == "mut_gateway_1"
     assert fake.remember_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_operation_status_tracks_final_v4_mutation_state(gateway) -> None:
+    service, fake, connection_id, middleware = gateway
+
+    rejected = await service.call_tool(
+        client_id="antigravity",
+        connection_id=connection_id,
+        tool_name="mesa_remember",
+        arguments={"content": "rejectable", "idempotency_key": "idem-rejected"},
+    )
+    await middleware.approval_repo.decide_approval(
+        rejected["approval_id"], "APPROVED", "dashboard"
+    )
+    await service.process_approved_operations()
+    assert (
+        await service.operation_status("antigravity", rejected["operation_id"])
+    )["status"] == "PROCESSING"
+
+    fake.mutation_states["mut_gateway_1"] = "REJECTED"
+    rejected_status = await service.operation_status(
+        "antigravity", rejected["operation_id"]
+    )
+    assert rejected_status["status"] == "REJECTED"
+    assert rejected_status["error"]["code"] == "MUTATION_REJECTED"
+
+    committed = await service.call_tool(
+        client_id="antigravity",
+        connection_id=connection_id,
+        tool_name="mesa_remember",
+        arguments={"content": "committable", "idempotency_key": "idem-committed"},
+    )
+    await middleware.approval_repo.decide_approval(
+        committed["approval_id"], "APPROVED", "dashboard"
+    )
+    await service.process_approved_operations()
+    fake.mutation_states["mut_gateway_2"] = "COMMITTED"
+    assert (
+        await service.operation_status("antigravity", committed["operation_id"])
+    )["status"] == "COMMITTED"
 
 
 @pytest.mark.asyncio

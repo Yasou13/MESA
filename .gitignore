@@ -200,3 +200,6 @@ mesa-benchmark/datasets/external_raw/
 .gemini_diff.txt
 mcp_test1.md
 mesa_control_panel.md
+
+# Local backups made by `mesa codex install`; project config itself is tracked.
+.codex/*.mesa-backup-*

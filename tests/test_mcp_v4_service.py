@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import pytest
+
+from mesa_mcp.configuration import MCPSettings
+from mesa_mcp.v4_service import MesaHttpV4Service
+
+
+class RecordingV4Client:
+    def __init__(self) -> None:
+        self.documents: list[dict] = []
+        self.inserts: list[dict] = []
+
+    async def start_session(self, **_kwargs):
+        return {"session_id": "session-1"}
+
+    async def create_document(self, **kwargs):
+        self.documents.append(kwargs)
+        return {"document_id": kwargs["document_id"]}
+
+    async def insert(self, **kwargs):
+        self.inserts.append(kwargs)
+        return {"mutation_id": f"mutation-{len(self.inserts)}"}
+
+    async def search(self, **_kwargs):
+        return {
+            "results": [
+                {
+                    "entity": {
+                        "entity_id": "entity-1",
+                        "canonical_name": "Approved writes",
+                        "status": "ACTIVE",
+                    },
+                    "rrf_score": 0.2,
+                    "final_score": 0.25,
+                    "provenance": [
+                        {
+                            "document_id": "doc-1",
+                            "revision_id": "rev-1",
+                            "chunk_id": "chunk-1",
+                            "source_ref": "mcp_tool",
+                            "metadata": {"memory_type": "decision"},
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_v4_remember_generates_unique_provenance_per_write_and_stable_ids_per_retry():
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    client = RecordingV4Client()
+    service._http_client = client  # type: ignore[assignment]
+
+    await service.v4_remember(
+        tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
+        actor_id="agent", content="first", idempotency_key="write-1",
+    )
+    await service.v4_remember(
+        tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
+        actor_id="agent", content="second", idempotency_key="write-2",
+    )
+    await service.v4_remember(
+        tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
+        actor_id="agent", content="first", idempotency_key="write-1",
+    )
+
+    first, second, retry = client.inserts
+    assert first["document_id"] != second["document_id"]
+    assert first["revision_id"] != second["revision_id"]
+    assert first["chunk_id"] != second["chunk_id"]
+    assert {
+        key: retry[key]
+        for key in ("document_id", "revision_id", "chunk_id")
+    } == {
+        key: first[key]
+        for key in ("document_id", "revision_id", "chunk_id")
+    }
+
+
+@pytest.mark.asyncio
+async def test_v4_recall_maps_v4_entity_and_assertion_shape_to_typed_memory():
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    client = RecordingV4Client()
+    service._http_client = client  # type: ignore[assignment]
+
+    results = await service.v4_recall(
+        tenant_id="tenant",
+        workspace_id="workspace",
+        dataset_id="dataset",
+        actor_id="agent",
+        query="approved writes",
+    )
+
+    assert results == [
+        {
+            "memory_id": "entity-1",
+            "document_id": "doc-1",
+            "chunk_id": "chunk-1",
+            "content": "Approved writes",
+            "memory_type": "decision",
+            "status": "ACTIVE",
+            "score": 0.25,
+            "provenance": {
+                "entity_id": "entity-1",
+                "assertions": [
+                    {
+                        "document_id": "doc-1",
+                        "revision_id": "rev-1",
+                        "chunk_id": "chunk-1",
+                        "source_ref": "mcp_tool",
+                        "metadata": {"memory_type": "decision"},
+                    }
+                ],
+            },
+        }
+    ]

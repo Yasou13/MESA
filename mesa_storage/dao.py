@@ -2835,6 +2835,36 @@ class MemoryDAO:
                 (tenant_id, *datasets, *entity_ids, *entity_ids),
             ) as cursor:
                 provenance = [dict(row) for row in await cursor.fetchall()]
+            mutation_ids = sorted(
+                {
+                    str(assertion["mutation_id"])
+                    for assertion in provenance
+                    if assertion.get("mutation_id")
+                }
+            )
+            metadata_by_mutation: dict[str, dict[str, Any]] = {}
+            if mutation_ids:
+                mutation_placeholders = ",".join("?" for _ in mutation_ids)
+                async with db.execute(
+                    "SELECT mutation_id, metadata_json FROM memory_mutations "
+                    f"WHERE mutation_id IN ({mutation_placeholders})",
+                    mutation_ids,
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        try:
+                            metadata = json.loads(str(row["metadata_json"] or "{}"))
+                        except (TypeError, json.JSONDecodeError):
+                            metadata = {}
+                        if isinstance(metadata, dict):
+                            metadata_by_mutation[str(row["mutation_id"])] = {
+                                key: value
+                                for key, value in metadata.items()
+                                if not str(key).startswith("_mesa_")
+                            }
+            for assertion in provenance:
+                metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
+                if metadata:
+                    assertion["metadata"] = metadata
         by_entity: dict[str, list[dict[str, Any]]] = {item: [] for item in entity_ids}
         authority_factor = {
             "OFFICIAL": 1.15,

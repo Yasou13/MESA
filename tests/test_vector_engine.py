@@ -93,6 +93,29 @@ class TestLifecycle:
         result = await eng.health_check()
         assert result["status"] == "not_initialized"
 
+    @pytest.mark.asyncio
+    async def test_external_embedding_provider_is_used_for_queries(self):
+        calls: list[str] = []
+
+        async def provider(text: str) -> list[float]:
+            calls.append(text)
+            return [1.0, 2.0]
+
+        eng = VectorEngine("unused", embedding_provider=provider)
+        # Provider dispatch is independent of LanceDB I/O; keeping this unit
+        # test in-memory avoids starting the embedded database for a pure
+        # adapter contract.
+        eng._initialized = True
+        try:
+            assert await eng.compute_embedding("query") == [1.0, 2.0]
+            assert await eng.compute_embedding_batch(["one", "two"]) == [
+                [1.0, 2.0],
+                [1.0, 2.0],
+            ]
+        finally:
+            await eng.close()
+        assert calls == ["query", "one", "two"]
+
 
 # ===================================================================
 # Upsert & search
