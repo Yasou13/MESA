@@ -70,6 +70,51 @@ from mesa_storage.vector_engine import VectorEngine
 
 logger = logging.getLogger("MESA_DAO")
 
+
+def _public_tier3_audit(value: Any) -> dict[str, Any] | None:
+    """Whitelist the bounded Tier-3 receipt safe for status endpoints."""
+    if not isinstance(value, dict):
+        return None
+    decisions = value.get("decisions")
+    justifications = value.get("justifications")
+    models = value.get("models")
+    if not isinstance(decisions, dict):
+        return None
+    if not isinstance(justifications, dict):
+        return None
+    if not isinstance(models, dict):
+        return None
+    allowed_decisions = {"STORE", "DISCARD", "NOT_RUN", "NOT_AVAILABLE"}
+    primary = decisions.get("primary")
+    secondary = decisions.get("secondary")
+    if primary not in allowed_decisions or secondary not in allowed_decisions:
+        return None
+    result = {
+        "route": str(value.get("route", "unknown"))[:64],
+        "route_reason": str(value.get("route_reason", "unknown"))[:96],
+        "decisions": {"primary": primary, "secondary": secondary},
+        "justifications": {
+            "primary": str(justifications.get("primary", ""))[:280],
+            "secondary": (
+                str(justifications["secondary"])[:280]
+                if isinstance(justifications.get("secondary"), str)
+                else None
+            ),
+        },
+        "models": {
+            "primary": str(models.get("primary", "unknown"))[:160],
+            "secondary": (
+                str(models["secondary"])[:160]
+                if isinstance(models.get("secondary"), str)
+                else None
+            ),
+        },
+        "prompt_version": str(value.get("prompt_version", "unknown"))[:96],
+        "reason": str(value.get("reason", "tier3_rejected"))[:120],
+        "accepted": bool(value.get("accepted")),
+    }
+    return result
+
 # ---------------------------------------------------------------------------
 # Sentinel rejection — defence in depth
 # ---------------------------------------------------------------------------
@@ -1290,6 +1335,19 @@ class MemoryDAO:
             if row is None:
                 return None
             mutation = dict(row)
+            try:
+                mutation_metadata = json.loads(str(mutation.get("metadata_json") or "{}"))
+            except (TypeError, ValueError):
+                mutation_metadata = {}
+            tier3_audit = _public_tier3_audit(
+                mutation_metadata.get("_mesa_tier3_audit")
+                if isinstance(mutation_metadata, dict)
+                else None
+            )
+            if tier3_audit is not None:
+                mutation["tier3_audit"] = tier3_audit
+                if str(mutation.get("state", "")).upper() == "REJECTED":
+                    mutation["rejection_reason"] = tier3_audit["reason"]
             async with db.execute(
                 "SELECT store_name, artifact_kind, artifact_id, state, metadata_json "
                 "FROM memory_artifacts WHERE mutation_id = ? ORDER BY store_name, artifact_kind, artifact_id",
@@ -1332,6 +1390,7 @@ class MemoryDAO:
         to_state: str,
         event_type: str,
         failure_class: str | None = None,
+        event_detail: dict[str, Any] | None = None,
     ) -> bool:
         """Compare-and-swap one legal pipeline transition and append its event."""
         transitions = {
@@ -1413,7 +1472,10 @@ class MemoryDAO:
                 to_state,
                 event_type,
                 json.dumps(
-                    {"failure_class": failure_class} if failure_class else {},
+                    {
+                        **({"failure_class": failure_class} if failure_class else {}),
+                        **(event_detail or {}),
+                    },
                     sort_keys=True,
                 ),
             ),
@@ -1427,6 +1489,7 @@ class MemoryDAO:
         to_state: str,
         event_type: str,
         failure_class: str | None = None,
+        event_detail: dict[str, Any] | None = None,
     ) -> bool:
         async with self._sql.transaction() as db:
             changed = await self._transition_pipeline_run_in_tx(
@@ -1435,6 +1498,7 @@ class MemoryDAO:
                 to_state=to_state,
                 event_type=event_type,
                 failure_class=failure_class,
+                event_detail=event_detail,
             )
             await db.commit()
         return changed
@@ -1465,6 +1529,7 @@ class MemoryDAO:
         state: str,
         *,
         failure_class: str | None = None,
+        event_detail: dict[str, Any] | None = None,
     ) -> bool:
         _assert_valid_agent_id(agent_id)
         allowed = {
@@ -1533,7 +1598,41 @@ class MemoryDAO:
                         to_state=pipeline_state,
                         event_type=f"MUTATION_{state}",
                         failure_class=failure_class,
+                        event_detail=event_detail,
                     )
+            await db.commit()
+        return cursor.rowcount == 1
+
+    async def record_mutation_tier3_audit(
+        self, agent_id: str, mutation_id: str, audit: dict[str, Any]
+    ) -> bool:
+        """Persist the already-redacted Tier-3 receipt with its mutation.
+
+        The receipt is held in a reserved metadata namespace so no raw model
+        response, prompt, or caller-provided metadata can be exposed through
+        status APIs.  The worker writes this before its state transition so
+        the accompanying pipeline event and V4 status are coherent.
+        """
+        _assert_valid_agent_id(agent_id)
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT metadata_json FROM memory_mutations "
+                "WHERE mutation_id = ? AND agent_id = ?",
+                (mutation_id, agent_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return False
+            try:
+                metadata = json.loads(str(row[0] or "{}"))
+            except (TypeError, ValueError):
+                metadata = {}
+            metadata["_mesa_tier3_audit"] = audit
+            cursor = await db.execute(
+                "UPDATE memory_mutations SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE mutation_id = ? AND agent_id = ?",
+                (json.dumps(metadata, sort_keys=True), mutation_id, agent_id),
+            )
             await db.commit()
         return cursor.rowcount == 1
 

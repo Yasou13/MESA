@@ -114,6 +114,7 @@ class MesaHttpV4Service:
                 chunk_id=chunk_id,
                 title=kwargs.get("title", f"Memory {document_id}"),
                 source_ref=kwargs.get("source_ref", "mcp_tool"),
+                evidence_span=kwargs.get("evidence_span", ""),
                 content=content,
                 metadata=kwargs.get("metadata", {}),
                 idempotency_key=kwargs.get("idempotency_key"),

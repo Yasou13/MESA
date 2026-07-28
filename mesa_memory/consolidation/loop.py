@@ -773,6 +773,8 @@ class ConsolidationLoop:
         ready_batch = []
         for record in batch:
             if record.get("tier3_deferred"):
+                if _requires_provenance_dual_review(record):
+                    record["_mesa_force_dual_llm"] = True
                 try:
                     is_valid = await self._validate_with_timeout(record)
                 except RetryError as exc:
@@ -832,15 +834,27 @@ class ConsolidationLoop:
                     continue
 
                 is_pass = False
+                tier3_audit: dict[str, Any] | None = None
                 if isinstance(is_valid, dict):
+                    candidate_audit = is_valid.get("tier3_audit")
+                    if isinstance(candidate_audit, dict):
+                        tier3_audit = candidate_audit
                     decision_val = is_valid.get("decision")
                     if decision_val is None and is_valid.get("route") == "dual_llm":
                         # B-5: Legal-domain bypass — decision deferred, forward to Dual-LLM
-                        is_pass = await self.validator.validate(record)
+                        tier3_audit = await self.validator.validate_with_audit(record)
+                        is_pass = bool(tier3_audit["accepted"])
                     elif decision_val is not None:
                         is_pass = decision_val in (True, "STORE", "ADMIT")
                 else:
                     is_pass = bool(is_valid)
+
+                # The worker that owns the V4 mutation later persists this
+                # bounded receipt with its pipeline transition.  Keep it on
+                # the in-memory canonical record only; no raw LLM response or
+                # prompt is ever attached here.
+                if tier3_audit is not None:
+                    record["_mesa_tier3_audit"] = tier3_audit
 
                 if is_pass:
                     self.obs_layer.log_valence_decision(
@@ -1019,6 +1033,32 @@ class ConsolidationLoop:
             except Exception:  # type: ignore[no-untyped-def]
                 llm_circuit_breaker.record_failure()
                 raise
+
+
+def _requires_provenance_dual_review(record: dict[str, Any]) -> bool:
+    """Reserve dual consensus for high-value, source-backed technical memory.
+
+    Provenance is a relevance signal, not a trust bypass: both validators still
+    receive the untrusted-content instruction and must make the final decision.
+    """
+    metadata = record.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    if metadata.get("memory_type") not in {"architecture", "constraint", "decision"}:
+        return False
+    importance = metadata.get("importance")
+    if isinstance(importance, bool) or not isinstance(importance, (int, float)):
+        return False
+    source_ref = record.get("source_ref")
+    evidence_span = record.get("evidence_span")
+    return (
+        importance >= 0.7
+        and isinstance(source_ref, str)
+        and bool(source_ref.strip())
+        and not source_ref.startswith(("raw-log:", "mcp_tool"))
+        and isinstance(evidence_span, str)
+        and bool(evidence_span.strip())
+    )
 
 
 async def start_tier3_deferred_worker(

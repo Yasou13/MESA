@@ -30,9 +30,23 @@ def _make_router_and_mocks(t_route: float = 0.90):
     )
 
     validator = MagicMock(spec=Tier3Validator)
-    # The _parse_decision logic runs synchronously in router.validate()
+    # The response parser provides the safe primary-model receipt.
+    validator._parse_response = MagicMock(
+        return_value={"decision": "STORE", "justification": "Clear memory"}
+    )
     validator._parse_decision = MagicMock(return_value="STORE")
-    # The actual Tier-3 Dual-LLM validation is async
+    # The actual Tier-3 dual-LLM validation returns a durable audit receipt.
+    validator.validate_with_audit = AsyncMock(
+        return_value={
+            "accepted": True,
+            "route": "dual_llm",
+            "decisions": {"primary": "STORE", "secondary": "STORE"},
+            "justifications": {"primary": "grounded", "secondary": "grounded"},
+            "models": {"primary": "test-a", "secondary": "test-b"},
+            "prompt_version": "tier3-valence-v2",
+            "reason": "dual_llm_consensus_store",
+        }
+    )
     validator.validate = AsyncMock(return_value=True)
 
     router = AdaptiveRouter(
@@ -68,8 +82,9 @@ async def test_scenario_a_high_confidence_bypasses_tier3():
         decision = await router.validate(record)
 
     # 3. Assertions
-    # Must bypass Tier-3 (validator.validate should NOT be awaited)
+    # Must bypass Tier-3.
     validator.validate.assert_not_awaited()
+    validator.validate_with_audit.assert_not_awaited()
 
     # Must return the small model's decision
     assert decision["route"] == "small_model"
@@ -99,13 +114,36 @@ async def test_scenario_b_low_confidence_triggers_tier3():
         decision = await router.validate(record)
 
     # 3. Assertions
-    # MUST trigger Tier-3 Dual-LLM (validator.validate MUST be awaited exactly once)
-    validator.validate.assert_awaited_once_with(record)
+    # MUST trigger Tier-3 Dual-LLM exactly once.
+    validator.validate_with_audit.assert_awaited_once_with(record)
 
     # Must return the dual LLM's decision
     assert decision["route"] == "dual_llm"
     assert decision["decision"] is True  # Based on our mock
     assert decision["reason"] == "dual_llm_fallback"
+
+
+@pytest.mark.asyncio
+async def test_strong_provenance_forces_dual_review_before_small_model():
+    router, validator, small_llm = _make_router_and_mocks()
+    record = {
+        "cmb_id": "source-backed-decision",
+        "content_payload": "A source-backed architecture decision.",
+        "_mesa_force_dual_llm": True,
+    }
+
+    with patch("mesa_memory.consolidation.router.config") as mock_config:
+        mock_config.legal_domain_mode = False
+        decision = await router.validate(record)
+
+    assert decision == {
+        "route": "dual_llm",
+        "decision": None,
+        "reason": "provenance_dual_review",
+        "tier3_audit": None,
+    }
+    small_llm.acomplete.assert_not_awaited()
+    validator.validate_with_audit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

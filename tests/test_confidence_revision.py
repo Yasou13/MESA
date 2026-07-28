@@ -72,6 +72,19 @@ def _make_router(
     return router, dao, llm
 
 
+def _dual_audit(accepted: bool) -> dict:
+    decision = "STORE" if accepted else "DISCARD"
+    return {
+        "accepted": accepted,
+        "route": "dual_llm",
+        "decisions": {"primary": decision, "secondary": decision},
+        "justifications": {"primary": "test", "secondary": "test"},
+        "models": {"primary": "test-a", "secondary": "test-b"},
+        "prompt_version": "tier3-valence-v2",
+        "reason": "dual_llm_consensus_store" if accepted else "dual_llm_consensus_discard",
+    }
+
+
 # ===================================================================
 # TEST 1: pseudo_entropy is completely excised
 # ===================================================================
@@ -295,8 +308,8 @@ class TestRoutingIntegration:
 
         llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
 
-        # Mock the Dual-LLM validator to return True
-        router.validator.validate = AsyncMock(return_value=True)
+        # Mock the Dual-LLM validator receipt.
+        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
 
         record = {
             "cmb_id": "test-002",
@@ -310,7 +323,7 @@ class TestRoutingIntegration:
 
         assert result["route"] == "dual_llm"
         assert result["reason"] == "dual_llm_fallback"
-        router.validator.validate.assert_awaited_once()
+        router.validator.validate_with_audit.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_judge_failure_forces_dual_llm(self):
@@ -327,7 +340,7 @@ class TestRoutingIntegration:
                 return "Cannot evaluate"  # → 0.0
 
         llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
-        router.validator.validate = AsyncMock(return_value=True)
+        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
 
         record = {
             "cmb_id": "test-003",
@@ -357,7 +370,7 @@ class TestRoutingIntegration:
                 return "0.99"  # High confidence — but irrelevant
 
         llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
-        router.validator.validate = AsyncMock(return_value=False)
+        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(False))
 
         record = {
             "cmb_id": "test-004",

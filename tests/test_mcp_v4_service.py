@@ -59,6 +59,7 @@ async def test_v4_remember_generates_unique_provenance_per_write_and_stable_ids_
     await service.v4_remember(
         tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
         actor_id="agent", content="first", idempotency_key="write-1",
+        source_ref="meeting://architecture/42", evidence_span="12:51",
     )
     await service.v4_remember(
         tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
@@ -80,6 +81,8 @@ async def test_v4_remember_generates_unique_provenance_per_write_and_stable_ids_
         key: first[key]
         for key in ("document_id", "revision_id", "chunk_id")
     }
+    assert first["source_ref"] == "meeting://architecture/42"
+    assert first["evidence_span"] == "12:51"
 
 
 @pytest.mark.asyncio

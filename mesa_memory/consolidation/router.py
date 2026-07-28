@@ -16,7 +16,7 @@ import logging
 import random
 import time
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -24,6 +24,8 @@ from mesa_memory.consolidation.validator import (
     VALENCE_PROMPT_A_TEMPLATE,
     Tier3ValidationError,
     Tier3Validator,
+    single_model_audit,
+    tier3_provenance_context,
 )
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.valence.core import ValenceMotor
@@ -58,6 +60,7 @@ class RoutingDecision(TypedDict):
     route: str
     decision: bool | None
     reason: str
+    tier3_audit: dict[str, Any] | None
 
 
 @dataclass
@@ -300,6 +303,15 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
                 route="dual_llm",
                 decision=None,
                 reason="legal_domain_strict_mode",
+                tier3_audit=None,
+            )
+
+        if record.get("_mesa_force_dual_llm"):
+            return RoutingDecision(
+                route="dual_llm",
+                decision=None,
+                reason="provenance_dual_review",
+                tier3_audit=None,
             )
 
         agent_id = record.get("agent_id", "mesa_consolidation_system")
@@ -308,7 +320,7 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
         prompt = VALENCE_PROMPT_A_TEMPLATE.format(
             content=record.get("content_payload", ""),
-            source=record.get("source", "unknown"),
+            source=tier3_provenance_context(record, default_source="unknown"),
             performative=record.get("performative", "unknown"),
         )
 
@@ -323,12 +335,20 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
         requires_fallback = False
         small_model_decision = False
+        small_model_justification = "No model justification supplied."
 
         # SCHEMA FALLBACK: Strict try/except to prevent loop crashes on bad JSON
         try:
-            small_model_decision = (
-                self.validator._parse_decision(raw_response, "small_llm") == "STORE"
-            )
+            small_response = self.validator._parse_response(raw_response, "small_llm")
+            if isinstance(small_response, dict):
+                small_model_decision = small_response["decision"] == "STORE"
+                small_model_justification = str(
+                    small_response.get("justification", small_model_justification)
+                )
+            else:  # Compatibility with pre-audit validator test doubles.
+                small_model_decision = (
+                    self.validator._parse_decision(raw_response, "small_llm") == "STORE"
+                )
         except Tier3ValidationError as e:
             logger.warning(
                 "ROUTER_SCHEMA_FALLBACK | Small model failed schema: %s. Falling back.",
@@ -355,6 +375,12 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
                 route="small_model",
                 decision=small_model_decision,
                 reason="small_model_confident",
+                tier3_audit=single_model_audit(
+                    decision="STORE" if small_model_decision else "DISCARD",
+                    justification=small_model_justification,
+                    model=self.small_llm,
+                    route_reason="small_model_confident",
+                ),
             )
 
         # -----------------------------------------------------------------
@@ -367,7 +393,26 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
             confidence_score,
         )
 
-        dual_llm_decision = await self.validator.validate(record)
+        dual_llm_audit = await self.validator.validate_with_audit(record)
+        if isinstance(dual_llm_audit, dict) and "accepted" in dual_llm_audit:
+            dual_llm_decision = bool(dual_llm_audit["accepted"])
+        else:  # Compatibility with pre-audit validator test doubles.
+            dual_llm_decision = await self.validator.validate(record)
+            dual_llm_audit = {
+                "route": "dual_llm",
+                "decisions": {
+                    "primary": "STORE" if dual_llm_decision else "DISCARD",
+                    "secondary": "NOT_AVAILABLE",
+                },
+                "justifications": {
+                    "primary": "Legacy validator result without a detailed receipt.",
+                    "secondary": None,
+                },
+                "models": {"primary": None, "secondary": None},
+                "prompt_version": "unknown",
+                "accepted": dual_llm_decision,
+                "reason": "legacy_validator_result",
+            }
 
         if is_audit and not requires_fallback:
             # We are auditing a "confident" small model response.
@@ -401,4 +446,10 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
             route="dual_llm",
             decision=dual_llm_decision,
             reason="dual_llm_fallback" if requires_fallback else "dual_llm_audit",
+            tier3_audit={
+                **dual_llm_audit,
+                "route_reason": (
+                    "dual_llm_fallback" if requires_fallback else "dual_llm_audit"
+                ),
+            },
         )

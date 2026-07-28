@@ -370,10 +370,21 @@ async def _process_cold_path_impl(
                     await dao.record_mutation(candidate_record, raw_log_id=log_id)
                 async with _tier3_semaphore:
                     outcome = await consolidation_loop.run_batch([candidate_record])
+                tier3_audit = candidate_record.get("_mesa_tier3_audit")
+                event_detail: dict[str, Any] | None = None
+                if isinstance(tier3_audit, dict):
+                    event_detail = {"tier3": tier3_audit}
+                    if type(dao) is MemoryDAO:
+                        await dao.record_mutation_tier3_audit(
+                            payload_agent_id, candidate.mutation_id, tier3_audit
+                        )
                 if candidate.candidate_id in outcome.get("accepted", []):
                     if type(dao) is MemoryDAO:
                         await dao.set_mutation_state(
-                            payload_agent_id, candidate.mutation_id, "VALIDATED"
+                            payload_agent_id,
+                            candidate.mutation_id,
+                            "VALIDATED",
+                            event_detail=event_detail,
                         )
                     await _transition("processed", target_agent_id=payload_agent_id)
                     logger.info(
@@ -389,6 +400,7 @@ async def _process_cold_path_impl(
                             candidate.mutation_id,
                             "REJECTED",
                             failure_class="Tier3Rejected",
+                            event_detail=event_detail,
                         )
                     await _transition(
                         "rejected",
@@ -402,6 +414,7 @@ async def _process_cold_path_impl(
                         candidate.mutation_id,
                         "RETRY_PENDING",
                         failure_class="Tier3Unavailable",
+                        event_detail=event_detail,
                     )
                 await _transition("DEFERRED", target_agent_id=payload_agent_id)
                 return

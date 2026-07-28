@@ -25,6 +25,7 @@ from mcp.server.stdio import stdio_server
 
 from .configuration import MCPSettings
 from .errors import MCPError
+from .security import MEMORY_TYPES
 from .workspace import workspace_fingerprint
 
 
@@ -332,6 +333,13 @@ def _tools() -> list[types.Tool]:
                     "content": {"type": "string"},
                     "title": {"type": "string"},
                     "metadata": {"type": "object"},
+                    "source_ref": {"type": "string", "maxLength": 2048},
+                    "evidence_span": {"type": "string", "maxLength": 4096},
+                    "memory_type": {
+                        "type": "string",
+                        "enum": sorted(MEMORY_TYPES),
+                    },
+                    "importance": {"type": "number", "minimum": 0, "maximum": 1},
                     "idempotency_key": {
                         "type": "string",
                         "minLength": 1,
