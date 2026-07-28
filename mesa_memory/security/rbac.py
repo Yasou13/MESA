@@ -153,6 +153,12 @@ class AccessControl:
                     PRIMARY KEY (principal_id, dataset_id, permission)
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS principal_control_roles (
+                    principal_id TEXT PRIMARY KEY,
+                    role TEXT NOT NULL
+                )
+            """)
             # Seed the reserved system daemon identity with WRITE access
             await db.execute(
                 "INSERT OR IGNORE INTO permissions "
@@ -162,6 +168,31 @@ class AccessControl:
             await db.commit()
 
         self._initialized = True
+
+    async def grant_control_role(self, principal_id: str, role: str = "ADMIN") -> None:
+        """Grant a server-side role for the MCP control plane."""
+        normalized = role.upper()
+        if normalized != "ADMIN":
+            raise ValueError("invalid control role")
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(
+                "INSERT INTO principal_control_roles (principal_id, role) VALUES (?, ?) "
+                "ON CONFLICT(principal_id) DO UPDATE SET role = excluded.role",
+                (principal_id, normalized),
+            )
+            await db.commit()
+
+    async def check_control_role(self, principal_id: str, required_role: str) -> bool:
+        """Return whether a principal has the requested control-plane role."""
+        if required_role.upper() != "ADMIN":
+            return False
+        async with aiosqlite.connect(self.policy_path) as db:
+            async with db.execute(
+                "SELECT role FROM principal_control_roles WHERE principal_id = ?",
+                (principal_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return row is not None and str(row[0]).upper() == "ADMIN"
 
     async def grant_scope_role(
         self,

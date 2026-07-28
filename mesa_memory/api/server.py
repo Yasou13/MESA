@@ -748,6 +748,7 @@ app.include_router(
         lambda: get_mcp_control().approval_repo,
         lambda: get_mcp_control().credential_repo,
         lambda: get_mcp_control().binding_profile_repo,
+        get_access_control,
     ),
     dependencies=router_dependencies,
 )
