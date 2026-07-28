@@ -1,6 +1,7 @@
 """V4 canonical catalog, shared ownership and dataset ACL contracts."""
 
 import hashlib
+import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -95,6 +96,39 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
         assert await dao.list_v4_revisions(
             tenant_id="tenant-a", dataset_id="dataset-b", document_id="document-a"
         ) == []
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_catalog_rejects_cross_tenant_workspace_and_identity_collision(tmp_path) -> None:
+    engine = AsyncEngine(str(tmp_path / "catalog-scope.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(engine, SimpleNamespace())
+    try:
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+        )
+        with pytest.raises(ValueError, match="workspace identity collides"):
+            await dao.ensure_v4_catalog_scope(
+                tenant_id="tenant-b",
+                workspace_id="workspace-a",
+                dataset_id="dataset-b",
+            )
+        async with engine.connection() as db:
+            await db.execute(
+                "INSERT INTO tenants (tenant_id, display_name) VALUES (?, ?)",
+                ("tenant-b", "Tenant B"),
+            )
+            with pytest.raises(sqlite3.IntegrityError, match="workspace must belong"):
+                await db.execute(
+                    "INSERT INTO datasets (dataset_id, tenant_id, workspace_id, name) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("dataset-b", "tenant-b", "workspace-a", "Dataset B"),
+                )
     finally:
         await engine.close()
 

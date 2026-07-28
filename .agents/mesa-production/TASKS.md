@@ -37,7 +37,7 @@
   - Doğrulama: Aynı tenant cross-dataset revision negatif testleri
   - Bağımlılık: P0-001
 
-- [ ] P0-006 — Catalog tenant/workspace FK bütünlüğünü kur
+- [x] P0-006 — Catalog tenant/workspace FK bütünlüğünü kur
   - Kapsam: V4 catalog migrationları, `MemoryDAO`
   - Doğrulama: Cross-tenant workspace ve ID collision migration testleri
   - Bağımlılık: P0-005

@@ -345,6 +345,13 @@ class MemoryDAO:
                 "(workspace_id, tenant_id, name) VALUES (?, ?, ?)",
                 (workspace_id, tenant_id, workspace_name or workspace_id),
             )
+            async with db.execute(
+                "SELECT tenant_id FROM workspaces WHERE workspace_id = ?",
+                (workspace_id,),
+            ) as cursor:
+                workspace = await cursor.fetchone()
+            if workspace is None or workspace[0] != tenant_id:
+                raise ValueError("workspace identity collides with another tenant")
             await db.execute(
                 "INSERT OR IGNORE INTO datasets "
                 "(dataset_id, tenant_id, workspace_id, name) VALUES (?, ?, ?, ?)",
