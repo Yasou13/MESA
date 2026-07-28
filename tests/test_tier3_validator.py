@@ -22,6 +22,10 @@ from mesa_memory.consolidation.validator import (
     VALENCE_PROMPT_B_TEMPLATE,
     Tier3ValidationError,
     Tier3Validator,
+    _safe_justification,
+    _safe_model_name,
+    single_model_audit,
+    tier3_provenance_context,
 )
 
 # ---------------------------------------------------------------------------
@@ -86,6 +90,45 @@ async def test_validate_with_audit_records_two_redacted_decisions():
     assert audit["prompt_version"] == "tier3-valence-v2"
     assert "super-secret-value" not in audit["justifications"]["primary"]
     assert "[redacted-secret]" in audit["justifications"]["primary"]
+
+
+def test_audit_helpers_redact_and_bound_operator_visible_data() -> None:
+    raw = " token=private Bearer abcdefghijkl user@example.com " + ("x" * 400)
+    redacted = _safe_justification(raw)
+
+    assert "private" not in redacted
+    assert "abcdefghijkl" not in redacted
+    assert "user@example.com" not in redacted
+    assert len(redacted) == 280
+    assert _safe_justification(None) == "No model justification supplied."
+
+    safe_model = MagicMock(model_name="tier3-safe-model")
+    secret_model = MagicMock(model_name="api_key=private")
+    assert _safe_model_name(safe_model) == "tier3-safe-model"
+    assert _safe_model_name(secret_model) == "MagicMock"
+
+
+def test_provenance_context_and_single_model_audit_are_bounded() -> None:
+    context = tier3_provenance_context(
+        {
+            "source": "api",
+            "source_ref": "s" * 600,
+            "evidence_span": "e" * 600,
+            "metadata": {"memory_type": "decision", "importance": 0.9},
+        },
+        default_source="fallback",
+    )
+    audit = single_model_audit(
+        decision="DISCARD",
+        justification="not grounded",
+        model=MagicMock(name="model-name"),
+        route_reason="small_model_confident",
+    )
+
+    assert "source_ref=" + ("s" * 512) in context
+    assert "evidence_span=" + ("e" * 512) in context
+    assert audit["decisions"]["secondary"] == "NOT_RUN"
+    assert audit["accepted"] is False
 
 
 # ===================================================================
