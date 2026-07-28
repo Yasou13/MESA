@@ -369,8 +369,7 @@ async def lifespan(app: FastAPI):
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
         # Wire the Consolidation Loop directly to the DAO
-        llm_a = AdapterFactory.get_adapter()
-        llm_b = AdapterFactory.get_adapter()
+        llm_a, llm_b = AdapterFactory.get_tier3_adapters()
         state.consolidation_loop = ConsolidationLoop(
             dao=state.dao,
             embedder=AdapterFactory.get_adapter(),
@@ -505,8 +504,7 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.error("Failed to start MaintenanceWorker: %s", exc)
 
-        rem_llm_a = AdapterFactory.get_adapter()
-        rem_llm_b = AdapterFactory.get_adapter()
+        rem_llm_a, rem_llm_b = AdapterFactory.get_tier3_adapters()
         rem_worker = REMCycleWorker(
             dao=state.dao,
             llm_a=rem_llm_a,

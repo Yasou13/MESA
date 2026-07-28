@@ -74,17 +74,17 @@
   - Doğrulama: Body, metadata depth/byte ve secret rejection testleri
   - Bağımlılık: P0-001
 
-- [ ] P0-010 — V4 idempotency ve catalog admission’ını atomikleştir
+- [!] P0-010 — ÇÖZÜLMEDİ — V4 idempotency ve catalog admission’ını atomikleştir
   - Kapsam: V4 insert route, receipt ve catalog transactionları
   - Doğrulama: Fault-injection retry ve orphan-free admission testleri
   - Bağımlılık: P0-005
 
-- [ ] P0-011 — Purge sonrası vector varlığını exact doğrula
+- [?] P0-011 — BLOKLANDI — Purge sonrası vector varlığını exact doğrula
   - Kapsam: `mesa_storage/vector_engine.py`, purge saga
   - Doğrulama: 150k+ kayıtta failed-delete fail-closed testi
   - Bağımlılık: P0-010
 
-- [ ] P0-012 — Tier-3 için bağımsız adapter zorunluluğu koy
+- [x] P0-012 — Tier-3 için bağımsız adapter zorunluluğu koy
   - Kapsam: adapter config, runtime startup, Tier-3 validator
   - Doğrulama: Aynı provider/model reddi ve dual-adapter testleri
   - Bağımlılık: P0-009
