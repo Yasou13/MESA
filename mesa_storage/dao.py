@@ -78,7 +78,11 @@ def _public_tier3_audit(value: Any) -> dict[str, Any] | None:
     decisions = value.get("decisions")
     justifications = value.get("justifications")
     models = value.get("models")
-    if not all(isinstance(item, dict) for item in (decisions, justifications, models)):
+    if not isinstance(decisions, dict):
+        return None
+    if not isinstance(justifications, dict):
+        return None
+    if not isinstance(models, dict):
         return None
     allowed_decisions = {"STORE", "DISCARD", "NOT_RUN", "NOT_AVAILABLE"}
     primary = decisions.get("primary")

@@ -371,15 +371,13 @@ async def _process_cold_path_impl(
                 async with _tier3_semaphore:
                     outcome = await consolidation_loop.run_batch([candidate_record])
                 tier3_audit = candidate_record.get("_mesa_tier3_audit")
-                event_detail = (
-                    {"tier3": tier3_audit}
-                    if isinstance(tier3_audit, dict)
-                    else None
-                )
-                if event_detail is not None and type(dao) is MemoryDAO:
-                    await dao.record_mutation_tier3_audit(
-                        payload_agent_id, candidate.mutation_id, tier3_audit
-                    )
+                event_detail: dict[str, Any] | None = None
+                if isinstance(tier3_audit, dict):
+                    event_detail = {"tier3": tier3_audit}
+                    if type(dao) is MemoryDAO:
+                        await dao.record_mutation_tier3_audit(
+                            payload_agent_id, candidate.mutation_id, tier3_audit
+                        )
                 if candidate.candidate_id in outcome.get("accepted", []):
                     if type(dao) is MemoryDAO:
                         await dao.set_mutation_state(

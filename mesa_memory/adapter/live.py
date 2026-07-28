@@ -2,7 +2,7 @@ import json
 import logging
 import math
 import re
-from typing import Optional, Type, Union
+from typing import Any, Optional, Type, Union
 
 try:
     import openai
@@ -57,7 +57,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
 
         # Tenacity below owns retry policy. Disable SDK retries so an unavailable
         # provider cannot multiply the total deadline into a long hung operation.
-        client_options = {
+        client_options: dict[str, Any] = {
             "api_key": self.api_key,
             "base_url": self.base_url,
             "timeout": self.timeout_seconds,
