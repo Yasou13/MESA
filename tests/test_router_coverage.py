@@ -71,7 +71,10 @@ def _mock_rbac():
     """Provide a mock RBAC callable for insert tests."""
     ac_mock = MagicMock()
     ac_mock.check_access = AsyncMock(return_value=True)
+    ac_mock.check_principal_session_access = AsyncMock(return_value=True)
+    ac_mock.check_principal_permission = AsyncMock(return_value=True)
     ac_mock.grant_access = AsyncMock(return_value=None)
+    ac_mock.grant_principal_session_access = AsyncMock(return_value=None)
     ac_mock.revoke_access = AsyncMock(return_value=None)
     yield lambda: ac_mock
 
@@ -80,6 +83,14 @@ def _mock_rbac():
 def client(engines, _mock_rbac):
     sql, vec, _ = engines
     app = FastAPI()
+
+    @app.middleware("http")
+    async def attach_active_principal(request, call_next):
+        request.state.principal = SimpleNamespace(
+            principal_id="test-principal", status="active"
+        )
+        return await call_next(request)
+
     router = create_memory_router(
         get_dao=lambda: MemoryDAO(sqlite_engine=sql, vector_engine=vec),
         get_access_control=_mock_rbac,
@@ -121,7 +132,9 @@ class TestStatusEndpoint:
         dao = MemoryDAO(sqlite_engine=sql, vector_engine=engines[1])
 
         log_id = loop.run_until_complete(
-            dao.insert_raw_log("agent-status", {"content": "hello"})
+            dao.insert_raw_log(
+                "agent-status", {"content": "hello", "session_id": "status-session"}
+            )
         )
 
         resp = client.get(
@@ -434,7 +447,16 @@ class TestInsertErrors:
     def test_insert_permission_error_returns_403(self, client):
         ac_mock = MagicMock()
         ac_mock.check_access = AsyncMock(return_value=False)
+        ac_mock.check_principal_session_access = AsyncMock(return_value=True)
         app = FastAPI()
+
+        @app.middleware("http")
+        async def attach_principal(request, call_next):
+            request.state.principal = SimpleNamespace(
+                principal_id="principal-a", status="active"
+            )
+            return await call_next(request)
+
         router = create_memory_router(
             get_dao=lambda: MagicMock(),
             get_access_control=lambda: ac_mock,

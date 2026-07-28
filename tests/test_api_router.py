@@ -145,6 +145,14 @@ def client_no_vector(engines, _mock_rbac):
     sqlite_eng, _, _ = engines
 
     app = FastAPI()
+
+    @app.middleware("http")
+    async def attach_active_principal(request, call_next):
+        request.state.principal = SimpleNamespace(
+            principal_id="test-principal", status="active"
+        )
+        return await call_next(request)
+
     router = create_memory_router(
         get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=None),
         get_embedder=lambda: _test_embedder,
@@ -623,6 +631,14 @@ class TestRouterFactory:
             prefix="/custom/api",
         )
         app = FastAPI()
+
+        @app.middleware("http")
+        async def attach_active_principal(request, call_next):
+            request.state.principal = SimpleNamespace(
+                principal_id="test-principal", status="active"
+            )
+            return await call_next(request)
+
         app.include_router(router)
         client = TestClient(app)
 

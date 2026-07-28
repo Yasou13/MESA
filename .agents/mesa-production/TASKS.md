@@ -15,7 +15,7 @@
   - Doğrulama: Cross-role negatif route testleri
   - Bağımlılık: Yok
 
-- [ ] P0-002 — V3 route’larını authenticated principal’a bağla
+- [x] P0-002 — V3 route’larını authenticated principal’a bağla
   - Kapsam: `mesa_api/router.py`, session authorization
   - Doğrulama: Insert/search/status/record cross-principal testleri
   - Bağımlılık: P0-001

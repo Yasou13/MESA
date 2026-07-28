@@ -32,14 +32,26 @@ async def test_search_response_preserves_retriever_score_and_memory_content() ->
             "diagnostics": {"degraded_sources": ["graph"]},
         }
     )
-    router = create_memory_router(get_dao=lambda: cast(MemoryDAO, dao))
+    access_control = MagicMock()
+    access_control.check_access = AsyncMock(return_value=True)
+    access_control.check_principal_session_access = AsyncMock(return_value=True)
+    router = create_memory_router(
+        get_dao=lambda: cast(MemoryDAO, dao),
+        get_access_control=lambda: access_control,
+    )
     endpoint = next(
         route.endpoint for route in router.routes if route.path == "/v3/memory/search"
     )
 
     with patch("mesa_api.router.HybridRetriever", return_value=retriever):
         response = await endpoint(
-            request=SimpleNamespace(state=SimpleNamespace()),
+            request=SimpleNamespace(
+                state=SimpleNamespace(
+                    principal=SimpleNamespace(
+                        principal_id="principal-a", status="active"
+                    )
+                )
+            ),
             payload=MemorySearchRequest(
                 agent_id="analyst-1",
                 session_id="session-1",

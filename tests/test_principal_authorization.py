@@ -9,6 +9,120 @@ from mesa_api.router import create_memory_router
 from mesa_memory.security.rbac import AccessControl
 
 
+def _attach_principal(app: FastAPI, principal_id: str = "principal-a") -> None:
+    @app.middleware("http")
+    async def attach_principal(request, call_next):
+        request.state.principal = SimpleNamespace(
+            principal_id=principal_id,
+            principal_type="USER",
+            status="active",
+        )
+        return await call_next(request)
+
+
+def test_v3_insert_requires_principal_session_write_access():
+    access_control = MagicMock()
+    access_control.check_principal_session_access = AsyncMock(return_value=False)
+    access_control.check_access = AsyncMock(return_value=True)
+    app = FastAPI()
+    _attach_principal(app)
+    app.include_router(
+        create_memory_router(
+            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
+            get_access_control=lambda: access_control,  # type: ignore[return-value]
+        )
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/v3/memory/insert",
+        json={"agent_id": "agent-a", "session_id": "session-a", "content": "x"},
+    )
+
+    assert response.status_code == 403
+    access_control.check_principal_session_access.assert_awaited_once_with(
+        "principal-a", "agent-a", "session-a", "WRITE"
+    )
+
+
+def test_v3_search_requires_principal_session_read_access():
+    access_control = MagicMock()
+    access_control.check_principal_session_access = AsyncMock(return_value=False)
+    access_control.check_access = AsyncMock(return_value=True)
+    app = FastAPI()
+    _attach_principal(app)
+    app.include_router(
+        create_memory_router(
+            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
+            get_access_control=lambda: access_control,  # type: ignore[return-value]
+        )
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/v3/memory/search",
+        json={"agent_id": "agent-a", "session_id": "session-a", "query": "x"},
+    )
+
+    assert response.status_code == 403
+    access_control.check_principal_session_access.assert_awaited_once_with(
+        "principal-a", "agent-a", "session-a", "READ"
+    )
+
+
+def test_v3_status_conceals_records_from_another_principal():
+    access_control = MagicMock()
+    access_control.check_principal_session_access = AsyncMock(return_value=False)
+    access_control.check_access = AsyncMock(return_value=True)
+    dao = MagicMock()
+    dao.get_raw_log = AsyncMock(
+        return_value={"payload": {"session_id": "session-a"}, "status": "DEFERRED"}
+    )
+    app = FastAPI()
+    _attach_principal(app)
+    app.include_router(
+        create_memory_router(
+            get_dao=lambda: dao,  # type: ignore[return-value]
+            get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
+            get_access_control=lambda: access_control,  # type: ignore[return-value]
+        )
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).get(
+        "/v3/memory/status/42", params={"agent_id": "agent-a"}
+    )
+
+    assert response.status_code == 404
+    access_control.check_principal_session_access.assert_awaited_once_with(
+        "principal-a", "agent-a", "session-a", "READ"
+    )
+
+
+def test_v3_record_conceals_records_from_another_principal():
+    access_control = MagicMock()
+    access_control.check_principal_session_access = AsyncMock(return_value=False)
+    access_control.check_access = AsyncMock(return_value=True)
+    app = FastAPI()
+    _attach_principal(app)
+    app.include_router(
+        create_memory_router(
+            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
+            get_access_control=lambda: access_control,  # type: ignore[return-value]
+        )
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).get(
+        "/v3/memory/records/node-a",
+        params={"agent_id": "agent-a", "session_id": "session-a"},
+    )
+
+    assert response.status_code == 404
+    access_control.check_principal_session_access.assert_awaited_once_with(
+        "principal-a", "agent-a", "session-a", "READ"
+    )
+
+
 def test_session_start_denies_unmapped_principal_without_self_grant():
     """A request agent_id is a target, never an authorization grant."""
     access_control = MagicMock()
