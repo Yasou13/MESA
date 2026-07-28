@@ -657,11 +657,13 @@ async def unhandled_exception_response(request: Request, exc: Exception) -> Resp
 
 
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from mesa_memory.api.middleware import limiter, rate_limit_exceeded_handler
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_middleware(SlowAPIMiddleware)
 
 # type: ignore[no-untyped-def]
 

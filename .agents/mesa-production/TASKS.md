@@ -94,7 +94,7 @@
   - Doğrulama: Explicit correction uçtan uca regression testi
   - Bağımlılık: P0-012
 
-- [ ] P0-014 — V3, V4 ve control için gerçek rate limit uygula
+- [x] P0-014 — V3, V4 ve control için gerçek rate limit uygula
   - Kapsam: API middleware, router dependencies
   - Doğrulama: Principal bazlı minute ve günlük 429 testleri
   - Bağımlılık: P0-001
