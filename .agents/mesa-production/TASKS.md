@@ -89,7 +89,7 @@
   - Doğrulama: Aynı provider/model reddi ve dual-adapter testleri
   - Bağımlılık: P0-009
 
-- [ ] P0-013 — Çelişkili güncellemeleri Tier-3’e yönlendir
+- [x] P0-013 — Çelişkili güncellemeleri Tier-3’e yönlendir
   - Kapsam: valence signal üretimi, consolidation routing
   - Doğrulama: Explicit correction uçtan uca regression testi
   - Bağımlılık: P0-012

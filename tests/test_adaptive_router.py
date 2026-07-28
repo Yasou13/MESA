@@ -165,3 +165,10 @@ async def test_dynamic_threshold_and_cooldown_are_tenant_scoped():
     assert router._routing_states["agent-clean"].threshold == 0.83
     assert router._routing_states["agent-risky"].last_update_time == 100.0
     assert router._routing_states["agent-clean"].last_update_time == 100.0
+from mesa_memory.consolidation.router import _requires_tier3_correction_review
+
+
+def test_explicit_correction_is_routed_to_tier3() -> None:
+    assert _requires_tier3_correction_review(
+        {"content_payload": "Correction: the previous address is replaced."}
+    )
