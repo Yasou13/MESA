@@ -94,9 +94,13 @@ async def test_mcp_http_service_uses_configured_api_key_and_service_boundary(
         MESA_API_KEY="isolated-mcp-key",
     )
     assert await MesaHttpMemoryService(settings).health() == {"status": "healthy"}
-    assert captured == {
-        "base_url": "http://mesa.test",
-        "api_key": "isolated-mcp-key",
-        "timeout": 10.0,
-        "max_retries": 2,
-    }
+    assert captured["base_url"] == "http://mesa.test"
+    assert captured["api_key"] == "isolated-mcp-key"
+    # The long-lived MCP client uses a bounded connect/read/write/pool budget
+    # and lets its gateway-level breaker own retry policy.
+    timeout = captured["timeout"]
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.connect == 2.0
+    assert timeout.read == timeout.write == 8.0
+    assert timeout.pool == 2.0
+    assert captured["max_retries"] == 0
