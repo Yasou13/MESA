@@ -1061,6 +1061,76 @@ class MemoryDAO:
     # v4 mutation ledger / projection outbox
     # ------------------------------------------------------------------
 
+    async def reserve_v4_idempotency(
+        self,
+        *,
+        tenant_id: str,
+        agent_id: str,
+        dataset_id: str,
+        operation_type: str,
+        idempotency_key: str,
+        payload_hash: str,
+    ) -> dict[str, Any]:
+        """Atomically reserve a V4 mutation key before any side effect.
+
+        A second delivery can only observe the reservation; it can never admit
+        another raw log while the original request is being processed.
+        """
+        async with self._sql.transaction() as db:
+            insert_cursor = await db.execute(
+                "INSERT OR IGNORE INTO v4_idempotency_receipts "
+                "(tenant_id, agent_id, dataset_id, operation_type, idempotency_key, payload_hash, state) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'PENDING')",
+                (
+                    tenant_id,
+                    agent_id,
+                    dataset_id,
+                    operation_type,
+                    idempotency_key,
+                    payload_hash,
+                ),
+            )
+            async with db.execute(
+                "SELECT * FROM v4_idempotency_receipts WHERE tenant_id = ? AND agent_id = ? "
+                "AND dataset_id = ? AND operation_type = ? AND idempotency_key = ?",
+                (tenant_id, agent_id, dataset_id, operation_type, idempotency_key),
+            ) as cursor:
+                row = await cursor.fetchone()
+            await db.commit()
+        if row is None:  # pragma: no cover - INSERT OR IGNORE guarantees a row
+            raise RuntimeError("V4 idempotency reservation did not persist")
+        result = dict(row)
+        result["reserved"] = insert_cursor.rowcount == 1
+        return result
+
+    async def complete_v4_idempotency(
+        self,
+        *,
+        tenant_id: str,
+        agent_id: str,
+        dataset_id: str,
+        operation_type: str,
+        idempotency_key: str,
+        mutation_id: str,
+        response_json: str,
+    ) -> None:
+        async with self._sql.transaction() as db:
+            await db.execute(
+                "UPDATE v4_idempotency_receipts SET state = 'COMPLETED', mutation_id = ?, "
+                "response_json = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? "
+                "AND agent_id = ? AND dataset_id = ? AND operation_type = ? AND idempotency_key = ?",
+                (
+                    mutation_id,
+                    response_json,
+                    tenant_id,
+                    agent_id,
+                    dataset_id,
+                    operation_type,
+                    idempotency_key,
+                ),
+            )
+            await db.commit()
+
     async def record_mutation(
         self, candidate: dict[str, Any], *, raw_log_id: int | None
     ) -> dict[str, Any]:
@@ -2765,6 +2835,36 @@ class MemoryDAO:
                 (tenant_id, *datasets, *entity_ids, *entity_ids),
             ) as cursor:
                 provenance = [dict(row) for row in await cursor.fetchall()]
+            mutation_ids = sorted(
+                {
+                    str(assertion["mutation_id"])
+                    for assertion in provenance
+                    if assertion.get("mutation_id")
+                }
+            )
+            metadata_by_mutation: dict[str, dict[str, Any]] = {}
+            if mutation_ids:
+                mutation_placeholders = ",".join("?" for _ in mutation_ids)
+                async with db.execute(
+                    "SELECT mutation_id, metadata_json FROM memory_mutations "
+                    f"WHERE mutation_id IN ({mutation_placeholders})",
+                    mutation_ids,
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        try:
+                            metadata = json.loads(str(row["metadata_json"] or "{}"))
+                        except (TypeError, json.JSONDecodeError):
+                            metadata = {}
+                        if isinstance(metadata, dict):
+                            metadata_by_mutation[str(row["mutation_id"])] = {
+                                key: value
+                                for key, value in metadata.items()
+                                if not str(key).startswith("_mesa_")
+                            }
+            for assertion in provenance:
+                metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
+                if metadata:
+                    assertion["metadata"] = metadata
         by_entity: dict[str, list[dict[str, Any]]] = {item: [] for item in entity_ids}
         authority_factor = {
             "OFFICIAL": 1.15,

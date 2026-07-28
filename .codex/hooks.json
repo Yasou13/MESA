@@ -1,0 +1,42 @@
+{
+  "description": "MESA project-memory integration for Codex.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mesa codex hook start",
+            "timeout": 8,
+            "statusMessage": "Loading MESA project memory"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mesa codex hook end",
+            "timeout": 2,
+            "statusMessage": "Finalizing MESA session"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mesa codex hook post-compact",
+            "timeout": 8,
+            "statusMessage": "Refreshing MESA constraints"
+          }
+        ]
+      }
+    ]
+  }
+}

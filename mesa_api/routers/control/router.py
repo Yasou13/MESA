@@ -12,6 +12,8 @@ def create_control_router(
     get_policy_repo: Callable,
     get_activity_repo: Callable,
     get_approval_repo: Callable,
+    get_credential_repo: Callable | None = None,
+    get_codex_profile_repo: Callable | None = None,
     prefix: str = "/control/mcp",
 ) -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["mcp-control"])
@@ -105,6 +107,67 @@ def create_control_router(
     async def list_bindings(client_id: str, repo=Depends(get_client_repo)):
         bindings = await repo.list_bindings(client_id)
         return {"bindings": bindings}
+
+    @router.get("/managed-clients")
+    @router.get("/codex", include_in_schema=False)
+    async def list_managed_clients(
+        client_repo=Depends(get_client_repo),
+        conn_repo=Depends(get_conn_repo),
+        approval_repo=Depends(get_approval_repo),
+    ):
+        """Dashboard-safe Codex state; credentials are summaries only."""
+        if get_credential_repo is None or get_codex_profile_repo is None:
+            raise HTTPException(
+                status_code=503, detail="Codex control plane unavailable"
+            )
+        credential_repo = get_credential_repo()
+        profile_repo = get_codex_profile_repo()
+        active = await conn_repo.list_active_connections()
+        pending = await approval_repo.list_pending_approvals()
+        result = []
+        for client in await client_repo.list_clients():
+            if client.get("client_type") not in {"codex", "antigravity"}:
+                continue
+            bindings = await client_repo.list_bindings(client["client_id"])
+            entries = []
+            for binding in bindings:
+                entries.append(
+                    {
+                        "binding": binding,
+                        "profile": await profile_repo.get(binding["binding_id"]),
+                        "credentials": await credential_repo.list_for_binding(
+                            binding["binding_id"]
+                        ),
+                        "active_connections": sum(
+                            1
+                            for connection in active
+                            if connection["client_id"] == client["client_id"]
+                            and connection.get("project_id")
+                            == binding["external_project_id"]
+                        ),
+                        "pending_approvals": sum(
+                            1
+                            for approval in pending
+                            if approval["client_id"] == client["client_id"]
+                        ),
+                    }
+                )
+            result.append({"client": client, "bindings": entries})
+        return {"clients": result}
+
+    @router.post("/credentials/{credential_id}/revoke")
+    @router.post("/codex/credentials/{credential_id}/revoke", include_in_schema=False)
+    async def revoke_managed_credential(credential_id: str):
+        if get_credential_repo is None:
+            raise HTTPException(
+                status_code=503, detail="Codex control plane unavailable"
+            )
+        credential = await get_credential_repo().get_summary(credential_id)
+        if credential is None:
+            raise HTTPException(status_code=404, detail="Credential not found")
+        if not await get_credential_repo().revoke(credential_id):
+            raise HTTPException(status_code=409, detail="Credential is not active")
+        return {"status": "revoked", "credential_id": credential_id}
 
     @router.get("/activity")
     async def list_activity(

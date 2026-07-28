@@ -24,6 +24,8 @@ dependencies = [
     "aiosqlite>=0.22.0",
     "anyio>=4.0.0",
     "httpx>=0.28.0",
+    "mcp>=1.0.0",
+    "cryptography>=42.0.0",
     # Web / API
     "uvicorn>=0.29.0",
     "fastapi>=0.111.0",
@@ -81,9 +83,7 @@ ml = [
     "sentence-transformers>=3.0.0",
     "spacy>=3.8.0",
 ]
-mcp = [
-    "mcp>=1.0.0",
-]
+mcp = []
 langchain = [
     "langchain-core>=0.2.0",
 ]
@@ -119,6 +119,9 @@ mesa-recovery = "mesa_storage.recovery:main"
 mesa-benchmark = "mesa_benchmark.cli:main"
 mesa-v4-admin = "mesa_memory.security.admin_cli:main"
 mesa-mcp = "mesa_mcp.server:main"
+mesa-mcp-gateway = "mesa_mcp.gateway.app:main"
+mesa-antigravity-bridge = "mesa_mcp.antigravity_bridge:main"
+mesa = "mesa_mcp.codex_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Yasou13/MESA"

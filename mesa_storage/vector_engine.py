@@ -58,7 +58,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import pyarrow as pa
 
@@ -74,6 +74,8 @@ logger = logging.getLogger("MESA_Storage")
 _DEFAULT_METRIC = "cosine"
 _DEFAULT_TABLE_PREFIX = "mesa_vectors_"
 _MAX_WORKERS = 4
+
+EmbeddingProvider = Callable[[str], Awaitable[list[float]]]
 
 # Strict allowlist for values interpolated into LanceDB WHERE clauses.
 # LanceDB does not support parameterised binding, so all filter values
@@ -178,6 +180,7 @@ class VectorEngine:
         max_workers: int = _MAX_WORKERS,
         metric: str = _DEFAULT_METRIC,
         allow_model_loading: bool = False,
+        embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         self._uri = uri
         self._metric = metric
@@ -193,6 +196,7 @@ class VectorEngine:
         self._initialized = False
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
+        self._embedding_provider = embedding_provider
 
         self._embedder = None
         self._fallback_embedder = True
@@ -299,13 +303,19 @@ class VectorEngine:
     # ------------------------------------------------------------------
 
     async def compute_embedding(self, text: str) -> list[float]:
-        """Compute a 384-dimensional dense vector for the given text.
+        """Compute an embedding with the configured provider or local model.
 
-        Uses the local SentenceTransformer model if available, otherwise falls
-        back to litellm text-embedding-3-small (and truncates/pads to 384 if needed).
+        External provider dimensions are preserved so their vectors stay in
+        the matching dimension-partitioned LanceDB table.
         """
         if not self._initialized:
             raise RuntimeError("VectorEngine has not been initialized.")
+
+        if self._embedding_provider is not None:
+            vector = await self._embedding_provider(text)
+            if not vector:
+                raise RuntimeError("embedding provider returned an empty vector")
+            return [float(value) for value in vector]
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -326,6 +336,9 @@ class VectorEngine:
         """Compute embeddings for a batch of texts."""
         if not self._initialized:
             raise RuntimeError("VectorEngine has not been initialized.")
+
+        if self._embedding_provider is not None:
+            return list(await asyncio.gather(*(self.compute_embedding(text) for text in texts)))
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(

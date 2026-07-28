@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import re
 from typing import Optional, Type, Union
 
@@ -13,6 +14,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
+    stop_after_delay,
     wait_exponential,
 )
 
@@ -24,6 +26,7 @@ _OPENAI_RATE_LIMIT_ERRORS = (openai.RateLimitError,) if openai is not None else 
 _OPENAI_CONNECTION_ERRORS = (openai.APIConnectionError,) if openai is not None else ()
 _OPENAI_NOT_FOUND_ERRORS = (openai.NotFoundError,) if openai is not None else ()
 _RETRYABLE_OPENAI_ERRORS = _OPENAI_RATE_LIMIT_ERRORS + _OPENAI_CONNECTION_ERRORS
+_OPENAI_RETRY_STOP = stop_after_attempt(3) | stop_after_delay(45)
 
 
 class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
@@ -32,12 +35,16 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = None,
+        embedding_model_name: Optional[str] = None,
+        timeout_seconds: float = 20.0,
     ):
         if openai is None:
             raise RuntimeError("OpenAICompatibleAdapter requires mesa-memory[adapters]")
         self.api_key = api_key
         self.base_url = base_url
         self.model_name = model_name or "llama-3.1-8b-instant"
+        self.embedding_model_name = embedding_model_name or "text-embedding-3-small"
+        self.timeout_seconds = float(timeout_seconds)
 
         if not api_key:
             raise ValueError(
@@ -45,10 +52,19 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 "Set LLM_API_KEY or OPENAI_API_KEY environment variable."
             )
 
-        self._sync_client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
-        self._async_client = openai.AsyncOpenAI(
-            api_key=self.api_key, base_url=self.base_url
-        )
+        if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be a positive finite value")
+
+        # Tenacity below owns retry policy. Disable SDK retries so an unavailable
+        # provider cannot multiply the total deadline into a long hung operation.
+        client_options = {
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+            "timeout": self.timeout_seconds,
+            "max_retries": 0,
+        }
+        self._sync_client = openai.OpenAI(**client_options)
+        self._async_client = openai.AsyncOpenAI(**client_options)
 
     @staticmethod
     def _sanitize_json(text: str) -> str:
@@ -74,7 +90,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         return text
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=_OPENAI_RETRY_STOP,
         wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
@@ -113,7 +129,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
 
     # type: ignore[no-untyped-def]
     @retry(
-        stop=stop_after_attempt(5),
+        stop=_OPENAI_RETRY_STOP,
         wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
@@ -151,12 +167,12 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             raise
 
     @retry(
-        stop=stop_after_attempt(5),  # type: ignore[no-untyped-def]
+        stop=_OPENAI_RETRY_STOP,  # type: ignore[no-untyped-def]
         wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     def embed(self, text: str, **kwargs) -> list[float]:
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:
             response = self._sync_client.embeddings.create(
                 model=model,
@@ -176,12 +192,12 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             raise
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=_OPENAI_RETRY_STOP,
         wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),  # type: ignore[no-untyped-def]
     )
     async def aembed(self, text: str, **kwargs) -> list[float]:
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:
             response = await self._async_client.embeddings.create(
                 model=model,
@@ -206,12 +222,12 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             raise
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=_OPENAI_RETRY_STOP,
         wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     def embed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:  # type: ignore[no-untyped-def]
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:
             response = self._sync_client.embeddings.create(
                 model=model,
@@ -232,12 +248,12 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             raise
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=_OPENAI_RETRY_STOP,
         wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(_RETRYABLE_OPENAI_ERRORS),
     )
     async def aembed_batch(self, texts: list[str], **kwargs) -> list[list[float]]:
-        model = kwargs.get("model", "text-embedding-3-small")
+        model = kwargs.get("model", self.embedding_model_name)
         try:  # type: ignore[no-untyped-def]
             response = await self._async_client.embeddings.create(
                 model=model,

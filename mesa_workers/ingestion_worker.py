@@ -351,6 +351,17 @@ async def _process_cold_path_impl(
                     session_id=session_id,
                     content_payload=content,
                     metadata=metadata,
+                    # V4 admits its canonical candidate before dispatch.  The
+                    # consumer must rebuild the exact same identity, rather
+                    # than falling back to legacy agent-derived provenance.
+                    tenant_id=payload.get("tenant_id"),
+                    workspace_id=payload.get("workspace_id"),
+                    dataset_id=payload.get("dataset_id"),
+                    document_id=payload.get("document_id"),
+                    revision_id=payload.get("revision_id"),
+                    chunk_id=payload.get("chunk_id"),
+                    source_ref=payload.get("source_ref"),
+                    evidence_span=str(payload.get("evidence_span", "")),
                 )
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;

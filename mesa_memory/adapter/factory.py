@@ -83,6 +83,8 @@ class AdapterFactory:
                 api_key=config.llm_api_key,
                 base_url=config.llm_base_url,
                 model_name=config.llm_model_name,
+                embedding_model_name=config.llm_embedding_model_name,
+                timeout_seconds=config.llm_timeout_seconds,
             )
         elif provider == "claude":
             from mesa_memory.adapter.claude import ClaudeAdapter
@@ -136,6 +138,8 @@ class AdapterFactory:
                 api_key=openai_key,
                 base_url=config.llm_base_url,
                 model_name=config.llm_model_name,
+                embedding_model_name=config.llm_embedding_model_name,
+                timeout_seconds=config.llm_timeout_seconds,
             )
 
         # 3. Anthropic Claude

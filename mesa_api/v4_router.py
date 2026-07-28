@@ -8,6 +8,8 @@ authorized against a verified principal-to-agent-to-session binding.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import datetime
 from typing import Callable
@@ -545,8 +547,13 @@ def create_v4_router(
     async def get_capability(request: Request) -> dict:
         """Return supported features (WO-018)."""
         return {
-            "features": ["temporal_filtering", "idempotent_ingestion", "graph_retrieval", "vector_search"],
-            "api_version": "v4"
+            "features": [
+                "temporal_filtering",
+                "idempotent_ingestion",
+                "graph_retrieval",
+                "vector_search",
+            ],
+            "api_version": "v4",
         }
 
     @router.post("/rebuild", status_code=202)
@@ -572,6 +579,39 @@ def create_v4_router(
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
             )
+        payload_hash = hashlib.sha256(
+            payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
+        ).hexdigest()
+        if payload.idempotency_key:
+            receipt = await dao.reserve_v4_idempotency(
+                tenant_id=str(session["tenant_id"]),
+                agent_id=str(session["agent_id"]),
+                dataset_id=payload.dataset_id,
+                operation_type="INSERT",
+                idempotency_key=payload.idempotency_key,
+                payload_hash=payload_hash,
+            )
+            if receipt["payload_hash"] != payload_hash:
+                raise HTTPException(
+                    status_code=409, detail="idempotency_key payload mismatch"
+                )
+            if receipt["state"] == "COMPLETED":
+                response = json.loads(str(receipt["response_json"]))
+                response["duplicate"] = True
+                return response
+            if not receipt["reserved"]:
+                # The original request has durably claimed this key but has
+                # not yet finished.  Returning a retryable conflict prevents
+                # duplicate admission without pretending it completed.
+                raise HTTPException(
+                    status_code=409, detail="idempotency_key is in progress"
+                )
+            if receipt["mutation_id"]:
+                return {
+                    "status": "accepted",
+                    "mutation_id": receipt["mutation_id"],
+                    "duplicate": True,
+                }
         await dao.create_v4_source_chunk(
             tenant_id=str(session["tenant_id"]),
             dataset_id=payload.dataset_id,
@@ -629,13 +669,24 @@ def create_v4_router(
         await dao.record_mutation(
             candidate.as_consolidation_record(), raw_log_id=int(admission["log_id"])
         )
-        return {
+        response = {
             "status": "accepted",
             "mutation_id": candidate.mutation_id,
             "candidate_id": candidate.candidate_id,
             "pipeline_run_id": candidate.pipeline_run_id,
             "raw_log_id": admission["log_id"],
         }
+        if payload.idempotency_key:
+            await dao.complete_v4_idempotency(
+                tenant_id=str(session["tenant_id"]),
+                agent_id=str(session["agent_id"]),
+                dataset_id=payload.dataset_id,
+                operation_type="INSERT",
+                idempotency_key=payload.idempotency_key,
+                mutation_id=candidate.mutation_id,
+                response_json=json.dumps(response, sort_keys=True),
+            )
+        return response
 
     @router.post("/memory/search")
     async def search_memory(

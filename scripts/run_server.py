@@ -165,7 +165,9 @@ async def lifespan(app: FastAPI):
     from mesa_storage.control.activity_repo import ActivityRecorder
     from mesa_storage.control.approval_repo import ApprovalRepository
     from mesa_storage.control.client_repo import ClientRepository
+    from mesa_storage.control.codex_profile_repo import CodexProfileRepository
     from mesa_storage.control.connection_repo import ConnectionRepository
+    from mesa_storage.control.credential_repo import CredentialRepository
     from mesa_storage.control.policy_repo import PolicyRepository
     from mesa_storage.control.settings_repo import SettingsRepository
 
@@ -175,6 +177,10 @@ async def lifespan(app: FastAPI):
     _state.policy_repo = PolicyRepository(sqlite_engine=_state.sqlite_engine)
     _state.activity_repo = ActivityRecorder(sqlite_engine=_state.sqlite_engine)
     _state.approval_repo = ApprovalRepository(sqlite_engine=_state.sqlite_engine)
+    _state.credential_repo = CredentialRepository(sqlite_engine=_state.sqlite_engine)
+    _state.codex_profile_repo = CodexProfileRepository(
+        sqlite_engine=_state.sqlite_engine
+    )
 
     # --- KuzuDB graph engine ---
     from mesa_storage import kuzu_setup
@@ -298,6 +304,12 @@ async def lifespan(app: FastAPI):
     def get_approval_repo():
         return _state.approval_repo
 
+    def get_credential_repo():
+        return _state.credential_repo
+
+    def get_codex_profile_repo():
+        return _state.codex_profile_repo
+
     control_router = create_control_router(
         get_client_repo=get_client_repo,
         get_conn_repo=get_conn_repo,
@@ -305,6 +317,8 @@ async def lifespan(app: FastAPI):
         get_policy_repo=get_policy_repo,
         get_activity_repo=get_activity_repo,
         get_approval_repo=get_approval_repo,
+        get_credential_repo=get_credential_repo,
+        get_codex_profile_repo=get_codex_profile_repo,
     )
     app.include_router(control_router)
     logger.info("Control plane router mounted")
@@ -421,11 +435,19 @@ if not _cli_args.no_auth:
 
     @app.middleware("http")
     async def api_key_middleware(request: Request, call_next):
-        # Skip auth for demo and health/metrics/docs endpoints
+        # The dashboard is public static content, but its control API is never
+        # public: local browsers may manage their local MESA instance, while
+        # remote callers need the regular API key.
+        local_control = (
+            request.url.path.startswith("/control")
+            and request.client is not None
+            and request.client.host in {"127.0.0.1", "::1", "localhost", "testclient"}
+        )
+        # Skip auth for demo and health/metrics/docs endpoints.
         if (
             request.url.path.startswith("/demo")
             or request.url.path.startswith("/dashboard")
-            or request.url.path.startswith("/control")
+            or local_control
             or request.url.path.startswith("/mcp")
             or request.url.path
             in (
@@ -437,6 +459,14 @@ if not _cli_args.no_auth:
             )
         ):
             return await call_next(request)
+        if not _MESA_API_KEY:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "misconfigured",
+                    "detail": "MESA_API_KEY is required",
+                },
+            )
         api_key = request.headers.get("X-API-Key", "")
         if not secrets.compare_digest(
             api_key.encode("utf-8"), _MESA_API_KEY.encode("utf-8")

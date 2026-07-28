@@ -1971,7 +1971,7 @@ function App() {
       <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand__mark">M</span>
+          <img className="brand__mark" src="/brand/icon-192.png" alt="MESA" />
           <div>
             <strong>MESA</strong>
             <small>Benchmark Console</small>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import yaml
@@ -214,7 +215,7 @@ def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:
         "load_runtime_profile",
         lambda: SimpleNamespace(profile=RuntimeProfile.WORKER_ONLY, api_enabled=False),
     )
-    assert command_for_profile() == ["python", "-m", "mesa_memory.worker_runtime"]
+    assert command_for_profile() == [sys.executable, "-m", "mesa_memory.worker_runtime"]
     monkeypatch.setattr(
         entrypoint,
         "load_runtime_profile",
