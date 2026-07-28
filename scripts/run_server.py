@@ -26,8 +26,10 @@ import os
 import secrets
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import unquote
 
 from dotenv import load_dotenv
 
@@ -51,6 +53,17 @@ from mesa_storage.sqlite_engine import AsyncEngine  # noqa: E402
 from mesa_storage.vector_engine import VectorEngine  # noqa: E402
 
 logger = logging.getLogger("MESA_DevServer")
+
+
+def _dashboard_static_file(dashboard_path: str, full_path: str) -> str | None:
+    """Return an existing dashboard file only when it remains under ``dist``."""
+    if not full_path:
+        return None
+    dashboard_root = Path(dashboard_path).resolve()
+    requested_path = (dashboard_root / unquote(full_path)).resolve()
+    if not requested_path.is_relative_to(dashboard_root) or not requested_path.is_file():
+        return None
+    return str(requested_path)
 
 
 # ---------------------------------------------------------------------------
@@ -378,8 +391,8 @@ async def lifespan(app: FastAPI):
         @app.get("/dashboard/{full_path:path}")
         async def serve_dashboard_spa(full_path: str):
             # If the file exists in the root of dist (e.g. favicon.svg, vite.svg), serve it directly
-            file_path = os.path.join(dashboard_path, full_path)
-            if full_path and os.path.isfile(file_path):
+            file_path = _dashboard_static_file(dashboard_path, full_path)
+            if file_path is not None:
                 return FileResponse(file_path)
             # Otherwise return index.html for client-side routing
             return FileResponse(os.path.join(dashboard_path, "index.html"))

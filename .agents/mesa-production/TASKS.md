@@ -25,7 +25,7 @@
   - Doğrulama: Yetkisiz ve side-effect içermeyen çağrı testleri
   - Bağımlılık: P0-001
 
-- [ ] P0-004 — SPA static dosya containment kontrolü uygula
+- [x] P0-004 — SPA static dosya containment kontrolü uygula
   - Kapsam: `scripts/run_server.py`, dashboard static route
   - Doğrulama: Encoded traversal negatif testleri
   - Bağımlılık: Yok
