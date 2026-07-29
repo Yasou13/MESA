@@ -25,6 +25,7 @@ COPY mesa_memory /app/mesa_memory
 COPY mesa_storage /app/mesa_storage
 COPY mesa-benchmark /app/mesa-benchmark
 RUN uv sync --frozen --no-dev --extra benchmarks
+RUN uv pip install --python /app/.venv/bin/python setuptools==83.0.0
 RUN HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 /app/.venv/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
 RUN groupadd --gid 10001 mesa \
