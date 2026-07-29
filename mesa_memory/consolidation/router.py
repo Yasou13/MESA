@@ -304,7 +304,12 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         if _requires_tier3_correction_review(record):
             record["tier3_deferred"] = True
             record["explicit_correction"] = True
-            return {"route": "dual_llm", "decision": None}
+            return RoutingDecision(
+                route="dual_llm",
+                decision=None,
+                reason="explicit_correction_requires_tier3",
+                tier3_audit=None,
+            )
 
         # -----------------------------------------------------------------
         # PATH 1 — GUARDRAIL: Zero-Hallucination Legal Mode

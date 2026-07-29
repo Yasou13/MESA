@@ -36,7 +36,7 @@ class JobManager:
     def __init__(self, registry: JobRegistry, results_root: Path) -> None:
         self.registry = registry
         self.results_root = results_root
-        self._processes: dict[str, subprocess.Popen[str]] = {}
+        self._processes: dict[str, subprocess.Popen[bytes]] = {}
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._dataset_thread: threading.Thread | None = None
