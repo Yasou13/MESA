@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import os
 import signal
@@ -36,7 +37,27 @@ logger = structlog.get_logger("MESA_WorkerRuntime")
 _READINESS_NAME = "worker-readiness.json"
 _RECOVERY_INTERVAL_SECONDS = 30.0
 _DISPATCH_POLL_SECONDS = 1.0
+_DISPATCH_LEASE_RENEWAL_SECONDS = 60.0
 _WORKER_ID = "worker-runtime"
+_WRITER_LOCK_NAME = ".mesa-single-writer.lock"
+
+
+def _acquire_writer_lock(storage_root: Path):
+    """Fence a storage root to one active worker process on its host."""
+    handle = (storage_root / _WRITER_LOCK_NAME).open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        handle.close()
+        raise RuntimeProfileError(
+            "single-writer deployment allows only one active worker per storage root"
+        ) from exc
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"pid={os.getpid()}\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+    return handle
 
 
 def _write_readiness(storage_root: Path, payload: dict[str, Any]) -> None:
@@ -79,10 +100,11 @@ async def _consume_dispatches_once(
     for dispatch in claimed:
         log_id = int(dispatch["payload_reference"])
         agent_id = str(dispatch["agent_id"])
-        await process_cold_path(
-            log_id,
-            agent_id,
+        await _process_dispatch_with_lease(
             dao,
+            dispatch,
+            log_id=log_id,
+            agent_id=agent_id,
             model_processing_enabled=model_processing_enabled,
         )
         raw_log = await dao.get_raw_log(agent_id, log_id)
@@ -100,6 +122,44 @@ async def _consume_dispatches_once(
     return {"claimed": len(claimed), "finalized": finalized, "retried": retried}
 
 
+async def _process_dispatch_with_lease(
+    dao: MemoryDAO,
+    dispatch: dict[str, Any],
+    *,
+    log_id: int,
+    agent_id: str,
+    model_processing_enabled: bool,
+) -> None:
+    """Keep dispatch ownership fenced until its cold-path side effect finishes."""
+    processing = asyncio.create_task(
+        process_cold_path(
+            log_id,
+            agent_id,
+            dao,
+            model_processing_enabled=model_processing_enabled,
+        )
+    )
+    while not processing.done():
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(processing), timeout=_DISPATCH_LEASE_RENEWAL_SECONDS
+            )
+        except TimeoutError:
+            renewed = await dao.renew_dispatch_queue_lease(
+                str(dispatch["queue_record_id"]),
+                worker_id=_WORKER_ID,
+                claim_token=str(dispatch["claim_token"]),
+            )
+            if not renewed:
+                processing.cancel()
+                try:
+                    await processing
+                except asyncio.CancelledError:
+                    pass
+                raise RuntimeError("worker dispatch lease ownership was lost")
+    await processing
+
+
 async def run_worker_only() -> None:
     runtime = load_runtime_profile()
     if (
@@ -114,6 +174,7 @@ async def run_worker_only() -> None:
         )
     load_explicit_dotenv(runtime)
     runtime.storage_root.mkdir(parents=True, exist_ok=True)
+    writer_lock = _acquire_writer_lock(runtime.storage_root)
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -172,6 +233,8 @@ async def run_worker_only() -> None:
     await supervisor.shutdown()
     await vector_engine.close()
     await engine.close()
+    fcntl.flock(writer_lock.fileno(), fcntl.LOCK_UN)
+    writer_lock.close()
     _write_readiness(
         runtime.storage_root,
         {"status": "STOPPED", "mode": "durable-cold-path-consumer"},
