@@ -77,6 +77,14 @@ _MAX_WORKERS = 4
 
 EmbeddingProvider = Callable[[str], Awaitable[list[float]]]
 
+
+class VectorSearchError(RuntimeError):
+    """A vector lookup could not produce a trustworthy result."""
+
+
+class EmbeddingMigrationRequiredError(VectorSearchError):
+    """Active vectors use an embedding dimension that cannot answer this query."""
+
 # Strict allowlist for values interpolated into LanceDB WHERE clauses.
 # LanceDB does not support parameterised binding, so all filter values
 # must be sanitised against injection at the engine boundary.
@@ -639,6 +647,26 @@ class VectorEngine:
         dimension = len(query_vector)
         table_name = f"{_DEFAULT_TABLE_PREFIX}{dimension}"
 
+        try:
+            dimensions = {
+                int(name.removeprefix(_DEFAULT_TABLE_PREFIX))
+                for name in self._list_table_names()
+                if name.startswith(_DEFAULT_TABLE_PREFIX)
+                and name.removeprefix(_DEFAULT_TABLE_PREFIX).isdigit()
+            }
+        except Exception as exc:
+            with self._metrics._lock:
+                self._metrics.errors += 1
+            raise VectorSearchError("could not inspect vector index schema") from exc
+        if dimensions and (dimension not in dimensions or len(dimensions) > 1):
+            with self._metrics._lock:
+                self._metrics.errors += 1
+            raise EmbeddingMigrationRequiredError(
+                "active vector tables use incompatible embedding dimensions "
+                f"{sorted(dimensions)}; complete re-embedding before serving "
+                f"{dimension}-dimension queries"
+            )
+
         with self._table_lock:
             table = self._tables.get(table_name)
 
@@ -648,27 +676,22 @@ class VectorEngine:
             except (FileNotFoundError, ValueError):
                 return []
 
-        # Build query
-        query = table.search(query_vector).metric(self._metric).limit(limit)
-
-        # Apply filters
-        filters: list[str] = []
-        if not include_expired:
-            filters.append("expired_at IS NULL")
-        if agent_id is not None:
-            _validate_filter_value(agent_id, "agent_id")
-            filters.append(f"agent_id = '{agent_id}'")
-
-        if filters:
-            query = query.where(" AND ".join(filters))
-
         try:
+            query = table.search(query_vector).metric(self._metric).limit(limit)
+            filters: list[str] = []
+            if not include_expired:
+                filters.append("expired_at IS NULL")
+            if agent_id is not None:
+                _validate_filter_value(agent_id, "agent_id")
+                filters.append(f"agent_id = '{agent_id}'")
+            if filters:
+                query = query.where(" AND ".join(filters))
             results = query.to_list()
         except Exception as exc:
-            logger.warning("VECTOR_SEARCH_ERROR | error=%s", exc)
+            logger.error("VECTOR_SEARCH_ERROR", exc_info=exc)
             with self._metrics._lock:
                 self._metrics.errors += 1
-            return []
+            raise VectorSearchError("vector search failed") from exc
 
         elapsed_ms = (time.monotonic() - t_start) * 1000.0
         with self._metrics._lock:
