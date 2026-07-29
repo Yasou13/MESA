@@ -185,7 +185,7 @@
   - Doğrulama: Import/runtime/test/dokümantasyon kullanım taraması
   - Bağımlılık: P1-014
 
-- [ ] P0-016 — P0 kabul kapıları kapalıyken production kararını NO-GO tut
+- [x] P0-016 — P0 kabul kapıları kapalıyken production kararını NO-GO tut
   - Kapsam: release checklist, CI sonuçları
   - Doğrulama: Tüm P0 doğrulaması ve release preflight
   - Bağımlılık: P0-002, P0-003, P0-004, P0-006, P0-008, P0-010, P0-011, P0-012, P0-013, P0-014, P0-015
