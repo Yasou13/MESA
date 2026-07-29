@@ -1,9 +1,0 @@
-{
-  "phase": "production_no_go",
-  "current_task": null,
-  "last_completed_task": "P0-016",
-  "completed": 34,
-  "failed": 0,
-  "blocked": 0,
-  "production_ready": false
-}

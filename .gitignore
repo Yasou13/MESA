@@ -120,6 +120,8 @@ sweep_results.json
 # ------------------------------------------------------------------------------
 .gemini/
 .audit/
+.agents/
+.codex/
 
 # ------------------------------------------------------------------------------
 # 9. Data Pipelines
@@ -201,5 +203,4 @@ mesa-benchmark/datasets/external_raw/
 mcp_test1.md
 mesa_control_panel.md
 
-# Local backups made by `mesa codex install`; project config itself is tracked.
-.codex/*.mesa-backup-*
+# Agent and Codex project metadata are local-only.

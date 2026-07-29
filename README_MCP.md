@@ -23,8 +23,8 @@ MESA_GATEWAY_CONTROL_DB=/absolute/path/to/mesa-data/mesa.db \
 ## Codex direct HTTP integration
 
 Codex connects directly to the durable gateway at `http://127.0.0.1:8765/mcp`.
-The checked-in `.codex/config.toml` contains no credential. Install the trusted
-project through the local CLI:
+The local, gitignored `.codex/config.toml` contains no credential. Create or
+update the trusted project configuration through the local CLI:
 
 ```bash
 .venv/bin/mesa codex install --workspace /absolute/path/to/project \
@@ -79,9 +79,9 @@ Install Antigravity from the trusted repository root:
 .venv/bin/mesa antigravity doctor --workspace /absolute/path/to/project
 ```
 
-The install command writes a MESA-managed entry to `.agents/mcp_config.json`
-without a token. The bridge reads its binding-scoped credential only from the
-protected XDG config file. This is a breaking migration: legacy shared
+The install command writes a MESA-managed entry to the local, gitignored
+`.agents/mcp_config.json` without a token. The bridge reads its binding-scoped
+credential only from the protected XDG config file. This is a breaking migration: legacy shared
 `MESA_GATEWAY_TOKEN` bridge configurations fail closed until installed again.
 Every write tool requires an explicit `idempotency_key`; stdout remains reserved
 for MCP JSON-RPC and logs go to stderr.
