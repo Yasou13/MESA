@@ -124,13 +124,10 @@ sweep_results.json
 .codex/
 
 # ------------------------------------------------------------------------------
-# 9. Data Pipelines
-#    Ignore all data except the whitelisted raw dataset.
+# 9. Local Data
+#    Runtime and ad-hoc datasets remain local.
 # ------------------------------------------------------------------------------
-data/*
-!data/raw/
-data/raw/*
-!data/raw/ma_dataset.json
+data/
 
 # Test storage directories (dynamically created by conftest.py)
 .test_storage_tmp/
