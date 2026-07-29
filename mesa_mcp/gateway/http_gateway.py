@@ -111,7 +111,10 @@ def create_gateway_router(
                 "content": [{"type": "text", "text": json.dumps(res)}],
                 "isError": False,
             }
-        except Exception as e:
-            return {"content": [{"type": "text", "text": str(e)}], "isError": True}
+        except Exception:
+            return {
+                "content": [{"type": "text", "text": "MCP operation failed"}],
+                "isError": True,
+            }
 
     return router

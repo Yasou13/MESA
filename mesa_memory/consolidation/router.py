@@ -14,6 +14,7 @@ Features:
 
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, TypedDict
@@ -32,6 +33,21 @@ from mesa_memory.valence.core import ValenceMotor
 from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_Router")
+
+_EXPLICIT_CORRECTION_RE = re.compile(
+    r"(?i)\b(?:correction|corrected|update[ds]?|supersedes|replaces|"
+    r"yanlış|düzelt(?:me|ildi)?|güncell(?:e|endi)|yerine)\b"
+)
+
+
+def _requires_tier3_correction_review(record: dict) -> bool:
+    """Identify explicit update/correction language conservatively.
+
+    This is a routing signal, never a truth decision: matching records are
+    sent to the independent Tier-3 validators rather than accepted or
+    discarded by novelty heuristics.
+    """
+    return bool(_EXPLICIT_CORRECTION_RE.search(str(record.get("content_payload", ""))))
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +298,19 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         v0.6.1 Phase 1.2: Confidence scoring now uses LLM-as-a-Judge
         instead of the mathematically invalid pseudo-entropy placeholder.
         """
+        # Explicit corrections frequently resemble the record they replace.
+        # Route them to Tier-3 before any small-model/novelty shortcut can
+        # discard the update as redundant.
+        if _requires_tier3_correction_review(record):
+            record["tier3_deferred"] = True
+            record["explicit_correction"] = True
+            return RoutingDecision(
+                route="dual_llm",
+                decision=None,
+                reason="explicit_correction_requires_tier3",
+                tier3_audit=None,
+            )
+
         # -----------------------------------------------------------------
         # PATH 1 — GUARDRAIL: Zero-Hallucination Legal Mode
         # When active, the small-model confidence gate is unconditionally

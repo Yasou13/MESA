@@ -181,7 +181,13 @@ docker run --rm --env-file mesa-benchmark/.env \
   mesa-benchmark --config resource://configs/legacy/mini_mesa.yaml
 ```
 
-Image semantic embedding modelini build sırasında önbelleğe alır.
+Image semantic embedding modelini build sırasında önbelleğe alır; çalışma
+anında model indirme kapalıdır ve süreç `mesa` kullanıcısıyla yürür. Ağsız
+entrypoint smoke kontrolü için:
+
+```bash
+docker run --rm --network=none mesa-benchmark --help
+```
 
 ## Test
 

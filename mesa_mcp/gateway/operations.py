@@ -13,13 +13,14 @@ from typing import Any
 
 from cryptography.fernet import Fernet
 
+from mesa_memory.security.input_validation import validate_write_payload
 from mesa_storage.sqlite_engine import AsyncEngine
 
 from ..errors import MCPError
 from ..security import MEMORY_TYPES
 from ..v4_service import MesaHttpV4Service
 from .auth import GatewayPrincipal
-from .middleware import ControlPlaneMiddleware
+from .middleware import ControlPlaneMiddleware, canonical_payload_hash
 
 _WRITE_TOOLS = frozenset({"mesa_remember", "mesa_improve", "mesa_forget"})
 _POLICY_OPERATIONS = {
@@ -43,6 +44,8 @@ class CircuitBreaker:
         self._recovery_seconds = recovery_seconds
         self._failures = 0
         self._opened_at: float | None = None
+        self._half_open_probe_in_flight = False
+        self._lock = asyncio.Lock()
 
     @property
     def state(self) -> str:
@@ -55,21 +58,39 @@ class CircuitBreaker:
     async def call(
         self, operation: Callable[[], Awaitable[dict[str, Any]]]
     ) -> dict[str, Any]:
-        if self.state == "OPEN":
-            raise MCPError(
-                "BACKEND_UNAVAILABLE", "MESA circuit is open", retryable=True
-            )
+        probe = False
+        async with self._lock:
+            if self._opened_at is not None:
+                if time.monotonic() - self._opened_at < self._recovery_seconds:
+                    raise MCPError(
+                        "BACKEND_UNAVAILABLE", "MESA circuit is open", retryable=True
+                    )
+                if self._half_open_probe_in_flight:
+                    raise MCPError(
+                        "BACKEND_UNAVAILABLE",
+                        "MESA circuit probe is in progress",
+                        retryable=True,
+                    )
+                self._half_open_probe_in_flight = True
+                probe = True
         try:
             result = await operation()
         except MCPError as exc:
             if exc.retryable:
-                self._failures += 1
-                if self._failures >= self._failure_threshold:
-                    self._opened_at = time.monotonic()
+                async with self._lock:
+                    if probe:
+                        self._opened_at = time.monotonic()
+                    else:
+                        self._failures += 1
+                        if self._failures >= self._failure_threshold:
+                            self._opened_at = time.monotonic()
+                    self._half_open_probe_in_flight = False
             raise
         else:
-            self._failures = 0
-            self._opened_at = None
+            async with self._lock:
+                self._failures = 0
+                self._opened_at = None
+                self._half_open_probe_in_flight = False
             return result
 
 
@@ -196,6 +217,7 @@ class GatewayOperationService:
             return await self._recall(binding, client, arguments)
         if tool_name not in _WRITE_TOOLS:
             raise MCPError("NOT_FOUND", "unknown MCP tool")
+        _validate_write_arguments(arguments)
         idempotency_key = _required(arguments, "idempotency_key")
         operation = await self._create_operation(
             client_id, binding, connection_id, tool_name, idempotency_key, arguments
@@ -246,6 +268,14 @@ class GatewayOperationService:
                 await self._set_operation(operation["operation_id"], "DENIED")
                 completed += 1
                 continue
+            if approval["payload_hash"] != operation["payload_hash"]:
+                await self._set_operation(
+                    operation["operation_id"],
+                    "DENIED",
+                    error_code="APPROVAL_PAYLOAD_MISMATCH",
+                )
+                completed += 1
+                continue
             binding, client = await self._scope_for_operation(operation)
             await self._set_operation(operation["operation_id"], "APPROVED")
             await self._run_operation(operation, binding, client)
@@ -289,6 +319,7 @@ class GatewayOperationService:
             return await self._recall(binding, client, arguments)
         if tool_name not in _WRITE_TOOLS:
             raise MCPError("NOT_FOUND", "unknown MCP tool")
+        _validate_write_arguments(arguments)
         idempotency_key = _required(arguments, "idempotency_key")
         operation = await self._create_operation(
             principal.client_id,
@@ -503,7 +534,7 @@ class GatewayOperationService:
         canonical = json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
-        digest = hashlib.sha256(canonical.encode()).hexdigest()
+        digest = canonical_payload_hash(payload)
         async with self._engine.transaction() as db:
             await db.execute(
                 "INSERT OR IGNORE INTO mcp_operations (operation_id, client_id, binding_id, connection_id, tool_name, idempotency_key, payload_hash, payload_encrypted, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED')",
@@ -537,6 +568,15 @@ class GatewayOperationService:
         payload = json.loads(
             self._cipher.decrypt(operation["payload_encrypted"]).decode()
         )
+        if canonical_payload_hash(payload) != operation["payload_hash"]:
+            await self._set_operation(
+                operation["operation_id"],
+                "DENIED",
+                error_code="OPERATION_PAYLOAD_MISMATCH",
+            )
+            return await self.operation_status(
+                str(operation["client_id"]), str(operation["operation_id"])
+            )
         scope = {
             "tenant_id": binding["tenant_id"],
             "workspace_id": binding["workspace_id"],
@@ -584,7 +624,10 @@ class GatewayOperationService:
         # worker has committed it.  Do not expose that admission as success.
         status = "SUBMITTED" if mutation_id else "COMMITTED"
         await self._set_operation(
-            operation["operation_id"], status, mutation_id=mutation_id, response=response
+            operation["operation_id"],
+            status,
+            mutation_id=mutation_id,
+            response=response,
         )
         self._invalidate_recall_cache(binding["binding_id"])
         return await self.operation_status(
@@ -715,6 +758,19 @@ def _required(arguments: dict[str, Any], field: str) -> str:
     return value.strip()
 
 
+def _validate_write_arguments(arguments: dict[str, Any]) -> None:
+    content = arguments.get("content")
+    metadata = arguments.get("metadata", {})
+    if content is None:
+        return
+    if not isinstance(content, str) or not isinstance(metadata, dict):
+        raise MCPError("INVALID_ARGUMENT", "content and metadata must be valid")
+    try:
+        validate_write_payload(content, metadata)
+    except ValueError as exc:
+        raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
+
+
 def _remember_provenance(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate optional MCP provenance before forwarding it to V4."""
     metadata = payload.get("metadata", {})
@@ -767,7 +823,9 @@ def _operation_response(operation: dict[str, Any]) -> dict[str, Any]:
     if operation.get("response_json"):
         response = json.loads(operation["response_json"])
         result["result"] = response
-        if isinstance(response, dict) and isinstance(response.get("rejection_reason"), str):
+        if isinstance(response, dict) and isinstance(
+            response.get("rejection_reason"), str
+        ):
             result["rejection_reason"] = response["rejection_reason"]
     if operation.get("error_code"):
         result["error"] = {
@@ -789,7 +847,11 @@ def _mcp_status_from_mutation(
     if state == "REJECTED":
         reason = mutation.get("rejection_reason")
         if isinstance(reason, str) and reason:
-            return "REJECTED", "MUTATION_REJECTED", f"V4 rejected the mutation: {reason[:120]}"
+            return (
+                "REJECTED",
+                "MUTATION_REJECTED",
+                f"V4 rejected the mutation: {reason[:120]}",
+            )
         return "REJECTED", "MUTATION_REJECTED", "V4 rejected the mutation"
     if state in {"DEAD_LETTER", "ROLLED_BACK", "BLOCKED", "FAILED"}:
         return "FAILED", "MUTATION_FAILED", f"V4 mutation ended as {state}"

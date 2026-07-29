@@ -345,6 +345,18 @@ class MesaConfig(BaseSettings):
     llm_timeout_seconds: float = Field(
         20.0, validation_alias="LLM_TIMEOUT_SECONDS"
     )
+    tier3_llm_provider_a: str | None = Field(
+        None, validation_alias="MESA_TIER3_LLM_PROVIDER_A"
+    )
+    tier3_llm_model_name_a: str | None = Field(
+        None, validation_alias="MESA_TIER3_LLM_MODEL_A"
+    )
+    tier3_llm_provider_b: str | None = Field(
+        None, validation_alias="MESA_TIER3_LLM_PROVIDER_B"
+    )
+    tier3_llm_model_name_b: str | None = Field(
+        None, validation_alias="MESA_TIER3_LLM_MODEL_B"
+    )
     embedding_dimension: int = 1536
 
     tiebreaker_latency_threshold_ms: float = 500.0

@@ -72,8 +72,11 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
 
 class AdapterFactory:
     @staticmethod
-    def get_adapter(provider: Optional[str] = None) -> BaseUniversalLLMAdapter:
+    def get_adapter(
+        provider: Optional[str] = None, *, model_name: str | None = None
+    ) -> BaseUniversalLLMAdapter:
         provider = provider or config.mesa_llm_provider
+        selected_model = model_name or config.llm_model_name
 
         # ── Explicit provider selection ──────────────────────────────────
         if provider == "openai_compatible":
@@ -82,7 +85,7 @@ class AdapterFactory:
             return OpenAICompatibleAdapter(
                 api_key=config.llm_api_key,
                 base_url=config.llm_base_url,
-                model_name=config.llm_model_name,
+                model_name=selected_model,
                 embedding_model_name=config.llm_embedding_model_name,
                 timeout_seconds=config.llm_timeout_seconds,
             )
@@ -97,7 +100,7 @@ class AdapterFactory:
 
             ollama_url = os.environ.get("MESA_OLLAMA_URL", "http://localhost:11434")
             return OllamaAdapter(
-                model=config.llm_model_name or "llama3.2:3b",
+                model=selected_model or "llama3.2:3b",
                 base_url=ollama_url,
             )
 
@@ -108,6 +111,27 @@ class AdapterFactory:
             return DeterministicMockAdapter()
 
         raise ValueError(f"Unknown LLM provider: {provider}")
+
+    @staticmethod
+    def get_tier3_adapters() -> tuple[BaseUniversalLLMAdapter, BaseUniversalLLMAdapter]:
+        """Build the two independently configured Tier-3 validators.
+
+        Tier-3 is a consensus control, not a duplicated call to one model.
+        Missing or equal provider/model pairs therefore fail startup closed.
+        """
+        specs = (
+            (config.tier3_llm_provider_a, config.tier3_llm_model_name_a),
+            (config.tier3_llm_provider_b, config.tier3_llm_model_name_b),
+        )
+        if not all(provider and model for provider, model in specs):
+            raise ValueError("Tier-3 requires provider and model for both adapters")
+        normalized = tuple((provider.casefold(), model.casefold()) for provider, model in specs)  # type: ignore[union-attr]
+        if normalized[0] == normalized[1]:
+            raise ValueError("Tier-3 adapters must use different provider/model pairs")
+        return (
+            AdapterFactory.get_adapter(specs[0][0], model_name=specs[0][1]),
+            AdapterFactory.get_adapter(specs[1][0], model_name=specs[1][1]),
+        )
 
     @staticmethod
     def _auto_detect() -> BaseUniversalLLMAdapter:

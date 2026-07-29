@@ -63,10 +63,14 @@ jobs:
         working-directory: mesa-benchmark/dashboard-ui
         run: |
           npm ci --ignore-scripts
-          npm test
+          npm run test:coverage
           npm run build
-      - name: Unit, golden, schema, converter, and verifier contracts
-        run: uv run python -m pytest -q mesa-benchmark/tests
+      - name: Enforce the benchmark dashboard coverage floor
+        run: >-
+          uv run python -m pytest -q mesa-benchmark/tests/test_dashboard.py
+          --cov=mesa_benchmark.dashboard --cov-fail-under=54
+          --cov-report=term-missing --cov-report=xml:benchmark-coverage.xml
+          --cov-report=json:benchmark-coverage.json
       - name: Benchmark lint and type contracts
         run: |
           uv run ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/scripts mesa-benchmark/tests
@@ -83,6 +87,16 @@ jobs:
       - name: Benchmark Console browser smoke
         working-directory: mesa-benchmark/dashboard-ui
         run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: benchmark-coverage-report
+          path: |
+            benchmark-coverage.xml
+            benchmark-coverage.json
+            mesa-benchmark/dashboard-ui/coverage/
+          if-no-files-found: error
+          retention-days: 10
       - name: Artifact hygiene
         run: |
           test -z "$(git ls-files | grep -E '(^|/)(__pycache__|results|build/lib/mesa_benchmark)(/|$)|\.py[co]$' || true)"

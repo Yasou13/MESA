@@ -30,10 +30,13 @@ _SECRET_PATTERNS = (
 class JobManager:
     """Owns sequential benchmark subprocesses and cooperative controls."""
 
+    _MAX_EVENT_BYTES = 4 * 1024 * 1024
+    _MAX_SUBPROCESS_OUTPUT_BYTES = 1 * 1024 * 1024
+
     def __init__(self, registry: JobRegistry, results_root: Path) -> None:
         self.registry = registry
         self.results_root = results_root
-        self._processes: dict[str, subprocess.Popen[str]] = {}
+        self._processes: dict[str, subprocess.Popen[bytes]] = {}
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._dataset_thread: threading.Thread | None = None
@@ -178,10 +181,41 @@ class JobManager:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             **event,
         }
-        with Path(path).open("a", encoding="utf-8") as handle:
+        target = Path(path)
+        with target.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(value, ensure_ascii=False) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
+        if target.stat().st_size > JobManager._MAX_EVENT_BYTES:
+            lines = target.read_text(encoding="utf-8").splitlines()
+            retained: list[str] = []
+            retained_bytes = 0
+            for line in reversed(lines):
+                line_bytes = len(line.encode("utf-8")) + 1
+                if (
+                    retained
+                    and retained_bytes + line_bytes > JobManager._MAX_EVENT_BYTES
+                ):
+                    break
+                retained.append(line)
+                retained_bytes += line_bytes
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text("\n".join(reversed(retained)) + "\n", encoding="utf-8")
+            temporary.replace(target)
+
+    @classmethod
+    def _drain_stream(cls, stream: Any, sink: list[bytes]) -> None:
+        """Drain a child pipe continuously while retaining a bounded diagnostic tail."""
+        retained = 0
+        try:
+            while chunk := stream.read(64 * 1024):
+                available = cls._MAX_SUBPROCESS_OUTPUT_BYTES - retained
+                if available > 0:
+                    kept = chunk[-available:]
+                    sink.append(kept)
+                    retained += len(kept)
+        finally:
+            stream.close()
 
     def _run_job(self, job_id: str) -> None:
         job = self.registry.get(job_id)
@@ -267,10 +301,24 @@ class JobManager:
                     command,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True,
                     env=environment,
                     cwd=str(Path.cwd()),
                 )
+                assert process.stdout is not None and process.stderr is not None
+                stdout_chunks: list[bytes] = []
+                stderr_chunks: list[bytes] = []
+                stdout_reader = threading.Thread(
+                    target=self._drain_stream,
+                    args=(process.stdout, stdout_chunks),
+                    daemon=True,
+                )
+                stderr_reader = threading.Thread(
+                    target=self._drain_stream,
+                    args=(process.stderr, stderr_chunks),
+                    daemon=True,
+                )
+                stdout_reader.start()
+                stderr_reader.start()
                 with self._lock:
                     self._processes[job_id] = process
                 self.registry.update(job_id, pid=process.pid)
@@ -317,7 +365,11 @@ class JobManager:
                         elapsed_active,
                     )
                     time.sleep(0.5)
-                stdout, stderr = process.communicate()
+                process.wait()
+                stdout_reader.join(timeout=5)
+                stderr_reader.join(timeout=5)
+                stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+                stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
                 log_root = Path(job.plan_path).parent / "logs"
                 log_root.mkdir(exist_ok=True)
                 attempt = int(task.get("attempt", 1))
@@ -396,7 +448,9 @@ class JobManager:
                 confidence = (
                     "yüksek"
                     if completed >= 5
-                    else "orta" if completed >= 2 else "düşük"
+                    else "orta"
+                    if completed >= 2
+                    else "düşük"
                 )
                 self._save_plan(job.plan_path, plan)
                 self.registry.update(
@@ -574,7 +628,9 @@ class JobManager:
         confidence = (
             "yüksek"
             if question_index >= 20
-            else "orta" if question_index >= 3 else "düşük"
+            else "orta"
+            if question_index >= 3
+            else "düşük"
         )
         metadata = latest.get("metadata") or {}
         results_file = next(

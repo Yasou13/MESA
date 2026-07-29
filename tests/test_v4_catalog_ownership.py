@@ -1,6 +1,7 @@
 """V4 canonical catalog, shared ownership and dataset ACL contracts."""
 
 import hashlib
+import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -48,6 +49,7 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
         )
         first = await dao.create_v4_revision(
             tenant_id="tenant-a",
+            dataset_id="dataset-a",
             document_id="document-a",
             revision_id="revision-1",
             revision_number=1,
@@ -56,6 +58,7 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
         assert first["status"] == "ACTIVE"
         await dao.create_v4_revision(
             tenant_id="tenant-a",
+            dataset_id="dataset-a",
             document_id="document-a",
             revision_id="revision-2",
             revision_number=2,
@@ -63,18 +66,74 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
             supersedes_revision_id="revision-1",
         )
         revisions = await dao.list_v4_revisions(
-            tenant_id="tenant-a", document_id="document-a"
+            tenant_id="tenant-a", dataset_id="dataset-a", document_id="document-a"
         )
         assert [item["status"] for item in revisions] == ["SUPERSEDED", "ACTIVE"]
         with pytest.raises(ValueError, match="immutable"):
             await dao.create_v4_revision(
                 tenant_id="tenant-a",
+                dataset_id="dataset-a",
                 document_id="document-a",
                 revision_id="revision-2",
                 revision_number=2,
                 content_hash=first_hash,
                 supersedes_revision_id="revision-1",
             )
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-b",
+        )
+        with pytest.raises(ValueError, match="does not belong to dataset"):
+            await dao.create_v4_revision(
+                tenant_id="tenant-a",
+                dataset_id="dataset-b",
+                document_id="document-a",
+                revision_id="revision-other-dataset",
+                revision_number=3,
+                content_hash=hashlib.sha256(b"cross dataset").hexdigest(),
+            )
+        assert (
+            await dao.list_v4_revisions(
+                tenant_id="tenant-a", dataset_id="dataset-b", document_id="document-a"
+            )
+            == []
+        )
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_catalog_rejects_cross_tenant_workspace_and_identity_collision(
+    tmp_path,
+) -> None:
+    engine = AsyncEngine(str(tmp_path / "catalog-scope.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(engine, SimpleNamespace())
+    try:
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+        )
+        with pytest.raises(ValueError, match="workspace identity collides"):
+            await dao.ensure_v4_catalog_scope(
+                tenant_id="tenant-b",
+                workspace_id="workspace-a",
+                dataset_id="dataset-b",
+            )
+        async with engine.connection() as db:
+            await db.execute(
+                "INSERT INTO tenants (tenant_id, display_name) VALUES (?, ?)",
+                ("tenant-b", "Tenant B"),
+            )
+            with pytest.raises(sqlite3.IntegrityError, match="workspace must belong"):
+                await db.execute(
+                    "INSERT INTO datasets (dataset_id, tenant_id, workspace_id, name) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("dataset-b", "tenant-b", "workspace-a", "Dataset B"),
+                )
     finally:
         await engine.close()
 
@@ -101,6 +160,22 @@ async def test_source_chunk_id_cannot_be_reused_for_different_content(tmp_path) 
             "source_ref": "source-a",
         }
         await dao.create_v4_source_chunk(content_payload="ilk içerik", **common)
+        second = await dao.create_v4_source_chunk(
+            content_payload="ikinci içerik",
+            **{**common, "chunk_id": "chunk-b", "chunk_ordinal": 1},
+        )
+        expected_manifest = hashlib.sha256(
+            b'[{"chunk_id":"chunk-a","content_hash":"'
+            + hashlib.sha256("ilk içerik".encode()).hexdigest().encode()
+            + b'","ordinal":0,"source_ref":"source-a"},{"chunk_id":"chunk-b","content_hash":"'
+            + hashlib.sha256("ikinci içerik".encode()).hexdigest().encode()
+            + b'","ordinal":1,"source_ref":"source-a"}]'
+        ).hexdigest()
+        assert second["manifest_hash"] == expected_manifest
+        revisions = await dao.list_v4_revisions(
+            tenant_id="tenant-a", dataset_id="dataset-a", document_id="document-a"
+        )
+        assert revisions[0]["manifest_hash"] == expected_manifest
         with pytest.raises(ValueError, match="immutable"):
             await dao.create_v4_source_chunk(
                 content_payload="değiştirilmiş içerik", **common

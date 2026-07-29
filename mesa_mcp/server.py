@@ -90,15 +90,13 @@ def create_mcp_server(
                             )
                         ],
                     )
-            except Exception as e:
+            except Exception:
                 return types.CallToolResult(
                     isError=True,
                     content=[
                         types.TextContent(
                             type="text",
-                            text=json.dumps(
-                                {"error": "bridge_failure", "detail": str(e)}
-                            ),
+                            text=json.dumps({"error": "bridge_failure"}),
                         )
                     ],
                 )

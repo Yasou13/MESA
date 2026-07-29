@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from typing import Any
@@ -18,6 +19,7 @@ class MesaHttpV4Service:
     def __init__(self, settings: MCPSettings):
         self._settings = settings
         self._session_cache: dict[str, str] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
         self._http_client = AsyncMesaV4Client(
             base_url=settings.base_url,
             api_key=settings.api_key,
@@ -46,22 +48,47 @@ class MesaHttpV4Service:
         tenant_id = tenant_id or self._settings.default_tenant_id
         workspace_id = workspace_id or self._settings.default_workspace_id
         actor_id = actor_id or self._settings.actor_id
-        cache_key = f"{tenant_id}:{workspace_id}:{actor_id}:{dataset_id}"
-        if cache_key in self._session_cache:
-            return self._session_cache[cache_key]
+        cache_key = self._session_cache_key(
+            tenant_id, workspace_id, actor_id, dataset_id
+        )
+        lock = self._session_locks.setdefault(cache_key, asyncio.Lock())
+        async with lock:
+            cached = self._session_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            try:
+                resp = await client.start_session(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    dataset_ids=[dataset_id],
+                    agent_id=actor_id,
+                )
+                session_id = resp["session_id"]
+                self._session_cache[cache_key] = session_id
+                return session_id
+            except Exception as exc:
+                raise _map_exception(exc) from exc
 
-        try:
-            resp = await client.start_session(
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-                dataset_ids=[dataset_id],
-                agent_id=actor_id,
-            )
-            session_id = resp["session_id"]
-            self._session_cache[cache_key] = session_id
-            return session_id
-        except Exception as exc:
-            raise _map_exception(exc) from exc
+    @staticmethod
+    def _session_cache_key(
+        tenant_id: str, workspace_id: str, actor_id: str, dataset_id: str
+    ) -> str:
+        return f"{tenant_id}:{workspace_id}:{actor_id}:{dataset_id}"
+
+    def _invalidate_session(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        actor_id: str,
+        dataset_id: str,
+        session_id: str,
+    ) -> None:
+        cache_key = self._session_cache_key(
+            tenant_id, workspace_id, actor_id, dataset_id
+        )
+        if self._session_cache.get(cache_key) == session_id:
+            self._session_cache.pop(cache_key, None)
 
     async def v4_remember(self, **kwargs: Any) -> dict[str, Any]:
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
@@ -105,20 +132,41 @@ class MesaHttpV4Service:
         except MesaAPIError as exc:
             if exc.status_code != 409:
                 raise _map_exception(exc) from exc
+        insert_arguments = {
+            "dataset_id": dataset_id,
+            "document_id": document_id,
+            "revision_id": revision_id,
+            "chunk_id": chunk_id,
+            "title": kwargs.get("title", f"Memory {document_id}"),
+            "source_ref": kwargs.get("source_ref", "mcp_tool"),
+            "evidence_span": kwargs.get("evidence_span", ""),
+            "content": content,
+            "metadata": kwargs.get("metadata", {}),
+            "idempotency_key": kwargs.get("idempotency_key"),
+        }
         try:
-            return await client.insert(
-                session_id=session_id,
+            return await client.insert(session_id=session_id, **insert_arguments)
+        except MesaAPIError as exc:
+            if exc.status_code not in {401, 404}:
+                raise _map_exception(exc) from exc
+            self._invalidate_session(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                actor_id=actor_id,
                 dataset_id=dataset_id,
-                document_id=document_id,
-                revision_id=revision_id,
-                chunk_id=chunk_id,
-                title=kwargs.get("title", f"Memory {document_id}"),
-                source_ref=kwargs.get("source_ref", "mcp_tool"),
-                evidence_span=kwargs.get("evidence_span", ""),
-                content=content,
-                metadata=kwargs.get("metadata", {}),
-                idempotency_key=kwargs.get("idempotency_key"),
+                session_id=session_id,
             )
+            session_id = await self._get_session_id(
+                client,
+                dataset_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                actor_id=actor_id,
+            )
+            try:
+                return await client.insert(session_id=session_id, **insert_arguments)
+            except Exception as retry_exc:
+                raise _map_exception(retry_exc) from retry_exc
         except Exception as exc:
             raise _map_exception(exc) from exc
 
@@ -143,16 +191,37 @@ class MesaHttpV4Service:
             workspace_id=workspace_id,
             actor_id=actor_id,
         )
+        search_arguments = {
+            "query": kwargs["query"],
+            "dataset_ids": [dataset_id],
+            "limit": kwargs.get("limit", self._settings.search_default_limit),
+        }
         try:
-            resp = await client.search(
+            resp = await client.search(session_id=session_id, **search_arguments)
+        except MesaAPIError as exc:
+            if exc.status_code not in {401, 404}:
+                raise _map_exception(exc) from exc
+            self._invalidate_session(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                actor_id=actor_id,
+                dataset_id=dataset_id,
                 session_id=session_id,
-                query=kwargs["query"],
-                dataset_ids=[dataset_id],
-                limit=kwargs.get("limit", self._settings.search_default_limit),
             )
-            return [_typed_result(item) for item in resp.get("results", [])]
+            session_id = await self._get_session_id(
+                client,
+                dataset_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                actor_id=actor_id,
+            )
+            try:
+                resp = await client.search(session_id=session_id, **search_arguments)
+            except Exception as retry_exc:
+                raise _map_exception(retry_exc) from retry_exc
         except Exception as exc:
             raise _map_exception(exc) from exc
+        return [_typed_result(item) for item in resp.get("results", [])]
 
     async def v4_improve(self, **kwargs: Any) -> dict[str, Any]:
         # Improve is essentially creating a new revision
@@ -215,13 +284,17 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
     else:
         provenance = {}
     return {
-        "memory_id": item.get("memory_id") or entity.get("entity_id") or item.get("chunk_id"),
+        "memory_id": item.get("memory_id")
+        or entity.get("entity_id")
+        or item.get("chunk_id"),
         "document_id": item.get("document_id") or primary_assertion.get("document_id"),
         "chunk_id": item.get("chunk_id") or primary_assertion.get("chunk_id"),
         "content": item.get("content") or entity.get("canonical_name"),
         "memory_type": metadata.get("memory_type", "unknown"),
         "status": item.get("status") or entity.get("status", "active"),
-        "score": item.get("score") or item.get("final_score") or item.get("rrf_score", 0.0),
+        "score": item.get("score")
+        or item.get("final_score")
+        or item.get("rrf_score", 0.0),
         "provenance": provenance,
     }
 

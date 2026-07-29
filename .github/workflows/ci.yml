@@ -48,6 +48,8 @@ jobs:
           uv run python -c "import mesa_memory, mesa_api, mesa_client, mesa_storage, mesa_workers"
       - name: Lint the repository
         run: uv run ruff check .
+      - name: Enforce one-way production-layer imports
+        run: uv run python scripts/check_layer_imports.py
       - name: Enforce formatting and progressive typing across production packages
         run: |
           uv run python - <<'PY'
@@ -131,6 +133,92 @@ jobs:
             graph-assurance.xml
             security-assurance-summary.txt
           if-no-files-found: warn
+          retention-days: 10
+
+  supply-chain-security:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mesa-benchmark/dashboard-ui/package-lock.json
+      - name: Install lockfile-resolved Python and Node dependencies
+        run: |
+          python -m pip install "uv==0.9.6"
+          uv sync --locked --extra dev --extra benchmarks
+          npm ci --ignore-scripts --prefix mesa-benchmark/dashboard-ui
+      - name: Fail on high or critical Node dependency findings
+        working-directory: mesa-benchmark/dashboard-ui
+        run: npm audit --omit=dev --audit-level=high
+      - name: Build the digest-pinned benchmark image for scanning
+        run: docker build --pull=false --tag mesa-benchmark:security --file mesa-benchmark/Dockerfile .
+      - name: Fail on high or critical Python and Node dependency findings
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Fail on high or critical benchmark image findings
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: image
+          image-ref: mesa-benchmark:security
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Generate a CycloneDX SBOM from locked dependencies and image inputs
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: supply-chain-sbom.cdx.json
+          exit-code: "0"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: supply-chain-sbom
+          path: supply-chain-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  mcp-coverage:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: python -m pip install "uv==0.9.6"
+      - run: uv sync --locked --extra dev --extra mcp
+      - name: Enforce the MCP service coverage floor
+        run: >-
+          uv run python -m pytest -q tests/test_mcp_v4_service.py
+          --cov=mesa_mcp.v4_service --cov-fail-under=55
+          --cov-report=term-missing --cov-report=xml:mcp-coverage.xml
+          --cov-report=json:mcp-coverage.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcp-coverage-report
+          path: |
+            mcp-coverage.xml
+            mcp-coverage.json
           retention-days: 10
 
   zero-cost-contract:

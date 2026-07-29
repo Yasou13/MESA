@@ -9,16 +9,15 @@ authorized against a verified principal-to-agent-to-session binding.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from datetime import datetime
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_memory.config import config
-from mesa_memory.consolidation.schemas import MemoryCandidate
+from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
     MemoryDAO,
@@ -133,6 +132,11 @@ class V4MemoryInsertRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, max_length=128)
 
+    @model_validator(mode="after")
+    def validate_write_boundary(self) -> "V4MemoryInsertRequest":
+        validate_write_payload(self.content, self.metadata)
+        return self
+
 
 class V4SearchRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
@@ -145,6 +149,12 @@ class V4SearchRequest(BaseModel):
     valid_at: datetime | None = None
     valid_from: datetime | None = None
     valid_to: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_temporal_range(self) -> "V4SearchRequest":
+        if self.valid_from and self.valid_to and self.valid_from > self.valid_to:
+            raise ValueError("valid_from must not be after valid_to")
+        return self
 
 
 def _active_principal(request: Request):
@@ -408,6 +418,7 @@ def create_v4_router(
         try:
             return await dao.create_v4_revision(
                 tenant_id=payload.tenant_id,
+                dataset_id=payload.dataset_id,
                 document_id=payload.document_id,
                 revision_id=payload.revision_id,
                 revision_number=payload.revision_number,
@@ -437,7 +448,9 @@ def create_v4_router(
         )
         return {
             "revisions": await dao.list_v4_revisions(
-                tenant_id=tenant_id, document_id=document_id
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
             )
         }
 
@@ -558,10 +571,14 @@ def create_v4_router(
             "api_version": "v4",
         }
 
-    @router.post("/rebuild", status_code=202)
+    @router.post("/rebuild", status_code=501)
     async def rebuild_index(request: Request, tenant_id: str) -> dict:
-        """Trigger a rebuild for a tenant's index (WO-018)."""
-        return {"status": "rebuild_queued", "tenant_id": tenant_id}
+        """Fail closed until an authorized rebuild workflow exists."""
+        _active_principal(request)
+        raise HTTPException(
+            status_code=501,
+            detail="V4 index rebuild is not implemented",
+        )
 
     @router.post("/memory/insert", status_code=202)
     async def insert_memory(
@@ -584,111 +601,43 @@ def create_v4_router(
         payload_hash = hashlib.sha256(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
-        if payload.idempotency_key:
-            receipt = await dao.reserve_v4_idempotency(
-                tenant_id=str(session["tenant_id"]),
-                agent_id=str(session["agent_id"]),
-                dataset_id=payload.dataset_id,
-                operation_type="INSERT",
-                idempotency_key=payload.idempotency_key,
-                payload_hash=payload_hash,
-            )
-            if receipt["payload_hash"] != payload_hash:
-                raise HTTPException(
-                    status_code=409, detail="idempotency_key payload mismatch"
-                )
-            if receipt["state"] == "COMPLETED":
-                response = json.loads(str(receipt["response_json"]))
-                response["duplicate"] = True
-                return response
-            if not receipt["reserved"]:
-                # The original request has durably claimed this key but has
-                # not yet finished.  Returning a retryable conflict prevents
-                # duplicate admission without pretending it completed.
-                raise HTTPException(
-                    status_code=409, detail="idempotency_key is in progress"
-                )
-            if receipt["mutation_id"]:
-                return {
-                    "status": "accepted",
-                    "mutation_id": receipt["mutation_id"],
-                    "duplicate": True,
-                }
-        await dao.create_v4_source_chunk(
-            tenant_id=str(session["tenant_id"]),
-            dataset_id=payload.dataset_id,
-            document_id=payload.document_id,
-            revision_id=payload.revision_id,
-            chunk_id=payload.chunk_id,
-            title=payload.title,
-            content_payload=payload.content,
-            source_ref=payload.source_ref,
-            revision_number=payload.revision_number,
-            chunk_ordinal=payload.chunk_ordinal,
-            supersedes_revision_id=payload.supersedes_revision_id,
-        )
-        raw_payload = {
-            "tenant_id": session["tenant_id"],
-            "workspace_id": session["workspace_id"],
-            "dataset_id": payload.dataset_id,
-            "document_id": payload.document_id,
-            "revision_id": payload.revision_id,
-            "chunk_id": payload.chunk_id,
-            "source_ref": payload.source_ref,
-            "evidence_span": payload.evidence_span,
-            "agent_id": session["agent_id"],
-            "session_id": payload.session_id,
-            "content": payload.content,
-            "metadata": payload.metadata,
-        }
         try:
-            admission = await dao.admit_raw_log(
-                str(session["agent_id"]),
-                raw_payload,
+            admission = await dao.admit_v4_memory(
+                tenant_id=str(session["tenant_id"]),
+                workspace_id=str(session["workspace_id"]),
+                dataset_id=payload.dataset_id,
+                agent_id=str(session["agent_id"]),
+                session_id=payload.session_id,
+                document_id=payload.document_id,
+                revision_id=payload.revision_id,
+                chunk_id=payload.chunk_id,
+                title=payload.title,
+                content_payload=payload.content,
+                source_ref=payload.source_ref,
+                evidence_span=payload.evidence_span,
+                revision_number=payload.revision_number,
+                chunk_ordinal=payload.chunk_ordinal,
+                supersedes_revision_id=payload.supersedes_revision_id,
+                metadata=payload.metadata,
                 policy=config.queue_admission_policy,
+                idempotency_key=payload.idempotency_key,
+                payload_hash=payload_hash if payload.idempotency_key else None,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         except QueueRecordTooLargeError:
             raise HTTPException(status_code=413, detail="queue_record_too_large")
         except QueueOverCapacityError:
             raise HTTPException(status_code=503, detail="queue_over_capacity")
         except QueueUnavailableError:
             raise HTTPException(status_code=503, detail="queue_unavailable")
-
-        candidate = MemoryCandidate.from_raw_log(
-            raw_log_id=int(admission["log_id"]),
-            tenant_id=str(session["tenant_id"]),
-            workspace_id=str(session["workspace_id"]),
-            dataset_id=payload.dataset_id,
-            document_id=payload.document_id,
-            revision_id=payload.revision_id,
-            chunk_id=payload.chunk_id,
-            source_ref=payload.source_ref,
-            evidence_span=payload.evidence_span,
-            agent_id=str(session["agent_id"]),
-            session_id=payload.session_id,
-            content_payload=payload.content,
-            metadata=payload.metadata,
-        )
-        await dao.record_mutation(
-            candidate.as_consolidation_record(), raw_log_id=int(admission["log_id"])
-        )
-        response = {
-            "status": "accepted",
-            "mutation_id": candidate.mutation_id,
-            "candidate_id": candidate.candidate_id,
-            "pipeline_run_id": candidate.pipeline_run_id,
-            "raw_log_id": admission["log_id"],
-        }
-        if payload.idempotency_key:
-            await dao.complete_v4_idempotency(
-                tenant_id=str(session["tenant_id"]),
-                agent_id=str(session["agent_id"]),
-                dataset_id=payload.dataset_id,
-                operation_type="INSERT",
-                idempotency_key=payload.idempotency_key,
-                mutation_id=candidate.mutation_id,
-                response_json=json.dumps(response, sort_keys=True),
+        if admission["outcome"] == "IN_PROGRESS":
+            raise HTTPException(
+                status_code=409, detail="idempotency_key is in progress"
             )
+        response = dict(admission["response"])
+        if admission["outcome"] == "DUPLICATE":
+            response["duplicate"] = True
         return response
 
     @router.post("/memory/search")
@@ -714,6 +663,8 @@ def create_v4_router(
             limit=payload.limit,
             jurisdiction=payload.jurisdiction,
             valid_at=payload.valid_at.isoformat() if payload.valid_at else None,
+            valid_from=payload.valid_from.isoformat() if payload.valid_from else None,
+            valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
         )
         return {
             "session_id": payload.session_id,

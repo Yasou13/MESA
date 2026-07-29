@@ -7,8 +7,22 @@ import yaml
 
 from mesa_memory.config import RuntimeProfile
 from mesa_memory.runtime_entrypoint import command_for_profile
+from scripts.run_server import _dashboard_static_file
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_dashboard_static_files_cannot_escape_dist_root(tmp_path: Path) -> None:
+    dashboard = tmp_path / "dist"
+    dashboard.mkdir()
+    asset = dashboard / "favicon.svg"
+    asset.write_text("safe", encoding="utf-8")
+    secret = tmp_path / "outside.txt"
+    secret.write_text("not public", encoding="utf-8")
+
+    assert _dashboard_static_file(str(dashboard), "favicon.svg") == str(asset)
+    assert _dashboard_static_file(str(dashboard), "%2e%2e/outside.txt") is None
+    assert _dashboard_static_file(str(dashboard), "../outside.txt") is None
 
 
 def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
@@ -171,6 +185,32 @@ def test_ci_runs_the_full_coverage_suite_on_the_docker_python_version() -> None:
     assert "coverage-report-${{ matrix.python-version }}" in coverage_job
 
 
+def test_mcp_and_benchmark_coverage_gates_reject_regressions() -> None:
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    mcp_coverage = ci.split("  mcp-coverage:", maxsplit=1)[1].split(
+        "  zero-cost-contract:", maxsplit=1
+    )[0]
+    assert "uv sync --locked --extra dev --extra mcp" in mcp_coverage
+    assert "--cov=mesa_mcp.v4_service --cov-fail-under=55" in mcp_coverage
+    assert "mcp-coverage.xml" in mcp_coverage
+    assert "mcp-coverage.json" in mcp_coverage
+
+    benchmark_workflow = (
+        ROOT / ".github" / "workflows" / "benchmark-quality.yml"
+    ).read_text(encoding="utf-8")
+    assert "--cov=mesa_benchmark.dashboard --cov-fail-under=54" in benchmark_workflow
+    assert "benchmark-coverage.xml" in benchmark_workflow
+    assert "benchmark-coverage.json" in benchmark_workflow
+    assert "npm run test:coverage" in benchmark_workflow
+
+    frontend_config = (ROOT / "mesa-benchmark" / "dashboard-ui" / "vite.config.ts").read_text(
+        encoding="utf-8"
+    )
+    assert "provider: \"v8\"" in frontend_config
+    assert "lines: 10" in frontend_config
+    assert "branches: 30" in frontend_config
+
+
 def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cost() -> (
     None
 ):
@@ -179,6 +219,34 @@ def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cos
     assert "uses: trufflesecurity/trufflehog@v3.95.2" in workflow
     assert "version: 3.95.2" in workflow
     assert "uv sync --locked --extra dev --extra adapters" in workflow
+
+
+def test_ci_supply_chain_gate_scans_locked_dependencies_and_benchmark_image() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    supply_chain = workflow.split("  supply-chain-security:", maxsplit=1)[1].split(
+        "  zero-cost-contract:", maxsplit=1
+    )[0]
+
+    assert "uv sync --locked --extra dev --extra benchmarks" in supply_chain
+    assert "npm ci --ignore-scripts" in supply_chain
+    assert "npm audit --omit=dev --audit-level=high" in supply_chain
+    assert "docker build --pull=false --tag mesa-benchmark:security" in supply_chain
+    assert supply_chain.count(
+        "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
+    ) == 3
+    assert supply_chain.count('exit-code: "1"') == 2
+    assert supply_chain.count("severity: HIGH,CRITICAL") == 2
+    assert "format: cyclonedx" in supply_chain
+    assert "supply-chain-sbom.cdx.json" in supply_chain
+
+    dependabot = yaml.safe_load(
+        (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    )
+    assert {
+        "package-ecosystem": "npm",
+        "directory": "/mesa-benchmark/dashboard-ui",
+        "schedule": {"interval": "weekly"},
+    } in dependabot["updates"]
 
 
 def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None:

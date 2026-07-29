@@ -67,6 +67,7 @@ export const fetchActivity = async (offset = 0, limit = 50) => {
 
 export const fetchPendingApprovals = async () => {
   const res = await fetch(`${API_BASE}/approvals/pending`);
+  if (!res.ok) throw new Error('Failed to fetch pending approvals');
   return res.json();
 };
 
@@ -76,5 +77,6 @@ export const decideApproval = async (approvalId: string, decision: 'APPROVE' | '
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED', decided_by: 'dashboard', reason })
   });
+  if (!res.ok) throw new Error('Failed to submit approval decision');
   return res.json();
 };

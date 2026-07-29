@@ -385,6 +385,24 @@ class TestDockerfile:
         assert "requirements-lock.txt" not in content
         assert "requirements.txt" not in content
 
+    def test_benchmark_image_is_digest_pinned_nonroot_and_offline_at_runtime(self):
+        dockerfile_path = REPO_ROOT / "mesa-benchmark" / "Dockerfile"
+        content = dockerfile_path.read_text(encoding="utf-8")
+
+        assert (
+            "FROM python:3.10.20-slim-bookworm@sha256:"
+            "9643927a6fc74bd81b0f1bbb5cce3cb4a491f46b4c5dbee770f28e575f180015"
+        ) in content
+        assert (
+            "COPY --from=ghcr.io/astral-sh/uv:0.9.6@sha256:"
+            "4b96ee9429583983fd172c33a02ecac5242d63fb46bc27804748e38c1cc9ad0d"
+        ) in content
+        assert "HF_HUB_OFFLINE=1" in content
+        assert "TRANSFORMERS_OFFLINE=1" in content
+        assert "HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0" in content
+        assert "USER mesa:mesa" in content
+        assert content.index("USER mesa:mesa") < content.index("ENTRYPOINT")
+
 
 # ===================================================================
 # TEST 9: Config uses 200 dataset

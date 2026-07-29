@@ -50,7 +50,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import aiosqlite
 
@@ -189,10 +189,8 @@ class AsyncEngine:
         await self.initialize()
         return self
 
-    import typing  # type: ignore[no-untyped-def]
-
     async def __aexit__(
-        self, exc_type: typing.Any, exc_val: typing.Any, exc_tb: typing.Any
+        self, exc_type: Any, exc_val: Any, exc_tb: Any
     ) -> None:
         await self.close()
 

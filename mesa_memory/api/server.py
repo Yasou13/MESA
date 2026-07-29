@@ -81,7 +81,11 @@ _MESA_PRINCIPAL_STATUS: str
 
 def _refresh_auth_config() -> None:
     """Refresh auth settings after an explicitly allowed dotenv load."""
-    global _MESA_API_KEY, _MESA_PRINCIPAL_ID, _MESA_PRINCIPAL_TYPE, _MESA_PRINCIPAL_STATUS
+    global \
+        _MESA_API_KEY, \
+        _MESA_PRINCIPAL_ID, \
+        _MESA_PRINCIPAL_TYPE, \
+        _MESA_PRINCIPAL_STATUS
     _MESA_API_KEY = os.environ.get("MESA_API_KEY")
     _MESA_PRINCIPAL_ID = os.environ.get("MESA_PRINCIPAL_ID")
     _MESA_PRINCIPAL_TYPE = os.environ.get("MESA_PRINCIPAL_TYPE", "SERVICE")
@@ -369,8 +373,7 @@ async def lifespan(app: FastAPI):
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
         # Wire the Consolidation Loop directly to the DAO
-        llm_a = AdapterFactory.get_adapter()
-        llm_b = AdapterFactory.get_adapter()
+        llm_a, llm_b = AdapterFactory.get_tier3_adapters()
         state.consolidation_loop = ConsolidationLoop(
             dao=state.dao,
             embedder=AdapterFactory.get_adapter(),
@@ -505,8 +508,7 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.error("Failed to start MaintenanceWorker: %s", exc)
 
-        rem_llm_a = AdapterFactory.get_adapter()
-        rem_llm_b = AdapterFactory.get_adapter()
+        rem_llm_a, rem_llm_b = AdapterFactory.get_tier3_adapters()
         rem_worker = REMCycleWorker(
             dao=state.dao,
             llm_a=rem_llm_a,
@@ -659,11 +661,13 @@ async def unhandled_exception_response(request: Request, exc: Exception) -> Resp
 
 
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from mesa_memory.api.middleware import limiter, rate_limit_exceeded_handler
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_middleware(SlowAPIMiddleware)
 
 # type: ignore[no-untyped-def]
 
@@ -748,6 +752,7 @@ app.include_router(
         lambda: get_mcp_control().approval_repo,
         lambda: get_mcp_control().credential_repo,
         lambda: get_mcp_control().binding_profile_repo,
+        get_access_control,
     ),
     dependencies=router_dependencies,
 )
@@ -784,12 +789,21 @@ async def health_init():
 
 @app.get("/v3/health", dependencies=[Depends(get_api_key)])
 async def health_v3():  # type: ignore[no-untyped-def]
-    return await state.dao.health_check()
+    health = await state.dao.health_check()
+    return {
+        "status": "healthy"
+        if all(
+            component.get("status") in {"healthy", "not_initialized"}
+            for component in health.values()
+            if isinstance(component, dict)
+        )
+        else "degraded"
+    }
 
 
 @app.get("/health", dependencies=[Depends(get_api_key)])
 async def health():  # type: ignore[no-untyped-def]
-    return await state.dao.health_check()
+    return await health_v3()
 
 
 @app.get("/metrics", dependencies=[Depends(get_api_key)])

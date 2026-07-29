@@ -5,6 +5,7 @@ import uuid
 import pytest
 import pytest_asyncio
 
+from mesa_mcp.gateway.middleware import audit_payload_metadata
 from mesa_storage.control.activity_repo import ActivityRecorder
 from mesa_storage.control.approval_repo import ApprovalRepository
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -65,6 +66,26 @@ async def test_activity_recorder(sqlite_engine):
     assert call2["duration_ms"] == 150
     assert call2["memory_id"] == "mem-123"
     assert call2["completed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_activity_audit_metadata_does_not_store_argument_values(sqlite_engine):
+    repo = ActivityRecorder(sqlite_engine)
+    canary = "api_key=do-not-store-this-canary"
+    await repo.record_call_start(
+        call_id="call-secret",
+        trace_id="trace-secret",
+        client_id="c1",
+        tool_name="mesa_remember",
+        operation_type="WRITE",
+        decision="REQUIRE_APPROVAL",
+        metadata=audit_payload_metadata({"content": canary, "idempotency_key": "idem"}),
+    )
+
+    call = await repo.get_call("call-secret")
+    assert canary not in call["metadata_json"]
+    assert "content" in call["metadata_json"]
+    assert "payload_sha256" in call["metadata_json"]
 
 
 @pytest.mark.asyncio

@@ -56,15 +56,13 @@ import re
 import unicodedata
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 import aiosqlite
 
-if TYPE_CHECKING:
-    from mesa_memory.config import QueueAdmissionPolicy
-
 from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -114,6 +112,7 @@ def _public_tier3_audit(value: Any) -> dict[str, Any] | None:
         "accepted": bool(value.get("accepted")),
     }
     return result
+
 
 # ---------------------------------------------------------------------------
 # Sentinel rejection — defence in depth
@@ -165,6 +164,35 @@ _ADMISSION_ACTIVE_STATES = (
     "RETRY_PENDING",
     "DEFERRED",
 )
+
+
+class QueueAdmissionPolicy(Protocol):
+    """Storage-owned structural contract for queue capacity inputs."""
+
+    queue_max_pending_records: int
+    queue_max_pending_bytes: int
+    queue_max_pending_records_per_tenant: int
+    queue_max_pending_bytes_per_tenant: int
+    queue_max_in_flight_records: int
+    queue_max_in_flight_records_per_tenant: int
+    queue_max_retry_pending_records: int
+    queue_max_retry_pending_records_per_tenant: int
+    queue_max_single_record_bytes: int
+
+
+class _DefaultQueueAdmissionPolicy:
+    queue_max_pending_records = 10_000
+    queue_max_pending_bytes = 536_870_912
+    queue_max_pending_records_per_tenant = 2_000
+    queue_max_pending_bytes_per_tenant = 134_217_728
+    queue_max_in_flight_records = 32
+    queue_max_in_flight_records_per_tenant = 8
+    queue_max_retry_pending_records = 2_000
+    queue_max_retry_pending_records_per_tenant = 500
+    queue_max_single_record_bytes = 8_388_608
+
+
+_DEFAULT_QUEUE_ADMISSION_POLICY = _DefaultQueueAdmissionPolicy()
 
 
 def _canonical_payload_bytes(payload: dict[str, Any]) -> tuple[str, int]:
@@ -239,7 +267,7 @@ class MemoryDAO:
                         for graph edge operations.
     """
 
-    __slots__ = ("_sql", "_vec", "_graph")
+    __slots__ = ("_sql", "_vec", "_graph", "_catalog")
 
     def __init__(
         self,
@@ -250,6 +278,12 @@ class MemoryDAO:
         self._sql = sqlite_engine
         self._vec = vector_engine
         self._graph = graph_provider
+        self._catalog = CatalogRepository(sqlite_engine)
+
+    @property
+    def catalog(self) -> CatalogRepositoryPort:
+        """Expose catalog persistence without leaking the SQLite engine."""
+        return self._catalog
 
     async def initialize(self) -> None:
         """Initialize the DAO layer.
@@ -290,37 +324,15 @@ class MemoryDAO:
         tenant_name: str | None = None,
         workspace_name: str | None = None,
     ) -> dict[str, Any]:
-        """Create one workspace without allowing cross-tenant ID reuse."""
-        if not tenant_id or not workspace_id:
-            raise ValueError("tenant and workspace identifiers are required")
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO tenants (tenant_id, display_name) VALUES (?, ?)",
-                (tenant_id, tenant_name or tenant_id),
-            )
-            await db.execute(
-                "INSERT OR IGNORE INTO workspaces "
-                "(workspace_id, tenant_id, name) VALUES (?, ?, ?)",
-                (workspace_id, tenant_id, workspace_name or workspace_id),
-            )
-            async with db.execute(
-                "SELECT * FROM workspaces WHERE workspace_id = ?",
-                (workspace_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-            if row is None or row["tenant_id"] != tenant_id:
-                raise ValueError("workspace identity collides with another tenant")
-            await db.commit()
-        return dict(row)
+        return await self._catalog.create_workspace(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            tenant_name=tenant_name,
+            workspace_name=workspace_name,
+        )
 
     async def list_v4_workspaces(self, *, tenant_id: str) -> list[dict[str, Any]]:
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT workspace_id, tenant_id, name, status, created_at "
-                "FROM workspaces WHERE tenant_id = ? ORDER BY name, workspace_id",
-                (tenant_id,),
-            ) as cursor:
-                return [dict(row) for row in await cursor.fetchall()]
+        return await self._catalog.list_workspaces(tenant_id=tenant_id)
 
     async def ensure_v4_catalog_scope(
         self,
@@ -332,32 +344,14 @@ class MemoryDAO:
         workspace_name: str | None = None,
         dataset_name: str | None = None,
     ) -> None:
-        """Idempotently provision one tenant/workspace/dataset hierarchy."""
-        if not tenant_id or not workspace_id or not dataset_id:
-            raise ValueError("tenant, workspace and dataset identifiers are required")
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO tenants (tenant_id, display_name) VALUES (?, ?)",
-                (tenant_id, tenant_name or tenant_id),
-            )
-            await db.execute(
-                "INSERT OR IGNORE INTO workspaces "
-                "(workspace_id, tenant_id, name) VALUES (?, ?, ?)",
-                (workspace_id, tenant_id, workspace_name or workspace_id),
-            )
-            await db.execute(
-                "INSERT OR IGNORE INTO datasets "
-                "(dataset_id, tenant_id, workspace_id, name) VALUES (?, ?, ?, ?)",
-                (dataset_id, tenant_id, workspace_id, dataset_name or dataset_id),
-            )
-            async with db.execute(
-                "SELECT tenant_id, workspace_id FROM datasets WHERE dataset_id = ?",
-                (dataset_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-            if row is None or row[0] != tenant_id or row[1] != workspace_id:
-                raise ValueError("dataset identity collides with another catalog scope")
-            await db.commit()
+        await self._catalog.ensure_scope(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_id=dataset_id,
+            tenant_name=tenant_name,
+            workspace_name=workspace_name,
+            dataset_name=dataset_name,
+        )
 
     async def create_v4_document(
         self,
@@ -417,6 +411,7 @@ class MemoryDAO:
         self,
         *,
         tenant_id: str,
+        dataset_id: str,
         document_id: str,
         revision_id: str,
         revision_number: int,
@@ -435,17 +430,20 @@ class MemoryDAO:
             raise ValueError("complete revision identity and SHA-256 hash are required")
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT tenant_id FROM documents WHERE document_id = ? "
+                "SELECT tenant_id, dataset_id FROM documents WHERE document_id = ? "
                 "AND status != 'PURGED'",
                 (document_id,),
             ) as cursor:
                 document = await cursor.fetchone()
-            if document is None or document[0] != tenant_id:
-                raise ValueError("document does not belong to tenant")
+            if (
+                document is None
+                or document["tenant_id"] != tenant_id
+                or document["dataset_id"] != dataset_id
+            ):
+                raise ValueError("document does not belong to dataset")
             if supersedes_revision_id:
                 async with db.execute(
-                    "SELECT document_id FROM document_revisions "
-                    "WHERE revision_id = ?",
+                    "SELECT document_id FROM document_revisions WHERE revision_id = ?",
                     (supersedes_revision_id,),
                 ) as cursor:
                     predecessor = await cursor.fetchone()
@@ -505,15 +503,17 @@ class MemoryDAO:
         return dict(row)
 
     async def list_v4_revisions(
-        self, *, tenant_id: str, document_id: str
+        self, *, tenant_id: str, dataset_id: str, document_id: str
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
             async with db.execute(
-                "SELECT revision_id, tenant_id, document_id, revision_number, "
-                "content_hash, status, supersedes_revision_id, created_at "
-                "FROM document_revisions WHERE tenant_id = ? AND document_id = ? "
-                "ORDER BY revision_number, revision_id",
-                (tenant_id, document_id),
+                "SELECT r.revision_id, r.tenant_id, r.document_id, r.revision_number, "
+                "r.content_hash, r.manifest_hash, r.status, r.supersedes_revision_id, r.created_at "
+                "FROM document_revisions r JOIN documents d "
+                "ON d.document_id = r.document_id "
+                "WHERE r.tenant_id = ? AND d.dataset_id = ? AND r.document_id = ? "
+                "ORDER BY r.revision_number, r.revision_id",
+                (tenant_id, dataset_id, document_id),
             ) as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
 
@@ -601,8 +601,7 @@ class MemoryDAO:
                 raise ValueError("revision identity is immutable and already differs")
             if existing_revision is None and supersedes_revision_id:
                 async with db.execute(
-                    "SELECT document_id FROM document_revisions "
-                    "WHERE revision_id = ?",
+                    "SELECT document_id FROM document_revisions WHERE revision_id = ?",
                     (supersedes_revision_id,),
                 ) as cursor:
                     predecessor = await cursor.fetchone()
@@ -652,8 +651,32 @@ class MemoryDAO:
                 raise ValueError(
                     "source chunk identity is immutable and already differs"
                 )
+            manifest_hash = await self._update_revision_manifest(db, revision_id)
+            row_data = dict(row)
+            row_data["manifest_hash"] = manifest_hash
             await db.commit()
-        return dict(row)
+        return row_data
+
+    @staticmethod
+    async def _update_revision_manifest(
+        db: aiosqlite.Connection, revision_id: str
+    ) -> str:
+        """Persist a stable hash over every source chunk in a revision."""
+        async with db.execute(
+            "SELECT chunk_id, ordinal, content_hash, source_ref FROM source_chunks "
+            "WHERE revision_id = ? ORDER BY ordinal, chunk_id",
+            (revision_id,),
+        ) as cursor:
+            chunks = [dict(row) for row in await cursor.fetchall()]
+        if not chunks:
+            raise RuntimeError("revision manifest requires at least one source chunk")
+        manifest = json.dumps(chunks, sort_keys=True, separators=(",", ":"))
+        manifest_hash = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+        await db.execute(
+            "UPDATE document_revisions SET manifest_hash = ? WHERE revision_id = ?",
+            (manifest_hash, revision_id),
+        )
+        return manifest_hash
 
     async def create_v4_session(
         self,
@@ -776,8 +799,7 @@ class MemoryDAO:
                 (document_id,),
             )
             await db.execute(
-                "UPDATE document_revisions SET status = 'PURGED' "
-                "WHERE document_id = ?",
+                "UPDATE document_revisions SET status = 'PURGED' WHERE document_id = ?",
                 (document_id,),
             )
             await db.execute(
@@ -1176,6 +1198,362 @@ class MemoryDAO:
             )
             await db.commit()
 
+    async def admit_v4_memory(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        agent_id: str,
+        session_id: str,
+        document_id: str,
+        revision_id: str,
+        chunk_id: str,
+        title: str,
+        content_payload: str,
+        source_ref: str,
+        evidence_span: str,
+        revision_number: int,
+        chunk_ordinal: int,
+        supersedes_revision_id: str | None,
+        metadata: dict[str, Any],
+        policy: QueueAdmissionPolicy,
+        idempotency_key: str | None = None,
+        payload_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically admit one V4 write and all of its durable records.
+
+        The source chunk, raw-log/dispatch receipt, mutation ledger and (when
+        present) idempotency receipt are one SQLite unit.  Consequently a
+        rejected queue admission cannot leave catalog provenance behind, and
+        a failed request never strands an idempotency key in ``PENDING``.
+        """
+        _assert_valid_agent_id(agent_id)
+        if not all(
+            (
+                tenant_id,
+                workspace_id,
+                dataset_id,
+                session_id,
+                document_id,
+                revision_id,
+                chunk_id,
+                title,
+                content_payload,
+                source_ref,
+            )
+        ):
+            raise ValueError("complete V4 admission provenance is required")
+        if (idempotency_key is None) != (payload_hash is None):
+            raise ValueError(
+                "idempotency key and payload hash must be supplied together"
+            )
+
+        raw_payload = {
+            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
+            "dataset_id": dataset_id,
+            "document_id": document_id,
+            "revision_id": revision_id,
+            "chunk_id": chunk_id,
+            "source_ref": source_ref,
+            "evidence_span": evidence_span,
+            "agent_id": agent_id,
+            "session_id": session_id,
+            "content": content_payload,
+            "metadata": metadata,
+        }
+        serialized, payload_bytes = _canonical_payload_bytes(raw_payload)
+        content_hash = hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
+
+        try:
+            async with self._sql.transaction() as db:
+                if idempotency_key is not None:
+                    insert_cursor = await db.execute(
+                        "INSERT OR IGNORE INTO v4_idempotency_receipts "
+                        "(tenant_id, agent_id, dataset_id, operation_type, idempotency_key, payload_hash, state) "
+                        "VALUES (?, ?, ?, 'INSERT', ?, ?, 'PENDING')",
+                        (
+                            tenant_id,
+                            agent_id,
+                            dataset_id,
+                            idempotency_key,
+                            payload_hash,
+                        ),
+                    )
+                    async with db.execute(
+                        "SELECT * FROM v4_idempotency_receipts WHERE tenant_id = ? "
+                        "AND agent_id = ? AND dataset_id = ? AND operation_type = 'INSERT' "
+                        "AND idempotency_key = ?",
+                        (tenant_id, agent_id, dataset_id, idempotency_key),
+                    ) as cursor:
+                        receipt = await cursor.fetchone()
+                    if (
+                        receipt is None
+                    ):  # pragma: no cover - INSERT OR IGNORE guarantees it
+                        raise RuntimeError("V4 idempotency reservation did not persist")
+                    receipt_data = dict(receipt)
+                    if receipt_data["payload_hash"] != payload_hash:
+                        raise ValueError("idempotency_key payload mismatch")
+                    if insert_cursor.rowcount != 1:
+                        await db.commit()
+                        if receipt_data["state"] == "COMPLETED":
+                            return {
+                                "outcome": "DUPLICATE",
+                                "response": json.loads(
+                                    str(receipt_data["response_json"])
+                                ),
+                            }
+                        return {"outcome": "IN_PROGRESS"}
+
+                async with db.execute(
+                    "SELECT tenant_id FROM datasets WHERE dataset_id = ?", (dataset_id,)
+                ) as cursor:
+                    dataset = await cursor.fetchone()
+                if dataset is None or dataset[0] != tenant_id:
+                    raise ValueError("dataset does not belong to tenant")
+                await db.execute(
+                    "INSERT OR IGNORE INTO documents "
+                    "(document_id, tenant_id, dataset_id, title) VALUES (?, ?, ?, ?)",
+                    (document_id, tenant_id, dataset_id, title),
+                )
+                async with db.execute(
+                    "SELECT tenant_id, dataset_id FROM documents WHERE document_id = ?",
+                    (document_id,),
+                ) as cursor:
+                    document = await cursor.fetchone()
+                if document is None or tuple(document) != (tenant_id, dataset_id):
+                    raise ValueError("document identity collides with another dataset")
+                async with db.execute(
+                    "SELECT * FROM document_revisions WHERE revision_id = ?",
+                    (revision_id,),
+                ) as cursor:
+                    existing_revision = await cursor.fetchone()
+                await db.execute(
+                    "INSERT OR IGNORE INTO document_revisions "
+                    "(revision_id, tenant_id, document_id, revision_number, content_hash, "
+                    "supersedes_revision_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        revision_id,
+                        tenant_id,
+                        document_id,
+                        revision_number,
+                        content_hash,
+                        supersedes_revision_id,
+                    ),
+                )
+                if existing_revision is not None and (
+                    existing_revision["revision_number"] != revision_number
+                    or existing_revision["supersedes_revision_id"]
+                    != supersedes_revision_id
+                ):
+                    raise ValueError(
+                        "revision identity is immutable and already differs"
+                    )
+                if supersedes_revision_id:
+                    async with db.execute(
+                        "SELECT document_id FROM document_revisions WHERE revision_id = ?",
+                        (supersedes_revision_id,),
+                    ) as cursor:
+                        predecessor = await cursor.fetchone()
+                    if predecessor is None or predecessor[0] != document_id:
+                        raise ValueError(
+                            "superseded revision is outside document scope"
+                        )
+                await db.execute(
+                    "INSERT OR IGNORE INTO source_chunks "
+                    "(chunk_id, tenant_id, dataset_id, revision_id, ordinal, content_payload, content_hash, source_ref) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        chunk_id,
+                        tenant_id,
+                        dataset_id,
+                        revision_id,
+                        chunk_ordinal,
+                        content_payload,
+                        content_hash,
+                        source_ref,
+                    ),
+                )
+                async with db.execute(
+                    "SELECT * FROM source_chunks WHERE chunk_id = ?", (chunk_id,)
+                ) as cursor:
+                    chunk = await cursor.fetchone()
+                if chunk is None or (
+                    chunk["tenant_id"],
+                    chunk["dataset_id"],
+                    chunk["revision_id"],
+                    chunk["ordinal"],
+                    chunk["content_hash"],
+                    chunk["source_ref"],
+                ) != (
+                    tenant_id,
+                    dataset_id,
+                    revision_id,
+                    chunk_ordinal,
+                    content_hash,
+                    source_ref,
+                ):
+                    raise ValueError(
+                        "source chunk identity is immutable and already differs"
+                    )
+                if supersedes_revision_id:
+                    await db.execute(
+                        "UPDATE document_revisions SET status = 'SUPERSEDED' "
+                        "WHERE revision_id = ? AND document_id = ?",
+                        (supersedes_revision_id, document_id),
+                    )
+                    await db.execute(
+                        "UPDATE v4_assertions SET status = 'SUPERSEDED' "
+                        "WHERE tenant_id = ? AND revision_id = ? AND status = 'ACTIVE'",
+                        (tenant_id, supersedes_revision_id),
+                    )
+
+                await self._update_revision_manifest(db, revision_id)
+
+                global_usage = await self._queue_usage(db)
+                tenant_usage = await self._queue_usage(db, agent_id)
+                self._enforce_queue_capacity(
+                    global_usage, tenant_usage, payload_bytes, policy
+                )
+                cursor = await db.execute(
+                    "INSERT INTO raw_logs (agent_id, payload, status) VALUES (?, ?, 'DEFERRED')",
+                    (agent_id, serialized),
+                )
+                assert cursor.lastrowid is not None
+                log_id = int(cursor.lastrowid)
+                dispatch_id, queue_id = str(uuid.uuid4()), str(uuid.uuid4())
+                dispatch_key = f"raw-log:{agent_id}:{log_id}"
+                await db.execute(
+                    "INSERT INTO dispatch_journal (dispatch_id, source_record_id, tenant_id, agent_id, "
+                    "job_type, idempotency_key, state, attempt_count, queue_record_id, dispatched_at, finalized_at, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 'cold_path', ?, 'RECEIPT_RECORDED', 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    (dispatch_id, log_id, agent_id, agent_id, dispatch_key, queue_id),
+                )
+                await db.execute(
+                    "INSERT INTO dispatch_queue (queue_record_id, dispatch_id, tenant_id, agent_id, job_type, "
+                    "payload_reference, payload_bytes, idempotency_key, state) VALUES (?, ?, ?, ?, 'cold_path', ?, ?, ?, 'ENQUEUED')",
+                    (
+                        queue_id,
+                        dispatch_id,
+                        agent_id,
+                        agent_id,
+                        log_id,
+                        payload_bytes,
+                        dispatch_key,
+                    ),
+                )
+                await db.execute(
+                    "INSERT INTO dispatch_receipts (receipt_id, dispatch_id, queue_record_id, tenant_id, agent_id, outcome, idempotency_key) "
+                    "VALUES (?, ?, ?, ?, ?, 'ENQUEUED', ?)",
+                    (
+                        str(uuid.uuid4()),
+                        dispatch_id,
+                        queue_id,
+                        agent_id,
+                        agent_id,
+                        dispatch_key,
+                    ),
+                )
+
+                identity = f"mesa:v4:{tenant_id}:{agent_id}:{log_id}"
+                candidate_id = str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"{identity}:candidate")
+                )
+                mutation_id = str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"{identity}:mutation")
+                )
+                pipeline_run_id = str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"{identity}:pipeline-run")
+                )
+                await db.execute(
+                    "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, workspace_id, dataset_id, session_id, agent_id, state) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'QUEUED')",
+                    (
+                        pipeline_run_id,
+                        tenant_id,
+                        workspace_id,
+                        dataset_id,
+                        session_id,
+                        agent_id,
+                    ),
+                )
+                await db.execute(
+                    "INSERT INTO pipeline_run_events (event_id, pipeline_run_id, to_state, event_type) "
+                    "VALUES (?, ?, 'QUEUED', 'ADMITTED')",
+                    (
+                        str(
+                            uuid.uuid5(
+                                _V4_CATALOG_NAMESPACE,
+                                f"{pipeline_run_id}:QUEUED:ADMITTED",
+                            )
+                        ),
+                        pipeline_run_id,
+                    ),
+                )
+                await db.execute(
+                    "INSERT INTO memory_mutations "
+                    "(mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, document_id, revision_id, chunk_id, source_ref, evidence_span, agent_id, session_id, content_payload, metadata_json, source, pipeline_run_id, extraction_version, state) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, 'v4', 'RECEIVED')",
+                    (
+                        mutation_id,
+                        candidate_id,
+                        log_id,
+                        tenant_id,
+                        workspace_id,
+                        dataset_id,
+                        document_id,
+                        revision_id,
+                        chunk_id,
+                        source_ref,
+                        evidence_span,
+                        agent_id,
+                        session_id,
+                        content_payload,
+                        json.dumps(metadata, sort_keys=True),
+                        pipeline_run_id,
+                    ),
+                )
+                for projection_name in ("SQL", "VECTOR", "GRAPH"):
+                    await db.execute(
+                        "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
+                        "VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
+                        (
+                            str(
+                                uuid.uuid5(
+                                    uuid.NAMESPACE_URL,
+                                    f"{mutation_id}:{projection_name}",
+                                )
+                            ),
+                            mutation_id,
+                            projection_name,
+                        ),
+                    )
+                response = {
+                    "status": "accepted",
+                    "mutation_id": mutation_id,
+                    "candidate_id": candidate_id,
+                    "pipeline_run_id": pipeline_run_id,
+                    "raw_log_id": log_id,
+                }
+                if idempotency_key is not None:
+                    await db.execute(
+                        "UPDATE v4_idempotency_receipts SET state = 'COMPLETED', mutation_id = ?, response_json = ?, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE tenant_id = ? AND agent_id = ? AND dataset_id = ? AND operation_type = 'INSERT' AND idempotency_key = ?",
+                        (
+                            mutation_id,
+                            json.dumps(response, sort_keys=True),
+                            tenant_id,
+                            agent_id,
+                            dataset_id,
+                            idempotency_key,
+                        ),
+                    )
+                await db.commit()
+        except (aiosqlite.Error, OSError) as exc:
+            raise QueueUnavailableError("durable admission is unavailable") from exc
+        return {"outcome": "ADMITTED", "response": response}
+
     async def record_mutation(
         self, candidate: dict[str, Any], *, raw_log_id: int | None
     ) -> dict[str, Any]:
@@ -1336,7 +1714,9 @@ class MemoryDAO:
                 return None
             mutation = dict(row)
             try:
-                mutation_metadata = json.loads(str(mutation.get("metadata_json") or "{}"))
+                mutation_metadata = json.loads(
+                    str(mutation.get("metadata_json") or "{}")
+                )
             except (TypeError, ValueError):
                 mutation_metadata = {}
             tier3_audit = _public_tier3_audit(
@@ -2255,7 +2635,9 @@ class MemoryDAO:
             next_state = (
                 "BLOCKED"
                 if terminal
-                else "RETRY_PENDING" if error_class else "COMPLETED"
+                else "RETRY_PENDING"
+                if error_class
+                else "COMPLETED"
             )
             cursor = await db.execute(
                 "UPDATE artifact_cleanup_outbox SET state = ?, claim_token = NULL, "
@@ -2804,6 +3186,8 @@ class MemoryDAO:
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
@@ -2876,13 +3260,34 @@ class MemoryDAO:
             like_query,
             like_query,
         ]
+        provenance_filters: list[str] = []
+        provenance_params: list[Any] = []
         if jurisdiction:
             assertion_filters.append("a.jurisdiction = ?")
             assertion_params.append(jurisdiction)
+            provenance_filters.append("a.jurisdiction = ?")
+            provenance_params.append(jurisdiction)
         if valid_at:
             assertion_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
             assertion_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
             assertion_params.extend((valid_at, valid_at))
+            provenance_filters.extend(
+                (
+                    "(a.valid_from = '' OR a.valid_from <= ?)",
+                    "(a.valid_to = '' OR a.valid_to >= ?)",
+                )
+            )
+            provenance_params.extend((valid_at, valid_at))
+        if valid_from:
+            assertion_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
+            assertion_params.append(valid_from)
+            provenance_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
+            provenance_params.append(valid_from)
+        if valid_to:
+            assertion_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
+            assertion_params.append(valid_to)
+            provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
+            provenance_params.append(valid_to)
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT a.*, s.canonical_name AS subject_name, "
@@ -2916,6 +3321,18 @@ class MemoryDAO:
             return []
         entity_ids = sorted(ranks)
         entity_placeholders = ",".join("?" for _ in entity_ids)
+        provenance_query = (
+            "SELECT a.* FROM v4_assertions a "
+            f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
+            f"AND a.status = 'ACTIVE' AND (a.subject_id IN ({entity_placeholders}) "
+            f"OR a.object_entity_id IN ({entity_placeholders})) "
+            + (
+                "AND " + " AND ".join(provenance_filters) + " "
+                if provenance_filters
+                else ""
+            )
+            + "ORDER BY a.confidence DESC, a.assertion_id"
+        )
         async with self._sql.connection() as db:
             async with db.execute(
                 f"SELECT * FROM v4_entities WHERE tenant_id = ? "
@@ -2926,12 +3343,8 @@ class MemoryDAO:
                     str(row["entity_id"]): dict(row) for row in await cursor.fetchall()
                 }
             async with db.execute(
-                "SELECT a.* FROM v4_assertions a "
-                f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
-                f"AND a.status = 'ACTIVE' AND (a.subject_id IN ({entity_placeholders}) "
-                f"OR a.object_entity_id IN ({entity_placeholders})) "
-                "ORDER BY a.confidence DESC, a.assertion_id",
-                (tenant_id, *datasets, *entity_ids, *entity_ids),
+                provenance_query,
+                (tenant_id, *datasets, *entity_ids, *entity_ids, *provenance_params),
             ) as cursor:
                 provenance = [dict(row) for row in await cursor.fetchall()]
             mutation_ids = sorted(
@@ -4835,8 +5248,8 @@ class MemoryDAO:
         global_usage: dict[str, int],
         tenant_usage: dict[str, int],
         payload_bytes: int,
-        policy: "QueueAdmissionPolicy",
-    ) -> None:  # type: ignore[index]
+        policy: QueueAdmissionPolicy,
+    ) -> None:
         if payload_bytes > policy.queue_max_single_record_bytes:
             raise QueueRecordTooLargeError("queue record exceeds configured size limit")
         checks = (
@@ -4876,7 +5289,7 @@ class MemoryDAO:
                 raise QueueOverCapacityError(scope)
 
     async def admit_raw_log(
-        self, agent_id: str, payload: dict[str, Any], *, policy: "QueueAdmissionPolicy"
+        self, agent_id: str, payload: dict[str, Any], *, policy: QueueAdmissionPolicy
     ) -> dict[str, Any]:
         """Atomically admit a raw log and durable dispatch receipt, or persist nothing.
 
@@ -5710,16 +6123,14 @@ class MemoryDAO:
         log_id: int,
         *,
         worker_id: str,
-        policy: "QueueAdmissionPolicy | None" = None,
+        policy: QueueAdmissionPolicy | None = None,
     ) -> dict[str, Any]:
         """Atomically materialize a bounded raw-log dispatch intent, queue row and receipt."""
         _assert_valid_agent_id(agent_id)
         if not worker_id:
             raise ValueError("worker_id is required")
         if policy is None:
-            from mesa_memory.config import config
-
-            policy = config.queue_admission_policy
+            policy = _DEFAULT_QUEUE_ADMISSION_POLICY
         async with self._sql.transaction() as db:
             async with db.execute(
                 "SELECT id, payload FROM raw_logs WHERE id = ? AND agent_id = ?",

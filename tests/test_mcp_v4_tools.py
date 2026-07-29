@@ -4,6 +4,7 @@ import pytest
 
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
+from mesa_mcp.errors import MCPError
 from mesa_mcp.service import MemoryServiceProtocol, V4MemoryServiceProtocol
 
 
@@ -64,3 +65,20 @@ async def test_v4_mcp_tools():
         {"document_id": "doc-1", "dataset_id": "test-dataset"}
     )
     assert res4["status"] == "purged"
+
+
+@pytest.mark.asyncio
+async def test_v4_mcp_write_rejects_secret_and_nested_metadata() -> None:
+    adapter = MesaMCPAdapter(MockMemoryService(), MCPSettings(), MockV4Service())
+    with pytest.raises(MCPError, match="secret"):
+        await adapter.mesa_remember(
+            {"content": "api_key=do-not-store-this-token", "dataset_id": "test"}
+        )
+    with pytest.raises(MCPError, match="nesting"):
+        await adapter.mesa_remember(
+            {
+                "content": "safe",
+                "dataset_id": "test",
+                "metadata": {"a": {"b": {"c": "too deep"}}},
+            }
+        )

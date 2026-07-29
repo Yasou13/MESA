@@ -180,6 +180,31 @@ def create_memory_router(
         },
     )
 
+    async def require_principal_session_access(
+        request: Request,
+        access_control: AccessControl,
+        *,
+        agent_id: str,
+        session_id: str,
+        level: str,
+        conceal: bool = False,
+    ) -> None:
+        """Bind every V3 data operation to a server-side principal/session grant."""
+        principal = getattr(request.state, "principal", None)
+        if principal is None or getattr(principal, "status", None) != "active":
+            raise HTTPException(
+                status_code=401, detail="Active authenticated principal required"
+            )
+        allowed = await access_control.check_principal_session_access(
+            principal.principal_id, agent_id, session_id, level
+        )
+        if not allowed or not await access_control.check_access(
+            agent_id, session_id, level
+        ):
+            if conceal:
+                raise HTTPException(status_code=404, detail="Memory not found")
+            raise HTTPException(status_code=403, detail="Session access denied")
+
     # ==================================================================
     # POST /v3/memory/insert  —  HOT PATH (< 50ms)
     # ==================================================================
@@ -221,20 +246,14 @@ def create_memory_router(
         # This is a secondary security layer that operates alongside the
         # API Key authentication enforced at the router dependency level.
         # ---------------------------------------------------------------
-        try:
-            ac = get_access_control() if get_access_control else AccessControl()
-            has_write = await ac.check_access(
-                payload.agent_id,
-                payload.session_id,
-                "WRITE",
-            )
-            if not has_write:
-                raise PermissionError(
-                    f"Agent '{payload.agent_id}' lacks WRITE access "
-                    f"for session '{payload.session_id}'"
-                )
-        except PermissionError as perm_exc:
-            raise HTTPException(status_code=403, detail=str(perm_exc))
+        ac = get_access_control() if get_access_control else AccessControl()
+        await require_principal_session_access(
+            request,
+            ac,
+            agent_id=payload.agent_id,
+            session_id=payload.session_id,
+            level="WRITE",
+        )
 
         payload_dict = {
             "agent_id": payload.agent_id,
@@ -328,25 +347,27 @@ def create_memory_router(
 
         Terminal states: ``processed``, ``failed``, ``rejected``.
         """
-        # RBAC Gate: Verify READ permission for this agent
+        # Resolve the raw record first so its server-side session scope, not a
+        # caller-supplied session identifier, drives authorization.
+        raw_log = await dao.get_raw_log(agent_id, log_id)
+        if raw_log is None:
+            raise HTTPException(status_code=404, detail=f"raw_log {log_id} not found")
+        session_id = str(raw_log.get("payload", {}).get("session_id") or "")
+        if not session_id:
+            raise HTTPException(status_code=404, detail=f"raw_log {log_id} not found")
         ac = get_access_control() if get_access_control else AccessControl()
-        if not await ac.check_access(agent_id, "__any__", "READ"):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Agent '{agent_id}' lacks READ access",
-            )
+        await require_principal_session_access(
+            request,
+            ac,
+            agent_id=agent_id,
+            session_id=session_id,
+            level="READ",
+            conceal=True,
+        )
 
         structlog.contextvars.bind_contextvars(
             agent_id=agent_id, log_id=log_id, endpoint="get_status"
         )
-
-        raw_log = await dao.get_raw_log(agent_id, log_id)
-
-        if raw_log is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"raw_log {log_id} not found",
-            )
 
         return {
             "log_id": log_id,
@@ -390,6 +411,13 @@ def create_memory_router(
         try:
             # Build the HybridRetriever with per-request DAO + shared singletons
             ac = get_access_control() if get_access_control else AccessControl()
+            await require_principal_session_access(
+                request,
+                ac,
+                agent_id=payload.agent_id,
+                session_id=payload.session_id,
+                level="READ",
+            )
             retriever = HybridRetriever(
                 dao=dao,
                 analyzer=_get_query_analyzer(),
@@ -457,6 +485,9 @@ def create_memory_router(
                     ctx += " [WARNING: UNCONSOLIDATED MEMORY]"
                 context_parts.append(ctx)
 
+        except HTTPException:
+            raise
+
         except asyncio.TimeoutError:
             raise HTTPException(
                 status_code=504,
@@ -497,6 +528,7 @@ def create_memory_router(
         memory_id: str,
         agent_id: str,
         session_id: str,
+        request: Request,
         dao: MemoryDAO = Depends(get_dao),
     ) -> dict:
         """Return one scoped node or durable raw record without leaking other scopes.
@@ -505,9 +537,14 @@ def create_memory_router(
         tool while asynchronous ingestion is still processing the record.
         """
         ac = get_access_control() if get_access_control else AccessControl()
-        if not await ac.check_access(agent_id, session_id, "READ"):
-            # Deliberately use not-found to avoid revealing memory existence.
-            raise HTTPException(status_code=404, detail="Memory not found")
+        await require_principal_session_access(
+            request,
+            ac,
+            agent_id=agent_id,
+            session_id=session_id,
+            level="READ",
+            conceal=True,
+        )
         if memory_id.startswith("raw_"):
             raw_id = memory_id.removeprefix("raw_")
             if not raw_id.isdecimal():

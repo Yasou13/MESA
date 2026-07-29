@@ -123,6 +123,20 @@ Restore mevcut hedefi ezmemelidir. V3 migration yerinde yapılmaz: manifestli
 backup alınır, ayrı v4 root’a offline rebuild yapılır, parity raporu geçerse
 atomik cutover gerçekleştirilir. Backup rollback süresi boyunca korunur.
 
+Alembic migration'ları forward-only'dir. Bir migration başarısız olursa
+`alembic downgrade` çalıştırmayın: release'i durdurun, doğrulanmış backup'ı
+yeni boş bir storage root'a restore edin, parity kontrolünü yeniden çalıştırın
+ve ancak ardından cutover yapın.
+
+## Single-writer kapasite sınırı
+
+Bir storage root için yalnız bir aktif `worker-only` process çalıştırın.
+Worker başlangıcı aynı hostta advisory lock ile ikinci writer'ı reddeder;
+çoklu host/NFS için bu bir koordinasyon mekanizması değildir. API, valence ve
+MCP process-local cache'leri yalnız performans optimizasyonudur; doğruluk
+durumu SQLite ledger ve fenced lease'lerdedir. Yatay writer ölçekleme ancak
+paylaşımlı lease/koordinasyon servisi tasarlanıp doğrulandıktan sonra açılır.
+
 ## 7. Model/provider olayı
 
 `MESA_MODEL_ENABLED` ve `MESA_EXTERNAL_PROVIDER_ENABLED` açıkça ayarlanır.

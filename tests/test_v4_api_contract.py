@@ -3,10 +3,12 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from mesa_api.v4_router import create_v4_router
+from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
 from mesa_storage.dao import (
     QueueOverCapacityError,
     QueueRecordTooLargeError,
@@ -45,11 +47,37 @@ def _access(*, allowed: bool = True) -> MagicMock:
     return access
 
 
+def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
+    payload = {
+        "session_id": "session-a",
+        "dataset_id": "dataset-a",
+        "document_id": "document-a",
+        "revision_id": "revision-a",
+        "chunk_id": "chunk-a",
+        "title": "Document A",
+        "source_ref": "source-a",
+        "content": "safe content",
+    }
+    with pytest.raises(ValidationError, match="secret"):
+        V4MemoryInsertRequest(**(payload | {"content": "password=not-for-storage"}))
+    with pytest.raises(ValidationError, match="metadata exceeds"):
+        V4MemoryInsertRequest(**(payload | {"metadata": {"x": "a" * (16 * 1024)}}))
+
+
 def test_v4_insert_creates_canonical_mutation_after_authorized_admission() -> None:
     dao = MagicMock()
-    dao.admit_raw_log = AsyncMock(return_value={"log_id": 71})
-    dao.record_mutation = AsyncMock()
-    dao.create_v4_source_chunk = AsyncMock()
+    dao.admit_v4_memory = AsyncMock(
+        return_value={
+            "outcome": "ADMITTED",
+            "response": {
+                "status": "accepted",
+                "mutation_id": "mutation-a",
+                "candidate_id": "candidate-a",
+                "pipeline_run_id": "pipeline-a",
+                "raw_log_id": 71,
+            },
+        }
+    )
     dao.get_v4_session = AsyncMock(
         return_value={
             "tenant_id": "tenant-a",
@@ -81,13 +109,12 @@ def test_v4_insert_creates_canonical_mutation_after_authorized_admission() -> No
     body = response.json()
     assert body["status"] == "accepted"
     assert body["raw_log_id"] == 71
-    (persisted,) = dao.record_mutation.await_args.args
-    assert persisted["mutation_id"] == body["mutation_id"]
-    assert persisted["candidate_id"] == body["candidate_id"]
-    assert persisted["tenant_id"] == "tenant-a"
-    assert persisted["dataset_id"] == "dataset-a"
-    assert persisted["content_payload"] == "Exact content for the durable V4 candidate."
-    assert dao.record_mutation.await_args.kwargs == {"raw_log_id": 71}
+    assert body["mutation_id"] == "mutation-a"
+    dao.admit_v4_memory.assert_awaited_once()
+    admission = dao.admit_v4_memory.await_args.kwargs
+    assert admission["tenant_id"] == "tenant-a"
+    assert admission["dataset_id"] == "dataset-a"
+    assert admission["content_payload"] == "Exact content for the durable V4 candidate."
 
 
 def test_v4_catalog_document_creation_is_dataset_authorized() -> None:
@@ -201,6 +228,30 @@ def test_v4_session_start_binds_server_generated_session_to_principal() -> None:
     access.grant_principal_session_access.assert_awaited_once_with(
         "principal-a", "agent-a", body["session_id"], "WRITE"
     )
+
+
+def test_v4_rebuild_requires_an_active_principal_and_has_no_side_effect() -> None:
+    dao = MagicMock()
+    access = _access()
+    unauthenticated_app = FastAPI()
+    unauthenticated_app.include_router(
+        create_v4_router(
+            get_dao=lambda: dao,
+            get_access_control=lambda: access,
+        )
+    )
+
+    denied = TestClient(unauthenticated_app, raise_server_exceptions=False).post(
+        "/v4/rebuild", params={"tenant_id": "tenant-a"}
+    )
+    disabled = _app(dao, access).post(
+        "/v4/rebuild", params={"tenant_id": "tenant-a"}
+    )
+
+    assert denied.status_code == 401
+    assert disabled.status_code == 501
+    assert dao.mock_calls == []
+    assert access.mock_calls == []
 
 
 def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
@@ -380,6 +431,8 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
         limit=10,
         jurisdiction="TR",
         valid_at=None,
+        valid_from=None,
+        valid_to=None,
     )
 
     status = client.get("/v4/mutations/mutation-a")
@@ -440,8 +493,7 @@ def test_v4_insert_maps_durable_queue_admission_failures() -> None:
     for error, status_code, detail in expected:
         dao = MagicMock()
         dao.get_v4_session = AsyncMock(return_value=session)
-        dao.create_v4_source_chunk = AsyncMock()
-        dao.admit_raw_log = AsyncMock(side_effect=error)
+        dao.admit_v4_memory = AsyncMock(side_effect=error)
         response = _app(dao, _access()).post("/v4/memory/insert", json=payload)
         assert response.status_code == status_code
         assert response.json() == {"detail": detail}

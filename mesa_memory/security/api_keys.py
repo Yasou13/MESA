@@ -12,6 +12,7 @@ import hashlib
 import os
 import secrets
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 import aiosqlite
 
@@ -19,6 +20,7 @@ _SCRYPT_N = 2**14
 _SCRYPT_R = 8
 _SCRYPT_P = 1
 _DKLEN = 32
+DEFAULT_API_KEY_TTL_SECONDS = 90 * 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -41,8 +43,12 @@ class APIKeyStore:
                 "CREATE TABLE IF NOT EXISTS api_keys ("
                 "key_id TEXT PRIMARY KEY, salt_b64 TEXT NOT NULL, digest_b64 TEXT NOT NULL, "
                 "principal_id TEXT NOT NULL, principal_type TEXT NOT NULL, status TEXT NOT NULL, "
-                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, revoked_at TEXT)"
+                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, revoked_at TEXT, expires_at TEXT)"
             )
+            async with db.execute("PRAGMA table_info(api_keys)") as cursor:
+                columns = {str(row[1]) for row in await cursor.fetchall()}
+            if "expires_at" not in columns:
+                await db.execute("ALTER TABLE api_keys ADD COLUMN expires_at TEXT")
             await db.commit()
 
     @staticmethod
@@ -62,6 +68,7 @@ class APIKeyStore:
         principal_id: str,
         principal_type: str = "SERVICE",
         key_id: str | None = None,
+        expires_in_seconds: int = DEFAULT_API_KEY_TTL_SECONDS,
     ) -> str:
         """Create an active credential and return its plaintext exactly once."""
         if not principal_id:
@@ -69,6 +76,7 @@ class APIKeyStore:
         generated_id = key_id or f"mk_{secrets.token_urlsafe(12)}"
         if not generated_id.replace("_", "").replace("-", "").isalnum():
             raise ValueError("key_id contains unsupported characters")
+        expires_at = _expiry_timestamp(expires_in_seconds)
         secret = secrets.token_urlsafe(32)
         await self._upsert_key(
             key_id=generated_id,
@@ -77,6 +85,7 @@ class APIKeyStore:
             principal_type=principal_type,
             status="active",
             replace=False,
+            expires_at=expires_at,
         )
         return f"{generated_id}.{secret}"
 
@@ -103,6 +112,7 @@ class APIKeyStore:
                 principal_type=principal_type,
                 status="active",
                 replace=False,
+                expires_at=None,
             )
 
     async def _upsert_key(
@@ -114,6 +124,7 @@ class APIKeyStore:
         principal_type: str,
         status: str,
         replace: bool,
+        expires_at: str | None,
     ) -> None:
         salt = os.urandom(16)
         digest = self._digest(secret, salt)
@@ -121,8 +132,8 @@ class APIKeyStore:
         async with aiosqlite.connect(self.policy_path) as db:
             await db.execute(
                 f"{statement} INTO api_keys "
-                "(key_id, salt_b64, digest_b64, principal_id, principal_type, status, revoked_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, NULL)",
+                "(key_id, salt_b64, digest_b64, principal_id, principal_type, status, revoked_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
                 (
                     key_id,
                     base64.b64encode(salt).decode("ascii"),
@@ -130,6 +141,7 @@ class APIKeyStore:
                     principal_id,
                     principal_type,
                     status,
+                    expires_at,
                 ),
             )
             await db.commit()
@@ -143,29 +155,35 @@ class APIKeyStore:
         if not key_id or not secret:
             return None
         async with aiosqlite.connect(self.policy_path) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM api_keys WHERE key_id = ?", (key_id,)
             ) as cursor:
                 row = await cursor.fetchone()
-        if row is None or row[5] != "active":
+        if row is None or row["status"] != "active":
             return None
-        salt = base64.b64decode(row[1])
-        expected = base64.b64decode(row[2])
+        expires_at = row["expires_at"]
+        if expires_at is not None and str(expires_at) <= _now_timestamp():
+            return None
+        salt = base64.b64decode(row["salt_b64"])
+        expected = base64.b64decode(row["digest_b64"])
         actual = self._digest(secret, salt)
         if not secrets.compare_digest(expected, actual):
             return None
         return VerifiedAPIKey(
-            key_id=str(row[0]),
-            principal_id=str(row[3]),
-            principal_type=str(row[4]),
-            status=str(row[5]),
+            key_id=str(row["key_id"]),
+            principal_id=str(row["principal_id"]),
+            principal_type=str(row["principal_type"]),
+            status=str(row["status"]),
         )
 
     async def has_active_key(self) -> bool:
         """Return whether an already-provisioned deployment key can boot."""
         async with aiosqlite.connect(self.policy_path) as db:
             async with db.execute(
-                "SELECT 1 FROM api_keys WHERE status = 'active' LIMIT 1"
+                "SELECT 1 FROM api_keys WHERE status = 'active' "
+                "AND (expires_at IS NULL OR expires_at > ?) LIMIT 1",
+                (_now_timestamp(),),
             ) as cursor:
                 return await cursor.fetchone() is not None
 
@@ -180,17 +198,58 @@ class APIKeyStore:
         return bool(cursor.rowcount == 1)
 
     async def rotate_key(self, key_id: str) -> str:
-        """Revoke one key and issue a replacement for the same principal."""
+        """Atomically replace one active key without a no-key outage window."""
+        replacement_id = f"mk_{secrets.token_urlsafe(12)}"
+        replacement_secret = secrets.token_urlsafe(32)
+        replacement_expiry = _expiry_timestamp(DEFAULT_API_KEY_TTL_SECONDS)
+        salt = os.urandom(16)
+        digest = self._digest(replacement_secret, salt)
         async with aiosqlite.connect(self.policy_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
             async with db.execute(
                 "SELECT principal_id, principal_type FROM api_keys WHERE key_id = ? AND status = 'active'",
                 (key_id,),
             ) as cursor:
                 row = await cursor.fetchone()
-        if row is None:
-            raise ValueError("active key not found")
-        if not await self.revoke_key(key_id):
-            raise RuntimeError("key rotation fence lost")
-        return await self.issue_key(
-            principal_id=str(row[0]), principal_type=str(row[1])
-        )
+            if row is None:
+                await db.rollback()
+                raise ValueError("active key not found")
+            try:
+                await db.execute(
+                    "INSERT INTO api_keys "
+                    "(key_id, salt_b64, digest_b64, principal_id, principal_type, status, expires_at) "
+                    "VALUES (?, ?, ?, ?, ?, 'active', ?)",
+                    (
+                        replacement_id,
+                        base64.b64encode(salt).decode("ascii"),
+                        base64.b64encode(digest).decode("ascii"),
+                        row["principal_id"],
+                        row["principal_type"],
+                        replacement_expiry,
+                    ),
+                )
+                cursor = await db.execute(
+                    "UPDATE api_keys SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP "
+                    "WHERE key_id = ? AND status = 'active'",
+                    (key_id,),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError("key rotation fence lost")
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return f"{replacement_id}.{replacement_secret}"
+
+
+def _now_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _expiry_timestamp(expires_in_seconds: int) -> str:
+    if expires_in_seconds <= 0:
+        raise ValueError("expires_in_seconds must be positive")
+    return (
+        datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
+    ).isoformat()

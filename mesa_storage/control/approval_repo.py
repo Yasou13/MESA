@@ -61,14 +61,15 @@ class ApprovalRepository:
 
     async def decide_approval(
         self, approval_id: str, status: str, decided_by: str, reason: str | None = None
-    ) -> None:
+    ) -> bool:
+        """Atomically decide a pending approval exactly once."""
         now = datetime.now(timezone.utc).isoformat()
         async with self._sql.transaction() as db:
-            await db.execute(
+            cursor = await db.execute(
                 """
                 UPDATE mcp_approval_requests
                 SET status = :status, decided_at = :now, decided_by = :decided_by, decision_reason = :reason
-                WHERE approval_id = :aid
+                WHERE approval_id = :aid AND status = 'PENDING'
                 """,
                 {
                     "aid": approval_id,
@@ -79,6 +80,7 @@ class ApprovalRepository:
                 },
             )
             await db.commit()
+            return cursor.rowcount == 1
 
     async def list_pending_approvals(
         self, client_id: str | None = None

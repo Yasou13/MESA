@@ -1,6 +1,7 @@
 # mypy: disable-error-code="attr-defined"
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -115,7 +116,7 @@ def test_all_shard_modes_and_manual_client_order_are_preserved(
 def test_semantic_dataset_is_blocked_before_run_without_judge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    source_config_path = planner_module.resolve_config_path(
+    source_config_path = planner_module._resolve_dashboard_config(
         "resource://configs/internal/smoke_dense.yaml"
     )
     config = yaml.safe_load(source_config_path.read_text(encoding="utf-8"))
@@ -130,7 +131,7 @@ def test_semantic_dataset_is_blocked_before_run_without_judge(
     config_path = tmp_path / "semantic.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
     monkeypatch.setattr(
-        planner_module, "resolve_config_path", lambda _value: config_path
+        planner_module, "_resolve_dashboard_config", lambda _value: config_path
     )
     request = _request(
         config="test://semantic",
@@ -172,8 +173,7 @@ def test_dashboard_allows_explicit_self_judged_internal_plan(
     ("value", "expected"),
     [
         ("http://127.0.0.1:11434/", "http://127.0.0.1:11434"),
-        ("http://192.168.1.103:11434", "http://192.168.1.103:11434"),
-        ("http://[::1]:11434", "http://[::1]:11434"),
+        ("http://localhost:11434", "http://localhost:11434"),
     ],
 )
 def test_ollama_url_accepts_only_clean_local_roots(value: str, expected: str) -> None:
@@ -184,6 +184,7 @@ def test_ollama_url_accepts_only_clean_local_roots(value: str, expected: str) ->
     "value",
     [
         "https://example.com",
+        "http://192.168.1.103:11434",
         "http://" + "user" + ":pass@" + "127.0.0.1:11434",
         "http://127.0.0.1:11434/api/tags",
         "http://127.0.0.1:11434?token=secret",
@@ -342,6 +343,21 @@ def test_progress_sink_emits_and_honors_safe_control(tmp_path: Path) -> None:
         raise AssertionError("pause control was not raised")
 
 
+def test_job_diagnostics_and_event_retention_are_bounded(tmp_path: Path) -> None:
+    event_file = tmp_path / "events.jsonl"
+    for _ in range(64):
+        JobManager._append_event(event_file, {"message": "x" * 100_000})
+    assert event_file.stat().st_size <= JobManager._MAX_EVENT_BYTES + 100_000
+
+    chunks: list[bytes] = []
+    JobManager._drain_stream(
+        io.BytesIO(b"x" * (JobManager._MAX_SUBPROCESS_OUTPUT_BYTES + 1)), chunks
+    )
+    assert (
+        sum(len(chunk) for chunk in chunks) == JobManager._MAX_SUBPROCESS_OUTPUT_BYTES
+    )
+
+
 def test_runner_pause_resume_preserves_exact_question_coverage(
     tmp_path: Path,
 ) -> None:
@@ -414,6 +430,6 @@ async def test_dashboard_api_is_local_control_surface(
         assert rejected.status_code == 422
         saved = await client.put(
             "/api/settings/ollama",
-            json={"url": "http://192.168.1.103:11434", "model": "qwen3:8b"},
+            json={"url": "http://127.0.0.1:11434", "model": "qwen3:8b"},
         )
         assert saved.status_code == 200

@@ -189,10 +189,17 @@ async def test_router_maps_admission_rejections_to_stable_http_contracts():
         async def check_access(self, *_args):
             return True
 
+        async def check_principal_session_access(self, *_args):
+            return True
+
     payload = MemoryInsertRequest(
         agent_id="tenant-a", session_id="session-a", content="payload"
     )
-    request = SimpleNamespace()
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            principal=SimpleNamespace(status="active", principal_id="principal-a")
+        )
+    )
 
     async def call(error):
         dao = SimpleNamespace(admit_raw_log=AsyncMock(side_effect=error))
@@ -345,6 +352,9 @@ async def test_unauthorized_router_call_does_not_reach_admission():
         async def check_access(self, *_args):
             return False
 
+        async def check_principal_session_access(self, *_args):
+            return True
+
     dao = SimpleNamespace(admit_raw_log=AsyncMock())
     router = create_memory_router(
         get_dao=lambda: dao, get_access_control=lambda: AccessControlStub()  # type: ignore[return-value]
@@ -354,7 +364,13 @@ async def test_unauthorized_router_call_does_not_reach_admission():
     )
     with pytest.raises(Exception) as denied:
         await endpoint(
-            request=SimpleNamespace(),
+            request=SimpleNamespace(
+                state=SimpleNamespace(
+                    principal=SimpleNamespace(
+                        status="active", principal_id="principal-a"
+                    )
+                )
+            ),
             payload=MemoryInsertRequest(
                 agent_id="tenant-a", session_id="session-a", content="payload"
             ),
@@ -374,6 +390,9 @@ async def test_scoped_memory_lookup_returns_only_its_requested_session():
 
     class AccessControlStub:
         async def check_access(self, *_args):
+            return True
+
+        async def check_principal_session_access(self, *_args):
             return True
 
     dao = SimpleNamespace(
@@ -410,11 +429,20 @@ async def test_scoped_memory_lookup_returns_only_its_requested_session():
         if route.path == "/v3/memory/records/{memory_id}"
     )
 
-    raw = await endpoint("raw_17", "tenant-a", "session-a", dao)
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            principal=SimpleNamespace(status="active", principal_id="principal-a")
+        )
+    )
+    raw = await endpoint(
+        "raw_17", "tenant-a", "session-a", request=request, dao=dao
+    )
     assert raw["memory"]["content"] == "Scoped raw memory"
     assert raw["memory"]["source"] == {"file": "docs/architecture.md"}
 
-    projected = await endpoint("node-1", "tenant-a", "session-a", dao)
+    projected = await endpoint(
+        "node-1", "tenant-a", "session-a", request=request, dao=dao
+    )
     assert projected["memory"]["content"] == "Projected scoped memory"
     dao.get_memory_by_id.assert_awaited_once_with(
         "tenant-a", "node-1", session_id="session-a"

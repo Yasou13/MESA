@@ -16,9 +16,7 @@
     "mesa_api.router",
     "mesa_api.schemas",
     "mesa_storage.dao",
-    "mesa_storage.vector_engine",
     "mesa_storage.schemas",
-    "mesa_storage.sqlite_engine",
     "mesa_storage.kuzu_provider",
     "mesa_workers.*"
   ],
