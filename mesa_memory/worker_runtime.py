@@ -140,11 +140,10 @@ async def _process_dispatch_with_lease(
         )
     )
     while not processing.done():
-        try:
-            await asyncio.wait_for(
-                asyncio.shield(processing), timeout=_DISPATCH_LEASE_RENEWAL_SECONDS
-            )
-        except TimeoutError:
+        done, _ = await asyncio.wait(
+            {processing}, timeout=_DISPATCH_LEASE_RENEWAL_SECONDS
+        )
+        if not done:
             renewed = await dao.renew_dispatch_queue_lease(
                 str(dispatch["queue_record_id"]),
                 worker_id=_WORKER_ID,

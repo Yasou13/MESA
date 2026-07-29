@@ -66,7 +66,7 @@ async def test_long_running_dispatch_renews_its_lease_before_finalization(
         complete_dispatch_queue=AsyncMock(return_value=True),
     )
     monkeypatch.setattr(
-        "mesa_memory.worker_runtime._DISPATCH_LEASE_RENEWAL_SECONDS", 0.001
+        "mesa_memory.worker_runtime._DISPATCH_LEASE_RENEWAL_SECONDS", 0.02
     )
 
     with patch(
@@ -106,7 +106,7 @@ async def test_worker_does_not_finalize_a_dispatch_after_lease_ownership_is_lost
         complete_dispatch_queue=AsyncMock(),
     )
     monkeypatch.setattr(
-        "mesa_memory.worker_runtime._DISPATCH_LEASE_RENEWAL_SECONDS", 0.001
+        "mesa_memory.worker_runtime._DISPATCH_LEASE_RENEWAL_SECONDS", 0.02
     )
 
     async def never_finish(*_args, **_kwargs) -> None:

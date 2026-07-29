@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -61,7 +62,10 @@ def _mock_rbac():
     """Provide a mock RBAC callable for insert tests."""
     ac_mock = MagicMock()
     ac_mock.check_access = AsyncMock(return_value=True)
+    ac_mock.check_principal_permission = AsyncMock(return_value=True)
+    ac_mock.check_principal_session_access = AsyncMock(return_value=True)
     ac_mock.grant_access = AsyncMock(return_value=None)
+    ac_mock.grant_principal_session_access = AsyncMock(return_value=None)
     ac_mock.revoke_access = AsyncMock(return_value=None)
     yield lambda: ac_mock
 
@@ -72,6 +76,16 @@ def client(engines, _mock_rbac):
     sqlite_eng, vec_eng, _ = engines
 
     app = FastAPI()
+
+    @app.middleware("http")
+    async def attach_principal(request, call_next):
+        request.state.principal = SimpleNamespace(
+            principal_id="lifecycle-principal",
+            principal_type="USER",
+            status="active",
+        )
+        return await call_next(request)
+
     router = create_memory_router(
         get_dao=lambda: MemoryDAO(sqlite_engine=sqlite_eng, vector_engine=vec_eng),
         get_embedder=lambda: _test_embedder,

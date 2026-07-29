@@ -16,6 +16,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential gcc \
     && rm -rf /var/lib/apt/lists/*
 
+# The pinned Python base ships vulnerable setuptools vendored utilities.  Keep
+# the runtime tooling fixed independently of the application lockfile.
+RUN python -m pip install --no-cache-dir setuptools==83.0.0
+
 COPY pyproject.toml uv.lock MANIFEST.in README.md /app/
 COPY mesa_memory /app/mesa_memory
 COPY mesa_storage /app/mesa_storage

@@ -77,11 +77,25 @@ async def test_mcp_session_write_is_denied_then_allowed_by_rbac(tmp_path):
     session_id = settings.session_id_for("project-a")
     dao = SimpleNamespace(admit_raw_log=AsyncMock(return_value={"log_id": 42}))
     app = FastAPI()
+
+    @app.middleware("http")
+    async def attach_principal(request, call_next):
+        request.state.principal = SimpleNamespace(
+            principal_id="principal-mcp",
+            principal_type="SERVICE",
+            status="active",
+        )
+        return await call_next(request)
+
     app.include_router(
         create_memory_router(
             get_dao=lambda: dao,  # type: ignore[return-value]
             get_access_control=lambda: policy,  # type: ignore[return-value]
         )
+    )
+
+    await policy.grant_principal_session_access(
+        "principal-mcp", settings.actor_id, session_id, "WRITE"
     )
 
     with TestClient(app, raise_server_exceptions=False) as client:
