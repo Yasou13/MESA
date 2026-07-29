@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
+from mesa_mcp.errors import MCPError
 from mesa_mcp.gateway.operations import CircuitBreaker, GatewayOperationService
 
 
@@ -58,9 +60,7 @@ async def test_operation_status_refreshes_from_v4_mutation(
     service._v4 = FinalityV4(v4_state)  # type: ignore[assignment]
     service._breaker = CircuitBreaker()
 
-    async def set_operation(
-        _operation_id: str, status: str, **kwargs: Any
-    ) -> None:
+    async def set_operation(_operation_id: str, status: str, **kwargs: Any) -> None:
         operation["status"] = status
         if kwargs.get("error_code"):
             operation["error_code"] = kwargs["error_code"]
@@ -69,7 +69,9 @@ async def test_operation_status_refreshes_from_v4_mutation(
         if kwargs.get("response"):
             operation["response_json"] = json.dumps(kwargs["response"])
 
-    service._get_operation = AsyncMock(side_effect=lambda _operation_id: dict(operation))
+    service._get_operation = AsyncMock(
+        side_effect=lambda _operation_id: dict(operation)
+    )
     service._set_operation = set_operation  # type: ignore[method-assign]
 
     result = await service.operation_status("client-1", "op-1")
@@ -89,14 +91,45 @@ async def test_legacy_accepted_operation_is_refreshed_after_gateway_restart() ->
     service._v4 = FinalityV4("COMMITTED")  # type: ignore[assignment]
     service._breaker = CircuitBreaker()
 
-    async def set_operation(
-        _operation_id: str, status: str, **_kwargs: Any
-    ) -> None:
+    async def set_operation(_operation_id: str, status: str, **_kwargs: Any) -> None:
         operation["status"] = status
 
-    service._get_operation = AsyncMock(side_effect=lambda _operation_id: dict(operation))
+    service._get_operation = AsyncMock(
+        side_effect=lambda _operation_id: dict(operation)
+    )
     service._set_operation = set_operation  # type: ignore[method-assign]
 
     result = await service.operation_status("client-1", "op-1")
 
     assert result["status"] == "COMMITTED"
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_allows_only_one_half_open_probe() -> None:
+    breaker = CircuitBreaker(failure_threshold=1, recovery_seconds=0)
+
+    async def fail() -> dict[str, Any]:
+        raise MCPError("BACKEND_UNAVAILABLE", "unavailable", retryable=True)
+
+    with pytest.raises(MCPError):
+        await breaker.call(fail)
+
+    probe_started = asyncio.Event()
+    release_probe = asyncio.Event()
+    probe_calls = 0
+
+    async def probe() -> dict[str, Any]:
+        nonlocal probe_calls
+        probe_calls += 1
+        probe_started.set()
+        await release_probe.wait()
+        return {"status": "ok"}
+
+    first = asyncio.create_task(breaker.call(probe))
+    await probe_started.wait()
+    with pytest.raises(MCPError, match="probe is in progress"):
+        await breaker.call(probe)
+    assert probe_calls == 1
+    release_probe.set()
+    assert await first == {"status": "ok"}
+    assert breaker.state == "CLOSED"

@@ -93,15 +93,20 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
                 revision_number=3,
                 content_hash=hashlib.sha256(b"cross dataset").hexdigest(),
             )
-        assert await dao.list_v4_revisions(
-            tenant_id="tenant-a", dataset_id="dataset-b", document_id="document-a"
-        ) == []
+        assert (
+            await dao.list_v4_revisions(
+                tenant_id="tenant-a", dataset_id="dataset-b", document_id="document-a"
+            )
+            == []
+        )
     finally:
         await engine.close()
 
 
 @pytest.mark.asyncio
-async def test_catalog_rejects_cross_tenant_workspace_and_identity_collision(tmp_path) -> None:
+async def test_catalog_rejects_cross_tenant_workspace_and_identity_collision(
+    tmp_path,
+) -> None:
     engine = AsyncEngine(str(tmp_path / "catalog-scope.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
@@ -155,6 +160,22 @@ async def test_source_chunk_id_cannot_be_reused_for_different_content(tmp_path) 
             "source_ref": "source-a",
         }
         await dao.create_v4_source_chunk(content_payload="ilk içerik", **common)
+        second = await dao.create_v4_source_chunk(
+            content_payload="ikinci içerik",
+            **{**common, "chunk_id": "chunk-b", "chunk_ordinal": 1},
+        )
+        expected_manifest = hashlib.sha256(
+            b'[{"chunk_id":"chunk-a","content_hash":"'
+            + hashlib.sha256("ilk içerik".encode()).hexdigest().encode()
+            + b'","ordinal":0,"source_ref":"source-a"},{"chunk_id":"chunk-b","content_hash":"'
+            + hashlib.sha256("ikinci içerik".encode()).hexdigest().encode()
+            + b'","ordinal":1,"source_ref":"source-a"}]'
+        ).hexdigest()
+        assert second["manifest_hash"] == expected_manifest
+        revisions = await dao.list_v4_revisions(
+            tenant_id="tenant-a", dataset_id="dataset-a", document_id="document-a"
+        )
+        assert revisions[0]["manifest_hash"] == expected_manifest
         with pytest.raises(ValueError, match="immutable"):
             await dao.create_v4_source_chunk(
                 content_payload="değiştirilmiş içerik", **common

@@ -160,7 +160,9 @@ mesa-recovery --trusted-root /srv/mesa restore \
 ```
 
 Restore her zaman yeni boş hedefe yapılır. V3 storage yerinde migrate edilmez;
-backup sonrası ayrı v4 root’ta offline rebuild ve parity kontrolü yapılır.
+backup sonrası ayrı v4 root'ta offline rebuild ve parity kontrolü yapılır.
+Migration'lar forward-only'dir; başarısız release için `alembic downgrade`
+yerine doğrulanmış backup'ı yeni boş bir root'a restore edin.
 
 ## Yerel doğrulama
 

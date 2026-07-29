@@ -44,6 +44,8 @@ class CircuitBreaker:
         self._recovery_seconds = recovery_seconds
         self._failures = 0
         self._opened_at: float | None = None
+        self._half_open_probe_in_flight = False
+        self._lock = asyncio.Lock()
 
     @property
     def state(self) -> str:
@@ -56,21 +58,39 @@ class CircuitBreaker:
     async def call(
         self, operation: Callable[[], Awaitable[dict[str, Any]]]
     ) -> dict[str, Any]:
-        if self.state == "OPEN":
-            raise MCPError(
-                "BACKEND_UNAVAILABLE", "MESA circuit is open", retryable=True
-            )
+        probe = False
+        async with self._lock:
+            if self._opened_at is not None:
+                if time.monotonic() - self._opened_at < self._recovery_seconds:
+                    raise MCPError(
+                        "BACKEND_UNAVAILABLE", "MESA circuit is open", retryable=True
+                    )
+                if self._half_open_probe_in_flight:
+                    raise MCPError(
+                        "BACKEND_UNAVAILABLE",
+                        "MESA circuit probe is in progress",
+                        retryable=True,
+                    )
+                self._half_open_probe_in_flight = True
+                probe = True
         try:
             result = await operation()
         except MCPError as exc:
             if exc.retryable:
-                self._failures += 1
-                if self._failures >= self._failure_threshold:
-                    self._opened_at = time.monotonic()
+                async with self._lock:
+                    if probe:
+                        self._opened_at = time.monotonic()
+                    else:
+                        self._failures += 1
+                        if self._failures >= self._failure_threshold:
+                            self._opened_at = time.monotonic()
+                    self._half_open_probe_in_flight = False
             raise
         else:
-            self._failures = 0
-            self._opened_at = None
+            async with self._lock:
+                self._failures = 0
+                self._opened_at = None
+                self._half_open_probe_in_flight = False
             return result
 
 
@@ -604,7 +624,10 @@ class GatewayOperationService:
         # worker has committed it.  Do not expose that admission as success.
         status = "SUBMITTED" if mutation_id else "COMMITTED"
         await self._set_operation(
-            operation["operation_id"], status, mutation_id=mutation_id, response=response
+            operation["operation_id"],
+            status,
+            mutation_id=mutation_id,
+            response=response,
         )
         self._invalidate_recall_cache(binding["binding_id"])
         return await self.operation_status(
@@ -800,7 +823,9 @@ def _operation_response(operation: dict[str, Any]) -> dict[str, Any]:
     if operation.get("response_json"):
         response = json.loads(operation["response_json"])
         result["result"] = response
-        if isinstance(response, dict) and isinstance(response.get("rejection_reason"), str):
+        if isinstance(response, dict) and isinstance(
+            response.get("rejection_reason"), str
+        ):
             result["rejection_reason"] = response["rejection_reason"]
     if operation.get("error_code"):
         result["error"] = {
@@ -822,7 +847,11 @@ def _mcp_status_from_mutation(
     if state == "REJECTED":
         reason = mutation.get("rejection_reason")
         if isinstance(reason, str) and reason:
-            return "REJECTED", "MUTATION_REJECTED", f"V4 rejected the mutation: {reason[:120]}"
+            return (
+                "REJECTED",
+                "MUTATION_REJECTED",
+                f"V4 rejected the mutation: {reason[:120]}",
+            )
         return "REJECTED", "MUTATION_REJECTED", "V4 rejected the mutation"
     if state in {"DEAD_LETTER", "ROLLED_BACK", "BLOCKED", "FAILED"}:
         return "FAILED", "MUTATION_FAILED", f"V4 mutation ended as {state}"

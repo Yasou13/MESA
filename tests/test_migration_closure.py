@@ -17,7 +17,7 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "f8a9b0c1d2e3"
+HEAD = "fb2c3d4e5f6a"
 
 # Explicitly anchor the pre-remediation (v0.2.x) state to prevent
 # regressions in legacy cluster schema adoption.
@@ -133,6 +133,25 @@ def test_fresh_upgrade_has_one_head_and_complete_durable_schema(tmp_path: Path) 
         "session_finalization_journal",
         "lancedb_wal",
     } <= _tables(database)
+
+
+def test_destructive_alembic_downgrade_is_refused_without_schema_mutation(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "forward-only.db"
+    config = _config(database)
+    command.upgrade(config, "head")
+
+    with pytest.raises(RuntimeError, match="forward-only"):
+        command.downgrade(config, "base")
+
+    connection = sqlite3.connect(database)
+    assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert (
+        connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        == HEAD
+    )
+    connection.close()
 
 
 def test_pre_remediation_upgrade_preserves_existing_data_and_backfills_state(

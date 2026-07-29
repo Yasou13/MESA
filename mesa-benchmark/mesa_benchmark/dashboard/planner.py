@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from ..core.paths import resolve_config_path, resolve_results_root
+from ..core.paths import CONFIG_ALIASES, resolve_benchmark_path, resolve_results_root
 from ..datasets.manifest import load_dataset_manifest
 from .catalog import CLIENTS, client_catalog
 from .models import PlanRequest
@@ -23,6 +23,16 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _resolve_dashboard_config(value: str) -> Path:
+    """Resolve dashboard input through the shipped config allowlist only."""
+    alias = CONFIG_ALIASES.get(Path(value).name)
+    if alias is not None:
+        return resolve_benchmark_path(alias, must_exist=True)
+    if value.startswith("resource://configs/"):
+        return resolve_benchmark_path(value, must_exist=True)
+    raise ValueError("dashboard config must be a shipped resource config identifier")
 
 
 def _scenario_cost(item: dict[str, Any], q_limit: int, c_limit: int) -> float:
@@ -111,12 +121,10 @@ def preview_plan(
     seconds_per_question: float | None = None,
     history_samples: int = 0,
 ) -> dict[str, Any]:
-    config_path = resolve_config_path(request.config)
+    config_path = _resolve_dashboard_config(request.config)
     raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     dataset_path = Path(raw_config["dataset"]["path"])
     if not dataset_path.is_absolute():
-        from ..core.paths import resolve_benchmark_path
-
         dataset_path = resolve_benchmark_path(
             raw_config["dataset"]["path"], base_dir=config_path.parent
         )
@@ -233,7 +241,9 @@ def preview_plan(
         "eta_confidence": (
             "yüksek"
             if history_samples >= 5
-            else "orta" if history_samples >= 2 else "düşük"
+            else "orta"
+            if history_samples >= 2
+            else "düşük"
         ),
         "requires_ollama": requires_ollama,
         "generator_model": generator_model,
@@ -269,7 +279,7 @@ def materialize_plan(
     (root / "configs").mkdir()
     (root / "runs").mkdir()
 
-    source_config_path = resolve_config_path(request.config)
+    source_config_path = _resolve_dashboard_config(request.config)
     source_config = yaml.safe_load(source_config_path.read_text(encoding="utf-8"))
     source_dataset = Path(preview["dataset"]["path"])
     scenarios = json.loads(source_dataset.read_text(encoding="utf-8"))

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from mesa_client.client import MesaAPIError
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.v4_service import MesaHttpV4Service
 
@@ -57,29 +60,38 @@ async def test_v4_remember_generates_unique_provenance_per_write_and_stable_ids_
     service._http_client = client  # type: ignore[assignment]
 
     await service.v4_remember(
-        tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
-        actor_id="agent", content="first", idempotency_key="write-1",
-        source_ref="meeting://architecture/42", evidence_span="12:51",
+        tenant_id="tenant",
+        workspace_id="workspace",
+        dataset_id="dataset",
+        actor_id="agent",
+        content="first",
+        idempotency_key="write-1",
+        source_ref="meeting://architecture/42",
+        evidence_span="12:51",
     )
     await service.v4_remember(
-        tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
-        actor_id="agent", content="second", idempotency_key="write-2",
+        tenant_id="tenant",
+        workspace_id="workspace",
+        dataset_id="dataset",
+        actor_id="agent",
+        content="second",
+        idempotency_key="write-2",
     )
     await service.v4_remember(
-        tenant_id="tenant", workspace_id="workspace", dataset_id="dataset",
-        actor_id="agent", content="first", idempotency_key="write-1",
+        tenant_id="tenant",
+        workspace_id="workspace",
+        dataset_id="dataset",
+        actor_id="agent",
+        content="first",
+        idempotency_key="write-1",
     )
 
     first, second, retry = client.inserts
     assert first["document_id"] != second["document_id"]
     assert first["revision_id"] != second["revision_id"]
     assert first["chunk_id"] != second["chunk_id"]
-    assert {
-        key: retry[key]
-        for key in ("document_id", "revision_id", "chunk_id")
-    } == {
-        key: first[key]
-        for key in ("document_id", "revision_id", "chunk_id")
+    assert {key: retry[key] for key in ("document_id", "revision_id", "chunk_id")} == {
+        key: first[key] for key in ("document_id", "revision_id", "chunk_id")
     }
     assert first["source_ref"] == "meeting://architecture/42"
     assert first["evidence_span"] == "12:51"
@@ -122,3 +134,55 @@ async def test_v4_recall_maps_v4_entity_and_assertion_shape_to_typed_memory():
             },
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_session_cache_single_flights_and_replaces_a_rejected_session() -> None:
+    class SessionClient:
+        def __init__(self) -> None:
+            self.start_calls = 0
+            self.search_sessions: list[str] = []
+
+        async def start_session(self, **_kwargs):
+            self.start_calls += 1
+            await asyncio.sleep(0)
+            return {"session_id": f"session-{self.start_calls}"}
+
+        async def search(self, *, session_id: str, **_kwargs):
+            self.search_sessions.append(session_id)
+            if session_id == "session-1":
+                raise MesaAPIError(404, "NotFound", "session ended")
+            return {"results": []}
+
+        async def aclose(self) -> None:
+            return None
+
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    client = SessionClient()
+    service._http_client = client  # type: ignore[assignment]
+    sessions = await asyncio.gather(
+        *[
+            service._get_session_id(
+                client,
+                "dataset",
+                tenant_id="tenant",
+                workspace_id="workspace",
+                actor_id="agent",
+            )
+            for _ in range(8)
+        ]
+    )
+    assert sessions == ["session-1"] * 8
+    assert client.start_calls == 1
+
+    assert (
+        await service.v4_recall(
+            tenant_id="tenant",
+            workspace_id="workspace",
+            dataset_id="dataset",
+            actor_id="agent",
+            query="replace stale session",
+        )
+        == []
+    )
+    assert client.search_sessions == ["session-1", "session-2"]

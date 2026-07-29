@@ -885,16 +885,21 @@ class VectorEngine:
                 if agent_id:
                     _validate_filter_value(agent_id, "agent_id")
                     where += f" AND agent_id = '{agent_id}'"
+                # Purge verification must never silently truncate a large tenant.
+                # The operational contract covers at least 150k vectors; failure
+                # to inspect that complete bounded set is a fail-closed error.
                 arrow_table = (
                     table.search()
                     .where(where)
                     .select(["node_id"])
-                    .limit(100_000)
+                    .limit(1_000_000)
                     .to_arrow()
                 )
                 ids.update(arrow_table.column("node_id").to_pylist())
             except Exception as exc:
-                logger.warning("get_active_node_ids error for %s: %s", table_name, exc)
+                raise RuntimeError(
+                    f"active vector verification failed for table {table_name}"
+                ) from exc
 
         return ids
 

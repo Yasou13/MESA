@@ -169,17 +169,17 @@ class ControlPlaneMiddleware:
                 error_message = None
                 if isinstance(result, dict) and "error" in result:
                     status = "ERROR"
-                    error_message = result.get("message", "Unknown error")
+                    error_message = "Tool returned an error"
 
                 await self.activity_repo.record_call_completion(
                     call_id, status, duration_ms, error_message
                 )
                 return result
 
-        except Exception as e:
+        except Exception:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.exception("Tool execution failed")
             await self.activity_repo.record_call_completion(
-                call_id, "ERROR", duration_ms, str(e)
+                call_id, "ERROR", duration_ms, "Tool execution failed"
             )
             raise

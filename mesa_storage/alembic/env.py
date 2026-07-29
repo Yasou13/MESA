@@ -28,6 +28,23 @@ target_metadata = None
 # ... etc.
 
 
+def _require_forward_only_migration() -> None:
+    """Reject Alembic downgrade before it can alter a durable schema.
+
+    Rollback is performed by restoring a verified backup into a new storage
+    root, never by applying reverse DDL to a live database.  Alembic exposes
+    the current command as the EnvironmentContext callback, including when
+    migrations are invoked programmatically instead of through its CLI.
+    """
+    environment = getattr(context, "_proxy", None)
+    migration = getattr(environment, "context_opts", {}).get("fn")
+    if getattr(migration, "__name__", None) == "downgrade":
+        raise RuntimeError(
+            "MESA migrations are forward-only; restore a verified offline "
+            "backup into a new storage root instead of running downgrade."
+        )
+
+
 def _migration_url() -> str:
     """Use the synchronous SQLite driver for Alembic DDL execution.
 
@@ -57,6 +74,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
+    _require_forward_only_migration()
     x_arguments = context.get_x_argument(as_dictionary=True)
     if x_arguments.get("mesa_legacy") == "adopt":
         raise RuntimeError(
@@ -89,6 +107,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 def run_migrations_online() -> None:
     """Run migrations through Alembic's synchronous DDL connection."""
+    _require_forward_only_migration()
     section = config.get_section(config.config_ini_section, {})
     section["sqlalchemy.url"] = _migration_url()
     connectable = engine_from_config(

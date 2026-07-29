@@ -72,6 +72,45 @@ async def test_credential_is_hashed_scoped_and_revocable(control_db):
 
 
 @pytest.mark.asyncio
+async def test_credential_expiry_and_atomic_rotation(control_db):
+    engine = AsyncEngine(str(control_db))
+    await engine.initialize()
+    middleware = ControlPlaneMiddleware(engine=engine)
+    await middleware.initialize()
+    try:
+        await middleware.client_repo.create_client(
+            "antigravity-a", "Antigravity", "antigravity", "principal-a"
+        )
+        binding = await middleware.client_repo.add_project_binding(
+            "antigravity-a", "sha256:repo-a", "tenant-a", "workspace-a", "dataset-a"
+        )
+        record, token = await middleware.credential_repo.issue(
+            "antigravity-a", binding, token_kind="antigravity", expires_in_seconds=60
+        )
+        replacement, replacement_token = await middleware.credential_repo.rotate(
+            record["credential_id"], expires_in_seconds=60
+        )
+        assert await middleware.credential_repo.authenticate(token) is None
+        resolved = await middleware.credential_repo.authenticate(replacement_token)
+        assert (
+            resolved is not None
+            and resolved["credential_id"] == replacement["credential_id"]
+        )
+        assert replacement_token.startswith("mesa_antigravity_")
+
+        async with engine.transaction() as db:
+            await db.execute(
+                "UPDATE mcp_client_credentials SET expires_at = '1970-01-01T00:00:00+00:00' "
+                "WHERE credential_id = ?",
+                (replacement["credential_id"],),
+            )
+            await db.commit()
+        assert await middleware.credential_repo.authenticate(replacement_token) is None
+    finally:
+        await middleware.close()
+
+
+@pytest.mark.asyncio
 async def test_direct_principal_filters_recall_and_never_uses_caller_scope(control_db):
     engine = AsyncEngine(str(control_db))
     await engine.initialize()

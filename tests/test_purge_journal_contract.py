@@ -205,6 +205,37 @@ async def test_vector_failure_retries_only_missing_step_from_same_purge_id(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_large_purge_stays_retry_pending_when_exact_vector_check_finds_one_target(
+    tmp_path,
+):
+    dao, sql, graph, vector = await _make_env(tmp_path)
+    target_ids = [f"bulk-{index}" for index in range(150_000)]
+    try:
+        async with sql.transaction() as db:
+            await db.execute(
+                "UPDATE nodes SET id = ? WHERE id = 'a-session-1'", (target_ids[0],)
+            )
+            await db.commit()
+        graph.active_node_ids = {("agent-a", target_ids[0])}
+        vector.active_node_ids = {("agent-a", node_id) for node_id in target_ids}
+        vector.fail_hard_delete = True
+        with pytest.raises(RuntimeError, match="vector"):
+            await dao.purge_memory(
+                "agent-a",
+                scope="session",
+                session_id="session-a",
+                principal_id="principal-a",
+                idempotency_key="purge-large-failed-delete",
+            )
+        journal = await _journal(sql, "purge-large-failed-delete")
+        assert journal is not None
+        assert journal["state"] == "RETRY_PENDING"
+        assert target_ids[0] in await vector.get_active_node_ids("agent-a")
+    finally:
+        await sql.close()
+
+
+@pytest.mark.asyncio
 async def test_exact_scope_rejects_wildcard_and_does_not_touch_other_tenant_or_session(
     tmp_path,
 ):
