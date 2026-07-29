@@ -11,7 +11,7 @@ import os
 import signal
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TextIO, cast
 
 import structlog
 
@@ -42,7 +42,7 @@ _WORKER_ID = "worker-runtime"
 _WRITER_LOCK_NAME = ".mesa-single-writer.lock"
 
 
-def _acquire_writer_lock(storage_root: Path):
+def _acquire_writer_lock(storage_root: Path) -> TextIO:
     """Fence a storage root to one active worker process on its host."""
     handle = (storage_root / _WRITER_LOCK_NAME).open("a+", encoding="utf-8")
     try:

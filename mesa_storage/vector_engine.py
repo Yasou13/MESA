@@ -336,8 +336,6 @@ class VectorEngine:
                 "semantic embedding runtime is disabled or no local-only model is available"
             )
         vector = self._embedder.encode(text)
-        import typing  # type: ignore[float]
-
         return typing.cast(list[float], vector.tolist())
 
     async def compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
@@ -1450,13 +1448,11 @@ class VectorEngine:
         assert self._db is not None
         # LanceDB >=0.30 deprecated table_names() for list_tables()
         if hasattr(self._db, "list_tables"):
-            result = self._db.list_tables()  # type: ignore[str]
+            result = self._db.list_tables()
         else:
             result = self._db.table_names()  # pragma: no cover
         if isinstance(result, list):
-            import typing
-
             return typing.cast(list[str], result)
         if hasattr(result, "tables"):
-            return result.tables
-        return list(result)
+            return typing.cast(list[str], result.tables)
+        return typing.cast(list[str], list(result))
