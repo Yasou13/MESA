@@ -431,6 +431,8 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
         limit=10,
         jurisdiction="TR",
         valid_at=None,
+        valid_from=None,
+        valid_to=None,
     )
 
     status = client.get("/v4/mutations/mutation-a")
