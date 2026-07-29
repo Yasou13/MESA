@@ -1,6 +1,6 @@
-# MESA v0.7.0 full-cognitive architecture
+# MESA v0.7.1 full-cognitive architecture
 
-> **Version:** 0.7.0 (release candidate)
+> **Version:** 0.7.1
 
 This document is the canonical architecture for the unreleased v4 API.
 `ARCHITECTURE.md` and v3 ADRs remain historical compatibility records.

@@ -1,5 +1,5 @@
 """
-MESA v0.7.0 Client SDK
+MESA v0.7.1 Client SDK
 
 A robust, type-safe Python client for the MESA memory system.
 Provides both synchronous and asynchronous implementations utilizing httpx.
@@ -153,7 +153,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.7.0"}
+        headers = {"User-Agent": "mesa-client/v0.7.1"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -257,7 +257,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.7.0"}
+        headers = {"User-Agent": "mesa-client/v0.7.1"}
         if api_key:
             headers["X-API-Key"] = api_key
 

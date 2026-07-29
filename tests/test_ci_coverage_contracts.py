@@ -388,7 +388,7 @@ def test_tokenizer_openai_falls_back_when_encoding_cache_is_unavailable(
     assert tokenizer.count_tokens("one two three", "openai") == 3
 
 
-def _response(status: int, payload: dict, *, version: str = "0.7.0") -> httpx.Response:
+def _response(status: int, payload: dict, *, version: str = "0.7.1") -> httpx.Response:
     return httpx.Response(
         status,
         json=payload,

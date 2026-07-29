@@ -1,8 +1,8 @@
 # Release procedure
 
-V4 paket sürümü `0.7.0` olarak sabitlenmiş, henüz yayınlanmamış bir release
-candidate’tır. Sürüm numarasının atanması production GO, tag veya release
-anlamına gelmez. Mevcut `v0.6.1` tag/release tarihsel v3 kaydıdır.
+V4 paket sürümü `0.7.1`dir. Sürüm numarası veya tag’in atanması tek başına
+production GO anlamına gelmez. Mevcut `v0.6.1` tag/release tarihsel v3
+kaydıdır.
 
 ## Zorunlu v4 kapıları
 

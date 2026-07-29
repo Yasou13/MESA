@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.7.0-green.svg)
+![Version](https://img.shields.io/badge/Version-0.7.1-green.svg)
 
 **A durable, tenant- and dataset-isolated memory engine for autonomous AI agents.**
 The v3 compatibility runtime remains a model-disabled lexical core. The
@@ -341,7 +341,7 @@ model-download and provider-rate-limit characteristics from v3.
 
 ## Features & Capabilities
 
-The v0.7.0/v4 release-candidate line and published v0.6.1/v3 line have
+The v0.7.1/v4 release line and published v0.6.1/v3 line have
 different contracts.
 Current v4 capabilities include:
 
@@ -533,7 +533,7 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 
 ### Current status
 
-V0.7.0 is the current v4 full-cognitive release candidate. V0.6.1 remains the
+V0.7.1 is the current v4 full-cognitive release. V0.6.1 remains the
 preserved v3 lexical-core compatibility release; its queue and
 compensating-write behavior must not be read as a v4 guarantee. V4 uses a
 mutation/pipeline ledger, ordered outbox, artifact ownership and reconciliation.

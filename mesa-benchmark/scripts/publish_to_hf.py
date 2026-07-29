@@ -112,7 +112,7 @@ and distractor quarantine capabilities.
 ### Version
 
 - **Dataset Version**: {version}
-- **MESA Version**: 0.7.0
+- **MESA Version**: 0.7.1
 
 ### Citation
 

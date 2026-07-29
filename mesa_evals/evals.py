@@ -617,7 +617,7 @@ async def run_evaluation(
     }
 
     output = {
-        "mesa_version": "0.7.0",
+        "mesa_version": "0.7.1",
         "evaluation_paths": [p.value for p in paths],
         "total_entries": len(parsed_entries),
         "summaries": summaries,

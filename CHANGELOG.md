@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-29
+
+### Fixed
+
+- Patch release for the merged production hardening and CI security fixes.
+
 ## [0.7.0] - 2026-07-23
 
 ### Added
@@ -290,7 +296,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
-[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/Yasou13/MESA/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Yasou13/MESA/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/Yasou13/MESA/compare/v0.5.2...v0.6.1
 [0.5.2]: https://github.com/Yasou13/MESA/compare/v0.5.1...v0.5.2
