@@ -379,7 +379,10 @@ class TestDockerfile:
         dockerfile_path = REPO_ROOT / "packages" / "mesa-benchmark" / "Dockerfile"
         content = dockerfile_path.read_text(encoding="utf-8")
         assert "COPY pyproject.toml uv.lock" in content
-        assert "uv sync --frozen --package mesa-benchmark --no-dev" in content
+        assert (
+            "uv sync --frozen --package mesa-benchmark --extra semantic --no-dev"
+            in content
+        )
         assert "requirements-lock.txt" not in content
         assert "requirements.txt" not in content
 
