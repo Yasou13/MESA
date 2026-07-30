@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from mesa_memory.security.input_validation import validate_write_payload
+from mesa_contracts.validation import validate_write_payload
 
 from .configuration import MCPSettings
 from .errors import MCPError

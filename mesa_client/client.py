@@ -15,7 +15,7 @@ import httpx
 from pydantic import ValidationError
 from typing_extensions import Self
 
-from mesa_api.schemas import (
+from mesa_contracts.v3 import (
     ErrorResponse,
     MemoryInsertRequest,
     MemoryInsertResponse,

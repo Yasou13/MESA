@@ -7,8 +7,8 @@ from typing import Any
 
 import httpx
 
-from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
 from mesa_client.client import AsyncMesaClient, MesaAPIError, MesaNetworkError
+from mesa_contracts.v3 import MemoryInsertRequest, MemorySearchRequest
 
 from .configuration import MCPSettings
 from .errors import MCPError

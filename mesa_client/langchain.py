@@ -6,8 +6,8 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.stores import BaseStore
 from pydantic import ConfigDict, Field
 
-from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
 from mesa_client.client import MesaClient
+from mesa_contracts.v3 import MemoryInsertRequest, MemorySearchRequest
 
 
 class MesaRetriever(BaseRetriever):
@@ -79,7 +79,7 @@ class MesaStore(BaseStore[str, str]):
         """Retrieve memories by querying MESA for each key."""
         results: list[Optional[str]] = []
         for key in keys:
-            from mesa_api.schemas import MemorySearchRequest
+            from mesa_contracts.v3 import MemorySearchRequest
 
             req = MemorySearchRequest(
                 agent_id=self.agent_id, session_id=self.session_id, query=key, limit=1

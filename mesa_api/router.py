@@ -50,7 +50,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from mesa_api.schemas import (
+from mesa_contracts.v3 import (
     ErrorResponse,
     MemoryInsertRequest,
     MemoryPurgeRequest,

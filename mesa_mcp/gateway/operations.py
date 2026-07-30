@@ -13,7 +13,7 @@ from typing import Any
 
 from cryptography.fernet import Fernet
 
-from mesa_memory.security.input_validation import validate_write_payload
+from mesa_contracts.validation import validate_write_payload
 from mesa_storage.sqlite_engine import AsyncEngine
 
 from ..errors import MCPError
