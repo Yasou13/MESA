@@ -2,8 +2,14 @@ import json
 from pathlib import Path
 
 import pytest
+from mesa_benchmark.core import paths
 from mesa_benchmark.core.config import load_config
-from mesa_benchmark.core.paths import resolve_benchmark_path, resolve_results_root
+from mesa_benchmark.core.paths import (
+    cache_root,
+    data_root,
+    resolve_benchmark_path,
+    resolve_results_root,
+)
 from mesa_benchmark.core.suite import check_suite, resolve_suite_path
 from mesa_benchmark.datasets.loader import DatasetLoaderError, DatasetManager
 
@@ -81,6 +87,26 @@ def test_results_root_precedence(
 
     assert resolve_results_root(explicit_root) == explicit_root.resolve()
     assert resolve_results_root(None) == environment_root.resolve()
+
+
+def test_benchmark_defaults_use_xdg_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MESA_BENCHMARK_DATA_DIR", raising=False)
+    monkeypatch.delenv("MESA_BENCHMARK_CACHE_DIR", raising=False)
+    monkeypatch.delenv("MESA_BENCHMARK_RESULTS_DIR", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(paths, "LEGACY_BENCHMARK_ROOT", tmp_path / "no-legacy")
+
+    assert data_root() == (
+        tmp_path / "data" / "mesa" / "benchmark" / "datasets"
+    ).resolve()
+    assert cache_root() == (tmp_path / "cache" / "mesa" / "benchmark").resolve()
+    assert resolve_results_root(None) == (
+        tmp_path / "state" / "mesa" / "benchmark" / "results"
+    ).resolve()
 
 
 def test_packaged_sources_index_is_valid_json() -> None:

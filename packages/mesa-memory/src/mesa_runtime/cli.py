@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Sequence
 
 from mesa_memory.observability.logger import setup_logging
 
@@ -37,6 +38,13 @@ def command_for_profile() -> list[str]:
 def main() -> None:
     command = command_for_profile()
     os.execvp(command[0], command)
+
+
+def migrate_local_state_main(argv: Sequence[str] | None = None) -> int:
+    """Compatibility entrypoint kept under the canonical runtime CLI module."""
+    from mesa_runtime.local_state import main as migration_main
+
+    return migration_main(argv)
 
 
 if __name__ == "__main__":
