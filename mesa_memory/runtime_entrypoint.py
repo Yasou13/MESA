@@ -1,42 +1,24 @@
-"""Validated container process entrypoint for MESA runtime profiles."""
+"""Compatibility wrapper for :mod:`mesa_runtime.cli`.
 
-# ruff: noqa: E402 -- logging must be configured before runtime imports.
+This module remains executable through MESA 0.9 so existing containers and
+operator commands keep their current entrypoint.
+"""
 
 from __future__ import annotations
 
-import os
 import sys
+import warnings
+from importlib import import_module
 
-from mesa_memory.observability.logger import setup_logging
-
-setup_logging(role="launcher")
-
-from mesa_memory.config import RuntimeProfile, load_runtime_profile
-
-
-def command_for_profile() -> list[str]:
-    runtime = load_runtime_profile()
-    if runtime.profile is RuntimeProfile.WORKER_ONLY:
-        return [sys.executable, "-m", "mesa_memory.worker_runtime"]
-    if not runtime.api_enabled:
-        raise RuntimeError("selected runtime profile does not expose an API process")
-    port = os.environ.get("MESA_PORT", "8000")
-    return [
-        sys.executable,
-        "-m",
-        "uvicorn",
-        "mesa_memory.api.server:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        port,
-    ]
-
-
-def main() -> None:
-    command = command_for_profile()
-    os.execvp(command[0], command)
-
+warnings.warn(
+    "mesa_memory.runtime_entrypoint is deprecated; use mesa_runtime.cli",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 if __name__ == "__main__":
-    main()
+    import_module("mesa_runtime.cli").main()
+else:
+    # Preserve monkeypatch/import behaviour for operators and downstream tests
+    # that still use the old module path.
+    sys.modules[__name__] = import_module("mesa_runtime.cli")

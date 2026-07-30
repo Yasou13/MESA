@@ -135,7 +135,7 @@ include-package-data = false
 
 [tool.setuptools.packages.find]
 where = [".", "mesa-benchmark"]
-include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*", "mesa_benchmark*"]
+include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_contracts*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*", "mesa_runtime*", "mesa_benchmark*"]
 exclude = [
     "*.__pycache__",
     "*.__pycache__.*",
@@ -215,6 +215,7 @@ module = [
     "mesa_memory.extraction.*",
     "mesa_memory.security.rbac",
     "mesa_memory.api.server",
+    "mesa_runtime.*",
     "mesa_api.router",
     "mesa_api.schemas",
     "mesa_storage.dao",

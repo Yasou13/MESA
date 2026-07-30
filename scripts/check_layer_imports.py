@@ -7,11 +7,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 LAYER = {
-    "mesa_storage": 0,
-    "mesa_memory": 1,
-    "mesa_workers": 2,
-    "mesa_api": 3,
-    "mesa_mcp": 3,
+    "mesa_contracts": 0,
+    "mesa_storage": 1,
+    "mesa_memory": 2,
+    "mesa_workers": 3,
+    "mesa_api": 4,
+    "mesa_client": 4,
+    "mesa_mcp": 4,
+    "mesa_runtime": 5,
 }
 COMPOSITION_ROOTS = {
     "mesa_memory/api/server.py",
@@ -46,10 +49,55 @@ def find_reverse_dependencies(root: Path = ROOT) -> list[str]:
     return sorted(violations)
 
 
+def find_package_cycles(root: Path = ROOT) -> list[str]:
+    """Return top-level production package cycles in canonical code.
+
+    Compatibility shims are deliberately omitted: they point old import paths
+    at the new runtime during the deprecation window but are not canonical
+    dependency edges.
+    """
+    graph: dict[str, set[str]] = {package: set() for package in LAYER}
+    for package in LAYER:
+        package_root = root / package
+        if not package_root.exists():
+            continue
+        for path in package_root.rglob("*.py"):
+            if path.relative_to(root).as_posix() in COMPOSITION_ROOTS:
+                continue
+            graph[package].update(
+                imported
+                for imported in _imports(path)
+                if imported in LAYER and imported != package
+            )
+
+    cycles: set[tuple[str, ...]] = set()
+
+    def visit(origin: str, current: str, path: tuple[str, ...]) -> None:
+        for dependency in graph[current]:
+            if dependency == origin:
+                cycle = path + (origin,)
+                body = cycle[:-1]
+                rotations = [body[index:] + body[:index] for index in range(len(body))]
+                canonical = min(rotations)
+                cycles.add(canonical + (canonical[0],))
+            elif dependency not in path:
+                visit(origin, dependency, path + (dependency,))
+
+    for package in graph:
+        visit(package, package, (package,))
+    return [" -> ".join(cycle) for cycle in sorted(cycles)]
+
+
 def main() -> int:
     violations = find_reverse_dependencies()
+    cycles = find_package_cycles()
+    errors: list[str] = []
     if violations:
-        raise SystemExit("reverse layer dependencies:\n" + "\n".join(violations))
+        errors.append("reverse layer dependencies:\n" + "\n".join(violations))
+    if cycles:
+        errors.append("package dependency cycles:\n" + "\n".join(cycles))
+    if errors:
+        raise SystemExit("\n\n".join(errors))
     return 0
 
 
