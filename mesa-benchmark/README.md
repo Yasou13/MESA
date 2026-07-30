@@ -55,7 +55,7 @@ Benchmark planlama, deterministic sharding, canlı ilerleme, güvenli
 duraklatma/devam ve sonuç karşılaştırması için:
 
 ```bash
-cd mesa-benchmark/dashboard-ui
+cd apps/benchmark-dashboard
 npm ci
 npm run build
 cd ../..

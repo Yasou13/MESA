@@ -54,6 +54,8 @@ from mesa_memory.observability.metrics import (
 from mesa_memory.observability.tracer import setup_telemetry_tracing
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
+from mesa_runtime.dashboard import install_dashboard
+from mesa_runtime.demo import create_demo_router
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.schemas import initialize_schema
@@ -121,6 +123,9 @@ async def _require_api_key() -> None:
     Called inside ``lifespan`` so test imports don't crash at module level
     while the production server still refuses to start without a key.
     """
+    runtime = getattr(state, "runtime_profile", None)
+    if runtime is not None and runtime.allow_unauthenticated:
+        return
     key_store = getattr(state, "api_key_store", None)
     if not _MESA_API_KEY and (
         key_store is None or not await key_store.has_active_key()
@@ -132,6 +137,13 @@ async def _require_api_key() -> None:
 
 async def get_api_key(request: Request, api_key: str = Depends(_API_KEY_HEADER)) -> str:
     """Validate the API key and attach its configured server-side principal."""
+    runtime = getattr(state, "runtime_profile", None)
+    if runtime is not None and runtime.allow_unauthenticated:
+        request.state.principal = PrincipalContext(
+            principal_id="local-development",
+            principal_type="USER",
+        )
+        return ""
     key_store = getattr(state, "api_key_store", None)
     if key_store is not None:
         verified = await key_store.verify(api_key)
@@ -716,6 +728,11 @@ def get_mcp_control() -> ControlPlaneMiddleware:
     return control
 
 
+def get_runtime_settings() -> RuntimeProfileConfig | None:
+    """Return validated settings after startup, or an app-factory override."""
+    return getattr(state, "runtime_profile", None)
+
+
 async def health_init():
     """Health probe for container orchestration readiness."""
     if not getattr(state, "is_ready", False):
@@ -812,6 +829,17 @@ def create_app(settings: RuntimeProfileConfig | None = None) -> FastAPI:
             get_access_control,
         ),
         dependencies=router_dependencies,
+    )
+    application.include_router(
+        create_demo_router(
+            get_dao=get_dao,
+            get_settings=lambda: get_runtime_settings() or settings,
+            auth_dependency=get_api_key,
+        )
+    )
+    install_dashboard(
+        application,
+        settings_provider=lambda: get_runtime_settings() or settings,
     )
     application.add_api_route("/health/init", health_init, methods=["GET"])
     application.add_api_route(

@@ -1,4 +1,4 @@
-.PHONY: install dev v4-dev test check bench docker-up v4-docker-up zero-cost-dev
+.PHONY: install dev v4-dev test check bench dashboard-build package docker-up v4-docker-up zero-cost-dev
 
 UV ?= uv
 
@@ -21,6 +21,14 @@ check:
 	$(UV) run ruff check .
 	$(UV) run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases --follow-imports=skip
 	$(UV) run mypy mesa-benchmark/mesa_benchmark
+
+dashboard-build:
+	npm ci --ignore-scripts --prefix apps/control-dashboard
+	npm run build --prefix apps/control-dashboard
+	$(UV) run python tools/stage_frontends.py
+
+package: dashboard-build
+	$(UV) build
 
 bench:
 	$(UV) run mesa-benchmark dataset-sync --suite smoke

@@ -29,11 +29,12 @@ bench_results.json
 .tox/
 .nox/
 node_modules/
+mesa_runtime/static/dashboard/
 test-results/
 playwright-report/
 *.tsbuildinfo
-mesa-benchmark/dashboard-ui/vite.config.js
-mesa-benchmark/dashboard-ui/vite.config.d.ts
+apps/benchmark-dashboard/vite.config.js
+apps/benchmark-dashboard/vite.config.d.ts
 
 # ------------------------------------------------------------------------------
 # 2. MESA Databases & Vector Storage (Zero Trust / Critical)

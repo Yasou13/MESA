@@ -7,7 +7,7 @@ import yaml
 
 from mesa_memory.config import RuntimeProfile
 from mesa_memory.runtime_entrypoint import command_for_profile
-from scripts.run_server import _dashboard_static_file
+from mesa_runtime.dashboard import dashboard_static_file
 
 ROOT = Path(__file__).parents[1]
 
@@ -27,15 +27,15 @@ def test_dashboard_static_files_cannot_escape_dist_root(tmp_path: Path) -> None:
     linked_directory.mkdir()
     (linked_directory / "index.html").symlink_to(secret)
 
-    assert _dashboard_static_file(str(dashboard), "favicon.svg") == str(asset)
-    assert _dashboard_static_file(str(dashboard), "showcase/") == str(showcase_index)
-    assert _dashboard_static_file(str(dashboard), "linked/") is None
-    assert _dashboard_static_file(str(dashboard), "%2e%2e/outside.txt") is None
-    assert _dashboard_static_file(str(dashboard), "../outside.txt") is None
+    assert dashboard_static_file(dashboard, "favicon.svg") == asset
+    assert dashboard_static_file(dashboard, "showcase/") == showcase_index
+    assert dashboard_static_file(dashboard, "linked/") is None
+    assert dashboard_static_file(dashboard, "%2e%2e/outside.txt") is None
+    assert dashboard_static_file(dashboard, "../outside.txt") is None
 
 
 def test_showcase_assets_live_under_dashboard_without_mock_console() -> None:
-    showcase = ROOT / "mesa_dashboard" / "public" / "showcase"
+    showcase = ROOT / "apps" / "control-dashboard" / "public" / "showcase"
     expected_assets = {
         "index.html",
         "scripts/showcase.js",
@@ -109,7 +109,9 @@ def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> N
     ) in dockerfile
     assert "USER mesa:mesa" in dockerfile
     assert "mesa_memory.container_health" in dockerfile
-    assert 'ENTRYPOINT ["python", "-m", "mesa_memory.runtime_entrypoint"]' in dockerfile
+    assert 'ENTRYPOINT ["python", "-m", "mesa_runtime.cli"]' in dockerfile
+    assert "apps/control-dashboard" in dockerfile
+    assert "/dashboard/dist" in dockerfile
     assert "COPY . ." not in dockerfile
     assert "MESA_MODEL_ENABLED=false" in dockerfile
     assert "uv.lock" in dockerfile
@@ -238,9 +240,9 @@ def test_mcp_and_benchmark_coverage_gates_reject_regressions() -> None:
     assert "benchmark-coverage.json" in benchmark_workflow
     assert "npm run test:coverage" in benchmark_workflow
 
-    frontend_config = (ROOT / "mesa-benchmark" / "dashboard-ui" / "vite.config.ts").read_text(
-        encoding="utf-8"
-    )
+    frontend_config = (
+        ROOT / "apps" / "benchmark-dashboard" / "vite.config.ts"
+    ).read_text(encoding="utf-8")
     assert "provider: \"v8\"" in frontend_config
     assert "lines: 10" in frontend_config
     assert "branches: 30" in frontend_config
@@ -279,7 +281,7 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_benchmark_image() ->
     )
     assert {
         "package-ecosystem": "npm",
-        "directory": "/mesa-benchmark/dashboard-ui",
+        "directory": "/apps/benchmark-dashboard",
         "schedule": {"interval": "weekly"},
     } in dependabot["updates"]
 

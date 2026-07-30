@@ -1,5 +1,6 @@
 import logging
 import os
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -30,6 +31,12 @@ class RuntimeProfile(str, Enum):
     WORKER_ONLY = "worker-only"
     COMBINED = "combined"
     TEST_ISOLATED = "test-isolated"
+
+
+class RuntimeEnvironment(str, Enum):
+    DEVELOPMENT = "development"
+    TEST = "test"
+    PRODUCTION = "production"
 
 
 class RuntimeProfileError(ValueError):
@@ -71,6 +78,26 @@ class RuntimeProfileConfig:
     api_enabled: bool
     worker_enabled: bool
     require_worker_readiness: bool
+    environment: RuntimeEnvironment = RuntimeEnvironment.PRODUCTION
+    showcase_demo_enabled: bool = False
+    allow_unauthenticated: bool = False
+
+
+def _default_storage_root(values: Mapping[str, str]) -> Path:
+    data_home = Path(
+        values.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+    ).expanduser()
+    preferred = (data_home / "mesa").resolve(strict=False)
+    legacy = (Path.cwd() / "storage").resolve(strict=False)
+    if not preferred.exists() and legacy.is_dir():
+        warnings.warn(
+            f"Using legacy repository-local MESA storage at {legacy}; "
+            "run the local-state migration command before MESA 0.10",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return legacy
+    return preferred
 
 
 def load_runtime_profile(
@@ -86,9 +113,7 @@ def load_runtime_profile(
     except ValueError as exc:
         raise RuntimeProfileError("MESA_RUNTIME_PROFILE is invalid") from exc
     raw_storage = values.get("MESA_STORAGE_ROOT") or values.get("MESA_STORAGE_PATH")
-    if not raw_storage:
-        raise RuntimeProfileError("MESA_STORAGE_ROOT is required")
-    raw_storage_path = Path(raw_storage)
+    raw_storage_path = Path(raw_storage) if raw_storage else _default_storage_root(values)
     storage_root = raw_storage_path.expanduser().resolve(strict=False)
     if storage_root in {Path("/"), Path.home().resolve(), Path.cwd().resolve()}:
         raise RuntimeProfileError(
@@ -114,6 +139,27 @@ def load_runtime_profile(
         name="MESA_REQUIRE_WORKER_READINESS",
         default=False,
     )
+    raw_environment = values.get("MESA_ENVIRONMENT", RuntimeEnvironment.PRODUCTION.value)
+    try:
+        environment = RuntimeEnvironment(raw_environment)
+    except ValueError as exc:
+        raise RuntimeProfileError("MESA_ENVIRONMENT is invalid") from exc
+    showcase_demo_enabled = _parse_runtime_bool(
+        values.get("MESA_SHOWCASE_DEMO_ENABLED"),
+        name="MESA_SHOWCASE_DEMO_ENABLED",
+        default=False,
+    )
+    allow_unauthenticated = _parse_runtime_bool(
+        values.get("MESA_ALLOW_UNAUTHENTICATED"),
+        name="MESA_ALLOW_UNAUTHENTICATED",
+        default=False,
+    )
+    if (
+        showcase_demo_enabled or allow_unauthenticated
+    ) and environment is RuntimeEnvironment.PRODUCTION:
+        raise RuntimeProfileError(
+            "development-only runtime features are forbidden in production"
+        )
     role_defaults = {
         RuntimeProfile.API_ONLY: (True, False),
         RuntimeProfile.WORKER_ONLY: (False, True),
@@ -166,6 +212,9 @@ def load_runtime_profile(
         api_enabled,
         worker_enabled,
         require_worker_readiness,
+        environment,
+        showcase_demo_enabled,
+        allow_unauthenticated,
     )
 
 

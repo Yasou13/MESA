@@ -7,6 +7,7 @@ let state = {
     agentId: "",
     sessionId: "",
     busy: false,
+    demoEnabled: false,
     currentLang: "en",
     activeTab: "beam",
     activePipelineStep: 0,
@@ -451,7 +452,16 @@ Linear Scaling Verified: <45ms P95 maintained across 10,000+ graph nodes`
 // ---------------------------------------------------------------------------
 // DOM References & Initialisation
 // ---------------------------------------------------------------------------
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+    try {
+        const response = await fetch("/dashboard/runtime-config.json");
+        if (response.ok) {
+            const capabilities = await response.json();
+            state.demoEnabled = capabilities.showcase_demo_enabled === true;
+        }
+    } catch {
+        state.demoEnabled = false;
+    }
     initLanguage();
     initCopyButtons();
     initInstallTabs();
@@ -727,8 +737,8 @@ function initPlayground() {
 
     function setInputLock(locked) {
         state.busy = locked;
-        if (chatInput) chatInput.disabled = locked;
-        if (sendBtn) sendBtn.disabled = locked;
+        if (chatInput) chatInput.disabled = locked || !state.demoEnabled;
+        if (sendBtn) sendBtn.disabled = locked || !state.demoEnabled;
     }
 
     function escapeHtml(str) {
@@ -762,6 +772,17 @@ function initPlayground() {
     }
 
     const showModal = () => {
+        if (!state.demoEnabled) {
+            addMessage(
+                "System",
+                state.currentLang === "en"
+                    ? "Live Showcase is disabled by the runtime operator."
+                    : "Canlı Showcase, runtime yöneticisi tarafından kapatılmış.",
+                "system-msg"
+            );
+            setInputLock(true);
+            return;
+        }
         if (setupModal) setupModal.classList.remove("hidden");
     };
 
@@ -771,6 +792,7 @@ function initPlayground() {
     if (setupForm) {
         setupForm.addEventListener("submit", async (e) => {
             e.preventDefault();
+            if (!state.demoEnabled) return;
             const apiKey  = document.getElementById("apiKey").value.trim();
             const agentId = document.getElementById("agentId").value.trim();
             if (!apiKey || !agentId) return;
@@ -871,6 +893,8 @@ function initPlayground() {
             }
         });
     }
+
+    setInputLock(!state.demoEnabled);
 
     function renderTelemetry(data) {
         if (!telemetryEl) return;

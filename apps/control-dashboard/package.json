@@ -1,5 +1,5 @@
 {
-  "name": "mesa_dashboard",
+  "name": "mesa-control-dashboard",
   "private": true,
   "version": "0.0.0",
   "type": "module",

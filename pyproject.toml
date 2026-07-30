@@ -320,6 +320,7 @@ exclude_lines = [
 
 [tool.setuptools.package-data]
 "mesa_storage" = ["alembic.ini", "alembic/**/*"]
+"mesa_runtime" = ["static/dashboard/**/*"]
 "mesa_benchmark" = [
     "resources/**/*.json",
     "resources/**/*.tiktoken",

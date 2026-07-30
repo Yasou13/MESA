@@ -150,14 +150,14 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: mesa-benchmark/dashboard-ui/package-lock.json
+          cache-dependency-path: apps/benchmark-dashboard/package-lock.json
       - name: Install lockfile-resolved Python and Node dependencies
         run: |
           python -m pip install "uv==0.9.6"
           uv sync --locked --extra dev --extra benchmarks
-          npm ci --ignore-scripts --prefix mesa-benchmark/dashboard-ui
+          npm ci --ignore-scripts --prefix apps/benchmark-dashboard
       - name: Fail on high or critical Node dependency findings
-        working-directory: mesa-benchmark/dashboard-ui
+        working-directory: apps/benchmark-dashboard
         run: npm audit --omit=dev --audit-level=high
       - name: Build the digest-pinned benchmark image for scanning
         run: docker build --pull=false --tag mesa-benchmark:security --file mesa-benchmark/Dockerfile .
@@ -411,8 +411,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/control-dashboard/package-lock.json
       - run: python -m pip install "uv==0.9.6"
       - run: uv sync --locked --extra dev
+      - name: Build and stage the Control Dashboard
+        run: |
+          npm ci --ignore-scripts --prefix apps/control-dashboard
+          npm run build --prefix apps/control-dashboard
+          uv run python tools/stage_frontends.py
       - name: Build reproducible wheels
         run: |
           SOURCE_DATE_EPOCH=0 uv build --wheel --out-dir dist/a .
@@ -422,6 +432,7 @@ jobs:
           test "$(cut -d' ' -f1 dist/SHA256SUMS | sort -u | wc -l)" = 1
           ! python -m zipfile -l dist/a/mesa_memory-*.whl | grep -E '(__pycache__|\.pyc$)'
           python -m zipfile -l dist/a/mesa_memory-*.whl | grep -q 'mesa_storage/alembic/versions/'
+          python -m zipfile -l dist/a/mesa_memory-*.whl | grep -q 'mesa_runtime/static/dashboard/index.html'
       - name: Generate reproducible locked-runtime SBOM
         run: |
           uv export --quiet --frozen --no-dev --no-emit-project --output-file dist/runtime-requirements.txt

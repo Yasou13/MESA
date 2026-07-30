@@ -8,7 +8,7 @@ export default defineConfig({
     proxy: { "/api": "http://127.0.0.1:8765" },
   },
   build: {
-    outDir: "../mesa_benchmark/dashboard/static",
+    outDir: "../../mesa-benchmark/mesa_benchmark/dashboard/static",
     emptyOutDir: true,
   },
   test: {
