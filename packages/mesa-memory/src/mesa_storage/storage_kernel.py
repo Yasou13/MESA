@@ -246,6 +246,7 @@ def _normalize_ontology_uri(value: str) -> str:
 
 
 class StorageKernel:
+    storage_capability_version = 1
     """Unified Data Access Object enforcing per-agent epistemic isolation.
 
     Every public method requires ``agent_id`` as its first positional

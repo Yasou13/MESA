@@ -52,7 +52,7 @@ from mesa_memory.observability.metrics import (
     update_v4_health_metrics,
 )
 from mesa_memory.observability.tracer import setup_telemetry_tracing
-from mesa_memory.ports import ProjectionStore
+from mesa_memory.ports import ProjectionStore, supports_capability
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_runtime.dashboard import install_dashboard
@@ -296,7 +296,7 @@ async def _consume_combined_durable_work_once(
         )
     projections = {"completed": 0}
     cleanup = {"completed": 0}
-    if isinstance(dao, ProjectionStore):
+    if supports_capability(dao, ProjectionStore):
         projections = await process_projection_outbox_once(dao, worker_id=worker_id)
         cleanup = await process_artifact_cleanup_once(dao, worker_id=worker_id)
     return {
@@ -843,7 +843,11 @@ async def _metrics(container: RuntimeContainer):
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-def create_app(settings: RuntimeProfileConfig | None = None) -> FastAPI:
+def create_app(
+    settings: RuntimeProfileConfig | None = None,
+    *,
+    _container: RuntimeContainer | None = None,
+) -> FastAPI:
     """Build the canonical MESA application.
 
     ``settings`` is primarily useful for embedded deployments and tests.  When
@@ -851,7 +855,9 @@ def create_app(settings: RuntimeProfileConfig | None = None) -> FastAPI:
     Concrete storage, worker, API, MCP, and dashboard implementations are
     composed only in this module.
     """
-    container = RuntimeContainer(runtime_profile=settings)
+    container = _container or RuntimeContainer(runtime_profile=settings)
+    if settings is not None:
+        container.runtime_profile = settings
     application = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
     application.state.container = container
     application.state.runtime_settings = settings
@@ -963,4 +969,4 @@ def create_app(settings: RuntimeProfileConfig | None = None) -> FastAPI:
     return application
 
 
-app = create_app()
+app = create_app(_container=state)

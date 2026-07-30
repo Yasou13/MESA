@@ -9,6 +9,19 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 
+def supports_capability(value: object, protocol: type[Any]) -> bool:
+    """Require an explicit storage marker as well as structural conformance.
+
+    The marker prevents broad mocks and unrelated duck types from accidentally
+    activating durable mutation paths merely because they expose similarly
+    named attributes.
+    """
+    return (
+        getattr(value, "storage_capability_version", None) == 1
+        and isinstance(value, protocol)
+    )
+
+
 class CatalogStore(Protocol):
     async def create_workspace(self, **identity: Any) -> dict[str, Any]: ...
 

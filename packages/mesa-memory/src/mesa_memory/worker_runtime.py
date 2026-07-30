@@ -12,4 +12,7 @@ warnings.warn(
     stacklevel=2,
 )
 
-sys.modules[__name__] = import_module("mesa_runtime.worker")
+if __name__ == "__main__":
+    import_module("mesa_runtime.worker").main()
+else:
+    sys.modules[__name__] = import_module("mesa_runtime.worker")

@@ -177,9 +177,9 @@ def test_compose_bounds_logs_and_sets_production_defaults():
 @pytest.mark.parametrize(
     "relative_path",
     [
-        "mesa_memory/runtime_entrypoint.py",
-        "mesa_memory/worker_runtime.py",
-        "mesa_memory/api/server.py",
+        "packages/mesa-memory/src/mesa_runtime/cli.py",
+        "packages/mesa-memory/src/mesa_runtime/worker.py",
+        "packages/mesa-memory/src/mesa_runtime/app.py",
     ],
 )
 def test_process_entrypoints_bootstrap_before_runtime_config(relative_path: str):

@@ -48,7 +48,7 @@ from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Valid
 from mesa_memory.consolidation.writer import GraphWriter
 from mesa_memory.extraction.triplet_extractor import TripletExtractor
 from mesa_memory.observability.metrics import ObservabilityLayer
-from mesa_memory.ports import MutationLedger
+from mesa_memory.ports import MutationLedger, supports_capability
 from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_Consolidation")
@@ -959,7 +959,7 @@ class ConsolidationLoop:
         legacy_b: dict[int, ExtractedTriplet] = {}
         for original_index, record in enumerate(sorted_batch):
             mutation_id = record.get("mutation_id")
-            if mutation_id and isinstance(self.dao, MutationLedger):
+            if mutation_id and supports_capability(self.dao, MutationLedger):
                 triplet = self.graph_writer._to_dict(indexed_a.get(original_index))
                 triplets = [triplet] if triplet.get("head") else []
                 await self.dao.record_mutation_extraction(

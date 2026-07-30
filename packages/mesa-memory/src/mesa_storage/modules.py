@@ -14,6 +14,7 @@ from mesa_storage.storage_kernel import StorageKernel
 
 class _CapabilityModule:
     __slots__ = ("_kernel",)
+    storage_capability_version = 1
     operations: ClassVar[frozenset[str]]
 
     def __init__(self, kernel: StorageKernel) -> None:

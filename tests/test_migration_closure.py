@@ -9,11 +9,10 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine
-
 from mesa_storage import schema_contract
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
+from sqlalchemy import create_engine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
@@ -25,7 +24,16 @@ PRE_REMEDIATION_REVISION = "c4f1a8e2d9b0"
 
 
 def _config(database: Path) -> Config:
-    config = Config(str(Path(__file__).parents[1] / "mesa_storage" / "alembic.ini"))
+    config = Config(
+        str(
+            Path(__file__).parents[1]
+            / "packages"
+            / "mesa-memory"
+            / "src"
+            / "mesa_storage"
+            / "alembic.ini"
+        )
+    )
     config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{database}")
     return config
 
@@ -367,7 +375,14 @@ def test_adoption_rolls_back_if_base_stamp_fails(tmp_path: Path, monkeypatch) ->
 def test_offline_operator_cli_adopts_recognised_legacy_schema(tmp_path: Path) -> None:
     database = tmp_path / "operator-cli.db"
     _legacy_schema(database, "v0.5")
-    ini_path = Path(__file__).parents[1] / "mesa_storage" / "alembic.ini"
+    ini_path = (
+        Path(__file__).parents[1]
+        / "packages"
+        / "mesa-memory"
+        / "src"
+        / "mesa_storage"
+        / "alembic.ini"
+    )
     operator_ini = tmp_path / "operator-alembic.ini"
     operator_ini.write_text(
         ini_path.read_text(encoding="utf-8")
