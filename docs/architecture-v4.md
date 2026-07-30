@@ -1,9 +1,10 @@
-# MESA v0.7.1 full-cognitive architecture
+# MESA v0.8.0 full-cognitive architecture
 
-> **Version:** 0.7.1
+> **Version:** 0.8.0
 
 This document is the canonical architecture for the unreleased v4 API.
-`ARCHITECTURE.md` and v3 ADRs remain historical compatibility records.
+`ARCHITECTURE.md` is the current index. The v3 whitepaper is retained under
+`docs/history/architecture-v3.md`.
 
 ## Runtime boundary
 

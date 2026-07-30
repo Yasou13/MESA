@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.7.1-green.svg)
+![Version](https://img.shields.io/badge/Version-0.8.0-green.svg)
 
 **A durable, tenant- and dataset-isolated memory engine for autonomous AI agents.**
 The v3 compatibility runtime remains a model-disabled lexical core. The
@@ -25,9 +25,9 @@ For repeatable development and deployment, use the checked-in lock file:
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-uv sync --locked --extra dev
+uv sync --locked --all-packages --group dev
 # Optional local ML models and external-provider SDKs:
-uv sync --locked --extra dev --extra ml --extra adapters
+uv sync --locked --all-packages --all-extras --group dev
 ```
 
 ## 🐳 Quickstart (Docker) — 60 Seconds
@@ -91,9 +91,9 @@ mesa-v4-admin grant-agent --principal production-principal \
 The selected adapter and its credentials must be configured by the deployment
 platform; do not put credentials in the Compose file. v4 is not production
 ready until its validation, migration, backup/restore and soak gates pass.
-The canonical design is
-[`docs/architecture-v4.md`](docs/architecture-v4.md); root
-`ARCHITECTURE.md` is a preserved historical v3 record.
+The current architecture index is [`ARCHITECTURE.md`](ARCHITECTURE.md), with
+the detailed v4 design in
+[`docs/architecture-v4.md`](docs/architecture-v4.md).
 
 The v4 catalog and provenance hierarchy is
 `Tenant → Workspace → Dataset → Document → DocumentRevision → SourceChunk`.
@@ -258,7 +258,7 @@ session; it never opens the storage databases directly.
 entry also works in Antigravity and other stdio MCP hosts):
 
 ```bash
-uv sync --locked --extra mcp
+uv sync --locked --all-packages --group dev
 ```
 
 ```json
@@ -341,7 +341,7 @@ model-download and provider-rate-limit characteristics from v3.
 
 ## Features & Capabilities
 
-The v0.7.1/v4 release line and published v0.6.1/v3 line have
+The v0.8.0/v4 release line and published v0.6.1/v3 line have
 different contracts.
 Current v4 capabilities include:
 
@@ -462,7 +462,9 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 | Variable | Default | Description |
 |---|---|---|
 | `MESA_RUNTIME_PROFILE` | *(required)* | `api-only`, `worker-only`, `combined` veya yalnız testler için `test-isolated` |
-| `MESA_STORAGE_ROOT` | *(required)* | Uygulamanın sahip olduğu mutlak ve yazılabilir storage dizini |
+| `MESA_STORAGE_ROOT` | XDG data root | Uygulamanın sahip olduğu mutlak ve yazılabilir storage dizini; açık değer XDG varsayılanından önceliklidir |
+| `MESA_ENVIRONMENT` | `production` | `development`, `test` veya `production` |
+| `MESA_SHOWCASE_DEMO_ENABLED` | `false` | Showcase chat’i yalnız development/test ortamında etkinleştirir |
 | `MESA_LOAD_DOTENV` | `false` | `.env` yüklemeyi yalnız açıkça izin verilmiş profilde etkinleştirir |
 | `MESA_MODEL_ENABLED` | `false` | Model hattını etkinleştirir; v4 Compose açık değer ister |
 | `MESA_EXTERNAL_PROVIDER_ENABLED` | `false` | Haricî provider erişimini etkinleştirir; v4 Compose açık değer ister |
@@ -479,17 +481,16 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 
 ```bash
 # Full test suite
-pytest tests/ -q
+uv run pytest -q
 
 # With coverage
-pytest tests/ --cov=mesa_memory --cov=mesa_api --cov=mesa_storage --cov-report=term-missing --ignore=tests/bench
+uv run pytest --cov=mesa_memory --cov=mesa_api --cov=mesa_storage --cov-report=term-missing --ignore=tests/bench
 
 # Type checking
-mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases
+uv run mypy packages/mesa-memory/src packages/mesa-benchmark/src
 
 # Formatting
-black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
-ruff check .
+uv run ruff check .
 
 # MESA çekirdek değerlendirme/CI paketi (rakip benchmarkı değildir)
 python -m mesa_evals.evals        # Run 30-entry synthetic benchmark
@@ -500,7 +501,7 @@ python -m mesa_evals.gatekeeper   # CI/CD gate (exit 0 = PASS)
 paketidir. MESA, Mem0, Zep veya Letta arasında yayınlanabilir karşılaştırma
 sonucu üretmez. Bu amaçla ayrı paket ve CLI olan `mesa-benchmark` kullanılır;
 onun metodolojisi, external dataset kuralları ve sonuç geçerliliği
-`mesa-benchmark/README.md` içinde tanımlanır.
+`packages/mesa-benchmark/README.md` içinde tanımlanır.
 
 ---
 
@@ -533,7 +534,7 @@ The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per 
 
 ### Current status
 
-V0.7.1 is the current v4 full-cognitive release. V0.6.1 remains the
+V0.8.0 is the current staged architecture release. V0.6.1 remains the
 preserved v3 lexical-core compatibility release; its queue and
 compensating-write behavior must not be read as a v4 guarantee. V4 uses a
 mutation/pipeline ledger, ordered outbox, artifact ownership and reconciliation.
@@ -546,33 +547,19 @@ crash/concurrency, migration/restore and 24-hour soak evidence is complete.
 
 ```
 MESA/
-├── mesa_api/             # Versioned FastAPI v3 compatibility + v4 routers
-├── mesa_client/          # Versioned Python SDKs (v3 and v4, sync/async)
-├── mesa_evals/           # MESA çekirdek golden dataset + CI regresyon değerlendirmesi
-├── mesa-benchmark/       # Dış sistem karşılaştırmalı, yayınlanabilir benchmark CLI'ı
-├── mesa_memory/
-│   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
-│   ├── api/              # FastAPI server entrypoint + auth middleware
-│   ├── consolidation/    # Batch orchestration + graph writing
-│   ├── extraction/       # REBEL triplet extraction pipeline
-│   ├── observability/    # Prometheus metrics + structured logging
-│   ├── retrieval/        # Hybrid vector + graph retrieval
-│   ├── schema/           # Pydantic CMB schema
-│   ├── security/         # RBAC access control + input sanitisation
-│   └── valence/          # ECOD anomaly detection + novelty scoring
-├── mesa_mcp/             # Model Context Protocol server (Claude Desktop)
-├── mesa_storage/         # Triple Storage Engine
-│   ├── dao.py            # Orchestration & WAL queueing
-│   ├── kuzu_provider.py  # Graph Storage
-│   └── vector_engine.py  # Vector Storage
-├── mesa_workers/         # Cold-path ingestion worker, MaintenanceWorker, rem_cycle.py
-├── tests/                # pytest suite + benchmarks
-├── Dockerfile            # Production container
-├── docker-compose.yml    # V3 lexical-core API + worker deployment
-├── docker-compose.v4.yml # V4 single combined storage-owner deployment
-├── pyproject.toml        # Package metadata + dependency ranges
-├── uv.lock               # Reproducible resolved dependency graph
-└── SECURITY.md            # Security disclosure policy
+├── packages/
+│   ├── mesa-memory/      # Main runtime manifest + src-layout packages
+│   └── mesa-benchmark/   # Independent benchmark manifest, package and tests
+├── apps/
+│   ├── control-dashboard/
+│   └── benchmark-dashboard/
+├── tests/                # Workspace, packaging and acceptance contracts
+├── docs/
+├── deploy/
+├── tools/
+├── Dockerfile
+├── pyproject.toml        # uv workspace + shared development tools
+└── uv.lock
 ```
 
 ---

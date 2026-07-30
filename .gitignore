@@ -44,25 +44,16 @@ apps/benchmark-dashboard/vite.config.d.ts
 # Relational & Graph DBs
 *.db
 *.sqlite3
-raw_log.db
-storage/*.db
-storage/*.sqlite3
-storage/*.jsonl
 
 # RocksDB
 *.rocksdb
 rocksdict_archive/
-storage/*.rocks
 
 # Vector Storage (LanceDB)
 *.lance
-storage/*.lance
-storage/**/*.lance
 vector_index.lance
-storage/vector_index*/
 
 # RBAC Policy DB (auto-generated, not source-controlled)
-storage/rbac_policy.db
 
 # ------------------------------------------------------------------------------
 # 3. Environment Variables & Secrets
@@ -146,12 +137,6 @@ legal_golden.json
 soak_test_*.jsonl
 temp_*.py
 temp_*.md
-.coverage
-.coverage.*
-
-# KuzuDB Storage Files
-storage/kuzu_db*
-storage/*.kuzu
 
 # Test Databases
 test_db/
@@ -164,22 +149,15 @@ test_db
 test_db_2
 test_db_3
 test_kuzu_db
-storage/*/
-
-# ------------------------------------------------------------------------------
-# 11. Added via surgical cleanup
-# ------------------------------------------------------------------------------
-*.bak
-mutants/
-.env
-storage/
-*.db
-__pycache__/
-
-# Ephemeral benchmark execution artifacts
+# Repository-local runtime data is legacy-only; XDG directories are canonical.
+/storage/
 /results/
 /mesa-benchmark/
 packages/mesa-benchmark/results/
+
+# Ephemeral benchmark execution artifacts
+*.bak
+mutants/
 report_*.md
 reproducibility_report.json
 state.json
@@ -202,5 +180,3 @@ packages/mesa-benchmark/datasets/external_raw/
 .gemini_diff.txt
 mcp_test1.md
 mesa_control_panel.md
-
-# Agent and Codex project metadata are local-only.

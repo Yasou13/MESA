@@ -165,7 +165,7 @@ Her seed ayrı dizin, manifest ve state dosyası kullanır. Resume yalnızca eff
 - Harici raw/converted büyük dosyalar commit edilmez; `dataset-sync` ile pinned
   kaynaktan hazırlanır. BEAM v2 release verisi local data root’ta checksum ile
   korunur; wheel içine alınmaz.
-- LoCoMo indirme/dönüştürme: `python mesa-benchmark/scripts/download_locomo.py`. Lisansı CC‑BY‑NC‑4.0 olduğundan ticari kullanım ayrıca değerlendirilmelidir.
+- LoCoMo indirme/dönüştürme: `python packages/mesa-benchmark/scripts/download_locomo.py`. Lisansı CC‑BY‑NC‑4.0 olduğundan ticari kullanım ayrıca değerlendirilmelidir.
 
 Eski `mesa-benchmark/config_*.yaml` adları CLI tarafından geriye uyumlu alias
 olarak kabul edilir ve deprecation uyarısı üretir. Yeni entegrasyonlar canonical
@@ -176,8 +176,8 @@ olarak kabul edilir ve deprecation uyarısı üretir. Yeni entegrasyonlar canoni
 Build context repository kökü olmalıdır:
 
 ```bash
-docker build -f mesa-benchmark/Dockerfile -t mesa-benchmark .
-docker run --rm --env-file mesa-benchmark/.env \
+docker build -f packages/mesa-benchmark/Dockerfile -t mesa-benchmark .
+docker run --rm --env-file packages/mesa-benchmark/.env \
   mesa-benchmark --config resource://configs/legacy/mini_mesa.yaml
 ```
 
@@ -192,9 +192,9 @@ docker run --rm --network=none mesa-benchmark --help
 ## Test
 
 ```bash
-PYTHONPATH=mesa-benchmark python -m pytest mesa-benchmark/tests -q
-ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/tests
-mypy mesa-benchmark/mesa_benchmark
+uv run pytest packages/mesa-benchmark/tests -q
+uv run ruff check packages/mesa-benchmark/src packages/mesa-benchmark/tests
+uv run mypy packages/mesa-benchmark/src
 python -m pytest tests/test_v4_rrf_ablation.py -q
 ```
 
@@ -207,10 +207,9 @@ P95/P99 yalnız en az 20 latency gözlemi varsa raporlanır; küçük mini koşu
 Yerel sahte Ollama + gerçek geçici MESA storage entegrasyonu:
 
 ```bash
-PYTHONPATH=mesa-benchmark \
 MESA_RUN_SOCKET_TESTS=1 MESA_RUN_REAL_STORAGE_TESTS=1 \
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-python -m pytest mesa-benchmark/tests/test_hardening.py -q
+uv run pytest packages/mesa-benchmark/tests/test_hardening.py -q
 ```
 
-Ayrıntılar için [kullanım kılavuzu](USAGE_GUIDE.md), [metodoloji](../BENCHMARK_METHODOLOGY.md) ve [ADR‑0008](../docs/adr/0008-benchmark-architecture.md) belgelerine bakın.
+Ayrıntılar için [kullanım kılavuzu](USAGE_GUIDE.md), [metodoloji](../../BENCHMARK_METHODOLOGY.md) ve [ADR‑0008](../../docs/adr/0008-benchmark-architecture.md) belgelerine bakın.

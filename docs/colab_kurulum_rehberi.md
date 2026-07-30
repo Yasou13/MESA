@@ -9,8 +9,8 @@ deployment, migration veya soak kanıtı üretmez.
 ```python
 !git clone https://github.com/Yasou13/MESA.git
 %cd MESA
-!python -m pip install "uv==0.9.6"
-!uv sync --locked --extra dev --extra adapters
+!python -m pip install "uv==0.11.30"
+!uv sync --locked --all-packages --all-extras --group dev
 ```
 
 REBEL veya yerel transformer gerekiyorsa ayrıca `--extra ml` kullanın. Model

@@ -143,7 +143,7 @@ Her seed gerçek runner çağrısıdır. Özet mean/std/SE/%95 CI içerir. Basel
 ## LoCoMo
 
 ```bash
-python mesa-benchmark/scripts/download_locomo.py
+python packages/mesa-benchmark/scripts/download_locomo.py
 mesa-benchmark dataset-check --config resource://configs/research/locomo.yaml
 ```
 

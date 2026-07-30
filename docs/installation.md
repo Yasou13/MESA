@@ -13,8 +13,8 @@ kendiliğinden yüklemez. Gerçek secret’ları bir secret manager’da saklay�
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-python -m pip install "uv==0.9.6"
-uv sync --locked --extra dev
+python -m pip install "uv==0.11.30"
+uv sync --locked --all-packages --group dev
 uv pip check
 ```
 
@@ -31,9 +31,9 @@ export MESA_LOG_LEVEL=INFO
 export MESA_LOG_FORMAT=json
 ```
 
-Storage root uygulamaya ait, yazılabilir ve açıkça seçilmiş bir dizin olmalıdır.
-Repository, home veya filesystem root kullanmayın. V3 ve v4 için ayrı fiziksel
-root kullanın.
+Storage root uygulamaya ait ve yazılabilir olmalıdır. `MESA_STORAGE_ROOT`
+verilmezse `${XDG_DATA_HOME:-~/.local/share}/mesa` kullanılır. Repository, home
+veya filesystem root kullanmayın. V3 ve v4 için ayrı fiziksel root kullanın.
 
 ## V4 combined runtime
 
@@ -46,7 +46,7 @@ export MESA_EXTERNAL_PROVIDER_ENABLED=true
 export MESA_PRINCIPAL_ID=service-api
 export MESA_PRINCIPAL_TYPE=SERVICE
 export MESA_PRINCIPAL_STATUS=active
-python -m mesa_memory.runtime_entrypoint
+python -m mesa_runtime.cli
 ```
 
 Provider’a özel adapter/model/credential değişkenleri deployment tarafından
@@ -131,8 +131,8 @@ docker compose up --build -d
 Process’leri elle başlatmak için:
 
 ```bash
-MESA_RUNTIME_PROFILE=api-only python -m mesa_memory.runtime_entrypoint
-MESA_RUNTIME_PROFILE=worker-only python -m mesa_memory.runtime_entrypoint
+MESA_RUNTIME_PROFILE=api-only python -m mesa_runtime.cli
+MESA_RUNTIME_PROFILE=worker-only python -m mesa_runtime.cli
 ```
 
 Bu topology v4 Graph V2, dataset ACL veya projection-ledger garantisi sunmaz.
@@ -142,7 +142,7 @@ Bu topology v4 Graph V2, dataset ACL veya projection-ledger garantisi sunmaz.
 Migration yalnız uygulama durmuşken ve release runbook onayıyla çalıştırılır:
 
 ```bash
-alembic -c mesa_storage/alembic.ini upgrade head
+alembic -c packages/mesa-memory/src/mesa_storage/alembic.ini upgrade head
 ```
 
 Offline backup/restore:
@@ -164,14 +164,24 @@ backup sonrası ayrı v4 root'ta offline rebuild ve parity kontrolü yapılır.
 Migration'lar forward-only'dir; başarısız release için `alembic downgrade`
 yerine doğrulanmış backup'ı yeni boş bir root'a restore edin.
 
+Repository-local `storage/`, `results/` veya eski benchmark verisini önce
+yazmadan incelemek ve ardından kopyalamak için:
+
+```bash
+mesa-local-state --repository .
+mesa-local-state --repository . --apply
+```
+
+Komut kaynakları silmez, mevcut hedefleri ezmez ve symlink içeren kaynakları
+reddeder.
+
 ## Yerel doğrulama
 
 ```bash
 uv run ruff check .
-uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
-  --ignore-missing-imports --explicit-package-bases --follow-imports=skip
+uv run mypy packages/mesa-memory/src packages/mesa-benchmark/src
 uv run pytest -q
-uv run pytest -q mesa-benchmark/tests
+uv run pytest -q packages/mesa-benchmark/tests
 ```
 
 V4 dar sözleşme paketi `tests/test_v4_*.py`, Graph V2 testleri ve

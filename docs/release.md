@@ -1,6 +1,6 @@
 # Release procedure
 
-V4 paket sürümü `0.7.1`dir. Sürüm numarası veya tag’in atanması tek başına
+V4 paket sürümü `0.8.0`dır. Sürüm numarası veya tag’in atanması tek başına
 production GO anlamına gelmez. Mevcut `v0.6.1` tag/release tarihsel v3
 kaydıdır.
 
@@ -30,15 +30,14 @@ Temiz checkout ve release commit’inde:
 
 ```bash
 uv lock --check
-uv sync --locked --extra dev --extra mcp
+uv sync --locked --all-packages --all-extras --group dev
 uv pip check
 uv run ruff check .
-uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
-  --ignore-missing-imports --explicit-package-bases --follow-imports=skip
-uv run mypy mesa-benchmark/mesa_benchmark
+uv run mypy packages/mesa-memory/src packages/mesa-benchmark/src
 uv run pytest -q
-uv run pytest -q mesa-benchmark/tests
-uv build --wheel
+uv run pytest -q packages/mesa-benchmark/tests
+make package
+uv build --wheel --all-packages
 ```
 
 Compose sözleşmeleri:
@@ -72,7 +71,7 @@ olarak saklanır.
 
 Kapılar geçtikten sonra:
 
-1. SemVer kararı `pyproject.toml` ve `CHANGELOG.md` içine uygulanır.
+1. SemVer kararı iki paket manifestine ve `CHANGELOG.md` içine uygulanır.
 2. Release commit’i CI’dan geçirilir.
 3. Temiz checkout’ta wheel/SBOM üretilir ve doğrulanır.
 4. Yetkili operator signed annotated tag oluşturur.
