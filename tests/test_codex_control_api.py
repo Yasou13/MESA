@@ -5,7 +5,6 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
-
 from mesa_api.routers.control.router import create_control_router
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_memory.security.rbac import AccessControl

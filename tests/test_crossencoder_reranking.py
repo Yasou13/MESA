@@ -13,7 +13,6 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.retrieval.reranker import CrossEncoderReranker
 from mesa_storage.dao import MemoryDAO
@@ -22,6 +21,7 @@ from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+
 from tests.conftest import deterministic_embedding
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), ".test_storage_tmp", "crossencoder")

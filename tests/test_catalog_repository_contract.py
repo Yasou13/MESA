@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from mesa_storage.catalog_store import CatalogStore, CatalogStorePort
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema

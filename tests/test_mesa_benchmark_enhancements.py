@@ -15,7 +15,6 @@ sys.path.append(
 )
 
 from mesa_benchmark.clients.mesa_client import BenchmarkAccessControl, MesaClientAdapter
-
 from mesa_workers.ingestion_worker import (
     _get_extraction_prompt,
     _hash_embedding_sync,

@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine

@@ -19,7 +19,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from mesa_workers.rem_cycle import (
     REMCycleMetrics,
     REMCycleWorker,

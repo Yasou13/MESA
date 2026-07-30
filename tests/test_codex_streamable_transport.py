@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import httpx
 import pytest
-
 from mesa_mcp.gateway.auth import GatewayPrincipal
 from mesa_mcp.gateway.codex_transport import CodexStreamableTransport
 

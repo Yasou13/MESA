@@ -6,6 +6,7 @@ import importlib
 
 from mesa_memory.config import RuntimeProfile, RuntimeProfileConfig
 from mesa_runtime.app import create_app
+
 from scripts.check_layer_imports import (
     find_package_cycles,
     find_reverse_dependencies,

@@ -13,7 +13,6 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
     _salvage_truncated_json,
@@ -21,6 +20,7 @@ from mesa_memory.consolidation.loop import (
 )
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
 from mesa_memory.observability.metrics import ObservabilityLayer
+
 from tests.fixtures.vectors import VEC_MATCH
 
 # ---------------------------------------------------------------------------

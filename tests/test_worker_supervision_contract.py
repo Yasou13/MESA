@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from mesa_workers.supervision import WorkerState, WorkerSupervisor
 
 
@@ -50,7 +49,6 @@ async def test_health_init_is_not_ready_when_required_worker_is_blocked(monkeypa
     from types import SimpleNamespace
 
     from fastapi import HTTPException
-
     from mesa_memory.api import server
 
     async def storage_health():
@@ -120,7 +118,6 @@ async def test_api_only_readiness_requires_configured_external_worker(
     from types import SimpleNamespace
 
     from fastapi import HTTPException
-
     from mesa_memory.api import server
 
     async def storage_health():

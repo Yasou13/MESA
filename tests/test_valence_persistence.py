@@ -2,7 +2,6 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
-
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_memory.valence.core import ValenceMotor
 

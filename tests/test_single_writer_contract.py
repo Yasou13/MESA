@@ -3,7 +3,6 @@ from __future__ import annotations
 import fcntl
 
 import pytest
-
 from mesa_memory.config import RuntimeProfileError
 from mesa_memory.worker_runtime import _acquire_writer_lock
 

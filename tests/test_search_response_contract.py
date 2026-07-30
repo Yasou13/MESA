@@ -5,7 +5,6 @@ from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_api.router import create_memory_router
 from mesa_api.schemas import MemorySearchRequest
 from mesa_storage.dao import MemoryDAO

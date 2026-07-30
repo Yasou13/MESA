@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-
 from mesa_client.client import (
     MesaNetworkError,
     _async_retry,

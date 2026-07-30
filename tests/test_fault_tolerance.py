@@ -3,7 +3,6 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.consolidation.loop import llm_circuit_breaker
 from mesa_storage.dao import MemoryDAO

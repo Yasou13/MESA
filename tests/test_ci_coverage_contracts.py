@@ -12,8 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import httpx
 import pytest
-from pydantic import BaseModel
-
 from mesa_api.schemas import (
     MemoryInsertRequest,
     MemoryPurgeRequest,
@@ -25,6 +23,7 @@ from mesa_client.client import (
     MesaClient,
     MesaValidationError,
 )
+from pydantic import BaseModel
 
 
 class _ResultSchema(BaseModel):

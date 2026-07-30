@@ -6,14 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
-
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
 from mesa_storage.dao import (
     QueueOverCapacityError,
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
+from pydantic import ValidationError
 
 
 def _app(dao, access_control, *, principal_id: str = "principal-a") -> TestClient:  # type: ignore[no-untyped-def]

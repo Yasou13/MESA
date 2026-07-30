@@ -16,7 +16,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from mesa_memory.consolidation.validator import (
     VALENCE_PROMPT_A_TEMPLATE,
     VALENCE_PROMPT_B_TEMPLATE,

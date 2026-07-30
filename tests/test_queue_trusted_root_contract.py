@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from mesa_memory.consolidation.loop import PersistentQueue
 
 

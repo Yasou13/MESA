@@ -4,7 +4,6 @@ import uuid
 
 import pytest
 import pytest_asyncio
-
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_storage.sqlite_engine import AsyncEngine
 

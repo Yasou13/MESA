@@ -1,9 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import BaseModel
-
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
+from pydantic import BaseModel
 
 pytestmark = pytest.mark.optional_provider
 

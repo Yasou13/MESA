@@ -4,7 +4,6 @@ import uuid
 
 import pytest
 import pytest_asyncio
-
 from mesa_mcp.gateway.middleware import audit_payload_metadata
 from mesa_storage.control.activity_repo import ActivityRecorder
 from mesa_storage.control.approval_repo import ApprovalRepository

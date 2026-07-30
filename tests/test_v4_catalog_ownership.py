@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO

@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from fastapi import Depends, FastAPI
-
 from mesa_api.router import create_memory_router
 from mesa_api.schemas import MemoryPurgeRequest
 from mesa_client.client import AsyncMesaClient

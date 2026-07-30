@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
-
 from mesa_memory.config import QueueAdmissionPolicy
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema

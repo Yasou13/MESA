@@ -18,7 +18,6 @@ import shutil
 import uuid
 
 import pytest
-
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema

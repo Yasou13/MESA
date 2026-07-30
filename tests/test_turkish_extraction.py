@@ -17,12 +17,11 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tenacity import RetryError
-
 from mesa_workers.ingestion_worker import (
     _get_extraction_prompt,
     _parse_llm_triplet_response,
 )
+from tenacity import RetryError
 
 # ===================================================================
 # Turkish legal text corpus — test fixtures

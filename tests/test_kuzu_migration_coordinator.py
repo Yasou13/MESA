@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from mesa_storage.kuzu_migration import (
     KuzuMigrationCoordinator,
     MigrationLockedError,

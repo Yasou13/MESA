@@ -6,7 +6,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from mesa_mcp.antigravity_bridge import (
     EncryptedWriteSpool,
     GatewayClient,

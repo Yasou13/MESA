@@ -3,10 +3,9 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import BaseModel
-
 from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.ollama import OllamaAdapter
+from pydantic import BaseModel
 
 pytestmark = pytest.mark.optional_provider
 

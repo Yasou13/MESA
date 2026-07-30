@@ -6,7 +6,6 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-
 from mesa_mcp.errors import MCPError
 from mesa_mcp.gateway.operations import CircuitBreaker, GatewayOperationService
 

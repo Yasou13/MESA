@@ -8,8 +8,6 @@ model immutability, and cross-field consistency.
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from mesa_api.schemas import (
     ErrorResponse,
     HealthResponse,
@@ -21,6 +19,7 @@ from mesa_api.schemas import (
     MemorySearchResponse,
     SearchResultItem,
 )
+from pydantic import ValidationError
 
 # ===================================================================
 # MemoryInsertRequest

@@ -5,7 +5,6 @@ import pytest
 pytest.importorskip("mcp")
 
 import mcp.types as types
-
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.errors import MCPError

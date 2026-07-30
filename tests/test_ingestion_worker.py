@@ -8,7 +8,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_workers.ingestion_worker import (
     _commit_raw_memory,
     _commit_triplets,

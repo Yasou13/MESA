@@ -85,9 +85,8 @@ def test_server_lifespan_health_metrics(tmp_path):
 
 
 def test_get_dao_embedder():
-    from fastapi import HTTPException
-
     import mesa_memory.api.server as srv
+    from fastapi import HTTPException
 
     old_dao = getattr(srv.state, "dao", None)
     if hasattr(srv.state, "dao"):

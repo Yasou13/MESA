@@ -18,7 +18,6 @@ import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_storage.dao import MemoryDAO
 
 # ===================================================================

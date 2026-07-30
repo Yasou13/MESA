@@ -16,8 +16,8 @@ import shutil
 
 import pytest
 import pytest_asyncio
-
 from mesa_memory.security.rbac import AccessControl
+
 from tests.conftest import make_test_storage_dir
 
 RBAC_TEST_DIR = make_test_storage_dir("rbac_test")

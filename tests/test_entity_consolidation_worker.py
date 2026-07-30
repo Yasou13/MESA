@@ -2,7 +2,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_workers.entity_consolidation_worker import (
     run_consolidation_scan,
     schedule_consolidation_worker,

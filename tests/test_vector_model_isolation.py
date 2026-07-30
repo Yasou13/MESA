@@ -4,7 +4,6 @@ import sys
 from types import ModuleType
 
 import pytest
-
 from mesa_storage.vector_engine import VectorEngine
 
 

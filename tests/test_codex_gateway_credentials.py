@@ -6,7 +6,6 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from cryptography.fernet import Fernet
-
 from mesa_mcp.gateway.auth import GatewayPrincipal
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_mcp.gateway.operations import GatewayOperationService

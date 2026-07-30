@@ -1,7 +1,6 @@
 from unittest.mock import patch
 
 import pytest
-
 from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.factory import AdapterFactory, DeterministicMockAdapter
 from mesa_memory.adapter.live import OpenAICompatibleAdapter

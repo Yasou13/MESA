@@ -3,7 +3,6 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_memory.consolidation.loop import (
     CircuitBreaker,
     ConsolidationLoop,

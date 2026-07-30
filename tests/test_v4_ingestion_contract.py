@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from mesa_memory.api.server import _consume_combined_durable_work_once
 from mesa_memory.config import QueueAdmissionPolicy, config
 from mesa_memory.consolidation.schemas import MemoryCandidate

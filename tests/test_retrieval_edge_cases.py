@@ -15,11 +15,11 @@ import shutil
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from mesa_memory.observability.metrics import PROM_RETRIEVAL_DEGRADED
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
+
 from tests.conftest import deterministic_embedding, make_test_storage_dir
 
 COLD_START_DIR = make_test_storage_dir("cold_start")

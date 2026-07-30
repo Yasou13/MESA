@@ -1,7 +1,6 @@
 """Graph V2 assertion invalidation uses isolated staging storage."""
 
 import pytest
-
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
 

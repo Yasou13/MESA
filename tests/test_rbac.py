@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from mesa_api.router import create_memory_router
 from mesa_mcp.configuration import MCPSettings
 from mesa_memory.security.rbac import AccessControl, sanitize_cmb_content

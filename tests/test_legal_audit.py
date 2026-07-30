@@ -7,7 +7,6 @@ fatal threshold without requiring a live network reference dataset.
 from __future__ import annotations
 
 import pytest
-
 from mesa_evals import legal_audit
 
 

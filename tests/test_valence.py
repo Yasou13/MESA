@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-
 from mesa_memory.valence.novelty import _normalize_ecod_score, calculate_novelty_score
+
 from tests.fixtures.vectors import make_diverse_vectors
 
 

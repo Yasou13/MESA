@@ -4,7 +4,6 @@ from typing import Any
 
 import pytest
 from cryptography.fernet import Fernet
-
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_mcp.gateway.operations import GatewayOperationService
 from mesa_storage.schemas import initialize_schema

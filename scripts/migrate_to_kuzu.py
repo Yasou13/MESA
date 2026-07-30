@@ -37,7 +37,6 @@ import time
 from pathlib import Path
 
 import kuzu
-
 from mesa_storage.kuzu_migration import KuzuMigrationCoordinator
 
 # ---------------------------------------------------------------------------

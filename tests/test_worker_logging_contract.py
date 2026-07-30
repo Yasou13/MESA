@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import mesa_workers.ingestion_worker as worker
 import pytest
 import structlog
-
-import mesa_workers.ingestion_worker as worker
 
 
 @pytest.mark.asyncio

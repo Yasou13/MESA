@@ -1,8 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import mesa_memory.extraction.rebel_pipeline as rp
+import pytest
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor, _model_holder
 
 

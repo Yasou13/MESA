@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from mesa_mcp.errors import MCPError
 from mesa_mcp.gateway.codex_transport import _tools as codex_tools
 from mesa_mcp.gateway.operations import _remember_provenance

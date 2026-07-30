@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from mesa_storage.sqlite_engine import AsyncEngine
 
 

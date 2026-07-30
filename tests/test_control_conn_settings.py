@@ -4,7 +4,6 @@ import uuid
 
 import pytest
 import pytest_asyncio
-
 from mesa_storage.control.client_repo import ClientRepository
 from mesa_storage.control.connection_repo import ConnectionRepository
 from mesa_storage.control.settings_repo import SettingsRepository

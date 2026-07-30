@@ -7,7 +7,6 @@ import asyncio
 from dataclasses import dataclass
 
 import pytest
-
 from mesa_memory.config import MesaConfig, QueueAdmissionPolicy
 from mesa_storage.dao import (
     MemoryDAO,
@@ -181,7 +180,6 @@ async def test_router_maps_admission_rejections_to_stable_http_contracts():
     from unittest.mock import AsyncMock
 
     from fastapi import BackgroundTasks
-
     from mesa_api.router import create_memory_router
     from mesa_api.schemas import MemoryInsertRequest
 
@@ -344,7 +342,6 @@ async def test_unauthorized_router_call_does_not_reach_admission():
     from unittest.mock import AsyncMock
 
     from fastapi import BackgroundTasks
-
     from mesa_api.router import create_memory_router
     from mesa_api.schemas import MemoryInsertRequest
 

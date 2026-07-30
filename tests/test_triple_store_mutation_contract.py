@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 
 import pytest
-
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.vector_engine import VectorEngine, VectorMetrics
 

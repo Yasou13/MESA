@@ -4,8 +4,6 @@ import time
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
-
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.observability.metrics import ObservabilityLayer
@@ -13,6 +11,7 @@ from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from pydantic import BaseModel
 
 
 # Mock LLM Adapter

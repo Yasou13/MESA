@@ -6,7 +6,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from mesa_storage.recovery import (
     RecoveryError,
     create_backup,

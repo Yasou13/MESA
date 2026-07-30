@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pytest
-
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -308,7 +307,6 @@ async def test_router_rejects_cross_tenant_purge_without_principal_purge_grant()
     from unittest.mock import AsyncMock
 
     from fastapi import HTTPException
-
     from mesa_api.router import create_memory_router
     from mesa_api.schemas import MemoryPurgeRequest
 
@@ -350,7 +348,6 @@ async def test_router_returns_retry_status_instead_of_partial_purge_success():
     from unittest.mock import AsyncMock
 
     from fastapi import HTTPException
-
     from mesa_api.router import create_memory_router
     from mesa_api.schemas import MemoryPurgeRequest
     from mesa_storage.dao import PurgeRetryPendingError

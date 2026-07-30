@@ -10,7 +10,6 @@ import pytest
 import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
-
 from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.logger import setup_logging
 from mesa_memory.observability.metrics import PROM_HTTP_REQUESTS

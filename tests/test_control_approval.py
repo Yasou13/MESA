@@ -8,7 +8,6 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from mesa_api.routers.control.router import create_control_router
 from mesa_storage.control.approval_repo import ApprovalRepository
 from mesa_storage.sqlite_engine import AsyncEngine

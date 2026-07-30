@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from mesa_memory.config import RuntimeProfile, RuntimeProfileError, load_runtime_profile
 
 

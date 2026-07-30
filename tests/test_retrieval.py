@@ -1,8 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from mesa_memory.retrieval.hybrid import HybridRetriever
+
 from tests.conftest import deterministic_embedding
 
 

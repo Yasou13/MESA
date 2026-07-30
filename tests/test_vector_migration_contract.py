@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from mesa_storage.vector_engine import (
     EmbeddingMigrationRequiredError,
     VectorEngine,

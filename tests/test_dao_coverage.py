@@ -14,7 +14,6 @@ import shutil
 import uuid
 
 import pytest
-
 from mesa_storage.dao import MemoryDAO, _assert_valid_agent_id
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine

@@ -16,7 +16,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from mesa_workers.maintenance_pagerank import (
     _compute_damped_pagerank,
     _extract_subgraph,

@@ -3,7 +3,6 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from mesa_client.client import AsyncMesaV4Client, MesaV4Client
 
 

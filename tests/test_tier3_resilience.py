@@ -9,7 +9,6 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 
 

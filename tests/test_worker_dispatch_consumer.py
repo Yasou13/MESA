@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from mesa_memory.worker_runtime import _WORKER_ID, _consume_dispatches_once
 
 

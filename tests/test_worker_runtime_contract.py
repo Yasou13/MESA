@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from mesa_memory import worker_runtime
 from mesa_memory.config import RuntimeProfile, RuntimeProfileConfig
 from mesa_memory.container_health import worker_is_ready

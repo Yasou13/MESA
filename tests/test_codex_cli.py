@@ -5,7 +5,6 @@ import stat
 from pathlib import Path
 
 import pytest
-
 from mesa_mcp import codex_cli
 
 

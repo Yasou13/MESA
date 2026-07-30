@@ -2,7 +2,6 @@
 
 import aiosqlite
 import pytest
-
 from mesa_memory.security.api_keys import APIKeyStore
 
 

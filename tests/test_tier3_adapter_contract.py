@@ -1,7 +1,6 @@
 """Tier-3 must fail closed unless its validators are independently configured."""
 
 import pytest
-
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config
 

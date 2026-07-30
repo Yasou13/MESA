@@ -9,7 +9,6 @@ import warnings
 from pathlib import Path
 
 import uvicorn
-
 from mesa_runtime.dashboard import dashboard_static_file
 
 

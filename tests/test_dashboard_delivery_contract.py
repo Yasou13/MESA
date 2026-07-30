@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-
 from mesa_memory.config import (
     RuntimeEnvironment,
     RuntimeProfile,

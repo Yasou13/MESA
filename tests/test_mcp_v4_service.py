@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from mesa_client.client import MesaAPIError
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.v4_service import MesaHttpV4Service
