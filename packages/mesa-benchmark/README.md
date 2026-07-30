@@ -105,11 +105,22 @@ Her adaptörün çıktısı runner seviyesinde Top‑5’e kesilir. Purge, inges
 Proje kökünden:
 
 ```bash
-python -m pip install -e '.[adapters,ml,benchmarks]'
+uv sync --locked --package mesa-benchmark --extra semantic
+uv run --package mesa-benchmark mesa-benchmark --help
+```
+
+Wheel kurulumu için eşdeğer komut:
+
+```bash
+python -m pip install 'mesa-benchmark[semantic]'
 mesa-benchmark --help
 ```
 
-MESA semantic retrieval için önbellekte `sentence-transformers/all-MiniLM-L6-v2` bulunmalıdır. Model yüklenemezse hash/fallback embedding ile devam edilmez; setup hata verir.
+Workspace lock’u `semantic` extra’sını CPU-only Torch kaynağıyla çözer. Wheel
+kullanıcıları hedef platformlarına uygun Torch index’ini ayrıca seçmelidir.
+MESA semantic retrieval için önbellekte
+`sentence-transformers/all-MiniLM-L6-v2` bulunmalıdır. Model yüklenemezse
+hash/fallback embedding ile devam edilmez; setup hata verir.
 
 ## Ollama yapılandırması
 

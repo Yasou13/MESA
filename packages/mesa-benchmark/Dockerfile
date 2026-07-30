@@ -31,7 +31,7 @@ COPY pyproject.toml uv.lock /app/
 COPY packages/mesa-memory /app/packages/mesa-memory
 COPY packages/mesa-benchmark /app/packages/mesa-benchmark
 COPY --from=dashboard-builder /packages/mesa-benchmark/src/mesa_benchmark/dashboard/static /app/packages/mesa-benchmark/src/mesa_benchmark/dashboard/static
-RUN uv sync --frozen --package mesa-benchmark --no-dev
+RUN uv sync --frozen --package mesa-benchmark --extra semantic --no-dev
 RUN uv pip install --python /app/.venv/bin/python setuptools==83.0.0
 RUN HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 /app/.venv/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
