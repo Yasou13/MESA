@@ -61,8 +61,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import aiosqlite
 
+from mesa_storage.catalog_store import CatalogStore, CatalogStorePort
 from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -278,10 +278,10 @@ class MemoryDAO:
         self._sql = sqlite_engine
         self._vec = vector_engine
         self._graph = graph_provider
-        self._catalog = CatalogRepository(sqlite_engine)
+        self._catalog = CatalogStore(sqlite_engine)
 
     @property
-    def catalog(self) -> CatalogRepositoryPort:
+    def catalog(self) -> CatalogStorePort:
         """Expose catalog persistence without leaking the SQLite engine."""
         return self._catalog
 

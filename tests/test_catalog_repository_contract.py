@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from mesa_storage.catalog_store import CatalogStore, CatalogStorePort
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -19,8 +19,8 @@ async def test_catalog_repository_owns_scope_and_dao_preserves_compatibility(
     await initialize_schema(engine)
     dao = MemoryDAO(engine, SimpleNamespace())
     try:
-        repository: CatalogRepositoryPort = dao.catalog
-        assert isinstance(repository, CatalogRepository)
+        repository: CatalogStorePort = dao.catalog
+        assert isinstance(repository, CatalogStore)
 
         workspace = await repository.create_workspace(
             tenant_id="tenant-a",

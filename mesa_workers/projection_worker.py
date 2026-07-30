@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Any
 
-from mesa_storage.dao import MemoryDAO
+from mesa_memory.ports import ProjectionStore
 
 logger = logging.getLogger("MESA_ProjectionWorker")
 
@@ -59,7 +59,7 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
+async def _apply_projection(dao: ProjectionStore, projection: dict[str, Any]) -> None:
     mutation = await dao.get_projection_mutation(str(projection["mutation_id"]))
     if mutation is None:
         raise PermanentProjectionError("mutation no longer exists")
@@ -97,7 +97,7 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
 
 
 async def _apply_with_lease_heartbeat(
-    dao: MemoryDAO, projection: dict[str, Any], worker_id: str
+    dao: ProjectionStore, projection: dict[str, Any], worker_id: str
 ) -> None:
     """Keep ownership alive while a model/vector/graph call is in progress."""
     task = asyncio.create_task(_apply_projection(dao, projection))
@@ -123,7 +123,7 @@ async def _apply_with_lease_heartbeat(
 
 
 async def process_projection_outbox_once(
-    dao: MemoryDAO, *, worker_id: str = "combined-runtime", limit: int = 1
+    dao: ProjectionStore, *, worker_id: str = "combined-runtime", limit: int = 1
 ) -> dict[str, int]:
     """Claim and apply a bounded set of fenced V4 projection lanes."""
     claimed = await dao.claim_projection_outbox(worker_id=worker_id, limit=limit)
@@ -185,7 +185,7 @@ async def process_projection_outbox_once(
 
 
 async def process_artifact_cleanup_once(
-    dao: MemoryDAO, *, worker_id: str = "combined-runtime", limit: int = 1
+    dao: ProjectionStore, *, worker_id: str = "combined-runtime", limit: int = 1
 ) -> dict[str, int]:
     """Apply fenced rollback cleanup without touching shared artifacts."""
     claimed = await dao.claim_artifact_cleanup(worker_id=worker_id, limit=limit)

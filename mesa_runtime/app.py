@@ -52,6 +52,7 @@ from mesa_memory.observability.metrics import (
     update_v4_health_metrics,
 )
 from mesa_memory.observability.tracer import setup_telemetry_tracing
+from mesa_memory.ports import ProjectionStore
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_runtime.dashboard import install_dashboard
@@ -266,7 +267,7 @@ async def _consume_combined_durable_work_once(
         )
     projections = {"completed": 0}
     cleanup = {"completed": 0}
-    if type(dao) is MemoryDAO:
+    if isinstance(dao, ProjectionStore):
         projections = await process_projection_outbox_once(dao, worker_id=worker_id)
         cleanup = await process_artifact_cleanup_once(dao, worker_id=worker_id)
     return {
