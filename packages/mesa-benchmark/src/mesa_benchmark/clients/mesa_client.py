@@ -29,6 +29,8 @@ from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 from mesa_workers.projection_worker import process_projection_outbox_once
 
+from mesa_benchmark import __version__ as benchmark_version
+
 
 class _MesaEventLoopWorker:
     """One owned async job worker for synchronous benchmark calls.
@@ -443,7 +445,7 @@ class MesaClientAdapter(AbstractBenchmarkClient):
             latency_ms=latency,
             retrieval_latency_ms=latency,
             metadata={
-                "mesa_version": "0.7.1",
+                "mesa_version": benchmark_version,
                 "multi_hop_enabled": self.enable_multi_hop,
                 "rerank_enabled": self.enable_rerank,
                 "graph_backend": "KuzuDB",

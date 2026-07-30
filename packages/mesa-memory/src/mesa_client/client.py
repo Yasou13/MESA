@@ -9,6 +9,7 @@ Strictly relies on Pydantic V2 schemas from the core API to ensure type safety.
 import asyncio
 import logging
 import time
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Callable, Optional, TypeVar
 
 import httpx
@@ -28,6 +29,11 @@ from mesa_contracts.v3 import (
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+try:
+    _CLIENT_VERSION = version("mesa-memory")
+except PackageNotFoundError:
+    _CLIENT_VERSION = "0.0.0"
 
 
 class MesaClientError(Exception):
@@ -153,7 +159,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.7.1"}
+        headers = {"User-Agent": f"mesa-client/v{_CLIENT_VERSION}"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -257,7 +263,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.7.1"}
+        headers = {"User-Agent": f"mesa-client/v{_CLIENT_VERSION}"}
         if api_key:
             headers["X-API-Key"] = api_key
 
