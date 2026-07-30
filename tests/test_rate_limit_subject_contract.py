@@ -10,9 +10,8 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
-from starlette.requests import Request
-
 from mesa_memory.api.middleware import check_daily_limit, get_rate_limit_subject
+from starlette.requests import Request
 
 _PRE_SEC003_HEAD = "b2e3f4a5c6d7"
 
@@ -48,7 +47,16 @@ def _request(
 
 
 def _config(database: Path) -> Config:
-    config = Config(str(Path(__file__).parents[1] / "mesa_storage" / "alembic.ini"))
+    config = Config(
+        str(
+            Path(__file__).parents[1]
+            / "packages"
+            / "mesa-memory"
+            / "src"
+            / "mesa_storage"
+            / "alembic.ini"
+        )
+    )
     config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{database}")
     return config
 

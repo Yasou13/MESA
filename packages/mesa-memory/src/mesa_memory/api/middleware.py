@@ -74,7 +74,12 @@ async def check_daily_limit(request: Request) -> None:
     if not subject.persistent:
         return
 
-    dao = getattr(request.app.state, "dao", None)
+    container = getattr(request.app.state, "container", None)
+    dao = (
+        getattr(container, "dao", None)
+        if container is not None
+        else getattr(request.app.state, "dao", None)
+    )
     if dao and daily_limit > 0:
         allowed = await dao.increment_and_check_daily_limit(
             subject.value, limit=daily_limit

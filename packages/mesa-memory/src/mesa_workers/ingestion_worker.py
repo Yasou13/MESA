@@ -56,6 +56,7 @@ from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
+from mesa_memory.ports import IngestionQueue, MutationLedger
 from mesa_memory.valence.novelty import calculate_novelty_score
 from mesa_storage.dao import MemoryDAO
 
@@ -233,7 +234,7 @@ async def _process_cold_path_impl(
             # ==============================================================
             logger.info("COLD_PATH_DEBUG | Starting get_raw_log", log_id=log_id)
             _write_cold_path_trace(f"BEFORE GET_RAW_LOG {log_id}")
-            if type(dao) is MemoryDAO:
+            if isinstance(dao, IngestionQueue):
                 claim = await dao.claim_raw_log(agent_id, log_id, worker_id="cold-path")
                 raw_log = claim
             else:
@@ -366,7 +367,7 @@ async def _process_cold_path_impl(
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;
                 # lightweight legacy mocks intentionally remain supported.
-                if type(dao) is MemoryDAO:
+                if isinstance(dao, MutationLedger):
                     await dao.record_mutation(candidate_record, raw_log_id=log_id)
                 async with _tier3_semaphore:
                     outcome = await consolidation_loop.run_batch([candidate_record])
@@ -374,12 +375,12 @@ async def _process_cold_path_impl(
                 event_detail: dict[str, Any] | None = None
                 if isinstance(tier3_audit, dict):
                     event_detail = {"tier3": tier3_audit}
-                    if type(dao) is MemoryDAO:
+                    if isinstance(dao, MutationLedger):
                         await dao.record_mutation_tier3_audit(
                             payload_agent_id, candidate.mutation_id, tier3_audit
                         )
                 if candidate.candidate_id in outcome.get("accepted", []):
-                    if type(dao) is MemoryDAO:
+                    if isinstance(dao, MutationLedger):
                         await dao.set_mutation_state(
                             payload_agent_id,
                             candidate.mutation_id,
@@ -394,7 +395,7 @@ async def _process_cold_path_impl(
                     )
                     return
                 if candidate.candidate_id in outcome.get("rejected", []):
-                    if type(dao) is MemoryDAO:
+                    if isinstance(dao, MutationLedger):
                         await dao.set_mutation_state(
                             payload_agent_id,
                             candidate.mutation_id,
@@ -408,7 +409,7 @@ async def _process_cold_path_impl(
                         target_agent_id=payload_agent_id,
                     )
                     return
-                if type(dao) is MemoryDAO:
+                if isinstance(dao, MutationLedger):
                     await dao.set_mutation_state(
                         payload_agent_id,
                         candidate.mutation_id,

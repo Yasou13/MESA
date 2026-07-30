@@ -22,6 +22,7 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.schemas import ExtractedTriplet
+from mesa_memory.ports import MutationLedger
 from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_GraphWriter")
@@ -322,7 +323,7 @@ class GraphWriter:
             node_type="ENTITY",
         )
 
-        if mutation_id and type(self.dao) is MemoryDAO:
+        if mutation_id and isinstance(self.dao, MutationLedger):
             # ``insert_memory`` owns the SQL + LanceDB saga and inserts the
             # Entity projection into Kùzu when configured.  Persist each
             # concrete artifact identity so status, reconciliation and later

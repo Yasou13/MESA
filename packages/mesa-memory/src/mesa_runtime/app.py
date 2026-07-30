@@ -59,6 +59,21 @@ from mesa_runtime.dashboard import install_dashboard
 from mesa_runtime.demo import create_demo_router
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.modules import (
+    IngestionQueue as IngestionQueueModule,
+)
+from mesa_storage.modules import (
+    LegacyMemoryStore as LegacyMemoryStoreModule,
+)
+from mesa_storage.modules import (
+    MutationLedger as MutationLedgerModule,
+)
+from mesa_storage.modules import (
+    ProjectionStore as ProjectionStoreModule,
+)
+from mesa_storage.modules import (
+    PurgeCoordinator as PurgeCoordinatorModule,
+)
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -118,16 +133,17 @@ class PrincipalContext:
     status: str = "active"
 
 
-async def _require_api_key() -> None:
+async def _require_api_key(container: "RuntimeContainer | None" = None) -> None:
     """Raise at startup if neither bootstrap nor provisioned key exists.
 
     Called inside ``lifespan`` so test imports don't crash at module level
     while the production server still refuses to start without a key.
     """
-    runtime = getattr(state, "runtime_profile", None)
+    active = state if container is None else container
+    runtime = getattr(active, "runtime_profile", None)
     if runtime is not None and runtime.allow_unauthenticated:
         return
-    key_store = getattr(state, "api_key_store", None)
+    key_store = getattr(active, "api_key_store", None)
     if not _MESA_API_KEY and (
         key_store is None or not await key_store.has_active_key()
     ):
@@ -138,14 +154,15 @@ async def _require_api_key() -> None:
 
 async def get_api_key(request: Request, api_key: str = Depends(_API_KEY_HEADER)) -> str:
     """Validate the API key and attach its configured server-side principal."""
-    runtime = getattr(state, "runtime_profile", None)
+    active = getattr(request.app.state, "container", state)
+    runtime = getattr(active, "runtime_profile", None)
     if runtime is not None and runtime.allow_unauthenticated:
         request.state.principal = PrincipalContext(
             principal_id="local-development",
             principal_type="USER",
         )
         return ""
-    key_store = getattr(state, "api_key_store", None)
+    key_store = getattr(active, "api_key_store", None)
     if key_store is not None:
         verified = await key_store.verify(api_key)
         if verified is None:
@@ -173,23 +190,35 @@ async def get_api_key(request: Request, api_key: str = Depends(_API_KEY_HEADER))
     return api_key
 
 
-class AppState:
-    sqlite_engine: AsyncEngine
-    vector_engine: VectorEngine
-    kuzu_db: kuzu.Database
-    graph_provider: KuzuGraphProvider
-    dao: MemoryDAO
-    obs_layer: ObservabilityLayer
-    consolidation_loop: ConsolidationLoop
-    access_control: AccessControl
-    api_key_store: APIKeyStore
-    background_tasks: set[asyncio.Task]
-    worker_supervisor: WorkerSupervisor
-    mcp_control: ControlPlaneMiddleware
-    is_ready: bool
+@dataclass
+class RuntimeContainer:
+    """Per-application ownership boundary for all concrete runtime components."""
+
+    runtime_profile: RuntimeProfileConfig | None = None
+    sqlite_engine: AsyncEngine | None = None
+    vector_engine: VectorEngine | None = None
+    kuzu_db: kuzu.Database | None = None
+    graph_provider: KuzuGraphProvider | None = None
+    dao: MemoryDAO | None = None
+    mutation_ledger: MutationLedgerModule | None = None
+    projection_store: ProjectionStoreModule | None = None
+    ingestion_queue: IngestionQueueModule | None = None
+    legacy_memory_store: LegacyMemoryStoreModule | None = None
+    purge_coordinator: PurgeCoordinatorModule | None = None
+    obs_layer: ObservabilityLayer | None = None
+    consolidation_loop: ConsolidationLoop | None = None
+    access_control: AccessControl | None = None
+    api_key_store: APIKeyStore | None = None
+    background_tasks: set[asyncio.Task] | None = None
+    worker_supervisor: WorkerSupervisor | None = None
+    mcp_control: ControlPlaneMiddleware | None = None
+    is_ready: bool = False
 
 
-state = AppState()
+# Compatibility-only state for callers importing the pre-0.8 module globals.
+# Applications produced by ``create_app`` own independent containers.
+AppState = RuntimeContainer
+state = RuntimeContainer()
 
 # ---------------------------------------------------------------------------
 # Storage path resolution — configurable via MESA_STORAGE_PATH env var
@@ -298,6 +327,10 @@ async def _run_combined_durable_consumer(
 async def lifespan(app: FastAPI):
     # ==================================================================
     # Configure Structured Logging  # type: ignore[no-untyped-def]
+    container: RuntimeContainer = app.state.container
+    # Keep the implementation below compact while ensuring every assignment is
+    # scoped to this application rather than the compatibility module global.
+    state = container
     runtime = getattr(app.state, "runtime_settings", None) or load_runtime_profile()
     load_explicit_dotenv(runtime)
     _refresh_auth_config()
@@ -359,12 +392,18 @@ async def lifespan(app: FastAPI):
     await state.graph_provider.initialize()
 
     # Wire the unified Data Access Object
-    state.dao = MemoryDAO(
+    dao = MemoryDAO(
         sqlite_engine=state.sqlite_engine,
         vector_engine=state.vector_engine,
         graph_provider=state.graph_provider,
     )
-    await state.dao.initialize()
+    state.dao = dao
+    await dao.initialize()
+    state.mutation_ledger = MutationLedgerModule(dao)
+    state.projection_store = ProjectionStoreModule(dao)
+    state.ingestion_queue = IngestionQueueModule(dao)
+    state.legacy_memory_store = LegacyMemoryStoreModule(dao)
+    state.purge_coordinator = PurgeCoordinatorModule(dao)
 
     # The dashboard control plane shares the API's single SQLite storage
     # owner.  It must not construct or close a second AsyncEngine lifecycle.
@@ -386,27 +425,29 @@ async def lifespan(app: FastAPI):
     # Keep existing deployments fail-closed: their bootstrap secret must be
     # configured on first start.  Thereafter issued rotation keys are checked
     # from the hashed registry by ``get_api_key``.
-    await _require_api_key()
+    await _require_api_key(container)
 
     # Model/provider and worker startup are explicit profile decisions.
     pagerank_task = None
     wal_task = None
     maintenance_worker = None
     rem_worker = None
-    state.consolidation_loop = None  # type: ignore[assignment]
+    consolidation_loop: ConsolidationLoop | None = None
+    state.consolidation_loop = consolidation_loop
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
         # Wire the Consolidation Loop directly to the DAO
         llm_a, llm_b = AdapterFactory.get_tier3_adapters()
-        state.consolidation_loop = ConsolidationLoop(
-            dao=state.dao,
+        consolidation_loop = ConsolidationLoop(
+            dao=dao,
             embedder=AdapterFactory.get_adapter(),
             llm_a=llm_a,
             llm_b=llm_b,
             obs_layer=state.obs_layer,
         )
+        state.consolidation_loop = consolidation_loop
         consolidation_loop_task = await state.worker_supervisor.start(
-            "consolidation-loop", state.consolidation_loop.start
+            "consolidation-loop", consolidation_loop.start
         )
         state.background_tasks.add(consolidation_loop_task)
         logger.info("CONSOLIDATION_LOOP_STARTED")
@@ -417,7 +458,7 @@ async def lifespan(app: FastAPI):
         _valence_db = str(_VALENCE_PATH)
         try:
             if Path(_valence_db).exists():
-                _router = getattr(state.consolidation_loop, "router", None)
+                _router = getattr(consolidation_loop, "router", None)
                 _valence = getattr(_router, "valence_motor", None)
                 if _valence is not None:
                     await _valence.load_state(_valence_db)
@@ -450,7 +491,7 @@ async def lifespan(app: FastAPI):
         try:
             logger.info("PAGERANK_WORKER_STARTING")
             pagerank_task = await state.worker_supervisor.start(
-                "pagerank", lambda: schedule_pagerank_worker(dao=state.dao)
+                "pagerank", lambda: schedule_pagerank_worker(dao=dao)
             )
             logger.info("PAGERANK_WORKER_STARTED")
             state.background_tasks.add(pagerank_task)
@@ -465,7 +506,7 @@ async def lifespan(app: FastAPI):
             consolidation_task = await state.worker_supervisor.start(
                 "entity-consolidation",
                 lambda: schedule_consolidation_worker(
-                    dao=state.dao, llm_adapter=consolidation_adapter
+                    dao=dao, llm_adapter=consolidation_adapter
                 ),
             )
             logger.info("ENTITY_CONSOLIDATION_WORKER_STARTED")
@@ -486,8 +527,8 @@ async def lifespan(app: FastAPI):
             tier3_task = await state.worker_supervisor.start(
                 "tier3-deferred",
                 lambda: start_tier3_deferred_worker(
-                    dao=state.dao,
-                    consolidation_loop=state.consolidation_loop,
+                    dao=dao,
+                    consolidation_loop=consolidation_loop,
                     sleep_interval=15,
                     batch_size=20,
                 ),
@@ -498,8 +539,8 @@ async def lifespan(app: FastAPI):
             dlq_task = await state.worker_supervisor.start(
                 "dlq",
                 lambda: start_dlq_worker(
-                    dao=state.dao,
-                    consolidation_loop=state.consolidation_loop,
+                    dao=dao,
+                    consolidation_loop=consolidation_loop,
                     sleep_interval=60,
                     batch_size=10,
                 ),
@@ -534,7 +575,7 @@ async def lifespan(app: FastAPI):
 
         rem_llm_a, rem_llm_b = AdapterFactory.get_tier3_adapters()
         rem_worker = REMCycleWorker(
-            dao=state.dao,
+            dao=dao,
             llm_a=rem_llm_a,
             llm_b=rem_llm_b,
         )
@@ -577,8 +618,8 @@ async def lifespan(app: FastAPI):
         combined_task = await state.worker_supervisor.start(
             "combined-durable-consumer",
             lambda: _run_combined_durable_consumer(
-                state.dao,
-                consolidation_loop=state.consolidation_loop,
+                dao,
+                consolidation_loop=consolidation_loop,
                 model_processing_enabled=runtime.model_enabled,
             ),
         )
@@ -587,6 +628,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("MESA_API_READY")
     state.is_ready = True
+    app.state.dao = state.dao
     yield
     logger.info("MESA_API_SHUTDOWN")
 
@@ -736,12 +778,18 @@ def get_runtime_settings() -> RuntimeProfileConfig | None:
 
 async def health_init():
     """Health probe for container orchestration readiness."""
-    if not getattr(state, "is_ready", False):
+    return await _health_init(state)
+
+
+async def _health_init(container: RuntimeContainer):
+    if not getattr(container, "is_ready", False):
         raise HTTPException(status_code=503, detail="System initializing")
-    health = await state.dao.health_check()
-    runtime = getattr(state, "runtime_profile", None)
+    assert container.dao is not None
+    assert container.worker_supervisor is not None
+    health = await container.dao.health_check()
+    runtime = getattr(container, "runtime_profile", None)
     workers_required = runtime is None or runtime.worker_enabled
-    worker_health = state.worker_supervisor.readiness()
+    worker_health = container.worker_supervisor.readiness()
     if workers_required and worker_health["status"] != "healthy":
         raise HTTPException(
             status_code=503, detail="Required workers degraded or blocked"
@@ -762,7 +810,13 @@ async def health_init():
 
 
 async def health_v3():  # type: ignore[no-untyped-def]
-    health = await state.dao.health_check()
+    return await _health_v3(state)
+
+
+async def _health_v3(container: RuntimeContainer):  # type: ignore[no-untyped-def]
+    if container.dao is None:
+        raise HTTPException(status_code=503, detail="Storage not initialized")
+    health = await container.dao.health_check()
     return {
         "status": "healthy"
         if all(
@@ -779,7 +833,13 @@ async def health():  # type: ignore[no-untyped-def]
 
 
 async def metrics():
-    update_v4_health_metrics(await state.dao.health_check())
+    return await _metrics(state)
+
+
+async def _metrics(container: RuntimeContainer):
+    if container.dao is None:
+        raise HTTPException(status_code=503, detail="Storage not initialized")
+    update_v4_health_metrics(await container.dao.health_check())
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -791,73 +851,112 @@ def create_app(settings: RuntimeProfileConfig | None = None) -> FastAPI:
     Concrete storage, worker, API, MCP, and dashboard implementations are
     composed only in this module.
     """
+    container = RuntimeContainer(runtime_profile=settings)
     application = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
+    application.state.container = container
     application.state.runtime_settings = settings
     application.state.limiter = limiter
     application.add_exception_handler(Exception, unhandled_exception_response)
-    application.add_exception_handler(  # type: ignore[arg-type]
-        RateLimitExceeded, rate_limit_exceeded_handler
+    application.add_exception_handler(
+        RateLimitExceeded, rate_limit_exceeded_handler  # type: ignore[arg-type]
     )
     application.add_middleware(SlowAPIMiddleware)
     application.middleware("http")(add_api_version_header)
     application.add_middleware(RequestLoggingMiddleware)
 
+    def container_dao() -> MemoryDAO:
+        if container.dao is None:
+            raise HTTPException(status_code=503, detail="Storage not initialized")
+        return container.dao
+
+    def container_embedder():
+        runtime = container.runtime_profile
+        if runtime is not None and not runtime.model_enabled:
+            return lambda _text: [0.0] * 8
+        return AdapterFactory.get_adapter().embed
+
+    def container_access_control() -> AccessControl:
+        if container.access_control is None:
+            raise HTTPException(
+                status_code=503, detail="AccessControl not initialized"
+            )
+        return container.access_control
+
+    def container_mcp_control() -> ControlPlaneMiddleware:
+        if container.mcp_control is None:
+            raise HTTPException(
+                status_code=503, detail="MCP control plane not initialized"
+            )
+        return container.mcp_control
+
+    async def container_health_init():
+        return await _health_init(container)
+
+    async def container_health_v3():
+        return await _health_v3(container)
+
+    async def container_metrics():
+        return await _metrics(container)
+
     router_dependencies = [Depends(get_api_key), Depends(check_daily_limit)]
     application.include_router(
         create_memory_router(
-            get_dao=get_dao,
-            get_embedder=get_embedder,
-            get_consolidation_loop=get_consolidation_loop,
-            get_access_control=get_access_control,
+            get_dao=container_dao,
+            get_embedder=container_embedder,
+            get_consolidation_loop=lambda: container.consolidation_loop,
+            get_access_control=container_access_control,
             prefix="/v3/memory",
         ),
         dependencies=router_dependencies,
     )
     application.include_router(
-        create_v4_router(get_dao=get_dao, get_access_control=get_access_control),
+        create_v4_router(
+            get_dao=container_dao,
+            get_access_control=container_access_control,
+        ),
         dependencies=router_dependencies,
     )
     application.include_router(
         create_control_router(
-            lambda: get_mcp_control().client_repo,
-            lambda: get_mcp_control().conn_repo,
-            lambda: get_mcp_control().settings_repo,
-            lambda: get_mcp_control().policy_repo,
-            lambda: get_mcp_control().activity_repo,
-            lambda: get_mcp_control().approval_repo,
-            lambda: get_mcp_control().credential_repo,
-            lambda: get_mcp_control().binding_profile_repo,
-            get_access_control,
+            lambda: container_mcp_control().client_repo,
+            lambda: container_mcp_control().conn_repo,
+            lambda: container_mcp_control().settings_repo,
+            lambda: container_mcp_control().policy_repo,
+            lambda: container_mcp_control().activity_repo,
+            lambda: container_mcp_control().approval_repo,
+            lambda: container_mcp_control().credential_repo,
+            lambda: container_mcp_control().binding_profile_repo,
+            container_access_control,
         ),
         dependencies=router_dependencies,
     )
     application.include_router(
         create_demo_router(
-            get_dao=get_dao,
-            get_settings=lambda: get_runtime_settings() or settings,
+            get_dao=container_dao,
+            get_settings=lambda: container.runtime_profile or settings,
             auth_dependency=get_api_key,
         )
     )
     install_dashboard(
         application,
-        settings_provider=lambda: get_runtime_settings() or settings,
+        settings_provider=lambda: container.runtime_profile or settings,
     )
-    application.add_api_route("/health/init", health_init, methods=["GET"])
+    application.add_api_route("/health/init", container_health_init, methods=["GET"])
     application.add_api_route(
         "/v3/health",
-        health_v3,
+        container_health_v3,
         methods=["GET"],
         dependencies=[Depends(get_api_key)],
     )
     application.add_api_route(
         "/health",
-        health,
+        container_health_v3,
         methods=["GET"],
         dependencies=[Depends(get_api_key)],
     )
     application.add_api_route(
         "/metrics",
-        metrics,
+        container_metrics,
         methods=["GET"],
         dependencies=[Depends(get_api_key)],
     )
