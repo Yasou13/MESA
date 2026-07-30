@@ -58,7 +58,11 @@ def validate(config_path: Path, baseline_path: Path) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path("pyproject.toml"))
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("pyproject.toml"),
+    )
     parser.add_argument(
         "--baseline",
         type=Path,

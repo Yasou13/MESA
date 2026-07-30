@@ -200,7 +200,11 @@ def main() -> None:
         "--dataset-path",
         type=str,
         default=str(
-            REPO_ROOT / "mesa_benchmark" / "datasets" / "comprehensive_200_dataset.json"
+            REPO_ROOT
+            / "src"
+            / "mesa_benchmark"
+            / "datasets"
+            / "comprehensive_200_dataset.json"
         ),
         help="Path to the dataset JSON file.",
     )

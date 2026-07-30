@@ -36,7 +36,9 @@ async def sqlite_engine():
     import alembic.command
     import alembic.config
 
-    alembic_cfg = alembic.config.Config("mesa_storage/alembic.ini")
+    alembic_cfg = alembic.config.Config(
+        "packages/mesa-memory/src/mesa_storage/alembic.ini"
+    )
     alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite+pysqlite:///{db_path}")
     alembic.command.upgrade(alembic_cfg, "head")
 

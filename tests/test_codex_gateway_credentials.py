@@ -41,7 +41,7 @@ class FakeV4:
 @pytest.fixture
 def control_db(tmp_path):
     database = tmp_path / "control.sqlite"
-    config = Config("mesa_storage/alembic.ini")
+    config = Config("packages/mesa-memory/src/mesa_storage/alembic.ini")
     config.set_main_option("sqlalchemy.url", f"sqlite+pysqlite:///{database}")
     command.upgrade(config, "head")
     return database

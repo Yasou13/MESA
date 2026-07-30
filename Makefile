@@ -3,7 +3,7 @@
 UV ?= uv
 
 install:
-	$(UV) sync --locked --extra dev
+	$(UV) sync --locked --all-packages --all-extras --group dev
 
 dev:
 	MESA_RUNTIME_PROFILE=api-only $(UV) run python -m mesa_memory.runtime_entrypoint
@@ -19,16 +19,18 @@ test:
 
 check:
 	$(UV) run ruff check .
-	$(UV) run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases --follow-imports=skip
-	$(UV) run mypy mesa-benchmark/mesa_benchmark
+	$(UV) run mypy packages/mesa-memory/src --ignore-missing-imports --explicit-package-bases --follow-imports=skip
+	$(UV) run mypy packages/mesa-benchmark/src
 
 dashboard-build:
 	npm ci --ignore-scripts --prefix apps/control-dashboard
 	npm run build --prefix apps/control-dashboard
+	npm ci --ignore-scripts --prefix apps/benchmark-dashboard
+	npm run build --prefix apps/benchmark-dashboard
 	$(UV) run python tools/stage_frontends.py
 
 package: dashboard-build
-	$(UV) build
+	$(UV) build --all-packages
 
 bench:
 	$(UV) run mesa-benchmark dataset-sync --suite smoke

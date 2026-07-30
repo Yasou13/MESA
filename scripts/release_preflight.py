@@ -27,7 +27,9 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
 def _project_version() -> str | None:
     match = re.search(
         r'^version\s*=\s*"(?P<version>[^"]+)"\s*$',
-        (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+        (ROOT / "packages" / "mesa-memory" / "pyproject.toml").read_text(
+            encoding="utf-8"
+        ),
         re.MULTILINE,
     )
     return match.group("version") if match else None
@@ -41,7 +43,9 @@ def validate(tag: str) -> list[str]:
     errors: list[str] = []
     version = tag_match.group("version")
     if _project_version() != version:
-        errors.append("tag version does not match pyproject.toml")
+        errors.append(
+            "tag version does not match packages/mesa-memory/pyproject.toml"
+        )
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     if f"## [{version}]" not in changelog:

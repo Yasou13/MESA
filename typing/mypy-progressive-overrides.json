@@ -18,7 +18,8 @@
     "mesa_storage.dao",
     "mesa_storage.schemas",
     "mesa_storage.kuzu_provider",
-    "mesa_workers.*"
+    "mesa_workers.*",
+    "mesa_runtime.*"
   ],
   "relaxed_options": [
     "disallow_untyped_defs",

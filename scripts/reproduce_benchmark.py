@@ -3,12 +3,8 @@ import json
 import logging
 import math
 import os
-import sys
 from numbers import Real
-from pathlib import Path
 from typing import Any
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "mesa-benchmark"))
 
 from mesa_benchmark.core.runner import BenchmarkRunner
 from mesa_benchmark.reports.statistics import (

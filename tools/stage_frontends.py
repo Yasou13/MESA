@@ -7,7 +7,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 CONTROL_DIST = ROOT / "apps" / "control-dashboard" / "dist"
-CONTROL_STAGE = ROOT / "mesa_runtime" / "static" / "dashboard"
+CONTROL_STAGE = (
+    ROOT
+    / "packages"
+    / "mesa-memory"
+    / "src"
+    / "mesa_runtime"
+    / "static"
+    / "dashboard"
+)
+BENCHMARK_STAGE = (
+    ROOT
+    / "packages"
+    / "mesa-benchmark"
+    / "src"
+    / "mesa_benchmark"
+    / "dashboard"
+    / "static"
+)
 
 
 def stage_directory(source: Path, destination: Path) -> None:
@@ -21,6 +38,10 @@ def stage_directory(source: Path, destination: Path) -> None:
 
 def main() -> None:
     stage_directory(CONTROL_DIST, CONTROL_STAGE)
+    if not (BENCHMARK_STAGE / "index.html").is_file():
+        raise SystemExit(
+            f"benchmark frontend build is missing: {BENCHMARK_STAGE / 'index.html'}"
+        )
 
 
 if __name__ == "__main__":

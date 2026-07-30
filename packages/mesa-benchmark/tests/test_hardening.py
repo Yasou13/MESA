@@ -927,7 +927,7 @@ def test_comprehensive_multihop_metadata_has_resolvable_entity_nodes() -> None:
 
 
 def test_mesa_evals_and_comparison_benchmark_have_no_source_dependency() -> None:
-    benchmark_sources = Path("mesa-benchmark/mesa_benchmark")
+    benchmark_sources = Path("packages/mesa-benchmark/src/mesa_benchmark")
     for source in benchmark_sources.rglob("*.py"):
         assert "mesa_evals" not in source.read_text(encoding="utf-8")
 

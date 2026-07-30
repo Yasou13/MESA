@@ -89,7 +89,7 @@ def test_packaged_sources_index_is_valid_json() -> None:
 
 
 def test_dataset_python_package_contains_no_payload_json() -> None:
-    package = Path(__file__).parents[1] / "mesa_benchmark" / "datasets"
+    package = Path(__file__).parents[1] / "src" / "mesa_benchmark" / "datasets"
     assert list(package.glob("*.json")) == []
 
 

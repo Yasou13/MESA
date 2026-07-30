@@ -17,6 +17,23 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
+[manifest]
+members = [
+    "mesa-benchmark",
+    "mesa-memory",
+]
+
+[manifest.dependency-groups]
+dev = [
+    { name = "cyclonedx-bom", specifier = ">=5.1.0" },
+    { name = "mypy", specifier = ">=1.10.0" },
+    { name = "pytest", specifier = ">=7.4.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23.0" },
+    { name = "pytest-benchmark", specifier = ">=4.0.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "ruff", specifier = ">=0.4.0" },
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
@@ -3366,9 +3383,29 @@ wheels = [
 ]
 
 [[package]]
+name = "mesa-benchmark"
+version = "0.8.0"
+source = { editable = "packages/mesa-benchmark" }
+dependencies = [
+    { name = "datasets" },
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "mesa-memory" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "datasets", specifier = ">=2.14.0" },
+    { name = "matplotlib", specifier = ">=3.10.0" },
+    { name = "mesa-memory", editable = "packages/mesa-memory" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
+]
+
+[[package]]
 name = "mesa-memory"
-version = "0.7.1"
-source = { editable = "." }
+version = "0.8.0"
+source = { editable = "packages/mesa-memory" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },

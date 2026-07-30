@@ -8,8 +8,9 @@ from importlib.resources import files
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-BENCHMARK_ROOT = PACKAGE_ROOT.parent
-REPOSITORY_ROOT = BENCHMARK_ROOT.parent
+BENCHMARK_PROJECT_ROOT = PACKAGE_ROOT.parents[1]
+REPOSITORY_ROOT = BENCHMARK_PROJECT_ROOT.parents[1]
+LEGACY_BENCHMARK_ROOT = REPOSITORY_ROOT / "mesa-benchmark"
 
 
 CONFIG_ALIASES = {
@@ -80,27 +81,50 @@ def resource_root() -> Path:
 
 
 def is_source_checkout() -> bool:
-    return (BENCHMARK_ROOT / "datasets").is_dir() and (
-        BENCHMARK_ROOT / "scripts"
-    ).is_dir()
+    return (BENCHMARK_PROJECT_ROOT / "pyproject.toml").is_file()
+
+
+def _xdg_root(variable: str, fallback: Path) -> Path:
+    return Path(os.environ.get(variable, fallback)).expanduser()
 
 
 def data_root() -> Path:
     if configured := os.environ.get("MESA_BENCHMARK_DATA_DIR"):
         return Path(configured).expanduser().resolve()
-    if is_source_checkout():
-        return (BENCHMARK_ROOT / "datasets").resolve()
-    cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return (cache_home / "mesa-benchmark" / "datasets").resolve()
+    preferred = (
+        _xdg_root("XDG_DATA_HOME", Path.home() / ".local" / "share")
+        / "mesa"
+        / "benchmark"
+        / "datasets"
+    ).resolve()
+    legacy = LEGACY_BENCHMARK_ROOT / "datasets"
+    if not preferred.exists() and legacy.is_dir():
+        warnings.warn(
+            f"Using legacy benchmark data at {legacy}; migrate before MESA 0.10",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return legacy.resolve()
+    return preferred
 
 
 def cache_root() -> Path:
     if configured := os.environ.get("MESA_BENCHMARK_CACHE_DIR"):
         return Path(configured).expanduser().resolve()
-    if is_source_checkout():
-        return (BENCHMARK_ROOT / ".cache").resolve()
-    cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return (cache_home / "mesa-benchmark" / "downloads").resolve()
+    preferred = (
+        _xdg_root("XDG_CACHE_HOME", Path.home() / ".cache")
+        / "mesa"
+        / "benchmark"
+    ).resolve()
+    legacy = LEGACY_BENCHMARK_ROOT / ".cache"
+    if not preferred.exists() and legacy.is_dir():
+        warnings.warn(
+            f"Using legacy benchmark cache at {legacy}; migrate before MESA 0.10",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return legacy.resolve()
+    return preferred
 
 
 def resolve_results_root(value: str | Path | None) -> Path:
@@ -108,9 +132,12 @@ def resolve_results_root(value: str | Path | None) -> Path:
         return Path(value).expanduser().resolve()
     if configured := os.environ.get("MESA_BENCHMARK_RESULTS_DIR"):
         return Path(configured).expanduser().resolve()
-    if is_source_checkout():
-        return (REPOSITORY_ROOT / "results").resolve()
-    return (Path.cwd() / "results").resolve()
+    return (
+        _xdg_root("XDG_STATE_HOME", Path.home() / ".local" / "state")
+        / "mesa"
+        / "benchmark"
+        / "results"
+    ).resolve()
 
 
 def _normalise(value: str | Path) -> str:

@@ -23,7 +23,7 @@ from pydantic import ValidationError
 
 
 def _load_script(name: str) -> ModuleType:
-    path = Path("mesa-benchmark/scripts") / name
+    path = Path("packages/mesa-benchmark/scripts") / name
     spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

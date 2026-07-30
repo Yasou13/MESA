@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mesa-benchmark"
+version = "0.8.0"
+description = "Reproducible benchmark and comparison suite for MESA"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dependencies = [
+    "mesa-memory==0.8.0",
+    "datasets>=2.14.0",
+    "matplotlib>=3.10.0",
+    "PyYAML>=6.0.0",
+]
+
+[project.scripts]
+mesa-benchmark = "mesa_benchmark.cli:main"
+
+[tool.uv.sources]
+mesa-memory = {workspace = true}
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mesa_benchmark*"]
+
+[tool.setuptools.package-data]
+"mesa_benchmark" = [
+    "resources/**/*.json",
+    "resources/**/*.tiktoken",
+    "resources/**/*.yaml",
+    "dashboard/static/**/*",
+]

@@ -34,12 +34,18 @@ def _imports(path: Path) -> set[str]:
     return imports
 
 
+def _source_root(root: Path) -> Path:
+    workspace_source = root / "packages" / "mesa-memory" / "src"
+    return workspace_source if workspace_source.is_dir() else root
+
+
 def find_reverse_dependencies(root: Path = ROOT) -> list[str]:
     """Return production imports from a lower layer into a higher one."""
     violations: list[str] = []
+    source_root = _source_root(root)
     for package, layer in LAYER.items():
-        for path in (root / package).rglob("*.py"):
-            relative = path.relative_to(root).as_posix()
+        for path in (source_root / package).rglob("*.py"):
+            relative = path.relative_to(source_root).as_posix()
             if relative in COMPOSITION_ROOTS:
                 continue
             for imported in _imports(path):
@@ -56,13 +62,14 @@ def find_package_cycles(root: Path = ROOT) -> list[str]:
     at the new runtime during the deprecation window but are not canonical
     dependency edges.
     """
+    source_root = _source_root(root)
     graph: dict[str, set[str]] = {package: set() for package in LAYER}
     for package in LAYER:
-        package_root = root / package
+        package_root = source_root / package
         if not package_root.exists():
             continue
         for path in package_root.rglob("*.py"):
-            if path.relative_to(root).as_posix() in COMPOSITION_ROOTS:
+            if path.relative_to(source_root).as_posix() in COMPOSITION_ROOTS:
                 continue
             graph[package].update(
                 imported

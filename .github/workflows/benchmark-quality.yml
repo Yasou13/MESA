@@ -4,10 +4,10 @@ on:
   push:
     branches: [benchmark/**, feature/mesa-law-readiness, main]
     paths:
-      - "mesa-benchmark/**"
+      - "packages/mesa-benchmark/**"
       - "mesa_evals/**"
-      - "mesa_memory/retrieval/**"
-      - "mesa_storage/**"
+      - "packages/mesa-memory/src/mesa_memory/retrieval/**"
+      - "packages/mesa-memory/src/mesa_storage/**"
       - "mesa_workers/projection_worker.py"
       - "tests/test_v4_rrf_ablation.py"
       - ".github/workflows/benchmark-quality.yml"
@@ -16,10 +16,10 @@ on:
   pull_request:
     branches: [benchmark/**, feature/mesa-law-readiness, main]
     paths:
-      - "mesa-benchmark/**"
+      - "packages/mesa-benchmark/**"
       - "mesa_evals/**"
-      - "mesa_memory/retrieval/**"
-      - "mesa_storage/**"
+      - "packages/mesa-memory/src/mesa_memory/retrieval/**"
+      - "packages/mesa-memory/src/mesa_storage/**"
       - "mesa_workers/projection_worker.py"
       - "tests/test_v4_rrf_ablation.py"
       - ".github/workflows/benchmark-quality.yml"
@@ -58,7 +58,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/benchmark-dashboard/package-lock.json
       - run: python -m pip install "uv==0.9.6"
-      - run: uv sync --locked --extra dev
+      - run: uv sync --locked --all-packages --group dev
       - name: Benchmark Console build and component tests
         working-directory: apps/benchmark-dashboard
         run: |
@@ -67,14 +67,14 @@ jobs:
           npm run build
       - name: Enforce the benchmark dashboard coverage floor
         run: >-
-          uv run python -m pytest -q mesa-benchmark/tests/test_dashboard.py
+          uv run python -m pytest -q packages/mesa-benchmark/tests/test_dashboard.py
           --cov=mesa_benchmark.dashboard --cov-fail-under=54
           --cov-report=term-missing --cov-report=xml:benchmark-coverage.xml
           --cov-report=json:benchmark-coverage.json
       - name: Benchmark lint and type contracts
         run: |
-          uv run ruff check mesa-benchmark/mesa_benchmark mesa-benchmark/scripts mesa-benchmark/tests
-          uv run mypy mesa-benchmark/mesa_benchmark
+          uv run ruff check packages/mesa-benchmark/src packages/mesa-benchmark/scripts packages/mesa-benchmark/tests
+          uv run mypy packages/mesa-benchmark/src
       - name: Deterministic V4 RRF lane-ablation evidence
         run: |
           uv run python -m pytest -q tests/test_v4_rrf_ablation.py
@@ -100,10 +100,10 @@ jobs:
       - name: Artifact hygiene
         run: |
           test -z "$(git ls-files | grep -E '(^|/)(__pycache__|results|build/lib/mesa_benchmark)(/|$)|\.py[co]$' || true)"
-          git check-ignore --no-index results/probe.json mesa-benchmark/results/probe.json
+          git check-ignore --no-index results/probe.json packages/mesa-benchmark/results/probe.json
       - name: Installed-wheel offline smoke
         run: |
-          uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+          uv build --wheel --all-packages --out-dir "$RUNNER_TEMP/dist"
           uv venv "$RUNNER_TEMP/wheel-venv"
           uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" "$RUNNER_TEMP"/dist/*.whl
           cd "$RUNNER_TEMP"
@@ -130,7 +130,7 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: python -m pip install "uv==0.9.6"
-      - run: uv sync --locked --extra dev
+      - run: uv sync --locked --all-packages --group dev
       - name: Pinned external download, checksum, and contract smoke
         run: |
           uv run mesa-benchmark dataset-sync --suite release
@@ -161,7 +161,7 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: python -m pip install "uv==0.9.6"
-      - run: uv sync --locked --extra dev --extra adapters --extra benchmarks --extra ml
+      - run: uv sync --locked --all-packages --group dev --all-extras
       - name: Configure judge calibration path
         run: echo "BENCHMARK_JUDGE_CALIBRATION_PATH=$RUNNER_TEMP/judge-calibration.json" >> "$GITHUB_ENV"
       - name: Materialize blinded judge calibration without logging labels

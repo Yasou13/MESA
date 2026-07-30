@@ -13,21 +13,16 @@ RUN npm run build
 FROM ${PYTHON_IMAGE} AS builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /build
-COPY pyproject.toml uv.lock README.md LICENSE ./
-COPY mesa_memory ./mesa_memory
-COPY mesa_contracts ./mesa_contracts
-COPY mesa_storage ./mesa_storage
-COPY mesa_workers ./mesa_workers
-COPY mesa_api ./mesa_api
-COPY mesa_client ./mesa_client
-COPY mesa_evals ./mesa_evals
-COPY mesa_mcp ./mesa_mcp
-COPY mesa_runtime ./mesa_runtime
-COPY --from=dashboard-builder /dashboard/dist ./mesa_runtime/static/dashboard
+COPY pyproject.toml uv.lock ./
+COPY packages/mesa-memory/pyproject.toml packages/mesa-memory/README.md packages/mesa-memory/LICENSE ./packages/mesa-memory/
+COPY packages/mesa-benchmark/pyproject.toml packages/mesa-benchmark/README.md packages/mesa-benchmark/LICENSE ./packages/mesa-benchmark/
+COPY packages/mesa-memory/src ./packages/mesa-memory/src
+COPY packages/mesa-benchmark/src ./packages/mesa-benchmark/src
+COPY --from=dashboard-builder /dashboard/dist ./packages/mesa-memory/src/mesa_runtime/static/dashboard
 COPY --from=uv /uv /usr/local/bin/uv
-RUN uv export --quiet --frozen --no-dev --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
+RUN uv export --quiet --frozen --package mesa-memory --no-dev --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
     && python -m pip wheel --no-cache-dir --wheel-dir=/wheels -r /tmp/requirements.txt \
-    && python -m pip wheel --no-cache-dir --no-deps --wheel-dir=/wheels .
+    && uv build --wheel --package mesa-memory --out-dir /wheels
 
 FROM ${PYTHON_IMAGE} AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \

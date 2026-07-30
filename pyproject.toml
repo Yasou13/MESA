@@ -1,154 +1,25 @@
-[build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_meta"
+[tool.uv.workspace]
+members = ["packages/mesa-memory", "packages/mesa-benchmark"]
 
-[project]
-name = "mesa-memory"
-version = "0.7.1"
-description = "Enterprise AI agent memory engine"
-readme = "README.md"
-license = {file = "LICENSE"}
-requires-python = ">=3.10"
-authors = [
-    {name = "MESA Core Team"},
-]
-keywords = ["ai", "memory", "agents", "knowledge-graph", "llm", "cognitive"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Topic :: Scientific/Engineering :: AI",
-]
-
-dependencies = [
-    # Async & IO
-    "aiosqlite>=0.22.0",
-    "anyio>=4.0.0",
-    "httpx>=0.28.0",
-    "mcp>=1.0.0",
-    "cryptography>=42.0.0",
-    # Web / API
-    "uvicorn>=0.29.0",
-    "fastapi>=0.111.0",
-    "slowapi>=0.1.9",
-    "prometheus_client>=0.20.0",
-    # LLM Provider SDKs (Core)
-    # Note: Specific SDKs (openai, anthropic, etc.) are moved to optional [adapters]
-    # Pydantic / Settings
-    "pydantic>=2.13.0",
-    "pydantic-settings>=2.14.0",
-    # Data & Storage
-    "lancedb>=0.30.0",
-    "pyarrow>=24.0.0",
-    "rocksdict>=0.3.0",
-    "kuzu>=0.0.11",
-    # Numerical / Scientific
-    "numpy>=2.2.0",
-    "scipy>=1.15.0",
-    "scikit-learn>=1.7.0",
-    # Observability & Resilience
-    "tenacity>=9.0.0",
-    "psutil>=7.0.0",
-    "rich>=15.0.0",
-    "structlog>=24.0.0",
-    # Utilities
-    "python-dotenv>=1.2.0",
-    "tiktoken>=0.12.0",
-    "tqdm>=4.67.0",
-    "uuid6>=2025.0.0",
-    "uuid7>=0.1.0",
-    "alembic>=1.13.0",
-    # Serialisation / Schema
-    "jsonschema>=4.26.0",
-    "PyYAML>=6.0.0",
-    # Anomaly detection
-    "pyod>=3.3.0",
-    "numba>=0.65.0",
-    "llvmlite>=0.47.0",
-]
-
-[project.optional-dependencies]
-adapters = [
-    "anthropic>=0.100.0",
-    "openai>=2.36.0",
-    "ollama>=0.6.1",
-    "groq>=0.9.0",
-    "litellm>=1.40.0",
-]
-ml = [
-    "torch>=2.11.0",
-    "transformers>=5.8.0",
-    "tokenizers>=0.22.0",
-    "safetensors>=0.7.0",
-    "huggingface_hub>=1.14.0",
-    "sentence-transformers>=3.0.0",
-    "spacy>=3.8.0",
-]
-mcp = []
-langchain = [
-    "langchain-core>=0.2.0",
-]
-full = [
-    "outlines>=1.2.0",
-    "matplotlib>=3.10.0",
-    "pillow>=12.0.0",
-]
-benchmarks = [
-    "datasets>=2.14.0",
-    "sentence-transformers>=3.0.0",
-    "mem0ai>=0.1.0",
-    "letta-client>=1.0.0",
-    "zep-cloud>=2.0.0",
-]
-loadtest = [
-    "locust>=2.29.0",
-]
+[dependency-groups]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "pytest-benchmark>=4.0.0",
     "cyclonedx-bom>=5.1.0",
     "mypy>=1.10.0",
-    "black>=24.0.0",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-benchmark>=4.0.0",
+    "pytest-cov>=4.1.0",
     "ruff>=0.4.0",
-    "datasets>=2.14.0",
 ]
 
-[project.scripts]
-mesa-recovery = "mesa_storage.recovery:main"
-mesa-benchmark = "mesa_benchmark.cli:main"
-mesa-v4-admin = "mesa_memory.security.admin_cli:main"
-mesa-mcp = "mesa_mcp.server:main"
-mesa-mcp-gateway = "mesa_mcp.gateway.app:main"
-mesa-antigravity-bridge = "mesa_mcp.antigravity_bridge:main"
-mesa = "mesa_mcp.codex_cli:main"
-
-[project.urls]
-Homepage = "https://github.com/Yasou13/MESA"
-Repository = "https://github.com/Yasou13/MESA"
-Documentation = "https://github.com/Yasou13/MESA/tree/main/docs"
-Changelog = "https://github.com/Yasou13/MESA/blob/main/CHANGELOG.md"
-Issues = "https://github.com/Yasou13/MESA/issues"
-
-[tool.setuptools]
-include-package-data = false
-
-[tool.setuptools.packages.find]
-where = [".", "mesa-benchmark"]
-include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_contracts*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*", "mesa_runtime*", "mesa_benchmark*"]
-exclude = [
-    "*.__pycache__",
-    "*.__pycache__.*",
-    "mesa_storage.alembic.__pycache__",
-    "mesa_storage.alembic.versions.__pycache__",
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "packages/mesa-benchmark/tests"]
+markers = [
+    "optional_provider: requires an optional provider SDK; no real network calls",
+    "optional_mcp: requires the optional MCP SDK; no real network calls",
+    "live_external: requires an explicitly enabled external service",
 ]
-
-[tool.setuptools.exclude-package-data]
-"*" = ["*.pyc", "*.pyo", "__pycache__/*", "**/__pycache__/*", "**/*.pyc", "**/*.pyo"]
-
-[tool.black]
-line-length = 88
-target-version = ["py310"]
 
 [tool.ruff]
 line-length = 88
@@ -161,24 +32,13 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["E402"]
 "tests/*" = ["E402"]
-"mesa_memory/api/server.py" = ["E402"]
+"packages/mesa-memory/src/mesa_runtime/app.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
-exclude = [
-    "^venv/",
-    "^build/",
-    "^mesa-benchmark/scratch/",
-    "^mesa-benchmark/scripts/",
-    "test_node\\.py$",
-]
-
-# ---- Strict enforcement flags (v0.6.1 hardening) ----
-# Individual flags instead of `strict = true` so per-module overrides
-# can cleanly disable specific checks without fighting the macro.
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_return_any = true
@@ -190,16 +50,6 @@ check_untyped_defs = true
 disallow_untyped_decorators = true
 
 # ---- Progressive overrides for modules not yet remediated ----
-# Each module listed here is temporarily exempt from strict typing.
-# Remove entries as modules are remediated. The CI quality gate checks every
-# canonical production package with these exceptions applied; do not add a new
-# exception without a finding, owner, and removal plan in the audit record.
-#
-# Error counts at time of enforcement (210 total across 33 files):
-#   loop.py(33) > valence/core.py(12) > observability/metrics.py(11)
-#   > lock.py(11) > hybrid.py(9) > adapters(~29) > extraction(~13)
-#   > writers/parsers(~13). Storage engine modules are now strict.
-
 [[tool.mypy.overrides]]
 module = [
     "mesa_memory.consolidation.loop",
@@ -230,8 +80,7 @@ disallow_untyped_decorators = false
 warn_unused_ignores = false
 
 # Pydantic's runtime validators are currently untyped in the supported
-# dependency range. Keep all other strict checks enabled while this narrow
-# third-party decorator gap is tracked.
+# dependency range.
 [[tool.mypy.overrides]]
 module = [
     "mesa_memory.config",
@@ -239,25 +88,8 @@ module = [
 ]
 disallow_untyped_decorators = false
 
-# ---- Test directory: relax strict typing for test functions ----
-# Test functions rarely benefit from return type annotations.
-# check_untyped_defs = true ensures the bodies are still type-checked.
-# disable_error_code suppresses errors endemic to test patterns:
-#   method-assign — mock attribute patching (obj.method = Mock())
-#   arg-type      — passing lists where numpy arrays are expected
-#   attr-defined  — importing private helpers for whitebox testing
-#   union-attr    — mock return types not fully typed
-#   assignment    — Literal type mutations in negative tests
-#   override      — bench stubs with simplified signatures
-#   call-overload — test helpers with different overloads
-#   index         — Row | None indexing in async storage tests
-#   var-annotated — bench script accumulators
 [[tool.mypy.overrides]]
-module = [
-    "tests.*",
-    "conftest",
-    "tests.bench.*",
-]
+module = ["tests.*", "conftest", "tests.bench.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 disallow_untyped_decorators = false
@@ -276,15 +108,12 @@ disable_error_code = [
     "var-annotated",
 ]
 
-# ---- Auxiliary packages: not part of the strict-typed core ----
-# These are CLI scripts, evaluation tooling, MCP server, and the
-# client SDK — useful but not on the critical ingestion/retrieval path.
-# Relax strict typing to avoid blocking pre-push on non-core code.
 [[tool.mypy.overrides]]
 module = [
     "mesa_client.*",
     "mesa_mcp.*",
     "mesa_evals.*",
+    "mesa_benchmark.*",
     "scripts.*",
 ]
 disallow_untyped_defs = false
@@ -293,37 +122,18 @@ disallow_untyped_decorators = false
 warn_return_any = false
 warn_unused_ignores = false
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-markers = [
-    "optional_provider: requires an optional provider SDK; no real network calls",
-    "optional_mcp: requires the optional MCP SDK; no real network calls",
-    "live_external: requires an explicitly enabled external service",
-]
-
 [tool.coverage.run]
-source = ["mesa_memory", "mesa_workers", "mesa_client", "mesa_storage", "mesa_api"]
+source = [
+    "mesa_api",
+    "mesa_client",
+    "mesa_contracts",
+    "mesa_memory",
+    "mesa_runtime",
+    "mesa_storage",
+    "mesa_workers",
+]
 omit = ["tests/*", "scripts/*"]
 
 [tool.coverage.report]
-# The 85% historical figure omitted the SDK entirely.  With all canonical
-# production packages (including mesa_client) measured, the verified baseline
-# is 82.19%; keep a non-regression gate just below that complete baseline.
 fail_under = 82
 show_missing = true
-exclude_lines = [
-    "pragma: no cover",
-    "if __name__ == .__main__.",
-    "raise NotImplementedError",
-]
-
-[tool.setuptools.package-data]
-"mesa_storage" = ["alembic.ini", "alembic/**/*"]
-"mesa_runtime" = ["static/dashboard/**/*"]
-"mesa_benchmark" = [
-    "resources/**/*.json",
-    "resources/**/*.tiktoken",
-    "resources/**/*.yaml",
-    "dashboard/static/**/*",
-]

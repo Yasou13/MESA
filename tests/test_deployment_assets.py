@@ -61,7 +61,9 @@ def test_showcase_assets_live_under_dashboard_without_mock_console() -> None:
 
 
 def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
-    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    pyproject = (
+        ROOT / "packages" / "mesa-memory" / "pyproject.toml"
+    ).read_text(encoding="utf-8")
     project_metadata, separator, _ = pyproject.partition(
         "[project.optional-dependencies]"
     )
@@ -164,12 +166,12 @@ def test_ci_tests_supported_python_versions_and_enforces_full_repository_lint() 
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert 'python-version: ["3.10", "3.11", "3.12", "3.13"]' in workflow
-    assert "uv sync --locked --extra dev" in workflow
+    assert "uv sync --locked --all-packages --group dev" in workflow
     assert workflow.count("uv pip check") >= 5
     assert "uv run python -m pip check" not in workflow
     assert "uv run ruff check ." in workflow
     assert "uv run python scripts/check_mypy_override_ratchet.py" in workflow
-    assert "mesa_memory mesa_storage mesa_workers mesa_api mesa_client" in workflow
+    assert "packages/mesa-memory/src" in workflow
 
 
 def test_ci_package_job_generates_locked_sbom_and_attests_tagged_artifacts() -> None:
@@ -179,10 +181,16 @@ def test_ci_package_job_generates_locked_sbom_and_attests_tagged_artifacts() -> 
     package_job = workflow.split("  package:", maxsplit=1)[1].split(
         "  coverage:", maxsplit=1
     )[0]
-    assert "SOURCE_DATE_EPOCH=0 uv build --wheel --out-dir dist/a ." in package_job
-    assert "SOURCE_DATE_EPOCH=0 uv build --wheel --out-dir dist/b ." in package_job
+    assert (
+        "SOURCE_DATE_EPOCH=0 uv build --wheel --package mesa-memory --out-dir dist/a"
+        in package_job
+    )
+    assert (
+        "SOURCE_DATE_EPOCH=0 uv build --wheel --package mesa-memory --out-dir dist/b"
+        in package_job
+    )
     assert "python -m pip wheel" not in package_job
-    assert "uv export --quiet --frozen --no-dev --no-emit-project" in workflow
+    assert "uv export --quiet --frozen --package mesa-memory" in workflow
     assert "cyclonedx-py requirements" in workflow
     assert "dist/mesa-runtime.cdx.json" in workflow
     assert (
@@ -198,7 +206,7 @@ def test_external_release_gates_use_locked_dependency_sync() -> None:
         ROOT / ".github" / "workflows" / "external-release-gates.yml"
     ).read_text(encoding="utf-8")
 
-    assert workflow.count("uv sync --locked --extra dev") == 3
+    assert workflow.count("uv sync --locked --all-packages --group dev") == 3
     assert 'pip install -e ".[dev]"' not in workflow
 
 
@@ -227,7 +235,7 @@ def test_mcp_and_benchmark_coverage_gates_reject_regressions() -> None:
     mcp_coverage = ci.split("  mcp-coverage:", maxsplit=1)[1].split(
         "  zero-cost-contract:", maxsplit=1
     )[0]
-    assert "uv sync --locked --extra dev --extra mcp" in mcp_coverage
+    assert "uv sync --locked --all-packages --group dev --all-extras" in mcp_coverage
     assert "--cov=mesa_mcp.v4_service --cov-fail-under=55" in mcp_coverage
     assert "mcp-coverage.xml" in mcp_coverage
     assert "mcp-coverage.json" in mcp_coverage
@@ -255,7 +263,7 @@ def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cos
 
     assert "uses: trufflesecurity/trufflehog@v3.95.2" in workflow
     assert "version: 3.95.2" in workflow
-    assert "uv sync --locked --extra dev --extra adapters" in workflow
+    assert "uv sync --locked --all-packages --group dev --all-extras" in workflow
 
 
 def test_ci_supply_chain_gate_scans_locked_dependencies_and_benchmark_image() -> None:
@@ -264,7 +272,7 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_benchmark_image() ->
         "  zero-cost-contract:", maxsplit=1
     )[0]
 
-    assert "uv sync --locked --extra dev --extra benchmarks" in supply_chain
+    assert "uv sync --locked --all-packages --group dev --all-extras" in supply_chain
     assert "npm ci --ignore-scripts" in supply_chain
     assert "npm audit --omit=dev --audit-level=high" in supply_chain
     assert "docker build --pull=false --tag mesa-benchmark:security" in supply_chain
