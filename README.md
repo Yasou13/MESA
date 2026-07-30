@@ -567,7 +567,6 @@ MESA/
 │   └── vector_engine.py  # Vector Storage
 ├── mesa_workers/         # Cold-path ingestion worker, MaintenanceWorker, rem_cycle.py
 ├── tests/                # pytest suite + benchmarks
-├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)
 ├── Dockerfile            # Production container
 ├── docker-compose.yml    # V3 lexical-core API + worker deployment
 ├── docker-compose.v4.yml # V4 single combined storage-owner deployment

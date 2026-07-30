@@ -1,4 +1,4 @@
-.PHONY: install dev v4-dev test check bench docker-up v4-docker-up health zero-cost-dev
+.PHONY: install dev v4-dev test check bench docker-up v4-docker-up zero-cost-dev
 
 UV ?= uv
 
@@ -31,9 +31,6 @@ docker-up:
 
 v4-docker-up:
 	docker compose -f docker-compose.v4.yml up --build -d
-
-health:
-	$(UV) run python scripts/health_check.py
 
 load-test:
 	$(UV) run locust -f tests/bench/locustfile.py --host=http://localhost:8000

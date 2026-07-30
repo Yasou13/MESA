@@ -303,7 +303,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["mesa_memory", "mesa_workers", "mesa_client", "mesa_storage", "mesa_api"]
-omit = ["tests/*", "examples/*", "scripts/*"]
+omit = ["tests/*", "scripts/*"]
 
 [tool.coverage.report]
 # The 85% historical figure omitted the SDK entirely.  With all canonical
