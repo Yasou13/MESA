@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from fastapi import HTTPException, Request
+
 from mesa_storage.control.credential_repo import CredentialRepository
 
 
@@ -30,3 +32,16 @@ class GatewayAuth:
             credential_id=str(credential["credential_id"]),
             binding_id=str(credential["binding_id"]),
         )
+
+    async def authenticate(self, request: Request) -> str:
+        """Resolve a Bearer credential for the legacy HTTP gateway dependency."""
+        authorization = request.headers.get("authorization", "")
+        token = (
+            authorization[7:]
+            if authorization.lower().startswith("bearer ")
+            else ""
+        )
+        principal = await self.authenticate_credential(token)
+        if principal is None:
+            raise HTTPException(status_code=401, detail="Invalid gateway credential")
+        return principal.client_id

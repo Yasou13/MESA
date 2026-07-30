@@ -39,6 +39,10 @@ ignore = ["E501"]
 python_version = "3.10"
 ignore_missing_imports = true
 explicit_package_bases = true
+mypy_path = [
+    "packages/mesa-memory/src",
+    "packages/mesa-benchmark/src",
+]
 plugins = ["pydantic.mypy"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
@@ -86,6 +90,8 @@ warn_unused_ignores = false
 module = [
     "mesa_memory.config",
     "mesa_memory.consolidation.schemas",
+    "mesa_contracts.v3",
+    "mesa_contracts.v4",
 ]
 disallow_untyped_decorators = false
 

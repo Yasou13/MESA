@@ -64,25 +64,46 @@ class ProjectionStore(Protocol):
     ) -> list[dict[str, Any]]: ...
 
     async def complete_projection_outbox(
-        self, projection_id: str, **completion: Any
+        self,
+        projection_id: str,
+        *,
+        worker_id: str,
+        claim_token: str,
+        outcome: str,
     ) -> bool: ...
 
     async def fail_projection_outbox(
-        self, projection_id: str, **failure: Any
+        self,
+        projection_id: str,
+        *,
+        worker_id: str,
+        claim_token: str,
+        error_class: str,
+        retryable: bool,
     ) -> bool: ...
 
     async def renew_projection_outbox_lease(
-        self, projection_id: str, **lease: Any
+        self,
+        projection_id: str,
+        *,
+        worker_id: str,
+        claim_token: str,
+        lease_seconds: int = 300,
     ) -> bool: ...
 
     async def claim_artifact_cleanup(
-        self, *, worker_id: str, limit: int
+        self, *, worker_id: str, limit: int = 1, lease_seconds: int = 300
     ) -> list[dict[str, Any]]: ...
 
     async def apply_artifact_cleanup(self, cleanup: dict[str, Any]) -> None: ...
 
     async def finish_artifact_cleanup(
-        self, cleanup_id: str, **outcome: Any
+        self,
+        cleanup_id: str,
+        *,
+        worker_id: str,
+        claim_token: str,
+        error_class: str | None = None,
     ) -> bool: ...
 
     async def get_pipeline_run(

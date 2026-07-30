@@ -244,6 +244,7 @@ async def _consume_combined_durable_work_once(
     *,
     consolidation_loop: ConsolidationLoop | None,
     model_processing_enabled: bool,
+    projection_store: ProjectionStore | None = None,
 ) -> dict[str, int]:
     """Consume bounded durable work in the single storage-owner runtime."""
     worker_id = "combined-runtime"
@@ -296,9 +297,15 @@ async def _consume_combined_durable_work_once(
         )
     projections = {"completed": 0}
     cleanup = {"completed": 0}
-    if supports_capability(dao, ProjectionStore):
-        projections = await process_projection_outbox_once(dao, worker_id=worker_id)
-        cleanup = await process_artifact_cleanup_once(dao, worker_id=worker_id)
+    if projection_store is not None and supports_capability(
+        projection_store, ProjectionStore
+    ):
+        projections = await process_projection_outbox_once(
+            projection_store, worker_id=worker_id
+        )
+        cleanup = await process_artifact_cleanup_once(
+            projection_store, worker_id=worker_id
+        )
     return {
         "dispatches": len(claimed),
         "finalizations": len(finalizations),
@@ -312,6 +319,7 @@ async def _run_combined_durable_consumer(
     *,
     consolidation_loop: ConsolidationLoop | None,
     model_processing_enabled: bool,
+    projection_store: ProjectionStore | None = None,
 ) -> None:
     """Poll the durable journal without introducing a second storage writer."""
     while True:
@@ -319,6 +327,7 @@ async def _run_combined_durable_consumer(
             dao,
             consolidation_loop=consolidation_loop,
             model_processing_enabled=model_processing_enabled,
+            projection_store=projection_store,
         )
         await asyncio.sleep(0.25)
 
@@ -621,6 +630,7 @@ async def lifespan(app: FastAPI):
                 dao,
                 consolidation_loop=consolidation_loop,
                 model_processing_enabled=runtime.model_enabled,
+                projection_store=state.projection_store,
             ),
         )
         state.background_tasks.add(combined_task)

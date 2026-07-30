@@ -9,7 +9,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from cryptography.fernet import Fernet
 
@@ -28,6 +28,7 @@ _POLICY_OPERATIONS = {
     "mesa_improve": "UPDATE",
     "mesa_forget": "DELETE",
 }
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -56,8 +57,8 @@ class CircuitBreaker:
         return "OPEN"
 
     async def call(
-        self, operation: Callable[[], Awaitable[dict[str, Any]]]
-    ) -> dict[str, Any]:
+        self, operation: Callable[[], Awaitable[_T]]
+    ) -> _T:
         probe = False
         async with self._lock:
             if self._opened_at is not None:
@@ -490,7 +491,7 @@ class GatewayOperationService:
                 limit=limit,
             )
         )
-        memories = results if isinstance(results, list) else []
+        memories: list[dict[str, Any]] = results if isinstance(results, list) else []
         if include_types is not None:
             memories = [
                 memory
