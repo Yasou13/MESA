@@ -7,7 +7,8 @@ import {
   ActivitySquare, 
   CheckSquare, 
   Database,
-  Settings
+  Settings,
+  Sparkles
 } from 'lucide-react';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -15,10 +16,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     <div className="app-container">
       <aside className="sidebar">
         <div style={{ padding: '20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img src="/brand/icon-192.png" alt="MESA" width={38} height={38} style={{ borderRadius: '10px', display: 'block' }} />
+          <img src="/dashboard/brand/icon-192.png" alt="MESA" width={38} height={38} style={{ borderRadius: '10px', display: 'block' }} />
           <div>
             <h2 className="text-gradient" style={{ fontSize: '1.25rem' }}>MESA Control</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px' }}>v0.3.0</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px' }}>v0.7.1</p>
           </div>
         </div>
         
@@ -52,6 +53,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <Database size={18} />
             Memories
           </NavLink>
+
+          <a href="/dashboard/showcase/" className="nav-item">
+            <Sparkles size={18} />
+            Showcase
+          </a>
         </nav>
         
         <div style={{ padding: '16px 0', borderTop: '1px solid var(--border)' }}>

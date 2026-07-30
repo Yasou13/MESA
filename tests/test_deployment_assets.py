@@ -17,12 +17,47 @@ def test_dashboard_static_files_cannot_escape_dist_root(tmp_path: Path) -> None:
     dashboard.mkdir()
     asset = dashboard / "favicon.svg"
     asset.write_text("safe", encoding="utf-8")
+    showcase = dashboard / "showcase"
+    showcase.mkdir()
+    showcase_index = showcase / "index.html"
+    showcase_index.write_text("showcase", encoding="utf-8")
     secret = tmp_path / "outside.txt"
     secret.write_text("not public", encoding="utf-8")
+    linked_directory = dashboard / "linked"
+    linked_directory.mkdir()
+    (linked_directory / "index.html").symlink_to(secret)
 
     assert _dashboard_static_file(str(dashboard), "favicon.svg") == str(asset)
+    assert _dashboard_static_file(str(dashboard), "showcase/") == str(showcase_index)
+    assert _dashboard_static_file(str(dashboard), "linked/") is None
     assert _dashboard_static_file(str(dashboard), "%2e%2e/outside.txt") is None
     assert _dashboard_static_file(str(dashboard), "../outside.txt") is None
+
+
+def test_showcase_assets_live_under_dashboard_without_mock_console() -> None:
+    showcase = ROOT / "mesa_dashboard" / "public" / "showcase"
+    expected_assets = {
+        "index.html",
+        "scripts/showcase.js",
+        "styles/showcase.css",
+        "styles/tokens.css",
+        "visualizer/index.html",
+        "visualizer/visualizer.css",
+        "visualizer/visualizer.js",
+    }
+
+    assert not (ROOT / "demo").exists()
+    assert {
+        str(path.relative_to(showcase))
+        for path in showcase.rglob("*")
+        if path.is_file()
+    } == expected_assets
+
+    landing = (showcase / "index.html").read_text(encoding="utf-8")
+    assert 'href="/dashboard/"' in landing
+    assert "/dashboard/showcase/scripts/showcase.js" in landing
+    assert "/dashboard/showcase/visualizer/" in landing
+    assert "console/index.html" not in landing
 
 
 def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:

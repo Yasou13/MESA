@@ -1,5 +1,5 @@
 /* MESA v0.7.1 — Unified Design System Variables
-   Source of truth: demo_taslak/style.css theme
+   Shared design tokens for the dashboard showcase.
    Deep Space Foundation & Matte Accents (Linear/Vercel/Stripe Grade) */
 
 :root {
@@ -47,24 +47,4 @@
     --font-display: 'General Sans', 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
-    /* ─── Console Theme Aliases (backward-compat) ─── */
-    --background: var(--bg-primary);
-    --sidebar: var(--bg-secondary);
-    --surface: var(--bg-tertiary);
-    --surface-raised: #18181c;
-    --surface-hover: #202024;
-
-    --border: #29292f;
-    --border-strong: #3f3f46;
-
-    --text-primary: var(--text-main);
-    --text-secondary: var(--text-muted);
-
-    --accent: var(--accent-primary);
-    --accent-hover: var(--accent-primary-hover);
-
-    --success: var(--accent-tertiary);
-    --warning: var(--accent-warning);
-    --danger: var(--accent-danger);
-    --info: #3b82f6;
 }

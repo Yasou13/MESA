@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# MESA Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React, TypeScript ve Vite tabanlı yerel MESA control-plane arayüzüdür.
 
-Currently, two official plugins are available:
+## Yerel geliştirme
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+cd mesa_dashboard
+npm ci
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Vite, `/control`, `/v3` ve `/v4` isteklerini
+`http://localhost:8000` adresine yönlendirir.
+
+## Production build
+
+```bash
+cd mesa_dashboard
+npm ci
+npm run build
+```
+
+`scripts/run_server.py`, üretilen `dist/` dizinini `/dashboard/` altında sunar.
+
+## Statik showcase
+
+Önceki bağımsız demo içeriği dashboard’un public varlıkları altında tutulur:
+
+- `/dashboard/showcase/`: ürün landing sayfası ve canlı RAG sandbox
+- `/dashboard/showcase/visualizer/`: ingestion/knowledge-graph görselleştiricisi
+
+Showcase ortak marka varlıklarını `/dashboard/brand/` yolundan kullanır.
+Eski mock demo console kaldırılmıştır; “Open Console” bağlantıları gerçek
+control-plane paneline (`/dashboard/`) gider.

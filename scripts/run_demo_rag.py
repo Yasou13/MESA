@@ -2,7 +2,7 @@
 """MESA RAG Demo Server.
 
 Extends the main MESA FastAPI app with:
-  - ``/demo``         — Static file serving for the demo UI
+  - ``/dashboard/showcase/`` — Dashboard-hosted showcase and visualizer
   - ``/v3/demo/chat`` — End-to-end RAG endpoint (embed → insert → search → LLM)
 
 The key architectural difference from the production pipeline:
@@ -17,30 +17,21 @@ Usage:
 """
 
 import logging
-import os
 import time
 from typing import Optional
 
 import uvicorn
 from fastapi import Depends
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.api.server import get_api_key
 
 # Import the main MESA app and shared state
-from scripts.run_server import _project_root, _state, app
+from scripts.run_server import _state, app
 
 logger = logging.getLogger("MESA_DemoRAG")
-
-# ---------------------------------------------------------------------------
-# Mount demo static files
-# ---------------------------------------------------------------------------
-_demo_path = os.path.join(_project_root, "demo")
-if os.path.isdir(_demo_path):
-    app.mount("/demo", StaticFiles(directory=_demo_path, html=True), name="demo")
 
 # ---------------------------------------------------------------------------
 # Adapter singleton (avoid re-creating on every request)
@@ -210,7 +201,7 @@ if __name__ == "__main__":
     print(f"\n{'=' * 60}")
     print("  MESA RAG Demo Server")
     print("  Bind:    0.0.0.0:8000")
-    print("  UI:      http://localhost:8000/demo/")
+    print("  UI:      http://localhost:8000/dashboard/showcase/")
     print(f"{'=' * 60}\n")
     uvicorn.run(
         "scripts.run_demo_rag:app",

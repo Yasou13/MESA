@@ -61,7 +61,14 @@ def _dashboard_static_file(dashboard_path: str, full_path: str) -> str | None:
         return None
     dashboard_root = Path(dashboard_path).resolve()
     requested_path = (dashboard_root / unquote(full_path)).resolve()
-    if not requested_path.is_relative_to(dashboard_root) or not requested_path.is_file():
+    if not requested_path.is_relative_to(dashboard_root):
+        return None
+    if requested_path.is_dir():
+        requested_path = (requested_path / "index.html").resolve()
+    if (
+        not requested_path.is_relative_to(dashboard_root)
+        or not requested_path.is_file()
+    ):
         return None
     return str(requested_path)
 
@@ -456,10 +463,9 @@ if not _cli_args.no_auth:
             and request.client is not None
             and request.client.host in {"127.0.0.1", "::1", "localhost", "testclient"}
         )
-        # Skip auth for demo and health/metrics/docs endpoints.
+        # Skip auth for dashboard and health/metrics/docs endpoints.
         if (
-            request.url.path.startswith("/demo")
-            or request.url.path.startswith("/dashboard")
+            request.url.path.startswith("/dashboard")
             or local_control
             or request.url.path.startswith("/mcp")
             or request.url.path

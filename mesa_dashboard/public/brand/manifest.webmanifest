@@ -3,17 +3,17 @@
   "short_name": "MESA",
   "icons": [
     {
-      "src": "/brand/icon-192.png",
+      "src": "/dashboard/brand/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/brand/icon-512.png",
+      "src": "/dashboard/brand/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "/brand/icon-512-maskable.png",
+      "src": "/dashboard/brand/icon-512-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
