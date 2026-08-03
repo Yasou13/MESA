@@ -22,6 +22,7 @@ from mesa_storage.repositories.operations import (
     OperationRepository,
     OperationRepositoryPort,
     OperationStateError,
+    RebuildAdmissionReader,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -350,3 +351,22 @@ async def test_memory_dao_is_only_a_compatibility_delegate(tmp_path: Path) -> No
     assert (await dao.get_system_operation(submitted["operation_id"]))[
         "operation_id"
     ] == submitted["operation_id"]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_admission_tracks_durable_maintenance_states(
+    tmp_path: Path,
+) -> None:
+    repository, _, engine = _repository(tmp_path)
+    admission = RebuildAdmissionReader(engine)
+
+    assert await admission.is_pending() is False
+    submitted = await repository.submit(
+        requested_by_principal_id="admin-a",
+        idempotency_key="rebuild-a",
+        payload_hash=_payload_hash(),
+    )
+    assert await admission.is_pending() is True
+
+    await repository.cancel(submitted["operation_id"])
+    assert await admission.is_pending() is False

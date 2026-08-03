@@ -19,6 +19,16 @@ _ERROR_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _ACTIVE_EXECUTION_STATES = frozenset(
     {"CLAIMED", "RUNNING", "VERIFYING", "READY_TO_CUTOVER"}
 )
+_MAINTENANCE_STATES = frozenset(
+    {
+        "PENDING",
+        "CLAIMED",
+        "RUNNING",
+        "VERIFYING",
+        "READY_TO_CUTOVER",
+        "RETRYABLE_FAILED",
+    }
+)
 _ALLOWED_TRANSITIONS = {
     "CLAIMED": frozenset({"RUNNING", "RETRYABLE_FAILED", "FINAL_FAILED"}),
     "RUNNING": frozenset({"RUNNING", "VERIFYING", "RETRYABLE_FAILED", "FINAL_FAILED"}),
@@ -125,6 +135,12 @@ class OperationRepositoryPort(Protocol):
     async def retry(self, operation_id: str) -> dict[str, Any]: ...
 
 
+class RebuildAdmissionPort(Protocol):
+    """Read-only maintenance signal used at API admission boundaries."""
+
+    async def is_pending(self) -> bool: ...
+
+
 def _bounded(value: str, *, label: str, limit: int = 128) -> str:
     if not value or len(value) > limit or any(ord(char) < 32 for char in value):
         raise ValueError(f"{label} is invalid")
@@ -165,6 +181,26 @@ def _decode(row: aiosqlite.Row) -> dict[str, Any]:
     result["checkpoint"] = json.loads(result.pop("checkpoint_json"))
     result["source_manifest"] = json.loads(result.pop("source_manifest_json"))
     return result
+
+
+class RebuildAdmissionReader:
+    """Expose only whether durable rebuild maintenance blocks new mutations."""
+
+    __slots__ = ("_sql",)
+
+    def __init__(self, sqlite_engine: AsyncEngine) -> None:
+        self._sql = sqlite_engine
+
+    async def is_pending(self) -> bool:
+        placeholders = ", ".join("?" for _ in _MAINTENANCE_STATES)
+        async with self._sql.connection() as db:
+            cursor = await db.execute(
+                "SELECT EXISTS(SELECT 1 FROM system_operations "
+                f"WHERE operation_kind = 'PROJECTION_REBUILD' AND state IN ({placeholders}))",
+                tuple(sorted(_MAINTENANCE_STATES)),
+            )
+            row = await cursor.fetchone()
+        return row is not None and bool(row[0])
 
 
 class OperationRepository:

@@ -279,6 +279,15 @@ def _public_operation(operation: dict) -> V4OperationResponse:
     )
 
 
+async def _require_mutation_admission(dao: MemoryDAO) -> None:
+    if await dao.rebuild_admission.is_pending():
+        raise HTTPException(
+            status_code=503,
+            detail="maintenance_pending",
+            headers={"Retry-After": "5"},
+        )
+
+
 async def _require_session_access(
     request: Request,
     access_control: AccessControl,
@@ -375,6 +384,7 @@ def create_v4_router(
             dataset_ids=[""],
             required_role="OWNER",
         )
+        await _require_mutation_admission(dao)
         try:
             return await dao.create_v4_workspace(
                 tenant_id=payload.tenant_id,
@@ -424,6 +434,7 @@ def create_v4_router(
             dataset_ids=[payload.dataset_id],
             required_role="OWNER",
         )
+        await _require_mutation_admission(dao)
         try:
             await dao.ensure_v4_catalog_scope(
                 tenant_id=payload.tenant_id,
@@ -479,6 +490,7 @@ def create_v4_router(
             dataset_ids=[payload.dataset_id],
             required_role="WRITER",
         )
+        await _require_mutation_admission(dao)
         try:
             return await dao.create_v4_document(
                 tenant_id=payload.tenant_id,
@@ -528,6 +540,7 @@ def create_v4_router(
             dataset_ids=[payload.dataset_id],
             required_role="WRITER",
         )
+        await _require_mutation_admission(dao)
         try:
             return await dao.create_v4_revision(
                 tenant_id=payload.tenant_id,
@@ -582,6 +595,7 @@ def create_v4_router(
             dataset_ids=[payload.dataset_id],
             required_role="WRITER",
         )
+        await _require_mutation_admission(dao)
         return await dao.create_v4_source_chunk(
             tenant_id=payload.tenant_id,
             dataset_id=payload.dataset_id,
@@ -623,6 +637,7 @@ def create_v4_router(
             permission="PURGE",
         ):
             raise HTTPException(status_code=403, detail="PURGE permission required")
+        await _require_mutation_admission(dao)
         try:
             return await dao.purge_v4_document(
                 tenant_id=tenant_id,
@@ -654,6 +669,7 @@ def create_v4_router(
             dataset_ids=payload.dataset_ids,
             required_role="WRITER",
         )
+        await _require_mutation_admission(dao)
         try:
             session = await dao.create_v4_session(
                 tenant_id=payload.tenant_id,
@@ -843,6 +859,7 @@ def create_v4_router(
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
             )
+        await _require_mutation_admission(dao)
         payload_hash = hashlib.sha256(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
@@ -976,6 +993,7 @@ def create_v4_router(
             permission="ROLLBACK",
         ):
             raise HTTPException(status_code=403, detail="ROLLBACK permission required")
+        await _require_mutation_admission(dao)
         return await dao.request_pipeline_rollback(str(mutation["pipeline_run_id"]))
 
     @router.post("/mutations/{mutation_id}/replay", status_code=202)
@@ -1003,6 +1021,7 @@ def create_v4_router(
             permission="ROLLBACK",
         ):
             raise HTTPException(status_code=403, detail="ROLLBACK permission required")
+        await _require_mutation_admission(dao)
         return await dao.replay_pipeline_run(str(mutation["pipeline_run_id"]))
 
     @router.get("/sessions/{session_id}/context")
@@ -1042,6 +1061,7 @@ def create_v4_router(
         session = await _authorized_v4_session(
             request, dao, access_control, session_id, level="WRITE"
         )
+        await _require_mutation_admission(dao)
         finalization = await dao.request_session_finalization(
             str(session["agent_id"]), session_id
         )

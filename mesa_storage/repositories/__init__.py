@@ -5,6 +5,8 @@ from mesa_storage.repositories.operations import (
     OperationRepository,
     OperationRepositoryPort,
     OperationState,
+    RebuildAdmissionPort,
+    RebuildAdmissionReader,
 )
 
 __all__ = [
@@ -13,4 +15,6 @@ __all__ = [
     "OperationRepository",
     "OperationRepositoryPort",
     "OperationState",
+    "RebuildAdmissionPort",
+    "RebuildAdmissionReader",
 ]

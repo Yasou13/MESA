@@ -67,6 +67,8 @@ from mesa_storage.repositories.operations import (
     OperationRepository,
     OperationRepositoryPort,
     OperationState,
+    RebuildAdmissionPort,
+    RebuildAdmissionReader,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -272,7 +274,14 @@ class MemoryDAO:
                         for graph edge operations.
     """
 
-    __slots__ = ("_sql", "_vec", "_graph", "_catalog", "_operations")
+    __slots__ = (
+        "_sql",
+        "_vec",
+        "_graph",
+        "_catalog",
+        "_operations",
+        "_rebuild_admission",
+    )
 
     def __init__(
         self,
@@ -285,6 +294,7 @@ class MemoryDAO:
         self._graph = graph_provider
         self._catalog = CatalogRepository(sqlite_engine)
         self._operations = OperationRepository(sqlite_engine)
+        self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
@@ -295,6 +305,11 @@ class MemoryDAO:
     def operations(self) -> OperationRepositoryPort:
         """Expose durable system operations without leaking SQLite ownership."""
         return self._operations
+
+    @property
+    def rebuild_admission(self) -> RebuildAdmissionPort:
+        """Expose a content-free maintenance admission signal."""
+        return self._rebuild_admission
 
     async def submit_system_operation(
         self,

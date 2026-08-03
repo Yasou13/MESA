@@ -23,7 +23,13 @@ from mesa_storage.repositories.operations import (
 )
 
 
-def _app(dao, access_control, *, principal_id: str = "principal-a") -> FastAPI:  # type: ignore[no-untyped-def]
+def _app(
+    dao,
+    access_control,
+    *,
+    principal_id: str = "principal-a",
+    maintenance_pending: bool = False,
+) -> FastAPI:  # type: ignore[no-untyped-def]
     async def attach_principal(request: Request) -> None:
         request.state.principal = SimpleNamespace(
             principal_id=principal_id, principal_type="USER", status="active"
@@ -34,6 +40,10 @@ def _app(dao, access_control, *, principal_id: str = "principal-a") -> FastAPI: 
 
     async def get_access_control():  # type: ignore[no-untyped-def]
         return access_control
+
+    dao.rebuild_admission.is_pending = AsyncMock(
+        return_value=maintenance_pending
+    )
 
     app = FastAPI(dependencies=[Depends(attach_principal)])
 
@@ -503,6 +513,44 @@ async def test_v4_rebuild_alias_rejects_scoped_requests_and_conflicting_keys(
     dao.operations.submit = AsyncMock(side_effect=OperationIdempotencyConflictError())
     conflict = await client.post("/v4/operations/rebuild", headers=headers)
     assert conflict.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_v4_rebuild_maintenance_gates_mutations_but_keeps_controls_open(
+    asgi_client: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
+    dao = MagicMock()
+    dao.create_v4_workspace = AsyncMock(
+        return_value={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    )
+    dao.operations.get = AsyncMock(return_value=_operation())
+    dao.operations.cancel = AsyncMock(return_value=_operation(state="CANCELLED"))
+    client = asgi_client(_app(dao, _access(), maintenance_pending=True))
+    payload = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+    }
+
+    gated = await client.post("/v4/catalog/workspaces", json=payload)
+    capability = await client.get("/v4/capability")
+    status = await client.get("/v4/operations/operation-a")
+    cancelled = await client.post("/v4/operations/operation-a/cancel")
+
+    assert gated.status_code == 503
+    assert gated.json() == {"detail": "maintenance_pending"}
+    assert gated.headers["Retry-After"] == "5"
+    dao.create_v4_workspace.assert_not_awaited()
+    assert capability.status_code == 200
+    assert status.status_code == 200
+    assert cancelled.status_code == 200
+
+    dao.rebuild_admission.is_pending.return_value = False
+    reopened = await client.post("/v4/catalog/workspaces", json=payload)
+
+    assert reopened.status_code == 201
+    dao.create_v4_workspace.assert_awaited_once()
 
 
 @pytest.mark.asyncio
