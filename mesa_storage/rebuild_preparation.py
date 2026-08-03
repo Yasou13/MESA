@@ -439,3 +439,86 @@ class OfflineRebuildPreparer:
             target_generation_id=target_generation_id,
             runtime_fencing_token=preflight.runtime_fencing_token,
         )
+
+
+async def resume_cutover_preparation(
+    *,
+    trusted_root: Path,
+    storage_root: Path,
+    work_root: Path,
+    operation: dict[str, Any],
+    generations: ProjectionGenerationRepositoryPort,
+    writer_lock: StorageWriterLock,
+) -> RebuildPreparation:
+    """Reconstruct only verified, durable inputs after a cutover-stage crash."""
+    operation_id = str(operation.get("operation_id") or "")
+    if not _OPERATION_ID_PATTERN.fullmatch(operation_id):
+        raise RebuildPathError("operation id is not a safe work identifier")
+    if operation.get("state") != "READY_TO_CUTOVER":
+        raise RebuildPreparationError("operation is not ready for cutover recovery")
+    trusted = trusted_root.resolve(strict=True)
+    storage = _safe_existing_child(storage_root, trusted, label="storage root")
+    work = _safe_existing_child(work_root, trusted, label="work root")
+    if storage.is_relative_to(work) or work.is_relative_to(storage):
+        raise RebuildPathError("storage and work roots must not overlap")
+    if writer_lock.released or writer_lock.storage_root != storage:
+        raise RebuildPreparationError("rebuild does not own the storage writer lock")
+
+    source_generation_id = str(operation.get("source_generation_id") or "")
+    target_generation_id = str(operation.get("target_generation_id") or "")
+    if not source_generation_id or target_generation_id != f"rebuild-{operation_id}":
+        raise RebuildPreparationError("cutover generation identity is unavailable")
+    active = await generations.resolve_active(
+        storage_root=storage, trusted_root=trusted
+    )
+    if active.generation_id == source_generation_id:
+        if active.previous_generation_id is not None:
+            raise RebuildPreparationError("source generation pointer is ambiguous")
+    elif active.generation_id == target_generation_id:
+        if active.previous_generation_id != source_generation_id:
+            raise RebuildPreparationError("retained generation pointer is unavailable")
+    else:
+        raise RebuildPreparationError("runtime pointer is outside the cutover pair")
+
+    backup_root = _safe_existing_child(
+        work / operation_id / "backup", work, label="backup root"
+    )
+    validate_snapshot(backup_root)
+    checkpoint = dict(operation.get("checkpoint") or {})
+    backup_manifest_hash = hashlib.sha256(
+        (backup_root / MANIFEST_NAME).read_bytes()
+    ).hexdigest()
+    if checkpoint.get("backup_manifest_sha256") != backup_manifest_hash:
+        raise RebuildSourceChangedError("backup manifest checkpoint changed")
+    source_manifest, source_manifest_hash = canonical_sqlite_manifest(
+        backup_root / "mesa.db"
+    )
+    if source_manifest_hash != operation.get(
+        "source_manifest_hash"
+    ) or source_manifest != operation.get("source_manifest"):
+        raise RebuildSourceChangedError("cutover source manifest changed")
+    completed = int(operation.get("progress_completed", -1))
+    total = int(operation.get("progress_total", -1))
+    if completed < 0 or completed != total:
+        raise RebuildPreparationError("cutover replay checkpoint is incomplete")
+
+    generation = {
+        "generation_id": target_generation_id,
+        "vector_relative_path": (
+            f"projection-generations/{target_generation_id}/vector.lance"
+        ),
+        "graph_relative_path": (
+            f"projection-generations/{target_generation_id}/kuzu_db"
+        ),
+    }
+    return RebuildPreparation(
+        operation=operation,
+        generation=generation,
+        backup_root=backup_root,
+        backup_manifest_hash=backup_manifest_hash,
+        source_manifest=source_manifest,
+        source_manifest_hash=source_manifest_hash,
+        source_generation_id=source_generation_id,
+        target_generation_id=target_generation_id,
+        runtime_fencing_token=active.runtime_fencing_token,
+    )

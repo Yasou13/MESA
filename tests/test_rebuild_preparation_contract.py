@@ -11,12 +11,14 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
+from mesa_storage.projection_generations import ProjectionPaths
 from mesa_storage.rebuild_preparation import (
     OfflineRebuildPreparer,
     RebuildBacklogError,
     RebuildDiskCapacityError,
     RebuildPathError,
     inspect_rebuild_preflight,
+    resume_cutover_preparation,
 )
 from mesa_storage.recovery import MANIFEST_NAME, RecoveryError, validate_snapshot
 from mesa_storage.writer_lock import StorageWriterLock
@@ -197,6 +199,41 @@ async def test_preparer_creates_valid_backup_generation_and_fenced_checkpoint(
     assert final_checkpoint["phase"] == "PREPARED"
     assert final_checkpoint["staging_bytes"] == 0
     assert "backup_root" not in final_checkpoint
+
+    ready_operation = {
+        **operation,
+        "state": "READY_TO_CUTOVER",
+        "checkpoint": {
+            **final_checkpoint,
+            "phase": "READY_TO_CUTOVER",
+        },
+        "source_manifest_hash": result.source_manifest_hash,
+        "source_manifest": result.source_manifest,
+        "source_generation_id": "legacy",
+        "target_generation_id": result.target_generation_id,
+        "progress_completed": 0,
+        "progress_total": 0,
+    }
+    generations.resolve_active = AsyncMock(
+        return_value=ProjectionPaths(
+            generation_id=result.target_generation_id,
+            vector_path=storage / "projection-generations" / "target" / "vector.lance",
+            graph_path=storage / "projection-generations" / "target" / "kuzu_db",
+            runtime_fencing_token=1,
+            previous_generation_id="legacy",
+        )
+    )
+    with StorageWriterLock.acquire(storage, owner="rebuild-recovery") as writer_lock:
+        recovered = await resume_cutover_preparation(
+            trusted_root=trusted,
+            storage_root=storage,
+            work_root=work,
+            operation=ready_operation,
+            generations=generations,  # type: ignore[arg-type]
+            writer_lock=writer_lock,
+        )
+    assert recovered.target_generation_id == result.target_generation_id
+    assert recovered.runtime_fencing_token == 1
 
     manifest_path = result.backup_root / MANIFEST_NAME
     original_manifest = manifest_path.read_text(encoding="utf-8")

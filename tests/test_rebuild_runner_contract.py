@@ -300,3 +300,103 @@ def test_cli_turns_safe_stop_into_retryable_checkpointed_exit(
     )
     with StorageWriterLock.acquire(storage, owner="post-interrupt-check"):
         pass
+
+
+def test_cli_resumes_ready_cutover_without_replaying_projections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted, storage, work = _roots(tmp_path)
+    (storage / "mesa.db").touch()
+    monkeypatch.setattr(runner.config, "v4_rebuild_enabled", True)
+    ready = {
+        "operation_id": _OPERATION_ID,
+        "state": "READY_TO_CUTOVER",
+        "claimed_by": f"v4-rebuild-{runner.os.getpid()}",
+        "claim_token": "claim-b",
+        "fencing_token": 2,
+        "progress_completed": 4,
+        "progress_total": 4,
+        "checkpoint": {"phase": "READY_TO_CUTOVER"},
+    }
+    completed = {**ready, "state": "COMPLETED"}
+    preparation = RebuildPreparation(
+        operation=ready,
+        generation={"generation_id": f"rebuild-{_OPERATION_ID}"},
+        backup_root=work / _OPERATION_ID / "backup",
+        backup_manifest_hash="a" * 64,
+        source_manifest={"canonical_sha256": "b" * 64},
+        source_manifest_hash="c" * 64,
+        source_generation_id="legacy",
+        target_generation_id=f"rebuild-{_OPERATION_ID}",
+        runtime_fencing_token=1,
+    )
+    cutover = RebuildCutoverResult(
+        operation=completed,
+        parity=MagicMock(),
+        active_generation_id=preparation.target_generation_id,
+        retained_generation_id="legacy",
+    )
+
+    class FakeEngine:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def initialize(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+    class FakeActivator:
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        async def activate(self, **_kwargs: object) -> RebuildCutoverResult:
+            return cutover
+
+    operations = SimpleNamespace(
+        get=AsyncMock(return_value=ready),
+        claim=AsyncMock(return_value=ready),
+    )
+    generations = SimpleNamespace()
+    resume = AsyncMock(return_value=preparation)
+    preparer = MagicMock()
+    replayer = MagicMock()
+    monkeypatch.setattr(runner, "AsyncEngine", FakeEngine)
+    monkeypatch.setattr(runner, "OperationRepository", lambda _engine: operations)
+    monkeypatch.setattr(
+        runner, "ProjectionGenerationRepository", lambda _engine: generations
+    )
+    monkeypatch.setattr(runner, "resume_cutover_preparation", resume)
+    monkeypatch.setattr(runner, "OfflineRebuildPreparer", preparer)
+    monkeypatch.setattr(runner, "ProjectionReplayer", replayer)
+    monkeypatch.setattr(
+        runner,
+        "ProjectionSnapshot",
+        lambda _path: SimpleNamespace(
+            counts=lambda: {
+                "vector": 1,
+                "graph_entity": 1,
+                "graph_assertion": 1,
+                "graph_link": 1,
+            }
+        ),
+    )
+    monkeypatch.setattr(runner, "ParityGatedActivator", FakeActivator)
+    monkeypatch.setattr(
+        runner,
+        "_provider_runtime",
+        lambda: runner.RebuildProviderRuntime(
+            manifest={}, embedding_provider=None, allow_model_loading=False
+        ),
+    )
+
+    exit_code = runner.main(_arguments(trusted, storage, work))
+
+    assert exit_code == runner.EXIT_OK
+    resume.assert_awaited_once()
+    preparer.assert_not_called()
+    replayer.assert_not_called()
+    with StorageWriterLock.acquire(storage, owner="post-cutover-recovery-check"):
+        pass

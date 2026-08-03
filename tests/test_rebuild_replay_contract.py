@@ -478,7 +478,15 @@ async def test_parity_gated_activation_completes_and_retains_previous_generation
             }
         ),
         rollback=AsyncMock(),
-        resolve_active=AsyncMock(),
+        resolve_active=AsyncMock(
+            return_value=ProjectionPaths(
+                generation_id="legacy",
+                vector_path=storage / "vector.lance",
+                graph_path=storage / "kuzu_db",
+                runtime_fencing_token=0,
+                previous_generation_id=None,
+            )
+        ),
     )
     verifier = SimpleNamespace(
         verify=AsyncMock(side_effect=[_parity_report(), _parity_report()])
@@ -560,7 +568,18 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
         rollback=AsyncMock(
             return_value={"active_generation_id": "legacy", "fencing_token": 2}
         ),
-        resolve_active=AsyncMock(return_value=retained_paths),
+        resolve_active=AsyncMock(
+            side_effect=[
+                ProjectionPaths(
+                    generation_id="legacy",
+                    vector_path=storage / "vector.lance",
+                    graph_path=storage / "kuzu_db",
+                    runtime_fencing_token=0,
+                    previous_generation_id=None,
+                ),
+                retained_paths,
+            ]
+        ),
     )
     verifier = SimpleNamespace(
         verify=AsyncMock(
@@ -600,11 +619,91 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
 
     generations.activate.assert_awaited_once()
     generations.rollback.assert_awaited_once()
-    generations.resolve_active.assert_awaited_once()
+    assert generations.resolve_active.await_count == 2
     assert operations.transition.await_args.kwargs["error_class"] == (
         "PostCutoverVerificationFailed"
     )
     assert operations.transition.await_args.kwargs["checkpoint"]["rollback_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_crash_recovery_verifies_existing_pointer_without_reactivation(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    original = _preparation(tmp_path, database)
+    ready_operation = {
+        **original.operation,
+        "state": "READY_TO_CUTOVER",
+        "progress_completed": 6,
+        "progress_total": 6,
+        "checkpoint": {"phase": "READY_TO_CUTOVER"},
+    }
+    preparation = replace(original, operation=ready_operation)
+    completed_operation = {**ready_operation, "state": "COMPLETED"}
+    operations = SimpleNamespace(
+        renew=AsyncMock(return_value=ready_operation),
+        transition=AsyncMock(side_effect=[ready_operation, completed_operation]),
+    )
+    generations = SimpleNamespace(
+        resolve_active=AsyncMock(
+            return_value=ProjectionPaths(
+                generation_id=preparation.target_generation_id,
+                vector_path=(
+                    storage
+                    / "projection-generations"
+                    / preparation.target_generation_id
+                    / "vector.lance"
+                ),
+                graph_path=(
+                    storage
+                    / "projection-generations"
+                    / preparation.target_generation_id
+                    / "kuzu_db"
+                ),
+                runtime_fencing_token=1,
+                previous_generation_id="legacy",
+            )
+        ),
+        activate=AsyncMock(),
+        rollback=AsyncMock(),
+    )
+    verifier = SimpleNamespace(
+        verify=AsyncMock(side_effect=[_parity_report(), _parity_report()])
+    )
+    replay = RebuildReplayResult(
+        operation=ready_operation,
+        counts={
+            "vector": 1,
+            "graph_entity": 2,
+            "graph_assertion": 2,
+            "graph_link": 1,
+        },
+        completed=6,
+        total=6,
+    )
+
+    result = await ParityGatedActivator(
+        operations,
+        generations,
+        verifier,  # type: ignore[arg-type]
+    ).activate(
+        preparation=preparation,
+        replay=replay,
+        trusted_root=trusted,
+        storage_root=storage,
+        runner_id="runner-a",
+        vector_factory=lambda _path: None,  # type: ignore[return-value]
+        graph_factory=lambda _path: None,  # type: ignore[return-value]
+    )
+
+    assert result.operation["state"] == "COMPLETED"
+    generations.activate.assert_not_awaited()
+    generations.rollback.assert_not_awaited()
+    assert verifier.verify.await_count == 2
 
 
 class _RecordingOperations:

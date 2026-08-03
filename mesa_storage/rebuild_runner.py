@@ -22,10 +22,16 @@ from mesa_storage.rebuild_cutover import (
     default_vector_verification_factory,
 )
 from mesa_storage.rebuild_observability import log_rebuild_event
-from mesa_storage.rebuild_preparation import OfflineRebuildPreparer
+from mesa_storage.rebuild_preparation import (
+    OfflineRebuildPreparer,
+    RebuildPreparationError,
+    resume_cutover_preparation,
+)
 from mesa_storage.rebuild_replay import (
     ProjectionReplayer,
+    ProjectionSnapshot,
     RebuildInterruptedError,
+    RebuildReplayResult,
 )
 from mesa_storage.repositories.operations import (
     OperationFencedError,
@@ -202,33 +208,58 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             progress_total=int(claimed["progress_total"]),
         )
         providers = _provider_runtime()
-        preparation = await OfflineRebuildPreparer(operations, generations).prepare(
-            trusted_root=args.trusted_root,
-            storage_root=args.storage_root,
-            work_root=args.work_root,
-            operation=claimed,
-            runner_id=runner_id,
-            writer_lock=writer_lock,
-            provider_manifest=providers.manifest,
-        )
+        recovering_cutover = claimed["state"] == "READY_TO_CUTOVER"
+        if recovering_cutover:
+            preparation = await resume_cutover_preparation(
+                trusted_root=args.trusted_root,
+                storage_root=args.storage_root,
+                work_root=args.work_root,
+                operation=claimed,
+                generations=generations,
+                writer_lock=writer_lock,
+            )
+        else:
+            preparation = await OfflineRebuildPreparer(operations, generations).prepare(
+                trusted_root=args.trusted_root,
+                storage_root=args.storage_root,
+                work_root=args.work_root,
+                operation=claimed,
+                runner_id=runner_id,
+                writer_lock=writer_lock,
+                provider_manifest=providers.manifest,
+            )
         log_rebuild_event(
             "prepared",
             operation_id=args.operation_id,
             state=str(preparation.operation["state"]),
             generation=preparation.target_generation_id,
         )
-        replay = await ProjectionReplayer(operations).replay(
-            preparation=preparation,
-            trusted_root=args.trusted_root,
-            storage_root=args.storage_root,
-            runner_id=runner_id,
-            provider_manifest=providers.manifest,
-            batch_size=args.batch_size,
-            lease_seconds=args.lease_seconds,
-            embedding_provider=providers.embedding_provider,
-            allow_model_loading=providers.allow_model_loading,
-            should_stop=stop_requested.is_set,
-        )
+        if recovering_cutover:
+            counts = ProjectionSnapshot(preparation.backup_root / "mesa.db").counts()
+            total = sum(counts.values())
+            if total != int(claimed["progress_total"]):
+                raise RebuildPreparationError(
+                    "cutover replay total does not match the durable snapshot"
+                )
+            replay = RebuildReplayResult(
+                operation=claimed,
+                counts=counts,
+                completed=total,
+                total=total,
+            )
+        else:
+            replay = await ProjectionReplayer(operations).replay(
+                preparation=preparation,
+                trusted_root=args.trusted_root,
+                storage_root=args.storage_root,
+                runner_id=runner_id,
+                provider_manifest=providers.manifest,
+                batch_size=args.batch_size,
+                lease_seconds=args.lease_seconds,
+                embedding_provider=providers.embedding_provider,
+                allow_model_loading=providers.allow_model_loading,
+                should_stop=stop_requested.is_set,
+            )
         log_rebuild_event(
             "replayed",
             operation_id=args.operation_id,

@@ -361,15 +361,34 @@ class ParityGatedActivator:
             progress_total=replay.total,
             checkpoint=checkpoint,
         )
-        activated = await self._generations.activate(
-            preparation.target_generation_id,
-            operation_id=operation_id,
-            runner_id=runner_id,
-            claim_token=claim_token,
-            operation_fencing_token=fencing_token,
-            expected_active_generation_id=preparation.source_generation_id,
-            runtime_fencing_token=preparation.runtime_fencing_token,
+        runtime = await self._generations.resolve_active(
+            storage_root=storage_root,
+            trusted_root=trusted_root,
         )
+        if runtime.generation_id == preparation.source_generation_id:
+            if runtime.previous_generation_id is not None:
+                raise RebuildVerificationError(
+                    "source generation pointer is not cutover-ready"
+                )
+            activated = await self._generations.activate(
+                preparation.target_generation_id,
+                operation_id=operation_id,
+                runner_id=runner_id,
+                claim_token=claim_token,
+                operation_fencing_token=fencing_token,
+                expected_active_generation_id=preparation.source_generation_id,
+                runtime_fencing_token=runtime.runtime_fencing_token,
+            )
+            activated_fencing_token = int(activated["fencing_token"])
+        elif (
+            runtime.generation_id == preparation.target_generation_id
+            and runtime.previous_generation_id == preparation.source_generation_id
+        ):
+            activated_fencing_token = runtime.runtime_fencing_token
+        else:
+            raise RebuildVerificationError(
+                "runtime pointer is outside the recoverable cutover pair"
+            )
         try:
             post_cutover = await self._verifier.verify(
                 snapshot=snapshot,
@@ -377,7 +396,7 @@ class ParityGatedActivator:
                     generation_id=preparation.target_generation_id,
                     vector_path=paths.vector_path,
                     graph_path=paths.graph_path,
-                    runtime_fencing_token=int(activated["fencing_token"]),
+                    runtime_fencing_token=activated_fencing_token,
                     previous_generation_id=preparation.source_generation_id,
                 ),
                 vector_factory=vector_factory,
@@ -392,7 +411,7 @@ class ParityGatedActivator:
                 claim_token=claim_token,
                 operation_fencing_token=fencing_token,
                 expected_active_generation_id=preparation.target_generation_id,
-                runtime_fencing_token=int(activated["fencing_token"]),
+                runtime_fencing_token=activated_fencing_token,
             )
             retained_paths = await self._generations.resolve_active(
                 storage_root=storage_root, trusted_root=trusted_root
