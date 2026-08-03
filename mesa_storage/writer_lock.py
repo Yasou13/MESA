@@ -19,8 +19,9 @@ class StorageWriterLockError(RuntimeError):
 class StorageWriterLock:
     """An exclusive, host-local ownership lease held by an open file descriptor."""
 
-    def __init__(self, handle: TextIO) -> None:
+    def __init__(self, handle: TextIO, storage_root: Path) -> None:
         self._handle = handle
+        self._storage_root = storage_root
 
     @classmethod
     def acquire(cls, storage_root: Path, *, owner: str) -> "StorageWriterLock":
@@ -65,7 +66,11 @@ class StorageWriterLock:
             raise StorageWriterLockError(
                 "storage writer ownership could not be recorded"
             ) from exc
-        return cls(handle)
+        return cls(handle, storage_root.resolve(strict=True))
+
+    @property
+    def storage_root(self) -> Path:
+        return self._storage_root
 
     @property
     def released(self) -> bool:
