@@ -11,6 +11,17 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
+from mesa_storage.projection_generations import (
+    ProjectionPaths,
+    resolve_projection_generation_paths,
+)
+from mesa_storage.rebuild_cutover import (
+    ParityGatedActivator,
+    ProjectionParityError,
+    ProjectionParityReport,
+    ProjectionParityVerifier,
+    RebuildVerificationError,
+)
 from mesa_storage.rebuild_preparation import (
     RebuildPreparation,
     canonical_sqlite_manifest,
@@ -18,6 +29,8 @@ from mesa_storage.rebuild_preparation import (
 from mesa_storage.rebuild_replay import (
     EmbeddingProviderConflictError,
     ProjectionReplayer,
+    ProjectionSnapshot,
+    RebuildReplayResult,
 )
 
 _OPERATION_ID = "11111111-2222-4333-8444-555555555555"
@@ -130,6 +143,36 @@ class _VectorTarget:
     async def close(self) -> None:
         self.closed = True
 
+    async def health_check(self) -> dict:
+        return {"status": "healthy"}
+
+    async def count_records(self, active_only: bool = True) -> dict[str, int]:
+        return {"mesa_vectors_3": len(self.records)}
+
+    async def get_existing_node_ids(
+        self, agent_id: str, node_ids: list[str]
+    ) -> set[str]:
+        requested = set(node_ids)
+        return {
+            str(record["node_id"])
+            for record in self.records
+            if record["agent_id"] == agent_id and record["node_id"] in requested
+        }
+
+    async def search(
+        self,
+        _query_vector: list[float],
+        *,
+        limit: int = 10,
+        agent_id: str | None = None,
+        include_expired: bool = False,
+    ) -> list[dict]:
+        return [
+            {"node_id": record["node_id"]}
+            for record in self.records
+            if agent_id is None or record["agent_id"] == agent_id
+        ][:limit]
+
 
 class _GraphTarget:
     def __init__(self, path: Path) -> None:
@@ -154,6 +197,34 @@ class _GraphTarget:
 
     async def close(self) -> None:
         self.closed = True
+
+    async def health_check(self) -> dict:
+        return {"status": "healthy"}
+
+    async def execute_query(
+        self, query: str, parameters: dict | None = None
+    ) -> list[tuple]:
+        if "COUNT(n)" in query and "n:Entity" in query:
+            return [(len(self.nodes),)]
+        if "COUNT(n)" in query and "n:Assertion" in query:
+            return [(len(self.assertions),)]
+        if "COUNT(r)" in query:
+            return [(len(self.links),)]
+        identifiers = set((parameters or {}).get("ids", []))
+        agent_id = (parameters or {}).get("agent_id")
+        if "n:Entity" in query:
+            return [
+                (node_id,)
+                for node_id, _name, agent in self.nodes
+                if agent == agent_id and node_id in identifiers
+            ]
+        if "n:Assertion" in query:
+            return [
+                (item["assertion_id"],)
+                for item in self.assertions
+                if item["agent_id"] == agent_id and item["assertion_id"] in identifiers
+            ]
+        return []
 
 
 def _preparation(tmp_path: Path, database: Path) -> RebuildPreparation:
@@ -288,3 +359,241 @@ async def test_replay_fails_closed_before_opening_stores_on_provider_conflict(
         )
 
     vector_factory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bounded_parity_checks_counts_ids_health_and_retrieval_smoke(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    paths = resolve_projection_generation_paths(
+        preparation.generation,
+        storage_root=storage,
+        trusted_root=trusted,
+        runtime_fencing_token=0,
+    )
+    vector = _VectorTarget(paths.vector_path)
+    vector.records = [
+        {
+            "node_id": "entity-1",
+            "agent_id": "agent-a",
+            "embedding": [5.0, 0.5, 1.0],
+        }
+    ]
+    graph = _GraphTarget(paths.graph_path)
+    graph.nodes = [
+        ("entity-1", "Alpha", "agent-a"),
+        ("entity-2", "Beta", "agent-a"),
+    ]
+    graph.assertions = [
+        {"assertion_id": "assertion-1", "agent_id": "agent-a"},
+        {"assertion_id": "assertion-2", "agent_id": "agent-a"},
+    ]
+    graph.links = [{"relation_type": "SUPERSEDES"}]
+    verifier = ProjectionParityVerifier()
+
+    report = await verifier.verify(
+        snapshot=ProjectionSnapshot(database),
+        paths=paths,
+        vector_factory=lambda _path: vector,
+        graph_factory=lambda _path: graph,
+        parity_limit=10,
+        smoke_limit=10,
+    )
+
+    assert report.passed is True
+    assert report.smoke_checked == 1
+    vector.records.append(
+        {
+            "node_id": "orphan",
+            "agent_id": "agent-a",
+            "embedding": [1.0, 0.0, 0.0],
+        }
+    )
+    with pytest.raises(ProjectionParityError) as failure:
+        await verifier.verify(
+            snapshot=ProjectionSnapshot(database),
+            paths=paths,
+            vector_factory=lambda _path: vector,
+            graph_factory=lambda _path: graph,
+        )
+    assert failure.value.report.orphans == 1
+
+
+def _parity_report() -> ProjectionParityReport:
+    return ProjectionParityReport(
+        expected_vector=1,
+        expected_graph_entities=2,
+        expected_graph_assertions=2,
+        expected_graph_links=1,
+        actual_vector=1,
+        actual_graph_entities=2,
+        actual_graph_assertions=2,
+        actual_graph_links=1,
+        missing=0,
+        orphans=0,
+        smoke_checked=1,
+        cross_dataset_checked=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_parity_gated_activation_completes_and_retains_previous_generation(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    verifying_operation = {
+        **preparation.operation,
+        "state": "VERIFYING",
+        "progress_completed": 6,
+        "progress_total": 6,
+    }
+    ready_operation = {**verifying_operation, "state": "READY_TO_CUTOVER"}
+    completed_operation = {**ready_operation, "state": "COMPLETED"}
+    operations = SimpleNamespace(
+        renew=AsyncMock(return_value=verifying_operation),
+        transition=AsyncMock(side_effect=[ready_operation, completed_operation]),
+    )
+    generations = SimpleNamespace(
+        activate=AsyncMock(
+            return_value={
+                "active_generation_id": preparation.target_generation_id,
+                "previous_generation_id": "legacy",
+                "fencing_token": 1,
+            }
+        ),
+        rollback=AsyncMock(),
+        resolve_active=AsyncMock(),
+    )
+    verifier = SimpleNamespace(
+        verify=AsyncMock(side_effect=[_parity_report(), _parity_report()])
+    )
+    replay = RebuildReplayResult(
+        operation=verifying_operation,
+        counts={
+            "vector": 1,
+            "graph_entity": 2,
+            "graph_assertion": 2,
+            "graph_link": 1,
+        },
+        completed=6,
+        total=6,
+    )
+
+    result = await ParityGatedActivator(
+        operations,
+        generations,
+        verifier,  # type: ignore[arg-type]
+    ).activate(
+        preparation=preparation,
+        replay=replay,
+        trusted_root=trusted,
+        storage_root=storage,
+        runner_id="runner-a",
+        vector_factory=lambda _path: None,  # type: ignore[return-value]
+        graph_factory=lambda _path: None,  # type: ignore[return-value]
+    )
+
+    assert result.operation["state"] == "COMPLETED"
+    assert result.active_generation_id == preparation.target_generation_id
+    assert result.retained_generation_id == "legacy"
+    generations.activate.assert_awaited_once()
+    generations.rollback.assert_not_awaited()
+    assert operations.transition.await_args.kwargs["to_state"] == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_generation(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    verifying_operation = {
+        **preparation.operation,
+        "state": "VERIFYING",
+        "progress_completed": 6,
+        "progress_total": 6,
+    }
+    ready_operation = {**verifying_operation, "state": "READY_TO_CUTOVER"}
+    operations = SimpleNamespace(
+        renew=AsyncMock(return_value=verifying_operation),
+        transition=AsyncMock(
+            side_effect=[
+                ready_operation,
+                {**ready_operation, "state": "RETRYABLE_FAILED"},
+            ]
+        ),
+    )
+    retained_paths = ProjectionPaths(
+        generation_id="legacy",
+        vector_path=storage / "vector.lance",
+        graph_path=storage / "kuzu_db",
+        runtime_fencing_token=2,
+        previous_generation_id=None,
+    )
+    generations = SimpleNamespace(
+        activate=AsyncMock(
+            return_value={
+                "active_generation_id": preparation.target_generation_id,
+                "previous_generation_id": "legacy",
+                "fencing_token": 1,
+            }
+        ),
+        rollback=AsyncMock(
+            return_value={"active_generation_id": "legacy", "fencing_token": 2}
+        ),
+        resolve_active=AsyncMock(return_value=retained_paths),
+    )
+    verifier = SimpleNamespace(
+        verify=AsyncMock(
+            side_effect=[
+                _parity_report(),
+                RebuildVerificationError("post-cutover probe failed"),
+                _parity_report(),
+            ]
+        )
+    )
+    replay = RebuildReplayResult(
+        operation=verifying_operation,
+        counts={
+            "vector": 1,
+            "graph_entity": 2,
+            "graph_assertion": 2,
+            "graph_link": 1,
+        },
+        completed=6,
+        total=6,
+    )
+
+    with pytest.raises(RebuildVerificationError, match="rolled back"):
+        await ParityGatedActivator(
+            operations,
+            generations,
+            verifier,  # type: ignore[arg-type]
+        ).activate(
+            preparation=preparation,
+            replay=replay,
+            trusted_root=trusted,
+            storage_root=storage,
+            runner_id="runner-a",
+            vector_factory=lambda _path: None,  # type: ignore[return-value]
+            graph_factory=lambda _path: None,  # type: ignore[return-value]
+        )
+
+    generations.activate.assert_awaited_once()
+    generations.rollback.assert_awaited_once()
+    generations.resolve_active.assert_awaited_once()
+    assert operations.transition.await_args.kwargs["error_class"] == (
+        "PostCutoverVerificationFailed"
+    )

@@ -308,6 +308,70 @@ class ProjectionSnapshot:
         finally:
             connection.close()
 
+    def vector_smoke_cases(self, *, limit: int) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 100:
+            raise ValueError("invalid retrieval smoke limit")
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT DISTINCT r.tenant_id, r.agent_id, s.dataset_id,
+                                r.physical_artifact_id AS entity_id,
+                                e.canonical_name
+                FROM artifact_registry r
+                JOIN artifact_sources s ON s.registry_id = r.registry_id
+                                       AND s.state = 'ACTIVE'
+                JOIN v4_entities e ON e.entity_id = r.physical_artifact_id
+                                  AND e.tenant_id = r.tenant_id
+                WHERE {_ACTIVE_OWNERSHIP}
+                  AND r.store_name = 'VECTOR'
+                  AND r.artifact_kind = 'ENTITY_VECTOR'
+                  AND s.dataset_id IS NOT NULL
+                ORDER BY r.tenant_id, r.agent_id, s.dataset_id,
+                         r.physical_artifact_id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            connection.close()
+
+    def allowed_vector_ids(self, *, agent_id: str, dataset_id: str) -> set[str]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT DISTINCT r.physical_artifact_id
+                FROM artifact_registry r
+                JOIN artifact_sources s ON s.registry_id = r.registry_id
+                                       AND s.state = 'ACTIVE'
+                WHERE {_ACTIVE_OWNERSHIP}
+                  AND r.store_name = 'VECTOR'
+                  AND r.artifact_kind = 'ENTITY_VECTOR'
+                  AND r.agent_id = ? AND s.dataset_id = ?
+                """,
+                (agent_id, dataset_id),
+            ).fetchall()
+            return {str(row[0]) for row in rows}
+        finally:
+            connection.close()
+
+    def dataset_ids(self, *, tenant_id: str, agent_id: str) -> list[str]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT DISTINCT s.dataset_id FROM artifact_sources s "
+                "JOIN artifact_registry r ON r.registry_id = s.registry_id "
+                "WHERE r.tenant_id = ? AND r.agent_id = ? "
+                "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
+                "AND s.dataset_id IS NOT NULL ORDER BY s.dataset_id",
+                (tenant_id, agent_id),
+            ).fetchall()
+            return [str(row[0]) for row in rows]
+        finally:
+            connection.close()
+
 
 def _expected_provider_signature(
     provider_manifest: dict[str, Any],
@@ -417,18 +481,17 @@ class ProjectionReplayer:
             if graph_factory is not None
             else KuzuGraphProvider(str(paths.graph_path))
         )
-        if Path(vector.uri).resolve(strict=False) != paths.vector_path:
-            raise RebuildReplayError("vector target does not match staging generation")
-        if Path(graph.db_path).resolve(strict=False) != paths.graph_path:
-            raise RebuildReplayError("graph target does not match staging generation")
-
-        vector_initialized = False
-        graph_initialized = False
         try:
+            if Path(vector.uri).resolve(strict=False) != paths.vector_path:
+                raise RebuildReplayError(
+                    "vector target does not match staging generation"
+                )
+            if Path(graph.db_path).resolve(strict=False) != paths.graph_path:
+                raise RebuildReplayError(
+                    "graph target does not match staging generation"
+                )
             await vector.initialize()
-            vector_initialized = True
             await graph.initialize()
-            graph_initialized = True
             for lane in _LANES:
                 while offsets[lane] < counts[lane]:
                     operation = await self._operations.renew(
@@ -474,10 +537,8 @@ class ProjectionReplayer:
                 checkpoint=checkpoint,
             )
         finally:
-            if graph_initialized:
-                await graph.close()
-            if vector_initialized:
-                await vector.close()
+            await graph.close()
+            await vector.close()
         return RebuildReplayResult(
             operation=operation,
             counts=counts,
