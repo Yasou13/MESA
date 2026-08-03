@@ -16,6 +16,7 @@ from mesa_memory import worker_runtime
 from mesa_memory.config import RuntimeProfile, RuntimeProfileConfig
 from mesa_memory.container_health import worker_is_ready
 from mesa_memory.worker_runtime import _recover_once
+from mesa_storage.projection_generations import ProjectionPaths
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -69,6 +70,17 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
     )
     engine = SimpleNamespace(initialize=AsyncMock(), close=AsyncMock())
     vector_engine = SimpleNamespace(initialize=AsyncMock(), close=AsyncMock())
+    projection_repository = SimpleNamespace(
+        resolve_active=AsyncMock(
+            return_value=ProjectionPaths(
+                generation_id="legacy",
+                vector_path=tmp_path / "vector.lance",
+                graph_path=tmp_path / "kuzu_db",
+                runtime_fencing_token=0,
+                previous_generation_id=None,
+            )
+        )
+    )
     dao = SimpleNamespace(initialize=AsyncMock())
     supervisor = SimpleNamespace(
         start=AsyncMock(),
@@ -100,6 +112,11 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
         worker_runtime, "initialize_schema", AsyncMock(return_value=None)
     )
     monkeypatch.setattr(
+        worker_runtime,
+        "ProjectionGenerationRepository",
+        lambda _engine: projection_repository,
+    )
+    monkeypatch.setattr(
         worker_runtime, "VectorEngine", lambda *_args, **_kwargs: vector_engine
     )
     monkeypatch.setattr(worker_runtime, "MemoryDAO", lambda *_args, **_kwargs: dao)
@@ -120,6 +137,10 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
     supervisor.shutdown.assert_awaited_once()
     engine.close.assert_awaited_once()
     vector_engine.close.assert_awaited_once()
+    projection_repository.resolve_active.assert_awaited_once_with(
+        storage_root=tmp_path,
+        trusted_root=tmp_path,
+    )
     writer_lock.release.assert_called_once()
     assert [call.args[1]["status"] for call in readiness.call_args_list] == [
         "RUNNING",

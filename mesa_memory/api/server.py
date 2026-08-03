@@ -45,6 +45,10 @@ from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.projection_generations import (
+    ProjectionGenerationRepository,
+    ProjectionPaths,
+)
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -182,9 +186,15 @@ def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
     global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH, _KUZU_PATH, _VALENCE_PATH
     _STORAGE_BASE = runtime.storage_root
     _SQLITE_PATH = _STORAGE_BASE / "mesa.db"
-    _VECTOR_PATH = _STORAGE_BASE / "vector.lance"
-    _KUZU_PATH = _STORAGE_BASE / "kuzu_db"
+    _VECTOR_PATH = None
+    _KUZU_PATH = None
     _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
+
+
+def _configure_projection_paths(paths: ProjectionPaths) -> None:
+    global _VECTOR_PATH, _KUZU_PATH
+    _VECTOR_PATH = paths.vector_path
+    _KUZU_PATH = paths.graph_path
 
 
 def _acquire_runtime_writer_lock(
@@ -315,6 +325,13 @@ async def lifespan(app: FastAPI):
 
     # Schema DDL — single source of truth (B-1 fix)
     await initialize_schema(state.sqlite_engine)
+    generation_repository = ProjectionGenerationRepository(state.sqlite_engine)
+    projection_paths = await generation_repository.resolve_active(
+        storage_root=runtime.storage_root,
+        trusted_root=runtime.storage_root,
+    )
+    _configure_projection_paths(projection_paths)
+    state.projection_generation_id = projection_paths.generation_id  # type: ignore[attr-defined]
 
     embedding_provider = None
     if runtime.external_provider_enabled:

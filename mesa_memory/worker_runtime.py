@@ -25,6 +25,7 @@ from mesa_memory.config import (
     load_runtime_profile,
 )
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -170,8 +171,12 @@ async def run_worker_only() -> None:
     engine = AsyncEngine(str(runtime.storage_root / "mesa.db"), max_connections=2)
     await engine.initialize()
     await initialize_schema(engine)
+    projection_paths = await ProjectionGenerationRepository(engine).resolve_active(
+        storage_root=runtime.storage_root,
+        trusted_root=runtime.storage_root,
+    )
     vector_engine = VectorEngine(
-        str(runtime.storage_root / "vector.lance"),
+        str(projection_paths.vector_path),
         allow_model_loading=runtime.model_enabled,
     )
     await vector_engine.initialize()
