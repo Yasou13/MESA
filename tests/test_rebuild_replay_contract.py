@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -30,6 +31,7 @@ from mesa_storage.rebuild_replay import (
     EmbeddingProviderConflictError,
     ProjectionReplayer,
     ProjectionSnapshot,
+    RebuildInterruptedError,
     RebuildReplayResult,
 )
 
@@ -603,3 +605,215 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
         "PostCutoverVerificationFailed"
     )
     assert operations.transition.await_args.kwargs["checkpoint"]["rollback_count"] == 1
+
+
+class _RecordingOperations:
+    def __init__(self, operation: dict) -> None:
+        self.current = dict(operation)
+        self.transitions: list[dict] = []
+
+    async def renew(self, *_args: object, **_kwargs: object) -> dict:
+        return dict(self.current)
+
+    async def transition(self, *_args: object, **kwargs: object) -> dict:
+        self.current = {
+            **self.current,
+            "state": kwargs["to_state"],
+            "progress_completed": kwargs.get(
+                "progress_completed", self.current["progress_completed"]
+            ),
+            "progress_total": kwargs.get(
+                "progress_total", self.current["progress_total"]
+            ),
+            "checkpoint": dict(kwargs.get("checkpoint") or {}),
+        }
+        self.transitions.append(dict(kwargs))
+        return dict(self.current)
+
+
+def _add_second_vector(database: Path) -> None:
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
+        "dataset_id, store_name, artifact_kind, physical_artifact_id, state) "
+        "VALUES ('vector-2', 'tenant-a', 'agent-a', 'dataset-a', 'VECTOR', "
+        "'ENTITY_VECTOR', 'entity-2', 'ACTIVE')"
+    )
+    connection.execute(
+        "INSERT INTO artifact_sources (source_ownership_id, registry_id, "
+        "mutation_id, pipeline_run_id, dataset_id, source_ref, state) "
+        "VALUES ('source-vector-2', 'vector-2', 'mutation-2', 'pipeline-2', "
+        "'dataset-a', 'source-a', 'ACTIVE')"
+    )
+    connection.commit()
+    connection.close()
+
+
+@pytest.mark.asyncio
+async def test_vector_crash_keeps_only_the_last_completed_batch_checkpoint(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    _add_second_vector(database)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    operations = _RecordingOperations(preparation.operation)
+
+    class CrashingVector(_VectorTarget):
+        async def bulk_upsert(self, records: list[dict]) -> int:
+            if self.records:
+                raise RuntimeError("injected vector crash")
+            return await super().bulk_upsert(records)
+
+    vector: CrashingVector | None = None
+    graph: _GraphTarget | None = None
+
+    def vector_factory(path: Path) -> CrashingVector:
+        nonlocal vector
+        vector = CrashingVector(path)
+        return vector
+
+    def graph_factory(path: Path) -> _GraphTarget:
+        nonlocal graph
+        graph = _GraphTarget(path)
+        return graph
+
+    with pytest.raises(RuntimeError, match="vector crash"):
+        await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
+            preparation=preparation,
+            trusted_root=trusted,
+            storage_root=storage,
+            runner_id="runner-a",
+            provider_manifest={
+                "embedding_model": "embed-model",
+                "embedding_version": "v1",
+                "dimension": 3,
+            },
+            batch_size=1,
+            vector_factory=vector_factory,
+            graph_factory=graph_factory,
+        )
+
+    assert operations.current["progress_completed"] == 1
+    assert operations.current["checkpoint"]["replay"] == {
+        "vector": 1,
+        "graph_entity": 0,
+        "graph_assertion": 0,
+        "graph_link": 0,
+    }
+    assert vector is not None and vector.closed is True
+    assert graph is not None and graph.closed is True
+
+
+@pytest.mark.asyncio
+async def test_graph_crash_does_not_advance_the_failed_graph_batch(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    operations = _RecordingOperations(preparation.operation)
+    paths = resolve_projection_generation_paths(
+        preparation.generation,
+        storage_root=storage,
+        trusted_root=trusted,
+        runtime_fencing_token=0,
+    )
+
+    class CrashingGraph(_GraphTarget):
+        async def insert_node(self, node_id: str, name: str, agent_id: str) -> None:
+            if self.nodes:
+                raise RuntimeError("injected graph crash")
+            await super().insert_node(node_id, name, agent_id)
+
+    vector = _VectorTarget(paths.vector_path)
+    graph = CrashingGraph(paths.graph_path)
+    with pytest.raises(RuntimeError, match="graph crash"):
+        await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
+            preparation=preparation,
+            trusted_root=trusted,
+            storage_root=storage,
+            runner_id="runner-a",
+            provider_manifest={
+                "embedding_model": "embed-model",
+                "embedding_version": "v1",
+                "dimension": 3,
+            },
+            batch_size=1,
+            vector_factory=lambda _path: vector,
+            graph_factory=lambda _path: graph,
+        )
+
+    assert operations.current["progress_completed"] == 2
+    assert operations.current["checkpoint"]["replay"] == {
+        "vector": 1,
+        "graph_entity": 1,
+        "graph_assertion": 0,
+        "graph_link": 0,
+    }
+    assert vector.closed is True
+    assert graph.closed is True
+
+
+@pytest.mark.asyncio
+async def test_interruption_resumes_after_the_durable_batch_without_replaying_it(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    operations = _RecordingOperations(preparation.operation)
+    paths = resolve_projection_generation_paths(
+        preparation.generation,
+        storage_root=storage,
+        trusted_root=trusted,
+        runtime_fencing_token=0,
+    )
+    vector = _VectorTarget(paths.vector_path)
+    graph = _GraphTarget(paths.graph_path)
+
+    with pytest.raises(RebuildInterruptedError, match="batch boundary"):
+        await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
+            preparation=preparation,
+            trusted_root=trusted,
+            storage_root=storage,
+            runner_id="runner-a",
+            provider_manifest={
+                "embedding_model": "embed-model",
+                "embedding_version": "v1",
+                "dimension": 3,
+            },
+            batch_size=1,
+            vector_factory=lambda _path: vector,
+            graph_factory=lambda _path: graph,
+            should_stop=lambda: operations.current["progress_completed"] == 1,
+        )
+
+    assert [record["node_id"] for record in vector.records] == ["entity-1"]
+    resumed = replace(preparation, operation=dict(operations.current))
+    result = await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
+        preparation=resumed,
+        trusted_root=trusted,
+        storage_root=storage,
+        runner_id="runner-a",
+        provider_manifest={
+            "embedding_model": "embed-model",
+            "embedding_version": "v1",
+            "dimension": 3,
+        },
+        batch_size=1,
+        vector_factory=lambda _path: vector,
+        graph_factory=lambda _path: graph,
+        should_stop=lambda: False,
+    )
+
+    assert result.completed == result.total == 6
+    assert [record["node_id"] for record in vector.records] == ["entity-1"]
+    assert [node[0] for node in graph.nodes] == ["entity-1", "entity-2"]
+    assert operations.current["state"] == "VERIFYING"

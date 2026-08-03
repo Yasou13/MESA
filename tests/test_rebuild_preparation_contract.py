@@ -18,7 +18,7 @@ from mesa_storage.rebuild_preparation import (
     RebuildPathError,
     inspect_rebuild_preflight,
 )
-from mesa_storage.recovery import validate_snapshot
+from mesa_storage.recovery import MANIFEST_NAME, RecoveryError, validate_snapshot
 from mesa_storage.writer_lock import StorageWriterLock
 
 _OPERATION_ID = "11111111-2222-4333-8444-555555555555"
@@ -107,6 +107,12 @@ def test_preflight_requires_drain_capacity_and_safe_nonoverlapping_paths(
             )
         with pytest.raises(RebuildPathError, match="overlap"):
             _inspect(trusted, storage, storage, writer_lock)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        escaped_work = trusted / "escaped-work"
+        escaped_work.symlink_to(outside, target_is_directory=True)
+        with pytest.raises(RebuildPathError, match="symlink|trusted root"):
+            _inspect(trusted, storage, escaped_work, writer_lock)
 
 
 def test_source_manifest_ignores_operation_progress_but_detects_canonical_change(
@@ -191,3 +197,40 @@ async def test_preparer_creates_valid_backup_generation_and_fenced_checkpoint(
     assert final_checkpoint["phase"] == "PREPARED"
     assert final_checkpoint["staging_bytes"] == 0
     assert "backup_root" not in final_checkpoint
+
+    manifest_path = result.backup_root / MANIFEST_NAME
+    original_manifest = manifest_path.read_text(encoding="utf-8")
+    manifest_path.write_text("{}", encoding="utf-8")
+    with StorageWriterLock.acquire(storage, owner="rebuild-resume") as writer_lock:
+        with pytest.raises(RecoveryError, match="manifest"):
+            await preparer.prepare(
+                trusted_root=trusted,
+                storage_root=storage,
+                work_root=work,
+                operation=operation,
+                runner_id="runner-a",
+                writer_lock=writer_lock,
+                provider_manifest={
+                    "embedding_provider": "local-test",
+                    "embedding_version": "v1",
+                    "dimension": 8,
+                },
+            )
+    manifest_path.write_text(original_manifest, encoding="utf-8")
+    with (result.backup_root / "mesa.db").open("ab") as database_stream:
+        database_stream.write(b"corrupt")
+    with StorageWriterLock.acquire(storage, owner="rebuild-resume") as writer_lock:
+        with pytest.raises(RecoveryError, match="hash mismatch: mesa.db"):
+            await preparer.prepare(
+                trusted_root=trusted,
+                storage_root=storage,
+                work_root=work,
+                operation=operation,
+                runner_id="runner-a",
+                writer_lock=writer_lock,
+                provider_manifest={
+                    "embedding_provider": "local-test",
+                    "embedding_version": "v1",
+                    "dimension": 8,
+                },
+            )

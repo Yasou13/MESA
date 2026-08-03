@@ -12,7 +12,7 @@ import pytest
 import mesa_storage.rebuild_runner as runner
 from mesa_storage.rebuild_cutover import RebuildCutoverResult
 from mesa_storage.rebuild_preparation import RebuildPreparation
-from mesa_storage.rebuild_replay import RebuildReplayResult
+from mesa_storage.rebuild_replay import RebuildInterruptedError, RebuildReplayResult
 from mesa_storage.writer_lock import StorageWriterLock
 
 _OPERATION_ID = "11111111-2222-4333-8444-555555555555"
@@ -202,3 +202,101 @@ def test_cli_runs_claim_prepare_replay_cutover_and_releases_lock(
 def test_package_exposes_exact_rebuild_entrypoint() -> None:
     pyproject = (Path(__file__).parents[1] / "pyproject.toml").read_text()
     assert 'mesa-v4-rebuild = "mesa_storage.rebuild_runner:main"' in pyproject
+
+
+def test_cli_turns_safe_stop_into_retryable_checkpointed_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted, storage, work = _roots(tmp_path)
+    (storage / "mesa.db").touch()
+    monkeypatch.setattr(runner.config, "v4_rebuild_enabled", True)
+    claimed = {
+        "operation_id": _OPERATION_ID,
+        "state": "CLAIMED",
+        "claimed_by": f"v4-rebuild-{runner.os.getpid()}",
+        "claim_token": "claim-a",
+        "fencing_token": 1,
+        "progress_completed": 1,
+        "progress_total": 2,
+        "checkpoint": {"phase": "REPLAYING", "replay": {"vector": 1}},
+    }
+    running = {**claimed, "state": "RUNNING"}
+    operations = SimpleNamespace(
+        get=AsyncMock(
+            side_effect=[
+                {"operation_id": _OPERATION_ID, "state": "PENDING"},
+                running,
+            ]
+        ),
+        claim=AsyncMock(return_value=claimed),
+        transition=AsyncMock(return_value={**running, "state": "RETRYABLE_FAILED"}),
+    )
+    preparation = RebuildPreparation(
+        operation=running,
+        generation={"generation_id": f"rebuild-{_OPERATION_ID}"},
+        backup_root=work / _OPERATION_ID / "backup",
+        backup_manifest_hash="a" * 64,
+        source_manifest={"canonical_sha256": "b" * 64},
+        source_manifest_hash="c" * 64,
+        source_generation_id="legacy",
+        target_generation_id=f"rebuild-{_OPERATION_ID}",
+        runtime_fencing_token=0,
+    )
+
+    class FakeEngine:
+        async def initialize(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+    class FakePreparer:
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        async def prepare(self, **_kwargs: object) -> RebuildPreparation:
+            return preparation
+
+    class InterruptedReplayer:
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        async def replay(self, **kwargs: object) -> RebuildReplayResult:
+            should_stop = kwargs["should_stop"]
+            stop_event = should_stop.__self__  # type: ignore[attr-defined,union-attr]
+            stop_event.set()
+            raise RebuildInterruptedError("safe stop at batch boundary")
+
+    monkeypatch.setattr(runner, "AsyncEngine", FakeEngine)
+    monkeypatch.setattr(runner, "OperationRepository", lambda _engine: operations)
+    monkeypatch.setattr(
+        runner, "ProjectionGenerationRepository", lambda _engine: SimpleNamespace()
+    )
+    monkeypatch.setattr(runner, "OfflineRebuildPreparer", FakePreparer)
+    monkeypatch.setattr(runner, "ProjectionReplayer", InterruptedReplayer)
+    monkeypatch.setattr(
+        runner,
+        "_provider_runtime",
+        lambda: runner.RebuildProviderRuntime(
+            manifest={}, embedding_provider=None, allow_model_loading=False
+        ),
+    )
+
+    exit_code = runner.main(_arguments(trusted, storage, work))
+
+    assert exit_code == runner.EXIT_RETRYABLE
+    operations.transition.assert_awaited_once()
+    assert operations.transition.await_args.kwargs["to_state"] == "RETRYABLE_FAILED"
+    assert operations.transition.await_args.kwargs["checkpoint"] == {
+        "phase": "RETRYABLE_FAILED",
+        "replay": {"vector": 1},
+    }
+    assert operations.transition.await_args.kwargs["error_class"] == (
+        "RebuildInterruptedError"
+    )
+    with StorageWriterLock.acquire(storage, owner="post-interrupt-check"):
+        pass

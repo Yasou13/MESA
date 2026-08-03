@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import sqlite3
 from dataclasses import dataclass
@@ -504,10 +503,7 @@ class ProjectionReplayer:
         if graph_factory is None:
             from mesa_storage import kuzu_setup
 
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, kuzu_setup.initialize_schema, str(paths.graph_path)
-            )
+            kuzu_setup.initialize_schema_artifact(str(paths.graph_path))
             graph = KuzuGraphProvider(str(paths.graph_path))
         else:
             graph = graph_factory(paths.graph_path)
