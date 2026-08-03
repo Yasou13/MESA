@@ -1,11 +1,12 @@
 """V4 API admission and principal/session authorization contracts."""
 
+from collections.abc import AsyncIterator, Callable
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from fastapi import Depends, FastAPI, Request
 from pydantic import ValidationError
 
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
@@ -16,23 +17,48 @@ from mesa_storage.dao import (
 )
 
 
-def _app(dao, access_control, *, principal_id: str = "principal-a") -> TestClient:  # type: ignore[no-untyped-def]
-    app = FastAPI()
-
-    @app.middleware("http")
-    async def attach_principal(request, call_next):  # type: ignore[no-untyped-def]
+def _app(dao, access_control, *, principal_id: str = "principal-a") -> FastAPI:  # type: ignore[no-untyped-def]
+    async def attach_principal(request: Request) -> None:
         request.state.principal = SimpleNamespace(
             principal_id=principal_id, principal_type="USER", status="active"
         )
-        return await call_next(request)
+
+    async def get_dao():  # type: ignore[no-untyped-def]
+        return dao
+
+    async def get_access_control():  # type: ignore[no-untyped-def]
+        return access_control
+
+    app = FastAPI(dependencies=[Depends(attach_principal)])
 
     app.include_router(
         create_v4_router(
-            get_dao=lambda: dao,
-            get_access_control=lambda: access_control,
+            get_dao=get_dao,
+            get_access_control=get_access_control,
         )
     )
-    return TestClient(app, raise_server_exceptions=False)
+    return app
+
+
+ClientFactory = Callable[[FastAPI], httpx.AsyncClient]
+
+
+@pytest.fixture
+async def asgi_client() -> AsyncIterator[ClientFactory]:
+    clients: list[httpx.AsyncClient] = []
+
+    def create(app: FastAPI) -> httpx.AsyncClient:
+        client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+        )
+        clients.append(client)
+        return client
+
+    yield create
+
+    for client in clients:
+        await client.aclose()
 
 
 def _access(*, allowed: bool = True) -> MagicMock:
@@ -64,7 +90,10 @@ def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
         V4MemoryInsertRequest(**(payload | {"metadata": {"x": "a" * (16 * 1024)}}))
 
 
-def test_v4_insert_creates_canonical_mutation_after_authorized_admission() -> None:
+@pytest.mark.asyncio
+async def test_v4_insert_creates_canonical_mutation_after_authorized_admission(
+    asgi_client: ClientFactory,
+) -> None:
     dao = MagicMock()
     dao.admit_v4_memory = AsyncMock(
         return_value={
@@ -88,9 +117,9 @@ def test_v4_insert_creates_canonical_mutation_after_authorized_admission() -> No
             "status": "ACTIVE",
         }
     )
-    client = _app(dao, _access())
+    client = asgi_client(_app(dao, _access()))
 
-    response = client.post(
+    response = await client.post(
         "/v4/memory/insert",
         json={
             "session_id": "session-a",
@@ -117,7 +146,10 @@ def test_v4_insert_creates_canonical_mutation_after_authorized_admission() -> No
     assert admission["content_payload"] == "Exact content for the durable V4 candidate."
 
 
-def test_v4_catalog_document_creation_is_dataset_authorized() -> None:
+@pytest.mark.asyncio
+async def test_v4_catalog_document_creation_is_dataset_authorized(
+    asgi_client: ClientFactory,
+) -> None:
     dao = MagicMock()
     dao.create_v4_document = AsyncMock(
         return_value={
@@ -128,7 +160,7 @@ def test_v4_catalog_document_creation_is_dataset_authorized() -> None:
         }
     )
     access = _access()
-    response = _app(dao, access).post(
+    response = await asgi_client(_app(dao, access)).post(
         "/v4/catalog/documents",
         json={
             "tenant_id": "tenant-a",
@@ -156,7 +188,10 @@ def test_v4_catalog_document_creation_is_dataset_authorized() -> None:
     )
 
 
-def test_v4_mutation_status_rejects_principal_without_owner_session_access() -> None:
+@pytest.mark.asyncio
+async def test_v4_mutation_status_rejects_principal_without_owner_session_access(
+    asgi_client: ClientFactory,
+) -> None:
     dao = MagicMock()
     dao.get_mutation_summary = AsyncMock(
         return_value={
@@ -184,8 +219,8 @@ def test_v4_mutation_status_rejects_principal_without_owner_session_access() -> 
     )
     dao.get_pipeline_run = AsyncMock()
     access = _access(allowed=False)
-    response = _app(dao, access, principal_id="principal-b").get(
-        "/v4/mutations/mutation-a"
+    response = await asgi_client(_app(dao, access, principal_id="principal-b")).get(
+        "/v4/mutations/mutation-a",
     )
 
     assert response.status_code == 403
@@ -194,7 +229,10 @@ def test_v4_mutation_status_rejects_principal_without_owner_session_access() -> 
     )
 
 
-def test_v4_session_start_binds_server_generated_session_to_principal() -> None:
+@pytest.mark.asyncio
+async def test_v4_session_start_binds_server_generated_session_to_principal(
+    asgi_client: ClientFactory,
+) -> None:
     access = _access()
     dao = MagicMock()
     dao.create_v4_session = AsyncMock(
@@ -208,7 +246,7 @@ def test_v4_session_start_binds_server_generated_session_to_principal() -> None:
             "status": "ACTIVE",
         }
     )
-    response = _app(dao, access).post(
+    response = await asgi_client(_app(dao, access)).post(
         "/v4/sessions/start",
         json={
             "tenant_id": "tenant-a",
@@ -230,7 +268,10 @@ def test_v4_session_start_binds_server_generated_session_to_principal() -> None:
     )
 
 
-def test_v4_rebuild_requires_an_active_principal_and_has_no_side_effect() -> None:
+@pytest.mark.asyncio
+async def test_v4_rebuild_requires_an_active_principal_and_has_no_side_effect(
+    asgi_client: ClientFactory,
+) -> None:
     dao = MagicMock()
     access = _access()
     unauthenticated_app = FastAPI()
@@ -241,10 +282,10 @@ def test_v4_rebuild_requires_an_active_principal_and_has_no_side_effect() -> Non
         )
     )
 
-    denied = TestClient(unauthenticated_app, raise_server_exceptions=False).post(
+    denied = await asgi_client(unauthenticated_app).post(
         "/v4/rebuild", params={"tenant_id": "tenant-a"}
     )
-    disabled = _app(dao, access).post(
+    disabled = await asgi_client(_app(dao, access)).post(
         "/v4/rebuild", params={"tenant_id": "tenant-a"}
     )
 
@@ -254,7 +295,10 @@ def test_v4_rebuild_requires_an_active_principal_and_has_no_side_effect() -> Non
     assert access.mock_calls == []
 
 
-def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
+@pytest.mark.asyncio
+async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
+    asgi_client: ClientFactory,
+) -> None:
     session = {
         "tenant_id": "tenant-a",
         "workspace_id": "workspace-a",
@@ -327,9 +371,9 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
         return_value={"finalization_id": "finalization-a", "state": "PENDING"}
     )
     dao.end_v4_session = AsyncMock(return_value=True)
-    client = _app(dao, _access())
+    client = asgi_client(_app(dao, _access()))
 
-    workspace = client.post(
+    workspace = await client.post(
         "/v4/catalog/workspaces",
         json={
             "tenant_id": "tenant-a",
@@ -338,11 +382,11 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
         },
     )
     assert workspace.status_code == 201
-    assert client.get(
-        "/v4/catalog/workspaces", params={"tenant_id": "tenant-a"}
+    assert (
+        await client.get("/v4/catalog/workspaces", params={"tenant_id": "tenant-a"})
     ).json()["workspaces"] == [{"workspace_id": "workspace-a", "name": "Workspace A"}]
 
-    dataset = client.post(
+    dataset = await client.post(
         "/v4/catalog/datasets",
         json={
             "tenant_id": "tenant-a",
@@ -353,25 +397,23 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
     )
     assert dataset.status_code == 201
     assert (
-        client.get(
+        await client.get(
             "/v4/catalog/datasets",
             params={"tenant_id": "tenant-a", "workspace_id": "workspace-a"},
-        ).json()["datasets"][0]["dataset_id"]
-        == "dataset-a"
-    )
+        )
+    ).json()["datasets"][0]["dataset_id"] == "dataset-a"
     assert (
-        client.get(
+        await client.get(
             "/v4/catalog/documents",
             params={
                 "tenant_id": "tenant-a",
                 "workspace_id": "workspace-a",
                 "dataset_id": "dataset-a",
             },
-        ).json()["documents"][0]["document_id"]
-        == "document-a"
-    )
+        )
+    ).json()["documents"][0]["document_id"] == "document-a"
 
-    revision = client.post(
+    revision = await client.post(
         "/v4/catalog/revisions",
         json={
             "tenant_id": "tenant-a",
@@ -385,7 +427,7 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
     )
     assert revision.status_code == 201
     assert (
-        client.get(
+        await client.get(
             "/v4/catalog/revisions",
             params={
                 "tenant_id": "tenant-a",
@@ -393,10 +435,9 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
                 "dataset_id": "dataset-a",
                 "document_id": "document-a",
             },
-        ).json()["revisions"][0]["revision_id"]
-        == "revision-a"
-    )
-    chunk = client.post(
+        )
+    ).json()["revisions"][0]["revision_id"] == "revision-a"
+    chunk = await client.post(
         "/v4/catalog/source-chunks",
         json={
             "tenant_id": "tenant-a",
@@ -412,7 +453,7 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
     )
     assert chunk.status_code == 201
 
-    search = client.post(
+    search = await client.post(
         "/v4/memory/search",
         json={
             "session_id": "session-a",
@@ -435,26 +476,27 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
         valid_to=None,
     )
 
-    status = client.get("/v4/mutations/mutation-a")
+    status = await client.get("/v4/mutations/mutation-a")
     assert status.status_code == 200
     assert status.json()["pipeline_run"]["state"] == "COMMITTED"
-    assert (
-        client.post("/v4/mutations/mutation-a/rollback").json()["state"]
-        == "ROLLING_BACK"
-    )
-    assert client.post("/v4/mutations/mutation-a/replay").json()["state"] == "QUEUED"
+    assert (await client.post("/v4/mutations/mutation-a/rollback")).json()[
+        "state"
+    ] == "ROLLING_BACK"
+    assert (await client.post("/v4/mutations/mutation-a/replay")).json()[
+        "state"
+    ] == "QUEUED"
 
-    context = client.get("/v4/sessions/session-a/context")
+    context = await client.get("/v4/sessions/session-a/context")
     assert context.status_code == 200
     assert context.json()["context"] == "First\nSecond"
-    ended = client.post("/v4/sessions/session-a/end")
+    ended = await client.post("/v4/sessions/session-a/end")
     assert ended.status_code == 200
     assert ended.json() == {
         "status": "pending",
         "session_id": "session-a",
         "finalization_id": "finalization-a",
     }
-    purged = client.delete(
+    purged = await client.delete(
         "/v4/catalog/documents/document-a",
         params={
             "tenant_id": "tenant-a",
@@ -466,7 +508,10 @@ def test_v4_catalog_search_mutation_and_session_lifecycle_contracts() -> None:
     assert purged.json()["status"] == "PURGE_PENDING"
 
 
-def test_v4_insert_maps_durable_queue_admission_failures() -> None:
+@pytest.mark.asyncio
+async def test_v4_insert_maps_durable_queue_admission_failures(
+    asgi_client: ClientFactory,
+) -> None:
     session = {
         "tenant_id": "tenant-a",
         "workspace_id": "workspace-a",
@@ -494,19 +539,26 @@ def test_v4_insert_maps_durable_queue_admission_failures() -> None:
         dao = MagicMock()
         dao.get_v4_session = AsyncMock(return_value=session)
         dao.admit_v4_memory = AsyncMock(side_effect=error)
-        response = _app(dao, _access()).post("/v4/memory/insert", json=payload)
+        response = await asgi_client(_app(dao, _access())).post(
+            "/v4/memory/insert", json=payload
+        )
         assert response.status_code == status_code
         assert response.json() == {"detail": detail}
 
 
-def test_v4_session_scope_and_mutation_control_fail_closed() -> None:
+@pytest.mark.asyncio
+async def test_v4_session_scope_and_mutation_control_fail_closed(
+    asgi_client: ClientFactory,
+) -> None:
     search_payload = {
         "session_id": "session-a",
         "query": "Exact",
     }
     dao = MagicMock()
     dao.get_v4_session = AsyncMock(return_value=None)
-    unknown = _app(dao, _access()).post("/v4/memory/search", json=search_payload)
+    unknown = await asgi_client(_app(dao, _access())).post(
+        "/v4/memory/search", json=search_payload
+    )
     assert unknown.status_code == 404
     assert unknown.json() == {"detail": "Unknown session"}
 
@@ -519,7 +571,7 @@ def test_v4_session_scope_and_mutation_control_fail_closed() -> None:
         "status": "ACTIVE",
     }
     dao.get_v4_session = AsyncMock(return_value=session)
-    outside_scope = _app(dao, _access()).post(
+    outside_scope = await asgi_client(_app(dao, _access())).post(
         "/v4/memory/search",
         json={**search_payload, "dataset_ids": ["dataset-b"]},
     )
@@ -527,10 +579,10 @@ def test_v4_session_scope_and_mutation_control_fail_closed() -> None:
     assert outside_scope.json() == {"detail": "Dataset is outside session scope"}
 
     dao.get_mutation_summary = AsyncMock(return_value=None)
-    client = _app(dao, _access())
-    assert client.get("/v4/mutations/missing").status_code == 404
-    assert client.post("/v4/mutations/missing/rollback").status_code == 404
-    assert client.post("/v4/mutations/missing/replay").status_code == 404
+    client = asgi_client(_app(dao, _access()))
+    assert (await client.get("/v4/mutations/missing")).status_code == 404
+    assert (await client.post("/v4/mutations/missing/rollback")).status_code == 404
+    assert (await client.post("/v4/mutations/missing/replay")).status_code == 404
 
     mutation = {
         "mutation_id": "mutation-a",
@@ -545,16 +597,18 @@ def test_v4_session_scope_and_mutation_control_fail_closed() -> None:
     }
     dao.get_mutation_summary = AsyncMock(return_value=mutation)
     dao.get_v4_session = AsyncMock(return_value={**session, "status": "ENDED"})
-    closed = _app(dao, _access()).post("/v4/mutations/mutation-a/rollback")
+    closed = await asgi_client(_app(dao, _access())).post(
+        "/v4/mutations/mutation-a/rollback"
+    )
     assert closed.status_code == 409
     assert closed.json() == {"detail": "Session is not active"}
 
     dao.get_v4_session = AsyncMock(return_value=session)
     denied = _access()
     denied.check_dataset_permission = AsyncMock(return_value=False)
-    client = _app(dao, denied)
-    rollback = client.post("/v4/mutations/mutation-a/rollback")
-    replay = client.post("/v4/mutations/mutation-a/replay")
+    client = asgi_client(_app(dao, denied))
+    rollback = await client.post("/v4/mutations/mutation-a/rollback")
+    replay = await client.post("/v4/mutations/mutation-a/replay")
     assert rollback.status_code == 403
     assert rollback.json() == {"detail": "ROLLBACK permission required"}
     assert replay.status_code == 403
