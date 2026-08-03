@@ -51,6 +51,11 @@ def _parser() -> argparse.ArgumentParser:
     role.add_argument("--dataset")
     role.add_argument("--role", choices=("OWNER", "WRITER", "READER"), required=True)
 
+    control = commands.add_parser(
+        "grant-control", help="Grant the control-plane ADMIN role"
+    )
+    control.add_argument("--principal", required=True)
+
     agent = commands.add_parser(
         "grant-agent", help="Grant a principal one explicit agent permission"
     )
@@ -117,6 +122,9 @@ async def _run(args: argparse.Namespace) -> str:
             )
             scope = args.dataset or args.workspace or args.tenant
             return f"role-granted:{args.principal}:{scope}:{args.role}"
+        if args.command == "grant-control":
+            await access.grant_control_role(args.principal, "ADMIN")
+            return f"control-role-granted:{args.principal}:ADMIN"
         if args.command == "grant-agent":
             await access.grant_principal_permission(
                 args.principal, args.agent, args.permission
