@@ -16,6 +16,11 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
+from mesa_storage.repositories.operations import (
+    OperationIdempotencyConflictError,
+    OperationNotFoundError,
+    OperationStateError,
+)
 
 
 def _app(dao, access_control, *, principal_id: str = "principal-a") -> FastAPI:  # type: ignore[no-untyped-def]
@@ -69,9 +74,43 @@ def _access(*, allowed: bool = True) -> MagicMock:
     access.check_access = AsyncMock(return_value=allowed)
     access.check_scope_role = AsyncMock(return_value=allowed)
     access.check_dataset_permission = AsyncMock(return_value=allowed)
+    access.check_control_role = AsyncMock(return_value=allowed)
     access.grant_access = AsyncMock()
     access.grant_principal_session_access = AsyncMock()
     return access
+
+
+def _operation(*, state: str = "PENDING") -> dict:
+    return {
+        "operation_id": "operation-a",
+        "operation_kind": "PROJECTION_REBUILD",
+        "scope_kind": "STORAGE_ROOT",
+        "scope_key": "default",
+        "requested_by_principal_id": "principal-a",
+        "idempotency_key": "rebuild-a",
+        "payload_hash": "a" * 64,
+        "state": state,
+        "claimed_by": None,
+        "claim_token": None,
+        "fencing_token": 0,
+        "lease_expires_at": None,
+        "attempt_count": 1,
+        "retry_limit": 3,
+        "progress_completed": 2,
+        "progress_total": 5,
+        "checkpoint": {"last_chunk": "content-bearing-value"},
+        "source_manifest_hash": "b" * 64,
+        "source_manifest": {"physical_path": "/private/storage"},
+        "source_generation_id": "legacy",
+        "target_generation_id": "generation-a",
+        "last_error_class": (
+            "ProviderUnavailable" if state == "RETRYABLE_FAILED" else None
+        ),
+        "last_error_code": "provider-secret-code",
+        "created_at": "2026-08-03 12:00:00",
+        "updated_at": "2026-08-03 12:01:00",
+        "completed_at": None,
+    }
 
 
 def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
@@ -323,30 +362,147 @@ async def test_v4_session_start_binds_server_generated_session_to_principal(
 
 
 @pytest.mark.asyncio
-async def test_v4_rebuild_requires_an_active_principal_and_has_no_side_effect(
+async def test_v4_rebuild_submit_requires_admin_flag_and_idempotency_key(
     asgi_client: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dao = MagicMock()
-    access = _access()
+    dao.operations.submit = AsyncMock(return_value=_operation())
+    denied_access = _access(allowed=False)
+
+    async def get_unauthenticated_dao():
+        return dao
+
+    async def get_unauthenticated_access():
+        return _access()
+
     unauthenticated_app = FastAPI()
     unauthenticated_app.include_router(
         create_v4_router(
-            get_dao=lambda: dao,
-            get_access_control=lambda: access,
+            get_dao=get_unauthenticated_dao,
+            get_access_control=get_unauthenticated_access,
         )
     )
+    headers = {"Idempotency-Key": "rebuild-a"}
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
 
     denied = await asgi_client(unauthenticated_app).post(
-        "/v4/rebuild", params={"tenant_id": "tenant-a"}
+        "/v4/operations/rebuild", headers=headers
     )
-    disabled = await asgi_client(_app(dao, access)).post(
-        "/v4/rebuild", params={"tenant_id": "tenant-a"}
+    forbidden = await asgi_client(_app(dao, denied_access)).post(
+        "/v4/operations/rebuild", headers=headers
+    )
+    missing_key = await asgi_client(_app(dao, _access())).post("/v4/operations/rebuild")
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", False)
+    disabled = await asgi_client(_app(dao, _access())).post(
+        "/v4/operations/rebuild", headers=headers
     )
 
     assert denied.status_code == 401
+    assert forbidden.status_code == 403
+    assert missing_key.status_code == 422
     assert disabled.status_code == 501
-    assert dao.mock_calls == []
-    assert access.mock_calls == []
+    dao.operations.submit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_v4_rebuild_submit_commits_before_content_free_202(
+    asgi_client: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dao = MagicMock()
+    dao.operations.submit = AsyncMock(return_value=_operation())
+    access = _access()
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
+
+    response = await asgi_client(_app(dao, access)).post(
+        "/v4/operations/rebuild",
+        headers={"Idempotency-Key": "rebuild-a"},
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "operation_id": "operation-a",
+        "operation_kind": "projection_rebuild",
+        "scope": "storage_root",
+        "state": "PENDING",
+        "attempt": 1,
+        "progress": {"completed": 2, "total": 5},
+        "error_class": None,
+        "retry_available": False,
+        "cancel_available": True,
+        "created_at": "2026-08-03 12:00:00",
+        "updated_at": "2026-08-03 12:01:00",
+        "completed_at": None,
+    }
+    access.check_control_role.assert_awaited_once_with("principal-a", "ADMIN")
+    submitted = dao.operations.submit.await_args.kwargs
+    assert submitted["requested_by_principal_id"] == "principal-a"
+    assert submitted["idempotency_key"] == "rebuild-a"
+    assert len(submitted["payload_hash"]) == 64
+    assert "checkpoint" not in response.text
+    assert "physical_path" not in response.text
+    assert "principal-a" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_v4_rebuild_operation_controls_hide_existence_and_map_conflicts(
+    asgi_client: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
+    dao = MagicMock()
+    dao.operations.get = AsyncMock(return_value=_operation())
+    dao.operations.cancel = AsyncMock(return_value=_operation(state="CANCELLED"))
+    dao.operations.retry = AsyncMock(return_value=_operation(state="PENDING"))
+
+    hidden = await asgi_client(_app(dao, _access(allowed=False))).get(
+        "/v4/operations/operation-a"
+    )
+    assert hidden.status_code == 404
+    dao.operations.get.assert_not_awaited()
+
+    client = asgi_client(_app(dao, _access()))
+    status = await client.get("/v4/operations/operation-a")
+    cancelled = await client.post("/v4/operations/operation-a/cancel")
+    retried = await client.post("/v4/operations/operation-a/retry")
+
+    assert status.status_code == 200
+    assert cancelled.status_code == 200
+    assert cancelled.json()["state"] == "CANCELLED"
+    assert retried.status_code == 202
+
+    dao.operations.get = AsyncMock(return_value=None)
+    assert (await client.get("/v4/operations/missing")).status_code == 404
+    dao.operations.cancel = AsyncMock(side_effect=OperationNotFoundError())
+    assert (await client.post("/v4/operations/missing/cancel")).status_code == 404
+    dao.operations.retry = AsyncMock(side_effect=OperationStateError())
+    assert (await client.post("/v4/operations/operation-a/retry")).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_v4_rebuild_alias_rejects_scoped_requests_and_conflicting_keys(
+    asgi_client: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
+    dao = MagicMock()
+    dao.operations.submit = AsyncMock(return_value=_operation())
+    client = asgi_client(_app(dao, _access()))
+    headers = {"Idempotency-Key": "rebuild-a"}
+
+    scoped = await client.post(
+        "/v4/rebuild", params={"tenant_id": "tenant-a"}, headers=headers
+    )
+    root_wide = await client.post("/v4/rebuild", headers=headers)
+
+    assert scoped.status_code == 409
+    assert root_wide.status_code == 202
+    dao.operations.submit.assert_awaited_once()
+
+    dao.operations.submit = AsyncMock(side_effect=OperationIdempotencyConflictError())
+    conflict = await client.post("/v4/operations/rebuild", headers=headers)
+    assert conflict.status_code == 409
 
 
 @pytest.mark.asyncio

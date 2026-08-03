@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from typing import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_memory.config import config
@@ -24,6 +24,12 @@ from mesa_storage.dao import (
     QueueOverCapacityError,
     QueueRecordTooLargeError,
     QueueUnavailableError,
+)
+from mesa_storage.repositories.operations import (
+    OperationActiveConflictError,
+    OperationIdempotencyConflictError,
+    OperationNotFoundError,
+    OperationStateError,
 )
 
 logger = logging.getLogger("MESA_V4_API")
@@ -76,6 +82,32 @@ class V4CapabilityResponse(BaseModel):
     features: list[str]
     capabilities: V4CapabilityFlags
     limits: V4CapabilityLimits = Field(default_factory=V4CapabilityLimits)
+
+
+class V4OperationProgress(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    completed: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+
+class V4OperationResponse(BaseModel):
+    """Content-free control-plane view of one durable operation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    operation_id: str
+    operation_kind: str = "projection_rebuild"
+    scope: str = "storage_root"
+    state: str
+    attempt: int = Field(ge=0)
+    progress: V4OperationProgress
+    error_class: str | None = None
+    retry_available: bool
+    cancel_available: bool
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
 
 
 class V4DatasetRequest(BaseModel):
@@ -199,6 +231,52 @@ def _active_principal(request: Request):
             status_code=401, detail="Active authenticated principal required"
         )
     return principal
+
+
+async def _require_control_admin(
+    request: Request,
+    access_control: AccessControl,
+    *,
+    hide_existence: bool = False,
+):
+    principal = _active_principal(request)
+    if not await access_control.check_control_role(
+        str(principal.principal_id), "ADMIN"
+    ):
+        if hide_existence:
+            raise HTTPException(status_code=404, detail="Operation not found")
+        raise HTTPException(
+            status_code=403, detail="Control administrator role required"
+        )
+    return principal
+
+
+def _public_operation(operation: dict) -> V4OperationResponse:
+    """Whitelist bounded operation fields safe to expose outside storage."""
+    state = str(operation["state"])
+    return V4OperationResponse(
+        operation_id=str(operation["operation_id"]),
+        state=state,
+        attempt=int(operation["attempt_count"]),
+        progress=V4OperationProgress(
+            completed=int(operation["progress_completed"]),
+            total=int(operation["progress_total"]),
+        ),
+        error_class=(
+            str(operation["last_error_class"])
+            if operation.get("last_error_class") is not None
+            else None
+        ),
+        retry_available=state == "RETRYABLE_FAILED",
+        cancel_available=state in {"PENDING", "RETRYABLE_FAILED"},
+        created_at=str(operation["created_at"]),
+        updated_at=str(operation["updated_at"]),
+        completed_at=(
+            str(operation["completed_at"])
+            if operation.get("completed_at") is not None
+            else None
+        ),
+    )
 
 
 async def _require_session_access(
@@ -601,20 +679,150 @@ def create_v4_router(
         )
         return V4CapabilityResponse(
             features=[
-                name
-                for name, enabled in capabilities.model_dump().items()
-                if enabled
+                name for name, enabled in capabilities.model_dump().items() if enabled
             ],
             capabilities=capabilities,
         )
 
-    @router.post("/rebuild", status_code=501)
-    async def rebuild_index(request: Request, tenant_id: str) -> dict:
-        """Fail closed until an authorized rebuild workflow exists."""
-        _active_principal(request)
-        raise HTTPException(
-            status_code=501,
-            detail="V4 index rebuild is not implemented",
+    async def submit_rebuild_operation(
+        request: Request,
+        idempotency_key: str,
+        dao: MemoryDAO,
+        access_control: AccessControl,
+    ) -> V4OperationResponse:
+        principal = await _require_control_admin(request, access_control)
+        if not config.v4_rebuild_enabled:
+            raise HTTPException(status_code=501, detail="Durable rebuild is disabled")
+        payload_hash = hashlib.sha256(
+            b'{"kind":"projection","scope":"storage_root","version":1}'
+        ).hexdigest()
+        try:
+            operation = await dao.operations.submit(
+                requested_by_principal_id=str(principal.principal_id),
+                idempotency_key=idempotency_key,
+                payload_hash=payload_hash,
+            )
+        except OperationIdempotencyConflictError as exc:
+            raise HTTPException(
+                status_code=409, detail="Idempotency key conflicts with request"
+            ) from exc
+        except OperationActiveConflictError as exc:
+            raise HTTPException(
+                status_code=409, detail="A projection rebuild is already active"
+            ) from exc
+        return _public_operation(operation)
+
+    @router.post(
+        "/operations/rebuild",
+        response_model=V4OperationResponse,
+        status_code=202,
+    )
+    async def create_rebuild_operation(
+        request: Request,
+        idempotency_key: str = Header(
+            ...,
+            alias="Idempotency-Key",
+            min_length=1,
+            max_length=128,
+        ),
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> V4OperationResponse:
+        return await submit_rebuild_operation(
+            request, idempotency_key, dao, access_control
+        )
+
+    @router.get(
+        "/operations/{operation_id}",
+        response_model=V4OperationResponse,
+        status_code=200,
+    )
+    async def get_rebuild_operation(
+        operation_id: str,
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> V4OperationResponse:
+        await _require_control_admin(request, access_control, hide_existence=True)
+        operation = await dao.operations.get(operation_id)
+        if operation is None:
+            raise HTTPException(status_code=404, detail="Operation not found")
+        return _public_operation(operation)
+
+    @router.post(
+        "/operations/{operation_id}/cancel",
+        response_model=V4OperationResponse,
+        status_code=200,
+    )
+    async def cancel_rebuild_operation(
+        operation_id: str,
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> V4OperationResponse:
+        await _require_control_admin(request, access_control, hide_existence=True)
+        try:
+            operation = await dao.operations.cancel(operation_id)
+        except OperationNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Operation not found") from exc
+        except OperationStateError as exc:
+            raise HTTPException(
+                status_code=409, detail="Operation cannot be cancelled"
+            ) from exc
+        return _public_operation(operation)
+
+    @router.post(
+        "/operations/{operation_id}/retry",
+        response_model=V4OperationResponse,
+        status_code=202,
+    )
+    async def retry_rebuild_operation(
+        operation_id: str,
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> V4OperationResponse:
+        await _require_control_admin(request, access_control, hide_existence=True)
+        if not config.v4_rebuild_enabled:
+            raise HTTPException(status_code=501, detail="Durable rebuild is disabled")
+        try:
+            operation = await dao.operations.retry(operation_id)
+        except OperationNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Operation not found") from exc
+        except OperationStateError as exc:
+            raise HTTPException(
+                status_code=409, detail="Operation cannot be retried"
+            ) from exc
+        return _public_operation(operation)
+
+    @router.post(
+        "/rebuild",
+        response_model=V4OperationResponse,
+        status_code=202,
+        deprecated=True,
+    )
+    async def rebuild_index(
+        request: Request,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        dataset_id: str | None = None,
+        idempotency_key: str = Header(
+            ...,
+            alias="Idempotency-Key",
+            min_length=1,
+            max_length=128,
+        ),
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> V4OperationResponse:
+        await _require_control_admin(request, access_control)
+        if tenant_id is not None or workspace_id is not None or dataset_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Scoped projection rebuild is not supported",
+            )
+        return await submit_rebuild_operation(
+            request, idempotency_key, dao, access_control
         )
 
     @router.post("/memory/insert", status_code=202)
