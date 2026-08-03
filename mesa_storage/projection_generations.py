@@ -170,6 +170,26 @@ def _resolve_paths(
     )
 
 
+def resolve_projection_generation_paths(
+    generation: dict[str, Any],
+    *,
+    storage_root: Path,
+    trusted_root: Path,
+    runtime_fencing_token: int,
+    previous_generation_id: str | None = None,
+) -> ProjectionPaths:
+    """Resolve one persisted generation without allowing path escape or symlinks."""
+    return _resolve_paths(
+        storage_root=storage_root,
+        trusted_root=trusted_root,
+        generation_id=str(generation["generation_id"]),
+        vector_relative_path=str(generation["vector_relative_path"]),
+        graph_relative_path=str(generation["graph_relative_path"]),
+        runtime_fencing_token=runtime_fencing_token,
+        previous_generation_id=previous_generation_id,
+    )
+
+
 class ProjectionGenerationRepository:
     """Own generation metadata and the single atomic runtime pointer."""
 

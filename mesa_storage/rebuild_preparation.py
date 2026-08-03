@@ -112,7 +112,7 @@ def _logical_value(value: Any) -> Any:
     return str(value)
 
 
-def _canonical_sqlite_manifest(database: Path) -> tuple[dict[str, Any], str]:
+def canonical_sqlite_manifest(database: Path) -> tuple[dict[str, Any], str]:
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
@@ -307,7 +307,7 @@ def inspect_rebuild_preflight(
         raise RebuildBacklogError("durable worker backlog has not drained")
     if active is None:
         raise RebuildPreparationError("active projection generation is unavailable")
-    source_manifest, source_hash = _canonical_sqlite_manifest(database)
+    source_manifest, source_hash = canonical_sqlite_manifest(database)
     storage_bytes = _storage_size(storage)
     required = storage_bytes * 2 + _MIN_FREE_RESERVE_BYTES
     if int(disk_usage(work).free) < required:
@@ -383,7 +383,7 @@ class OfflineRebuildPreparer:
         backup_manifest_hash = hashlib.sha256(
             (backup_root / MANIFEST_NAME).read_bytes()
         ).hexdigest()
-        backup_manifest, backup_source_hash = _canonical_sqlite_manifest(
+        backup_manifest, backup_source_hash = canonical_sqlite_manifest(
             backup_root / "mesa.db"
         )
         if backup_source_hash != preflight.source_manifest_hash:
