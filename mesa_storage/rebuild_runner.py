@@ -8,6 +8,7 @@ import json
 import os
 import signal
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from mesa_storage.rebuild_cutover import (
     default_graph_verification_factory,
     default_vector_verification_factory,
 )
+from mesa_storage.rebuild_observability import log_rebuild_event
 from mesa_storage.rebuild_preparation import OfflineRebuildPreparer
 from mesa_storage.rebuild_replay import (
     ProjectionReplayer,
@@ -137,13 +139,26 @@ async def _mark_retryable_failure(
 
 
 async def run_rebuild(args: argparse.Namespace) -> int:
+    started_at = time.monotonic()
     if not config.v4_rebuild_enabled:
+        log_rebuild_event(
+            "rejected",
+            operation_id=args.operation_id,
+            error_class="FeatureDisabled",
+            level="warning",
+        )
         print(
             json.dumps({"status": "disabled", "error_class": "FeatureDisabled"}),
             file=sys.stderr,
         )
         return EXIT_CONFIGURATION
     if not 1 <= args.batch_size <= 1000 or not 30 <= args.lease_seconds <= 3600:
+        log_rebuild_event(
+            "rejected",
+            operation_id=args.operation_id,
+            error_class="InvalidBounds",
+            level="warning",
+        )
         print(
             json.dumps({"status": "rejected", "error_class": "InvalidBounds"}),
             file=sys.stderr,
@@ -179,6 +194,13 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             runner_id=runner_id,
             lease_seconds=args.lease_seconds,
         )
+        log_rebuild_event(
+            "claimed",
+            operation_id=args.operation_id,
+            state=str(claimed["state"]),
+            progress_completed=int(claimed["progress_completed"]),
+            progress_total=int(claimed["progress_total"]),
+        )
         providers = _provider_runtime()
         preparation = await OfflineRebuildPreparer(operations, generations).prepare(
             trusted_root=args.trusted_root,
@@ -188,6 +210,12 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             runner_id=runner_id,
             writer_lock=writer_lock,
             provider_manifest=providers.manifest,
+        )
+        log_rebuild_event(
+            "prepared",
+            operation_id=args.operation_id,
+            state=str(preparation.operation["state"]),
+            generation=preparation.target_generation_id,
         )
         replay = await ProjectionReplayer(operations).replay(
             preparation=preparation,
@@ -200,6 +228,14 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             embedding_provider=providers.embedding_provider,
             allow_model_loading=providers.allow_model_loading,
             should_stop=stop_requested.is_set,
+        )
+        log_rebuild_event(
+            "replayed",
+            operation_id=args.operation_id,
+            state=str(replay.operation["state"]),
+            generation=preparation.target_generation_id,
+            progress_completed=replay.completed,
+            progress_total=replay.total,
         )
         if stop_requested.is_set():
             raise RebuildInterruptedError(
@@ -220,6 +256,15 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             lease_seconds=args.lease_seconds,
             should_stop=stop_requested.is_set,
         )
+        log_rebuild_event(
+            "completed",
+            operation_id=args.operation_id,
+            state=str(result.operation["state"]),
+            generation=result.active_generation_id,
+            progress_completed=int(result.operation["progress_completed"]),
+            progress_total=int(result.operation["progress_total"]),
+            duration_seconds=time.monotonic() - started_at,
+        )
         print(
             json.dumps(
                 {
@@ -233,6 +278,13 @@ async def run_rebuild(args: argparse.Namespace) -> int:
         )
         return EXIT_OK
     except StorageWriterLockError:
+        log_rebuild_event(
+            "writer_blocked",
+            operation_id=args.operation_id,
+            error_class="WriterActive",
+            duration_seconds=time.monotonic() - started_at,
+            level="warning",
+        )
         print(
             json.dumps({"status": "blocked", "error_class": "WriterActive"}),
             file=sys.stderr,
@@ -246,6 +298,13 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 runner_id=runner_id,
                 error_class=type(exc).__name__,
             )
+        log_rebuild_event(
+            "rejected",
+            operation_id=args.operation_id,
+            error_class=type(exc).__name__,
+            duration_seconds=time.monotonic() - started_at,
+            level="warning",
+        )
         print(
             json.dumps({"status": "rejected", "error_class": type(exc).__name__}),
             file=sys.stderr,
@@ -259,6 +318,14 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 runner_id=runner_id,
                 error_class=type(exc).__name__,
             )
+        log_rebuild_event(
+            "failed",
+            operation_id=args.operation_id,
+            state="RETRYABLE_FAILED",
+            error_class=type(exc).__name__,
+            duration_seconds=time.monotonic() - started_at,
+            level="error",
+        )
         print(
             json.dumps(
                 {"status": "retryable_failed", "error_class": type(exc).__name__}

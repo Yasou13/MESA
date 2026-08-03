@@ -189,4 +189,5 @@ async def test_preparer_creates_valid_backup_generation_and_fenced_checkpoint(
     generations.create_staging.assert_awaited_once()
     final_checkpoint = operations.transition.await_args.kwargs["checkpoint"]
     assert final_checkpoint["phase"] == "PREPARED"
+    assert final_checkpoint["staging_bytes"] == 0
     assert "backup_root" not in final_checkpoint

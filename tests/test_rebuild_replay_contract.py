@@ -278,11 +278,15 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
 
     def vector_factory(path: Path) -> _VectorTarget:
         nonlocal vector
+        path.mkdir(parents=True)
+        (path / "vectors.bin").write_bytes(b"vec")
         vector = _VectorTarget(path)
         return vector
 
     def graph_factory(path: Path) -> _GraphTarget:
         nonlocal graph
+        path.mkdir(parents=True)
+        (path / "graph.bin").write_bytes(b"graph")
         graph = _GraphTarget(path)
         return graph
 
@@ -330,6 +334,7 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
     assert operations.renew.await_count == 6
     assert operations.transition.await_count == 7
     assert operations.transition.await_args.kwargs["to_state"] == "VERIFYING"
+    assert operations.transition.await_args.kwargs["checkpoint"]["staging_bytes"] == 8
 
 
 @pytest.mark.asyncio
@@ -597,3 +602,4 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
     assert operations.transition.await_args.kwargs["error_class"] == (
         "PostCutoverVerificationFailed"
     )
+    assert operations.transition.await_args.kwargs["checkpoint"]["rollback_count"] == 1

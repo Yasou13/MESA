@@ -395,6 +395,7 @@ class OfflineRebuildPreparer:
             "phase": "BACKUP_VERIFIED",
             "backup_manifest_sha256": backup_manifest_hash,
             "source_manifest_hash": preflight.source_manifest_hash,
+            "staging_bytes": 0,
         }
         operation = await self._operations.transition(
             operation_id,

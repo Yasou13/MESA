@@ -62,6 +62,7 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
 from mesa_storage.repositories.operations import (
     OperationRepository,
@@ -281,6 +282,7 @@ class MemoryDAO:
         "_catalog",
         "_operations",
         "_rebuild_admission",
+        "_rebuild_health",
     )
 
     def __init__(
@@ -295,6 +297,7 @@ class MemoryDAO:
         self._catalog = CatalogRepository(sqlite_engine)
         self._operations = OperationRepository(sqlite_engine)
         self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
+        self._rebuild_health = RebuildHealthReader(sqlite_engine)
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
@@ -324,9 +327,7 @@ class MemoryDAO:
             payload_hash=payload_hash,
         )
 
-    async def get_system_operation(
-        self, operation_id: str
-    ) -> dict[str, Any] | None:
+    async def get_system_operation(self, operation_id: str) -> dict[str, Any] | None:
         return await self._operations.get(operation_id)
 
     async def claim_system_operation(
@@ -6577,6 +6578,7 @@ class MemoryDAO:
             "cleanup_states": cleanup_states,
             "pipeline_states": pipeline_states,
         }
+        result["v4_rebuild"] = await self._rebuild_health.snapshot()
         return result
 
     @staticmethod

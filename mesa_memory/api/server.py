@@ -827,14 +827,20 @@ async def health_init():
 @app.get("/v3/health", dependencies=[Depends(get_api_key)])
 async def health_v3():  # type: ignore[no-untyped-def]
     health = await state.dao.health_check()
+    rebuild = health.get("v4_rebuild") or {}
+    backend_healthy = all(
+        health.get(component, {}).get("status") in {"healthy", "not_initialized"}
+        for component in ("sqlite", "vector", "graph")
+        if component in health
+    )
+    rebuild_state = str(rebuild.get("state", "IDLE"))
+    rebuild_status = str(rebuild.get("status", "healthy"))
     return {
-        "status": "healthy"
-        if all(
-            component.get("status") in {"healthy", "not_initialized"}
-            for component in health.values()
-            if isinstance(component, dict)
-        )
-        else "degraded"
+        "status": (
+            "healthy" if backend_healthy and rebuild_status == "healthy" else "degraded"
+        ),
+        "maintenance": rebuild_status == "maintenance",
+        "rebuild_state": rebuild_state,
     }
 
 

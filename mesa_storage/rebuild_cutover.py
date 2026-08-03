@@ -334,6 +334,9 @@ class ParityGatedActivator:
                     if isinstance(exc, ProjectionParityError)
                     else "ProjectionVerificationFailed"
                 ),
+                parity_report=(
+                    exc.report if isinstance(exc, ProjectionParityError) else None
+                ),
             )
             raise RebuildVerificationError("pre-cutover verification failed") from exc
 
@@ -408,6 +411,7 @@ class ParityGatedActivator:
                     operation,
                     runner_id=runner_id,
                     error_class="RollbackVerificationFailed",
+                    rollback=True,
                 )
                 raise PostCutoverRollbackError(
                     "retained generation verification failed"
@@ -416,6 +420,7 @@ class ParityGatedActivator:
                 operation,
                 runner_id=runner_id,
                 error_class="PostCutoverVerificationFailed",
+                rollback=True,
             )
             if rolled_back["active_generation_id"] != preparation.source_generation_id:
                 raise PostCutoverRollbackError("retained generation rollback failed")
@@ -448,9 +453,15 @@ class ParityGatedActivator:
         *,
         runner_id: str,
         error_class: str,
+        parity_report: ProjectionParityReport | None = None,
+        rollback: bool = False,
     ) -> dict[str, Any]:
         checkpoint = dict(operation.get("checkpoint") or {})
         checkpoint["phase"] = "RETRYABLE_FAILED"
+        if parity_report is not None:
+            checkpoint["parity"] = parity_report.checkpoint()
+        if rollback:
+            checkpoint["rollback_count"] = int(checkpoint.get("rollback_count", 0)) + 1
         return await self._operations.transition(
             str(operation["operation_id"]),
             to_state="RETRYABLE_FAILED",

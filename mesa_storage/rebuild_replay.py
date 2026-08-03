@@ -44,6 +44,24 @@ class RebuildInterruptedError(RebuildReplayError):
     """The runner was asked to stop at a durable batch boundary."""
 
 
+def _staging_bytes(*roots: Path) -> int:
+    total = 0
+    for root in roots:
+        if not root.exists():
+            continue
+        if root.is_symlink():
+            raise RebuildReplayError("staging generation contains a symlink")
+        if root.is_file():
+            total += root.stat().st_size
+            continue
+        for item in root.rglob("*"):
+            if item.is_symlink():
+                raise RebuildReplayError("staging generation contains a symlink")
+            if item.is_file():
+                total += item.stat().st_size
+    return total
+
+
 class VectorReplayTarget(Protocol):
     @property
     def uri(self) -> str: ...
@@ -546,6 +564,9 @@ class ProjectionReplayer:
                     "rebuild interrupted after replay checkpoint"
                 )
             checkpoint["phase"] = "REPLAYED"
+            checkpoint["staging_bytes"] = _staging_bytes(
+                paths.vector_path, paths.graph_path
+            )
             operation = await self._operations.transition(
                 operation_id,
                 to_state="VERIFYING",
