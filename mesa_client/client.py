@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 from typing import Any, Callable, Optional, TypeVar
+from urllib.parse import quote
 
 import httpx
 from pydantic import ValidationError
@@ -350,6 +351,22 @@ _V4_TERMINAL_MUTATION_STATES = frozenset(
 )
 
 
+def _v4_control_value(value: str, *, label: str) -> str:
+    if (
+        not value
+        or value.strip() != value
+        or len(value) > 128
+        or any(ord(char) < 32 for char in value)
+    ):
+        raise MesaValidationError(f"{label} is invalid")
+    return value
+
+
+def _v4_operation_path(operation_id: str, suffix: str = "") -> str:
+    identifier = _v4_control_value(operation_id, label="operation_id")
+    return f"/v4/operations/{quote(identifier, safe='')}{suffix}"
+
+
 class MesaV4Client(MesaClient):
     """Client for the breaking V4 full-cognitive lifecycle contract.
 
@@ -361,6 +378,31 @@ class MesaV4Client(MesaClient):
     def capability(self) -> dict[str, Any]:
         """Return the server's bounded V4 capability and rebuild-scope truth."""
         return self._request("GET", "/v4/capability")
+
+    def submit_rebuild(self, *, idempotency_key: str) -> dict[str, Any]:
+        """Submit one storage-root projection rebuild operation."""
+        key = _v4_control_value(idempotency_key, label="idempotency_key")
+        return self._request(
+            "POST",
+            "/v4/operations/rebuild",
+            headers={"Idempotency-Key": key},
+        )
+
+    def operation_status(self, operation_id: str) -> dict[str, Any]:
+        """Return the content-free status of one rebuild operation."""
+        return self._request("GET", _v4_operation_path(operation_id))
+
+    def cancel_operation(self, operation_id: str) -> dict[str, Any]:
+        """Cancel a pending or retryable rebuild operation."""
+        return self._request(
+            "POST", _v4_operation_path(operation_id, "/cancel")
+        )
+
+    def retry_operation(self, operation_id: str) -> dict[str, Any]:
+        """Resume a safely retryable rebuild from its durable checkpoint."""
+        return self._request(
+            "POST", _v4_operation_path(operation_id, "/retry")
+        )
 
     def create_workspace(
         self,
@@ -635,6 +677,31 @@ class AsyncMesaV4Client(AsyncMesaClient):
     async def capability(self) -> dict[str, Any]:
         """Return the server's bounded V4 capability and rebuild-scope truth."""
         return await self._request("GET", "/v4/capability")
+
+    async def submit_rebuild(self, *, idempotency_key: str) -> dict[str, Any]:
+        """Submit one storage-root projection rebuild operation."""
+        key = _v4_control_value(idempotency_key, label="idempotency_key")
+        return await self._request(
+            "POST",
+            "/v4/operations/rebuild",
+            headers={"Idempotency-Key": key},
+        )
+
+    async def operation_status(self, operation_id: str) -> dict[str, Any]:
+        """Return the content-free status of one rebuild operation."""
+        return await self._request("GET", _v4_operation_path(operation_id))
+
+    async def cancel_operation(self, operation_id: str) -> dict[str, Any]:
+        """Cancel a pending or retryable rebuild operation."""
+        return await self._request(
+            "POST", _v4_operation_path(operation_id, "/cancel")
+        )
+
+    async def retry_operation(self, operation_id: str) -> dict[str, Any]:
+        """Resume a safely retryable rebuild from its durable checkpoint."""
+        return await self._request(
+            "POST", _v4_operation_path(operation_id, "/retry")
+        )
 
     async def create_workspace(
         self,

@@ -30,12 +30,15 @@ class MesaMCPAdapter:
 
     async def health(self) -> dict[str, Any]:
         health = await self._service.health()
-        return {
+        response = {
             "status": health.get("status", "healthy"),
             "server_version": "0.1.0",
             "mesa": health,
             "transport": "stdio",
         }
+        if self._v4_service is not None:
+            response["v4_capability"] = await self._v4_service.v4_capability()
+        return response
 
     async def store_memory(self, arguments: dict[str, Any]) -> dict[str, Any]:
         content = _required_string(arguments, "content", max_length=_MAX_CONTENT_LENGTH)
