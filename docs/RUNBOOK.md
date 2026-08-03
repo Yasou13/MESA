@@ -120,8 +120,14 @@ mesa-recovery --trusted-root /srv/mesa restore \
 ```
 
 Restore mevcut hedefi ezmemelidir. V3 migration yerinde yapılmaz: manifestli
-backup alınır, ayrı v4 root’a offline rebuild yapılır, parity raporu geçerse
+backup alınır, ayrı v4 root'a offline rebuild yapılır, parity raporu geçerse
 atomik cutover gerçekleştirilir. Backup rollback süresi boyunca korunur.
+
+V4 `0.7.x Closure` projection rebuild'inin submit → drain → stop → offline
+run/resume → restart → status → automatic rollback akışı, exit code'ları ve
+retained generation kuralları
+[`v4-rebuild-runbook.md`](v4-rebuild-runbook.md) içinde kanonik olarak
+belgelenir. Dataset/tenant-scoped rebuild veya online runner desteklenmez.
 
 Alembic migration'ları forward-only'dir. Bir migration başarısız olursa
 `alembic downgrade` çalıştırmayın: release'i durdurun, doğrulanmış backup'ı

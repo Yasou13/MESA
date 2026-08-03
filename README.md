@@ -86,6 +86,8 @@ mesa-v4-admin grant-role --principal production-principal \
   --tenant tenant-a --role OWNER
 mesa-v4-admin grant-agent --principal production-principal \
   --agent agent-a --permission SESSION_CREATE
+# Yalnız storage-root rebuild operator'ı için:
+mesa-v4-admin grant-control --principal production-principal
 ```
 
 The selected adapter and its credentials must be configured by the deployment
@@ -113,7 +115,15 @@ POST /v4/memory/insert             POST /v4/memory/search
 GET  /v4/mutations/{id}
 POST /v4/mutations/{id}/replay
 POST /v4/mutations/{id}/rollback
+POST /v4/operations/rebuild
+GET  /v4/operations/{id}
+POST /v4/operations/{id}/cancel
+POST /v4/operations/{id}/retry
 ```
+
+Projection rebuild varsayılan olarak kapalı, storage-root-wide ve offline'dır.
+Operator prosedürü, resume ve automatic rollback sınırları
+[`docs/v4-rebuild-runbook.md`](docs/v4-rebuild-runbook.md) içinde açıklanır.
 
 ---
 

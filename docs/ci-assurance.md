@@ -21,6 +21,13 @@ tekrarlanabilir contract ve artifact kanıtı üretir.
 `v4-contract` işi versioned yüzeyi ayrıca görünür kılar; v4 testlerinin yalnız
 genel coverage çalışmasına tesadüfen dahil olmasına güvenilmez.
 
+`v4-contract` ve `migration-dr` işleri ayrıca content-free closure evidence
+manifesti yükler. Manifest tek Alembic head'i, canonical OpenAPI hash/count'u,
+bounded JUnit hash/sonuç özetini, golden candidate/mutation/pipeline/entity/
+assertion ID'lerini, deterministik RRF ablation değerlerini ve küçük fixture
+SQLite registry/store sayılarını içerir. Source/query içeriği, credential,
+filesystem path veya ham test output'u manifestte yer almaz.
+
 `Benchmark data quality`, release/research MESA satırlarında
 `MesaV4ClientAdapter` kullanır. Legacy/internal config’ler v3 adapter ile
 uyumluluk testi yapabilir. Deterministik lane-ablation raporu vector-only,
@@ -41,6 +48,7 @@ staging kapısıdır.
 - gerçek provider’ın kalite/maliyet/güvenlik sonucu;
 - production storage boyutunda migration süresi;
 - gerçek deployment platformunun secret, network ve disk davranışı.
+- Ortam preflight'ı başarısız olduğu için skipped olan gerçek-provider rehearsal.
 
 Bu kanıtlar release evidence paketine dışarıdan eklenmeden GO verilemez.
 
