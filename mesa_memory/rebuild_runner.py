@@ -1,4 +1,4 @@
-"""Command-line orchestration for the offline V4 projection rebuild."""
+"""Application composition for the offline V4 projection rebuild CLI."""
 
 from __future__ import annotations
 

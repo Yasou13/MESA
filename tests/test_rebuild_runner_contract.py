@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import mesa_storage.rebuild_runner as runner
+import mesa_memory.rebuild_runner as runner
 from mesa_storage.rebuild_cutover import RebuildCutoverResult
 from mesa_storage.rebuild_preparation import RebuildPreparation
 from mesa_storage.rebuild_replay import RebuildInterruptedError, RebuildReplayResult
@@ -201,7 +201,7 @@ def test_cli_runs_claim_prepare_replay_cutover_and_releases_lock(
 
 def test_package_exposes_exact_rebuild_entrypoint() -> None:
     pyproject = (Path(__file__).parents[1] / "pyproject.toml").read_text()
-    assert 'mesa-v4-rebuild = "mesa_storage.rebuild_runner:main"' in pyproject
+    assert 'mesa-v4-rebuild = "mesa_memory.rebuild_runner:main"' in pyproject
 
 
 def test_cli_turns_safe_stop_into_retryable_checkpointed_exit(
