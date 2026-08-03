@@ -358,6 +358,10 @@ class MesaV4Client(MesaClient):
     V4 mutation polling.
     """
 
+    def capability(self) -> dict[str, Any]:
+        """Return the server's bounded V4 capability and rebuild-scope truth."""
+        return self._request("GET", "/v4/capability")
+
     def create_workspace(
         self,
         *,
@@ -627,6 +631,10 @@ class MesaV4Client(MesaClient):
 
 class AsyncMesaV4Client(AsyncMesaClient):
     """Async counterpart of :class:`MesaV4Client`."""
+
+    async def capability(self) -> dict[str, Any]:
+        """Return the server's bounded V4 capability and rebuild-scope truth."""
+        return await self._request("GET", "/v4/capability")
 
     async def create_workspace(
         self,

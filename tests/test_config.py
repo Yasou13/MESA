@@ -16,3 +16,13 @@ def test_dynamic_ram_limit():
     cfg = calculate_dynamic_limits(MesaConfig())
     assert isinstance(cfg.lancedb_memory_limit_bytes, int)
     assert cfg.lancedb_memory_limit_bytes == int(psutil.virtual_memory().total * 0.18)
+
+
+def test_v4_rebuild_feature_flag_is_disabled_by_default_and_explicitly_enabled(
+    monkeypatch,
+):
+    monkeypatch.delenv("MESA_V4_REBUILD_ENABLED", raising=False)
+    assert MesaConfig(_env_file=None).v4_rebuild_enabled is False
+
+    monkeypatch.setenv("MESA_V4_REBUILD_ENABLED", "true")
+    assert MesaConfig(_env_file=None).v4_rebuild_enabled is True

@@ -412,6 +412,12 @@ class MesaConfig(BaseSettings):
     cold_start_distance_weight: float = 0.5
     ppr_alpha: float = 0.15
 
+    # V4 projection rebuild remains an explicit operator opt-in. Enabling this
+    # flag advertises and admits the durable workflow; it never makes it online.
+    v4_rebuild_enabled: bool = Field(
+        False, validation_alias="MESA_V4_REBUILD_ENABLED"
+    )
+
     # CrossEncoder Reranking (v0.7.1)
     crossencoder_enabled: bool = Field(
         False, validation_alias="MESA_CROSSENCODER_ENABLED"

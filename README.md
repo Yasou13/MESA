@@ -353,10 +353,15 @@ Current v4 capabilities include:
    provenance-rich assertions and source-owned rollback.
 4. **Dataset security:** principal/tenant/workspace/dataset roles plus explicit
    purge and rollback permissions.
-5. **Retrieval V2:** dataset-filtered vector/BM25/graph rank fusion with true
-   RRF and deterministic bounded legal reranking.
+5. **Retrieval V2:** dataset-filtered vector/BM25/assertion-relational rank
+   fusion with true RRF and deterministic bounded legal reranking. Kùzu graph
+   neighbor traversal is not an advertised retrieval capability.
 6. **Versioned clients:** matching v4 REST, sync/async SDK and MCP lifecycle
    operations.
+
+Runtime capability truth is available from `GET /v4/capability`. Projection
+rebuild remains disabled unless `MESA_V4_REBUILD_ENABLED=true`, and its
+reported scope is always the complete storage root.
 
 ---
 

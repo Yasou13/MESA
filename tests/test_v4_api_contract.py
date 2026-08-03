@@ -9,6 +9,7 @@ import pytest
 from fastapi import Depends, FastAPI, Request
 from pydantic import ValidationError
 
+import mesa_api.v4_router as v4_api
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
 from mesa_storage.dao import (
     QueueOverCapacityError,
@@ -88,6 +89,59 @@ def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
         V4MemoryInsertRequest(**(payload | {"content": "password=not-for-storage"}))
     with pytest.raises(ValidationError, match="metadata exceeds"):
         V4MemoryInsertRequest(**(payload | {"metadata": {"x": "a" * (16 * 1024)}}))
+
+
+@pytest.mark.asyncio
+async def test_v4_capability_reports_only_enabled_specific_behaviours(
+    asgi_client: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", False)
+    client = asgi_client(_app(MagicMock(), _access()))
+
+    disabled = (await client.get("/v4/capability")).json()
+
+    assert disabled == {
+        "api_version": "v4",
+        "features": [
+            "canonical_ledger",
+            "projection_outbox",
+            "idempotent_ingestion",
+            "vector_retrieval",
+            "lexical_retrieval",
+            "assertion_relational_lane",
+            "validity_interval_filtering",
+            "graph_projection",
+        ],
+        "capabilities": {
+            "canonical_ledger": True,
+            "projection_outbox": True,
+            "idempotent_ingestion": True,
+            "vector_retrieval": True,
+            "lexical_retrieval": True,
+            "assertion_relational_lane": True,
+            "validity_interval_filtering": True,
+            "graph_projection": True,
+            "graph_neighbor_retrieval": False,
+            "associative_ppr": False,
+            "bitemporal_query": False,
+            "durable_rebuild": False,
+            "human_review": False,
+        },
+        "limits": {
+            "rebuild_kind": "projection",
+            "rebuild_scope": "storage_root",
+            "requires_offline_runner": True,
+        },
+    }
+    assert "graph_retrieval" not in disabled["features"]
+    assert "temporal_filtering" not in disabled["features"]
+
+    monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
+    enabled = (await client.get("/v4/capability")).json()
+
+    assert enabled["capabilities"]["durable_rebuild"] is True
+    assert "durable_rebuild" in enabled["features"]
 
 
 @pytest.mark.asyncio

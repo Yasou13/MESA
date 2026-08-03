@@ -7,6 +7,33 @@ import pytest
 from mesa_client.client import AsyncMesaV4Client, MesaV4Client
 
 
+def test_sync_v4_capability_uses_versioned_contract(monkeypatch) -> None:
+    request = MagicMock(return_value={"api_version": "v4"})
+    monkeypatch.setattr(MesaV4Client, "_request", request)
+    client = MesaV4Client(base_url="http://mesa.invalid", api_key="test-key")
+    try:
+        result = client.capability()
+    finally:
+        client.close()
+
+    assert result == {"api_version": "v4"}
+    request.assert_called_once_with("GET", "/v4/capability")
+
+
+@pytest.mark.asyncio
+async def test_async_v4_capability_matches_sync_contract(monkeypatch) -> None:
+    request = AsyncMock(return_value={"api_version": "v4"})
+    monkeypatch.setattr(AsyncMesaV4Client, "_request", request)
+    client = AsyncMesaV4Client(base_url="http://mesa.invalid", api_key="test-key")
+    try:
+        result = await client.capability()
+    finally:
+        await client.aclose()
+
+    assert result == {"api_version": "v4"}
+    request.assert_awaited_once_with("GET", "/v4/capability")
+
+
 def test_sync_v4_insert_sends_server_scoped_provenance(monkeypatch) -> None:
     request = MagicMock(return_value={"mutation_id": "mutation-a"})
     monkeypatch.setattr(MesaV4Client, "_request", request)

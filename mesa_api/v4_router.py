@@ -43,6 +43,41 @@ class V4MutationStatusResponse(BaseModel):
     projections: list[dict] = Field(default_factory=list)
 
 
+class V4CapabilityFlags(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    canonical_ledger: bool = True
+    projection_outbox: bool = True
+    idempotent_ingestion: bool = True
+    vector_retrieval: bool = True
+    lexical_retrieval: bool = True
+    assertion_relational_lane: bool = True
+    validity_interval_filtering: bool = True
+    graph_projection: bool = True
+    graph_neighbor_retrieval: bool = False
+    associative_ppr: bool = False
+    bitemporal_query: bool = False
+    durable_rebuild: bool = False
+    human_review: bool = False
+
+
+class V4CapabilityLimits(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    rebuild_kind: str = "projection"
+    rebuild_scope: str = "storage_root"
+    requires_offline_runner: bool = True
+
+
+class V4CapabilityResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    api_version: str = "v4"
+    features: list[str]
+    capabilities: V4CapabilityFlags
+    limits: V4CapabilityLimits = Field(default_factory=V4CapabilityLimits)
+
+
 class V4DatasetRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
@@ -559,17 +594,19 @@ def create_v4_router(
         return {"status": "started", **session}
 
     @router.get("/capability", status_code=200)
-    async def get_capability(request: Request) -> dict:
-        """Return supported features (WO-018)."""
-        return {
-            "features": [
-                "temporal_filtering",
-                "idempotent_ingestion",
-                "graph_retrieval",
-                "vector_search",
+    async def get_capability() -> V4CapabilityResponse:
+        """Return bounded capability truth without implying planned behaviour."""
+        capabilities = V4CapabilityFlags(
+            durable_rebuild=config.v4_rebuild_enabled,
+        )
+        return V4CapabilityResponse(
+            features=[
+                name
+                for name, enabled in capabilities.model_dump().items()
+                if enabled
             ],
-            "api_version": "v4",
-        }
+            capabilities=capabilities,
+        )
 
     @router.post("/rebuild", status_code=501)
     async def rebuild_index(request: Request, tenant_id: str) -> dict:

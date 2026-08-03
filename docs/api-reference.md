@@ -10,6 +10,55 @@ Tüm HTTP çağrıları `X-API-Key` ister. V4 anahtarı
 OpenAPI sözleşmesinin çalışan kaynakları `mesa_api/router.py` ve
 `mesa_api/v4_router.py` dosyalarıdır.
 
+## V4 capability
+
+`GET /v4/capability`, uyumluluk için `features` listesini korur; liste aynı
+yanıttaki değeri `true` olan `capabilities` anahtarlarından üretilir. Yanıt
+ayrıca rebuild sınırını içerik veya fiziksel path taşımadan bildirir:
+
+```json
+{
+  "api_version": "v4",
+  "features": [
+    "canonical_ledger",
+    "projection_outbox",
+    "idempotent_ingestion",
+    "vector_retrieval",
+    "lexical_retrieval",
+    "assertion_relational_lane",
+    "validity_interval_filtering",
+    "graph_projection"
+  ],
+  "capabilities": {
+    "canonical_ledger": true,
+    "projection_outbox": true,
+    "idempotent_ingestion": true,
+    "vector_retrieval": true,
+    "lexical_retrieval": true,
+    "assertion_relational_lane": true,
+    "validity_interval_filtering": true,
+    "graph_projection": true,
+    "graph_neighbor_retrieval": false,
+    "associative_ppr": false,
+    "bitemporal_query": false,
+    "durable_rebuild": false,
+    "human_review": false
+  },
+  "limits": {
+    "rebuild_kind": "projection",
+    "rebuild_scope": "storage_root",
+    "requires_offline_runner": true
+  }
+}
+```
+
+`durable_rebuild` yalnız `MESA_V4_REBUILD_ENABLED=true` iken `true` olur.
+`assertion_relational_lane`, SQLite’taki yetkili assertion ilişkilerinden
+üretilen retrieval lane’idir; Kùzu neighbor traversal anlamına gelmez.
+`validity_interval_filtering`, tek bir geçerlilik aralığı filtresidir;
+bitemporal query değildir. Eski `graph_retrieval`, `temporal_filtering` ve
+`vector_search` geniş adları bu nedenle sözleşmeden kaldırılmıştır.
+
 ## V4 catalog
 
 | Method | Path | Gerekli yetki | İşlev |
@@ -90,9 +139,9 @@ with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
     committed = client.wait_until_committed(accepted["mutation_id"])
 ```
 
-`MesaV4Client` ve `AsyncMesaV4Client`; catalog, session, insert, search,
-status, wait, replay, rollback, purge, context ve end işlemlerini sunar. V3
-istemcileri `MesaClient` ve `AsyncMesaClient` olarak korunur.
+`MesaV4Client` ve `AsyncMesaV4Client`; capability, catalog, session, insert,
+search, status, wait, replay, rollback, purge, context ve end işlemlerini
+sunar. V3 istemcileri `MesaClient` ve `AsyncMesaClient` olarak korunur.
 
 ## V4 authorization
 
