@@ -41,9 +41,7 @@ def _app(
     async def get_access_control():  # type: ignore[no-untyped-def]
         return access_control
 
-    dao.rebuild_admission.is_pending = AsyncMock(
-        return_value=maintenance_pending
-    )
+    dao.rebuild_admission.is_pending = AsyncMock(return_value=maintenance_pending)
 
     app = FastAPI(dependencies=[Depends(attach_principal)])
 

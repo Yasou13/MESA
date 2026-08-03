@@ -394,15 +394,11 @@ class MesaV4Client(MesaClient):
 
     def cancel_operation(self, operation_id: str) -> dict[str, Any]:
         """Cancel a pending or retryable rebuild operation."""
-        return self._request(
-            "POST", _v4_operation_path(operation_id, "/cancel")
-        )
+        return self._request("POST", _v4_operation_path(operation_id, "/cancel"))
 
     def retry_operation(self, operation_id: str) -> dict[str, Any]:
         """Resume a safely retryable rebuild from its durable checkpoint."""
-        return self._request(
-            "POST", _v4_operation_path(operation_id, "/retry")
-        )
+        return self._request("POST", _v4_operation_path(operation_id, "/retry"))
 
     def create_workspace(
         self,
@@ -693,15 +689,11 @@ class AsyncMesaV4Client(AsyncMesaClient):
 
     async def cancel_operation(self, operation_id: str) -> dict[str, Any]:
         """Cancel a pending or retryable rebuild operation."""
-        return await self._request(
-            "POST", _v4_operation_path(operation_id, "/cancel")
-        )
+        return await self._request("POST", _v4_operation_path(operation_id, "/cancel"))
 
     async def retry_operation(self, operation_id: str) -> dict[str, Any]:
         """Resume a safely retryable rebuild from its durable checkpoint."""
-        return await self._request(
-            "POST", _v4_operation_path(operation_id, "/retry")
-        )
+        return await self._request("POST", _v4_operation_path(operation_id, "/retry"))
 
     async def create_workspace(
         self,

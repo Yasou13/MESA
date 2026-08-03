@@ -217,9 +217,7 @@ class ProjectionSnapshot:
     def validate_ownership(self) -> None:
         connection = self._connect()
         try:
-            missing_endpoints = int(
-                connection.execute(
-                    f"""
+            missing_endpoints = int(connection.execute(f"""
                     SELECT COUNT(*) FROM ({_GRAPH_ASSERTION_QUERY}) assertion
                     WHERE NOT EXISTS (
                         SELECT 1 FROM ({_GRAPH_ENTITY_QUERY}) entity
@@ -232,18 +230,14 @@ class ProjectionSnapshot:
                               AND entity.entity_id = assertion.object_entity_id
                         )
                     )
-                    """
-                ).fetchone()[0]
-            )
+                    """).fetchone()[0])
             invalid_links = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM v4_assertion_links "
                     "WHERE relation_type NOT IN ('CONTRADICTS', 'SUPERSEDES')"
                 ).fetchone()[0]
             )
-            cross_scope_links = int(
-                connection.execute(
-                    f"""
+            cross_scope_links = int(connection.execute(f"""
                     SELECT COUNT(*)
                     FROM v4_assertion_links links
                     JOIN v4_assertions source_assertion
@@ -270,9 +264,7 @@ class ProjectionSnapshot:
                         OR source_registry.agent_id != source_mutation.agent_id
                         OR target_registry.agent_id != target_mutation.agent_id
                       )
-                    """
-                ).fetchone()[0]
-            )
+                    """).fetchone()[0])
         finally:
             connection.close()
         if missing_endpoints or invalid_links or cross_scope_links:
@@ -281,8 +273,7 @@ class ProjectionSnapshot:
     def provider_signatures(self) -> set[tuple[str | None, str | None, int | None]]:
         connection = self._connect()
         try:
-            rows = connection.execute(
-                f"""
+            rows = connection.execute(f"""
                 SELECT DISTINCT m.embedding_model, m.embedding_version,
                                 m.embedding_dimension
                 FROM artifact_registry r
@@ -292,8 +283,7 @@ class ProjectionSnapshot:
                 WHERE {_ACTIVE_OWNERSHIP}
                   AND r.store_name = 'VECTOR'
                   AND r.artifact_kind = 'ENTITY_VECTOR'
-                """
-            ).fetchall()
+                """).fetchall()
         finally:
             connection.close()
         return {

@@ -183,9 +183,10 @@ def test_previous_head_upgrades_with_legacy_projection_generation(
         )
     }
     assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-    assert connection.execute(
-        "SELECT version_num FROM alembic_version"
-    ).fetchone()[0] == HEAD
+    assert (
+        connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        == HEAD
+    )
     connection.close()
 
 
