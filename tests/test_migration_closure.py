@@ -17,7 +17,8 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "fb2c3d4e5f6a"
+HEAD = "fc3d4e5f6a7b"
+PREVIOUS_HEAD = "fb2c3d4e5f6a"
 
 # Explicitly anchor the pre-remediation (v0.2.x) state to prevent
 # regressions in legacy cluster schema adoption.
@@ -132,7 +133,116 @@ def test_fresh_upgrade_has_one_head_and_complete_durable_schema(tmp_path: Path) 
         "dispatch_completion_receipts",
         "session_finalization_journal",
         "lancedb_wal",
+        "system_operations",
+        "system_operation_events",
+        "projection_generations",
+        "projection_runtime",
     } <= _tables(database)
+
+
+def test_previous_head_upgrades_with_legacy_projection_generation(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "previous-head.db"
+    config = _config(database)
+    command.upgrade(config, PREVIOUS_HEAD)
+    assert "system_operations" not in _tables(database)
+
+    command.upgrade(config, "head")
+
+    connection = sqlite3.connect(database)
+    generation = connection.execute(
+        "SELECT generation_id, generation_kind, lifecycle_state, "
+        "vector_relative_path, graph_relative_path "
+        "FROM projection_generations"
+    ).fetchone()
+    assert generation == (
+        "legacy",
+        "LEGACY",
+        "ACTIVE",
+        "vector.lance",
+        "kuzu_db",
+    )
+    runtime = connection.execute(
+        "SELECT runtime_id, active_generation_id, previous_generation_id, "
+        "fencing_token FROM projection_runtime"
+    ).fetchone()
+    assert runtime == (1, "legacy", None, 0)
+    active_index = connection.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='index' AND name='uq_system_operations_active_rebuild'"
+    ).fetchone()[0]
+    assert "RETRYABLE_FAILED" in active_index
+    assert {
+        "trg_system_operation_events_no_update",
+        "trg_system_operation_events_no_delete",
+    } <= {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger'"
+        )
+    }
+    assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert connection.execute(
+        "SELECT version_num FROM alembic_version"
+    ).fetchone()[0] == HEAD
+    connection.close()
+
+
+def test_operation_schema_enforces_single_active_rebuild_and_append_only_events(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "operation-constraints.db"
+    command.upgrade(_config(database), "head")
+    connection = sqlite3.connect(database)
+    operation_values = (
+        "PROJECTION_REBUILD",
+        "STORAGE_ROOT",
+        "default",
+        "admin-a",
+        "a" * 64,
+        "PENDING",
+    )
+    connection.execute(
+        "INSERT INTO system_operations ("
+        "operation_id, operation_kind, scope_kind, scope_key, "
+        "requested_by_principal_id, idempotency_key, payload_hash, state"
+        ") VALUES ('operation-a', ?, ?, ?, ?, 'key-a', ?, ?)",
+        operation_values,
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "INSERT INTO system_operations ("
+            "operation_id, operation_kind, scope_kind, scope_key, "
+            "requested_by_principal_id, idempotency_key, payload_hash, state"
+            ") VALUES ('operation-b', ?, ?, ?, ?, 'key-b', ?, ?)",
+            operation_values,
+        )
+
+    connection.execute(
+        "INSERT INTO system_operation_events ("
+        "event_id, operation_id, sequence_number, event_type, to_state, "
+        "fencing_token, attempt_count"
+        ") VALUES ('event-a', 'operation-a', 1, 'SUBMITTED', 'PENDING', 0, 0)"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        connection.execute(
+            "UPDATE system_operation_events SET event_type='CHANGED' "
+            "WHERE event_id='event-a'"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        connection.execute(
+            "DELETE FROM system_operation_events WHERE event_id='event-a'"
+        )
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "INSERT INTO projection_generations ("
+            "generation_id, generation_kind, lifecycle_state, "
+            "vector_relative_path, graph_relative_path"
+            ") VALUES ('escaped', 'REBUILD', 'STAGING', "
+            "'/absolute/vector.lance', 'generations/escaped/kuzu_db')"
+        )
+    connection.close()
 
 
 def test_destructive_alembic_downgrade_is_refused_without_schema_mutation(
