@@ -16,7 +16,7 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.55.0",
+    "@playwright/test": "^1.62.0",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.0",
     "@types/react": "^19.1.10",
