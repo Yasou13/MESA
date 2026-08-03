@@ -289,6 +289,7 @@ class ParityGatedActivator:
         parity_limit: int = 500,
         smoke_limit: int = 10,
         lease_seconds: int = 300,
+        should_stop: Callable[[], bool] | None = None,
     ) -> RebuildCutoverResult:
         operation = replay.operation
         operation_id = str(operation["operation_id"])
@@ -301,6 +302,13 @@ class ParityGatedActivator:
             runtime_fencing_token=preparation.runtime_fencing_token,
         )
         snapshot = ProjectionSnapshot(preparation.backup_root / "mesa.db")
+        if should_stop is not None and should_stop():
+            await self._record_failure(
+                operation,
+                runner_id=runner_id,
+                error_class="RebuildInterrupted",
+            )
+            raise RebuildVerificationError("rebuild interrupted before verification")
         await self._operations.renew(
             operation_id,
             runner_id=runner_id,
@@ -328,6 +336,14 @@ class ParityGatedActivator:
                 ),
             )
             raise RebuildVerificationError("pre-cutover verification failed") from exc
+
+        if should_stop is not None and should_stop():
+            await self._record_failure(
+                operation,
+                runner_id=runner_id,
+                error_class="RebuildInterrupted",
+            )
+            raise RebuildVerificationError("rebuild interrupted before cutover")
 
         checkpoint = dict(operation.get("checkpoint") or {})
         checkpoint["phase"] = "READY_TO_CUTOVER"

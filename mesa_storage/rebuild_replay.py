@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import sqlite3
 from dataclasses import dataclass
@@ -37,6 +38,10 @@ class ProjectionOwnershipError(RebuildReplayError):
 
 class RebuildCheckpointError(RebuildReplayError):
     """A durable replay checkpoint cannot be safely resumed."""
+
+
+class RebuildInterruptedError(RebuildReplayError):
+    """The runner was asked to stop at a durable batch boundary."""
 
 
 class VectorReplayTarget(Protocol):
@@ -426,6 +431,7 @@ class ProjectionReplayer:
         allow_model_loading: bool = False,
         vector_factory: Callable[[Path], VectorReplayTarget] | None = None,
         graph_factory: Callable[[Path], GraphReplayTarget] | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> RebuildReplayResult:
         if not 1 <= batch_size <= 1000:
             raise ValueError("rebuild batch size must be between 1 and 1000")
@@ -476,11 +482,17 @@ class ProjectionReplayer:
                 embedding_provider=embedding_provider,
             )
         )
-        graph = (
-            graph_factory(paths.graph_path)
-            if graph_factory is not None
-            else KuzuGraphProvider(str(paths.graph_path))
-        )
+        graph: GraphReplayTarget
+        if graph_factory is None:
+            from mesa_storage import kuzu_setup
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, kuzu_setup.initialize_schema, str(paths.graph_path)
+            )
+            graph = KuzuGraphProvider(str(paths.graph_path))
+        else:
+            graph = graph_factory(paths.graph_path)
         try:
             if Path(vector.uri).resolve(strict=False) != paths.vector_path:
                 raise RebuildReplayError(
@@ -494,6 +506,10 @@ class ProjectionReplayer:
             await graph.initialize()
             for lane in _LANES:
                 while offsets[lane] < counts[lane]:
+                    if should_stop is not None and should_stop():
+                        raise RebuildInterruptedError(
+                            "rebuild interrupted at a batch boundary"
+                        )
                     operation = await self._operations.renew(
                         operation_id,
                         runner_id=runner_id,
@@ -525,6 +541,10 @@ class ProjectionReplayer:
                         progress_total=total,
                         checkpoint=checkpoint,
                     )
+            if should_stop is not None and should_stop():
+                raise RebuildInterruptedError(
+                    "rebuild interrupted after replay checkpoint"
+                )
             checkpoint["phase"] = "REPLAYED"
             operation = await self._operations.transition(
                 operation_id,

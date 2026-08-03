@@ -342,9 +342,7 @@ class MesaConfig(BaseSettings):
     llm_embedding_model_name: str = Field(
         "text-embedding-3-small", validation_alias="LLM_EMBEDDING_MODEL"
     )
-    llm_timeout_seconds: float = Field(
-        20.0, validation_alias="LLM_TIMEOUT_SECONDS"
-    )
+    llm_timeout_seconds: float = Field(20.0, validation_alias="LLM_TIMEOUT_SECONDS")
     tier3_llm_provider_a: str | None = Field(
         None, validation_alias="MESA_TIER3_LLM_PROVIDER_A"
     )
@@ -357,7 +355,10 @@ class MesaConfig(BaseSettings):
     tier3_llm_model_name_b: str | None = Field(
         None, validation_alias="MESA_TIER3_LLM_MODEL_B"
     )
-    embedding_dimension: int = 1536
+    embedding_dimension: int = Field(1536, validation_alias="MESA_EMBEDDING_DIMENSION")
+    embedding_version: str | None = Field(
+        None, validation_alias="MESA_EMBEDDING_VERSION"
+    )
 
     tiebreaker_latency_threshold_ms: float = 500.0
     bootstrap_cosine_threshold: float = 0.75
@@ -414,9 +415,7 @@ class MesaConfig(BaseSettings):
 
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this
     # flag advertises and admits the durable workflow; it never makes it online.
-    v4_rebuild_enabled: bool = Field(
-        False, validation_alias="MESA_V4_REBUILD_ENABLED"
-    )
+    v4_rebuild_enabled: bool = Field(False, validation_alias="MESA_V4_REBUILD_ENABLED")
 
     # CrossEncoder Reranking (v0.7.1)
     crossencoder_enabled: bool = Field(
