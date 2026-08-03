@@ -48,6 +48,7 @@ from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
 from mesa_workers.entity_consolidation_worker import schedule_consolidation_worker
 from mesa_workers.ingestion_worker import (
     process_cold_path,
@@ -186,6 +187,20 @@ def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
     _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
 
 
+def _acquire_runtime_writer_lock(
+    runtime: RuntimeProfileConfig,
+) -> StorageWriterLock | None:
+    """Fence the combined runtime before it opens any writable embedded store."""
+    if runtime.profile is not RuntimeProfile.COMBINED:
+        return None
+    try:
+        return StorageWriterLock.acquire(runtime.storage_root, owner="combined-runtime")
+    except StorageWriterLockError as exc:
+        raise RuntimeError(
+            "combined runtime could not acquire storage writer ownership"
+        ) from exc
+
+
 async def _consume_combined_durable_work_once(
     dao: MemoryDAO,
     *,
@@ -286,6 +301,7 @@ async def lifespan(app: FastAPI):
     # Ensure the validated base storage directory exists before any DB initialization
     assert _STORAGE_BASE is not None
     _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
+    writer_lock = _acquire_runtime_writer_lock(runtime)
 
     state.is_ready = False
 
@@ -644,8 +660,12 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Failed to close KùzuDB: %s", exc)
 
+    if state.vector_engine:
+        await state.vector_engine.close()
     if state.sqlite_engine:
         await state.sqlite_engine.close()
+    if writer_lock is not None:
+        writer_lock.release()
 
 
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)

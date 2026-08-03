@@ -75,7 +75,7 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
         readiness=MagicMock(return_value={"status": "healthy"}),
         shutdown=AsyncMock(),
     )
-    writer_lock = SimpleNamespace(fileno=MagicMock(return_value=42), close=MagicMock())
+    writer_lock = SimpleNamespace(release=MagicMock())
     readiness = MagicMock()
 
     class AlreadyStopped:
@@ -90,7 +90,11 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
 
     monkeypatch.setattr(worker_runtime, "load_runtime_profile", lambda: runtime)
     monkeypatch.setattr(worker_runtime, "load_explicit_dotenv", MagicMock())
-    monkeypatch.setattr(worker_runtime, "_acquire_writer_lock", lambda _: writer_lock)
+    monkeypatch.setattr(
+        worker_runtime.StorageWriterLock,
+        "acquire",
+        lambda *_args, **_kwargs: writer_lock,
+    )
     monkeypatch.setattr(worker_runtime, "AsyncEngine", lambda *_args, **_kwargs: engine)
     monkeypatch.setattr(
         worker_runtime, "initialize_schema", AsyncMock(return_value=None)
@@ -110,15 +114,13 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
         "get_running_loop",
         lambda: SimpleNamespace(add_signal_handler=MagicMock()),
     )
-    monkeypatch.setattr(worker_runtime.fcntl, "flock", MagicMock())
-
     await worker_runtime.run_worker_only()
 
     supervisor.start.assert_awaited_once()
     supervisor.shutdown.assert_awaited_once()
     engine.close.assert_awaited_once()
     vector_engine.close.assert_awaited_once()
-    writer_lock.close.assert_called_once()
+    writer_lock.release.assert_called_once()
     assert [call.args[1]["status"] for call in readiness.call_args_list] == [
         "RUNNING",
         "STOPPED",

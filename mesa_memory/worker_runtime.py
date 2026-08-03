@@ -5,13 +5,12 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import os
 import signal
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TextIO, cast
+from typing import Any, cast
 
 import structlog
 
@@ -29,6 +28,7 @@ from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
 from mesa_workers.ingestion_worker import process_cold_path
 from mesa_workers.supervision import WorkerSupervisor
 
@@ -39,25 +39,6 @@ _RECOVERY_INTERVAL_SECONDS = 30.0
 _DISPATCH_POLL_SECONDS = 1.0
 _DISPATCH_LEASE_RENEWAL_SECONDS = 60.0
 _WORKER_ID = "worker-runtime"
-_WRITER_LOCK_NAME = ".mesa-single-writer.lock"
-
-
-def _acquire_writer_lock(storage_root: Path) -> TextIO:
-    """Fence a storage root to one active worker process on its host."""
-    handle = (storage_root / _WRITER_LOCK_NAME).open("a+", encoding="utf-8")
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
-        handle.close()
-        raise RuntimeProfileError(
-            "single-writer deployment allows only one active worker per storage root"
-        ) from exc
-    handle.seek(0)
-    handle.truncate()
-    handle.write(f"pid={os.getpid()}\n")
-    handle.flush()
-    os.fsync(handle.fileno())
-    return handle
 
 
 def _write_readiness(storage_root: Path, payload: dict[str, Any]) -> None:
@@ -173,7 +154,14 @@ async def run_worker_only() -> None:
         )
     load_explicit_dotenv(runtime)
     runtime.storage_root.mkdir(parents=True, exist_ok=True)
-    writer_lock = _acquire_writer_lock(runtime.storage_root)
+    try:
+        writer_lock = StorageWriterLock.acquire(
+            runtime.storage_root, owner="worker-only-runtime"
+        )
+    except StorageWriterLockError as exc:
+        raise RuntimeProfileError(
+            "single-writer deployment allows only one active writer per storage root"
+        ) from exc
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -232,12 +220,11 @@ async def run_worker_only() -> None:
     await supervisor.shutdown()
     await vector_engine.close()
     await engine.close()
-    fcntl.flock(writer_lock.fileno(), fcntl.LOCK_UN)
-    writer_lock.close()
     _write_readiness(
         runtime.storage_root,
         {"status": "STOPPED", "mode": "durable-cold-path-consumer"},
     )
+    writer_lock.release()
     logger.info("WORKER_RUNTIME_STOPPED", worker_id=_WORKER_ID)
 
 
