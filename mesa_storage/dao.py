@@ -63,6 +63,11 @@ import aiosqlite
 
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
+from mesa_storage.repositories.operations import (
+    OperationRepository,
+    OperationRepositoryPort,
+    OperationState,
+)
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -267,7 +272,7 @@ class MemoryDAO:
                         for graph edge operations.
     """
 
-    __slots__ = ("_sql", "_vec", "_graph", "_catalog")
+    __slots__ = ("_sql", "_vec", "_graph", "_catalog", "_operations")
 
     def __init__(
         self,
@@ -279,11 +284,84 @@ class MemoryDAO:
         self._vec = vector_engine
         self._graph = graph_provider
         self._catalog = CatalogRepository(sqlite_engine)
+        self._operations = OperationRepository(sqlite_engine)
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
         """Expose catalog persistence without leaking the SQLite engine."""
         return self._catalog
+
+    @property
+    def operations(self) -> OperationRepositoryPort:
+        """Expose durable system operations without leaking SQLite ownership."""
+        return self._operations
+
+    async def submit_system_operation(
+        self,
+        *,
+        requested_by_principal_id: str,
+        idempotency_key: str,
+        payload_hash: str,
+    ) -> dict[str, Any]:
+        return await self._operations.submit(
+            requested_by_principal_id=requested_by_principal_id,
+            idempotency_key=idempotency_key,
+            payload_hash=payload_hash,
+        )
+
+    async def get_system_operation(
+        self, operation_id: str
+    ) -> dict[str, Any] | None:
+        return await self._operations.get(operation_id)
+
+    async def claim_system_operation(
+        self, operation_id: str, *, runner_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any]:
+        return await self._operations.claim(
+            operation_id, runner_id=runner_id, lease_seconds=lease_seconds
+        )
+
+    async def renew_system_operation(
+        self,
+        operation_id: str,
+        *,
+        runner_id: str,
+        claim_token: str,
+        fencing_token: int,
+        lease_seconds: int = 60,
+    ) -> dict[str, Any]:
+        return await self._operations.renew(
+            operation_id,
+            runner_id=runner_id,
+            claim_token=claim_token,
+            fencing_token=fencing_token,
+            lease_seconds=lease_seconds,
+        )
+
+    async def transition_system_operation(
+        self,
+        operation_id: str,
+        *,
+        to_state: OperationState | str,
+        runner_id: str,
+        claim_token: str,
+        fencing_token: int,
+        **changes: Any,
+    ) -> dict[str, Any]:
+        return await self._operations.transition(
+            operation_id,
+            to_state=to_state,
+            runner_id=runner_id,
+            claim_token=claim_token,
+            fencing_token=fencing_token,
+            **changes,
+        )
+
+    async def cancel_system_operation(self, operation_id: str) -> dict[str, Any]:
+        return await self._operations.cancel(operation_id)
+
+    async def retry_system_operation(self, operation_id: str) -> dict[str, Any]:
+        return await self._operations.retry(operation_id)
 
     async def initialize(self) -> None:
         """Initialize the DAO layer.
