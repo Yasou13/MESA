@@ -363,14 +363,27 @@ jobs:
           tests/test_v4_sdk_contract.py
           tests/test_graph_v2_identity.py
           tests/test_graph_v2_purge.py
+          tests/test_operation_repository_contract.py
+          tests/test_projection_generation_contract.py
+          tests/test_rebuild_observability_contract.py
+          tests/test_rebuild_runner_contract.py
           tests/test_pagerank_coverage.py
           tests/test_async_client_auth_contract.py
           tests/test_mcp_api_boundary.py
+      - name: Capture content-free V4 closure evidence
+        if: always()
+        run: >-
+          uv run python scripts/capture_v4_closure_evidence.py
+          --junit v4-contract.xml
+          --output v4-closure-evidence.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: v4-contract
-          path: v4-contract.xml
+          path: |
+            v4-contract.xml
+            v4-closure-evidence.json
+          if-no-files-found: error
           retention-days: 10
 
   migration-dr:
@@ -390,11 +403,29 @@ jobs:
       - run: uv pip check
       - name: V3 recovery and V4 migration/rebuild contracts
         run: >-
-          uv run python -m pytest -q
+          uv run python -m pytest -q --junitxml=migration-dr.xml
           tests/test_migration_closure.py
           tests/test_recovery_contract.py
           tests/test_v4_projection_integration.py
           tests/test_graph_v2_purge.py
+          tests/test_rebuild_preparation_contract.py
+          tests/test_rebuild_replay_contract.py
+          tests/test_rebuild_provider_rehearsal.py
+      - name: Capture content-free migration and DR evidence
+        if: always()
+        run: >-
+          uv run python scripts/capture_v4_closure_evidence.py
+          --junit migration-dr.xml
+          --output migration-dr-evidence.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: migration-dr
+          path: |
+            migration-dr.xml
+            migration-dr-evidence.json
+          if-no-files-found: error
+          retention-days: 10
 
   package:
     needs: quality

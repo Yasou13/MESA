@@ -933,6 +933,49 @@ class MemoryDAO:
         )
 
     @staticmethod
+    def v4_assertion_id(
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        revision_id: str,
+        chunk_id: str,
+        subject_id: str,
+        predicate: str,
+        object_entity_id: str | None = None,
+        literal_value: str | None = None,
+        evidence_span: str = "",
+    ) -> str:
+        """Return the stable source-scoped Graph V2 assertion identity."""
+        required = (
+            tenant_id,
+            dataset_id,
+            revision_id,
+            chunk_id,
+            subject_id,
+            predicate,
+        )
+        if not all(required) or (object_entity_id is None) == (literal_value is None):
+            raise ValueError("assertion identity requires one entity or literal object")
+        object_identity = object_entity_id or f"literal:{literal_value}"
+        return str(
+            uuid.uuid5(
+                _V4_ASSERTION_NAMESPACE,
+                "\x1f".join(
+                    (
+                        tenant_id,
+                        dataset_id,
+                        revision_id,
+                        chunk_id,
+                        subject_id,
+                        predicate,
+                        object_identity,
+                        evidence_span,
+                    )
+                ),
+            )
+        )
+
+    @staticmethod
     async def _follow_v4_entity_redirect_in_tx(db: Any, row: Any) -> Any:
         """Resolve a bounded redirect chain without erasing historical rows."""
         visited: set[str] = set()
@@ -3123,23 +3166,16 @@ class MemoryDAO:
         await graph.insert_node(subject_id, head, agent_id)
         if object_id and tail:
             await graph.insert_node(object_id, tail, agent_id)
-        object_identity = object_id or f"literal:{literal_value}"
-        assertion_id = str(
-            uuid.uuid5(
-                _V4_ASSERTION_NAMESPACE,
-                "\x1f".join(
-                    (
-                        tenant_id,
-                        str(mutation["dataset_id"]),
-                        str(mutation["revision_id"]),
-                        str(mutation["chunk_id"]),
-                        subject_id,
-                        relation,
-                        object_identity,
-                        str(mutation.get("evidence_span") or ""),
-                    )
-                ),
-            )
+        assertion_id = self.v4_assertion_id(
+            tenant_id=tenant_id,
+            dataset_id=str(mutation["dataset_id"]),
+            revision_id=str(mutation["revision_id"]),
+            chunk_id=str(mutation["chunk_id"]),
+            subject_id=subject_id,
+            predicate=relation,
+            object_entity_id=object_id,
+            literal_value=literal_value,
+            evidence_span=str(mutation.get("evidence_span") or ""),
         )
         metadata = mutation.get("metadata") or {}
         superseded_assertion_ids: list[str] = []
