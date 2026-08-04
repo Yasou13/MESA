@@ -662,9 +662,10 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         except Exception as exc:
             logger.warning("Failed to close KùzuDB: %s", exc)
 
-    if state.vector_engine:
-        await state.vector_engine.close()
-        delattr(state, "vector_engine")
+vector_engine = getattr(state, "vector_engine", None)
+if vector_engine:
+    await vector_engine.close()
+    delattr(state, "vector_engine")
     if state.sqlite_engine:
         await state.sqlite_engine.close()
         delattr(state, "sqlite_engine")
