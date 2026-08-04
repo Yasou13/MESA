@@ -243,6 +243,20 @@ class _GraphTarget:
     async def health_check(self) -> dict:
         return {"status": "healthy"}
 
+    async def get_existing_node_ids(
+        self, label: str, agent_id: str, node_ids: list[str]
+    ) -> set[str]:
+        if label == "Entity":
+            return {
+                node[0] for node in self.nodes 
+                if node[0] in node_ids and node[2] == agent_id
+            }
+        else:
+            return {
+                a["assertion_id"] for a in self.assertions 
+                if a["assertion_id"] in node_ids
+            }
+
     async def execute_query(
         self, query: str, parameters: dict | None = None
     ) -> list[tuple]:

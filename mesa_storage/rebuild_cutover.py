@@ -47,6 +47,10 @@ class VectorVerificationTarget(VectorReplayTarget, Protocol):
 class GraphVerificationTarget(GraphReplayTarget, Protocol):
     async def health_check(self) -> dict[str, Any]: ...
 
+    async def get_existing_node_ids(
+        self, label: str, agent_id: str, node_ids: list[str]
+    ) -> set[str]: ...
+
     async def execute_query(
         self, query: str, parameters: dict[str, Any] | None = None
     ) -> list[Any]: ...
@@ -178,13 +182,13 @@ class ProjectionParityVerifier:
                         )
                     else:
                         label = "Entity" if lane == "graph_entity" else "Assertion"
-                        found_rows = await graph.execute_query(
-                            f"MATCH (n:{label} {{agent_id: $agent_id}}) "
-                            "WHERE n.id IN $ids RETURN n.id",
-                            {"agent_id": agent_id, "ids": identifiers},
+                        found = await graph.get_existing_node_ids(
+                            label, agent_id, identifiers
                         )
-                        found = {str(row[0]) for row in found_rows}
-                    missing_ids += len(set(identifiers) - found)
+                    diff = set(identifiers) - found
+                    if diff:
+                        print(f"MISSING {lane}: {diff}")
+                    missing_ids += len(diff)
 
             smoke_checked = 0
             cross_dataset_checked = 0

@@ -9,6 +9,15 @@ from mesa_api.router import create_memory_router
 from mesa_memory.security.rbac import AccessControl
 
 
+def _mock_dao(**overrides):
+    """Return a MagicMock DAO with rebuild_admission properly async-mocked."""
+    dao = MagicMock()
+    dao.rebuild_admission.is_pending = AsyncMock(return_value=False)
+    for key, value in overrides.items():
+        setattr(dao, key, value)
+    return dao
+
+
 def _attach_principal(app: FastAPI, principal_id: str = "principal-a") -> None:
     @app.middleware("http")
     async def attach_principal(request, call_next):
@@ -28,7 +37,7 @@ def test_v3_insert_requires_principal_session_write_access():
     _attach_principal(app)
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_dao=lambda: _mock_dao(),  # type: ignore[return-value]
             get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
             get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
@@ -53,7 +62,7 @@ def test_v3_search_requires_principal_session_read_access():
     _attach_principal(app)
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_dao=lambda: _mock_dao(),  # type: ignore[return-value]
             get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
             get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
@@ -74,7 +83,7 @@ def test_v3_status_conceals_records_from_another_principal():
     access_control = MagicMock()
     access_control.check_principal_session_access = AsyncMock(return_value=False)
     access_control.check_access = AsyncMock(return_value=True)
-    dao = MagicMock()
+    dao = _mock_dao()
     dao.get_raw_log = AsyncMock(
         return_value={"payload": {"session_id": "session-a"}, "status": "DEFERRED"}
     )
@@ -106,7 +115,7 @@ def test_v3_record_conceals_records_from_another_principal():
     _attach_principal(app)
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_dao=lambda: _mock_dao(),  # type: ignore[return-value]
             get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
             get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
@@ -142,7 +151,7 @@ def test_session_start_denies_unmapped_principal_without_self_grant():
 
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_dao=lambda: _mock_dao(),  # type: ignore[return-value]
             get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
             get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
@@ -201,7 +210,7 @@ def test_session_start_allows_mapped_active_principal():
 
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_dao=lambda: _mock_dao(),  # type: ignore[return-value]
             get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
             get_access_control=lambda: access_control,  # type: ignore[return-value]
         )
@@ -236,7 +245,7 @@ def test_session_start_rejects_inactive_principal():
 
     app.include_router(
         create_memory_router(
-            get_dao=lambda: MagicMock(),  # type: ignore[return-value]
+            get_dao=lambda: _mock_dao(),  # type: ignore[return-value]
             get_embedder=lambda: [0.0] * 8,  # type: ignore[return-value]
             get_access_control=lambda: access_control,  # type: ignore[return-value]
         )

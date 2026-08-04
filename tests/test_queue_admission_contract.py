@@ -202,7 +202,10 @@ async def test_router_maps_admission_rejections_to_stable_http_contracts():
     )
 
     async def call(error):
-        dao = SimpleNamespace(admit_raw_log=AsyncMock(side_effect=error))
+        dao = SimpleNamespace(
+            admit_raw_log=AsyncMock(side_effect=error),
+            rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
+        )
         router = create_memory_router(
             get_dao=lambda: dao, get_access_control=lambda: AccessControlStub()  # type: ignore[return-value]
         )
@@ -355,7 +358,10 @@ async def test_unauthorized_router_call_does_not_reach_admission():
         async def check_principal_session_access(self, *_args):
             return True
 
-    dao = SimpleNamespace(admit_raw_log=AsyncMock())
+    dao = SimpleNamespace(
+        admit_raw_log=AsyncMock(),
+        rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
+    )
     router = create_memory_router(
         get_dao=lambda: dao, get_access_control=lambda: AccessControlStub()  # type: ignore[return-value]
     )

@@ -22,7 +22,10 @@ async def test_async_sdk_purge_uses_server_api_key_header(tmp_path):
     await policy.initialize()
     await policy.grant_principal_permission("principal-a", "agent-a", "PURGE")
     await policy.grant_access("agent-a", "__any__", "WRITE")
-    dao = SimpleNamespace(purge_memory=AsyncMock(return_value=0))
+    dao = SimpleNamespace(
+        purge_memory=AsyncMock(return_value=0),
+        rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
+    )
     app = FastAPI()
     app.include_router(
         create_memory_router(get_dao=lambda: dao, get_access_control=lambda: policy),  # type: ignore[return-value]

@@ -24,6 +24,7 @@ async def test_authenticated_session_routes_bind_principals_server_side(tmp_path
     dao = SimpleNamespace(
         get_recent_logs=AsyncMock(return_value=[]),
         purge_memory=AsyncMock(return_value=0),
+        rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
     )
     app = FastAPI()
     app.include_router(

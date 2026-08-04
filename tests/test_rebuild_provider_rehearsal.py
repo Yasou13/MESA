@@ -174,7 +174,7 @@ async def _seed_real_projection(database: Path, storage: Path) -> None:
                     rows,
                     vector=vector,
                     graph=graph,
-                    expected_provider=("embed-model", "v1", 3),
+                    expected_provider=("deterministic-test", "embed-model", "v1", 3),
                 )
     finally:
         await graph.close()

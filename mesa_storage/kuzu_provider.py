@@ -476,6 +476,20 @@ class KuzuGraphProvider(BaseGraphProvider):
             {"agent_id": agent_id, "node_ids": composite_ids},
         )
 
+    async def get_existing_node_ids(
+        self, label: str, agent_id: str, node_ids: list[str]
+    ) -> set[str]:
+        """Return the subset of node_ids that exist in the graph."""
+        if not node_ids:
+            return set()
+        composite_ids = [self._composite_id(agent_id, nid) for nid in node_ids]
+        rows = await self.execute_query(
+            f"MATCH (n:{label} {{agent_id: $agent_id}}) "
+            "WHERE n.id IN $node_ids RETURN n.id",
+            {"agent_id": agent_id, "node_ids": composite_ids},
+        )
+        return {str(row[0]) for row in rows}
+
     async def verify_nodes_absent(
         self,
         *,
