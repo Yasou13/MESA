@@ -366,10 +366,6 @@ class ParityGatedActivator:
             trusted_root=trusted_root,
         )
         if runtime.generation_id == preparation.source_generation_id:
-            if runtime.previous_generation_id is not None:
-                raise RebuildVerificationError(
-                    "source generation pointer is not cutover-ready"
-                )
             activated = await self._generations.activate(
                 preparation.target_generation_id,
                 operation_id=operation_id,

@@ -449,8 +449,10 @@ def _parity_report() -> ProjectionParityReport:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("previous_generation_id", [None, "retained-older"])
 async def test_parity_gated_activation_completes_and_retains_previous_generation(
     tmp_path: Path,
+    previous_generation_id: str | None,
 ) -> None:
     database = _source_database(tmp_path)
     trusted = tmp_path / "trusted"
@@ -484,7 +486,7 @@ async def test_parity_gated_activation_completes_and_retains_previous_generation
                 vector_path=storage / "vector.lance",
                 graph_path=storage / "kuzu_db",
                 runtime_fencing_token=0,
-                previous_generation_id=None,
+                previous_generation_id=previous_generation_id,
             )
         ),
     )
