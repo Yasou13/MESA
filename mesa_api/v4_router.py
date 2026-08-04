@@ -698,10 +698,17 @@ def create_v4_router(
         dao: MemoryDAO,
         access_control: AccessControl,
     ) -> V4OperationResponse:
-        principal = await _require_control_admin(request, access_control)
-        if not config.v4_rebuild_enabled:
-            raise HTTPException(status_code=501, detail="Durable rebuild is disabled")
-        payload_hash = hashlib.sha256(
+principal = await _require_control_admin(request, access_control)
+if (
+    not idempotency_key
+    or idempotency_key.strip() != idempotency_key
+    or len(idempotency_key) > 128
+    or any(ord(char) < 32 for char in idempotency_key)
+):
+    raise HTTPException(status_code=422, detail="Idempotency-Key is invalid")
+if not config.v4_rebuild_enabled:
+    raise HTTPException(status_code=501, detail="Durable rebuild is disabled")
+payload_hash = hashlib.sha256(
             b'{"kind":"projection","scope":"storage_root","version":1}'
         ).hexdigest()
         try:
