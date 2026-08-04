@@ -21,7 +21,9 @@ oluşturulur. Tenant, workspace veya dataset kapsamlı rebuild desteklenmez.
   rezervi kadar boş alan bulunmalıdır. Runner kendi ölçümünü yapar ve yetersiz
   alanda fail-closed davranır.
 - API ile runner aynı provider, embedding model/version ve dimension config'ini
-  kullanmalıdır. Snapshot provenance'ı uyuşmuyorsa runner rebuild yapmaz.
+  kullanmalıdır. `MESA_EMBEDDING_VERSION` boş bırakılamaz; dimension gerçek
+  provider çıktısıyla aynı olmalıdır. Snapshot provenance'ı uyuşmuyorsa runner
+  rebuild yapmaz.
 - Backup ve retained generation otomatik silinmez. Bu release'te otomatik veya
   zamanlanmış projection-generation cleanup yoktur.
 
@@ -34,6 +36,8 @@ Flag'i combined runtime'ın açık deployment config'inde etkinleştirin:
 
 ```bash
 export MESA_V4_REBUILD_ENABLED=true
+export MESA_EMBEDDING_VERSION=v1
+export MESA_EMBEDDING_DIMENSION=1536
 ```
 
 Credential'ı bir kez üretin ve aynı principal'a control-plane rolü verin.
@@ -105,6 +109,34 @@ kaydını veya lease'i elle silerek preflight'ı atlamayın.
 Backlog sıfırlandıktan sonra combined process'i kontrollü durdurun. Process'in
 storage writer lock'ını bıraktığını doğrulayın. Sonra aynı reviewed provider
 config'iyle şu komutu çalıştırın:
+
+`fd4e5f6a7b8c` öncesinde oluşturulmuş aktif vector mutation'larında provider
+kimliği eksikse normal runner fail-closed olur. Yalnız operation `PENDING` veya
+`RETRYABLE_FAILED`, combined runtime durmuş ve provider/model/version/dimension
+eski generation'ı üreten config kayıtlarından dışarıdan doğrulanmışsa bir kez
+şu açık adoption adımını çalıştırın:
+
+```bash
+mesa-v4-rebuild adopt-provider \
+  --trusted-root /srv/mesa \
+  --storage-root /srv/mesa/v4-data \
+  --provider openai_compatible \
+  --model text-embedding-3-small \
+  --version "$MESA_EMBEDDING_VERSION" \
+  --dimension "$MESA_EMBEDDING_DIMENSION" \
+  --confirm-legacy-provider-unknown
+```
+
+Bu komut rebuild değildir: yalnız aktif vector ownership'ine bağlı canonical
+mutation satırlarındaki eksik provider alanlarını `COALESCE` ile tamamlayan,
+writer-lock korumalı ve açık operator onayı isteyen tek seferlik metadata
+adoption işlemidir. Var olan herhangi bir provider/model/version/dimension
+değeri assertion ile çelişirse transaction bütünüyle geri alınır. Bu kanıt
+yoksa adoption yapmayın; release `NO-GO` kalır ve sonraki full raw-source
+rebuild iş paketini bekleyin. `mesa-v4-rebuild run` canonical SQLite'ı hiçbir
+zaman değiştirmez.
+
+Ardından aynı reviewed provider config'iyle normal runner'ı çalıştırın:
 
 ```bash
 mesa-v4-rebuild run \

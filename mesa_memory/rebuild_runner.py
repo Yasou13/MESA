@@ -15,6 +15,10 @@ from typing import Any
 
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
+from mesa_storage.embedding_identity import (
+    EmbeddingIdentityAdoptionError,
+    adopt_legacy_embedding_identity,
+)
 from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.rebuild_cutover import (
     ParityGatedActivator,
@@ -102,7 +106,52 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--operation-id", required=True)
     run.add_argument("--batch-size", type=int, default=100)
     run.add_argument("--lease-seconds", type=int, default=300)
+    adopt = subparsers.add_parser(
+        "adopt-provider",
+        help="Explicitly adopt missing legacy vector provider provenance offline",
+    )
+    adopt.add_argument("--trusted-root", type=Path, required=True)
+    adopt.add_argument("--storage-root", type=Path, required=True)
+    adopt.add_argument("--provider", required=True)
+    adopt.add_argument("--model", required=True)
+    adopt.add_argument("--version", required=True)
+    adopt.add_argument("--dimension", type=int, required=True)
+    adopt.add_argument(
+        "--confirm-legacy-provider-unknown",
+        action="store_true",
+        help="Confirm that the operator verified the legacy provider externally",
+    )
     return parser
+
+
+def run_provider_adoption(args: argparse.Namespace) -> int:
+    if not config.v4_rebuild_enabled or not args.confirm_legacy_provider_unknown:
+        print(
+            json.dumps({"status": "rejected", "error_class": "AdoptionNotConfirmed"}),
+            file=sys.stderr,
+        )
+        return EXIT_CONFIGURATION
+    try:
+        with StorageWriterLock.acquire(
+            args.storage_root, owner="v4-provider-adoption"
+        ) as writer_lock:
+            updated = adopt_legacy_embedding_identity(
+                trusted_root=args.trusted_root,
+                storage_root=args.storage_root,
+                writer_lock=writer_lock,
+                provider=args.provider,
+                model=args.model,
+                version=args.version,
+                dimension=args.dimension,
+            )
+    except (EmbeddingIdentityAdoptionError, StorageWriterLockError, OSError) as exc:
+        print(
+            json.dumps({"status": "rejected", "error_class": type(exc).__name__}),
+            file=sys.stderr,
+        )
+        return EXIT_CONFIGURATION
+    print(json.dumps({"status": "adopted", "updated_mutations": updated}))
+    return EXIT_OK
 
 
 async def _mark_operation_failure(
@@ -414,6 +463,8 @@ async def run_rebuild(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "adopt-provider":
+        return run_provider_adoption(args)
     return asyncio.run(run_rebuild(args))
 
 

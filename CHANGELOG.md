@@ -30,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   active SQLite generation pointer.
 - **Embedding identity:** Canonical mutations now persist embedding provider,
   model, version and dimension so projection replay fails closed on any provider
-  mismatch.
+  mismatch. Legacy rows with externally verified provenance can be completed by
+  the explicit, writer-locked `mesa-v4-rebuild adopt-provider` command.
 
 ### Security
 

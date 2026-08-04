@@ -12,11 +12,15 @@ def test_rebuild_runbook_records_exact_offline_control_flow() -> None:
 
     required_fragments = {
         "MESA_V4_REBUILD_ENABLED=true",
+        "MESA_EMBEDDING_VERSION=v1",
+        "MESA_EMBEDDING_DIMENSION=1536",
         "mesa-v4-admin grant-control --principal rebuild-operator",
         "/v4/operations/rebuild",
         "/v4/operations/$MESA_REBUILD_OPERATION_ID/retry",
         "/v4/operations/$MESA_REBUILD_OPERATION_ID/cancel",
         "mesa-v4-rebuild run",
+        "mesa-v4-rebuild adopt-provider",
+        "--confirm-legacy-provider-unknown",
         "--trusted-root /srv/mesa",
         "--storage-root /srv/mesa/v4-data",
         "--work-root /srv/mesa/rebuild-work",
@@ -39,3 +43,4 @@ def test_rebuild_runbook_keeps_scope_and_cleanup_fail_closed() -> None:
     assert "manuel HTTP rollback endpoint'i sunmaz" in runbook
     assert "Dataset-bound MCP" in runbook
     assert "MESA_V4_REBUILD_ENABLED=false" in env_template
+    assert "MESA_EMBEDDING_VERSION=v1" in env_template
