@@ -50,6 +50,7 @@ EXIT_OK = 0
 EXIT_CONFIGURATION = 2
 EXIT_RETRYABLE = 3
 EXIT_WRITER_ACTIVE = 4
+EXIT_FINAL = 5
 
 
 @dataclass(frozen=True)
@@ -108,29 +109,37 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _mark_retryable_failure(
+async def _mark_operation_failure(
     operations: OperationRepository,
     operation_id: str,
     *,
     runner_id: str,
     error_class: str,
-) -> None:
+) -> str | None:
     operation = await operations.get(operation_id)
-    if operation is None or operation["state"] in {
+    if operation is None:
+        return None
+    current_state = str(operation["state"])
+    if current_state in {
         "RETRYABLE_FAILED",
         "FINAL_FAILED",
         "CANCELLED",
         "COMPLETED",
     }:
-        return
+        return current_state
     if operation.get("claimed_by") != runner_id or not operation.get("claim_token"):
-        return
+        return None
+    attempt_count = int(operation.get("attempt_count", 0))
+    retry_limit = int(operation.get("retry_limit", 3))
+    target_state = (
+        "FINAL_FAILED" if attempt_count >= retry_limit else "RETRYABLE_FAILED"
+    )
     checkpoint = dict(operation.get("checkpoint") or {})
-    checkpoint["phase"] = "RETRYABLE_FAILED"
+    checkpoint["phase"] = target_state
     try:
-        await operations.transition(
+        transitioned = await operations.transition(
             operation_id,
-            to_state="RETRYABLE_FAILED",
+            to_state=target_state,
             runner_id=runner_id,
             claim_token=str(operation["claim_token"]),
             fencing_token=int(operation["fencing_token"]),
@@ -139,9 +148,20 @@ async def _mark_retryable_failure(
             checkpoint=checkpoint,
             error_class=error_class[:128],
         )
-    except (OperationFencedError, OperationStateError):
-        # A concurrent fence owner or cutover recovery remains authoritative.
-        return
+    except OperationFencedError:
+        # A concurrent fence owner remains authoritative.
+        return None
+    except OperationStateError:
+        latest = await operations.get(operation_id)
+        if latest is not None and str(latest["state"]) in {
+            "RETRYABLE_FAILED",
+            "FINAL_FAILED",
+            "CANCELLED",
+            "COMPLETED",
+        }:
+            return str(latest["state"])
+        raise
+    return str(transitioned["state"])
 
 
 async def run_rebuild(args: argparse.Namespace) -> int:
@@ -322,13 +342,30 @@ async def run_rebuild(args: argparse.Namespace) -> int:
         )
         return EXIT_WRITER_ACTIVE
     except (OperationNotFoundError, OperationStateError, ValueError) as exc:
+        failure_state: str | None = None
         if operations is not None:
-            await _mark_retryable_failure(
+            failure_state = await _mark_operation_failure(
                 operations,
                 args.operation_id,
                 runner_id=runner_id,
                 error_class=type(exc).__name__,
             )
+        if failure_state == "FINAL_FAILED":
+            log_rebuild_event(
+                "failed",
+                operation_id=args.operation_id,
+                state=failure_state,
+                error_class=type(exc).__name__,
+                duration_seconds=time.monotonic() - started_at,
+                level="error",
+            )
+            print(
+                json.dumps(
+                    {"status": "final_failed", "error_class": type(exc).__name__}
+                ),
+                file=sys.stderr,
+            )
+            return EXIT_FINAL
         log_rebuild_event(
             "rejected",
             operation_id=args.operation_id,
@@ -342,28 +379,34 @@ async def run_rebuild(args: argparse.Namespace) -> int:
         )
         return EXIT_CONFIGURATION
     except Exception as exc:
+        failure_state = None
         if operations is not None:
-            await _mark_retryable_failure(
+            failure_state = await _mark_operation_failure(
                 operations,
                 args.operation_id,
                 runner_id=runner_id,
                 error_class=type(exc).__name__,
             )
+        final = failure_state == "FINAL_FAILED"
+        reported_state = "FINAL_FAILED" if final else "RETRYABLE_FAILED"
         log_rebuild_event(
             "failed",
             operation_id=args.operation_id,
-            state="RETRYABLE_FAILED",
+            state=reported_state,
             error_class=type(exc).__name__,
             duration_seconds=time.monotonic() - started_at,
             level="error",
         )
         print(
             json.dumps(
-                {"status": "retryable_failed", "error_class": type(exc).__name__}
+                {
+                    "status": "final_failed" if final else "retryable_failed",
+                    "error_class": type(exc).__name__,
+                }
             ),
             file=sys.stderr,
         )
-        return EXIT_RETRYABLE
+        return EXIT_FINAL if final else EXIT_RETRYABLE
     finally:
         if engine is not None:
             await engine.close()

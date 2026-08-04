@@ -128,6 +128,7 @@ Exit code'lar:
 | `2` | Flag/config/operation reddi | Config ve operation status'unu düzeltin; kör retry yapmayın |
 | `3` | Güvenli retryable failure | Status/checkpoint'i inceleyip aşağıdaki resume akışını kullanın |
 | `4` | Başka writer aktif | API/worker/combined process'i bulun; ikinci writer başlatmayın |
+| `5` | Retry bütçesi tükendi, `FINAL_FAILED` | Rehearsal'ı durdurun; yeni operation öncesi kök nedeni giderin |
 
 Runner stdout/stderr çıktısı operation/generation/state/count/error-class ile
 sınırlıdır. Fiziksel path, içerik, credential, manifest payload veya claim

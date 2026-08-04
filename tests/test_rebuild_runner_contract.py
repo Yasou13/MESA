@@ -204,9 +204,19 @@ def test_package_exposes_exact_rebuild_entrypoint() -> None:
     assert 'mesa-v4-rebuild = "mesa_memory.rebuild_runner:main"' in pyproject
 
 
-def test_cli_turns_safe_stop_into_retryable_checkpointed_exit(
+@pytest.mark.parametrize(
+    ("attempt_count", "expected_state", "expected_exit_code"),
+    [
+        (1, "RETRYABLE_FAILED", runner.EXIT_RETRYABLE),
+        (3, "FINAL_FAILED", runner.EXIT_FINAL),
+    ],
+)
+def test_cli_turns_safe_stop_into_checkpointed_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    attempt_count: int,
+    expected_state: str,
+    expected_exit_code: int,
 ) -> None:
     trusted, storage, work = _roots(tmp_path)
     (storage / "mesa.db").touch()
@@ -217,6 +227,8 @@ def test_cli_turns_safe_stop_into_retryable_checkpointed_exit(
         "claimed_by": f"v4-rebuild-{runner.os.getpid()}",
         "claim_token": "claim-a",
         "fencing_token": 1,
+        "attempt_count": attempt_count,
+        "retry_limit": 3,
         "progress_completed": 1,
         "progress_total": 2,
         "checkpoint": {"phase": "REPLAYING", "replay": {"vector": 1}},
@@ -230,7 +242,7 @@ def test_cli_turns_safe_stop_into_retryable_checkpointed_exit(
             ]
         ),
         claim=AsyncMock(return_value=claimed),
-        transition=AsyncMock(return_value={**running, "state": "RETRYABLE_FAILED"}),
+        transition=AsyncMock(return_value={**running, "state": expected_state}),
     )
     preparation = RebuildPreparation(
         operation=running,
@@ -288,11 +300,11 @@ def test_cli_turns_safe_stop_into_retryable_checkpointed_exit(
 
     exit_code = runner.main(_arguments(trusted, storage, work))
 
-    assert exit_code == runner.EXIT_RETRYABLE
+    assert exit_code == expected_exit_code
     operations.transition.assert_awaited_once()
-    assert operations.transition.await_args.kwargs["to_state"] == "RETRYABLE_FAILED"
+    assert operations.transition.await_args.kwargs["to_state"] == expected_state
     assert operations.transition.await_args.kwargs["checkpoint"] == {
-        "phase": "RETRYABLE_FAILED",
+        "phase": expected_state,
         "replay": {"vector": 1},
     }
     assert operations.transition.await_args.kwargs["error_class"] == (
