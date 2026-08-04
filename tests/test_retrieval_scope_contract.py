@@ -1,10 +1,14 @@
 """Shared vector retrieval scoping used by serving and rebuild verification."""
 
+import sqlite3
 from typing import Any
 
 import pytest
 
-from mesa_storage.retrieval_scope import scope_vector_result_ids
+from mesa_storage.retrieval_scope import (
+    build_v4_lexical_query,
+    scope_vector_result_ids,
+)
 from mesa_storage.vector_engine import VectorEngine
 
 
@@ -19,6 +23,62 @@ def test_vector_result_scope_excludes_cross_dataset_rows_and_preserves_rank() ->
     assert scope_vector_result_ids(
         rows, allowed_ids={"dataset-a-first", "dataset-a-second"}
     ) == ["dataset-a-first", "dataset-a-second"]
+
+
+def test_lexical_query_applies_dataset_ownership_before_ranking_limit() -> None:
+    query = build_v4_lexical_query(dataset_count=2)
+
+    assert "s.dataset_id IN (?,?)" in query
+    assert "r.tenant_id = e.tenant_id" in query
+    assert query.index("EXISTS") < query.index("ORDER BY rank")
+
+
+def test_lexical_query_cannot_be_crowded_out_by_another_dataset() -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.executescript("""
+        CREATE TABLE v4_entities (
+            entity_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            canonical_name TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            status TEXT NOT NULL
+        );
+        CREATE VIRTUAL TABLE v4_entities_fts USING fts5(
+            canonical_name, entity_type,
+            content='v4_entities', content_rowid='rowid'
+        );
+        CREATE TABLE artifact_registry (
+            registry_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            physical_artifact_id TEXT NOT NULL,
+            artifact_kind TEXT NOT NULL,
+            state TEXT NOT NULL
+        );
+        CREATE TABLE artifact_sources (
+            registry_id TEXT NOT NULL,
+            dataset_id TEXT NOT NULL,
+            state TEXT NOT NULL
+        );
+        INSERT INTO v4_entities VALUES
+            ('denied', 'tenant-a', 'Court', 'concept', 'ACTIVE'),
+            ('allowed', 'tenant-a', 'Court', 'concept', 'ACTIVE');
+        INSERT INTO v4_entities_fts(rowid, canonical_name, entity_type)
+            SELECT rowid, canonical_name, entity_type FROM v4_entities;
+        INSERT INTO artifact_registry VALUES
+            ('registry-denied', 'tenant-a', 'denied', 'ENTITY', 'ACTIVE'),
+            ('registry-allowed', 'tenant-a', 'allowed', 'ENTITY', 'ACTIVE');
+        INSERT INTO artifact_sources VALUES
+            ('registry-denied', 'dataset-b', 'ACTIVE'),
+            ('registry-allowed', 'dataset-a', 'ACTIVE');
+        """)
+
+    rows = connection.execute(
+        build_v4_lexical_query(dataset_count=1),
+        ('"Court"', "tenant-a", "dataset-a", 1),
+    ).fetchall()
+    connection.close()
+
+    assert rows == [("allowed",)]
 
 
 class _RecordingQuery:

@@ -71,7 +71,11 @@ from mesa_storage.repositories.operations import (
     RebuildAdmissionPort,
     RebuildAdmissionReader,
 )
-from mesa_storage.retrieval_scope import V4_RRF_LANE_ORDER, scope_vector_result_ids
+from mesa_storage.retrieval_scope import (
+    V4_RRF_LANE_ORDER,
+    build_v4_lexical_query,
+    scope_vector_result_ids,
+)
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -3361,17 +3365,15 @@ class MemoryDAO:
             )
             async with self._sql.connection() as db:
                 async with db.execute(
-                    "SELECT e.entity_id FROM v4_entities_fts f "
-                    "JOIN v4_entities e ON e.rowid = f.rowid "
-                    "WHERE v4_entities_fts MATCH ? AND e.tenant_id = ? "
-                    "AND e.status = 'ACTIVE' ORDER BY rank LIMIT ?",
-                    (expression, tenant_id, min(500, max(limit * 10, 50))),
+                    build_v4_lexical_query(dataset_count=len(datasets)),
+                    (
+                        expression,
+                        tenant_id,
+                        *datasets,
+                        min(500, max(limit * 10, 50)),
+                    ),
                 ) as cursor:
-                    lexical_lane = [
-                        str(row[0])
-                        for row in await cursor.fetchall()
-                        if str(row[0]) in allowed_ids
-                    ]
+                    lexical_lane = [str(row[0]) for row in await cursor.fetchall()]
 
         like_query = f"%{_normalize_identity_text(query)}%"
         assertion_filters = [
