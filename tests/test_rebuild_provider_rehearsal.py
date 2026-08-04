@@ -205,11 +205,50 @@ def _require_real_provider_runtime(tmp_path: Path) -> None:
             timeout=10,
         )
     except subprocess.TimeoutExpired:
-        pytest.skip("local LanceDB provider did not initialize within 10 seconds")
-    except subprocess.CalledProcessError as exc:
-        pytest.skip(
-            f"local LanceDB provider is unavailable: exit code {exc.returncode}"
+        pytest.fail(
+            "local LanceDB provider initialization timed out",
+            pytrace=False,
         )
+    except subprocess.CalledProcessError as exc:
+        pytest.fail(
+            f"local LanceDB provider probe failed with exit code {exc.returncode}",
+            pytrace=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "probe_failure",
+    [
+        subprocess.TimeoutExpired(cmd="lancedb-probe", timeout=10),
+        subprocess.CalledProcessError(returncode=1, cmd="lancedb-probe"),
+    ],
+)
+def test_installed_provider_probe_failure_fails_rehearsal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    probe_failure: Exception,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(probe_failure),
+    )
+
+    try:
+        _require_real_provider_runtime(tmp_path)
+    except BaseException as exc:
+        assert isinstance(exc, pytest.fail.Exception)
+    else:
+        pytest.fail("failed provider probe unexpectedly passed")
+
+
+def test_migration_dr_requires_real_provider_rehearsal() -> None:
+    workflow = (Path(__file__).parents[1] / ".github/workflows/ci.yml").read_text()
+    migration_job = workflow.split("  migration-dr:", maxsplit=1)[1].split(
+        "\n  package:", maxsplit=1
+    )[0]
+
+    assert 'MESA_REQUIRE_REAL_PROVIDER_REHEARSAL: "true"' in migration_job
 
 
 @pytest.mark.asyncio
