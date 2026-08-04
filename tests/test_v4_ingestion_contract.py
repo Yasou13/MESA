@@ -67,6 +67,10 @@ async def test_v4_admission_is_atomic_and_idempotent_without_catalog_orphans(
         "chunk_ordinal": 0,
         "supersedes_revision_id": None,
         "metadata": {"jurisdiction": "TR"},
+        "embedding_provider": "local-test",
+        "embedding_model": "embed-model",
+        "embedding_version": "v1",
+        "embedding_dimension": 3,
         "idempotency_key": "insert-a",
         "payload_hash": "a" * 64,
     }
@@ -110,6 +114,55 @@ async def test_v4_admission_is_atomic_and_idempotent_without_catalog_orphans(
             for table in ("source_chunks", "raw_logs", "memory_mutations"):
                 async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
                     assert (await cursor.fetchone())[0] == 1
+            async with db.execute(
+                "SELECT embedding_provider, embedding_model, embedding_version, "
+                "embedding_dimension FROM memory_mutations"
+            ) as cursor:
+                assert tuple(await cursor.fetchone()) == (
+                    "local-test",
+                    "embed-model",
+                    "v1",
+                    3,
+                )
+            await db.execute(
+                "UPDATE memory_mutations SET embedding_provider = NULL, "
+                "embedding_model = NULL, embedding_version = NULL, "
+                "embedding_dimension = NULL"
+            )
+            await db.commit()
+
+        admitted_candidate = MemoryCandidate.from_raw_log(
+            raw_log_id=int(first["response"]["raw_log_id"]),
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+            document_id="document-a",
+            revision_id="revision-a",
+            chunk_id="chunk-a",
+            source_ref="source-a",
+            agent_id="agent-a",
+            session_id="session-a",
+            content_payload="The durable V4 payload.",
+            embedding_provider="local-test",
+            embedding_model="embed-model",
+            embedding_version="v1",
+            embedding_dimension=3,
+        )
+        await dao.record_mutation(
+            admitted_candidate.as_consolidation_record(),
+            raw_log_id=admitted_candidate.raw_log_id,
+        )
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT embedding_provider, embedding_model, embedding_version, "
+                "embedding_dimension FROM memory_mutations"
+            ) as cursor:
+                assert tuple(await cursor.fetchone()) == (
+                    "local-test",
+                    "embed-model",
+                    "v1",
+                    3,
+                )
     finally:
         await engine.close()
 
@@ -139,6 +192,10 @@ async def test_v4_admission_fault_rolls_back_then_retries_without_orphans(
         "chunk_ordinal": 0,
         "supersedes_revision_id": None,
         "metadata": {"jurisdiction": "TR"},
+        "embedding_provider": "local-test",
+        "embedding_model": "embed-model",
+        "embedding_version": "v1",
+        "embedding_dimension": 3,
         "idempotency_key": "insert-after-fault",
         "payload_hash": "b" * 64,
         "policy": config.queue_admission_policy,

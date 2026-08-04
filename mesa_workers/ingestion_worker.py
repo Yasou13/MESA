@@ -52,7 +52,7 @@ from typing import Any
 import structlog
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
-from mesa_memory.config import config
+from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
@@ -79,23 +79,6 @@ def _safe_context_id(value: str) -> str:
         value
         if value not in {"__unset__", "__system__"} and _CONTEXT_ID_RE.fullmatch(value)
         else "invalid"
-    )
-
-
-def _configured_embedding_identity() -> tuple[str, str, str | None, int]:
-    external = os.getenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false").strip().lower()
-    if external in {"1", "true", "yes", "on"}:
-        return (
-            config.mesa_llm_provider,
-            config.llm_embedding_model_name,
-            config.embedding_version,
-            config.embedding_dimension,
-        )
-    return (
-        "local",
-        config.local_embedding_model,
-        config.embedding_version,
-        config.embedding_dimension,
     )
 
 
@@ -362,7 +345,7 @@ async def _process_cold_path_impl(
                     raise RuntimeError(
                         "full-cognitive processing requires a Tier-3 consolidation loop"
                     )
-                provider, model, version, dimension = _configured_embedding_identity()
+                embedding_identity = configured_embedding_identity()
                 candidate = MemoryCandidate.from_raw_log(
                     raw_log_id=log_id,
                     agent_id=payload_agent_id,
@@ -380,10 +363,10 @@ async def _process_cold_path_impl(
                     chunk_id=payload.get("chunk_id"),
                     source_ref=payload.get("source_ref"),
                     evidence_span=str(payload.get("evidence_span", "")),
-                    embedding_provider=provider,
-                    embedding_model=model,
-                    embedding_version=version,
-                    embedding_dimension=dimension,
+                    embedding_provider=embedding_identity.provider,
+                    embedding_model=embedding_identity.model,
+                    embedding_version=embedding_identity.version,
+                    embedding_dimension=embedding_identity.dimension,
                 )
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;

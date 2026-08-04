@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
-from mesa_memory.config import config
+from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
@@ -855,6 +855,7 @@ def create_v4_router(
         payload_hash = hashlib.sha256(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
+        embedding_identity = configured_embedding_identity()
         try:
             admission = await dao.admit_v4_memory(
                 tenant_id=str(session["tenant_id"]),
@@ -873,6 +874,10 @@ def create_v4_router(
                 chunk_ordinal=payload.chunk_ordinal,
                 supersedes_revision_id=payload.supersedes_revision_id,
                 metadata=payload.metadata,
+                embedding_provider=embedding_identity.provider,
+                embedding_model=embedding_identity.model,
+                embedding_version=embedding_identity.version,
+                embedding_dimension=embedding_identity.dimension,
                 policy=config.queue_admission_policy,
                 idempotency_key=payload.idempotency_key,
                 payload_hash=payload_hash if payload.idempotency_key else None,

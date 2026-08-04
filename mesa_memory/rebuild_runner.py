@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from mesa_memory.adapter.factory import AdapterFactory
-from mesa_memory.config import config
+from mesa_memory.config import config, configured_embedding_identity
 from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.rebuild_cutover import (
     ParityGatedActivator,
@@ -79,17 +79,13 @@ def _provider_runtime() -> RebuildProviderRuntime:
     if external:
         adapter = AdapterFactory.get_adapter()
         embedding_provider = adapter.aembed
-        model = config.llm_embedding_model_name
-        provider = config.mesa_llm_provider
-    else:
-        model = config.local_embedding_model
-        provider = "local"
+    identity = configured_embedding_identity()
     return RebuildProviderRuntime(
         manifest={
-            "embedding_provider": provider,
-            "embedding_model": model,
-            "embedding_version": config.embedding_version,
-            "dimension": config.embedding_dimension,
+            "embedding_provider": identity.provider,
+            "embedding_model": identity.model,
+            "embedding_version": identity.version,
+            "dimension": identity.dimension,
         },
         embedding_provider=embedding_provider,
         allow_model_loading=model_enabled,

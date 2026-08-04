@@ -1359,6 +1359,10 @@ class MemoryDAO:
         chunk_ordinal: int,
         supersedes_revision_id: str | None,
         metadata: dict[str, Any],
+        embedding_provider: str,
+        embedding_model: str,
+        embedding_version: str,
+        embedding_dimension: int,
         policy: QueueAdmissionPolicy,
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
@@ -1390,6 +1394,13 @@ class MemoryDAO:
             raise ValueError(
                 "idempotency key and payload hash must be supplied together"
             )
+        if (
+            not embedding_provider
+            or not embedding_model
+            or not embedding_version
+            or embedding_dimension < 1
+        ):
+            raise ValueError("complete embedding identity is required")
 
         raw_payload = {
             "tenant_id": tenant_id,
@@ -1635,8 +1646,8 @@ class MemoryDAO:
                 )
                 await db.execute(
                     "INSERT INTO memory_mutations "
-                    "(mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, document_id, revision_id, chunk_id, source_ref, evidence_span, agent_id, session_id, content_payload, metadata_json, source, pipeline_run_id, extraction_version, state) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, 'v4', 'RECEIVED')",
+                    "(mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, document_id, revision_id, chunk_id, source_ref, evidence_span, agent_id, session_id, content_payload, metadata_json, source, pipeline_run_id, extraction_version, embedding_provider, embedding_model, embedding_version, embedding_dimension, state) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, 'v4', ?, ?, ?, ?, 'RECEIVED')",
                     (
                         mutation_id,
                         candidate_id,
@@ -1654,6 +1665,10 @@ class MemoryDAO:
                         content_payload,
                         json.dumps(metadata, sort_keys=True),
                         pipeline_run_id,
+                        embedding_provider,
+                        embedding_model,
+                        embedding_version,
+                        embedding_dimension,
                     ),
                 )
                 for projection_name in ("SQL", "VECTOR", "GRAPH"):
@@ -1806,6 +1821,36 @@ class MemoryDAO:
             existing = dict(row)
             if existing["candidate_id"] != candidate["candidate_id"]:
                 raise ValueError("mutation_id collision with a different candidate")
+            identity_fields = (
+                "embedding_provider",
+                "embedding_model",
+                "embedding_version",
+                "embedding_dimension",
+            )
+            candidate_identity = tuple(
+                candidate.get(field) for field in identity_fields
+            )
+            if any(value is not None for value in candidate_identity):
+                if (
+                    any(value in (None, "") for value in candidate_identity[:3])
+                    or isinstance(candidate_identity[3], bool)
+                    or not isinstance(candidate_identity[3], int)
+                    or candidate_identity[3] < 1
+                ):
+                    raise ValueError("complete embedding identity is required")
+                existing_identity = tuple(existing[field] for field in identity_fields)
+                for current, expected in zip(existing_identity, candidate_identity):
+                    if current is not None and current != expected:
+                        raise ValueError("mutation embedding identity conflicts")
+                if existing_identity != candidate_identity:
+                    await db.execute(
+                        "UPDATE memory_mutations SET embedding_provider = ?, "
+                        "embedding_model = ?, embedding_version = ?, "
+                        "embedding_dimension = ?, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE mutation_id = ?",
+                        (*candidate_identity, mutation_id),
+                    )
+                    existing.update(zip(identity_fields, candidate_identity))
             # A mutation is never projectable before Tier-3 approval.  The
             # durable rows exist now so a rejection can be audited/cancelled,
             # but consumers cannot claim them until ``VALIDATED``.

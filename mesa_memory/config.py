@@ -73,6 +73,14 @@ class RuntimeProfileConfig:
     require_worker_readiness: bool
 
 
+@dataclass(frozen=True)
+class EmbeddingIdentity:
+    provider: str
+    model: str
+    version: str
+    dimension: int
+
+
 def load_runtime_profile(
     environ: Mapping[str, str] | None = None,
 ) -> RuntimeProfileConfig:
@@ -356,8 +364,8 @@ class MesaConfig(BaseSettings):
         None, validation_alias="MESA_TIER3_LLM_MODEL_B"
     )
     embedding_dimension: int = Field(1536, validation_alias="MESA_EMBEDDING_DIMENSION")
-    embedding_version: str | None = Field(
-        None, validation_alias="MESA_EMBEDDING_VERSION"
+    embedding_version: str = Field(
+        "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )
 
     tiebreaker_latency_threshold_ms: float = 500.0
@@ -691,3 +699,25 @@ def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:
 
 
 config = calculate_dynamic_limits(MesaConfig())
+
+
+def configured_embedding_identity(
+    environ: Mapping[str, str] | None = None,
+) -> EmbeddingIdentity:
+    """Return the provider identity shared by admission, worker and rebuild."""
+    values = os.environ if environ is None else environ
+    external = _parse_runtime_bool(
+        values.get("MESA_EXTERNAL_PROVIDER_ENABLED"),
+        name="MESA_EXTERNAL_PROVIDER_ENABLED",
+        default=False,
+    )
+    return EmbeddingIdentity(
+        provider=config.mesa_llm_provider if external else "local",
+        model=(
+            config.llm_embedding_model_name
+            if external
+            else config.local_embedding_model
+        ),
+        version=config.embedding_version,
+        dimension=config.embedding_dimension,
+    )

@@ -245,6 +245,10 @@ async def test_v4_insert_creates_canonical_mutation_after_authorized_admission(
     assert admission["tenant_id"] == "tenant-a"
     assert admission["dataset_id"] == "dataset-a"
     assert admission["content_payload"] == "Exact content for the durable V4 candidate."
+    assert admission["embedding_provider"] == "local"
+    assert admission["embedding_model"]
+    assert admission["embedding_version"] == "v1"
+    assert admission["embedding_dimension"] > 0
 
 
 @pytest.mark.asyncio
