@@ -17,6 +17,8 @@ from mesa_storage.rebuild_preparation import (
     RebuildBacklogError,
     RebuildDiskCapacityError,
     RebuildPathError,
+    RebuildPreparationError,
+    canonical_sqlite_manifest,
     inspect_rebuild_preflight,
     resume_cutover_preparation,
 )
@@ -115,6 +117,42 @@ def test_preflight_requires_drain_capacity_and_safe_nonoverlapping_paths(
         escaped_work.symlink_to(outside, target_is_directory=True)
         with pytest.raises(RebuildPathError, match="symlink|trusted root"):
             _inspect(trusted, storage, escaped_work, writer_lock)
+
+
+def test_canonical_manifest_detects_corrupt_external_content_fts_index(
+    tmp_path: Path,
+) -> None:
+    _trusted, _storage_root, _work, database = _storage(tmp_path)
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "INSERT INTO v4_entities (entity_id, tenant_id, entity_type, "
+        "canonical_name, normalized_name, identity_key) VALUES "
+        "('entity-a', 'tenant-a', 'concept', 'Alpha Signal', 'alpha signal', "
+        "'entity-a')"
+    )
+    rowid = int(
+        connection.execute(
+            "SELECT rowid FROM v4_entities WHERE entity_id = 'entity-a'"
+        ).fetchone()[0]
+    )
+    connection.execute(
+        "INSERT INTO v4_entities_fts(v4_entities_fts, rowid, canonical_name, "
+        "entity_type) VALUES ('delete', ?, 'Alpha Signal', 'concept')",
+        (rowid,),
+    )
+    connection.commit()
+    assert (
+        connection.execute(
+            "SELECT COUNT(*) FROM v4_entities e "
+            "LEFT JOIN v4_entities_fts f ON f.rowid = e.rowid "
+            "WHERE f.rowid IS NULL"
+        ).fetchone()[0]
+        == 0
+    )
+    connection.close()
+
+    with pytest.raises(RebuildPreparationError, match="integrity"):
+        canonical_sqlite_manifest(database)
 
 
 def test_source_manifest_ignores_operation_progress_but_detects_canonical_change(

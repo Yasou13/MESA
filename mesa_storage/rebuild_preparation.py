@@ -115,7 +115,16 @@ def _logical_value(value: Any) -> Any:
 def canonical_sqlite_manifest(database: Path) -> tuple[dict[str, Any], str]:
     connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection = sqlite3.connect(database)
+        try:
+            connection.execute(
+                "INSERT INTO v4_entities_fts(v4_entities_fts, rank) "
+                "VALUES ('integrity-check', 1)"
+            )
+            connection.rollback()
+        except sqlite3.DatabaseError as exc:
+            connection.rollback()
+            raise RebuildPreparationError("canonical FTS integrity failed") from exc
         connection.execute("PRAGMA query_only=ON")
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
         missing_fts = int(
