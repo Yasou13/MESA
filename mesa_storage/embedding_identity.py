@@ -89,16 +89,19 @@ def adopt_legacy_embedding_identity(
     connection = sqlite3.connect(database)
     try:
         connection.execute("BEGIN IMMEDIATE")
-        operations = int(
-            connection.execute(
-                "SELECT COUNT(*) FROM system_operations "
-                "WHERE operation_kind = 'PROJECTION_REBUILD' "
-                "AND state IN ('PENDING', 'RETRYABLE_FAILED')"
-            ).fetchone()[0]
-        )
-        if operations != 1:
+        operations = connection.execute(
+            "SELECT state, source_manifest_hash FROM system_operations "
+            "WHERE operation_kind = 'PROJECTION_REBUILD' "
+            "AND state IN ('PENDING', 'RETRYABLE_FAILED')"
+        ).fetchall()
+        if len(operations) != 1:
             raise EmbeddingIdentityAdoptionError(
                 "adoption requires one maintenance-pending rebuild"
+            )
+        if operations[0][1] is not None:
+            raise EmbeddingIdentityAdoptionError(
+                "adoption is forbidden after source manifest capture; "
+                "cancel and submit a new rebuild"
             )
         signatures = connection.execute(
             "SELECT DISTINCT embedding_provider, embedding_model, "

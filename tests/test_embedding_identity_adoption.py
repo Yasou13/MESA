@@ -118,6 +118,40 @@ def test_offline_adoption_rejects_conflicting_legacy_signature(tmp_path: Path) -
     assert provider is None
 
 
+def test_offline_adoption_rejects_checkpointed_retryable_operation(
+    tmp_path: Path,
+) -> None:
+    trusted, storage = _legacy_storage(tmp_path)
+    connection = sqlite3.connect(storage / "mesa.db")
+    connection.execute(
+        "UPDATE system_operations SET state = 'RETRYABLE_FAILED', "
+        "source_manifest_hash = ? WHERE operation_id = ?",
+        ("b" * 64, _OPERATION_ID),
+    )
+    connection.commit()
+    connection.close()
+
+    with StorageWriterLock.acquire(storage, owner="provider-adoption") as writer_lock:
+        with pytest.raises(EmbeddingIdentityAdoptionError, match="source manifest"):
+            adopt_legacy_embedding_identity(
+                trusted_root=trusted,
+                storage_root=storage,
+                writer_lock=writer_lock,
+                provider="local-test",
+                model="embed-model",
+                version="v1",
+                dimension=3,
+            )
+
+    connection = sqlite3.connect(storage / "mesa.db")
+    provider = connection.execute(
+        "SELECT embedding_provider FROM memory_mutations "
+        "WHERE mutation_id = 'mutation-a'"
+    ).fetchone()[0]
+    connection.close()
+    assert provider is None
+
+
 def test_rebuild_cli_exposes_explicit_provider_adoption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
