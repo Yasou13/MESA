@@ -66,9 +66,10 @@ def _source_database(tmp_path: Path) -> Path:
         connection.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, "
             "agent_id, session_id, content_payload, pipeline_run_id, "
-            "embedding_model, embedding_version, embedding_dimension, state) "
+            "embedding_provider, embedding_model, embedding_version, "
+            "embedding_dimension, state) "
             "VALUES (?, ?, 'tenant-a', 'agent-a', 'session-a', 'source', ?, "
-            "'embed-model', 'v1', 3, 'COMMITTED')",
+            "'local-test', 'embed-model', 'v1', 3, 'COMMITTED')",
             (f"mutation-{index}", f"candidate-{index}", f"pipeline-{index}"),
         )
         connection.execute(
@@ -140,9 +141,11 @@ def _add_tenant_vector(database: Path) -> None:
     connection.execute(
         "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, "
         "agent_id, session_id, content_payload, pipeline_run_id, "
-        "embedding_model, embedding_version, embedding_dimension, state) "
+        "embedding_provider, embedding_model, embedding_version, "
+        "embedding_dimension, state) "
         "VALUES ('mutation-b', 'candidate-b', 'tenant-b', 'agent-a', "
-        "'session-b', 'source', 'pipeline-b', 'embed-model', 'v1', 3, 'COMMITTED')"
+        "'session-b', 'source', 'pipeline-b', 'local-test', 'embed-model', "
+        "'v1', 3, 'COMMITTED')"
     )
     connection.execute(
         "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
@@ -336,6 +339,7 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
         storage_root=storage,
         runner_id="runner-a",
         provider_manifest={
+            "embedding_provider": "local-test",
             "embedding_model": "embed-model",
             "embedding_version": "v1",
             "dimension": 3,
@@ -395,7 +399,8 @@ async def test_replay_fails_closed_before_opening_stores_on_provider_conflict(
             storage_root=storage,
             runner_id="runner-a",
             provider_manifest={
-                "embedding_model": "different-model",
+                "embedding_provider": "other-provider",
+                "embedding_model": "embed-model",
                 "embedding_version": "v1",
                 "dimension": 3,
             },
@@ -950,6 +955,7 @@ async def test_vector_crash_keeps_only_the_last_completed_batch_checkpoint(
             storage_root=storage,
             runner_id="runner-a",
             provider_manifest={
+                "embedding_provider": "local-test",
                 "embedding_model": "embed-model",
                 "embedding_version": "v1",
                 "dimension": 3,
@@ -1002,6 +1008,7 @@ async def test_graph_crash_does_not_advance_the_failed_graph_batch(
             storage_root=storage,
             runner_id="runner-a",
             provider_manifest={
+                "embedding_provider": "local-test",
                 "embedding_model": "embed-model",
                 "embedding_version": "v1",
                 "dimension": 3,
@@ -1048,6 +1055,7 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
             storage_root=storage,
             runner_id="runner-a",
             provider_manifest={
+                "embedding_provider": "local-test",
                 "embedding_model": "embed-model",
                 "embedding_version": "v1",
                 "dimension": 3,
@@ -1066,6 +1074,7 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
         storage_root=storage,
         runner_id="runner-a",
         provider_manifest={
+            "embedding_provider": "local-test",
             "embedding_model": "embed-model",
             "embedding_version": "v1",
             "dimension": 3,

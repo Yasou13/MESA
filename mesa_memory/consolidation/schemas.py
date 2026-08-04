@@ -46,6 +46,7 @@ class MemoryCandidate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     pipeline_run_id: str | None = None
     extraction_version: str = "v4"
+    embedding_provider: str | None = None
     embedding_model: str | None = None
     embedding_version: str | None = None
     embedding_dimension: int | None = Field(default=None, ge=1)
@@ -69,6 +70,10 @@ class MemoryCandidate(BaseModel):
         source_ref: str | None = None,
         evidence_span: str = "",
         pipeline_run_id: str | None = None,
+        embedding_provider: str | None = None,
+        embedding_model: str | None = None,
+        embedding_version: str | None = None,
+        embedding_dimension: int | None = None,
     ) -> "MemoryCandidate":
         """Create deterministic IDs so a redelivery cannot duplicate work."""
         tenant = tenant_id or agent_id
@@ -95,6 +100,10 @@ class MemoryCandidate(BaseModel):
             source_ref=reference,
             evidence_span=evidence_span,
             metadata=metadata or {},
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model,
+            embedding_version=embedding_version,
+            embedding_dimension=embedding_dimension,
             pipeline_run_id=pipeline_run_id
             or str(uuid5(NAMESPACE_URL, f"{identity}:pipeline-run")),
         )
@@ -122,6 +131,7 @@ class MemoryCandidate(BaseModel):
             "performative": self.performative,
             "pipeline_run_id": self.pipeline_run_id,
             "extraction_version": self.extraction_version,
+            "embedding_provider": self.embedding_provider,
             "embedding_model": self.embedding_model,
             "embedding_version": self.embedding_version,
             "embedding_dimension": self.embedding_dimension,

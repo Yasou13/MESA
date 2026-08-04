@@ -82,6 +82,23 @@ def _safe_context_id(value: str) -> str:
     )
 
 
+def _configured_embedding_identity() -> tuple[str, str, str | None, int]:
+    external = os.getenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false").strip().lower()
+    if external in {"1", "true", "yes", "on"}:
+        return (
+            config.mesa_llm_provider,
+            config.llm_embedding_model_name,
+            config.embedding_version,
+            config.embedding_dimension,
+        )
+    return (
+        "local",
+        config.local_embedding_model,
+        config.embedding_version,
+        config.embedding_dimension,
+    )
+
+
 def _write_cold_path_trace(message: str) -> None:
     """Write optional diagnostics without accepting arbitrary output paths."""
     configured = os.getenv("MESA_COLD_PATH_TRACE_PATH")
@@ -345,6 +362,7 @@ async def _process_cold_path_impl(
                     raise RuntimeError(
                         "full-cognitive processing requires a Tier-3 consolidation loop"
                     )
+                provider, model, version, dimension = _configured_embedding_identity()
                 candidate = MemoryCandidate.from_raw_log(
                     raw_log_id=log_id,
                     agent_id=payload_agent_id,
@@ -362,6 +380,10 @@ async def _process_cold_path_impl(
                     chunk_id=payload.get("chunk_id"),
                     source_ref=payload.get("source_ref"),
                     evidence_span=str(payload.get("evidence_span", "")),
+                    embedding_provider=provider,
+                    embedding_model=model,
+                    embedding_version=version,
+                    embedding_dimension=dimension,
                 )
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;

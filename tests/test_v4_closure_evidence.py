@@ -33,7 +33,7 @@ def test_evidence_manifest_is_deterministic_bounded_and_content_free(
 
     assert manifest["kind"] == "mesa-v4-closure-evidence"
     assert manifest["schema_version"] == 1
-    assert manifest["alembic_head"] == "fc3d4e5f6a7b"
+    assert manifest["alembic_head"] == "fd4e5f6a7b8c"
     assert len(manifest["openapi"]["sha256"]) == 64
     assert manifest["openapi"]["path_count"] > 0
     assert manifest["openapi"]["operation_count"] >= manifest["openapi"]["path_count"]

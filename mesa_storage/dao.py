@@ -1763,9 +1763,10 @@ class MemoryDAO:
                 "(mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, "
                 "document_id, revision_id, chunk_id, source_ref, evidence_span, "
                 "agent_id, session_id, content_payload, "
-                "metadata_json, source, pipeline_run_id, extraction_version, embedding_model, "
-                "embedding_version, embedding_dimension, state) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECEIVED')",
+                "metadata_json, source, pipeline_run_id, extraction_version, "
+                "embedding_provider, embedding_model, embedding_version, "
+                "embedding_dimension, state) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECEIVED')",
                 (
                     mutation_id,
                     candidate["candidate_id"],
@@ -1785,6 +1786,7 @@ class MemoryDAO:
                     candidate.get("source", "api"),
                     pipeline_run_id,
                     candidate.get("extraction_version", "v4"),
+                    candidate.get("embedding_provider"),
                     candidate.get("embedding_model"),
                     candidate.get("embedding_version"),
                     candidate.get("embedding_dimension"),

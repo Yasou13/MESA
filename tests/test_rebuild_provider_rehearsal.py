@@ -114,10 +114,12 @@ def _seed_canonical_source(database: Path) -> None:
     )
     connection.execute(
         "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, "
-        "agent_id, session_id, content_payload, pipeline_run_id, embedding_model, "
-        "embedding_version, embedding_dimension, state) VALUES "
+        "agent_id, session_id, content_payload, pipeline_run_id, "
+        "embedding_provider, embedding_model, embedding_version, "
+        "embedding_dimension, state) VALUES "
         "('mutation-1', 'candidate-1', 'tenant-a', 'agent-a', 'session-a', "
-        "'source', 'pipeline-1', 'embed-model', 'v1', 3, 'COMMITTED')"
+        "'source', 'pipeline-1', 'deterministic-test', 'embed-model', 'v1', 3, "
+        "'COMMITTED')"
     )
     connection.execute(
         "INSERT INTO v4_assertions (assertion_id, tenant_id, dataset_id, "

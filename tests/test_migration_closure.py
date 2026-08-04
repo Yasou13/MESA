@@ -17,7 +17,7 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "fc3d4e5f6a7b"
+HEAD = "fd4e5f6a7b8c"
 PREVIOUS_HEAD = "fb2c3d4e5f6a"
 
 # Explicitly anchor the pre-remediation (v0.2.x) state to prevent
@@ -125,6 +125,11 @@ def test_fresh_upgrade_has_one_head_and_complete_durable_schema(tmp_path: Path) 
         connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
         == HEAD
     )
+    mutation_columns = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info(memory_mutations)").fetchall()
+    }
+    assert "embedding_provider" in mutation_columns
     connection.close()
     assert {
         "purge_journal",

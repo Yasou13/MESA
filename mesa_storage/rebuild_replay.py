@@ -270,12 +270,14 @@ class ProjectionSnapshot:
         if missing_endpoints or invalid_links or cross_scope_links:
             raise ProjectionOwnershipError("projection ownership validation failed")
 
-    def provider_signatures(self) -> set[tuple[str | None, str | None, int | None]]:
+    def provider_signatures(
+        self,
+    ) -> set[tuple[str | None, str | None, str | None, int | None]]:
         connection = self._connect()
         try:
             rows = connection.execute(f"""
-                SELECT DISTINCT m.embedding_model, m.embedding_version,
-                                m.embedding_dimension
+                SELECT DISTINCT m.embedding_provider, m.embedding_model,
+                                m.embedding_version, m.embedding_dimension
                 FROM artifact_registry r
                 JOIN artifact_sources s ON s.registry_id = r.registry_id
                                        AND s.state = 'ACTIVE'
@@ -290,7 +292,8 @@ class ProjectionSnapshot:
             (
                 str(row[0]) if row[0] is not None else None,
                 str(row[1]) if row[1] is not None else None,
-                int(row[2]) if row[2] is not None else None,
+                str(row[2]) if row[2] is not None else None,
+                int(row[3]) if row[3] is not None else None,
             )
             for row in rows
         }
@@ -396,12 +399,15 @@ class ProjectionSnapshot:
 
 def _expected_provider_signature(
     provider_manifest: dict[str, Any],
-) -> tuple[str, str, int]:
+) -> tuple[str, str, str, int]:
+    provider = provider_manifest.get("embedding_provider")
     model = provider_manifest.get("embedding_model")
     version = provider_manifest.get("embedding_version")
     dimension = provider_manifest.get("dimension")
     if (
-        not isinstance(model, str)
+        not isinstance(provider, str)
+        or not provider
+        or not isinstance(model, str)
         or not model
         or not isinstance(version, str)
         or not version
@@ -412,12 +418,12 @@ def _expected_provider_signature(
         raise EmbeddingProviderConflictError(
             "embedding provider manifest is incomplete"
         )
-    return model, version, dimension
+    return provider, model, version, dimension
 
 
 def _validate_provider(
     snapshot: ProjectionSnapshot, provider_manifest: dict[str, Any]
-) -> tuple[str, str, int] | None:
+) -> tuple[str, str, str, int] | None:
     signatures = snapshot.provider_signatures()
     if not signatures:
         return None
@@ -589,7 +595,7 @@ class ProjectionReplayer:
         *,
         vector: VectorReplayTarget,
         graph: GraphReplayTarget,
-        expected_provider: tuple[str, str, int] | None,
+        expected_provider: tuple[str, str, str, int] | None,
     ) -> None:
         if lane == "vector":
             if expected_provider is None:
@@ -599,7 +605,7 @@ class ProjectionReplayer:
             embeddings = await vector.compute_embedding_batch(
                 [str(row["canonical_name"]) for row in rows]
             )
-            dimension = expected_provider[2]
+            dimension = expected_provider[3]
             if len(embeddings) != len(rows) or any(
                 len(embedding) != dimension for embedding in embeddings
             ):
