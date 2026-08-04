@@ -471,13 +471,10 @@ async def resume_cutover_preparation(
     active = await generations.resolve_active(
         storage_root=storage, trusted_root=trusted
     )
-    if active.generation_id == source_generation_id:
-        if active.previous_generation_id is not None:
-            raise RebuildPreparationError("source generation pointer is ambiguous")
-    elif active.generation_id == target_generation_id:
+    if active.generation_id == target_generation_id:
         if active.previous_generation_id != source_generation_id:
             raise RebuildPreparationError("retained generation pointer is unavailable")
-    else:
+    elif active.generation_id != source_generation_id:
         raise RebuildPreparationError("runtime pointer is outside the cutover pair")
 
     backup_root = _safe_existing_child(

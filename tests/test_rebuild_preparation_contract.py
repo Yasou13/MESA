@@ -216,6 +216,28 @@ async def test_preparer_creates_valid_backup_generation_and_fenced_checkpoint(
     }
     generations.resolve_active = AsyncMock(
         return_value=ProjectionPaths(
+            generation_id="legacy",
+            vector_path=storage / "vector.lance",
+            graph_path=storage / "kuzu_db",
+            runtime_fencing_token=0,
+            previous_generation_id="retained-older",
+        )
+    )
+    with StorageWriterLock.acquire(
+        storage, owner="rebuild-recovery-before-cutover"
+    ) as writer_lock:
+        recovered_before_cutover = await resume_cutover_preparation(
+            trusted_root=trusted,
+            storage_root=storage,
+            work_root=work,
+            operation=ready_operation,
+            generations=generations,  # type: ignore[arg-type]
+            writer_lock=writer_lock,
+        )
+    assert recovered_before_cutover.runtime_fencing_token == 0
+
+    generations.resolve_active = AsyncMock(
+        return_value=ProjectionPaths(
             generation_id=result.target_generation_id,
             vector_path=storage / "projection-generations" / "target" / "vector.lance",
             graph_path=storage / "projection-generations" / "target" / "kuzu_db",
