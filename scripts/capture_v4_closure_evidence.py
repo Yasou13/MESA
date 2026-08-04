@@ -18,6 +18,7 @@ from alembic.script import ScriptDirectory
 from mesa_evals.v4_rrf_ablation import evaluate_lane_ablation, fixed_legal_corpus
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.retrieval_scope import V4_RRF_LANE_ORDER
 
 _ROOT = Path(__file__).resolve().parents[1]
 _ALEMBIC_INI = _ROOT / "mesa_storage" / "alembic.ini"
@@ -161,6 +162,7 @@ def _rrf_evidence() -> dict[str, Any]:
     return {
         "sha256": _sha256(encoded),
         "metric": str(report["metric"]),
+        "lane_order": list(V4_RRF_LANE_ORDER),
         "query_count": len(qrels),
         "lane_set_count": len(report["scores"]),
         "scores": {

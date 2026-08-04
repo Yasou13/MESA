@@ -71,7 +71,7 @@ from mesa_storage.repositories.operations import (
     RebuildAdmissionPort,
     RebuildAdmissionReader,
 )
-from mesa_storage.retrieval_scope import scope_vector_result_ids
+from mesa_storage.retrieval_scope import V4_RRF_LANE_ORDER, scope_vector_result_ids
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -3442,7 +3442,13 @@ class MemoryDAO:
                     graph_lane.append(str(candidate))
 
         ranks: dict[str, float] = {}
-        for lane in (vector_lane, lexical_lane, graph_lane):
+        lanes = {
+            "vector": vector_lane,
+            "bm25": lexical_lane,
+            "graph": graph_lane,
+        }
+        for lane_name in V4_RRF_LANE_ORDER:
+            lane = lanes[lane_name]
             for rank, entity_id in enumerate(lane, start=1):
                 ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
         if not ranks:

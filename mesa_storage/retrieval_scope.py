@@ -3,6 +3,8 @@
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+V4_RRF_LANE_ORDER = ("vector", "bm25", "graph")
+
 
 def scope_vector_result_ids(
     rows: Iterable[Mapping[str, Any]], *, allowed_ids: set[str]
