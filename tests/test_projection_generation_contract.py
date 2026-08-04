@@ -324,3 +324,59 @@ async def test_activation_is_atomic_and_rollback_preserves_both_generations(
             expected_active_generation_id="legacy",
             runtime_fencing_token=rolled_back["fencing_token"],
         )
+
+
+@pytest.mark.asyncio
+async def test_rolled_back_generation_can_be_restaged_by_same_operation_retry(
+    tmp_path: Path,
+) -> None:
+    generations, operations, storage, _ = _repositories(tmp_path)
+    operation_id, claimed = await _ready_generation(generations, operations)
+    before = await generations.resolve_active(
+        storage_root=storage, trusted_root=tmp_path
+    )
+    activated = await generations.activate(
+        "generation-a",
+        operation_id=operation_id,
+        runner_id="runner-a",
+        claim_token=claimed["claim_token"],
+        operation_fencing_token=claimed["fencing_token"],
+        expected_active_generation_id="legacy",
+        runtime_fencing_token=before.runtime_fencing_token,
+    )
+    rolled_back = await generations.rollback(
+        operation_id=operation_id,
+        runner_id="runner-a",
+        claim_token=claimed["claim_token"],
+        operation_fencing_token=claimed["fencing_token"],
+        expected_active_generation_id="generation-a",
+        runtime_fencing_token=activated["fencing_token"],
+    )
+    await operations.transition(
+        operation_id,
+        to_state="RETRYABLE_FAILED",
+        runner_id="runner-a",
+        claim_token=claimed["claim_token"],
+        fencing_token=claimed["fencing_token"],
+        error_class="PostCutoverVerificationFailed",
+    )
+    await operations.retry(operation_id)
+    retry_claim = await operations.claim(operation_id, runner_id="runner-b")
+    await operations.transition(
+        operation_id,
+        to_state="RUNNING",
+        runner_id="runner-b",
+        claim_token=retry_claim["claim_token"],
+        fencing_token=retry_claim["fencing_token"],
+    )
+
+    restaged = await generations.create_staging(
+        operation_id=operation_id,
+        generation_id="generation-a",
+        runner_id="runner-b",
+        claim_token=retry_claim["claim_token"],
+        operation_fencing_token=retry_claim["fencing_token"],
+    )
+
+    assert rolled_back["active_generation_id"] == "legacy"
+    assert restaged["lifecycle_state"] == "STAGING"

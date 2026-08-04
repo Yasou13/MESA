@@ -311,6 +311,34 @@ class ProjectionGenerationRepository:
                     raise ProjectionGenerationConflictError(
                         "projection generation identity conflicts"
                     )
+                lifecycle_state = str(existing["lifecycle_state"])
+                if lifecycle_state == "FAILED":
+                    cursor = await db.execute(
+                        "UPDATE projection_generations SET "
+                        "lifecycle_state = 'STAGING', activated_at = NULL, "
+                        "retained_at = NULL WHERE generation_id = ? "
+                        "AND lifecycle_state = 'FAILED' AND NOT EXISTS ("
+                        "SELECT 1 FROM projection_runtime WHERE runtime_id = 1 "
+                        "AND (active_generation_id = ? OR previous_generation_id = ?))",
+                        (generation, generation, generation),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ProjectionGenerationConflictError(
+                            "failed projection generation is still retained"
+                        )
+                    await db.commit()
+                    cursor = await db.execute(
+                        "SELECT * FROM projection_generations "
+                        "WHERE generation_id = ?",
+                        (generation,),
+                    )
+                    restaged = await cursor.fetchone()
+                    assert restaged is not None
+                    return dict(restaged)
+                if lifecycle_state != "STAGING":
+                    raise ProjectionGenerationConflictError(
+                        "projection generation cannot be staged"
+                    )
                 await db.commit()
                 return dict(existing)
             try:
