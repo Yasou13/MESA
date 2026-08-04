@@ -16,6 +16,7 @@ from typing import Callable
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_memory.config import config
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
@@ -277,15 +278,6 @@ def _public_operation(operation: dict) -> V4OperationResponse:
             else None
         ),
     )
-
-
-async def _require_mutation_admission(dao: MemoryDAO) -> None:
-    if await dao.rebuild_admission.is_pending():
-        raise HTTPException(
-            status_code=503,
-            detail="maintenance_pending",
-            headers={"Retry-After": "5"},
-        )
 
 
 async def _require_session_access(

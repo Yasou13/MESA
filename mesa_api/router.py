@@ -50,6 +50,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from mesa_api.admission import require_mutation_admission
 from mesa_api.schemas import (
     ErrorResponse,
     MemoryInsertRequest,
@@ -235,6 +236,7 @@ def create_memory_router(
 
         Target latency: **< 50ms**.
         """
+        await require_mutation_admission(dao)
         structlog.contextvars.bind_contextvars(
             agent_id=payload.agent_id,
             session_id=payload.session_id,
@@ -611,6 +613,7 @@ def create_memory_router(
         verified steps; a partial failure returns retry-pending rather than
         reporting purge success.
         """
+        await require_mutation_admission(dao)
         # Principal is the authorization subject; caller-supplied agent_id is only scope.
         principal = getattr(request.state, "principal", None)
         if principal is None:
@@ -694,6 +697,7 @@ def create_memory_router(
 
         Enforces strict RBAC: requires a valid ``agent_id`` in the request payload.
         """
+        await require_mutation_admission(dao)
         # A requested agent_id identifies the target; it never grants access.
         # The host server attaches a verified principal during authentication.
         principal = getattr(request.state, "principal", None)
@@ -832,6 +836,7 @@ def create_memory_router(
         Enforces strict RBAC: requires a valid ``agent_id`` in the request payload
         matching the session's tenant ID.
         """
+        await require_mutation_admission(dao)
         # Production requests additionally require the persisted owner/access
         # binding created at session start (or provisioned server-side).
         try:
