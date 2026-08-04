@@ -111,11 +111,11 @@ storage writer lock'ını bıraktığını doğrulayın. Sonra aynı reviewed pr
 config'iyle şu komutu çalıştırın:
 
 `fd4e5f6a7b8c` öncesinde oluşturulmuş aktif vector mutation'larında provider
-kimliği eksikse normal runner fail-closed olur. Yalnız operation `PENDING` veya
-henüz `source_manifest_hash` yazılmamış `RETRYABLE_FAILED`, combined runtime
-durmuş ve provider/model/version/dimension eski generation'ı üreten config
-kayıtlarından dışarıdan doğrulanmışsa bir kez şu açık adoption adımını
-çalıştırın:
+kimliği eksikse normal runner fail-closed olur. Adoption yalnız henüz hiç claim
+edilmemiş (`attempt_count=0`), `source_manifest_hash` yazılmamış fresh `PENDING`
+operation üzerinde yapılabilir. Combined runtime durmuş ve
+provider/model/version/dimension eski generation'ı üreten config kayıtlarından
+dışarıdan doğrulanmışsa bir kez şu açık adoption adımını çalıştırın:
 
 ```bash
 mesa-v4-rebuild adopt-provider \
@@ -137,13 +137,14 @@ yoksa adoption yapmayın; release `NO-GO` kalır ve sonraki full raw-source
 rebuild iş paketini bekleyin. `mesa-v4-rebuild run` canonical SQLite'ı hiçbir
 zaman değiştirmez.
 
-Operation'a `source_manifest_hash` yazılmışsa adoption canonical manifest'i
-değiştireceği için aynı checkpoint ile resume güvenli değildir ve komut
-fail-closed olur. Bu durumda eski `RETRYABLE_FAILED` operation'ı cancel edin,
-yeni bir `Idempotency-Key` ile fresh rebuild submit edin, backlog'u yeniden
-drain edip runtime'ı durdurun ve adoption'ı yeni `PENDING` operation üzerinde
-runner'dan önce çalıştırın. Eski operation'ın backup veya checkpoint'ini yeni
-operation'da kullanmayın.
+Bir rebuild denemesi başladıysa adoption canonical manifest'i değiştirebileceği
+için aynı backup/checkpoint ile resume güvenli değildir ve komut fail-closed
+olur. Bu kural `source_manifest_hash` henüz yazılmadan oluşan crash penceresini
+de kapsar; hiçbir `RETRYABLE_FAILED` operation üzerinde adoption yapılmaz. Eski
+operation'ı cancel edin, yeni bir `Idempotency-Key` ile fresh rebuild submit
+edin, backlog'u yeniden drain edip runtime'ı durdurun ve adoption'ı yeni
+`PENDING` operation üzerinde runner'dan önce çalıştırın. Eski operation'ın
+backup veya checkpoint'ini yeni operation'da kullanmayın.
 
 Ardından aynı reviewed provider config'iyle normal runner'ı çalıştırın:
 

@@ -90,7 +90,8 @@ def adopt_legacy_embedding_identity(
     try:
         connection.execute("BEGIN IMMEDIATE")
         operations = connection.execute(
-            "SELECT state, source_manifest_hash FROM system_operations "
+            "SELECT state, source_manifest_hash, attempt_count "
+            "FROM system_operations "
             "WHERE operation_kind = 'PROJECTION_REBUILD' "
             "AND state IN ('PENDING', 'RETRYABLE_FAILED')"
         ).fetchall()
@@ -98,9 +99,15 @@ def adopt_legacy_embedding_identity(
             raise EmbeddingIdentityAdoptionError(
                 "adoption requires one maintenance-pending rebuild"
             )
-        if operations[0][1] is not None:
+        state, source_manifest_hash, attempt_count = operations[0]
+        if source_manifest_hash is not None:
             raise EmbeddingIdentityAdoptionError(
                 "adoption is forbidden after source manifest capture; "
+                "cancel and submit a new rebuild"
+            )
+        if state != "PENDING" or int(attempt_count) != 0:
+            raise EmbeddingIdentityAdoptionError(
+                "adoption requires a fresh pending rebuild; "
                 "cancel and submit a new rebuild"
             )
         signatures = connection.execute(
