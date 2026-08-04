@@ -349,7 +349,9 @@ class ProjectionSnapshot:
         finally:
             connection.close()
 
-    def allowed_vector_ids(self, *, agent_id: str, dataset_id: str) -> set[str]:
+    def allowed_vector_ids(
+        self, *, tenant_id: str, agent_id: str, dataset_id: str
+    ) -> set[str]:
         connection = self._connect()
         try:
             rows = connection.execute(
@@ -361,26 +363,33 @@ class ProjectionSnapshot:
                 WHERE {_ACTIVE_OWNERSHIP}
                   AND r.store_name = 'VECTOR'
                   AND r.artifact_kind = 'ENTITY_VECTOR'
-                  AND r.agent_id = ? AND s.dataset_id = ?
+                  AND r.tenant_id = ? AND r.agent_id = ? AND s.dataset_id = ?
                 """,
-                (agent_id, dataset_id),
+                (tenant_id, agent_id, dataset_id),
             ).fetchall()
             return {str(row[0]) for row in rows}
         finally:
             connection.close()
 
-    def dataset_ids(self, *, tenant_id: str, agent_id: str) -> list[str]:
+    def retrieval_scopes(
+        self, *, agent_id: str, limit: int = 100
+    ) -> list[tuple[str, str]]:
+        if not 1 <= limit <= 100:
+            raise ValueError("invalid retrieval scope limit")
         connection = self._connect()
         try:
             rows = connection.execute(
-                "SELECT DISTINCT s.dataset_id FROM artifact_sources s "
+                "SELECT DISTINCT r.tenant_id, s.dataset_id FROM artifact_sources s "
                 "JOIN artifact_registry r ON r.registry_id = s.registry_id "
-                "WHERE r.tenant_id = ? AND r.agent_id = ? "
+                "WHERE r.agent_id = ? "
                 "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
-                "AND s.dataset_id IS NOT NULL ORDER BY s.dataset_id",
-                (tenant_id, agent_id),
+                "AND r.store_name = 'VECTOR' "
+                "AND r.artifact_kind = 'ENTITY_VECTOR' "
+                "AND s.dataset_id IS NOT NULL "
+                "ORDER BY r.tenant_id, s.dataset_id LIMIT ?",
+                (agent_id, limit),
             ).fetchall()
-            return [str(row[0]) for row in rows]
+            return [(str(row[0]), str(row[1])) for row in rows]
         finally:
             connection.close()
 

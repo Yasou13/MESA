@@ -2773,9 +2773,7 @@ class MemoryDAO:
             next_state = (
                 "BLOCKED"
                 if terminal
-                else "RETRY_PENDING"
-                if error_class
-                else "COMPLETED"
+                else "RETRY_PENDING" if error_class else "COMPLETED"
             )
             cursor = await db.execute(
                 "UPDATE artifact_cleanup_outbox SET state = ?, claim_token = NULL, "
@@ -3348,6 +3346,7 @@ class MemoryDAO:
         vector_rows = await self._vec.search(
             query_vector,
             agent_id=agent_id,
+            allowed_node_ids=allowed_ids,
             limit=min(500, max(limit * 10, 50)),
         )
         vector_lane = scope_vector_result_ids(vector_rows, allowed_ids=allowed_ids)

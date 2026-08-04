@@ -125,6 +125,41 @@ def _source_database(tmp_path: Path) -> Path:
     return database
 
 
+def _add_tenant_vector(database: Path) -> None:
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "INSERT INTO v4_entities (entity_id, tenant_id, entity_type, "
+        "canonical_name, normalized_name, identity_key) "
+        "VALUES ('entity-b', 'tenant-b', 'concept', 'Bravo', 'bravo', 'entity-b')"
+    )
+    connection.execute(
+        "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, "
+        "agent_id, state) VALUES ('pipeline-b', 'tenant-b', 'session-b', "
+        "'agent-a', 'COMMITTED')"
+    )
+    connection.execute(
+        "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, "
+        "agent_id, session_id, content_payload, pipeline_run_id, "
+        "embedding_model, embedding_version, embedding_dimension, state) "
+        "VALUES ('mutation-b', 'candidate-b', 'tenant-b', 'agent-a', "
+        "'session-b', 'source', 'pipeline-b', 'embed-model', 'v1', 3, 'COMMITTED')"
+    )
+    connection.execute(
+        "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
+        "dataset_id, store_name, artifact_kind, physical_artifact_id, state) "
+        "VALUES ('vector-b', 'tenant-b', 'agent-a', 'dataset-a', 'VECTOR', "
+        "'ENTITY_VECTOR', 'entity-b', 'ACTIVE')"
+    )
+    connection.execute(
+        "INSERT INTO artifact_sources (source_ownership_id, registry_id, "
+        "mutation_id, pipeline_run_id, dataset_id, source_ref, state) "
+        "VALUES ('source-vector-b', 'vector-b', 'mutation-b', 'pipeline-b', "
+        "'dataset-a', 'source-b', 'ACTIVE')"
+    )
+    connection.commit()
+    connection.close()
+
+
 class _VectorTarget:
     def __init__(self, path: Path) -> None:
         self.uri = str(path)
@@ -167,12 +202,14 @@ class _VectorTarget:
         *,
         limit: int = 10,
         agent_id: str | None = None,
+        allowed_node_ids: set[str] | None = None,
         include_expired: bool = False,
     ) -> list[dict]:
         return [
             {"node_id": record["node_id"]}
             for record in self.records
             if agent_id is None or record["agent_id"] == agent_id
+            if allowed_node_ids is None or record["node_id"] in allowed_node_ids
         ][:limit]
 
 
@@ -429,6 +466,83 @@ async def test_bounded_parity_checks_counts_ids_health_and_retrieval_smoke(
             graph_factory=lambda _path: graph,
         )
     assert failure.value.report.orphans == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieval_smoke_rejects_provider_results_outside_tenant_dataset_scope(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    _add_tenant_vector(database)
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    paths = resolve_projection_generation_paths(
+        preparation.generation,
+        storage_root=storage,
+        trusted_root=trusted,
+        runtime_fencing_token=0,
+    )
+
+    class LeakyVector(_VectorTarget):
+        async def search(
+            self,
+            _query_vector: list[float],
+            *,
+            limit: int = 10,
+            agent_id: str | None = None,
+            allowed_node_ids: set[str] | None = None,
+            include_expired: bool = False,
+        ) -> list[dict]:
+            del allowed_node_ids
+            return await super().search(
+                _query_vector,
+                limit=limit,
+                agent_id=agent_id,
+                include_expired=include_expired,
+            )
+
+    vector = LeakyVector(paths.vector_path)
+    vector.records = [
+        {"node_id": "entity-1", "agent_id": "agent-a", "embedding": [1.0] * 3},
+        {"node_id": "entity-b", "agent_id": "agent-a", "embedding": [0.0] * 3},
+    ]
+    graph = _GraphTarget(paths.graph_path)
+    graph.nodes = [
+        ("entity-1", "Alpha", "agent-a"),
+        ("entity-2", "Beta", "agent-a"),
+    ]
+    graph.assertions = [
+        {"assertion_id": "assertion-1", "agent_id": "agent-a"},
+        {"assertion_id": "assertion-2", "agent_id": "agent-a"},
+    ]
+    graph.links = [{"relation_type": "SUPERSEDES"}]
+
+    with pytest.raises(RebuildVerificationError, match="retrieval scope"):
+        await ProjectionParityVerifier().verify(
+            snapshot=ProjectionSnapshot(database),
+            paths=paths,
+            vector_factory=lambda _path: vector,
+            graph_factory=lambda _path: graph,
+        )
+
+
+def test_snapshot_vector_scope_includes_tenant_predicate(tmp_path: Path) -> None:
+    database = _source_database(tmp_path)
+    _add_tenant_vector(database)
+    snapshot = ProjectionSnapshot(database)
+
+    assert snapshot.allowed_vector_ids(
+        tenant_id="tenant-a", agent_id="agent-a", dataset_id="dataset-a"
+    ) == {"entity-1"}
+    assert snapshot.allowed_vector_ids(
+        tenant_id="tenant-b", agent_id="agent-a", dataset_id="dataset-a"
+    ) == {"entity-b"}
+    assert snapshot.retrieval_scopes(agent_id="agent-a") == [
+        ("tenant-a", "dataset-a"),
+        ("tenant-b", "dataset-a"),
+    ]
 
 
 @pytest.mark.asyncio

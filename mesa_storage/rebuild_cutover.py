@@ -39,6 +39,7 @@ class VectorVerificationTarget(VectorReplayTarget, Protocol):
         *,
         limit: int = 10,
         agent_id: str | None = None,
+        allowed_node_ids: set[str] | None = None,
         include_expired: bool = False,
     ) -> list[dict[str, Any]]: ...
 
@@ -193,31 +194,51 @@ class ProjectionParityVerifier:
                 )
                 if len(embeddings) != 1:
                     raise RebuildVerificationError("retrieval smoke embedding failed")
-                results = await vector.search(
-                    embeddings[0], limit=50, agent_id=str(case["agent_id"])
-                )
                 allowed = snapshot.allowed_vector_ids(
+                    tenant_id=str(case["tenant_id"]),
                     agent_id=str(case["agent_id"]),
                     dataset_id=str(case["dataset_id"]),
                 )
+                results = await vector.search(
+                    embeddings[0],
+                    limit=50,
+                    agent_id=str(case["agent_id"]),
+                    allowed_node_ids=allowed,
+                )
+                raw_result_ids = {str(row.get("node_id", "")) for row in results}
+                if not raw_result_ids.issubset(allowed):
+                    raise RebuildVerificationError("retrieval scope smoke failed")
                 result_ids = set(scope_vector_result_ids(results, allowed_ids=allowed))
                 entity_id = str(case["entity_id"])
                 if entity_id not in result_ids:
                     missing_ids += 1
                 smoke_checked += 1
-                for other_dataset in snapshot.dataset_ids(
-                    tenant_id=str(case["tenant_id"]),
-                    agent_id=str(case["agent_id"]),
+                for other_tenant, other_dataset in snapshot.retrieval_scopes(
+                    agent_id=str(case["agent_id"])
                 ):
-                    if other_dataset == str(case["dataset_id"]):
+                    if other_tenant == str(case["tenant_id"]) and other_dataset == str(
+                        case["dataset_id"]
+                    ):
                         continue
                     other_allowed = snapshot.allowed_vector_ids(
-                        agent_id=str(case["agent_id"]), dataset_id=other_dataset
+                        tenant_id=other_tenant,
+                        agent_id=str(case["agent_id"]),
+                        dataset_id=other_dataset,
                     )
                     if entity_id not in other_allowed:
-                        other_result_ids = scope_vector_result_ids(
-                            results, allowed_ids=other_allowed
+                        other_results = await vector.search(
+                            embeddings[0],
+                            limit=50,
+                            agent_id=str(case["agent_id"]),
+                            allowed_node_ids=other_allowed,
                         )
+                        other_result_ids = {
+                            str(row.get("node_id", "")) for row in other_results
+                        }
+                        if not other_result_ids.issubset(other_allowed):
+                            raise RebuildVerificationError(
+                                "retrieval scope smoke failed"
+                            )
                         if entity_id in other_result_ids:
                             raise RebuildVerificationError(
                                 "cross-dataset retrieval smoke failed"

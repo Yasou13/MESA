@@ -484,5 +484,11 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
             query="Court",
         )
         assert [item["entity"]["entity_id"] for item in results] == [allowed_id]
+        vector.search.assert_awaited_once_with(
+            [1.0, 0.0],
+            agent_id="agent-a",
+            allowed_node_ids={allowed_id},
+            limit=100,
+        )
     finally:
         await engine.close()

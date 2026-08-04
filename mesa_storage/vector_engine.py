@@ -85,6 +85,7 @@ class VectorSearchError(RuntimeError):
 class EmbeddingMigrationRequiredError(VectorSearchError):
     """Active vectors use an embedding dimension that cannot answer this query."""
 
+
 # Strict allowlist for values interpolated into LanceDB WHERE clauses.
 # LanceDB does not support parameterised binding, so all filter values
 # must be sanitised against injection at the engine boundary.
@@ -344,7 +345,9 @@ class VectorEngine:
             raise RuntimeError("VectorEngine has not been initialized.")
 
         if self._embedding_provider is not None:
-            return list(await asyncio.gather(*(self.compute_embedding(text) for text in texts)))
+            return list(
+                await asyncio.gather(*(self.compute_embedding(text) for text in texts))
+            )
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -602,6 +605,7 @@ class VectorEngine:
         *,
         limit: int = 10,
         agent_id: str | None = None,
+        allowed_node_ids: set[str] | None = None,
         include_expired: bool = False,
     ) -> list[dict]:
         """Execute a cosine similarity search against the vector index.
@@ -612,6 +616,7 @@ class VectorEngine:
             query_vector: The query embedding (float32).
             limit: Maximum number of nearest neighbors to return.
             agent_id: If provided, filters results to this tenant only.
+            allowed_node_ids: If provided, restricts candidates before ANN ranking.
             include_expired: If True, includes soft-deleted records.
 
         Returns:
@@ -621,6 +626,8 @@ class VectorEngine:
         """
         if not self._initialized:
             raise RuntimeError("VectorEngine has not been initialized.")
+        if allowed_node_ids == set():
+            return []
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -629,6 +636,7 @@ class VectorEngine:
             query_vector,
             limit,
             agent_id,
+            allowed_node_ids,
             include_expired,
         )
 
@@ -637,6 +645,7 @@ class VectorEngine:
         query_vector: list[float],
         limit: int,
         agent_id: str | None,
+        allowed_node_ids: set[str] | None,
         include_expired: bool,
     ) -> list[dict]:
         """Synchronous cosine search (runs in executor thread)."""
@@ -675,15 +684,22 @@ class VectorEngine:
                 return []
 
         try:
-            query = table.search(query_vector).metric(self._metric).limit(limit)
+            query = table.search(query_vector).metric(self._metric)
             filters: list[str] = []
             if not include_expired:
                 filters.append("expired_at IS NULL")
             if agent_id is not None:
                 _validate_filter_value(agent_id, "agent_id")
                 filters.append(f"agent_id = '{agent_id}'")
+            if allowed_node_ids is not None:
+                ordered_ids = sorted(allowed_node_ids)
+                for node_id in ordered_ids:
+                    _validate_filter_value(node_id, "node_id")
+                quoted_ids = ", ".join(f"'{node_id}'" for node_id in ordered_ids)
+                filters.append(f"node_id IN ({quoted_ids})")
             if filters:
                 query = query.where(" AND ".join(filters))
+            query = query.limit(limit)
             results = query.to_list()
         except Exception as exc:
             logger.error("VECTOR_SEARCH_ERROR", exc_info=exc)
