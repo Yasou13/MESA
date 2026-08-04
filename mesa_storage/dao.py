@@ -71,6 +71,7 @@ from mesa_storage.repositories.operations import (
     RebuildAdmissionPort,
     RebuildAdmissionReader,
 )
+from mesa_storage.retrieval_scope import scope_vector_result_ids
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -3349,11 +3350,7 @@ class MemoryDAO:
             agent_id=agent_id,
             limit=min(500, max(limit * 10, 50)),
         )
-        vector_lane = [
-            str(row["node_id"])
-            for row in vector_rows
-            if str(row["node_id"]) in allowed_ids
-        ]
+        vector_lane = scope_vector_result_ids(vector_rows, allowed_ids=allowed_ids)
 
         tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))
         lexical_lane: list[str] = []

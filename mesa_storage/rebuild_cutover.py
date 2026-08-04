@@ -20,6 +20,7 @@ from mesa_storage.rebuild_replay import (
     VectorReplayTarget,
 )
 from mesa_storage.repositories.operations import OperationRepositoryPort
+from mesa_storage.retrieval_scope import scope_vector_result_ids
 from mesa_storage.vector_engine import EmbeddingProvider, VectorEngine
 
 
@@ -195,13 +196,13 @@ class ProjectionParityVerifier:
                 results = await vector.search(
                     embeddings[0], limit=50, agent_id=str(case["agent_id"])
                 )
-                result_ids = {str(row["node_id"]) for row in results}
                 allowed = snapshot.allowed_vector_ids(
                     agent_id=str(case["agent_id"]),
                     dataset_id=str(case["dataset_id"]),
                 )
+                result_ids = set(scope_vector_result_ids(results, allowed_ids=allowed))
                 entity_id = str(case["entity_id"])
-                if entity_id not in result_ids or entity_id not in allowed:
+                if entity_id not in result_ids:
                     missing_ids += 1
                 smoke_checked += 1
                 for other_dataset in snapshot.dataset_ids(
@@ -214,7 +215,10 @@ class ProjectionParityVerifier:
                         agent_id=str(case["agent_id"]), dataset_id=other_dataset
                     )
                     if entity_id not in other_allowed:
-                        if entity_id in result_ids & other_allowed:
+                        other_result_ids = scope_vector_result_ids(
+                            results, allowed_ids=other_allowed
+                        )
+                        if entity_id in other_result_ids:
                             raise RebuildVerificationError(
                                 "cross-dataset retrieval smoke failed"
                             )

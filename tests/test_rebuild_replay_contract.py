@@ -431,6 +431,52 @@ async def test_bounded_parity_checks_counts_ids_health_and_retrieval_smoke(
     assert failure.value.report.orphans == 1
 
 
+@pytest.mark.asyncio
+async def test_parity_smoke_applies_live_dataset_scope_to_raw_vector_results(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    _add_second_vector(database, dataset_id="dataset-b")
+    trusted = tmp_path / "trusted"
+    storage = trusted / "storage"
+    storage.mkdir(parents=True)
+    preparation = _preparation(tmp_path, database)
+    paths = resolve_projection_generation_paths(
+        preparation.generation,
+        storage_root=storage,
+        trusted_root=trusted,
+        runtime_fencing_token=0,
+    )
+    vector = _VectorTarget(paths.vector_path)
+    vector.records = [
+        {"node_id": "entity-1", "agent_id": "agent-a", "embedding": [1.0] * 3},
+        {"node_id": "entity-2", "agent_id": "agent-a", "embedding": [2.0] * 3},
+    ]
+    graph = _GraphTarget(paths.graph_path)
+    graph.nodes = [
+        ("entity-1", "Alpha", "agent-a"),
+        ("entity-2", "Beta", "agent-a"),
+    ]
+    graph.assertions = [
+        {"assertion_id": "assertion-1", "agent_id": "agent-a"},
+        {"assertion_id": "assertion-2", "agent_id": "agent-a"},
+    ]
+    graph.links = [{"relation_type": "SUPERSEDES"}]
+
+    report = await ProjectionParityVerifier().verify(
+        snapshot=ProjectionSnapshot(database),
+        paths=paths,
+        vector_factory=lambda _path: vector,
+        graph_factory=lambda _path: graph,
+        parity_limit=10,
+        smoke_limit=10,
+    )
+
+    assert report.passed is True
+    assert report.smoke_checked == 2
+    assert report.cross_dataset_checked == 2
+
+
 def _parity_report() -> ProjectionParityReport:
     return ProjectionParityReport(
         expected_vector=1,
@@ -732,19 +778,21 @@ class _RecordingOperations:
         return dict(self.current)
 
 
-def _add_second_vector(database: Path) -> None:
+def _add_second_vector(database: Path, *, dataset_id: str = "dataset-a") -> None:
     connection = sqlite3.connect(database)
     connection.execute(
         "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
         "dataset_id, store_name, artifact_kind, physical_artifact_id, state) "
-        "VALUES ('vector-2', 'tenant-a', 'agent-a', 'dataset-a', 'VECTOR', "
-        "'ENTITY_VECTOR', 'entity-2', 'ACTIVE')"
+        "VALUES ('vector-2', 'tenant-a', 'agent-a', ?, 'VECTOR', "
+        "'ENTITY_VECTOR', 'entity-2', 'ACTIVE')",
+        (dataset_id,),
     )
     connection.execute(
         "INSERT INTO artifact_sources (source_ownership_id, registry_id, "
         "mutation_id, pipeline_run_id, dataset_id, source_ref, state) "
-        "VALUES ('source-vector-2', 'vector-2', 'mutation-2', 'pipeline-2', "
-        "'dataset-a', 'source-a', 'ACTIVE')"
+        "VALUES ('source-vector-2', 'vector-2', 'mutation-2', 'pipeline-2', ?, "
+        "'source-a', 'ACTIVE')",
+        (dataset_id,),
     )
     connection.commit()
     connection.close()
