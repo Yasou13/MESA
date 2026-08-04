@@ -86,11 +86,7 @@ _MESA_PRINCIPAL_STATUS: str
 
 def _refresh_auth_config() -> None:
     """Refresh auth settings after an explicitly allowed dotenv load."""
-    global \
-        _MESA_API_KEY, \
-        _MESA_PRINCIPAL_ID, \
-        _MESA_PRINCIPAL_TYPE, \
-        _MESA_PRINCIPAL_STATUS
+    global _MESA_API_KEY, _MESA_PRINCIPAL_ID, _MESA_PRINCIPAL_TYPE, _MESA_PRINCIPAL_STATUS
     _MESA_API_KEY = os.environ.get("MESA_API_KEY")
     _MESA_PRINCIPAL_ID = os.environ.get("MESA_PRINCIPAL_ID")
     _MESA_PRINCIPAL_TYPE = os.environ.get("MESA_PRINCIPAL_TYPE", "SERVICE")
@@ -296,23 +292,7 @@ async def _run_combined_durable_consumer(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # ==================================================================
-    # Configure Structured Logging  # type: ignore[no-untyped-def]
-    runtime = load_runtime_profile()
-    load_explicit_dotenv(runtime)
-    _refresh_auth_config()
-    _configure_runtime_paths(runtime)
-    state.runtime_profile = runtime  # type: ignore[attr-defined]
-
-    # Initialize LLM telemetry (Langfuse/Langsmith) only after profile validation.  # type: ignore[attr-defined]
-    setup_telemetry_tracing()
-
-    # Ensure the validated base storage directory exists before any DB initialization
-    assert _STORAGE_BASE is not None
-    _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
-    writer_lock = _acquire_runtime_writer_lock(runtime)
-
+async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.is_ready = False
 
     state.obs_layer = ObservabilityLayer()
@@ -381,11 +361,13 @@ async def lifespan(app: FastAPI):
 
     # Initialize RBAC policy engine — MUST complete before port opens
     state.access_control = AccessControl(
-        policy_path=str(_STORAGE_BASE / "rbac_policy.db")
+        policy_path=str(runtime.storage_root / "rbac_policy.db")
     )
     await state.access_control.initialize()
-    logger.info("AccessControl initialised at %s", _STORAGE_BASE / "rbac_policy.db")
-    state.api_key_store = APIKeyStore(str(_STORAGE_BASE / "rbac_policy.db"))
+    logger.info(
+        "AccessControl initialised at %s", runtime.storage_root / "rbac_policy.db"
+    )
+    state.api_key_store = APIKeyStore(str(runtime.storage_root / "rbac_policy.db"))
     await state.api_key_store.initialize()
     await state.api_key_store.bootstrap_legacy_key(
         secret=_MESA_API_KEY,
@@ -605,6 +587,7 @@ async def lifespan(app: FastAPI):
 
     # Stop supervised queue workers first so no new claim is accepted during drain.
     await state.worker_supervisor.shutdown()
+    delattr(state, "worker_supervisor")
 
     # Stop REMCycleWorker gracefully
     if rem_worker is not None:
@@ -665,6 +648,7 @@ async def lifespan(app: FastAPI):
     if hasattr(state, "graph_provider") and state.graph_provider:
         try:
             await state.graph_provider.close()
+            delattr(state, "graph_provider")
             logger.info("KuzuGraphProvider closed successfully.")
         except Exception as exc:
             logger.warning("Failed to close KuzuGraphProvider: %s", exc)
@@ -673,16 +657,89 @@ async def lifespan(app: FastAPI):
     if hasattr(state, "kuzu_db") and state.kuzu_db:
         try:
             state.kuzu_db.close()
+            delattr(state, "kuzu_db")
             logger.info("KùzuDB closed successfully.")
         except Exception as exc:
             logger.warning("Failed to close KùzuDB: %s", exc)
 
     if state.vector_engine:
         await state.vector_engine.close()
+        delattr(state, "vector_engine")
     if state.sqlite_engine:
         await state.sqlite_engine.close()
-    if writer_lock is not None:
-        writer_lock.release()
+        delattr(state, "sqlite_engine")
+
+
+async def _close_runtime_storage_resources() -> None:
+    """Best-effort fallback for partial startup and exceptional shutdown."""
+    state.is_ready = False
+    supervisor = getattr(state, "worker_supervisor", None)
+    if supervisor is not None:
+        try:
+            await supervisor.shutdown()
+        except Exception as exc:
+            logger.warning("Failed to stop worker supervisor: %s", exc)
+        else:
+            delattr(state, "worker_supervisor")
+
+    tasks = list(getattr(state, "background_tasks", set()))
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    for attribute in ("graph_provider", "vector_engine", "access_control"):
+        resource = getattr(state, attribute, None)
+        close = getattr(resource, "close", None)
+        if close is None:
+            continue
+        try:
+            await close()
+        except Exception as exc:
+            logger.warning("Failed to close %s: %s", attribute, exc)
+        else:
+            delattr(state, attribute)
+
+    database = getattr(state, "kuzu_db", None)
+    if database is not None:
+        try:
+            database.close()
+        except Exception as exc:
+            logger.warning("Failed to close kuzu_db: %s", exc)
+        else:
+            delattr(state, "kuzu_db")
+
+    sqlite_engine = getattr(state, "sqlite_engine", None)
+    if sqlite_engine is not None:
+        try:
+            await sqlite_engine.close()
+        except Exception as exc:
+            logger.warning("Failed to close sqlite_engine: %s", exc)
+        else:
+            delattr(state, "sqlite_engine")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Configure and fence the storage root before opening any embedded store.
+    runtime = load_runtime_profile()
+    load_explicit_dotenv(runtime)
+    _refresh_auth_config()
+    _configure_runtime_paths(runtime)
+    state.runtime_profile = runtime  # type: ignore[attr-defined]
+    setup_telemetry_tracing()
+    assert _STORAGE_BASE is not None
+    _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
+    writer_lock = _acquire_runtime_writer_lock(runtime)
+    try:
+        async with _runtime_lifespan(app, runtime):
+            yield
+    finally:
+        try:
+            await _close_runtime_storage_resources()
+        finally:
+            if writer_lock is not None:
+                writer_lock.release()
 
 
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)

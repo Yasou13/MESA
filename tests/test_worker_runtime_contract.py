@@ -120,7 +120,9 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
         worker_runtime, "VectorEngine", lambda *_args, **_kwargs: vector_engine
     )
     monkeypatch.setattr(worker_runtime, "MemoryDAO", lambda *_args, **_kwargs: dao)
-    monkeypatch.setattr(worker_runtime, "WorkerSupervisor", lambda **_kwargs: supervisor)
+    monkeypatch.setattr(
+        worker_runtime, "WorkerSupervisor", lambda **_kwargs: supervisor
+    )
     monkeypatch.setattr(
         worker_runtime, "_recover_once", AsyncMock(return_value={"raw_log_claims": 0})
     )
@@ -146,6 +148,72 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
         "RUNNING",
         "STOPPED",
     ]
+
+
+@pytest.mark.asyncio
+async def test_worker_startup_failure_closes_partial_storage_and_writer_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runtime = RuntimeProfileConfig(
+        profile=RuntimeProfile.WORKER_ONLY,
+        storage_root=tmp_path,
+        load_dotenv=False,
+        dotenv_path=None,
+        model_enabled=False,
+        external_provider_enabled=False,
+        api_enabled=False,
+        worker_enabled=True,
+        require_worker_readiness=False,
+    )
+    writer_lock = SimpleNamespace(release=MagicMock())
+    engine = SimpleNamespace(initialize=AsyncMock(), close=AsyncMock())
+    vector_engine = SimpleNamespace(
+        initialize=AsyncMock(
+            side_effect=RuntimeError("injected vector startup failure")
+        ),
+        close=AsyncMock(),
+    )
+    projection_repository = SimpleNamespace(
+        resolve_active=AsyncMock(
+            return_value=ProjectionPaths(
+                generation_id="legacy",
+                vector_path=tmp_path / "vector.lance",
+                graph_path=tmp_path / "kuzu_db",
+                runtime_fencing_token=0,
+                previous_generation_id=None,
+            )
+        )
+    )
+
+    monkeypatch.setattr(worker_runtime, "load_runtime_profile", lambda: runtime)
+    monkeypatch.setattr(worker_runtime, "load_explicit_dotenv", MagicMock())
+    monkeypatch.setattr(
+        worker_runtime.StorageWriterLock,
+        "acquire",
+        lambda *_args, **_kwargs: writer_lock,
+    )
+    monkeypatch.setattr(worker_runtime, "AsyncEngine", lambda *_args, **_kwargs: engine)
+    monkeypatch.setattr(worker_runtime, "initialize_schema", AsyncMock())
+    monkeypatch.setattr(
+        worker_runtime,
+        "ProjectionGenerationRepository",
+        lambda _engine: projection_repository,
+    )
+    monkeypatch.setattr(
+        worker_runtime, "VectorEngine", lambda *_args, **_kwargs: vector_engine
+    )
+    monkeypatch.setattr(
+        worker_runtime.asyncio,
+        "get_running_loop",
+        lambda: SimpleNamespace(add_signal_handler=MagicMock()),
+    )
+
+    with pytest.raises(RuntimeError, match="injected vector startup failure"):
+        await worker_runtime.run_worker_only()
+
+    vector_engine.close.assert_awaited_once()
+    engine.close.assert_awaited_once()
+    writer_lock.release.assert_called_once()
 
 
 def test_worker_process_start_health_and_graceful_stop(tmp_path: Path) -> None:
