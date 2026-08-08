@@ -36,6 +36,13 @@ class MesaHttpV4Service:
         except Exception as exc:
             raise _map_exception(exc) from exc
 
+    async def v4_capability(self) -> dict[str, Any]:
+        """Return API-authored capability truth without adding MCP controls."""
+        try:
+            return await self._http_client.capability()
+        except Exception as exc:
+            raise _map_exception(exc) from exc
+
     async def _get_session_id(
         self,
         client: AsyncMesaV4Client,

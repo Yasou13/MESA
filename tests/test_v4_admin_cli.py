@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from mesa_memory.security.admin_cli import main
 
 
@@ -66,3 +68,28 @@ def test_admin_cli_rejects_dataset_role_without_workspace(tmp_path, capsys) -> N
     )
     assert result == 2
     assert "--dataset requires --workspace" in capsys.readouterr().err
+
+
+def test_admin_cli_grants_control_plane_admin_role(tmp_path, capsys) -> None:
+    policy = tmp_path / "rbac.sqlite"
+
+    result = main(
+        [
+            "--policy-db",
+            str(policy),
+            "grant-control",
+            "--principal",
+            "rebuild-operator",
+        ]
+    )
+
+    assert result == 0
+    assert capsys.readouterr().out.strip() == (
+        "control-role-granted:rebuild-operator:ADMIN"
+    )
+    with sqlite3.connect(policy) as connection:
+        role = connection.execute(
+            "SELECT role FROM principal_control_roles WHERE principal_id = ?",
+            ("rebuild-operator",),
+        ).fetchone()
+    assert role == ("ADMIN",)

@@ -45,9 +45,14 @@ from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.projection_generations import (
+    ProjectionGenerationRepository,
+    ProjectionPaths,
+)
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
 from mesa_workers.entity_consolidation_worker import schedule_consolidation_worker
 from mesa_workers.ingestion_worker import (
     process_cold_path,
@@ -81,11 +86,7 @@ _MESA_PRINCIPAL_STATUS: str
 
 def _refresh_auth_config() -> None:
     """Refresh auth settings after an explicitly allowed dotenv load."""
-    global \
-        _MESA_API_KEY, \
-        _MESA_PRINCIPAL_ID, \
-        _MESA_PRINCIPAL_TYPE, \
-        _MESA_PRINCIPAL_STATUS
+    global _MESA_API_KEY, _MESA_PRINCIPAL_ID, _MESA_PRINCIPAL_TYPE, _MESA_PRINCIPAL_STATUS
     _MESA_API_KEY = os.environ.get("MESA_API_KEY")
     _MESA_PRINCIPAL_ID = os.environ.get("MESA_PRINCIPAL_ID")
     _MESA_PRINCIPAL_TYPE = os.environ.get("MESA_PRINCIPAL_TYPE", "SERVICE")
@@ -181,9 +182,29 @@ def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
     global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH, _KUZU_PATH, _VALENCE_PATH
     _STORAGE_BASE = runtime.storage_root
     _SQLITE_PATH = _STORAGE_BASE / "mesa.db"
-    _VECTOR_PATH = _STORAGE_BASE / "vector.lance"
-    _KUZU_PATH = _STORAGE_BASE / "kuzu_db"
+    _VECTOR_PATH = None
+    _KUZU_PATH = None
     _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
+
+
+def _configure_projection_paths(paths: ProjectionPaths) -> None:
+    global _VECTOR_PATH, _KUZU_PATH
+    _VECTOR_PATH = paths.vector_path
+    _KUZU_PATH = paths.graph_path
+
+
+def _acquire_runtime_writer_lock(
+    runtime: RuntimeProfileConfig,
+) -> StorageWriterLock | None:
+    """Fence the combined runtime before it opens any writable embedded store."""
+    if runtime.profile is not RuntimeProfile.COMBINED:
+        return None
+    try:
+        return StorageWriterLock.acquire(runtime.storage_root, owner="combined-runtime")
+    except StorageWriterLockError as exc:
+        raise RuntimeError(
+            "combined runtime could not acquire storage writer ownership"
+        ) from exc
 
 
 async def _consume_combined_durable_work_once(
@@ -271,22 +292,7 @@ async def _run_combined_durable_consumer(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # ==================================================================
-    # Configure Structured Logging  # type: ignore[no-untyped-def]
-    runtime = load_runtime_profile()
-    load_explicit_dotenv(runtime)
-    _refresh_auth_config()
-    _configure_runtime_paths(runtime)
-    state.runtime_profile = runtime  # type: ignore[attr-defined]
-
-    # Initialize LLM telemetry (Langfuse/Langsmith) only after profile validation.  # type: ignore[attr-defined]
-    setup_telemetry_tracing()
-
-    # Ensure the validated base storage directory exists before any DB initialization
-    assert _STORAGE_BASE is not None
-    _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
-
+async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.is_ready = False
 
     state.obs_layer = ObservabilityLayer()
@@ -299,6 +305,13 @@ async def lifespan(app: FastAPI):
 
     # Schema DDL — single source of truth (B-1 fix)
     await initialize_schema(state.sqlite_engine)
+    generation_repository = ProjectionGenerationRepository(state.sqlite_engine)
+    projection_paths = await generation_repository.resolve_active(
+        storage_root=runtime.storage_root,
+        trusted_root=runtime.storage_root,
+    )
+    _configure_projection_paths(projection_paths)
+    state.projection_generation_id = projection_paths.generation_id  # type: ignore[attr-defined]
 
     embedding_provider = None
     if runtime.external_provider_enabled:
@@ -348,11 +361,13 @@ async def lifespan(app: FastAPI):
 
     # Initialize RBAC policy engine — MUST complete before port opens
     state.access_control = AccessControl(
-        policy_path=str(_STORAGE_BASE / "rbac_policy.db")
+        policy_path=str(runtime.storage_root / "rbac_policy.db")
     )
     await state.access_control.initialize()
-    logger.info("AccessControl initialised at %s", _STORAGE_BASE / "rbac_policy.db")
-    state.api_key_store = APIKeyStore(str(_STORAGE_BASE / "rbac_policy.db"))
+    logger.info(
+        "AccessControl initialised at %s", runtime.storage_root / "rbac_policy.db"
+    )
+    state.api_key_store = APIKeyStore(str(runtime.storage_root / "rbac_policy.db"))
     await state.api_key_store.initialize()
     await state.api_key_store.bootstrap_legacy_key(
         secret=_MESA_API_KEY,
@@ -572,6 +587,7 @@ async def lifespan(app: FastAPI):
 
     # Stop supervised queue workers first so no new claim is accepted during drain.
     await state.worker_supervisor.shutdown()
+    delattr(state, "worker_supervisor")
 
     # Stop REMCycleWorker gracefully
     if rem_worker is not None:
@@ -632,6 +648,7 @@ async def lifespan(app: FastAPI):
     if hasattr(state, "graph_provider") and state.graph_provider:
         try:
             await state.graph_provider.close()
+            delattr(state, "graph_provider")
             logger.info("KuzuGraphProvider closed successfully.")
         except Exception as exc:
             logger.warning("Failed to close KuzuGraphProvider: %s", exc)
@@ -640,12 +657,90 @@ async def lifespan(app: FastAPI):
     if hasattr(state, "kuzu_db") and state.kuzu_db:
         try:
             state.kuzu_db.close()
+            delattr(state, "kuzu_db")
             logger.info("KùzuDB closed successfully.")
         except Exception as exc:
             logger.warning("Failed to close KùzuDB: %s", exc)
 
+    vector_engine = getattr(state, "vector_engine", None)
+    if vector_engine:
+        await vector_engine.close()
+        delattr(state, "vector_engine")
     if state.sqlite_engine:
         await state.sqlite_engine.close()
+        delattr(state, "sqlite_engine")
+
+
+async def _close_runtime_storage_resources() -> None:
+    """Best-effort fallback for partial startup and exceptional shutdown."""
+    state.is_ready = False
+    supervisor = getattr(state, "worker_supervisor", None)
+    if supervisor is not None:
+        try:
+            await supervisor.shutdown()
+        except Exception as exc:
+            logger.warning("Failed to stop worker supervisor: %s", exc)
+        else:
+            delattr(state, "worker_supervisor")
+
+    tasks = list(getattr(state, "background_tasks", set()))
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    for attribute in ("graph_provider", "vector_engine", "access_control"):
+        resource = getattr(state, attribute, None)
+        close = getattr(resource, "close", None)
+        if close is None:
+            continue
+        try:
+            await close()
+        except Exception as exc:
+            logger.warning("Failed to close %s: %s", attribute, exc)
+        else:
+            delattr(state, attribute)
+
+    database = getattr(state, "kuzu_db", None)
+    if database is not None:
+        try:
+            database.close()
+        except Exception as exc:
+            logger.warning("Failed to close kuzu_db: %s", exc)
+        else:
+            delattr(state, "kuzu_db")
+
+    sqlite_engine = getattr(state, "sqlite_engine", None)
+    if sqlite_engine is not None:
+        try:
+            await sqlite_engine.close()
+        except Exception as exc:
+            logger.warning("Failed to close sqlite_engine: %s", exc)
+        else:
+            delattr(state, "sqlite_engine")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Configure and fence the storage root before opening any embedded store.
+    runtime = load_runtime_profile()
+    load_explicit_dotenv(runtime)
+    _refresh_auth_config()
+    _configure_runtime_paths(runtime)
+    state.runtime_profile = runtime  # type: ignore[attr-defined]
+    setup_telemetry_tracing()
+    assert _STORAGE_BASE is not None
+    _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
+    writer_lock = _acquire_runtime_writer_lock(runtime)
+    try:
+        async with _runtime_lifespan(app, runtime):
+            yield
+    finally:
+        try:
+            await _close_runtime_storage_resources()
+        finally:
+            if writer_lock is not None:
+                writer_lock.release()
 
 
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
@@ -790,14 +885,20 @@ async def health_init():
 @app.get("/v3/health", dependencies=[Depends(get_api_key)])
 async def health_v3():  # type: ignore[no-untyped-def]
     health = await state.dao.health_check()
+    rebuild = health.get("v4_rebuild") or {}
+    backend_healthy = all(
+        health.get(component, {}).get("status") in {"healthy", "not_initialized"}
+        for component in ("sqlite", "vector", "graph")
+        if component in health
+    )
+    rebuild_state = str(rebuild.get("state", "IDLE"))
+    rebuild_status = str(rebuild.get("status", "healthy"))
     return {
-        "status": "healthy"
-        if all(
-            component.get("status") in {"healthy", "not_initialized"}
-            for component in health.values()
-            if isinstance(component, dict)
-        )
-        else "degraded"
+        "status": (
+            "healthy" if backend_healthy and rebuild_status == "healthy" else "degraded"
+        ),
+        "maintenance": rebuild_status == "maintenance",
+        "rebuild_state": rebuild_state,
     }
 
 

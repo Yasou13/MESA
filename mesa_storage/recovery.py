@@ -226,7 +226,7 @@ def _verify_hashes(snapshot: Path, manifest: dict[str, Any]) -> None:
             path.stat().st_size != int(record["size"])
             or _sha256(path) != record["sha256"]
         ):
-            raise RecoveryError(f"backup hash mismatch: {relative}")
+            raise RecoveryError(f"backup hash mismatch: {rel_str}")
 
 
 def _table_exists(connection: sqlite3.Connection, table: str) -> bool:

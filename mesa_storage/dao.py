@@ -62,7 +62,20 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
+from mesa_storage.repositories.operations import (
+    OperationRepository,
+    OperationRepositoryPort,
+    OperationState,
+    RebuildAdmissionPort,
+    RebuildAdmissionReader,
+)
+from mesa_storage.retrieval_scope import (
+    V4_RRF_LANE_ORDER,
+    build_v4_lexical_query,
+    scope_vector_result_ids,
+)
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
@@ -267,7 +280,15 @@ class MemoryDAO:
                         for graph edge operations.
     """
 
-    __slots__ = ("_sql", "_vec", "_graph", "_catalog")
+    __slots__ = (
+        "_sql",
+        "_vec",
+        "_graph",
+        "_catalog",
+        "_operations",
+        "_rebuild_admission",
+        "_rebuild_health",
+    )
 
     def __init__(
         self,
@@ -279,11 +300,89 @@ class MemoryDAO:
         self._vec = vector_engine
         self._graph = graph_provider
         self._catalog = CatalogRepository(sqlite_engine)
+        self._operations = OperationRepository(sqlite_engine)
+        self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
+        self._rebuild_health = RebuildHealthReader(sqlite_engine)
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
         """Expose catalog persistence without leaking the SQLite engine."""
         return self._catalog
+
+    @property
+    def operations(self) -> OperationRepositoryPort:
+        """Expose durable system operations without leaking SQLite ownership."""
+        return self._operations
+
+    @property
+    def rebuild_admission(self) -> RebuildAdmissionPort:
+        """Expose a content-free maintenance admission signal."""
+        return self._rebuild_admission
+
+    async def submit_system_operation(
+        self,
+        *,
+        requested_by_principal_id: str,
+        idempotency_key: str,
+        payload_hash: str,
+    ) -> dict[str, Any]:
+        return await self._operations.submit(
+            requested_by_principal_id=requested_by_principal_id,
+            idempotency_key=idempotency_key,
+            payload_hash=payload_hash,
+        )
+
+    async def get_system_operation(self, operation_id: str) -> dict[str, Any] | None:
+        return await self._operations.get(operation_id)
+
+    async def claim_system_operation(
+        self, operation_id: str, *, runner_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any]:
+        return await self._operations.claim(
+            operation_id, runner_id=runner_id, lease_seconds=lease_seconds
+        )
+
+    async def renew_system_operation(
+        self,
+        operation_id: str,
+        *,
+        runner_id: str,
+        claim_token: str,
+        fencing_token: int,
+        lease_seconds: int = 60,
+    ) -> dict[str, Any]:
+        return await self._operations.renew(
+            operation_id,
+            runner_id=runner_id,
+            claim_token=claim_token,
+            fencing_token=fencing_token,
+            lease_seconds=lease_seconds,
+        )
+
+    async def transition_system_operation(
+        self,
+        operation_id: str,
+        *,
+        to_state: OperationState | str,
+        runner_id: str,
+        claim_token: str,
+        fencing_token: int,
+        **changes: Any,
+    ) -> dict[str, Any]:
+        return await self._operations.transition(
+            operation_id,
+            to_state=to_state,
+            runner_id=runner_id,
+            claim_token=claim_token,
+            fencing_token=fencing_token,
+            **changes,
+        )
+
+    async def cancel_system_operation(self, operation_id: str) -> dict[str, Any]:
+        return await self._operations.cancel(operation_id)
+
+    async def retry_system_operation(self, operation_id: str) -> dict[str, Any]:
+        return await self._operations.retry(operation_id)
 
     async def initialize(self) -> None:
         """Initialize the DAO layer.
@@ -839,6 +938,49 @@ class MemoryDAO:
         )
 
     @staticmethod
+    def v4_assertion_id(
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        revision_id: str,
+        chunk_id: str,
+        subject_id: str,
+        predicate: str,
+        object_entity_id: str | None = None,
+        literal_value: str | None = None,
+        evidence_span: str = "",
+    ) -> str:
+        """Return the stable source-scoped Graph V2 assertion identity."""
+        required = (
+            tenant_id,
+            dataset_id,
+            revision_id,
+            chunk_id,
+            subject_id,
+            predicate,
+        )
+        if not all(required) or (object_entity_id is None) == (literal_value is None):
+            raise ValueError("assertion identity requires one entity or literal object")
+        object_identity = object_entity_id or f"literal:{literal_value}"
+        return str(
+            uuid.uuid5(
+                _V4_ASSERTION_NAMESPACE,
+                "\x1f".join(
+                    (
+                        tenant_id,
+                        dataset_id,
+                        revision_id,
+                        chunk_id,
+                        subject_id,
+                        predicate,
+                        object_identity,
+                        evidence_span,
+                    )
+                ),
+            )
+        )
+
+    @staticmethod
     async def _follow_v4_entity_redirect_in_tx(db: Any, row: Any) -> Any:
         """Resolve a bounded redirect chain without erasing historical rows."""
         visited: set[str] = set()
@@ -1217,6 +1359,10 @@ class MemoryDAO:
         chunk_ordinal: int,
         supersedes_revision_id: str | None,
         metadata: dict[str, Any],
+        embedding_provider: str,
+        embedding_model: str,
+        embedding_version: str,
+        embedding_dimension: int,
         policy: QueueAdmissionPolicy,
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
@@ -1248,6 +1394,13 @@ class MemoryDAO:
             raise ValueError(
                 "idempotency key and payload hash must be supplied together"
             )
+        if (
+            not embedding_provider
+            or not embedding_model
+            or not embedding_version
+            or embedding_dimension < 1
+        ):
+            raise ValueError("complete embedding identity is required")
 
         raw_payload = {
             "tenant_id": tenant_id,
@@ -1493,8 +1646,8 @@ class MemoryDAO:
                 )
                 await db.execute(
                     "INSERT INTO memory_mutations "
-                    "(mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, document_id, revision_id, chunk_id, source_ref, evidence_span, agent_id, session_id, content_payload, metadata_json, source, pipeline_run_id, extraction_version, state) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, 'v4', 'RECEIVED')",
+                    "(mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, document_id, revision_id, chunk_id, source_ref, evidence_span, agent_id, session_id, content_payload, metadata_json, source, pipeline_run_id, extraction_version, embedding_provider, embedding_model, embedding_version, embedding_dimension, state) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, 'v4', ?, ?, ?, ?, 'RECEIVED')",
                     (
                         mutation_id,
                         candidate_id,
@@ -1512,6 +1665,10 @@ class MemoryDAO:
                         content_payload,
                         json.dumps(metadata, sort_keys=True),
                         pipeline_run_id,
+                        embedding_provider,
+                        embedding_model,
+                        embedding_version,
+                        embedding_dimension,
                     ),
                 )
                 for projection_name in ("SQL", "VECTOR", "GRAPH"):
@@ -1625,9 +1782,10 @@ class MemoryDAO:
                 "(mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, "
                 "document_id, revision_id, chunk_id, source_ref, evidence_span, "
                 "agent_id, session_id, content_payload, "
-                "metadata_json, source, pipeline_run_id, extraction_version, embedding_model, "
-                "embedding_version, embedding_dimension, state) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECEIVED')",
+                "metadata_json, source, pipeline_run_id, extraction_version, "
+                "embedding_provider, embedding_model, embedding_version, "
+                "embedding_dimension, state) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECEIVED')",
                 (
                     mutation_id,
                     candidate["candidate_id"],
@@ -1647,6 +1805,7 @@ class MemoryDAO:
                     candidate.get("source", "api"),
                     pipeline_run_id,
                     candidate.get("extraction_version", "v4"),
+                    candidate.get("embedding_provider"),
                     candidate.get("embedding_model"),
                     candidate.get("embedding_version"),
                     candidate.get("embedding_dimension"),
@@ -1662,6 +1821,36 @@ class MemoryDAO:
             existing = dict(row)
             if existing["candidate_id"] != candidate["candidate_id"]:
                 raise ValueError("mutation_id collision with a different candidate")
+            identity_fields = (
+                "embedding_provider",
+                "embedding_model",
+                "embedding_version",
+                "embedding_dimension",
+            )
+            candidate_identity = tuple(
+                candidate.get(field) for field in identity_fields
+            )
+            if any(value is not None for value in candidate_identity):
+                if (
+                    any(value in (None, "") for value in candidate_identity[:3])
+                    or isinstance(candidate_identity[3], bool)
+                    or not isinstance(candidate_identity[3], int)
+                    or candidate_identity[3] < 1
+                ):
+                    raise ValueError("complete embedding identity is required")
+                existing_identity = tuple(existing[field] for field in identity_fields)
+                for current, expected in zip(existing_identity, candidate_identity):
+                    if current is not None and current != expected:
+                        raise ValueError("mutation embedding identity conflicts")
+                if existing_identity != candidate_identity:
+                    await db.execute(
+                        "UPDATE memory_mutations SET embedding_provider = ?, "
+                        "embedding_model = ?, embedding_version = ?, "
+                        "embedding_dimension = ?, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE mutation_id = ?",
+                        (*candidate_identity, mutation_id),
+                    )
+                    existing.update(zip(identity_fields, candidate_identity))
             # A mutation is never projectable before Tier-3 approval.  The
             # durable rows exist now so a rejection can be audited/cancelled,
             # but consumers cannot claim them until ``VALIDATED``.
@@ -2635,9 +2824,7 @@ class MemoryDAO:
             next_state = (
                 "BLOCKED"
                 if terminal
-                else "RETRY_PENDING"
-                if error_class
-                else "COMPLETED"
+                else "RETRY_PENDING" if error_class else "COMPLETED"
             )
             cursor = await db.execute(
                 "UPDATE artifact_cleanup_outbox SET state = ?, claim_token = NULL, "
@@ -3029,23 +3216,16 @@ class MemoryDAO:
         await graph.insert_node(subject_id, head, agent_id)
         if object_id and tail:
             await graph.insert_node(object_id, tail, agent_id)
-        object_identity = object_id or f"literal:{literal_value}"
-        assertion_id = str(
-            uuid.uuid5(
-                _V4_ASSERTION_NAMESPACE,
-                "\x1f".join(
-                    (
-                        tenant_id,
-                        str(mutation["dataset_id"]),
-                        str(mutation["revision_id"]),
-                        str(mutation["chunk_id"]),
-                        subject_id,
-                        relation,
-                        object_identity,
-                        str(mutation.get("evidence_span") or ""),
-                    )
-                ),
-            )
+        assertion_id = self.v4_assertion_id(
+            tenant_id=tenant_id,
+            dataset_id=str(mutation["dataset_id"]),
+            revision_id=str(mutation["revision_id"]),
+            chunk_id=str(mutation["chunk_id"]),
+            subject_id=subject_id,
+            predicate=relation,
+            object_entity_id=object_id,
+            literal_value=literal_value,
+            evidence_span=str(mutation.get("evidence_span") or ""),
         )
         metadata = mutation.get("metadata") or {}
         superseded_assertion_ids: list[str] = []
@@ -3217,13 +3397,10 @@ class MemoryDAO:
         vector_rows = await self._vec.search(
             query_vector,
             agent_id=agent_id,
+            allowed_node_ids=allowed_ids,
             limit=min(500, max(limit * 10, 50)),
         )
-        vector_lane = [
-            str(row["node_id"])
-            for row in vector_rows
-            if str(row["node_id"]) in allowed_ids
-        ]
+        vector_lane = scope_vector_result_ids(vector_rows, allowed_ids=allowed_ids)
 
         tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))
         lexical_lane: list[str] = []
@@ -3233,17 +3410,15 @@ class MemoryDAO:
             )
             async with self._sql.connection() as db:
                 async with db.execute(
-                    "SELECT e.entity_id FROM v4_entities_fts f "
-                    "JOIN v4_entities e ON e.rowid = f.rowid "
-                    "WHERE v4_entities_fts MATCH ? AND e.tenant_id = ? "
-                    "AND e.status = 'ACTIVE' ORDER BY rank LIMIT ?",
-                    (expression, tenant_id, min(500, max(limit * 10, 50))),
+                    build_v4_lexical_query(dataset_count=len(datasets)),
+                    (
+                        expression,
+                        tenant_id,
+                        *datasets,
+                        min(500, max(limit * 10, 50)),
+                    ),
                 ) as cursor:
-                    lexical_lane = [
-                        str(row[0])
-                        for row in await cursor.fetchall()
-                        if str(row[0]) in allowed_ids
-                    ]
+                    lexical_lane = [str(row[0]) for row in await cursor.fetchall()]
 
         like_query = f"%{_normalize_identity_text(query)}%"
         assertion_filters = [
@@ -3314,7 +3489,13 @@ class MemoryDAO:
                     graph_lane.append(str(candidate))
 
         ranks: dict[str, float] = {}
-        for lane in (vector_lane, lexical_lane, graph_lane):
+        lanes = {
+            "vector": vector_lane,
+            "bm25": lexical_lane,
+            "graph": graph_lane,
+        }
+        for lane_name in V4_RRF_LANE_ORDER:
+            lane = lanes[lane_name]
             for rank, entity_id in enumerate(lane, start=1):
                 ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
         if not ranks:
@@ -6484,6 +6665,7 @@ class MemoryDAO:
             "cleanup_states": cleanup_states,
             "pipeline_states": pipeline_states,
         }
+        result["v4_rebuild"] = await self._rebuild_health.snapshot()
         return result
 
     @staticmethod

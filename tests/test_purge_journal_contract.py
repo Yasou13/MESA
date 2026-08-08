@@ -322,7 +322,10 @@ async def test_router_rejects_cross_tenant_purge_without_principal_purge_grant()
         async def check_access(self, *_args):
             return True
 
-    dao = SimpleNamespace(purge_memory=AsyncMock(return_value=1))
+    dao = SimpleNamespace(
+        purge_memory=AsyncMock(return_value=1),
+        rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
+    )
     router = create_memory_router(
         get_dao=lambda: dao,  # type: ignore[return-value]
         get_access_control=lambda: AccessControlStub(),  # type: ignore[return-value]
@@ -363,7 +366,8 @@ async def test_router_returns_retry_status_instead_of_partial_purge_success():
             return True
 
     dao = SimpleNamespace(
-        purge_memory=AsyncMock(side_effect=PurgeRetryPendingError("retry pending"))
+        purge_memory=AsyncMock(side_effect=PurgeRetryPendingError("retry pending")),
+        rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
     )
     router = create_memory_router(
         get_dao=lambda: dao,  # type: ignore[return-value]

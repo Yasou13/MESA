@@ -52,7 +52,7 @@ from typing import Any
 import structlog
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
-from mesa_memory.config import config
+from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
@@ -345,6 +345,7 @@ async def _process_cold_path_impl(
                     raise RuntimeError(
                         "full-cognitive processing requires a Tier-3 consolidation loop"
                     )
+                embedding_identity = configured_embedding_identity()
                 candidate = MemoryCandidate.from_raw_log(
                     raw_log_id=log_id,
                     agent_id=payload_agent_id,
@@ -362,6 +363,10 @@ async def _process_cold_path_impl(
                     chunk_id=payload.get("chunk_id"),
                     source_ref=payload.get("source_ref"),
                     evidence_span=str(payload.get("evidence_span", "")),
+                    embedding_provider=embedding_identity.provider,
+                    embedding_model=embedding_identity.model,
+                    embedding_version=embedding_identity.version,
+                    embedding_dimension=embedding_identity.dimension,
                 )
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;

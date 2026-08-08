@@ -86,6 +86,8 @@ mesa-v4-admin grant-role --principal production-principal \
   --tenant tenant-a --role OWNER
 mesa-v4-admin grant-agent --principal production-principal \
   --agent agent-a --permission SESSION_CREATE
+# Yalnız storage-root rebuild operator'ı için:
+mesa-v4-admin grant-control --principal production-principal
 ```
 
 The selected adapter and its credentials must be configured by the deployment
@@ -113,7 +115,15 @@ POST /v4/memory/insert             POST /v4/memory/search
 GET  /v4/mutations/{id}
 POST /v4/mutations/{id}/replay
 POST /v4/mutations/{id}/rollback
+POST /v4/operations/rebuild
+GET  /v4/operations/{id}
+POST /v4/operations/{id}/cancel
+POST /v4/operations/{id}/retry
 ```
+
+Projection rebuild varsayılan olarak kapalı, storage-root-wide ve offline'dır.
+Operator prosedürü, resume ve automatic rollback sınırları
+[`docs/v4-rebuild-runbook.md`](docs/v4-rebuild-runbook.md) içinde açıklanır.
 
 ---
 
@@ -353,10 +363,15 @@ Current v4 capabilities include:
    provenance-rich assertions and source-owned rollback.
 4. **Dataset security:** principal/tenant/workspace/dataset roles plus explicit
    purge and rollback permissions.
-5. **Retrieval V2:** dataset-filtered vector/BM25/graph rank fusion with true
-   RRF and deterministic bounded legal reranking.
+5. **Retrieval V2:** dataset-filtered vector/BM25/assertion-relational rank
+   fusion with true RRF and deterministic bounded legal reranking. Kùzu graph
+   neighbor traversal is not an advertised retrieval capability.
 6. **Versioned clients:** matching v4 REST, sync/async SDK and MCP lifecycle
    operations.
+
+Runtime capability truth is available from `GET /v4/capability`. Projection
+rebuild remains disabled unless `MESA_V4_REBUILD_ENABLED=true`, and its
+reported scope is always the complete storage root.
 
 ---
 

@@ -45,6 +45,15 @@ class FakeMemoryService:
         return {"id": kwargs["memory_id"], "content": "Scoped memory"}
 
 
+class CapabilityOnlyV4Service:
+    async def v4_capability(self) -> dict:
+        return {
+            "api_version": "v4",
+            "capabilities": {"durable_rebuild": True},
+            "limits": {"rebuild_scope": "storage_root"},
+        }
+
+
 @pytest.fixture()
 def adapter(tmp_path: Path) -> MesaMCPAdapter:
     settings = MCPSettings(MESA_WORKSPACE_ROOT=tmp_path)
@@ -66,6 +75,26 @@ def test_mcp_exposes_only_the_v1_tool_set() -> None:
         "mesa_recall",
         "mesa_improve",
         "mesa_forget",
+    }
+    assert all("rebuild" not in tool.name for tool in _tools())
+
+
+@pytest.mark.asyncio
+async def test_mcp_health_exposes_truthful_v4_capability_without_rebuild_tool(
+    tmp_path: Path,
+) -> None:
+    adapter = MesaMCPAdapter(
+        FakeMemoryService(),
+        MCPSettings(MESA_WORKSPACE_ROOT=tmp_path),
+        CapabilityOnlyV4Service(),  # type: ignore[arg-type]
+    )
+
+    health = await adapter.health()
+
+    assert health["v4_capability"] == {
+        "api_version": "v4",
+        "capabilities": {"durable_rebuild": True},
+        "limits": {"rebuild_scope": "storage_root"},
     }
 
 

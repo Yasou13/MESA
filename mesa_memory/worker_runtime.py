@@ -5,13 +5,12 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import os
 import signal
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TextIO, cast
+from typing import Any, cast
 
 import structlog
 
@@ -21,14 +20,17 @@ setup_logging(role="worker")
 
 from mesa_memory.config import (
     RuntimeProfile,
+    RuntimeProfileConfig,
     RuntimeProfileError,
     load_explicit_dotenv,
     load_runtime_profile,
 )
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
 from mesa_workers.ingestion_worker import process_cold_path
 from mesa_workers.supervision import WorkerSupervisor
 
@@ -39,25 +41,6 @@ _RECOVERY_INTERVAL_SECONDS = 30.0
 _DISPATCH_POLL_SECONDS = 1.0
 _DISPATCH_LEASE_RENEWAL_SECONDS = 60.0
 _WORKER_ID = "worker-runtime"
-_WRITER_LOCK_NAME = ".mesa-single-writer.lock"
-
-
-def _acquire_writer_lock(storage_root: Path) -> TextIO:
-    """Fence a storage root to one active worker process on its host."""
-    handle = (storage_root / _WRITER_LOCK_NAME).open("a+", encoding="utf-8")
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
-        handle.close()
-        raise RuntimeProfileError(
-            "single-writer deployment allows only one active worker per storage root"
-        ) from exc
-    handle.seek(0)
-    handle.truncate()
-    handle.write(f"pid={os.getpid()}\n")
-    handle.flush()
-    os.fsync(handle.fileno())
-    return handle
 
 
 def _write_readiness(storage_root: Path, payload: dict[str, Any]) -> None:
@@ -159,6 +142,102 @@ async def _process_dispatch_with_lease(
     await processing
 
 
+async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
+    stopped = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stopped.set)
+
+    engine: AsyncEngine | None = None
+    vector_engine: VectorEngine | None = None
+    supervisor: WorkerSupervisor | None = None
+    running = False
+    try:
+        engine = AsyncEngine(str(runtime.storage_root / "mesa.db"), max_connections=2)
+        await engine.initialize()
+        await initialize_schema(engine)
+        projection_paths = await ProjectionGenerationRepository(engine).resolve_active(
+            storage_root=runtime.storage_root,
+            trusted_root=runtime.storage_root,
+        )
+        vector_engine = VectorEngine(
+            str(projection_paths.vector_path),
+            allow_model_loading=runtime.model_enabled,
+        )
+        await vector_engine.initialize()
+        dao = MemoryDAO(engine, vector_engine)
+        await dao.initialize()
+        supervisor = WorkerSupervisor(max_restarts=3)
+        initial_recovery = await _recover_once(engine)
+
+        async def recovery_loop() -> None:
+            while not stopped.is_set():
+                dispatch = await _consume_dispatches_once(
+                    dao,
+                    model_processing_enabled=runtime.model_enabled,
+                )
+                try:
+                    await asyncio.wait_for(
+                        stopped.wait(), timeout=_DISPATCH_POLL_SECONDS
+                    )
+                except TimeoutError:
+                    recovered = await _recover_once(engine)
+                    _write_readiness(
+                        runtime.storage_root,
+                        {
+                            "status": "RUNNING",
+                            "mode": "durable-cold-path-consumer",
+                            "recovered": recovered,
+                            "dispatch": dispatch,
+                        },
+                    )
+
+        await supervisor.start("durable-lease-recovery", recovery_loop)
+        await asyncio.sleep(0)
+        if supervisor.readiness()["status"] != "healthy":
+            raise RuntimeError("worker supervisor failed its startup readiness gate")
+        _write_readiness(
+            runtime.storage_root,
+            {
+                "status": "RUNNING",
+                "mode": "durable-cold-path-consumer",
+                "recovered": initial_recovery,
+            },
+        )
+
+        running = True
+        logger.info("WORKER_RUNTIME_RUNNING", worker_id=_WORKER_ID)
+        await stopped.wait()
+    finally:
+        if supervisor is not None:
+            try:
+                await supervisor.shutdown()
+            except Exception as exc:
+                logger.warning(
+                    "WORKER_SUPERVISOR_CLOSE_FAILED", error=type(exc).__name__
+                )
+        if vector_engine is not None:
+            try:
+                await vector_engine.close()
+            except Exception as exc:
+                logger.warning("VECTOR_ENGINE_CLOSE_FAILED", error=type(exc).__name__)
+        if engine is not None:
+            try:
+                await engine.close()
+            except Exception as exc:
+                logger.warning("SQLITE_ENGINE_CLOSE_FAILED", error=type(exc).__name__)
+        remove_signal_handler = getattr(loop, "remove_signal_handler", None)
+        if remove_signal_handler is not None:
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                remove_signal_handler(sig)
+        if running:
+            _write_readiness(
+                runtime.storage_root,
+                {"status": "STOPPED", "mode": "durable-cold-path-consumer"},
+            )
+            logger.info("WORKER_RUNTIME_STOPPED", worker_id=_WORKER_ID)
+
+
 async def run_worker_only() -> None:
     runtime = load_runtime_profile()
     if (
@@ -173,72 +252,18 @@ async def run_worker_only() -> None:
         )
     load_explicit_dotenv(runtime)
     runtime.storage_root.mkdir(parents=True, exist_ok=True)
-    writer_lock = _acquire_writer_lock(runtime.storage_root)
-    stopped = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stopped.set)
-
-    engine = AsyncEngine(str(runtime.storage_root / "mesa.db"), max_connections=2)
-    await engine.initialize()
-    await initialize_schema(engine)
-    vector_engine = VectorEngine(
-        str(runtime.storage_root / "vector.lance"),
-        allow_model_loading=runtime.model_enabled,
-    )
-    await vector_engine.initialize()
-    dao = MemoryDAO(engine, vector_engine)
-    await dao.initialize()
-    supervisor = WorkerSupervisor(max_restarts=3)
-    initial_recovery = await _recover_once(engine)
-
-    async def recovery_loop() -> None:
-        while not stopped.is_set():
-            dispatch = await _consume_dispatches_once(
-                dao,
-                model_processing_enabled=runtime.model_enabled,
-            )
-            try:
-                await asyncio.wait_for(stopped.wait(), timeout=_DISPATCH_POLL_SECONDS)
-            except TimeoutError:
-                recovered = await _recover_once(engine)
-                _write_readiness(
-                    runtime.storage_root,
-                    {
-                        "status": "RUNNING",
-                        "mode": "durable-cold-path-consumer",
-                        "recovered": recovered,
-                        "dispatch": dispatch,
-                    },
-                )
-
-    await supervisor.start("durable-lease-recovery", recovery_loop)
-    await asyncio.sleep(0)
-    if supervisor.readiness()["status"] != "healthy":
-        await supervisor.shutdown()
-        await engine.close()
-        raise RuntimeError("worker supervisor failed its startup readiness gate")
-    _write_readiness(
-        runtime.storage_root,
-        {
-            "status": "RUNNING",
-            "mode": "durable-cold-path-consumer",
-            "recovered": initial_recovery,
-        },
-    )
-
-    logger.info("WORKER_RUNTIME_RUNNING", worker_id=_WORKER_ID)
-    await stopped.wait()
-    await supervisor.shutdown()
-    await vector_engine.close()
-    await engine.close()
-    fcntl.flock(writer_lock.fileno(), fcntl.LOCK_UN)
-    writer_lock.close()
-    _write_readiness(
-        runtime.storage_root,
-        {"status": "STOPPED", "mode": "durable-cold-path-consumer"},
-    )
-    logger.info("WORKER_RUNTIME_STOPPED", worker_id=_WORKER_ID)
+    try:
+        writer_lock = StorageWriterLock.acquire(
+            runtime.storage_root, owner="worker-only-runtime"
+        )
+    except StorageWriterLockError as exc:
+        raise RuntimeProfileError(
+            "single-writer deployment allows only one active writer per storage root"
+        ) from exc
+    try:
+        await _run_worker_owned(runtime)
+    finally:
+        writer_lock.release()
 
 
 def main() -> None:

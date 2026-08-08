@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Durable projection rebuild:** Added storage-root-scoped rebuild operations,
+  append-only operation events, fenced leases/checkpoints, projection generation
+  pointers and retained-generation rollback.
+- **Administrative rebuild API and SDK:** Added ADMIN-only submit, status, cancel
+  and retry interfaces, the deprecated storage-root alias, synchronous and
+  asynchronous Python clients, and the offline `mesa-v4-rebuild` runner.
+- **Closure evidence and operations telemetry:** Added content-free CI evidence,
+  rebuild progress/parity/rollback metrics, provider rehearsal contracts and an
+  operator runbook.
+
+### Changed
+
+- **Truthful V4 capability contract:** Capability responses now distinguish
+  vector, lexical, relational, validity and graph projection support, advertise
+  rebuild limits, and expose durable rebuild only when
+  `MESA_V4_REBUILD_ENABLED` is enabled.
+- **Projection runtime ownership:** API, worker and rebuild runtimes now acquire
+  the same storage-root writer lock and resolve LanceDB/Kùzu paths through the
+  active SQLite generation pointer.
+- **Embedding identity:** Canonical mutations now persist embedding provider,
+  model, version and dimension so projection replay fails closed on any provider
+  mismatch. Legacy rows with externally verified provenance can be completed by
+  the explicit, writer-locked `mesa-v4-rebuild adopt-provider` command.
+
+### Security
+
+- **Rebuild maintenance admission:** Mutating v3/v4 requests are rejected with
+  `503 maintenance_pending` while a rebuild is active; read, health and safe
+  operation-control paths remain available.
+- **Retrieval scope enforcement:** Authorized tenant/dataset vector candidates
+  are filtered before ANN ranking, and rebuild verification exercises bounded
+  cross-tenant and cross-dataset negative retrieval smoke checks.
+
 ## [0.7.1] - 2026-07-29
 
 ### Fixed

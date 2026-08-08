@@ -125,6 +125,10 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "artifact_registry",
         "artifact_sources",
         "artifact_cleanup_outbox",
+        "system_operations",
+        "system_operation_events",
+        "projection_generations",
+        "projection_runtime",
     }
     expected_indexes = {
         "idx_nodes_active",
@@ -133,11 +137,17 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "idx_nodes_unconsolidated",
         "idx_nodes_soft_deleted",
         "idx_raw_logs_session",
+        "idx_system_operations_claim",
+        "uq_system_operations_active_rebuild",
+        "idx_system_operation_events_sequence",
+        "idx_projection_generations_lifecycle",
     }
     expected_triggers = {
         "trg_nodes_fts_insert",
         "trg_nodes_fts_delete",
         "trg_nodes_fts_update",
+        "trg_system_operation_events_no_update",
+        "trg_system_operation_events_no_delete",
     }
 
     result: dict = {"tables": {}, "indexes": {}, "triggers": {}, "valid": True}
