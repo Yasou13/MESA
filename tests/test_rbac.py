@@ -75,7 +75,10 @@ async def test_mcp_session_write_is_denied_then_allowed_by_rbac(tmp_path):
     await policy.initialize()
     settings = MCPSettings(MESA_WORKSPACE_ROOT=tmp_path)
     session_id = settings.session_id_for("project-a")
-    dao = SimpleNamespace(admit_raw_log=AsyncMock(return_value={"log_id": 42}))
+    dao = SimpleNamespace(
+        admit_raw_log=AsyncMock(return_value={"log_id": 42}),
+        rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
+    )
     app = FastAPI()
 
     @app.middleware("http")

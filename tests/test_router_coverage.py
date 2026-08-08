@@ -321,6 +321,8 @@ class TestPurgeErrors:
         ac_mock = MagicMock()
         ac_mock.check_access = AsyncMock(return_value=False)
         ac_mock.check_principal_permission = AsyncMock(return_value=False)
+        dao_mock = MagicMock()
+        dao_mock.rebuild_admission.is_pending = AsyncMock(return_value=False)
         app = FastAPI()
 
         @app.middleware("http")
@@ -331,7 +333,7 @@ class TestPurgeErrors:
             return await call_next(request)
 
         router = create_memory_router(
-            get_dao=lambda: MagicMock(),
+            get_dao=lambda: dao_mock,
             get_access_control=lambda: ac_mock,
         )
         app.include_router(router)
@@ -417,9 +419,11 @@ class TestSessionEndErrors:
     def test_end_permission_error_returns_403(self, client):
         ac_mock = MagicMock()
         ac_mock.check_access = AsyncMock(return_value=False)
+        dao_mock = MagicMock()
+        dao_mock.rebuild_admission.is_pending = AsyncMock(return_value=False)
         app = FastAPI()
         router = create_memory_router(
-            get_dao=lambda: MagicMock(),
+            get_dao=lambda: dao_mock,
             get_access_control=lambda: ac_mock,
         )
         app.include_router(router)
@@ -448,6 +452,8 @@ class TestInsertErrors:
         ac_mock = MagicMock()
         ac_mock.check_access = AsyncMock(return_value=False)
         ac_mock.check_principal_session_access = AsyncMock(return_value=True)
+        dao_mock = MagicMock()
+        dao_mock.rebuild_admission.is_pending = AsyncMock(return_value=False)
         app = FastAPI()
 
         @app.middleware("http")
@@ -458,7 +464,7 @@ class TestInsertErrors:
             return await call_next(request)
 
         router = create_memory_router(
-            get_dao=lambda: MagicMock(),
+            get_dao=lambda: dao_mock,
             get_access_control=lambda: ac_mock,
         )
         app.include_router(router)
