@@ -248,12 +248,12 @@ class _GraphTarget:
     ) -> set[str]:
         if label == "Entity":
             return {
-                node[0] for node in self.nodes 
+                node[0] for node in self.nodes
                 if node[0] in node_ids and node[2] == agent_id
             }
         else:
             return {
-                a["assertion_id"] for a in self.assertions 
+                a["assertion_id"] for a in self.assertions
                 if a["assertion_id"] in node_ids
             }
 
