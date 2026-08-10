@@ -426,7 +426,7 @@ class VectorEngine:
 
         try:
             table.merge_insert(
-                "node_id"
+                ["node_id", "agent_id"]
             ).when_matched_update_all().when_not_matched_insert_all().execute([record])
         except (RuntimeError, OSError) as exc:
             logger.error(
@@ -488,7 +488,7 @@ class VectorEngine:
             ]
             try:
                 table.merge_insert(
-                    "node_id"
+                    ["node_id", "agent_id"]
                 ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
             except (RuntimeError, OSError) as exc:
                 logger.error(
