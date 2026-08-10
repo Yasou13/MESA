@@ -1984,6 +1984,8 @@ class MemoryDAO:
                 "DLQ",
                 "ROLLING_BACK",
                 "BLOCKED",
+                "PURGED",
+                "CANCELLED",
             },
             "RUNNING": {
                 "EXTRACTED",
@@ -1991,6 +1993,8 @@ class MemoryDAO:
                 "DLQ",
                 "ROLLING_BACK",
                 "BLOCKED",
+                "PURGED",
+                "CANCELLED",
             },
             "EXTRACTED": {
                 "VALIDATED",
@@ -1998,6 +2002,8 @@ class MemoryDAO:
                 "DLQ",
                 "ROLLING_BACK",
                 "BLOCKED",
+                "PURGED",
+                "CANCELLED",
             },
             "VALIDATED": {
                 "PROJECTING",
@@ -2005,6 +2011,8 @@ class MemoryDAO:
                 "DLQ",
                 "ROLLING_BACK",
                 "BLOCKED",
+                "PURGED",
+                "CANCELLED",
             },
             "PROJECTING": {
                 "COMMITTED",
@@ -2012,6 +2020,8 @@ class MemoryDAO:
                 "DLQ",
                 "ROLLING_BACK",
                 "BLOCKED",
+                "PURGED",
+                "CANCELLED",
             },
             "RETRY_PENDING": {
                 "RUNNING",
@@ -2019,12 +2029,17 @@ class MemoryDAO:
                 "DLQ",
                 "ROLLING_BACK",
                 "BLOCKED",
+                "PURGED",
+                "CANCELLED",
             },
-            "DLQ": {"RETRY_PENDING", "ROLLING_BACK", "BLOCKED"},
-            "ROLLING_BACK": {"ROLLED_BACK", "BLOCKED"},
-            "BLOCKED": {"RETRY_PENDING", "ROLLING_BACK"},
-            "COMMITTED": {"ROLLING_BACK"},
+            "DLQ": {"RETRY_PENDING", "ROLLING_BACK", "BLOCKED", "PURGED", "CANCELLED"},
+            "ROLLING_BACK": {"ROLLED_BACK", "BLOCKED", "PURGED", "CANCELLED"},
+            "BLOCKED": {"RETRY_PENDING", "ROLLING_BACK", "PURGED", "CANCELLED"},
+            "COMMITTED": {"ROLLING_BACK", "PURGED", "CANCELLED"},
             "ROLLED_BACK": set(),
+            "PURGED": set(),
+            "CANCELLED": set(),
+            "REJECTED": set(),
         }
         async with db.execute(
             "SELECT state FROM pipeline_runs WHERE pipeline_run_id = ?",
@@ -2065,6 +2080,114 @@ class MemoryDAO:
             ),
         )
         return True
+
+    @staticmethod
+    async def _transition_memory_mutation_in_tx(
+        db: Any,
+        mutation_id: str,
+        *,
+        to_state: str,
+        failure_class: str | None = None,
+    ) -> bool:
+        """Enforce canonical memory mutation state transitions via CAS."""
+        transitions = {
+            "PENDING": {
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
+            "SQL_APPLIED": {
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
+            "VECTOR_APPLIED": {
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
+            "GRAPH_APPLIED": {
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
+            "COMMITTED": {"ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED"},
+            "RETRY_PENDING": {
+                "PENDING",
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
+            "DEAD_LETTER": {"RETRY_PENDING", "ROLLING_BACK", "ROLLED_BACK", "PURGED"},
+            "BLOCKED": {"RETRY_PENDING", "ROLLING_BACK", "ROLLED_BACK", "PURGED"},
+            "ROLLING_BACK": {"ROLLED_BACK", "CANCELLED"},
+            "PURGING": {"PURGED"},
+            "ROLLED_BACK": set(),
+            "PURGED": set(),
+            "REJECTED": set(),
+            "CANCELLED": set(),
+        }
+        async with db.execute(
+            "SELECT state FROM memory_mutations WHERE mutation_id = ?",
+            (mutation_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            raise ValueError(f"unknown mutation {mutation_id}")
+        current = str(row[0])
+        if current == to_state:
+            return True
+        if to_state not in transitions.get(current, set()):
+            return False
+        cursor = await db.execute(
+            "UPDATE memory_mutations SET state = ?, failure_class = ?, updated_at = CURRENT_TIMESTAMP "
+            "WHERE mutation_id = ? AND state = ?",
+            (to_state, failure_class, mutation_id, current),
+        )
+        return cursor.rowcount == 1
 
     async def transition_pipeline_run(
         self,
@@ -3733,11 +3856,11 @@ class MemoryDAO:
             state = "SQL_APPLIED"
         else:
             return
-        await db.execute(
-            "UPDATE memory_mutations SET state = ?, failure_class = NULL, updated_at = CURRENT_TIMESTAMP "
-            "WHERE mutation_id = ?",
-            (state, mutation_id),
+        advanced = await MemoryDAO._transition_memory_mutation_in_tx(
+            db, mutation_id, to_state=state
         )
+        if not advanced:
+            return
         async with db.execute(
             "SELECT pipeline_run_id FROM memory_mutations WHERE mutation_id = ?",
             (mutation_id,),
