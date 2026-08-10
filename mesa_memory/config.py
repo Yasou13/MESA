@@ -93,10 +93,17 @@ def load_runtime_profile(
         profile = RuntimeProfile(raw_profile)
     except ValueError as exc:
         raise RuntimeProfileError("MESA_RUNTIME_PROFILE is invalid") from exc
-    raw_storage = values.get("MESA_STORAGE_ROOT") or values.get("MESA_STORAGE_PATH")
+    raw_storage = (
+        values.get("MESA_STORAGE_ROOT")
+        or values.get("MESA_STORAGE_PATH")
+        or values.get("MESA_STORAGE_DIR")
+        or values.get("MESA_DB_PATH")
+    )
     if not raw_storage:
         raise RuntimeProfileError("MESA_STORAGE_ROOT is required")
     raw_storage_path = Path(raw_storage)
+    if raw_storage_path.name.endswith(".db"):
+        raw_storage_path = raw_storage_path.parent
     storage_root = raw_storage_path.expanduser().resolve(strict=False)
     if storage_root in {Path("/"), Path.home().resolve(), Path.cwd().resolve()}:
         raise RuntimeProfileError(
