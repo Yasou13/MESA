@@ -3782,7 +3782,7 @@ class MemoryDAO:
         async with self._sql.connection() as db:
             async with db.execute(
                 f"SELECT * FROM v4_entities WHERE tenant_id = ? "
-                f"AND entity_id IN ({entity_placeholders})",
+                f"AND status = 'ACTIVE' AND entity_id IN ({entity_placeholders})",
                 (tenant_id, *entity_ids),
             ) as cursor:
                 entities = {
@@ -3823,14 +3823,14 @@ class MemoryDAO:
                 metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
                 if metadata:
                     assertion["metadata"] = metadata
-        by_entity: dict[str, list[dict[str, Any]]] = {item: [] for item in entity_ids}
+        by_entity: dict[str, list[dict[str, Any]]] = {item: [] for item in entity_ids if item in entities}
         authority_factor = {
             "OFFICIAL": 1.15,
             "PRIMARY": 1.10,
             "SUPREME_COURT": 1.15,
             "SECONDARY": 0.95,
         }
-        legal_factor: dict[str, float] = {item: 1.0 for item in entity_ids}
+        legal_factor: dict[str, float] = {item: 1.0 for item in entity_ids if item in entities}
         for assertion in provenance:
             for raw_entity_id in (
                 assertion["subject_id"],
@@ -3851,10 +3851,12 @@ class MemoryDAO:
                     legal_factor[entity_id],
                     max(0.75, min(1.25, factor * confidence)),
                 )
-        ordered = sorted(
-            entity_ids,
-            key=lambda item: (-(ranks[item] * legal_factor[item]), item),
-        )[:limit]
+        ordered = [
+            item for item in sorted(
+                [e for e in entity_ids if e in entities],
+                key=lambda item: (-(ranks[item] * legal_factor[item]), item),
+            )
+        ][:limit]
         return [
             {
                 "entity": entities[entity_id],
@@ -3864,7 +3866,6 @@ class MemoryDAO:
                 "provenance": by_entity[entity_id],
             }
             for entity_id in ordered
-            if entity_id in entities
         ]
 
     async def link_v4_assertions(
