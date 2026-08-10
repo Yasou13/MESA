@@ -3437,6 +3437,11 @@ class MemoryDAO:
         _assert_valid_agent_id(agent_id)
         node_id = self.v4_entity_id(str(mutation["tenant_id"]), entity_name)
         embedding = await self._vec.compute_embedding(entity_name)
+        expected_dim = mutation.get("embedding_dimension")
+        if expected_dim is not None and int(expected_dim) != len(embedding):
+            raise ValueError(
+                f"embedding dimension mismatch: expected {expected_dim}, got {len(embedding)}"
+            )
         await self._vec.upsert(
             node_id=node_id,
             agent_id=agent_id,
@@ -3448,7 +3453,12 @@ class MemoryDAO:
             store_name="VECTOR",
             artifact_kind="ENTITY_VECTOR",
             artifact_id=node_id,
-            metadata={"embedding_dimension": len(embedding)},
+            metadata={
+                "embedding_provider": str(mutation.get("embedding_provider") or ""),
+                "embedding_model": str(mutation.get("embedding_model") or ""),
+                "embedding_version": str(mutation.get("embedding_version") or ""),
+                "embedding_dimension": len(embedding),
+            },
         )
         return node_id
 
