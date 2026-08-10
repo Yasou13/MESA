@@ -4179,57 +4179,9 @@ class MemoryDAO:
             if graph_data.get("entity_name") == entity_name and distance < 0.15:
                 conflicting_node_ids.append(mem["node_id"])
 
-        # ---- ATOMIC SAGA: Secondary stores FIRST (fixes lock starvation) ----------
         is_migrating = await self._is_lancedb_migrating()
 
-        try:
-            if not is_migrating:
-                for cid in conflicting_node_ids:
-                    await self._vec.soft_delete(cid, agent_id)
-                await self._vec.upsert(
-                    node_id=node_id,
-                    agent_id=agent_id,
-                    embedding=embedding,
-                    content_hash=content_hash,
-                )
-        except Exception as vec_exc:
-            logger.error(
-                "INSERT_SAGA_ROLLBACK | agent_id=%s node_id=%s vector_error=%s",
-                agent_id,
-                node_id,
-                vec_exc,
-            )
-            raise
-
-        if self._graph is not None and not is_migrating:
-            try:
-                await self._graph.insert_node(
-                    node_id=node_id,
-                    name=entity_name,
-                    agent_id=agent_id,
-                )
-            except Exception as graph_exc:
-                logger.error(
-                    "INSERT_SAGA_GRAPH_FAILURE | agent_id=%s node_id=%s error=%s",
-                    agent_id,
-                    node_id,
-                    graph_exc,
-                )
-                if not is_migrating:
-                    try:
-                        await self._vec.soft_delete(node_id, agent_id)
-                    except Exception as compensation_exc:
-                        logger.critical(
-                            "INSERT_SAGA_COMPENSATION_FAILURE | agent_id=%s "
-                            "node_id=%s error=%s",
-                            agent_id,
-                            node_id,
-                            compensation_exc,
-                        )
-                        raise compensation_exc from graph_exc
-                raise
-
-        # PHASE 2: Fast SQLite transaction
+        # PHASE 1: Canonical SQLite transaction FIRST
         async with self._sql.transaction() as db:
             if conflicting_node_ids:
                 placeholders = ",".join("?" for _ in conflicting_node_ids)
@@ -4283,6 +4235,59 @@ class MemoryDAO:
                 logger.info("UPSERT_QUEUED_IN_WAL | node_id=%s", node_id)
 
             await db.commit()
+
+        # PHASE 2: Secondary store projections
+        if not is_migrating:
+            try:
+                for cid in conflicting_node_ids:
+                    await self._vec.soft_delete(cid, agent_id)
+                await self._vec.upsert(
+                    node_id=node_id,
+                    agent_id=agent_id,
+                    embedding=embedding,
+                    content_hash=content_hash,
+                )
+            except Exception as vec_exc:
+                logger.error(
+                    "INSERT_SECONDARY_VECTOR_FAILURE | agent_id=%s node_id=%s error=%s",
+                    agent_id,
+                    node_id,
+                    vec_exc,
+                )
+                async with self._sql.transaction() as db:
+                    await db.execute(
+                        "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id = ? AND agent_id = ?",
+                        (node_id, agent_id),
+                    )
+                    await db.commit()
+                raise
+
+        if self._graph is not None and not is_migrating:
+            try:
+                await self._graph.insert_node(
+                    node_id=node_id,
+                    name=entity_name,
+                    agent_id=agent_id,
+                )
+            except Exception as graph_exc:
+                logger.error(
+                    "INSERT_SECONDARY_GRAPH_FAILURE | agent_id=%s node_id=%s error=%s",
+                    agent_id,
+                    node_id,
+                    graph_exc,
+                )
+                if not is_migrating:
+                    try:
+                        await self._vec.soft_delete(node_id, agent_id)
+                    except Exception:
+                        pass
+                async with self._sql.transaction() as db:
+                    await db.execute(
+                        "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id = ? AND agent_id = ?",
+                        (node_id, agent_id),
+                    )
+                    await db.commit()
+                raise
 
         logger.info(
             "INSERT_MEMORY | agent_id=%s node_id=%s entity=%s dim=%d",
@@ -4362,52 +4367,9 @@ class MemoryDAO:
                 }
             )
 
-        # ---- ATOMIC SAGA: Secondary stores FIRST ----------
         is_migrating = await self._is_lancedb_migrating()
 
-        try:
-            if not is_migrating:
-                await self._vec.bulk_upsert(vec_rows)
-        except Exception as vec_exc:
-            logger.error(
-                "BULK_INSERT_SAGA_ROLLBACK | agent_id=%s count=%d vector_error=%s",
-                agent_id,
-                len(records),
-                vec_exc,
-            )
-            raise
-
-        if self._graph is not None and not is_migrating:
-            try:
-                for rec, sql_row in zip(records, sql_rows):
-                    await self._graph.insert_node(
-                        node_id=sql_row[0],
-                        name=sql_row[1],
-                        agent_id=agent_id,
-                    )
-            except Exception as graph_exc:
-                logger.error(
-                    "BULK_INSERT_SAGA_GRAPH_FAILURE | agent_id=%s count=%d error=%s",
-                    agent_id,
-                    len(records),
-                    graph_exc,
-                )
-                if not is_migrating:
-                    try:
-                        for sql_row in sql_rows:
-                            await self._vec.soft_delete(sql_row[0], agent_id)
-                    except Exception as compensation_exc:
-                        logger.critical(
-                            "BULK_INSERT_SAGA_COMPENSATION_FAILURE | agent_id=%s "
-                            "count=%d error=%s",
-                            agent_id,
-                            len(records),
-                            compensation_exc,
-                        )
-                        raise compensation_exc from graph_exc
-                raise
-
-        # PHASE 2: Fast SQLite transaction
+        # PHASE 1: Canonical SQLite transaction FIRST
         async with self._sql.transaction() as db:
             await db.executemany(
                 "INSERT INTO nodes "
@@ -4449,6 +4411,58 @@ class MemoryDAO:
                 logger.info("BULK_UPSERT_QUEUED_IN_WAL | count=%d", len(wal_records))
 
             await db.commit()
+
+        # PHASE 2: Secondary store projections
+        if not is_migrating:
+            try:
+                await self._vec.bulk_upsert(vec_rows)
+            except Exception as vec_exc:
+                logger.error(
+                    "BULK_INSERT_SECONDARY_VECTOR_FAILURE | agent_id=%s count=%d error=%s",
+                    agent_id,
+                    len(records),
+                    vec_exc,
+                )
+                async with self._sql.transaction() as db:
+                    inserted_ids = [r[0] for r in sql_rows]
+                    placeholders = ",".join("?" for _ in inserted_ids)
+                    await db.execute(
+                        f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND agent_id = ?",
+                        (*inserted_ids, agent_id),
+                    )
+                    await db.commit()
+                raise
+
+        if self._graph is not None and not is_migrating:
+            try:
+                for rec, sql_row in zip(records, sql_rows):
+                    await self._graph.insert_node(
+                        node_id=sql_row[0],
+                        name=sql_row[1],
+                        agent_id=agent_id,
+                    )
+            except Exception as graph_exc:
+                logger.error(
+                    "BULK_INSERT_SECONDARY_GRAPH_FAILURE | agent_id=%s count=%d error=%s",
+                    agent_id,
+                    len(records),
+                    graph_exc,
+                )
+                if not is_migrating:
+                    try:
+                        for sql_row in sql_rows:
+                            await self._vec.soft_delete(sql_row[0], agent_id)
+                    except Exception:
+                        pass
+                async with self._sql.transaction() as db:
+                    inserted_ids = [r[0] for r in sql_rows]
+                    placeholders = ",".join("?" for _ in inserted_ids)
+                    await db.execute(
+                        f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND agent_id = ?",
+                        (*inserted_ids, agent_id),
+                    )
+                    await db.commit()
+                raise
 
         logger.info(
             "BULK_INSERT_MEMORY | agent_id=%s count=%d",
