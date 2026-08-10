@@ -3885,6 +3885,63 @@ class MemoryDAO:
             for entity_id in ordered
         ]
 
+    async def count_active_memories(
+        self,
+        tenant_id: str,
+        *,
+        dataset_ids: list[str] | None = None,
+        agent_id: str | None = None,
+    ) -> int:
+        """Fast SQL COUNT(*) for active entities in catalog without materializing records."""
+        if agent_id:
+            _assert_valid_agent_id(agent_id)
+        async with self._sql.connection() as db:
+            if dataset_ids:
+                placeholders = ",".join("?" for _ in dataset_ids)
+                async with db.execute(
+                    "SELECT COUNT(DISTINCT r.physical_artifact_id) FROM artifact_registry r "
+                    "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                    f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
+                    "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
+                    "AND r.artifact_kind IN ('ENTITY', 'ENTITY_VECTOR')",
+                    (tenant_id, *dataset_ids),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return int(row[0]) if row else 0
+            else:
+                async with db.execute(
+                    "SELECT COUNT(*) FROM v4_entities WHERE tenant_id = ? AND status = 'ACTIVE'",
+                    (tenant_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return int(row[0]) if row else 0
+
+    async def has_active_memories(
+        self,
+        tenant_id: str,
+        *,
+        dataset_ids: list[str] | None = None,
+    ) -> bool:
+        """Fast bounded existence query (EXISTS/LIMIT 1) for active memories."""
+        async with self._sql.connection() as db:
+            if dataset_ids:
+                placeholders = ",".join("?" for _ in dataset_ids)
+                async with db.execute(
+                    "SELECT 1 FROM artifact_registry r "
+                    "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                    f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
+                    "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
+                    "AND r.artifact_kind IN ('ENTITY', 'ENTITY_VECTOR') LIMIT 1",
+                    (tenant_id, *dataset_ids),
+                ) as cursor:
+                    return await cursor.fetchone() is not None
+            else:
+                async with db.execute(
+                    "SELECT 1 FROM v4_entities WHERE tenant_id = ? AND status = 'ACTIVE' LIMIT 1",
+                    (tenant_id,),
+                ) as cursor:
+                    return await cursor.fetchone() is not None
+
     async def link_v4_assertions(
         self,
         *,
