@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_memory.config import config, configured_embedding_identity
+from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
@@ -1032,6 +1033,9 @@ def create_v4_router(
     async def get_context(
         session_id: str,
         request: Request,
+        query: str = "",
+        token_budget: int = 2048,
+        valid_at: str | None = None,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
@@ -1039,7 +1043,16 @@ def create_v4_router(
             request, dao, access_control, session_id, level="READ"
         )
         agent_id = str(session["agent_id"])
-        raw_logs = await dao.get_recent_logs(agent_id, session_id, limit=20)
+        builder = ContextBuilder(dao)
+        ctx = await builder.build_context(
+            tenant_id=str(session["tenant_id"]),
+            agent_id=agent_id,
+            dataset_ids=list(session.get("dataset_ids", [])),
+            query=query,
+            session_id=session_id,
+            token_budget=token_budget,
+            valid_at=valid_at,
+        )
         mutations = await dao.list_session_mutation_summaries(
             agent_id, session_id, limit=20
         )
@@ -1049,9 +1062,9 @@ def create_v4_router(
             "dataset_ids": session["dataset_ids"],
             "agent_id": agent_id,
             "session_id": session_id,
-            "context": "\n".join(
-                str(item.get("content", "")) for item in raw_logs if item.get("content")
-            ),
+            "context": ctx["formatted_context"],
+            "canonical_memories": ctx["canonical_memories"],
+            "estimated_token_count": ctx["estimated_token_count"],
             "mutations": mutations,
         }
 
