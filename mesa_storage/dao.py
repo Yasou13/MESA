@@ -3668,14 +3668,18 @@ class MemoryDAO:
         if not allowed_ids:
             return []
 
-        query_vector = await self._vec.compute_embedding(query)
-        vector_rows = await self._vec.search(
-            query_vector,
-            agent_id=agent_id,
-            allowed_node_ids=allowed_ids,
-            limit=min(500, max(limit * 10, 50)),
-        )
-        vector_lane = scope_vector_result_ids(vector_rows, allowed_ids=allowed_ids)
+        vector_lane: list[str] = []
+        try:
+            query_vector = await self._vec.compute_embedding(query)
+            vector_rows = await self._vec.search(
+                query_vector,
+                agent_id=agent_id,
+                allowed_node_ids=allowed_ids,
+                limit=min(500, max(limit * 10, 50)),
+            )
+            vector_lane = scope_vector_result_ids(vector_rows, allowed_ids=allowed_ids)
+        except RuntimeError:
+            vector_lane = []
 
         tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))
         lexical_lane: list[str] = []
