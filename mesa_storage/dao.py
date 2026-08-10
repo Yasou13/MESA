@@ -3546,20 +3546,23 @@ class MemoryDAO:
                     "SELECT assertion_id FROM v4_assertions "
                     "WHERE tenant_id = ? AND revision_id = ? "
                     "AND subject_id = ? AND predicate = ? "
-                    "AND object_entity_id IS ? AND literal_value IS ?",
+                    "AND status = 'ACTIVE'",
                     (
                         tenant_id,
                         revision[0],
                         subject_id,
                         relation,
-                        object_id,
-                        literal_value,
                     ),
                 ) as cursor:
                     superseded_assertion_ids = [
                         str(row[0]) for row in await cursor.fetchall()
                     ]
                 for old_assertion_id in superseded_assertion_ids:
+                    await db.execute(
+                        "UPDATE v4_assertions SET status = 'SUPERSEDED' "
+                        "WHERE tenant_id = ? AND assertion_id = ?",
+                        (tenant_id, old_assertion_id),
+                    )
                     await db.execute(
                         "INSERT OR IGNORE INTO v4_assertion_links "
                         "(source_assertion_id, target_assertion_id, relation_type, mutation_id) "
