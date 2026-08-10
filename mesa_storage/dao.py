@@ -2299,14 +2299,21 @@ class MemoryDAO:
             raise ValueError("artifact identity fields are required")
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT tenant_id, agent_id, dataset_id, document_id, revision_id, chunk_id, "
-                "source_ref, evidence_span, pipeline_run_id FROM memory_mutations "
-                "WHERE mutation_id = ?",
+                "SELECT m.tenant_id, m.agent_id, m.dataset_id, m.document_id, m.revision_id, m.chunk_id, "
+                "m.source_ref, m.evidence_span, m.pipeline_run_id, m.state as mutation_state, pr.state as pipeline_state "
+                "FROM memory_mutations m "
+                "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
+                "WHERE m.mutation_id = ?",
                 (mutation_id,),
             ) as cursor:
                 mutation = await cursor.fetchone()
             if mutation is None:
                 raise ValueError("unknown mutation artifact owner")
+            if (
+                mutation["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
+                or mutation["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
+            ):
+                raise ValueError(f"cannot register artifact for mutation in state {mutation['mutation_state']}")
             artifact_row_id = str(uuid.uuid4())
             await db.execute(
                 "INSERT OR IGNORE INTO memory_artifacts "
@@ -2440,16 +2447,33 @@ class MemoryDAO:
         """Record a fenced successful projection and its immutable attempt receipt."""
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT * FROM projection_outbox WHERE projection_id = ?",
+                "SELECT p.*, m.state as mutation_state, pr.state as pipeline_state "
+                "FROM projection_outbox p "
+                "JOIN memory_mutations m ON m.mutation_id = p.mutation_id "
+                "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
+                "WHERE p.projection_id = ?",
                 (projection_id,),
             ) as cursor:
                 row = await cursor.fetchone()
+            if row is None:
+                await db.commit()
+                return False
+            is_fenced = (
+                row["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
+                or row["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
+            )
             if (
-                row is None
-                or row["state"] != "IN_FLIGHT"
+                row["state"] != "IN_FLIGHT"
                 or row["claimed_by"] != worker_id
                 or row["claim_token"] != claim_token
+                or is_fenced
             ):
+                if is_fenced and row["state"] == "IN_FLIGHT":
+                    await db.execute(
+                        "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
+                        "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ?",
+                        (projection_id,),
+                    )
                 await db.commit()
                 return False
             await db.execute(
@@ -2635,6 +2659,12 @@ class MemoryDAO:
             await db.execute(
                 "UPDATE memory_mutations SET state = 'ROLLING_BACK', "
                 "updated_at = CURRENT_TIMESTAMP WHERE pipeline_run_id = ?",
+                (pipeline_run_id,),
+            )
+            await db.execute(
+                "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
+                "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE pipeline_run_id = ?)",
                 (pipeline_run_id,),
             )
             if not cleanup:
@@ -3647,6 +3677,16 @@ class MemoryDAO:
 
     @staticmethod
     async def _advance_mutation_projection_state(db: Any, mutation_id: str) -> None:
+        async with db.execute(
+            "SELECT m.state as mutation_state, pr.state as pipeline_state "
+            "FROM memory_mutations m "
+            "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
+            "WHERE m.mutation_id = ?",
+            (mutation_id,),
+        ) as cursor:
+            m_row = await cursor.fetchone()
+        if not m_row or m_row["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED") or m_row["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED"):
+            return
         async with db.execute(
             "SELECT projection_name, state FROM projection_outbox WHERE mutation_id = ?",
             (mutation_id,),
