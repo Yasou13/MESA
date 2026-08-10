@@ -231,23 +231,39 @@ class MesaHttpV4Service:
         return [_typed_result(item) for item in resp.get("results", [])]
 
     async def v4_improve(self, **kwargs: Any) -> dict[str, Any]:
-        # Improve is essentially creating a new revision
+        """Admit a corrected revision through the same canonical write path."""
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
         tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
         workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
+        actor_id = kwargs.get("actor_id") or self._settings.actor_id
         document_id = kwargs["document_id"]
         content = kwargs["content"]
+        revision_id = kwargs.get("revision_id") or f"rev_{uuid.uuid4().hex[:8]}"
+        chunk_id = kwargs.get("chunk_id") or f"chunk_{uuid.uuid4().hex[:8]}"
 
         client = self._http_client
+        session_id = await self._get_session_id(
+            client,
+            dataset_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            actor_id=actor_id,
+        )
         try:
-            return await client.create_revision(
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
+            return await client.insert(
+                session_id=session_id,
                 dataset_id=dataset_id,
                 document_id=document_id,
-                revision_id=f"rev_{uuid.uuid4().hex[:8]}",
+                revision_id=revision_id,
+                chunk_id=chunk_id,
+                title=kwargs.get("title", f"Correction {document_id}"),
+                source_ref=kwargs.get("source_ref", "mcp_correction"),
+                content=content,
+                evidence_span=kwargs.get("evidence_span", ""),
                 revision_number=kwargs.get("revision_number", 2),
-                content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+                metadata=kwargs.get("metadata", {}),
+                idempotency_key=kwargs.get("idempotency_key"),
+                supersedes_revision_id=kwargs.get("supersedes_revision_id"),
             )
         except Exception as exc:
             raise _map_exception(exc) from exc
