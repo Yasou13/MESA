@@ -267,27 +267,33 @@ class QueueAdmissionPolicy(BaseModel):
 
 
 def _read_env_ram_limit() -> Optional[int]:
-    """Tier 2: Read ``MESA_MAX_RAM_MB`` environment variable.
+    """Tier 1: Read ``MESA_MAX_RAM_MB`` or ``MESA_MAX_MEMORY_BYTES`` environment variable.
 
     Returns total RAM in **bytes** or *None* if the variable is absent or
     contains a non-numeric value.
     """
-    raw = os.environ.get("MESA_MAX_RAM_MB")
-    if raw is None:
-        return None
-    try:
-        mb = int(raw)
-        if mb <= 0:
-            logger.warning("MESA_MAX_RAM_MB=%s is non-positive; ignoring", raw)
-            return None
-        total = mb * 1024 * 1024
-        logger.info(
-            "RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)", mb, total
-        )
-        return total
-    except ValueError:
-        logger.warning("MESA_MAX_RAM_MB=%r is not a valid integer; ignoring", raw)
-        return None
+    raw_bytes = os.environ.get("MESA_MAX_MEMORY_BYTES")
+    if raw_bytes is not None:
+        try:
+            total = int(raw_bytes)
+            if total > 0:
+                logger.info("RAM limit sourced from MESA_MAX_MEMORY_BYTES: %d bytes", total)
+                return total
+        except ValueError:
+            pass
+
+    raw_mb = os.environ.get("MESA_MAX_RAM_MB")
+    if raw_mb is not None:
+        try:
+            mb = int(raw_mb)
+            if mb > 0:
+                total = mb * 1024 * 1024
+                logger.info("RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)", mb, total)
+                return total
+        except ValueError:
+            pass
+
+    return None
 
 
 def _read_cgroup_ram_limit() -> Optional[int]:
@@ -665,31 +671,31 @@ def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:
     """Resolve the system's available RAM through a hierarchical fallback chain.
 
     Priority order:
-        1. ``psutil.virtual_memory()`` — most accurate on bare-metal / VMs.
-        2. ``MESA_MAX_RAM_MB`` environment variable — operator override.
-        3. Linux cgroup limits (v1 then v2) — Docker / Kubernetes awareness.
-        4. Safe-mode constant (1 GB) — last resort with CRITICAL log.
+        1. ``MESA_MAX_RAM_MB`` / ``MESA_MAX_MEMORY_BYTES`` environment variable — explicit operator override.
+        2. Linux cgroup limits (v1 then v2) — Docker / Kubernetes container caps.
+        3. ``psutil.virtual_memory()`` — host available RAM.
+        4. Safe-mode constant (1 GB) — last resort fallback.
     """
     total_ram: Optional[int] = None
 
-    # --- Tier 1: psutil (host-level) ---
-    try:
-        total_ram = psutil.virtual_memory().total
-        logger.info(
-            "RAM limit sourced from psutil: %d bytes (%.0f MB)",
-            total_ram,
-            total_ram / (1024 * 1024),
-        )
-    except Exception as exc:
-        logger.warning("psutil.virtual_memory() failed: %s", exc)
+    # --- Tier 1: MESA_MAX_RAM_MB / MESA_MAX_MEMORY_BYTES env var (explicit override) ---
+    total_ram = _read_env_ram_limit()
 
-    # --- Tier 2: MESA_MAX_RAM_MB env var (operator override) ---
-    if total_ram is None:
-        total_ram = _read_env_ram_limit()
-
-    # --- Tier 3: cgroup limits (container-aware) ---
+    # --- Tier 2: cgroup limits (container-aware) ---
     if total_ram is None:
         total_ram = _read_cgroup_ram_limit()
+
+    # --- Tier 3: psutil (host-level) ---
+    if total_ram is None:
+        try:
+            total_ram = psutil.virtual_memory().total
+            logger.info(
+                "RAM limit sourced from psutil: %d bytes (%.0f MB)",
+                total_ram,
+                total_ram / (1024 * 1024),
+            )
+        except Exception as exc:
+            logger.warning("psutil.virtual_memory() failed: %s", exc)
 
     # --- Tier 4: Safe-mode fallback (1 GB) ---
     if total_ram is None:
