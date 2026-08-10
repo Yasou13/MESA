@@ -870,29 +870,37 @@ class MemoryDAO:
     async def purge_v4_document(
         self, *, tenant_id: str, dataset_id: str, document_id: str
     ) -> dict[str, Any]:
-        """Purge one document by rolling back its source-owned pipeline runs."""
-        async with self._sql.connection() as db:
+        """Purge one document by rolling back its source-owned pipeline runs and fencing pending mutations."""
+        async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT DISTINCT pipeline_run_id FROM artifact_sources "
-                "WHERE dataset_id = ? AND document_id = ? AND state = 'ACTIVE'",
-                (dataset_id, document_id),
-            ) as cursor:
-                pipeline_ids = [
-                    str(row[0]) for row in await cursor.fetchall() if row[0]
-                ]
-            async with db.execute(
-                "SELECT tenant_id FROM documents WHERE document_id = ? "
-                "AND dataset_id = ?",
+                "SELECT tenant_id FROM documents WHERE document_id = ? AND dataset_id = ?",
                 (document_id, dataset_id),
             ) as cursor:
                 document = await cursor.fetchone()
-        if document is None or document[0] != tenant_id:
-            raise ValueError("document does not belong to dataset scope")
-        outcomes = [
-            await self.request_pipeline_rollback(pipeline_id)
-            for pipeline_id in pipeline_ids
-        ]
-        async with self._sql.transaction() as db:
+            if document is None or document[0] != tenant_id:
+                raise ValueError("document does not belong to dataset scope")
+
+            async with db.execute(
+                "SELECT DISTINCT pipeline_run_id FROM ("
+                "SELECT pipeline_run_id FROM artifact_sources WHERE dataset_id = ? AND document_id = ? "
+                "UNION "
+                "SELECT pipeline_run_id FROM memory_mutations WHERE dataset_id = ? AND document_id = ?"
+                ") WHERE pipeline_run_id IS NOT NULL",
+                (dataset_id, document_id, dataset_id, document_id),
+            ) as cursor:
+                pipeline_ids = [str(row[0]) for row in await cursor.fetchall() if row[0]]
+
+            await db.execute(
+                "UPDATE memory_mutations SET state = 'PURGED', updated_at = CURRENT_TIMESTAMP "
+                "WHERE dataset_id = ? AND document_id = ? AND state NOT IN ('PURGED', 'ROLLED_BACK')",
+                (dataset_id, document_id),
+            )
+            await db.execute(
+                "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
+                "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE dataset_id = ? AND document_id = ?)",
+                (dataset_id, document_id),
+            )
             await db.execute(
                 "UPDATE documents SET status = 'PURGED' WHERE document_id = ?",
                 (document_id,),
@@ -907,10 +915,17 @@ class MemoryDAO:
                 (tenant_id, dataset_id, document_id),
             )
             await db.commit()
+
+        outcomes = []
+        for pipeline_id in pipeline_ids:
+            try:
+                outcomes.append(await self.request_pipeline_rollback(pipeline_id))
+            except Exception:
+                pass
         return {
             "document_id": document_id,
             "pipeline_runs": outcomes,
-            "state": "PURGE_PENDING" if outcomes else "PURGED",
+            "state": "PURGED",
         }
 
     @staticmethod
@@ -2314,6 +2329,14 @@ class MemoryDAO:
                 or mutation["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
             ):
                 raise ValueError(f"cannot register artifact for mutation in state {mutation['mutation_state']}")
+            if mutation["document_id"]:
+                async with db.execute(
+                    "SELECT status FROM documents WHERE document_id = ?",
+                    (mutation["document_id"],),
+                ) as doc_cur:
+                    doc_row = await doc_cur.fetchone()
+                if doc_row and doc_row[0] == "PURGED":
+                    raise ValueError(f"cannot register artifact for purged document {mutation['document_id']}")
             artifact_row_id = str(uuid.uuid4())
             await db.execute(
                 "INSERT OR IGNORE INTO memory_artifacts "
@@ -2447,7 +2470,7 @@ class MemoryDAO:
         """Record a fenced successful projection and its immutable attempt receipt."""
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT p.*, m.state as mutation_state, pr.state as pipeline_state "
+                "SELECT p.*, m.state as mutation_state, m.document_id, pr.state as pipeline_state "
                 "FROM projection_outbox p "
                 "JOIN memory_mutations m ON m.mutation_id = p.mutation_id "
                 "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
@@ -2462,6 +2485,14 @@ class MemoryDAO:
                 row["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
                 or row["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
             )
+            if not is_fenced and row.get("document_id"):
+                async with db.execute(
+                    "SELECT status FROM documents WHERE document_id = ?",
+                    (row["document_id"],),
+                ) as doc_cur:
+                    doc_row = await doc_cur.fetchone()
+                if doc_row and doc_row[0] == "PURGED":
+                    is_fenced = True
             if (
                 row["state"] != "IN_FLIGHT"
                 or row["claimed_by"] != worker_id
@@ -4646,12 +4677,34 @@ class MemoryDAO:
                         "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
                     )
                     select_params: tuple[Any, ...] = (agent_id, session_id)
+                    await db.execute(
+                        "UPDATE memory_mutations SET state = 'PURGED', updated_at = CURRENT_TIMESTAMP "
+                        "WHERE agent_id = ? AND session_id = ? AND state NOT IN ('PURGED', 'ROLLED_BACK')",
+                        (agent_id, session_id),
+                    )
+                    await db.execute(
+                        "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
+                        "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE agent_id = ? AND session_id = ?)",
+                        (agent_id, session_id),
+                    )
                 else:
                     select_sql = (
                         "SELECT id FROM nodes WHERE agent_id = ? "
                         "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
                     )
                     select_params = (agent_id,)
+                    await db.execute(
+                        "UPDATE memory_mutations SET state = 'PURGED', updated_at = CURRENT_TIMESTAMP "
+                        "WHERE agent_id = ? AND state NOT IN ('PURGED', 'ROLLED_BACK')",
+                        (agent_id,),
+                    )
+                    await db.execute(
+                        "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
+                        "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE agent_id = ?)",
+                        (agent_id,),
+                    )
                 async with db.execute(select_sql, select_params) as cursor:
                     node_ids = [row[0] for row in await cursor.fetchall()]
                 if not node_ids:
