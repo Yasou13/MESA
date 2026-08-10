@@ -1826,6 +1826,21 @@ class MemoryDAO:
                     candidate.get("embedding_dimension"),
                 ),
             )
+            for projection_name in ("SQL", "VECTOR", "GRAPH"):
+                await db.execute(
+                    "INSERT OR IGNORE INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
+                    "VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
+                    (
+                        str(
+                            uuid.uuid5(
+                                uuid.NAMESPACE_URL,
+                                f"{mutation_id}:{projection_name}",
+                            )
+                        ),
+                        mutation_id,
+                        projection_name,
+                    ),
+                )
             async with db.execute(
                 "SELECT * FROM memory_mutations WHERE mutation_id = ? AND agent_id = ?",
                 (mutation_id, agent_id),
@@ -1897,6 +1912,23 @@ class MemoryDAO:
             ) as cursor:
                 row = await cursor.fetchone()
         return dict(row) if row else None
+
+    async def get_pipeline_mutations(
+        self, pipeline_run_id: str
+    ) -> list[dict[str, Any]]:
+        """Return all canonical memory mutations produced by a single pipeline run event (1 Event -> 0..N Memories)."""
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT * FROM memory_mutations WHERE pipeline_run_id = ? ORDER BY created_at ASC",
+                (pipeline_run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            rec = dict(row)
+            rec["metadata"] = json.loads(rec.get("metadata_json") or "{}")
+            results.append(rec)
+        return results
 
     async def get_mutation_summary(self, mutation_id: str) -> dict[str, Any] | None:
         """Return a v4 mutation only with its durable projection receipts.
@@ -2091,6 +2123,54 @@ class MemoryDAO:
     ) -> bool:
         """Enforce canonical memory mutation state transitions via CAS."""
         transitions = {
+            "RECEIVED": {
+                "EXTRACTED",
+                "VALIDATED",
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
+            "EXTRACTED": {
+                "VALIDATED",
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
+            "VALIDATED": {
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DEAD_LETTER",
+                "BLOCKED",
+                "REJECTED",
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+            },
             "PENDING": {
                 "SQL_APPLIED",
                 "VECTOR_APPLIED",
@@ -2608,7 +2688,8 @@ class MemoryDAO:
                 row["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
                 or row["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
             )
-            if not is_fenced and row.get("document_id"):
+            doc_id = row["document_id"] if "document_id" in row.keys() else None
+            if not is_fenced and doc_id:
                 async with db.execute(
                     "SELECT status FROM documents WHERE document_id = ?",
                     (row["document_id"],),
