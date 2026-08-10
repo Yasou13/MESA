@@ -109,8 +109,18 @@ async def test_retrieval_eligibility_and_temporal_truth(tmp_path):
         limit=10,
         valid_at="2025-01-01T00:00:00Z",
     )
-    if res_expired:
-        assert len(res_expired[0]["provenance"]) == 0
+    assert res_expired == []
+
+    # A second agent can share the tenant and dataset but must not inherit
+    # canonical entity/assertion eligibility from this agent.
+    res_other_agent = await dao.search_v4_memory(
+        tenant_id=tenant_id,
+        agent_id="agent_other",
+        dataset_ids=[dataset_id],
+        query="Acme Corp",
+        limit=10,
+    )
+    assert res_other_agent == []
 
     # 2. Test Purging: Purge doc1_id -> entity/assertion becomes RETRACTED/PURGED and must NOT be returned
     await dao.purge_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc1_id)

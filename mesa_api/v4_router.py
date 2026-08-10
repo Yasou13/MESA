@@ -681,10 +681,16 @@ def create_v4_router(
         return {"status": "started", **session}
 
     @router.get("/capability", status_code=200)
-    async def get_capability() -> V4CapabilityResponse:
+    async def get_capability(
+        dao: MemoryDAO = Depends(get_dao),
+    ) -> V4CapabilityResponse:
         """Return bounded capability truth without implying planned behaviour."""
+        vector_available = getattr(
+            getattr(dao, "_vec", None), "semantic_runtime_available", False
+        )
         capabilities = V4CapabilityFlags(
             durable_rebuild=config.v4_rebuild_enabled,
+            vector_retrieval=vector_available if isinstance(vector_available, bool) else False,
         )
         return V4CapabilityResponse(
             features=[

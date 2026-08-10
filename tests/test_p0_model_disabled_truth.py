@@ -20,6 +20,7 @@ async def test_model_disabled_runtime_degradation(tmp_path):
     # VectorEngine created with allow_model_loading=False and embedding_provider=None
     vec = VectorEngine(uri=str(lance_path), allow_model_loading=False, embedding_provider=None)
     await vec.initialize()
+    assert vec.semantic_runtime_available is False
 
     # Calling compute_embedding directly must raise RuntimeError
     with pytest.raises(RuntimeError, match="semantic embedding runtime is disabled"):

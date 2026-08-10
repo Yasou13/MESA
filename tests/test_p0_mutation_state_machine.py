@@ -82,4 +82,10 @@ async def test_mutation_state_machine_illegal_transitions_rejected(tmp_path):
         )
         assert r_mut_res is False, "REJECTED mutation must not transition to COMMITTED"
 
+    # The public state setter must not bypass the canonical transition table.
+    assert await dao.set_mutation_state(agent_id, mutation_id, "COMMITTED") is False
+    mutation = await dao.get_mutation(agent_id, mutation_id)
+    assert mutation is not None
+    assert mutation["state"] == "ROLLED_BACK"
+
     await engine.close()

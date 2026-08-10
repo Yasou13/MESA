@@ -98,4 +98,22 @@ async def test_context_builder_integration(tmp_path):
     assert ctx["estimated_token_count"] > 0
     assert ctx["estimated_token_count"] <= 500
 
+    tiny_ctx = await builder.build_context(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        dataset_ids=[dataset_id],
+        query="Alice",
+        token_budget=4,
+    )
+    assert tiny_ctx["estimated_token_count"] <= 4
+
+    with pytest.raises(ValueError, match="token_budget must be positive"):
+        await builder.build_context(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            dataset_ids=[dataset_id],
+            query="Alice",
+            token_budget=0,
+        )
+
     await engine.close()

@@ -26,6 +26,8 @@ class ContextBuilder:
         include_provenance: bool = True,
     ) -> dict[str, Any]:
         """Construct context combining current-session logs and long-term canonical truth."""
+        if token_budget < 1:
+            raise ValueError("token_budget must be positive")
         # 1. Fetch current session raw logs if session_id provided
         session_logs: list[dict[str, Any]] = []
         if session_id:
@@ -48,27 +50,37 @@ class ContextBuilder:
                     valid_at=valid_at,
                 )
 
-        # 3. Format context string with token budget bounding (~4 chars per token)
+        # 3. Format context string with token budget bounding (~4 chars per token).
+        # Small caller budgets are hard ceilings, not minimum context hints.
         sections: list[str] = []
-        char_budget = max(200, token_budget * 4)
+        char_budget = token_budget * 4
         current_chars = 0
+
+        def append_within_budget(line: str) -> bool:
+            nonlocal current_chars
+            separator = 1 if sections else 0
+            available = char_budget - current_chars - separator
+            if available <= 0:
+                return False
+            if len(line) > available:
+                sections.append(line[:available])
+                current_chars += available + separator
+                return False
+            sections.append(line)
+            current_chars += len(line) + separator
+            return True
 
         if session_logs:
             session_header = "=== Current Session Information ==="
-            sections.append(session_header)
-            current_chars += len(session_header) + 1
+            append_within_budget(session_header)
             for log in session_logs:
                 line = f"- {log.get('content', '')}"
-                if current_chars + len(line) + 1 > char_budget:
+                if not append_within_budget(line):
                     break
-                sections.append(line)
-                current_chars += len(line) + 1
 
         if canonical_memories:
             mem_header = "=== Long-Term Canonical Truth ==="
-            if current_chars + len(mem_header) + 1 <= char_budget:
-                sections.append(mem_header)
-                current_chars += len(mem_header) + 1
+            append_within_budget(mem_header)
 
             for item in canonical_memories:
                 entity = item.get("entity", {})
@@ -84,10 +96,8 @@ class ContextBuilder:
                     if facts:
                         prov_str = f" ({'; '.join(facts)})"
                 line = f"- [Entity: {name}]{prov_str}"
-                if current_chars + len(line) + 1 > char_budget:
+                if not append_within_budget(line):
                     break
-                sections.append(line)
-                current_chars += len(line) + 1
 
         formatted_context = "\n".join(sections)
         estimated_tokens = math.ceil(len(formatted_context) / 4.0)

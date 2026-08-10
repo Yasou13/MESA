@@ -890,17 +890,19 @@ class MemoryDAO:
             ) as cursor:
                 pipeline_ids = [str(row[0]) for row in await cursor.fetchall() if row[0]]
 
-            await db.execute(
-                "UPDATE memory_mutations SET state = 'PURGED', updated_at = CURRENT_TIMESTAMP "
-                "WHERE dataset_id = ? AND document_id = ? AND state NOT IN ('PURGED', 'ROLLED_BACK')",
-                (dataset_id, document_id),
+            purged_mutation_ids = await self._purge_mutations_in_tx(
+                db,
+                where_sql="dataset_id = ? AND document_id = ?",
+                params=(dataset_id, document_id),
             )
-            await db.execute(
-                "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
-                "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
-                "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE dataset_id = ? AND document_id = ?)",
-                (dataset_id, document_id),
-            )
+            if purged_mutation_ids:
+                placeholders = ",".join("?" for _ in purged_mutation_ids)
+                await db.execute(
+                    "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
+                    "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                    f"WHERE mutation_id IN ({placeholders})",
+                    purged_mutation_ids,
+                )
             await db.execute(
                 "UPDATE documents SET status = 'PURGED' WHERE document_id = ?",
                 (document_id,),
@@ -2269,6 +2271,25 @@ class MemoryDAO:
         )
         return cursor.rowcount == 1
 
+    async def _purge_mutations_in_tx(
+        self, db: Any, *, where_sql: str, params: tuple[Any, ...]
+    ) -> list[str]:
+        """Apply the destructive mutation transition without bypassing its CAS fence."""
+        async with db.execute(
+            "SELECT mutation_id FROM memory_mutations WHERE "
+            + where_sql
+            + " AND state NOT IN ('PURGED', 'ROLLED_BACK', 'REJECTED', 'CANCELLED')",
+            params,
+        ) as cursor:
+            mutation_ids = [str(row[0]) for row in await cursor.fetchall()]
+        purged: list[str] = []
+        for mutation_id in mutation_ids:
+            if await self._transition_memory_mutation_in_tx(
+                db, mutation_id, to_state="PURGED"
+            ):
+                purged.append(mutation_id)
+        return purged
+
     async def transition_pipeline_run(
         self,
         pipeline_run_id: str,
@@ -2343,30 +2364,26 @@ class MemoryDAO:
                 (mutation_id, agent_id),
             ) as pipeline_cursor:
                 pipeline_row = await pipeline_cursor.fetchone()
-            cursor = await db.execute(
-                "UPDATE memory_mutations SET state = ?, failure_class = ?, updated_at = CURRENT_TIMESTAMP "
-                "WHERE mutation_id = ? AND agent_id = ?",
-                (
-                    state,
-                    failure_class[:120] if failure_class else None,
-                    mutation_id,
-                    agent_id,
-                ),
+            changed = await self._transition_memory_mutation_in_tx(
+                db,
+                mutation_id,
+                to_state=state,
+                failure_class=failure_class[:120] if failure_class else None,
             )
-            if cursor.rowcount == 1 and state == "VALIDATED":
+            if changed and state == "VALIDATED":
                 await db.execute(
                     "UPDATE projection_outbox SET state = 'PENDING', updated_at = CURRENT_TIMESTAMP "
                     "WHERE mutation_id = ? AND state = 'BLOCKED_VALIDATION'",
                     (mutation_id,),
                 )
-            elif cursor.rowcount == 1 and state == "REJECTED":
+            elif changed and state == "REJECTED":
                 await db.execute(
                     "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
                     "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
                     "WHERE mutation_id = ? AND state IN ('BLOCKED_VALIDATION', 'PENDING', 'RETRY_PENDING')",
                     (mutation_id,),
                 )
-            if cursor.rowcount == 1 and pipeline_row and pipeline_row[0]:
+            if changed and pipeline_row and pipeline_row[0]:
                 pipeline_state = {
                     "EXTRACTED": "EXTRACTED",
                     "VALIDATED": "VALIDATED",
@@ -2388,7 +2405,7 @@ class MemoryDAO:
                         event_detail=event_detail,
                     )
             await db.commit()
-        return cursor.rowcount == 1
+        return changed
 
     async def record_mutation_tier3_audit(
         self, agent_id: str, mutation_id: str, audit: dict[str, Any]
@@ -3662,10 +3679,11 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT DISTINCT r.physical_artifact_id FROM artifact_registry r "
                 "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
                 f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
-                "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
+                "AND m.agent_id = ? AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
                 "AND r.artifact_kind IN ('ENTITY', 'ENTITY_VECTOR')",
-                (tenant_id, *datasets),
+                (tenant_id, *datasets, agent_id),
             ) as cursor:
                 allowed_ids = {str(row[0]) for row in await cursor.fetchall()}
         if not allowed_ids:
@@ -3696,6 +3714,7 @@ class MemoryDAO:
                     (
                         expression,
                         tenant_id,
+                        agent_id,
                         *datasets,
                         min(500, max(limit * 10, 50)),
                     ),
@@ -3707,12 +3726,15 @@ class MemoryDAO:
             "a.tenant_id = ?",
             f"a.dataset_id IN ({placeholders})",
             "a.status = 'ACTIVE'",
+            "EXISTS (SELECT 1 FROM memory_mutations m "
+            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ?)",
             "(s.normalized_name LIKE ? OR o.normalized_name LIKE ? "
             "OR lower(a.predicate) LIKE ?)",
         ]
         assertion_params: list[Any] = [
             tenant_id,
             *datasets,
+            agent_id,
             like_query,
             like_query,
             like_query,
@@ -3782,13 +3804,17 @@ class MemoryDAO:
                 ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
         if not ranks:
             return []
-        entity_ids = sorted(ranks)
+        entity_ids = sorted(set(ranks).intersection(allowed_ids))
+        if not entity_ids:
+            return []
         entity_placeholders = ",".join("?" for _ in entity_ids)
         provenance_query = (
             "SELECT a.* FROM v4_assertions a "
             f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
             f"AND a.status = 'ACTIVE' AND (a.subject_id IN ({entity_placeholders}) "
             f"OR a.object_entity_id IN ({entity_placeholders})) "
+            "AND EXISTS (SELECT 1 FROM memory_mutations m "
+            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ?) "
             + (
                 "AND " + " AND ".join(provenance_filters) + " "
                 if provenance_filters
@@ -3807,7 +3833,14 @@ class MemoryDAO:
                 }
             async with db.execute(
                 provenance_query,
-                (tenant_id, *datasets, *entity_ids, *entity_ids, *provenance_params),
+                (
+                    tenant_id,
+                    *datasets,
+                    *entity_ids,
+                    *entity_ids,
+                    agent_id,
+                    *provenance_params,
+                ),
             ) as cursor:
                 provenance = [dict(row) for row in await cursor.fetchall()]
             mutation_ids = sorted(
@@ -3868,9 +3901,14 @@ class MemoryDAO:
                     legal_factor[entity_id],
                     max(0.75, min(1.25, factor * confidence)),
                 )
+        eligible_entity_ids = [
+            entity_id
+            for entity_id, supporting_assertions in by_entity.items()
+            if supporting_assertions
+        ]
         ordered = [
             item for item in sorted(
-                [e for e in entity_ids if e in entities],
+                eligible_entity_ids,
                 key=lambda item: (-(ranks[item] * legal_factor[item]), item),
             )
         ][:limit]
@@ -4970,33 +5008,28 @@ class MemoryDAO:
                         "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
                     )
                     select_params: tuple[Any, ...] = (agent_id, session_id)
-                    await db.execute(
-                        "UPDATE memory_mutations SET state = 'PURGED', updated_at = CURRENT_TIMESTAMP "
-                        "WHERE agent_id = ? AND session_id = ? AND state NOT IN ('PURGED', 'ROLLED_BACK')",
-                        (agent_id, session_id),
-                    )
-                    await db.execute(
-                        "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
-                        "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
-                        "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE agent_id = ? AND session_id = ?)",
-                        (agent_id, session_id),
-                    )
+                    mutation_where = "agent_id = ? AND session_id = ?"
+                    mutation_params: tuple[Any, ...] = (agent_id, session_id)
                 else:
                     select_sql = (
                         "SELECT id FROM nodes WHERE agent_id = ? "
                         "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
                     )
                     select_params = (agent_id,)
-                    await db.execute(
-                        "UPDATE memory_mutations SET state = 'PURGED', updated_at = CURRENT_TIMESTAMP "
-                        "WHERE agent_id = ? AND state NOT IN ('PURGED', 'ROLLED_BACK')",
-                        (agent_id,),
+                    mutation_where = "agent_id = ?"
+                    mutation_params = (agent_id,)
+                purged_mutation_ids = await self._purge_mutations_in_tx(
+                    db, where_sql=mutation_where, params=mutation_params
+                )
+                if purged_mutation_ids:
+                    mutation_placeholders = ",".join(
+                        "?" for _ in purged_mutation_ids
                     )
                     await db.execute(
                         "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
                         "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
-                        "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE agent_id = ?)",
-                        (agent_id,),
+                        f"WHERE mutation_id IN ({mutation_placeholders})",
+                        purged_mutation_ids,
                     )
                 async with db.execute(select_sql, select_params) as cursor:
                     node_ids = [row[0] for row in await cursor.fetchall()]

@@ -235,6 +235,13 @@ class VectorEngine:
         return self._initialized
 
     @property
+    def semantic_runtime_available(self) -> bool:
+        """Whether this process can create query embeddings without a download."""
+        return self._embedding_provider is not None or (
+            self._embedder is not None and not self._fallback_embedder
+        )
+
+    @property
     def metrics(self) -> VectorMetrics:
         return self._metrics
 

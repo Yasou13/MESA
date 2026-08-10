@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.schemas import initialize_schema
+from mesa_memory.extraction.triplet_extractor import TripletExtractor
 from mesa_workers.projection_worker import process_projection_outbox_once
 
 @pytest.mark.asyncio
@@ -108,3 +109,28 @@ async def test_multi_memory_extraction_contract(tmp_path):
         assert m_rec["state"] == "COMMITTED"
 
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_extractor_preserves_every_fact_from_one_event(monkeypatch):
+    """A multi-fact extraction must not silently discard facts after index zero."""
+    extractor = TripletExtractor(SimpleNamespace(), SimpleNamespace())
+    monkeypatch.setattr(
+        extractor.rebel_extractor,
+        "extract_triplets",
+        lambda _content: [
+            {"head": "Backend", "relation": "USES", "tail": "FastAPI"},
+            {"head": "Database", "relation": "USES", "tail": "PostgreSQL"},
+            {"head": "Cache", "relation": "USES", "tail": "Redis"},
+        ],
+    )
+
+    indexed_a, _indexed_b = await extractor.extract_batch(
+        [{"content_payload": "Backend FastAPI. Database PostgreSQL. Cache Redis."}]
+    )
+
+    assert [(fact.head, fact.tail) for fact in indexed_a[0].all_triplets()] == [
+        ("Backend", "FastAPI"),
+        ("Database", "PostgreSQL"),
+        ("Cache", "Redis"),
+    ]
