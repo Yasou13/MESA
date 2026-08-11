@@ -14,7 +14,10 @@ _IDENTIFIER = re.compile(r"^[A-Za-z0-9._-]{1,96}$")
 class MCPSettings(BaseSettings):
     """Settings controlled by the local MCP host, never by a tool caller."""
 
-    model_config = SettingsConfigDict(extra="ignore")
+    # Runtime code and tests construct settings with Python field names while
+    # process configuration uses the MESA_* aliases.  Accept both so explicit
+    # dependency injection cannot be silently replaced by defaults.
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
     base_url: str = Field(default="http://localhost:8000", alias="MESA_BASE_URL")
     api_key: str | None = Field(default=None, alias="MESA_API_KEY")

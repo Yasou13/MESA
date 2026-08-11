@@ -73,7 +73,7 @@ class MesaMCPAdapter:
         source_file = validate_source_file(
             arguments.get("source_file"), self._settings.workspace_root
         )
-        idempotency_key = _optional_string(arguments, "idempotency_key", max_length=256)
+        idempotency_key = _optional_string(arguments, "idempotency_key", max_length=128)
         reject_secrets(content)
         reject_secrets(metadata)
         memory = await self._service.create_memory(
@@ -170,6 +170,13 @@ class MesaMCPAdapter:
             raise MCPError(
                 "INVALID_ARGUMENT", "include_types contains an unsupported value"
             )
+        if self._v4_service:
+            return await self._v4_service.v4_context(
+                dataset_id=arguments.get("dataset_id"),
+                query=query,
+                token_budget=token_budget,
+                valid_at=arguments.get("valid_at"),
+            )
         # 4 chars/token is deliberately conservative and keeps MCP responses bounded.
         candidates = await self._service.search_memories(
             query=query,
@@ -230,6 +237,17 @@ class MesaMCPAdapter:
             dataset_id=dataset_id,
             content=content,
             metadata=metadata,
+            **{
+                key: arguments[key]
+                for key in (
+                    "title",
+                    "source_ref",
+                    "evidence_span",
+                    "document_id",
+                    "idempotency_key",
+                )
+                if arguments.get(key) is not None
+            },
         )
 
     async def mesa_recall(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -248,8 +266,32 @@ class MesaMCPAdapter:
         dataset_id = arguments.get("dataset_id")
         document_id = _required_string(arguments, "document_id", max_length=256)
         content = _required_string(arguments, "content", max_length=_MAX_CONTENT_LENGTH)
+        metadata = arguments.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise MCPError("INVALID_ARGUMENT", "metadata must be an object")
+        try:
+            validate_write_payload(content, metadata)
+        except ValueError as exc:
+            raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
         return await self._v4_service.v4_improve(
-            dataset_id=dataset_id, document_id=document_id, content=content
+            dataset_id=dataset_id,
+            document_id=document_id,
+            content=content,
+            metadata=metadata,
+            **{
+                key: arguments[key]
+                for key in (
+                    "revision_id",
+                    "chunk_id",
+                    "supersedes_revision_id",
+                    "idempotency_key",
+                    "title",
+                    "source_ref",
+                    "evidence_span",
+                    "revision_number",
+                )
+                if arguments.get(key) is not None
+            },
         )
 
     async def mesa_forget(self, arguments: dict[str, Any]) -> dict[str, Any]:
