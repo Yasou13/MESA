@@ -309,7 +309,14 @@ class TestRoutingIntegration:
         llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
 
         # Mock the Dual-LLM validator receipt.
-        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
+        router.validator.validate_with_audit = AsyncMock(
+            return_value=_dual_audit(True)
+        )
+        # The router deliberately skips the judge for a clean parsed response.
+        # Make parsing fail so this test exercises the judge-driven fallback.
+        router.validator._parse_response = MagicMock(
+            side_effect=ValueError("unparseable response")
+        )
 
         record = {
             "cmb_id": "test-002",
@@ -341,6 +348,9 @@ class TestRoutingIntegration:
 
         llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
         router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
+        router.validator._parse_response = MagicMock(
+            side_effect=ValueError("unparseable response")
+        )
 
         record = {
             "cmb_id": "test-003",
