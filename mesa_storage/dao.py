@@ -4592,9 +4592,16 @@ class MemoryDAO:
                     node_id,
                     vec_exc,
                 )
+                # The SQL intent is committed before any secondary mutation.
+                # A failed synchronous legacy write must nevertheless preserve
+                # its all-or-nothing API contract by compensating both stores.
+                try:
+                    await self._vec.soft_delete(node_id, agent_id)
+                except Exception:
+                    pass
                 async with self._sql.transaction() as db:
                     await db.execute(
-                        "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id = ? AND agent_id = ?",
+                        "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
                         (node_id, agent_id),
                     )
                     await db.commit()
@@ -4621,7 +4628,7 @@ class MemoryDAO:
                         pass
                 async with self._sql.transaction() as db:
                     await db.execute(
-                        "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id = ? AND agent_id = ?",
+                        "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
                         (node_id, agent_id),
                     )
                     await db.commit()
@@ -4761,11 +4768,16 @@ class MemoryDAO:
                     len(records),
                     vec_exc,
                 )
+                for sql_row in sql_rows:
+                    try:
+                        await self._vec.soft_delete(sql_row[0], agent_id)
+                    except Exception:
+                        pass
                 async with self._sql.transaction() as db:
                     inserted_ids = [r[0] for r in sql_rows]
                     placeholders = ",".join("?" for _ in inserted_ids)
                     await db.execute(
-                        f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND agent_id = ?",
+                        f"DELETE FROM nodes WHERE id IN ({placeholders}) AND agent_id = ?",
                         (*inserted_ids, agent_id),
                     )
                     await db.commit()
@@ -4796,7 +4808,7 @@ class MemoryDAO:
                     inserted_ids = [r[0] for r in sql_rows]
                     placeholders = ",".join("?" for _ in inserted_ids)
                     await db.execute(
-                        f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND agent_id = ?",
+                        f"DELETE FROM nodes WHERE id IN ({placeholders}) AND agent_id = ?",
                         (*inserted_ids, agent_id),
                     )
                     await db.commit()
