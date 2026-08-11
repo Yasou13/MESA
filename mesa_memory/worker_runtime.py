@@ -31,7 +31,14 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
-from mesa_workers.ingestion_worker import process_cold_path
+from mesa_workers.ingestion_worker import (
+    process_cold_path,
+    process_session_finalization,
+)
+from mesa_workers.projection_worker import (
+    process_artifact_cleanup_once,
+    process_projection_outbox_once,
+)
 from mesa_workers.supervision import WorkerSupervisor
 
 logger = structlog.get_logger("MESA_WorkerRuntime")
@@ -176,6 +183,18 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
                     dao,
                     model_processing_enabled=runtime.model_enabled,
                 )
+                finalizations = await dao.list_pending_session_finalizations(limit=1)
+                for finalization in finalizations:
+                    await process_session_finalization(
+                        str(finalization["agent_id"]),
+                        str(finalization["session_id"]),
+                        dao,
+                        None,
+                    )
+                projections = await process_projection_outbox_once(
+                    dao, worker_id=_WORKER_ID
+                )
+                cleanup = await process_artifact_cleanup_once(dao, worker_id=_WORKER_ID)
                 try:
                     await asyncio.wait_for(
                         stopped.wait(), timeout=_DISPATCH_POLL_SECONDS
@@ -189,6 +208,9 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
                             "mode": "durable-cold-path-consumer",
                             "recovered": recovered,
                             "dispatch": dispatch,
+                            "finalizations": len(finalizations),
+                            "projections": projections["completed"],
+                            "cleanup": cleanup["completed"],
                         },
                     )
 

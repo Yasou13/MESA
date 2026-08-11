@@ -352,6 +352,9 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         sqlite_engine=state.sqlite_engine,
         vector_engine=state.vector_engine,
         graph_provider=state.graph_provider,
+        canonical_v4_writes_enabled=(
+            runtime.profile is RuntimeProfile.COMBINED and runtime.model_enabled
+        ),
     )
     await state.dao.initialize()
 

@@ -18,11 +18,13 @@ def build_v4_lexical_query(*, dataset_count: int) -> str:
         "AND e.status = 'ACTIVE' AND EXISTS ("
         "SELECT 1 FROM artifact_registry r "
         "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+        "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
         "AND s.state = 'ACTIVE' "
         "WHERE r.tenant_id = e.tenant_id "
         "AND r.physical_artifact_id = e.entity_id "
         "AND r.state = 'ACTIVE' "
         "AND r.artifact_kind IN ('ENTITY', 'ENTITY_VECTOR') "
+        "AND m.agent_id = ? "
         f"AND s.dataset_id IN ({placeholders})"
         ") ORDER BY rank, e.entity_id LIMIT ?"
     )

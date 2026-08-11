@@ -157,6 +157,7 @@ class ExtractedTriplet(BaseModel):
         le=1.0,
         description="Model self-reported extraction confidence",
     )
+    additional_triplets: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("head", "relation", "tail", mode="before")
     @classmethod
@@ -164,6 +165,22 @@ class ExtractedTriplet(BaseModel):
         if isinstance(v, str):
             return v.strip()
         return v
+
+    def all_triplets(self) -> list["ExtractedTriplet"]:
+        """Return every fact extracted for this source record, in source order."""
+        return [
+            self,
+            *[
+                ExtractedTriplet(
+                    record_index=self.record_index,
+                    head=str(item["head"]),
+                    relation=str(item["relation"]),
+                    tail=str(item["tail"]),
+                    confidence=item.get("confidence"),
+                )
+                for item in self.additional_triplets
+            ],
+        ]
 
 
 class BatchExtractionResponse(BaseModel):

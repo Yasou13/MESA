@@ -741,6 +741,41 @@ class ConsolidationLoop:
                 llm_circuit_breaker.record_failure()
                 raise
 
+    @staticmethod
+    def _estimate_record_tokens(record: dict[str, Any]) -> int:
+        """Return a conservative, dependency-free prompt token estimate."""
+        payload = str(record.get("content_payload", record.get("content", "")))
+        source = str(record.get("source", ""))
+        # The prompt adds delimiters and labels around each record.  Four
+        # characters per token is deliberately conservative for prose while
+        # retaining a stable fallback when a tokenizer is unavailable.
+        return max(1, (len(payload) + len(source) + 80 + 3) // 4)
+
+    @classmethod
+    def _partition_extraction_batch(
+        cls, records: list[dict[str, Any]]
+    ) -> list[list[dict[str, Any]]]:
+        """Bound extraction requests by both configured token and record limits."""
+        token_limit = max(1, int(config.max_batch_tokens))
+        record_limit = max(1, int(config.consolidation_batch_size))
+        partitions: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        current_tokens = 0
+        for record in records:
+            estimated_tokens = cls._estimate_record_tokens(record)
+            if current and (
+                len(current) >= record_limit
+                or current_tokens + estimated_tokens > token_limit
+            ):
+                partitions.append(current)
+                current = []
+                current_tokens = 0
+            current.append(record)
+            current_tokens += estimated_tokens
+        if current:
+            partitions.append(current)
+        return partitions
+
     # -------------------------------------------------------------------
     # Core batch orchestrator
     # -------------------------------------------------------------------
@@ -916,7 +951,20 @@ class ConsolidationLoop:
 
         # --- Phase 3: Full extraction pipeline (Wrapped with semaphore + retries) ---
         try:
-            indexed_a, indexed_b = await self._extract_batch_with_retry(sorted_batch)
+            indexed_a: dict[int, ExtractedTriplet] = {}
+            indexed_b: dict[int, ExtractedTriplet] = {}
+            offset = 0
+            for extraction_batch in self._partition_extraction_batch(sorted_batch):
+                partial_a, partial_b = await self._extract_batch_with_retry(
+                    extraction_batch
+                )
+                indexed_a.update(
+                    {offset + index: triplet for index, triplet in partial_a.items()}
+                )
+                indexed_b.update(
+                    {offset + index: triplet for index, triplet in partial_b.items()}
+                )
+                offset += len(extraction_batch)
         except RetryError as exc:
             logger.error("Extraction retries exhausted: %s", exc)
             for record in sorted_batch:
@@ -959,8 +1007,15 @@ class ConsolidationLoop:
         for original_index, record in enumerate(sorted_batch):
             mutation_id = record.get("mutation_id")
             if mutation_id and type(self.dao) is MemoryDAO:
-                triplet = self.graph_writer._to_dict(indexed_a.get(original_index))
-                triplets = [triplet] if triplet.get("head") else []
+                extracted = indexed_a.get(original_index)
+                triplets = (
+                    [
+                        self.graph_writer._to_dict(triplet)
+                        for triplet in extracted.all_triplets()
+                    ]
+                    if extracted is not None
+                    else []
+                )
                 await self.dao.record_mutation_extraction(
                     str(record["agent_id"]), str(mutation_id), triplets
                 )

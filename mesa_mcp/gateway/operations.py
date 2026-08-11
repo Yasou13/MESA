@@ -9,7 +9,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from cryptography.fernet import Fernet
 
@@ -28,6 +28,7 @@ _POLICY_OPERATIONS = {
     "mesa_improve": "UPDATE",
     "mesa_forget": "DELETE",
 }
+_ResultT = TypeVar("_ResultT")
 
 
 @dataclass
@@ -56,8 +57,8 @@ class CircuitBreaker:
         return "OPEN"
 
     async def call(
-        self, operation: Callable[[], Awaitable[dict[str, Any]]]
-    ) -> dict[str, Any]:
+        self, operation: Callable[[], Awaitable[_ResultT]]
+    ) -> _ResultT:
         probe = False
         async with self._lock:
             if self._opened_at is not None:
@@ -596,11 +597,14 @@ class GatewayOperationService:
                     )
                 )
             elif operation["tool_name"] == "mesa_improve":
+                correction = _remember_provenance(payload)
                 response = await self._breaker.call(
                     lambda: self._v4.v4_improve(
                         **scope,
                         document_id=_required(payload, "document_id"),
                         content=_required(payload, "content"),
+                        supersedes_revision_id=payload.get("supersedes_revision_id"),
+                        **correction,
                     )
                 )
             else:

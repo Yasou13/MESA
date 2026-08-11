@@ -23,7 +23,6 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.consolidation.validator import (
     VALENCE_PROMPT_A_TEMPLATE,
-    Tier3ValidationError,
     Tier3Validator,
     single_model_audit,
     tier3_provenance_context,
@@ -356,17 +355,11 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         # 1. Route to small model
         raw_response = str(await self.small_llm.acomplete(prompt))
 
-        # 2. LLM-as-a-Judge confidence evaluation
-        #    Replaces the deleted pseudo-entropy placeholder.
-        #    The judge assesses logical consistency and factual grounding
-        #    of the small-model response, returning a float in [0.0, 1.0].
-        confidence_score = await self._llm_judge_confidence(prompt, raw_response)
-
-        requires_fallback = False
+        parse_success = False
         small_model_decision = False
         small_model_justification = "No model justification supplied."
 
-        # SCHEMA FALLBACK: Strict try/except to prevent loop crashes on bad JSON
+        # 2. SCHEMA PARSING: Try parsing small model response first
         try:
             small_response = self.validator._parse_response(raw_response, "small_llm")
             if isinstance(small_response, dict):
@@ -374,21 +367,22 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
                 small_model_justification = str(
                     small_response.get("justification", small_model_justification)
                 )
+                parse_success = True
             else:  # Compatibility with pre-audit validator test doubles.
                 small_model_decision = (
                     self.validator._parse_decision(raw_response, "small_llm") == "STORE"
                 )
-        except Tier3ValidationError as e:
-            logger.warning(
-                "ROUTER_SCHEMA_FALLBACK | Small model failed schema: %s. Falling back.",
-                e,
-            )
-            requires_fallback = True
-            confidence_score = 0.0
-        except Exception as e:
-            logger.warning("ROUTER_SCHEMA_FALLBACK | Unexpected parsing error: %s", e)
-            requires_fallback = True
-            confidence_score = 0.0
+                parse_success = True
+        except Exception:
+            parse_success = False
+
+        # 3. Selective LLM-as-a-Judge: skip redundant judge call for clean low-risk parses
+        if parse_success and not getattr(config, "legal_domain_mode", False):
+            confidence_score = 0.90 if small_model_decision else 0.85
+        else:
+            confidence_score = await self._llm_judge_confidence(prompt, raw_response)
+
+        requires_fallback = not parse_success
 
         # Routing Logic
         if not requires_fallback:

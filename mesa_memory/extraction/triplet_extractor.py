@@ -247,18 +247,23 @@ class TripletExtractor:
                     record.get("content_payload", ""),
                 )
                 if triplets:
-                    indexed_a[idx] = ExtractedTriplet(
+                    primary = ExtractedTriplet(
                         record_index=idx,
                         head=triplets[0]["head"],
                         relation=triplets[0]["relation"],
                         tail=triplets[0]["tail"],
+                        additional_triplets=[
+                            {
+                                "head": triplet["head"],
+                                "relation": triplet["relation"],
+                                "tail": triplet["tail"],
+                                "confidence": triplet.get("confidence"),
+                            }
+                            for triplet in triplets[1:]
+                        ],
                     )
-                    indexed_b[idx] = ExtractedTriplet(
-                        record_index=idx,
-                        head=triplets[0]["head"],
-                        relation=triplets[0]["relation"],
-                        tail=triplets[0]["tail"],
-                    )
+                    indexed_a[idx] = primary
+                    indexed_b[idx] = primary.model_copy(deep=True)
                     missing_a.remove(idx)
                     missing_b.remove(idx)
             except Exception as e:

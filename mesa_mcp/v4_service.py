@@ -230,24 +230,131 @@ class MesaHttpV4Service:
             raise _map_exception(exc) from exc
         return [_typed_result(item) for item in resp.get("results", [])]
 
-    async def v4_improve(self, **kwargs: Any) -> dict[str, Any]:
-        # Improve is essentially creating a new revision
+    async def v4_context(self, **kwargs: Any) -> dict[str, Any]:
+        """Build context through the canonical V4 ContextBuilder endpoint."""
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
         tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
         workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
-        document_id = kwargs["document_id"]
-        content = kwargs["content"]
-
+        actor_id = kwargs.get("actor_id") or self._settings.actor_id
         client = self._http_client
+        session_id = await self._get_session_id(
+            client,
+            dataset_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            actor_id=actor_id,
+        )
+        context_arguments = {
+            "query": kwargs.get("query", ""),
+            "token_budget": kwargs.get(
+                "token_budget", self._settings.context_default_token_budget
+            ),
+            "valid_at": kwargs.get("valid_at"),
+        }
         try:
-            return await client.create_revision(
+            return await client.get_context(
+                session_id=session_id, **context_arguments
+            )
+        except MesaAPIError as exc:
+            if exc.status_code not in {401, 404}:
+                raise _map_exception(exc) from exc
+            self._invalidate_session(
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
+                actor_id=actor_id,
+                dataset_id=dataset_id,
+                session_id=session_id,
+            )
+            session_id = await self._get_session_id(
+                client,
+                dataset_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                actor_id=actor_id,
+            )
+            try:
+                return await client.get_context(
+                    session_id=session_id, **context_arguments
+                )
+            except Exception as retry_exc:
+                raise _map_exception(retry_exc) from retry_exc
+        except Exception as exc:
+            raise _map_exception(exc) from exc
+
+    async def v4_improve(self, **kwargs: Any) -> dict[str, Any]:
+        """Admit a corrected revision through the same canonical write path."""
+        dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
+        tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
+        workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
+        actor_id = kwargs.get("actor_id") or self._settings.actor_id
+        document_id = kwargs["document_id"]
+        content = kwargs["content"]
+        idempotency_key = kwargs.get("idempotency_key")
+        identity_seed = (
+            hashlib.sha256(str(idempotency_key).encode()).hexdigest()[:24]
+            if idempotency_key
+            else uuid.uuid4().hex
+        )
+        revision_id = kwargs.get("revision_id") or f"rev_{identity_seed}"
+        chunk_id = kwargs.get("chunk_id") or f"chunk_{identity_seed}"
+
+        client = self._http_client
+        supersedes_revision_id = kwargs.get("supersedes_revision_id")
+        revision_number = kwargs.get("revision_number")
+        latest: dict[str, Any] | None = None
+        revisions: list[dict[str, Any]] = []
+        if supersedes_revision_id is None:
+            try:
+                revision_response = await client.list_revisions(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    dataset_id=dataset_id,
+                    document_id=document_id,
+                )
+            except Exception as exc:
+                raise _map_exception(exc) from exc
+            revisions = [
+                item
+                for item in revision_response.get("revisions", [])
+                if isinstance(item, dict)
+            ]
+            latest = max(
+                (item for item in revisions if item.get("status") == "ACTIVE"),
+                key=lambda item: int(item.get("revision_number", 0)),
+                default=None,
+            )
+            if latest is not None:
+                supersedes_revision_id = latest.get("revision_id")
+        if revision_number is None:
+            revision_number = max(
+                (int(item.get("revision_number", 0)) for item in revisions),
+                default=0,
+            ) + 1
+            if not revisions and supersedes_revision_id:
+                revision_number = 2
+        revision_number = int(revision_number)
+        session_id = await self._get_session_id(
+            client,
+            dataset_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            actor_id=actor_id,
+        )
+        try:
+            return await client.insert(
+                session_id=session_id,
                 dataset_id=dataset_id,
                 document_id=document_id,
-                revision_id=f"rev_{uuid.uuid4().hex[:8]}",
-                revision_number=kwargs.get("revision_number", 2),
-                content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+                revision_id=revision_id,
+                chunk_id=chunk_id,
+                title=kwargs.get("title", f"Correction {document_id}"),
+                source_ref=kwargs.get("source_ref", "mcp_correction"),
+                content=content,
+                evidence_span=kwargs.get("evidence_span", ""),
+                revision_number=revision_number,
+                metadata=kwargs.get("metadata", {}),
+                idempotency_key=idempotency_key,
+                supersedes_revision_id=supersedes_revision_id,
             )
         except Exception as exc:
             raise _map_exception(exc) from exc

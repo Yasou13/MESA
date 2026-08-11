@@ -663,8 +663,23 @@ class MesaV4Client(MesaClient):
     def end_session(self, *, session_id: str) -> dict[str, Any]:
         return self._request("POST", f"/v4/sessions/{session_id}/end")
 
-    def get_context(self, *, session_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/v4/sessions/{session_id}/context")
+    def get_context(
+        self,
+        *,
+        session_id: str,
+        query: str = "",
+        token_budget: int = 2048,
+        valid_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v4/sessions/{session_id}/context",
+            params={
+                "query": query,
+                "token_budget": token_budget,
+                "valid_at": valid_at,
+            },
+        )
 
 
 class AsyncMesaV4Client(AsyncMesaClient):
@@ -960,5 +975,20 @@ class AsyncMesaV4Client(AsyncMesaClient):
     async def end_session(self, *, session_id: str) -> dict[str, Any]:
         return await self._request("POST", f"/v4/sessions/{session_id}/end")
 
-    async def get_context(self, *, session_id: str) -> dict[str, Any]:
-        return await self._request("GET", f"/v4/sessions/{session_id}/context")
+    async def get_context(
+        self,
+        *,
+        session_id: str,
+        query: str = "",
+        token_budget: int = 2048,
+        valid_at: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            f"/v4/sessions/{session_id}/context",
+            params={
+                "query": query,
+                "token_budget": token_budget,
+                "valid_at": valid_at,
+            },
+        )

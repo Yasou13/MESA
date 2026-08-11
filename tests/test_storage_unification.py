@@ -403,8 +403,8 @@ class TestDAODualWriteSagaIntegrity:
     """Structural verification that MemoryDAO's insert_memory still
     implements the Dual-Write Saga (B-7 pattern)."""
 
-    def test_insert_memory_has_transaction_and_rollback(self):
-        """MemoryDAO.insert_memory source must contain SAGA keywords."""
+    def test_insert_memory_has_transaction_and_compensation(self):
+        """MemoryDAO.insert_memory must compensate a failed vector projection."""
         import inspect
 
         source = inspect.getsource(MemoryDAO.insert_memory)
@@ -413,8 +413,8 @@ class TestDAODualWriteSagaIntegrity:
             "transaction" in source
         ), "insert_memory must use transaction() for atomic SAGA"
         assert (
-            "rollback" in source.lower()
-        ), "insert_memory must have a rollback path for vector failure"
+            "DELETE FROM nodes" in source
+        ), "insert_memory must compensate a failed vector projection in SQLite"
         assert (
             "upsert" in source.lower()
         ), "insert_memory must call vector upsert within the SAGA"

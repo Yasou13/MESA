@@ -23,6 +23,10 @@ class _RecordingDB:
         self.execute_calls.append(params)
         return None
 
+    async def executemany(self, *params, **_kwargs):
+        self.execute_calls.append(params)
+        return None
+
     async def commit(self) -> None:
         self.commit_calls += 1
 
@@ -95,7 +99,10 @@ async def test_insert_fails_closed_and_compensates_vector_when_graph_rejects():
 
     assert vector.soft_delete_calls == [("node-graph-failure", "agent-wave-002")]
     assert ("node-graph-failure", "agent-wave-002") not in vector.active_node_ids
-    assert sql.transaction_calls == 0
+    assert sql.transaction_calls == 2
+    assert any(
+        call[0].startswith("DELETE FROM nodes") for call in sql.db.execute_calls
+    )
 
 
 @pytest.mark.asyncio
@@ -130,7 +137,10 @@ async def test_bulk_insert_fails_closed_and_compensates_all_vectors_on_graph_fai
         ("node-bulk-2", "agent-wave-002"),
     ]
     assert vector.active_node_ids == set()
-    assert sql.transaction_calls == 0
+    assert sql.transaction_calls == 2
+    assert any(
+        call[0].startswith("DELETE FROM nodes") for call in sql.db.execute_calls
+    )
 
 
 class _FailingMerge:
