@@ -99,6 +99,11 @@ async def test_scenario_b_low_confidence_triggers_tier3():
 
     # 1. Mock the LLM-as-a-judge function to return 0.40 (Low Confidence)
     router._llm_judge_confidence = AsyncMock(return_value=0.40)
+    # A syntactically valid small-model response takes the deterministic
+    # low-risk shortcut and deliberately does not invoke the judge.  Make the
+    # primary response unparseable so this scenario actually exercises the
+    # low-confidence judge/fallback branch it names.
+    validator._parse_response.side_effect = ValueError("unparseable response")
 
     record = {
         "cmb_id": "test-scenario-b",
