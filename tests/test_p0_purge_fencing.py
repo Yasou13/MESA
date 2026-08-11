@@ -1,9 +1,12 @@
-import pytest
 import uuid
 from types import SimpleNamespace
-from mesa_storage.dao import MemoryDAO
-from mesa_storage.sqlite_engine import AsyncEngine
+
+import pytest
+
+from mesa_storage.dao import MemoryDAO, PurgeRetryPendingError
 from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+
 
 @pytest.mark.asyncio
 async def test_purge_before_projection_prevents_resurrection(tmp_path):
@@ -31,7 +34,7 @@ async def test_purge_before_projection_prevents_resurrection(tmp_path):
         workspace_id=workspace_id,
         dataset_id=dataset_id,
     )
-    doc_res = await dao.create_v4_document(
+    await dao.create_v4_document(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
         title="Test Document",
@@ -102,4 +105,55 @@ async def test_purge_before_projection_prevents_resurrection(tmp_path):
             row = await cursor.fetchone()
             assert row["state"] in ("PURGED", "ROLLED_BACK")
 
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_document_purge_reports_cleanup_pending_instead_of_false_success(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "mesa_purge_failure.db"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(engine, SimpleNamespace())
+    await dao.create_v4_workspace(
+        tenant_id="tenant", workspace_id="workspace", workspace_name="Workspace"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="tenant", workspace_id="workspace", dataset_id="dataset"
+    )
+    await dao.create_v4_document(
+        tenant_id="tenant",
+        dataset_id="dataset",
+        title="Document",
+        document_id="document",
+    )
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
+            "VALUES ('run', 'tenant', 'agent', 'workspace', 'dataset', 'session', 'CANCELLED')"
+        )
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, session_id, pipeline_run_id, content_payload, state) "
+            "VALUES ('mutation', 'candidate', 'tenant', 'agent', 'dataset', 'document', 'session', 'run', '{}', 'CANCELLED')"
+        )
+        await db.execute(
+            "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, dataset_id, store_name, artifact_kind, physical_artifact_id) "
+            "VALUES ('registry', 'tenant', 'agent', 'dataset', 'SQL', 'ENTITY', 'entity')"
+        )
+        await db.execute(
+            "INSERT INTO artifact_sources (source_ownership_id, registry_id, mutation_id, pipeline_run_id, dataset_id, document_id) "
+            "VALUES ('ownership', 'registry', 'mutation', 'run', 'dataset', 'document')"
+        )
+        await db.commit()
+
+    with pytest.raises(PurgeRetryPendingError, match="cleanup remains pending"):
+        await dao.purge_v4_document(
+            tenant_id="tenant", dataset_id="dataset", document_id="document"
+        )
+    async with engine.connection() as db:
+        document = await (
+            await db.execute(
+                "SELECT status FROM documents WHERE document_id = 'document'"
+            )
+        ).fetchone()
+    assert document[0] == "PURGED"
     await engine.close()

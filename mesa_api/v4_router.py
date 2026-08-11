@@ -23,6 +23,7 @@ from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
     MemoryDAO,
+    PurgeRetryPendingError,
     QueueOverCapacityError,
     QueueRecordTooLargeError,
     QueueUnavailableError,
@@ -638,7 +639,13 @@ def create_v4_router(
                 document_id=document_id,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PurgeRetryPendingError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="purge_cleanup_pending",
+                headers={"Retry-After": "5"},
+            ) from exc
 
     @router.post("/sessions/start", status_code=201)
     async def start_session(
@@ -688,9 +695,13 @@ def create_v4_router(
         vector_available = getattr(
             getattr(dao, "_vec", None), "semantic_runtime_available", False
         )
+        canonical_writes_available = dao.canonical_v4_writes_enabled is not False
         capabilities = V4CapabilityFlags(
+            projection_outbox=canonical_writes_available,
+            idempotent_ingestion=canonical_writes_available,
             durable_rebuild=config.v4_rebuild_enabled,
             vector_retrieval=vector_available if isinstance(vector_available, bool) else False,
+            graph_projection=canonical_writes_available,
         )
         return V4CapabilityResponse(
             features=[
@@ -865,7 +876,7 @@ def create_v4_router(
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
             )
-        await _require_mutation_admission(dao)
+        await _require_mutation_admission(dao, require_projection_consumer=True)
         payload_hash = hashlib.sha256(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()

@@ -1,10 +1,13 @@
-import pytest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import pytest
+
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+
 
 @pytest.mark.asyncio
 async def test_retrieval_eligibility_and_temporal_truth(tmp_path):
@@ -83,10 +86,34 @@ async def test_retrieval_eligibility_and_temporal_truth(tmp_path):
     await dao.record_mutation(mut1, raw_log_id=None)
 
     # 1. Register active entities and assertions
-    e1_id = await dao.project_v4_sql_entity(mutation=mut1, entity_name="Acme Corp")
+    await dao.project_v4_sql_entity(mutation=mut1, entity_name="Acme Corp")
 
     t1 = {"head": "Acme Corp", "relation": "STATUS", "literal_value": "ACTIVE_2020", "confidence": 1.0}
-    ass1_id = await dao.project_v4_graph_triplet(mutation=mut1, triplet=t1)
+    await dao.project_v4_graph_triplet(mutation=mut1, triplet=t1)
+
+    # Physical artifacts are not authoritative until the mutation commits.
+    assert (
+        await dao.search_v4_memory(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            dataset_ids=[dataset_id],
+            query="Acme Corp",
+            limit=10,
+            valid_at="2021-06-01T00:00:00Z",
+        )
+        == []
+    )
+    await dao.record_mutation_extraction(agent_id, mut1["mutation_id"], [t1])
+    assert await dao.set_mutation_state(agent_id, mut1["mutation_id"], "VALIDATED")
+    async with engine.transaction() as db:
+        for lane in ("SQL", "VECTOR", "GRAPH"):
+            await db.execute(
+                "UPDATE projection_outbox SET state = 'COMPLETED' "
+                "WHERE mutation_id = ? AND projection_name = ?",
+                (mut1["mutation_id"], lane),
+            )
+            await MemoryDAO._advance_mutation_projection_state(db, mut1["mutation_id"])
+        await db.commit()
 
     # Search for Acme Corp under dataset scope
     res = await dao.search_v4_memory(

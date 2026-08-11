@@ -1,10 +1,12 @@
-import pytest
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+
+import pytest
+
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+
 
 @pytest.mark.asyncio
 async def test_bounded_count_and_existence_primitives(tmp_path):
@@ -66,8 +68,30 @@ async def test_bounded_count_and_existence_primitives(tmp_path):
     await dao.record_mutation(mut, raw_log_id=None)
     await dao.project_v4_sql_entity(mutation=mut, entity_name="Count Entity")
 
-    # State after projection: 1 memory
+    # A physical projection is not active memory until its mutation commits.
+    assert await dao.count_active_memories(tenant_id, dataset_ids=[dataset_id]) == 0
+    assert not await dao.has_active_memories(tenant_id, dataset_ids=[dataset_id])
+    async with engine.transaction() as db:
+        await db.execute(
+            "UPDATE memory_mutations SET state = 'COMMITTED' WHERE mutation_id = ?",
+            (mut["mutation_id"],),
+        )
+        await db.commit()
+
+    # State after canonical commit: 1 memory
     assert await dao.count_active_memories(tenant_id, dataset_ids=[dataset_id]) == 1
+    assert (
+        await dao.count_active_memories(
+            tenant_id, dataset_ids=[dataset_id], agent_id=agent_id
+        )
+        == 1
+    )
+    assert (
+        await dao.count_active_memories(
+            tenant_id, dataset_ids=[dataset_id], agent_id="agent_other"
+        )
+        == 0
+    )
     assert await dao.has_active_memories(tenant_id, dataset_ids=[dataset_id])
 
     await engine.close()

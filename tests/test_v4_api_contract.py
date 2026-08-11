@@ -144,7 +144,9 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", False)
-    client = asgi_client(_app(MagicMock(), _access()))
+    available_dao = MagicMock()
+    available_dao.canonical_v4_writes_enabled = True
+    client = asgi_client(_app(available_dao, _access()))
 
     disabled = (await client.get("/v4/capability")).json()
 
@@ -188,6 +190,15 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
 
     assert enabled["capabilities"]["durable_rebuild"] is True
     assert "durable_rebuild" in enabled["features"]
+
+    unavailable_dao = MagicMock()
+    unavailable_dao.canonical_v4_writes_enabled = False
+    unavailable = (
+        await asgi_client(_app(unavailable_dao, _access())).get("/v4/capability")
+    ).json()
+    assert unavailable["capabilities"]["idempotent_ingestion"] is False
+    assert unavailable["capabilities"]["projection_outbox"] is False
+    assert unavailable["capabilities"]["graph_projection"] is False
 
 
 @pytest.mark.asyncio
@@ -747,7 +758,13 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
 
     context = await client.get("/v4/sessions/session-a/context")
     assert context.status_code == 200
-    assert context.json()["context"] == "First\nSecond"
+    context_body = context.json()
+    assert "=== Current Session Information ===" in context_body["context"]
+    assert "- First" in context_body["context"]
+    assert "- Second" in context_body["context"]
+    assert context_body["canonical_memories"] == [
+        {"artifact_id": "artifact-a", "content": "Exact content"}
+    ]
     ended = await client.post("/v4/sessions/session-a/end")
     assert ended.status_code == 200
     assert ended.json() == {

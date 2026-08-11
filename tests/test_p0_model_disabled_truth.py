@@ -1,11 +1,14 @@
-import pytest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import pytest
+
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
-from mesa_storage.schemas import initialize_schema
+
 
 @pytest.mark.asyncio
 async def test_model_disabled_runtime_degradation(tmp_path):
@@ -75,6 +78,17 @@ async def test_model_disabled_runtime_degradation(tmp_path):
 
     t = {"head": "Model Disabled Entity", "relation": "STATUS", "literal_value": "DISABLED_TEST", "confidence": 1.0}
     await dao.project_v4_graph_triplet(mutation=mut, triplet=t)
+    await dao.record_mutation_extraction(agent_id, mut["mutation_id"], [t])
+    assert await dao.set_mutation_state(agent_id, mut["mutation_id"], "VALIDATED")
+    async with engine.transaction() as db:
+        for lane in ("SQL", "VECTOR", "GRAPH"):
+            await db.execute(
+                "UPDATE projection_outbox SET state = 'COMPLETED' "
+                "WHERE mutation_id = ? AND projection_name = ?",
+                (mut["mutation_id"], lane),
+            )
+            await MemoryDAO._advance_mutation_projection_state(db, mut["mutation_id"])
+        await db.commit()
 
     # search_v4_memory should NOT raise 500/RuntimeError, but degrade gracefully using graph/lexical lanes
     res = await dao.search_v4_memory(

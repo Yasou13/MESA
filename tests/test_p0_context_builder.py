@@ -1,11 +1,14 @@
-import pytest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from mesa_storage.dao import MemoryDAO, _DEFAULT_QUEUE_ADMISSION_POLICY
-from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.schemas import initialize_schema
+
+import pytest
+
 from mesa_memory.context_builder import ContextBuilder
+from mesa_storage.dao import _DEFAULT_QUEUE_ADMISSION_POLICY, MemoryDAO
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+
 
 @pytest.mark.asyncio
 async def test_context_builder_integration(tmp_path):
@@ -78,6 +81,17 @@ async def test_context_builder_integration(tmp_path):
 
     t = {"head": "Alice", "relation": "ROLE", "literal_value": "Chief Architect", "confidence": 1.0}
     await dao.project_v4_graph_triplet(mutation=mut, triplet=t)
+    await dao.record_mutation_extraction(agent_id, mut["mutation_id"], [t])
+    assert await dao.set_mutation_state(agent_id, mut["mutation_id"], "VALIDATED")
+    async with engine.transaction() as db:
+        for lane in ("SQL", "VECTOR", "GRAPH"):
+            await db.execute(
+                "UPDATE projection_outbox SET state = 'COMPLETED' "
+                "WHERE mutation_id = ? AND projection_name = ?",
+                (mut["mutation_id"], lane),
+            )
+            await MemoryDAO._advance_mutation_projection_state(db, mut["mutation_id"])
+        await db.commit()
 
     # Build context using ContextBuilder
     builder = ContextBuilder(dao)
@@ -97,6 +111,20 @@ async def test_context_builder_integration(tmp_path):
     assert "Alice" in formatted
     assert ctx["estimated_token_count"] > 0
     assert ctx["estimated_token_count"] <= 500
+
+    # A fresh Session B has no current logs, but a query must still retrieve
+    # durable canonical memory written by Session A.
+    cross_session = await builder.build_context(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        dataset_ids=[dataset_id],
+        query="What is Alice's role?",
+        session_id="sess_new",
+        token_budget=500,
+    )
+    assert "Alice" in cross_session["formatted_context"]
+    assert cross_session["session_logs"] == []
+    assert len(cross_session["canonical_memories"]) == 1
 
     tiny_ctx = await builder.build_context(
         tenant_id=tenant_id,

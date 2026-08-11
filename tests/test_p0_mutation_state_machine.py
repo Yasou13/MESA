@@ -1,9 +1,12 @@
-import pytest
 import uuid
 from types import SimpleNamespace
+
+import pytest
+
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+
 
 @pytest.mark.asyncio
 async def test_mutation_state_machine_illegal_transitions_rejected(tmp_path):
@@ -87,5 +90,41 @@ async def test_mutation_state_machine_illegal_transitions_rejected(tmp_path):
     mutation = await dao.get_mutation(agent_id, mutation_id)
     assert mutation is not None
     assert mutation["state"] == "ROLLED_BACK"
+
+    # Forward lifecycle stages cannot be skipped through the public helper.
+    queued_run_id = f"run_queued_{uuid.uuid4().hex[:8]}"
+    received_mutation_id = f"mut_received_{uuid.uuid4().hex[:8]}"
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
+            "VALUES (?, ?, ?, 'ws_default', ?, ?, 'QUEUED')",
+            (queued_run_id, tenant_id, agent_id, dataset_id, session_id),
+        )
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, session_id, pipeline_run_id, content_payload, state) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', 'RECEIVED')",
+            (
+                received_mutation_id,
+                f"cand_{uuid.uuid4().hex[:8]}",
+                tenant_id,
+                agent_id,
+                dataset_id,
+                document_id,
+                session_id,
+                queued_run_id,
+            ),
+        )
+        await db.commit()
+    assert (
+        await dao.set_mutation_state(agent_id, received_mutation_id, "COMMITTED")
+        is False
+    )
+    assert (
+        await dao.set_mutation_state(agent_id, received_mutation_id, "ROLLED_BACK")
+        is False
+    )
+    received = await dao.get_mutation(agent_id, received_mutation_id)
+    assert received is not None
+    assert received["state"] == "RECEIVED"
 
     await engine.close()

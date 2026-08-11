@@ -68,7 +68,9 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
         revisions = await dao.list_v4_revisions(
             tenant_id="tenant-a", dataset_id="dataset-a", document_id="document-a"
         )
-        assert [item["status"] for item in revisions] == ["SUPERSEDED", "ACTIVE"]
+        # Declaring a replacement revision does not activate the correction;
+        # supersession is committed with its canonical mutation.
+        assert [item["status"] for item in revisions] == ["ACTIVE", "PENDING"]
         with pytest.raises(ValueError, match="immutable"):
             await dao.create_v4_revision(
                 tenant_id="tenant-a",
@@ -432,7 +434,12 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         upsert=AsyncMock(),
         search=AsyncMock(),
     )
-    dao = MemoryDAO(engine, vector)
+    graph = SimpleNamespace(
+        insert_node=AsyncMock(),
+        insert_assertion=AsyncMock(),
+        link_assertions=AsyncMock(),
+    )
+    dao = MemoryDAO(engine, vector, graph)
     allowed = MemoryCandidate.from_raw_log(
         raw_log_id=11,
         tenant_id="tenant-a",
@@ -472,6 +479,29 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
             mutation=allowed, entity_name="Allowed Court"
         )
         await dao.project_v4_vector_entity(mutation=denied, entity_name="Denied Court")
+        await dao.project_v4_graph_triplet(
+            mutation=allowed,
+            triplet={
+                "head": "Allowed Court",
+                "relation": "SCOPE",
+                "literal_value": "allowed",
+            },
+        )
+        await dao.project_v4_graph_triplet(
+            mutation=denied,
+            triplet={
+                "head": "Denied Court",
+                "relation": "SCOPE",
+                "literal_value": "denied",
+            },
+        )
+        async with engine.transaction() as db:
+            await db.execute(
+                "UPDATE memory_mutations SET state = 'COMMITTED' "
+                "WHERE mutation_id IN (?, ?)",
+                (allowed["mutation_id"], denied["mutation_id"]),
+            )
+            await db.commit()
         vector.search.return_value = [
             {"node_id": denied_id, "_distance": 0.01},
             {"node_id": allowed_id, "_distance": 0.02},
