@@ -618,10 +618,10 @@ If NOT_CODE_MVP_READY:
 
 Status must not claim FINAL_VERIFIED.
 
-Status: TODO
-Evidence:
-Tests:
-Commit:
+Status: FINAL_VERIFIED
+Evidence: Independently reconciled the frozen scope against the branch; reproduced the Python 3.13 async timeout as a sandbox-only aiosqlite callback stall, then ran the affected invariants outside that sandbox. Canonical activation, rollback/purge fencing, temporal history, runtime admission/capability truth, cross-session context, and HTTP/SDK/MCP convergence now have bounded code-level evidence with no known code blocker remaining.
+Tests: 45-test final MVP invariant matrix; 58-test HTTP/SDK/MCP/runtime contract matrix; compile/import, ruff, black, mypy, layer checker, and git diff checks.
+Commit: 926ef54, 8bf0235
 
 ---
 
@@ -660,3 +660,38 @@ Status:
 Evidence:
 Tests:
 Commit:
+
+## SOL-D01 — Commit-Gated Lifecycle and Destructive Fencing
+
+Status: VERIFIED
+Evidence: Retrieval/count eligibility now requires COMMITTED mutation ownership; projection parity repair rechecks terminal fences and requeues every missing lane atomically; rollback/purge paths use legal CAS transitions and purge reports pending cleanup instead of false success.
+Tests: tests/test_p0_projection_fencing.py; tests/test_p0_purge_fencing.py; tests/test_p0_mutation_state_machine.py; tests/test_p0_retrieval_eligibility.py; tests/test_p0_retrieval_count_safety.py
+Commit: 926ef54
+
+## SOL-D02 — Commit-Time Supersession and Historical Correction
+
+Status: VERIFIED
+Evidence: Replacement revisions remain pending until canonical mutation commit; supersession and temporal cutoff activate at commit and are restored on rollback; current and historical retrieval use COMMITTED assertion provenance.
+Tests: tests/test_p0_canonical_correction.py; tests/test_v4_catalog_ownership.py
+Commit: 926ef54
+
+## SOL-D03 — Truthful Runtime Ownership and Admission
+
+Status: VERIFIED
+Evidence: Runtimes without an executable Tier-3/projection consumer reject canonical V4 inserts with retryable 503, while capability flags no longer advertise unavailable ingestion/projection behavior; split safe-core session finalization remains owned.
+Tests: tests/test_p0_worker_ownership.py; tests/test_v4_api_contract.py; tests/test_p0_model_disabled_truth.py
+Commit: 926ef54
+
+## SOL-D04 — Canonical Cross-Session Context
+
+Status: VERIFIED
+Evidence: SDK context forwards query, token budget, and valid_at; fresh sessions retrieve prior committed canonical memory through ContextBuilder; MCP context uses the same V4 endpoint.
+Tests: tests/test_p0_context_builder.py; tests/test_p0_http_sdk_mcp_convergence.py; tests/test_v4_sdk_contract.py
+Commit: 926ef54, 8bf0235
+
+## SOL-D05 — SDK/MCP Correction and Idempotency Convergence
+
+Status: VERIFIED
+Evidence: MCP remember/improve preserve metadata, provenance, idempotency, and supersession inputs; correction discovers the latest active revision, uses retry-stable identities, and ignores rolled-back revisions; explicit MCP settings no longer silently fall back to alias defaults.
+Tests: tests/test_p0_http_sdk_mcp_convergence.py; tests/test_mcp_v4_service.py; tests/test_mcp_v4_tools.py; tests/test_mcp_api_boundary.py
+Commit: 8bf0235
