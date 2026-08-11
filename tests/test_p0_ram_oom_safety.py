@@ -1,6 +1,8 @@
 import os
 from unittest.mock import patch
-from mesa_memory.config import calculate_dynamic_limits, _read_env_ram_limit, MesaConfig
+
+from mesa_memory.config import MesaConfig, _read_env_ram_limit, calculate_dynamic_limits
+
 
 def test_ram_precedence_and_dynamic_limit():
     """Verify 4-tier RAM precedence hierarchy and bounded dynamic limits."""

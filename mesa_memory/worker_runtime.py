@@ -191,7 +191,9 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
                         dao,
                         None,
                     )
-                projections = await process_projection_outbox_once(dao, worker_id=_WORKER_ID)
+                projections = await process_projection_outbox_once(
+                    dao, worker_id=_WORKER_ID
+                )
                 cleanup = await process_artifact_cleanup_once(dao, worker_id=_WORKER_ID)
                 try:
                     await asyncio.wait_for(

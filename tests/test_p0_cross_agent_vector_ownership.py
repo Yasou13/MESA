@@ -1,5 +1,7 @@
 import pytest
+
 from mesa_storage.vector_engine import VectorEngine
+
 
 @pytest.mark.asyncio
 async def test_cross_agent_vector_isolation(tmp_path):

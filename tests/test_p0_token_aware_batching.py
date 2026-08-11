@@ -1,8 +1,11 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from mesa_memory.consolidation.router import AdaptiveRouter
-from mesa_memory.consolidation.loop import ConsolidationLoop
+
+import pytest
+
 from mesa_memory.config import config
+from mesa_memory.consolidation.loop import ConsolidationLoop
+from mesa_memory.consolidation.router import AdaptiveRouter
+
 
 @pytest.mark.asyncio
 async def test_selective_llm_judge_and_token_efficiency():

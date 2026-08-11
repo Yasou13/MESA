@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Mapping
+from typing import Any
+
 from mesa_storage.dao import MemoryDAO
 
 

@@ -23,7 +23,6 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.consolidation.validator import (
     VALENCE_PROMPT_A_TEMPLATE,
-    Tier3ValidationError,
     Tier3Validator,
     single_model_audit,
     tier3_provenance_context,

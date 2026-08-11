@@ -1,12 +1,15 @@
-import pytest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from mesa_storage.dao import MemoryDAO
-from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.schemas import initialize_schema
+
+import pytest
+
 from mesa_memory.extraction.triplet_extractor import TripletExtractor
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_workers.projection_worker import process_projection_outbox_once
+
 
 @pytest.mark.asyncio
 async def test_multi_memory_extraction_contract(tmp_path):

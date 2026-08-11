@@ -1,10 +1,13 @@
-import pytest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import pytest
+
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+
 
 @pytest.mark.asyncio
 async def test_embedding_contract_and_dimension_validation(tmp_path):

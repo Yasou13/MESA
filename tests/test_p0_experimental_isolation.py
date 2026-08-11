@@ -1,5 +1,5 @@
-import pytest
 from mesa_memory.config import MesaConfig
+
 
 def test_experimental_features_disabled_by_default():
     """Verify experimental features are isolated and disabled by default."""
