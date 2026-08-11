@@ -57,7 +57,12 @@ def test_lexical_query_cannot_be_crowded_out_by_another_dataset() -> None:
         CREATE TABLE artifact_sources (
             registry_id TEXT NOT NULL,
             dataset_id TEXT NOT NULL,
+            mutation_id TEXT NOT NULL,
             state TEXT NOT NULL
+        );
+        CREATE TABLE memory_mutations (
+            mutation_id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL
         );
         INSERT INTO v4_entities VALUES
             ('denied', 'tenant-a', 'Court', 'concept', 'ACTIVE'),
@@ -67,14 +72,17 @@ def test_lexical_query_cannot_be_crowded_out_by_another_dataset() -> None:
         INSERT INTO artifact_registry VALUES
             ('registry-denied', 'tenant-a', 'denied', 'ENTITY', 'ACTIVE'),
             ('registry-allowed', 'tenant-a', 'allowed', 'ENTITY', 'ACTIVE');
+        INSERT INTO memory_mutations VALUES
+            ('mutation-denied', 'agent-a'),
+            ('mutation-allowed', 'agent-a');
         INSERT INTO artifact_sources VALUES
-            ('registry-denied', 'dataset-b', 'ACTIVE'),
-            ('registry-allowed', 'dataset-a', 'ACTIVE');
+            ('registry-denied', 'dataset-b', 'mutation-denied', 'ACTIVE'),
+            ('registry-allowed', 'dataset-a', 'mutation-allowed', 'ACTIVE');
         """)
 
     rows = connection.execute(
         build_v4_lexical_query(dataset_count=1),
-        ('"Court"', "tenant-a", "dataset-a", 1),
+        ('"Court"', "tenant-a", "agent-a", "dataset-a", 1),
     ).fetchall()
     connection.close()
 
