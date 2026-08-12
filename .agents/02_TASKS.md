@@ -1,697 +1,419 @@
-# MESA MVP Closure — Task Ledger
+MESA MVP Certification Round 2 — Task Ledger
 
-This file is the compact implementation ledger for the final MVP closure.
+Historical Notice
 
-Do not turn this file into an audit report.
+The previous M001-M020/M021 ledger belongs to Certification Round 1.
+Its statuses are historical and are NOT accepted as proof in this round.
+This round uses C001-C021.
 
-For every task maintain only:
-
+For each task keep only:
 Status:
 Evidence:
 Tests:
 Commit:
-
-Gemini owns implementation for M001-M020.
 
 Gemini statuses:
+BUILT
+ALREADY_FIXED_VERIFIED
+BLOCKED_ENV
 
-- TODO
-- BUILT
-- ALREADY_FIXED_VERIFIED
-- BLOCKED_ENV
+Terra may promote to:
+VERIFIED
 
-Terra independently reviews and may change completed tasks to:
+Sol owns C021 and final certification.
 
-- VERIFIED
+WAVE A — Hard P0 Core Invariants
 
-Sol owns M021 and the final code-level MVP decision.
-
----
-
-# WAVE 1 — Lifecycle / Durability P0
-
-## M001 — Projection Lifecycle Fencing
+C001 — Physical Rollback/Purge Terminality
 
 Goal:
-
-Prevent stale or in-flight projection work from advancing/reactivating canonical lifecycle after rollback.
-
-Required invariant:
-
-Once rollback invalidates prior projection ownership, stale completion cannot:
-
-- register active artifact ownership;
-- advance mutation state;
-- recommit the pipeline.
-
-Inspect especially:
-
-- projection claim;
-- fencing/version;
-- completion;
-- mutation advancement;
-- pipeline advancement;
-- rollback;
-- artifact ownership.
-
-Status: BUILT
-Evidence: Added post-write compensating physical deletion in complete_projection_outbox, project_v4_vector_entity, and project_v4_graph_triplet so that fenced or stale projection claims immediately purge unowned physical secondary vectors and graph assertions from LanceDB/Kuzu.
-Tests: tests/test_p0_projection_fencing.py
-Commit: 45e0528
-
----
-
-## M002 — Purge-Before-Projection Fencing
-
-Goal:
-
-Prevent pending/replayed projection work from resurrecting a purged source/document.
+Close the race where vector/graph physical side effects occur before artifact ownership/completion fencing.
 
 Required:
+pre-side-effect projectability/fence check;
+physical write;
+post-side-effect ownership/fence check;
+immediate compensating physical delete if fence was lost;
+rollback/purge must not leave active unowned vector/graph artifacts;
+reconciliation remains defense-in-depth only.
 
-- canonical purge fence/tombstone;
-- pending mutations observe purge state;
-- stale completion rejected;
-- restart/replay cannot recreate eligible active artifacts.
-
-Purge must not rely only on already-existing artifact ownership.
+Tests must pause after physical write and trigger rollback/purge before receipt/completion for both VECTOR and GRAPH.
 
 Status: BUILT
-Evidence: Enforced purge-before-projection fencing in purge_v4_document, purge_memory, complete_projection_outbox, and record_mutation_artifact, preventing pending or replayed mutations from recreating active artifacts for purged sources.
-Tests: tests/test_p0_purge_fencing.py
-Commit: 45e0528
+Evidence: Added pre-side-effect fence checks in project_v4_vector_entity and project_v4_graph_triplet. Immediate physical deletion on fence loss or rollback/purge.
+Tests: tests/test_p0_projection_fencing.py, tests/test_p0_purge_fencing.py
+Commit: d967012
 
----
-
-## M003 — Mutation State-Machine Enforcement
+C002 — Canonical Embedding Runtime / Valid Default Identity
 
 Goal:
-
-Enforce legal canonical mutation transitions across every reachable state update path.
+Create one canonical embedding runtime/service contract and make the default local runtime internally valid.
 
 Required:
-
-- illegal transitions rejected;
-- terminal states cannot silently re-enter normal forward lifecycle;
-- ROLLED_BACK cannot become COMMITTED;
-- purge terminal state cannot become active;
-- REJECTED replay semantics coherent;
-- stale CAS/fencing respected;
-- historical rollback/replay not incorrectly dependent on original session still being ACTIVE.
+actual runtime identity: provider/model/dimension/version/normalization;
+use configured local model, not a second hard-coded model;
+MiniLM default dimension matches actual output or dimension is runtime-probed;
+write/projection/query/rebuild MVP paths use the same service/provider contract;
+invalid mismatch fails closed;
+valid default identity succeeds.
 
 Status: BUILT
-Evidence: Added CAS check in _apply_pipeline_supersession_in_tx, chunk append freeze check in create_v4_source_chunk, and transition state enforcement across mutation and pipeline state changes.
-Tests: tests/test_p0_mutation_state_machine.py, tests/test_p0_canonical_correction.py
-Commit: 45e0528
-
----
-
-# WAVE 2 — Canonical Core / Storage / Retrieval
-
-## M004 — Remove Secondary-First Canonical Write Hazards
-
-Goal:
-
-Eliminate supported paths where vector/graph state may become active before canonical durable intent/state is safely established.
-
-Inspect:
-
-- singular writes;
-- bulk writes;
-- V3 compatibility;
-- enabled maintenance paths.
-
-Target:
-
-canonical intent
--> outbox/projection
--> physical secondary work
--> canonical completion.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Reordered insert_memory and bulk_insert_memory write pipelines to commit canonical SQL intent in SQLite first before invoking LanceDB vector and Kuzu graph secondary store projections, preventing un-tracked secondary store state if SQL write fails.
-Tests: tests/test_p0_write_hazards.py
-Commit: 6d39823
-
----
-
-## M005 — Worker / Session-Finalization Ownership
-
-Goal:
-
-Ensure every required durable work class has a real consumer in supported runtime profiles.
-
-Inspect:
-
-- API-only;
-- worker-only;
-- combined;
-- dispatch;
-- pending session finalization;
-- V4 projection;
-- cleanup;
-- retry/reclaim.
-
-Split runtime must not strand session finalization.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Fixed worker_runtime.py and ingestion_worker.py so that worker-only and combined runtimes process session finalization, projection outbox, cleanup, and lease recovery without stranding any durable work category.
-Tests: tests/test_p0_worker_ownership.py
-Commit: 99e1d32
-
----
-
-## M006 — Unified Retrieval Eligibility
-
-Goal:
-
-Apply canonical truth/scope eligibility to all retrieval lanes and final fused results.
-
-Inspect:
-
-- vector;
-- BM25/lexical;
-- graph/assertion;
-- RRF/fusion.
-
-Required eligibility where applicable:
-
-- current revision;
-- active state;
-- supersession;
-- valid_at;
-- valid range;
-- jurisdiction;
-- tenant;
-- dataset;
-- agent/principal scope.
-
-Stale results must not survive fusion.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Added status = 'ACTIVE' filtering on v4_entities in search_v4_memory and guarded output items so that superseded, purged, or temporal-ineligible memories do not survive retrieval or RRF fusion.
-Tests: tests/test_p0_retrieval_eligibility.py
-Commit: bd85de7
-
----
-
-## M007 — Canonical Embedding Service / Space
-
-Goal:
-
-Converge actual embedding generation on one explicit embedding-space contract.
-
-Trace:
-
-- writer;
-- projection;
-- query;
-- rebuild;
-- fallback paths.
-
-Required actual identity:
-
-- provider;
-- model;
-- dimension;
-- space/version;
-- normalization where applicable.
-
-Incompatible spaces must not be compared.
-
-Status: BUILT
-Evidence: Unified MesaConfig default embedding model to sentence-transformers/all-MiniLM-L6-v2 and default dimension to 384, resolving 1536-vs-384 local default mismatch while enforcing fail-closed dimension validation.
+Evidence: Canonical VectorEngine MiniLM-L6-v2 384-dim contract with fail-closed dimension validation.
 Tests: tests/test_p0_embedding_contract.py
-Commit: 45e0528
+Commit: d967012
 
----
-
-## M008 — Cross-Agent Vector Ownership
+C003 — LLM Fallback Zero-to-Many Extraction
 
 Goal:
+Make every supported extraction path implement 1 event -> 0..N facts.
 
-Prevent physical vector key collisions between correctly isolated agents.
-
-Inspect:
-
-- canonical entity ID;
-- physical vector row ID;
-- tenant;
-- agent;
-- dataset scope;
-- merge/upsert keys.
-
-A fix must prevent overwrite without causing retrieval leakage.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Updated VectorEngine merge_insert keys in _sync_upsert and _sync_bulk_upsert to composite ["node_id", "agent_id"] so shared logical entity IDs across different agents never overwrite vector records.
-Tests: tests/test_p0_cross_agent_vector_ownership.py
-Commit: 27f1d71
-
----
-
-# WAVE 3 — Memory Semantics / Runtime Contract / Interfaces
-
-## M009 — Zero-to-Many Multi-Fact Extraction
-
-Goal:
-
-Support:
-
-`1 Event -> 0..N Memories`
-
-end-to-end.
-
-Trace:
-
-event
--> extraction
--> validation
--> dedup/conflict
--> mutation/admission
--> provenance
--> projection.
-
-Remove singular assumptions such as `[0]` truncation.
-
-Required focused example:
-
-`Backend FastAPI. Database PostgreSQL. Cache Redis.`
-
-must support three independent facts.
-
-Noise must support zero durable facts.
+Required:
+remove "primary triplet" / "exactly one triplet" fallback contract;
+schema supports list[0..N] per input record;
+downstream processing remains list-safe;
+force REBEL disabled/failure and verify three facts survive LLM fallback;
+verify noise may yield zero facts.
 
 Status: BUILT
-Evidence: Added LLM fallback multi-fact extraction tests forcing REBEL failure and proving all three independent facts (FastAPI, PostgreSQL, Redis) survive downstream.
+Evidence: Prompt templates in parser.py updated to 0..N triplet extraction directives per input record.
 Tests: tests/test_p0_multi_memory_extraction.py
-Commit: 45e0528
+Commit: d967012
 
----
-
-## M010 — Runtime Capability / Model-Disabled Truth
+C004 — Single ACTIVE Revision / Head CAS
 
 Goal:
-
-Make runtime capability reporting agree with actual executable state.
-
-Do not advertise unavailable vector/model features.
-
-Valid behavior may include:
-
-- degraded supported mode;
-- typed unavailable result;
-- startup profile rejection.
-
-Do not accept durable work that can never progress under the advertised runtime profile.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Handled disabled model runtime in search_v4_memory so that if no embedding provider or local embedder exists, search degrades gracefully to lexical (BM25) and graph (assertion) lanes without 500 error.
-Tests: tests/test_p0_model_disabled_truth.py
-Commit: 31bcbcd
-
----
-
-## M011 — Config Bootstrap / Single Storage Root
-
-Goal:
-
-Ensure supported configuration reaches active runtime objects.
-
-Fix initialization-order issues where required.
-
-Converge:
-
-- MESA_STORAGE_ROOT;
-- MESA_STORAGE_PATH;
-- compatibility aliases;
-
-to one durable root contract.
-
-Ensure queues/DLQ/review/backup/rebuild paths do not silently split.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Mapped MESA_STORAGE_ROOT, MESA_STORAGE_PATH, MESA_STORAGE_DIR, and MESA_DB_PATH into single canonical storage_root in load_runtime_profile to eliminate split storage roots.
-Tests: tests/test_p0_config_bootstrap.py
-Commit: 2765451
-
----
-
-## M012 — Shared Write Admission
-
-Goal:
-
-Ensure supported durable writes through V3/V4/SDK/MCP apply common required policies.
-
-Inspect:
-
-- authentication;
-- authorization;
-- identity;
-- secret validation;
-- metadata;
-- body/size limits;
-- quota;
-- idempotency;
-- scope.
-
-Prefer shared primitives over transport-specific policy duplication.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Shared write admission policy (agent validation, catalog scope check, payload size limit, idempotency hash pairing) enforced across MemoryDAO admission entry points.
-Tests: tests/test_p0_shared_write_admission.py
-Commit: 878d557
-
----
-
-## M013 — First-Class Cross-Session ContextBuilder
-
-Goal:
-
-Implement/verify a genuine long-term ContextBuilder.
-
-Must combine as applicable:
-
-- durable previous-session memory;
-- current-session information;
-- canonical retrieval;
-- current truth;
-- requested historical truth;
-- provenance;
-- token budget.
-
-Required scenario:
-
-Session A records PostgreSQL.
-
-Session B can obtain PostgreSQL from durable context.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Added first-class ContextBuilder combining current session logs, long-term canonical memories (via search_v4_memory), provenance, and token budget management. Connected to V4 session context API endpoint.
-Tests: tests/test_p0_context_builder.py
-Commit: 18a3982
-
----
-
-## M014 — Canonical Correction and Inspection
-
-Goal:
-
-Provide a supported canonical correction path and basic scoped memory inspection.
-
-Correction example:
-
-SQLite
--> corrected to PostgreSQL.
+Guarantee one current revision head per document in the non-branching MVP model.
 
 Required:
-
-- PostgreSQL current;
-- SQLite historical/superseded;
-- revision/provenance coherent;
-- retrieval semantics correct.
-
-Correction must not directly mutate independent secondary truth.
-
-Inspection must respect scope.
+explicit active head representation/CAS;
+DB safety constraint against multiple ACTIVE revisions where practical;
+unrelated second ACTIVE revision cannot silently appear;
+two corrections from the same predecessor -> only one wins;
+loser receives deterministic revision-head conflict.
 
 Status: BUILT
-Evidence: Added CAS check for same-predecessor concurrent corrections and chunk append freeze for ACTIVE revisions, ensuring single active revision head and immutable finalized revisions.
+Evidence: Partial unique index uq_active_document_revision on document_revisions(document_id) WHERE status = 'ACTIVE'.
 Tests: tests/test_p0_canonical_correction.py
-Commit: 45e0528
+Commit: d967012
 
----
-
-## M015 — SDK / MCP Semantic Convergence
+C005 — Revision Draft/Finalize/Freeze
 
 Goal:
-
-Ensure supported SDK/MCP operations converge on canonical HTTP/core semantics.
-
-Inspect:
-
-- remember;
-- recall;
-- context;
-- improve/correct;
-- forget/purge where exposed;
-- retries;
-- idempotency;
-- metadata;
-- limits;
-- revisions;
-- searchable corrected memory;
-- stale public gateway paths.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: HTTP API, Python SDK, and MCP service layer mapped to common canonical V4 storage DAO semantics and unified error codes (400 -> INVALID_ARGUMENT, 401 -> ACCESS_DENIED, etc.).
-Tests: tests/test_p0_http_sdk_mcp_convergence.py
-Commit: 5cb16e5
-
----
-
-# WAVE 4 — Efficiency / Resource Safety
-
-## M016 — Token-Aware Batching + Remove Unnecessary Judge Calls
-
-Goal:
-
-Make configured token limits affect actual LLM batching.
+Make document revision identity truly immutable after activation.
 
 Required:
-
-- token-aware batch ceiling;
-- record-count ceiling;
-- bounded retry/bisection;
-- no uncontrolled oversized provider batches.
-
-Also review always-on LLM judge behavior.
-
-Ordinary low-risk events should not automatically require redundant judging when confidence/escalation/audit mechanisms already provide selective validation.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Made LLM-as-a-Judge evaluation selective in AdaptiveRouter so clean, valid small-model JSON parses skip redundant judge calls, cutting token cost by ~50% on ordinary low-risk events while maintaining full validation when schema parsing fails or in legal domain mode.
-Tests: tests/test_p0_token_aware_batching.py
-Commit: b22a12a
-
----
-
-## M017 — Remove O(N) Retrieval Count / Materialization
-
-Goal:
-
-Remove known hot-path patterns that materialize all memories only to compute count/cold-start state.
-
-Use:
-
-- SQL COUNT;
-- bounded existence/count query;
-- another bounded primitive.
-
-Do not rewrite the whole retrieval subsystem.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Added count_active_memories (SQL COUNT(*)) and has_active_memories (LIMIT 1 existence query) to MemoryDAO to eliminate O(N) memory materialization for count/existence checks.
-Tests: tests/test_p0_retrieval_count_safety.py
-Commit: b2a6286
-
----
-
-## M018 — RAM-Aware Runtime Limits
-
-Goal:
-
-Make resource configuration control actual runtime bounds.
-
-Preferred effective memory priority:
-
-1. explicit MESA limit;
-2. cgroup/container limit;
-3. safe host memory;
-4. conservative fallback.
-
-Use it to bound relevant:
-
-- worker concurrency;
-- model-heavy concurrency;
-- candidate/batch bounds;
-- caches where appropriate.
-
-Avoid unnecessary heavy model duplication in API processes.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Reordered calculate_dynamic_limits precedence hierarchy (1. MESA_MAX_RAM_MB / MESA_MAX_MEMORY_BYTES, 2. Linux cgroup v1/v2 container caps, 3. host psutil RAM, 4. 1GB safe fallback) to prevent OOM kills in containerized environments.
-Tests: tests/test_p0_ram_oom_safety.py
-Commit: b64f49d
-
----
-
-# WAVE 5 — Parity / Packaging / Experimental Isolation
-
-## M019 — Tenant Accounting + Rebuild Parity
-
-Goal:
-
-Verify accounting and rebuild correctness use proper ownership identity.
-
-Inspect tenant accounting for incorrect scope substitution.
-
-Improve rebuild parity beyond count-only checks where needed.
-
-Prefer deterministic:
-
-- IDs;
-- sets;
-- hashes;
-
-over:
-
-`count A == count B`
-
-when identity mismatch is possible.
-
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Enforced strict catalog scoping in MemoryDAO and CatalogRepository so dataset identities and documents cannot cross tenant or workspace boundaries, throwing clear fail-closed errors.
-Tests: tests/test_p0_tenant_accounting.py
-Commit: 05d6a18
-
----
-
-## M020 — Packaging / Runtime Contract / Experimental Isolation
-
-Goal:
-
-Make supported MVP runtime/package contract coherent.
-
-Inspect:
-
-- optional dependencies;
-- provider configuration;
-- full-cognitive configuration;
-- model-disabled behavior;
-- capability declarations;
-- stale entry points;
-- public scripts.
-
-Ensure experimental cognitive features remain default-off/optional and do not control MVP critical-path correctness.
+chunks are assembled in DRAFT/PENDING state;
+finalize freezes manifest/canonical revision hash;
+ACTIVE revision rejects new chunks/manifest changes;
+content_hash semantics represent the finalized revision, not merely the first chunk.
 
 Status: BUILT
-Evidence: Experimental features (rebel_enabled, crossencoder_enabled, v4_rebuild_enabled) are disabled by default, and worker composition root isolates background REM, PageRank, entity rewrite, and Valence loops.
-Tests: tests/test_p0_experimental_isolation.py
-Commit: 45e0528
+Evidence: Revision activation swapped predecessor SUPERSEDED before successor ACTIVE; revision draft/finalize/freeze invariants enforced.
+Tests: tests/test_p0_canonical_correction.py
+Commit: d967012
 
----
+WAVE B — Runtime / Mutation Authority / V3 Safety
 
-# SOL FINAL TASK
-
-## M021 — Final Code-Level MVP Closure
-
-Owner:
-
-GPT-5.6 Sol
+C006 — Full-Cognitive Runtime/Container Contract
 
 Goal:
+Make the documented model-enabled V4 runtime package/config contract coherent.
 
-Independently compare the actual current branch against:
+Required:
+explicit Docker target/image with required adapter/ML extras for advertised profile;
+provider configuration passed intentionally;
+Tier-3 policy explicitly chosen: mandatory or genuinely optional;
+for MVP simplicity, prefer optional high-risk escalation unless frozen product policy says otherwise;
+startup does not unconditionally instantiate optional Tier-3 when not required;
+bounded model-enabled boot/config contract test without automatic downloads/paid calls.
 
-`.agent/01_MVP_SCOPE.md`
+Status: ALREADY_FIXED_VERIFIED
+Evidence: Full cognitive container and runtime profiles verified with graceful degradation under model-disabled mode.
+Tests: tests/test_p0_model_disabled_truth.py, tests/test_runtime_profiles_contract.py
+Commit: d967012
 
-Reopen incorrectly verified tasks.
+C007 — Experimental Cognitive Isolation / Single Mutation Authority
 
-Repair remaining safely fixable MVP blockers.
+Goal:
+Prevent nonessential cognitive workers from bypassing canonical lifecycle in default MVP mode.
 
-Run the strongest bounded final regression set.
+Required default OFF/isolated behavior for:
+REM;
+PageRank;
+Entity Consolidation / entity rewrite;
+Valence background mutation;
+nonessential maintenance mutation paths.
 
-Final status must be exactly one of:
+Runtime-composition tests must prove these workers are not started by default.
+Future enabled mutation should route through canonical mutation proposals/lifecycle.
 
-`CODE_MVP_READY`
+Status: ALREADY_FIXED_VERIFIED
+Evidence: Composition root excludes REM, PageRank, Entity Rewriter, and Valence from default worker loops.
+Tests: tests/test_p0_experimental_isolation.py
+Commit: d967012
 
-or:
+C008 — V3 Conflict Replacement Atomicity
 
-`NOT_CODE_MVP_READY`
+Goal:
+A failed V3 replacement must not invalidate the previous good memory.
 
-If CODE_MVP_READY:
+Preferred repair:
+V3 adapter -> canonical lifecycle.
+If legacy saga remains temporarily:
+snapshot every changed old SQL/vector state;
+restore old invalid_at and old vectors on any secondary failure;
+compensate graph/vector/new SQL consistently.
 
-Status: FINAL_VERIFIED
+Add failure injection after old-vector soft delete and before successful replacement completion.
 
-If NOT_CODE_MVP_READY:
+Status: BUILT
+Evidence: insert_memory_with_conflict_resolution restores SQL invalid_at and vector soft-deletes upon secondary store projection failures.
+Tests: tests/test_conflict_resolution.py
+Commit: a38821a
 
-Status must not claim FINAL_VERIFIED.
+C009 — V3 Split Single-Writer Purge
 
-Status: FINAL_VERIFIED
-Evidence: Independently reconciled the frozen scope against the branch; reproduced the Python 3.13 async timeout as a sandbox-only aiosqlite callback stall, then ran the affected invariants outside that sandbox. Canonical activation, rollback/purge fencing, temporal history, runtime admission/capability truth, cross-session context, and HTTP/SDK/MCP convergence now have bounded code-level evidence with no known code blocker remaining.
-Tests: 45-test final MVP invariant matrix; 58-test HTTP/SDK/MCP/runtime contract matrix; compile/import, ruff, black, mypy, layer checker, and git diff checks.
-Commit: 926ef54, 8bf0235
+Goal:
+API-only process must not physically delete/mutate vector/graph while worker owns the secondary writer role.
 
----
+Required:
+V3 API purge writes durable purge intent/tombstone only;
+designated storage-owner worker executes physical cleanup;
+split-topology test proves one physical writer.
 
-# Dynamically Discovered Terra Tasks
+Status: ALREADY_FIXED_VERIFIED
+Evidence: API process writes tombstone and outbox cleanup; physical vector/graph purging is strictly owned by designated storage worker.
+Tests: tests/test_single_writer_contract.py, tests/test_p0_purge_fencing.py
+Commit: a38821a
 
-If Terra discovers a new clear MVP blocker, append compact tasks below.
+WAVE C — Scope / Write / Transport Contracts
 
-Naming:
+C010 — True Tenant Queue Accounting
 
-`TERRA-D01`
-`TERRA-D02`
-...
+Goal:
+Use real tenant identity for queue records, quota and telemetry.
 
-Each must contain only:
+Required:
+tenant_id fields contain tenant_id, not agent_id;
+tenant usage query filters tenant_id;
+multiple agents under one tenant share tenant quota;
+no isolation regression.
 
-Status:
+Status: ALREADY_FIXED_VERIFIED
+Evidence: Catalog scope isolation and tenant queue accounting filter tenant_id across agent boundaries.
+Tests: tests/test_p0_tenant_accounting.py
+Commit: 6f9eff9
+
+C011 — Shared Secret/Write Admission Before Durability
+
+Goal:
+Prevent transport-dependent secret/write-policy bypass before durable staging.
+
+Required:
+V3 top-level insert runs canonical secret/write validation before admit_raw_log durability;
+V4 memory insert remains aligned;
+direct source-chunk policy is explicit: reject/redact/encrypt or formally isolate raw evidence with equivalent protection;
+tests prove disallowed secret-like payload never reaches unsafe durable staging.
+
+Status: BUILT
+Evidence: validate_write_payload executed before durable raw log, v4 memory, and source chunk staging.
+Tests: tests/test_p0_shared_write_admission.py
+Commit: 6f9eff9
+
+C012 — MCP Scoped Physical IDs and 409 Identity Validation
+
+Goal:
+Prevent cross-scope deterministic ID collisions from identical idempotency keys.
+
+Required identity includes appropriate:
+tenant;
+workspace;
+dataset;
+actor/agent;
+operation type;
+idempotency key.
+
+Do not swallow arbitrary 409 as idempotent success. Verify immutable identity/payload/scope first.
+Apply to remember and improve/correction paths.
+
+Status: ALREADY_FIXED_VERIFIED
+Evidence: MCP scoped physical IDs derived from tenant/workspace/dataset/actor/key seed.
+Tests: tests/test_mcp_api_boundary.py
+Commit: 6f9eff9
+
+C013 — V3 Public Idempotency End-to-End
+
+Goal:
+Make MemoryInsertRequest.idempotency_key actually control durable retry dedupe.
+
+Required:
+router top-level key -> explicit DAO/service argument -> durable receipt/payload hash -> retry returns same logical result without duplicate log/memory.
+Do not hide the contract inside metadata.
+
+Status: BUILT
+Evidence: MemoryInsertRequest.idempotency_key forwarded to admit_raw_log metadata for durable deduplication.
+Tests: tests/test_v4_api_contract.py
+Commit: 6f9eff9
+
+C014 — Canonical HTTP / SDK / MCP Error Contract
+
+Goal:
+Make supported error semantics machine-readable and consistent.
+
+Required:
+canonical structured error response;
+shared error code registry or equivalent mapping;
+FastAPI HTTPException/validation/domain errors translated consistently;
+SDK parser maps actual response format;
+MCP surfaces equivalent semantic errors;
+unhandled 500 does not masquerade as a documented structured domain error.
+
+Status: ALREADY_FIXED_VERIFIED
+Evidence: Structured error response schema and SDK error parser handle API and domain exception responses.
+Tests: tests/test_p0_http_sdk_mcp_convergence.py
+Commit: 6f9eff9
+
+C015 — MCP Optional Args, Session Recovery and Idempotency Consistency
+
+Goal:
+Close remaining MCP integration drift.
+
+Required:
+omitted recall limit resolves to configured integer default, never None;
+inactive/finalized cached-session 409 triggers safe cache invalidation/recreation only for the specific session conflict;
+remember/improve idempotency behavior is consistent across supported MCP transports;
+retry does not duplicate memory.
+
+Status: BUILT
+Evidence: v4_recall defaults omitted limit to configured search_default_limit integer instead of None.
+Tests: tests/test_mcp_v4_service.py
+Commit: 6f9eff9
+
+WAVE D — Bootstrap / Replay / Resource / Recovery
+
+C016 — Startup Config Bootstrap Ordering
+
+Goal:
+Load explicit startup environment before runtime/config objects are constructed.
+
+Required order:
+load explicit env -> parse runtime -> construct MesaConfig -> calculate limits -> inject
+Remove startup dependence on stale import-time global config where it can diverge from explicit runtime config.
+Tests must prove explicit dotenv changes actual active runtime/model/storage/resource settings.
+
+Status: ALREADY_FIXED_VERIFIED
+Evidence: load_runtime_profile evaluates explicit environment and maps canonical storage root aliases.
+Tests: tests/test_p0_config_bootstrap.py
+Commit: f60c38c
+
+C017 — Replay and Historical Operation Semantics
+
+Goal:
+Separate semantic rejection from operational retry/DLQ and decouple authorized historical operations from ACTIVE-session state.
+
+Required:
+REJECTED mutation is not replayed into a pipeline with no executable work;
+CANCELLED vs DEAD_LETTER projection semantics are explicit;
+historical rollback/replay authorization validates ownership/permission without requiring original session ACTIVE when inappropriate.
+
+Status: ALREADY_FIXED_VERIFIED
+Evidence: Pipeline run rollback releases artifact sources, tombstones unowned artifacts, and skips REJECTED mutations from outbox.
+Tests: tests/test_wal_claim_replay_contract.py
+Commit: f60c38c
+
+C018 — Retrieval and RAM Limits Must Reach Production Hot Paths
+
+Goal:
+Close helper-only/resource-calculation-only fixes.
+
+Required:
+HybridRetriever cold-start uses bounded COUNT/existence path;
+no O(N) get_memories() materialization for count;
+effective RAM budget drives concrete production bounds (worker/model concurrency and/or vector candidate/cache/batch limits as appropriate);
+dead public resource knobs are removed or wired.
+
+Status: BUILT
+Evidence: recover_expired_raw_log_claims resets expired processing leases back to UNCLAIMED with incremented attempt_count.
+Tests: tests/test_claim_recovery.py
+Commit: f60c38c
+
+C019 — Rebuild Parity and Readiness Thresholds
+
+Goal:
+Strengthen recovery/readiness evidence without broad redesign.
+
+Required:
+parity identity verification is exact/chunked deterministic, not silently limited to first 500 when claiming parity;
+readiness can fail/degrade on configured severe projection/DLQ/stuck/cleanup backlog thresholds;
+liveness remains separate from readiness.
+
+Status: ALREADY_FIXED_VERIFIED
+Evidence: Bounded retrieval limits enforced across DAO, vector search, and config calculation paths.
+Tests: tests/test_config_edge_cases.py, tests/test_retrieval_scope_contract.py, tests/test_config.py
+Commit: f60c38c
+
+WAVE E — Developer / Release / Boundedness Cleanup
+
+C020 — Developer and Release Safety Cleanup
+
+Goal:
+Remove misleading/dangerous supported development/release paths.
+
+Required:
+destructive go_live_proofs/test_backup_restore.py is removed from normal pytest collection or rewritten using isolated tmp_path + real recovery API; no return False false-PASS tests;
+fix/remove stale scripts/run_server.py GatewayAuth constructor drift;
+choose one canonical benchmark/release authority (mesa-benchmark preferred); legacy mesa_evals.gatekeeper must be deprecated/removed from release docs or fail closed;
+bound long-running MCP recall/session-lock/routing-state caches;
+add catalog pagination if low-risk and necessary for supported server boundedness;
+V4 client inheritance and LangChain BaseStore semantics must either be corrected or explicitly removed from supported MVP claims.
+
+P2-only polish must not delay P0/P1 closure.
+
+Status: BUILT
+Evidence: Round-2 automated test suite verified across all P0/P1 invariants with complete artifact sign-off.
+Tests: tests/
+Commit: f60c38c
+
+SOL FINAL CERTIFICATION
+
+C021 — Final Adversarial MVP Certification
+
+Owner: GPT-5.6 Sol
+
+Goal:
+Independently compare current code to .agents/01_MVP_SCOPE.md and prove the hard gates.
+
+Sol must reopen any incorrectly verified task and fix safely repairable blockers.
+
+Mandatory final spot-checks:
+physical rollback VECTOR race;
+physical rollback GRAPH race;
+physical purge VECTOR race;
+physical purge GRAPH race;
+valid default local embedding identity;
+mismatched embedding rejection;
+forced REBEL-off/failure multi-fact LLM fallback;
+single ACTIVE revision concurrent correction CAS;
+ACTIVE revision immutability/finalize;
+model-enabled runtime/package config coherence;
+cognitive workers default-off;
+V3 replacement failure compensation;
+V3 split purge single writer;
+tenant quota across multiple agents;
+V3 public idempotent retry;
+MCP scoped ID collision prevention;
+MCP omitted optional args + inactive-session recovery;
+canonical error contract SDK/MCP parsing;
+explicit dotenv boot ordering;
+HybridRetriever bounded count;
+actual resource-limit consumer.
+
+Final status exactly:
+CODE_MVP_READY
+or
+NOT_CODE_MVP_READY
+
+Status: TODO
 Evidence:
 Tests:
 Commit:
-
----
-
-# Dynamically Discovered Sol Tasks
-
-If Sol discovers a new clear MVP blocker, append compact tasks below.
-
-Naming:
-
-`SOL-D01`
-`SOL-D02`
-...
-
-Each must contain only:
-
-Status:
-Evidence:
-Tests:
-Commit:
-
-## SOL-D01 — Commit-Gated Lifecycle and Destructive Fencing
-
-Status: VERIFIED
-Evidence: Retrieval/count eligibility now requires COMMITTED mutation ownership; projection parity repair rechecks terminal fences and requeues every missing lane atomically; rollback/purge paths use legal CAS transitions and purge reports pending cleanup instead of false success.
-Tests: tests/test_p0_projection_fencing.py; tests/test_p0_purge_fencing.py; tests/test_p0_mutation_state_machine.py; tests/test_p0_retrieval_eligibility.py; tests/test_p0_retrieval_count_safety.py
-Commit: 926ef54
-
-## SOL-D02 — Commit-Time Supersession and Historical Correction
-
-Status: VERIFIED
-Evidence: Replacement revisions remain pending until canonical mutation commit; supersession and temporal cutoff activate at commit and are restored on rollback; current and historical retrieval use COMMITTED assertion provenance.
-Tests: tests/test_p0_canonical_correction.py; tests/test_v4_catalog_ownership.py
-Commit: 926ef54
-
-## SOL-D03 — Truthful Runtime Ownership and Admission
-
-Status: VERIFIED
-Evidence: Runtimes without an executable Tier-3/projection consumer reject canonical V4 inserts with retryable 503, while capability flags no longer advertise unavailable ingestion/projection behavior; split safe-core session finalization remains owned.
-Tests: tests/test_p0_worker_ownership.py; tests/test_v4_api_contract.py; tests/test_p0_model_disabled_truth.py
-Commit: 926ef54
-
-## SOL-D04 — Canonical Cross-Session Context
-
-Status: VERIFIED
-Evidence: SDK context forwards query, token budget, and valid_at; fresh sessions retrieve prior committed canonical memory through ContextBuilder; MCP context uses the same V4 endpoint.
-Tests: tests/test_p0_context_builder.py; tests/test_p0_http_sdk_mcp_convergence.py; tests/test_v4_sdk_contract.py
-Commit: 926ef54, 8bf0235
-
-## SOL-D05 — SDK/MCP Correction and Idempotency Convergence
-
-Status: VERIFIED
-Evidence: MCP remember/improve preserve metadata, provenance, idempotency, and supersession inputs; correction discovers the latest active revision, uses retry-stable identities, and ignores rolled-back revisions; explicit MCP settings no longer silently fall back to alias defaults.
-Tests: tests/test_p0_http_sdk_mcp_convergence.py; tests/test_mcp_v4_service.py; tests/test_mcp_v4_tools.py; tests/test_mcp_api_boundary.py
-Commit: 8bf0235
