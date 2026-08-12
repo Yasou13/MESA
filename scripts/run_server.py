@@ -45,6 +45,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from mesa_api.router import create_memory_router  # noqa: E402
+from mesa_memory.config import config  # noqa: E402
 from mesa_memory.security.rbac import AccessControl  # noqa: E402
 from mesa_storage.dao import MemoryDAO  # noqa: E402
 from mesa_storage.kuzu_provider import KuzuGraphProvider  # noqa: E402
@@ -182,7 +183,9 @@ async def lifespan(app: FastAPI):
         raise
 
     # --- LanceDB vector engine ---
-    _state.vector_engine = VectorEngine(uri="./storage/vector.lance")
+    _state.vector_engine = VectorEngine(
+        uri="./storage/vector.lance", max_workers=config.vector_worker_limit
+    )
     await _state.vector_engine.initialize()
     logger.info("Vector engine initialized: ./storage/vector.lance")
 

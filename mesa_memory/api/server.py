@@ -320,6 +320,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         embedding_provider = AdapterFactory.get_adapter().aembed
     state.vector_engine = VectorEngine(
         uri=str(_VECTOR_PATH),
+        max_workers=config.vector_worker_limit,
         allow_model_loading=runtime.model_enabled,
         embedding_provider=embedding_provider,
         local_embedding_model=config.local_embedding_model,

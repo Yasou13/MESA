@@ -183,6 +183,7 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
             embedding_provider = AdapterFactory.get_adapter().aembed
         vector_engine = VectorEngine(
             str(projection_paths.vector_path),
+            max_workers=config.vector_worker_limit,
             allow_model_loading=runtime.model_enabled,
             embedding_provider=embedding_provider,
             local_embedding_model=config.local_embedding_model,

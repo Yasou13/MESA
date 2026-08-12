@@ -186,7 +186,7 @@ class VectorEngine:
         self,
         uri: str,
         *,
-        max_workers: int | None = None,
+        max_workers: int = _MAX_WORKERS,
         metric: str = _DEFAULT_METRIC,
         allow_model_loading: bool = False,
         embedding_provider: EmbeddingProvider | None = None,
@@ -194,12 +194,6 @@ class VectorEngine:
     ) -> None:
         self._uri = uri
         self._metric = metric
-        if max_workers is None:
-            # Import lazily to avoid a config/vector-engine import cycle at
-            # module construction and to use the calculated effective limit.
-            from mesa_memory.config import config
-
-            max_workers = config.vector_worker_limit
         self._max_workers = max_workers
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
