@@ -28,6 +28,7 @@ from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import (
     RuntimeProfile,
     RuntimeProfileConfig,
+    config,
     load_explicit_dotenv,
     load_runtime_profile,
 )
@@ -53,18 +54,14 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
-from mesa_workers.entity_consolidation_worker import schedule_consolidation_worker
 from mesa_workers.ingestion_worker import (
     process_cold_path,
     process_session_finalization,
 )
-from mesa_workers.maintenance import MaintenanceWorker
-from mesa_workers.maintenance_pagerank import schedule_pagerank_worker
 from mesa_workers.projection_worker import (
     process_artifact_cleanup_once,
     process_projection_outbox_once,
 )
-from mesa_workers.rem_cycle import REMCycleWorker
 from mesa_workers.supervision import WorkerSupervisor
 
 try:
@@ -323,6 +320,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         uri=str(_VECTOR_PATH),
         allow_model_loading=runtime.model_enabled,
         embedding_provider=embedding_provider,
+        local_embedding_model=config.local_embedding_model,
     )
     await state.vector_engine.initialize()
 
@@ -355,6 +353,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         canonical_v4_writes_enabled=(
             runtime.profile is RuntimeProfile.COMBINED and runtime.model_enabled
         ),
+        secondary_writes_enabled=runtime.profile is RuntimeProfile.COMBINED,
     )
     await state.dao.initialize()
 
@@ -405,68 +404,12 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         state.background_tasks.add(consolidation_loop_task)
         logger.info("CONSOLIDATION_LOOP_STARTED")
 
-        # ------------------------------------------------------------------
-        # Valence state restoration (prevents threshold amnesia on restart)
-        # ------------------------------------------------------------------
-        _valence_db = str(_VALENCE_PATH)
-        try:
-            if Path(_valence_db).exists():
-                _router = getattr(state.consolidation_loop, "router", None)
-                _valence = getattr(_router, "valence_motor", None)
-                if _valence is not None:
-                    await _valence.load_state(_valence_db)
-                    logger.info("Valence state restored from %s", _valence_db)
-                else:
-                    logger.debug(
-                        "VALENCE_LOAD_SKIP | ValenceMotor not found on "
-                        "consolidation_loop.router — skipping state restore"
-                    )
-            else:
-                logger.debug(
-                    "VALENCE_LOAD_SKIP | %s does not exist — cold start",
-                    _valence_db,
-                )
-        except (FileNotFoundError, OSError) as fs_exc:
-            logger.warning(
-                "VALENCE_LOAD_FAILED | filesystem error=%s — starting with defaults",
-                fs_exc,
-            )
-        except Exception as exc:
-            logger.warning(
-                "VALENCE_LOAD_FAILED | error=%s — starting with defaults",
-                exc,
-            )
-
-        # ------------------------------------------------------------------
-        # Background workers: PageRank, Maintenance, REM Cycle
-        # ------------------------------------------------------------------
-        pagerank_task = None
-        try:
-            logger.info("PAGERANK_WORKER_STARTING")
-            pagerank_task = await state.worker_supervisor.start(
-                "pagerank", lambda: schedule_pagerank_worker(dao=state.dao)
-            )
-            logger.info("PAGERANK_WORKER_STARTED")
-            state.background_tasks.add(pagerank_task)
-            logger.info("PageRank worker scheduled successfully.")
-        except Exception as exc:
-            logger.error("Failed to schedule PageRank worker: %s", exc)
-
-        consolidation_task = None
-        try:
-            logger.info("ENTITY_CONSOLIDATION_WORKER_STARTING")
-            consolidation_adapter = AdapterFactory.get_adapter()
-            consolidation_task = await state.worker_supervisor.start(
-                "entity-consolidation",
-                lambda: schedule_consolidation_worker(
-                    dao=state.dao, llm_adapter=consolidation_adapter
-                ),
-            )
-            logger.info("ENTITY_CONSOLIDATION_WORKER_STARTED")
-            state.background_tasks.add(consolidation_task)
-            logger.info("Consolidation worker scheduled successfully.")
-        except Exception as exc:
-            logger.error("Failed to schedule Consolidation worker: %s", exc)
+        # REM, PageRank, entity rewrite/consolidation, Valence restoration and
+        # maintenance mutation loops are deliberately not part of the MVP
+        # composition.  They used to mutate legacy SQL/vector/graph state
+        # outside the V4 mutation ledger.  Keep them out of the supported
+        # runtime until they emit lifecycle proposals instead of writes.
+        logger.info("EXPERIMENTAL_COGNITIVE_WORKERS_DISABLED")
 
         # ------------------------------------------------------------------
         # Background workers: Tier-3 Deferred and DLQ
@@ -502,43 +445,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             logger.info("DLQ re-processing worker scheduled successfully.")
         except Exception as exc:
             logger.error("Failed to schedule Tier-3/DLQ workers: %s", exc)
-
-        vacuum_hours_env = os.environ.get("MESA_VACUUM_HOURS", "3")
-        try:
-            schedule_hours = [
-                int(h.strip()) for h in vacuum_hours_env.split(",") if h.strip()
-            ]
-        except ValueError:
-            schedule_hours = [3]
-
-        maintenance_worker = MaintenanceWorker(
-            sqlite_engine=state.sqlite_engine,
-            vector_engine=state.vector_engine,
-            schedule_hours=schedule_hours,
-        )
-        try:
-            logger.info("MAINTENANCE_WORKER_STARTING")
-            await maintenance_worker.start()
-            if maintenance_worker._task:
-                state.background_tasks.add(maintenance_worker._task)
-            logger.info("MAINTENANCE_WORKER_STARTED")
-            logger.info("MaintenanceWorker started successfully.")
-        except Exception as exc:
-            logger.error("Failed to start MaintenanceWorker: %s", exc)
-
-        rem_llm_a, rem_llm_b = AdapterFactory.get_tier3_adapters()
-        rem_worker = REMCycleWorker(
-            dao=state.dao,
-            llm_a=rem_llm_a,
-            llm_b=rem_llm_b,
-        )
-        try:
-            await rem_worker.start()
-            if rem_worker._task:
-                state.background_tasks.add(rem_worker._task)
-            logger.info("REMCycleWorker started successfully.")
-        except Exception as exc:
-            logger.error("Failed to start REMCycleWorker: %s", exc)
 
         # ------------------------------------------------------------------
         # Background worker: SQLite WAL Checkpointer

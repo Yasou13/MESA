@@ -20,6 +20,7 @@ def test_dynamic_ram_limit():
     cfg = calculate_dynamic_limits(MesaConfig())
     assert isinstance(cfg.lancedb_memory_limit_bytes, int)
     assert cfg.lancedb_memory_limit_bytes == int(psutil.virtual_memory().total * 0.18)
+    assert 1 <= cfg.vector_worker_limit <= 4
 
 
 def test_v4_rebuild_feature_flag_is_disabled_by_default_and_explicitly_enabled(

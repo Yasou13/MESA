@@ -137,6 +137,38 @@ _V4_ENTITY_NAMESPACE = uuid.UUID("b6b5dc86-5fc0-4d9a-a6f8-a1f92b28e76f")
 _V4_ASSERTION_NAMESPACE = uuid.UUID("b526e36d-e4f5-4d30-9d10-c4d68b2f5428")
 _V4_CATALOG_NAMESPACE = uuid.UUID("5a227c0d-26ee-47db-98f8-48545636143f")
 _WHITESPACE_RE = re.compile(r"\s+")
+_SECRET_PATTERNS = (
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{16,}\b", re.IGNORECASE),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b", re.IGNORECASE),
+    re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
+    re.compile(r"\b(?:password|api[_-]?key|access[_-]?token|secret)\s*[:=]\s*\S+", re.IGNORECASE),
+)
+
+
+def _validate_write_payload(content: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    encoded = json.dumps(metadata, sort_keys=True, default=str).encode()
+    if len(encoded) > 16 * 1024:
+        raise ValueError("metadata exceeds 16 KB")
+    _validate_metadata_depth(metadata, depth=1)
+    serialised = content + "\n" + encoded.decode(errors="replace")
+    if any(pattern.search(serialised) for pattern in _SECRET_PATTERNS):
+        raise ValueError("content or metadata appears to contain a secret")
+    return metadata
+
+
+def _validate_metadata_depth(value: dict[str, Any], *, depth: int) -> None:
+    if depth > 2:
+        raise ValueError("metadata nesting exceeds the supported depth")
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise ValueError("metadata keys must be strings")
+        if isinstance(item, dict):
+            _validate_metadata_depth(item, depth=depth + 1)
+        elif isinstance(item, list):
+            if depth >= 2 or any(isinstance(entry, (dict, list)) for entry in item):
+                raise ValueError("metadata nesting exceeds the supported depth")
+
 
 
 class PurgeRetryPendingError(RuntimeError):
@@ -289,6 +321,7 @@ class MemoryDAO:
         "_rebuild_admission",
         "_rebuild_health",
         "_canonical_v4_writes_enabled",
+        "_secondary_writes_enabled",
     )
 
     def __init__(
@@ -298,6 +331,7 @@ class MemoryDAO:
         graph_provider: KuzuGraphProvider | None = None,
         *,
         canonical_v4_writes_enabled: bool = True,
+        secondary_writes_enabled: bool = True,
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
@@ -307,6 +341,7 @@ class MemoryDAO:
         self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
         self._rebuild_health = RebuildHealthReader(sqlite_engine)
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
+        self._secondary_writes_enabled = secondary_writes_enabled
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
@@ -567,7 +602,9 @@ class MemoryDAO:
                     document_id,
                     revision_number,
                     normalized_hash,
-                    "PENDING" if supersedes_revision_id else "ACTIVE",
+                    # A revision without chunks is only a draft.  It becomes
+                    # the document head when its canonical mutation commits.
+                    "PENDING",
                     supersedes_revision_id,
                 ),
             )
@@ -645,8 +682,7 @@ class MemoryDAO:
             )
         ):
             raise ValueError("complete document provenance is required")
-        from mesa_memory.security.input_validation import validate_write_payload
-        validate_write_payload(content_payload, {})
+        _validate_write_payload(content_payload, {})
         content_hash = hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
         async with self._sql.transaction() as db:
             async with db.execute(
@@ -771,10 +807,21 @@ class MemoryDAO:
             raise RuntimeError("revision manifest requires at least one source chunk")
         manifest = json.dumps(chunks, sort_keys=True, separators=(",", ":"))
         manifest_hash = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
-        await db.execute(
-            "UPDATE document_revisions SET manifest_hash = ? WHERE revision_id = ?",
-            (manifest_hash, revision_id),
+        cursor = await db.execute(
+            "UPDATE document_revisions SET manifest_hash = ?, content_hash = ? "
+            "WHERE revision_id = ? AND status = 'PENDING'",
+            (manifest_hash, manifest_hash, revision_id),
         )
+        if cursor.rowcount != 1:
+            # Calling the idempotent chunk endpoint for an already finalized
+            # chunk is allowed, but it must never alter the frozen identity.
+            async with db.execute(
+                "SELECT manifest_hash FROM document_revisions WHERE revision_id = ?",
+                (revision_id,),
+            ) as cursor:
+                frozen = await cursor.fetchone()
+            if frozen is None or frozen[0] != manifest_hash:
+                raise ValueError("cannot change manifest of finalized revision")
         return manifest_hash
 
     async def create_v4_session(
@@ -2289,11 +2336,16 @@ class MemoryDAO:
             row = await cursor.fetchone()
         if row is None or not row[4]:
             if row is not None and row[1]:
-                await db.execute(
+                cursor = await db.execute(
                     "UPDATE document_revisions SET status = 'ACTIVE' "
-                    "WHERE revision_id = ? AND status = 'PENDING'",
+                    "WHERE revision_id = ? AND status = 'PENDING' AND NOT EXISTS ("
+                    "SELECT 1 FROM document_revisions active "
+                    "WHERE active.document_id = document_revisions.document_id "
+                    "AND active.status = 'ACTIVE')",
                     (row[1],),
                 )
+                if cursor.rowcount != 1:
+                    raise ValueError("revision-head conflict: document already has an ACTIVE revision")
             return
         try:
             metadata = json.loads(str(row[2] or "{}"))
@@ -2313,16 +2365,20 @@ class MemoryDAO:
             raise ValueError(
                 f"revision supersession conflict: predecessor {row[4]} is no longer ACTIVE ({pred[0] if pred else 'missing'})"
             )
-        await db.execute(
+        predecessor_update = await db.execute(
             "UPDATE document_revisions SET status = 'SUPERSEDED' "
-            "WHERE revision_id = ? AND document_id = ?",
+            "WHERE revision_id = ? AND document_id = ? AND status = 'ACTIVE'",
             (row[4], row[3]),
         )
-        await db.execute(
+        if predecessor_update.rowcount != 1:
+            raise ValueError("revision supersession conflict: predecessor head changed")
+        successor_update = await db.execute(
             "UPDATE document_revisions SET status = 'ACTIVE' "
             "WHERE revision_id = ? AND status = 'PENDING'",
             (row[1],),
         )
+        if successor_update.rowcount != 1:
+            raise ValueError("revision supersession conflict: successor is not pending")
         await db.execute(
             "UPDATE v4_assertions SET status = 'SUPERSEDED', "
             "valid_to = CASE WHEN valid_to = '' AND ? != '' THEN ? ELSE valid_to END "
@@ -3632,6 +3688,10 @@ class MemoryDAO:
         """Apply only the LanceDB vector projection for an existing V4 Entity."""
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
+        # This is deliberately checked immediately before the non-transactional
+        # write.  ``record_mutation_artifact`` below is the post-write receipt
+        # fence; if it loses, its caller compensates the physical write.
+        await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
         node_id = self.v4_entity_id(str(mutation["tenant_id"]), entity_name)
         embedding = await self._vec.compute_embedding(entity_name)
         expected_dim = mutation.get("embedding_dimension")
@@ -3666,6 +3726,34 @@ class MemoryDAO:
             raise exc
         return node_id
 
+    async def _assert_v4_projection_write_allowed(self, mutation_id: str) -> None:
+        """Fail closed before a V4 projector touches a secondary store.
+
+        SQLite cannot make a vector/graph write atomic with the lifecycle
+        ledger.  The paired post-write receipt in ``record_mutation_artifact``
+        handles a race after this check, but skipping the pre-check would still
+        make already-terminal work create needless physical side effects.
+        """
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT m.state AS mutation_state, pr.state AS pipeline_state, "
+                "d.status AS document_status FROM memory_mutations m "
+                "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
+                "LEFT JOIN documents d ON d.document_id = m.document_id "
+                "WHERE m.mutation_id = ?",
+                (mutation_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            raise ValueError("unknown projection mutation")
+        terminal = {"ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED"}
+        if (
+            row["mutation_state"] in terminal
+            or row["pipeline_state"] in terminal
+            or row["document_status"] == "PURGED"
+        ):
+            raise ValueError("projection mutation is fenced or terminal")
+
     async def project_v4_graph_triplet(
         self, *, mutation: dict[str, Any], triplet: dict[str, Any]
     ) -> str:
@@ -3692,8 +3780,14 @@ class MemoryDAO:
                 tenant_id=tenant_id, canonical_name=tail
             )
             object_id = str(object_entity["entity_id"])
+        # Keep this immediately adjacent to the first graph write.  A terminal
+        # transition after this point is caught by the receipt fence below and
+        # compensated in the exception handler.
+        await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
+        graph_entities = [(subject_id, head)]
         await graph.insert_node(subject_id, head, agent_id)
         if object_id and tail:
+            graph_entities.append((object_id, tail))
             await graph.insert_node(object_id, tail, agent_id)
         assertion_id = self.v4_assertion_id(
             tenant_id=tenant_id,
@@ -3829,6 +3923,40 @@ class MemoryDAO:
                 await graph.delete_assertions(agent_id=agent_id, assertion_ids=[assertion_id])
             except Exception:
                 pass
+            # The SQL assertion is created before the graph assertion in order
+            # to preserve canonical provenance.  If the post-write receipt
+            # fence loses, it is not owned by any surviving mutation and must
+            # be removed with the graph side effect.
+            async with self._sql.transaction() as db:
+                await db.execute(
+                    "DELETE FROM v4_assertion_links WHERE source_assertion_id = ? "
+                    "OR target_assertion_id = ?",
+                    (assertion_id, assertion_id),
+                )
+                await db.execute(
+                    "DELETE FROM v4_assertions WHERE assertion_id = ? AND mutation_id = ?",
+                    (assertion_id, str(mutation["mutation_id"])),
+                )
+                await db.commit()
+            for entity_id, _entity_name in graph_entities:
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT 1 FROM artifact_registry r "
+                        "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                        "WHERE r.store_name = 'GRAPH' AND r.artifact_kind = 'ENTITY' "
+                        "AND r.physical_artifact_id = ? AND s.state = 'ACTIVE' LIMIT 1",
+                        (entity_id,),
+                    ) as cursor:
+                        has_owner = await cursor.fetchone()
+                if has_owner is None:
+                    try:
+                        await graph.delete_nodes(
+                            purge_id=f"fence_comp:{mutation['mutation_id']}",
+                            agent_id=agent_id,
+                            node_ids=[entity_id],
+                        )
+                    except Exception:
+                        pass
             raise exc
         return assertion_id
 
@@ -5318,10 +5446,19 @@ class MemoryDAO:
                 )
             await db.commit()
         assert purge_id is not None
+        if not self._secondary_writes_enabled:
+            # API-only processes own durable intent and canonical tombstones,
+            # never the embedded vector/graph writer.  The storage-owner
+            # worker resumes this exact journal entry.
+            record = await self._get_purge_record(purge_id)
+            assert record is not None
+            return len(json.loads(record["target_node_ids"]))
         return await self.resume_purge(purge_id)
 
     async def resume_purge(self, purge_id: str) -> int:
         """Resume one journal-recorded purge without widening its scope."""
+        if not self._secondary_writes_enabled:
+            raise PurgeBlockedError("this runtime is not the secondary-store writer")
         record = await self._get_purge_record(purge_id)
         if record is None:
             raise ValueError("unknown purge_id")
@@ -6148,8 +6285,7 @@ class MemoryDAO:
             raise ValueError("payload agent_id must match the durable admission tenant")
         content_str = str(payload.get("content_payload") or payload.get("text") or payload.get("content") or "")
         meta_dict = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-        from mesa_memory.security.input_validation import validate_write_payload
-        validate_write_payload(content_str, meta_dict)
+        _validate_write_payload(content_str, meta_dict)
         serialized, payload_bytes = _canonical_payload_bytes(payload)
         metadata = payload.get("metadata", {})
         idempotency_key = (

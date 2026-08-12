@@ -248,6 +248,24 @@ class BatchResponseParser:
         indexed: dict[int, ExtractedTriplet] = {}
         for triplet in response.triplets:
             if 0 <= triplet.record_index < expected_count:
-                indexed[triplet.record_index] = triplet
+                existing = indexed.get(triplet.record_index)
+                if existing is None:
+                    indexed[triplet.record_index] = triplet
+                    continue
+                # A standards-compliant LLM may emit repeated record indices
+                # rather than the legacy ``additional_triplets`` envelope.
+                # Preserve every fact instead of silently overwriting all but
+                # the last one.
+                existing.additional_triplets.extend(
+                    [
+                        {
+                            "head": item.head,
+                            "relation": item.relation,
+                            "tail": item.tail,
+                            "confidence": item.confidence,
+                        }
+                        for item in triplet.all_triplets()
+                    ]
+                )
         missing = sorted(set(range(expected_count)) - set(indexed.keys()))
         return indexed, missing

@@ -390,6 +390,13 @@ class MesaConfig(BaseSettings):
     # Dynamic limits: fraction of total RAM allocated to LanceDB (M1)
     ram_allocation_fraction: float = 0.18
 
+    @property
+    def vector_worker_limit(self) -> int:
+        """Bound vector model/I/O concurrency from the effective RAM budget."""
+        # One worker per 512 MiB allocated to the vector subsystem, clamped
+        # to keep normal deployments responsive and bounded.
+        return max(1, min(4, self.lancedb_memory_limit_bytes // (512 * 1024 * 1024)))
+
     # Cross-validation lock thresholds (Module 8)
     entity_similarity_threshold: float = 0.80
     relation_similarity_threshold: float = 0.70

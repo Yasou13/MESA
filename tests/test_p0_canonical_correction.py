@@ -236,6 +236,11 @@ async def test_concurrent_corrections_from_same_predecessor_enforce_single_activ
         tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
         revision_id="rev_0", revision_number=1, content_hash="0" * 64
     )
+    async with engine.transaction() as db:
+        await db.execute(
+            "UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = 'rev_0'"
+        )
+        await db.commit()
 
     # Correction 1 (superseding R0)
     await dao.create_v4_revision(

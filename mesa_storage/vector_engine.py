@@ -186,13 +186,20 @@ class VectorEngine:
         self,
         uri: str,
         *,
-        max_workers: int = _MAX_WORKERS,
+        max_workers: int | None = None,
         metric: str = _DEFAULT_METRIC,
         allow_model_loading: bool = False,
         embedding_provider: EmbeddingProvider | None = None,
+        local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     ) -> None:
         self._uri = uri
         self._metric = metric
+        if max_workers is None:
+            # Import lazily to avoid a config/vector-engine import cycle at
+            # module construction and to use the calculated effective limit.
+            from mesa_memory.config import config
+
+            max_workers = config.vector_worker_limit
         self._max_workers = max_workers
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
@@ -206,6 +213,7 @@ class VectorEngine:
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
         self._embedding_provider = embedding_provider
+        self._local_embedding_model = local_embedding_model
 
         self._embedder = None
         self._fallback_embedder = True
@@ -214,7 +222,7 @@ class VectorEngine:
                 from sentence_transformers import SentenceTransformer
 
                 self._embedder = SentenceTransformer(
-                    "all-MiniLM-L6-v2", local_files_only=True
+                    self._local_embedding_model, local_files_only=True
                 )
                 self._fallback_embedder = False
             except (ImportError, OSError):

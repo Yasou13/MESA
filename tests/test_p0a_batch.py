@@ -593,9 +593,8 @@ class TestSchemaValidation:
                 record_index=0, head="A", relation="r", tail="B", confidence=1.5
             )
 
-    def test_batch_response_empty_array_rejected(self):
-        with pytest.raises(Exception):
-            BatchExtractionResponse(triplets=[])
+    def test_batch_response_empty_array_represents_no_facts(self):
+        assert BatchExtractionResponse(triplets=[]).triplets == []
 
     def test_batch_response_valid(self):
         resp = BatchExtractionResponse(

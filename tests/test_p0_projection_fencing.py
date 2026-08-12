@@ -341,5 +341,90 @@ async def test_physical_vector_and_graph_side_effect_compensated_on_fencing_loss
     await engine.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lane", ["VECTOR", "GRAPH"])
+async def test_post_write_fence_loss_compensates_unowned_physical_state(tmp_path, lane):
+    """Pause at the real secondary write, terminalize, then inspect every store."""
+    engine = AsyncEngine(str(tmp_path / f"post_write_{lane}.db"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    vectors: set[str] = set()
+    graph_nodes: set[str] = set()
+    graph_assertions: set[str] = set()
+    dao: MemoryDAO
+
+    class Vector:
+        is_initialized = True
+
+        async def compute_embedding(self, _text: str) -> list[float]:
+            return [0.1] * 384
+
+        async def upsert(self, node_id: str, **_kwargs) -> None:
+            vectors.add(node_id)
+            if lane == "VECTOR":
+                await dao.request_pipeline_rollback("run")
+
+        async def hard_delete(self, node_id: str, _agent_id: str) -> None:
+            vectors.discard(node_id)
+
+    class Graph:
+        async def insert_node(self, node_id: str, *_args) -> None:
+            graph_nodes.add(node_id)
+
+        async def insert_assertion(self, assertion_id: str, **_kwargs) -> None:
+            graph_assertions.add(assertion_id)
+            if lane == "GRAPH":
+                await dao.request_pipeline_rollback("run")
+
+        async def delete_assertions(self, *, assertion_ids: list[str], **_kwargs) -> None:
+            graph_assertions.difference_update(assertion_ids)
+
+        async def delete_nodes(self, *, node_ids: list[str], **_kwargs) -> None:
+            graph_nodes.difference_update(node_ids)
+
+        async def link_assertions(self, **_kwargs) -> None:
+            return None
+
+    dao = MemoryDAO(engine, Vector(), graph_provider=Graph())
+    await dao.create_v4_workspace(tenant_id="tenant", workspace_id="ws", workspace_name="WS")
+    await dao.ensure_v4_catalog_scope(tenant_id="tenant", workspace_id="ws", dataset_id="data")
+    await dao.create_v4_document(tenant_id="tenant", dataset_id="data", document_id="doc", title="Doc")
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
+            "VALUES ('run', 'tenant', 'agent', 'ws', 'data', 'session', 'PROJECTING')"
+        )
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, revision_id, chunk_id, session_id, pipeline_run_id, source_ref, content_payload, state) "
+            "VALUES ('mutation', 'candidate', 'tenant', 'agent', 'data', 'doc', 'revision', 'chunk', 'session', 'run', 'source', '{}', 'VALIDATED')"
+        )
+        await db.commit()
+    mutation = await dao.get_projection_mutation("mutation")
+    assert mutation is not None
+
+    with pytest.raises(ValueError, match="cannot register artifact"):
+        if lane == "VECTOR":
+            await dao.project_v4_vector_entity(mutation=mutation, entity_name="Alpha")
+        else:
+            await dao.project_v4_graph_triplet(
+                mutation=mutation,
+                triplet={"head": "Alpha", "relation": "uses", "tail": "Beta"},
+            )
+
+    assert not vectors
+    assert not graph_nodes
+    assert not graph_assertions
+    async with engine.connection() as db:
+        assertion_count = await (
+            await db.execute("SELECT COUNT(*) FROM v4_assertions WHERE mutation_id = 'mutation'")
+        ).fetchone()
+        artifacts = await (
+            await db.execute("SELECT COUNT(*) FROM memory_artifacts WHERE mutation_id = 'mutation'")
+        ).fetchone()
+    assert assertion_count[0] == 0
+    assert artifacts[0] == 0
+    await engine.close()
+
+
 async def _empty_ids() -> set[str]:
     return set()

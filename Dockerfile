@@ -14,7 +14,7 @@ COPY mesa_client ./mesa_client
 COPY mesa_evals ./mesa_evals
 COPY mesa_mcp ./mesa_mcp
 COPY --from=uv /uv /usr/local/bin/uv
-RUN uv export --quiet --frozen --no-dev --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
+RUN uv export --quiet --frozen --no-dev --extra ml --extra adapters --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
     && python -m pip wheel --no-cache-dir --wheel-dir=/wheels -r /tmp/requirements.txt \
     && python -m pip wheel --no-cache-dir --no-deps --wheel-dir=/wheels .
 
@@ -29,7 +29,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN groupadd --system mesa && useradd --system --gid mesa --home-dir /nonexistent --shell /usr/sbin/nologin mesa \
     && mkdir -p /var/lib/mesa && chown mesa:mesa /var/lib/mesa
 COPY --from=builder /wheels /wheels
-RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels /wheels/mesa_memory-*.whl && rm -rf /wheels
+RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels /wheels/mesa_memory-*.whl[ml,adapters] && rm -rf /wheels
 USER mesa:mesa
 WORKDIR /var/lib/mesa
 VOLUME ["/var/lib/mesa"]

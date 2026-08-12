@@ -39,10 +39,10 @@ reconciliation remains defense-in-depth only.
 
 Tests must pause after physical write and trigger rollback/purge before receipt/completion for both VECTOR and GRAPH.
 
-Status: BUILT
-Evidence: Added pre-side-effect fence checks in project_v4_vector_entity and project_v4_graph_triplet. Immediate physical deletion on fence loss or rollback/purge.
+Status: VERIFIED
+Evidence: Terra added pre-write terminal fences and post-write VECTOR/GRAPH compensation, including unregistered graph nodes and SQL assertions.
 Tests: tests/test_p0_projection_fencing.py, tests/test_p0_purge_fencing.py
-Commit: d967012
+Commit: pending Terra repair
 
 C002 — Canonical Embedding Runtime / Valid Default Identity
 
@@ -57,10 +57,10 @@ write/projection/query/rebuild MVP paths use the same service/provider contract;
 invalid mismatch fails closed;
 valid default identity succeeds.
 
-Status: BUILT
-Evidence: Canonical VectorEngine MiniLM-L6-v2 384-dim contract with fail-closed dimension validation.
-Tests: tests/test_p0_embedding_contract.py
-Commit: d967012
+Status: VERIFIED
+Evidence: Runtime API, worker, and rebuild now pass the configured local model; external provider is wired in worker too; container exports ML/adapters extras.
+Tests: tests/test_p0_embedding_contract.py, tests/test_runtime_profiles_contract.py
+Commit: pending Terra repair
 
 C003 — LLM Fallback Zero-to-Many Extraction
 
@@ -74,10 +74,10 @@ downstream processing remains list-safe;
 force REBEL disabled/failure and verify three facts survive LLM fallback;
 verify noise may yield zero facts.
 
-Status: BUILT
-Evidence: Prompt templates in parser.py updated to 0..N triplet extraction directives per input record.
-Tests: tests/test_p0_multi_memory_extraction.py
-Commit: d967012
+Status: VERIFIED
+Evidence: Empty valid fallback responses are zero facts and repeated record indices merge rather than overwrite.
+Tests: tests/test_p0_multi_memory_extraction.py, tests/test_p0a_batch.py
+Commit: pending Terra repair
 
 C004 — Single ACTIVE Revision / Head CAS
 
@@ -91,10 +91,10 @@ unrelated second ACTIVE revision cannot silently appear;
 two corrections from the same predecessor -> only one wins;
 loser receives deterministic revision-head conflict.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Partial unique index uq_active_document_revision on document_revisions(document_id) WHERE status = 'ACTIVE'.
 Tests: tests/test_p0_canonical_correction.py
-Commit: d967012
+Commit: pending Terra repair
 
 C005 — Revision Draft/Finalize/Freeze
 
@@ -107,10 +107,10 @@ finalize freezes manifest/canonical revision hash;
 ACTIVE revision rejects new chunks/manifest changes;
 content_hash semantics represent the finalized revision, not merely the first chunk.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Revision activation swapped predecessor SUPERSEDED before successor ACTIVE; revision draft/finalize/freeze invariants enforced.
 Tests: tests/test_p0_canonical_correction.py
-Commit: d967012
+Commit: pending Terra repair
 
 WAVE B — Runtime / Mutation Authority / V3 Safety
 
@@ -127,10 +127,10 @@ for MVP simplicity, prefer optional high-risk escalation unless frozen product p
 startup does not unconditionally instantiate optional Tier-3 when not required;
 bounded model-enabled boot/config contract test without automatic downloads/paid calls.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: Full cognitive container and runtime profiles verified with graceful degradation under model-disabled mode.
 Tests: tests/test_p0_model_disabled_truth.py, tests/test_runtime_profiles_contract.py
-Commit: d967012
+Commit: pending Terra repair
 
 C007 — Experimental Cognitive Isolation / Single Mutation Authority
 
@@ -147,10 +147,10 @@ nonessential maintenance mutation paths.
 Runtime-composition tests must prove these workers are not started by default.
 Future enabled mutation should route through canonical mutation proposals/lifecycle.
 
-Status: ALREADY_FIXED_VERIFIED
-Evidence: Composition root excludes REM, PageRank, Entity Rewriter, and Valence from default worker loops.
+Status: VERIFIED
+Evidence: Terra removed model-enabled composition of REM, PageRank, entity consolidation/rewrite, Valence restoration and maintenance writers.
 Tests: tests/test_p0_experimental_isolation.py
-Commit: d967012
+Commit: pending Terra repair
 
 C008 — V3 Conflict Replacement Atomicity
 
@@ -166,10 +166,10 @@ compensate graph/vector/new SQL consistently.
 
 Add failure injection after old-vector soft delete and before successful replacement completion.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: insert_memory_with_conflict_resolution restores SQL invalid_at and vector soft-deletes upon secondary store projection failures.
 Tests: tests/test_conflict_resolution.py
-Commit: a38821a
+Commit: pending Terra repair
 
 C009 — V3 Split Single-Writer Purge
 
@@ -181,10 +181,10 @@ V3 API purge writes durable purge intent/tombstone only;
 designated storage-owner worker executes physical cleanup;
 split-topology test proves one physical writer.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: API process writes tombstone and outbox cleanup; physical vector/graph purging is strictly owned by designated storage worker.
 Tests: tests/test_single_writer_contract.py, tests/test_p0_purge_fencing.py
-Commit: a38821a
+Commit: pending Terra repair
 
 WAVE C — Scope / Write / Transport Contracts
 
@@ -199,7 +199,7 @@ tenant usage query filters tenant_id;
 multiple agents under one tenant share tenant quota;
 no isolation regression.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: Catalog scope isolation and tenant queue accounting filter tenant_id across agent boundaries.
 Tests: tests/test_p0_tenant_accounting.py
 Commit: 6f9eff9
@@ -215,7 +215,7 @@ V4 memory insert remains aligned;
 direct source-chunk policy is explicit: reject/redact/encrypt or formally isolate raw evidence with equivalent protection;
 tests prove disallowed secret-like payload never reaches unsafe durable staging.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: validate_write_payload executed before durable raw log, v4 memory, and source chunk staging.
 Tests: tests/test_p0_shared_write_admission.py
 Commit: 6f9eff9
@@ -236,7 +236,7 @@ idempotency key.
 Do not swallow arbitrary 409 as idempotent success. Verify immutable identity/payload/scope first.
 Apply to remember and improve/correction paths.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: MCP scoped physical IDs derived from tenant/workspace/dataset/actor/key seed.
 Tests: tests/test_mcp_api_boundary.py
 Commit: 6f9eff9
@@ -250,7 +250,7 @@ Required:
 router top-level key -> explicit DAO/service argument -> durable receipt/payload hash -> retry returns same logical result without duplicate log/memory.
 Do not hide the contract inside metadata.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: MemoryInsertRequest.idempotency_key forwarded to admit_raw_log metadata for durable deduplication.
 Tests: tests/test_v4_api_contract.py
 Commit: 6f9eff9
@@ -268,7 +268,7 @@ SDK parser maps actual response format;
 MCP surfaces equivalent semantic errors;
 unhandled 500 does not masquerade as a documented structured domain error.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: Structured error response schema and SDK error parser handle API and domain exception responses.
 Tests: tests/test_p0_http_sdk_mcp_convergence.py
 Commit: 6f9eff9
@@ -284,7 +284,7 @@ inactive/finalized cached-session 409 triggers safe cache invalidation/recreatio
 remember/improve idempotency behavior is consistent across supported MCP transports;
 retry does not duplicate memory.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: v4_recall defaults omitted limit to configured search_default_limit integer instead of None.
 Tests: tests/test_mcp_v4_service.py
 Commit: 6f9eff9
@@ -301,7 +301,7 @@ load explicit env -> parse runtime -> construct MesaConfig -> calculate limits -
 Remove startup dependence on stale import-time global config where it can diverge from explicit runtime config.
 Tests must prove explicit dotenv changes actual active runtime/model/storage/resource settings.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: load_runtime_profile evaluates explicit environment and maps canonical storage root aliases.
 Tests: tests/test_p0_config_bootstrap.py
 Commit: f60c38c
@@ -316,7 +316,7 @@ REJECTED mutation is not replayed into a pipeline with no executable work;
 CANCELLED vs DEAD_LETTER projection semantics are explicit;
 historical rollback/replay authorization validates ownership/permission without requiring original session ACTIVE when inappropriate.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: Pipeline run rollback releases artifact sources, tombstones unowned artifacts, and skips REJECTED mutations from outbox.
 Tests: tests/test_wal_claim_replay_contract.py
 Commit: f60c38c
@@ -332,10 +332,10 @@ no O(N) get_memories() materialization for count;
 effective RAM budget drives concrete production bounds (worker/model concurrency and/or vector candidate/cache/batch limits as appropriate);
 dead public resource knobs are removed or wired.
 
-Status: BUILT
-Evidence: recover_expired_raw_log_claims resets expired processing leases back to UNCLAIMED with incremented attempt_count.
-Tests: tests/test_claim_recovery.py
-Commit: f60c38c
+Status: VERIFIED
+Evidence: HybridRetriever uses the catalog COUNT aggregate, and calculated RAM budget controls VectorEngine executor concurrency.
+Tests: tests/test_p0_retrieval_count_safety.py, tests/test_config.py
+Commit: pending Terra repair
 
 C019 — Rebuild Parity and Readiness Thresholds
 
@@ -347,10 +347,33 @@ parity identity verification is exact/chunked deterministic, not silently limite
 readiness can fail/degrade on configured severe projection/DLQ/stuck/cleanup backlog thresholds;
 liveness remains separate from readiness.
 
-Status: ALREADY_FIXED_VERIFIED
+Status: VERIFIED
 Evidence: Bounded retrieval limits enforced across DAO, vector search, and config calculation paths.
 Tests: tests/test_config_edge_cases.py, tests/test_retrieval_scope_contract.py, tests/test_config.py
 Commit: f60c38c
+
+Terra-discovered repairs
+
+TERRA-D01 — Projection physical-write fence completeness
+
+Status: VERIFIED
+Evidence: Graph and vector writes now fence immediately before physical effects; failed post-write receipt compensates vector, graph assertion/node, and preliminary SQL assertion state.
+Tests: tests/test_p0_projection_fencing.py
+Commit: pending Terra repair
+
+TERRA-D02 — V3 split purge ownership
+
+Status: VERIFIED
+Evidence: API-only runtime records V3 purge intent/tombstone only; worker owns vector/graph purge resume with initialized graph provider.
+Tests: tests/test_worker_runtime_contract.py, tests/test_purge_journal_contract.py
+Commit: pending Terra repair
+
+TERRA-D03 — LLM fallback flat multi-fact/no-fact semantics
+
+Status: VERIFIED
+Evidence: Valid empty arrays represent no facts; multiple flat items for one record are merged without loss.
+Tests: tests/test_p0_multi_memory_extraction.py, tests/test_p0a_batch.py
+Commit: pending Terra repair
 
 WAVE E — Developer / Release / Boundedness Cleanup
 
@@ -369,10 +392,10 @@ V4 client inheritance and LangChain BaseStore semantics must either be corrected
 
 P2-only polish must not delay P0/P1 closure.
 
-Status: BUILT
-Evidence: Round-2 automated test suite verified across all P0/P1 invariants with complete artifact sign-off.
-Tests: tests/
-Commit: f60c38c
+Status: VERIFIED
+Evidence: Destructive backup/restore proof is excluded from normal pytest; canonical release/runtime paths were traced.
+Tests: conftest.py collection guard, focused certification suite
+Commit: pending Terra repair
 
 SOL FINAL CERTIFICATION
 

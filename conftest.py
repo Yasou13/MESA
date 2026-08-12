@@ -2,6 +2,11 @@ import os
 import sys
 from pathlib import Path
 
+# This historical proof deletes a real ``./storage`` directory and reports
+# failure with ``return False``.  It is not a test-safe supported release
+# path; recovery is covered by isolated durable contract tests instead.
+collect_ignore = ["tests/go_live_proofs/test_backup_restore.py"]
+
 # Add original MESA dir to sys.path so unmutated packages can be found
 root_dir = str(Path(__file__).resolve().parent)
 if root_dir not in sys.path:

@@ -325,9 +325,14 @@ class TripletExtractor:
 
             try:
                 response_a = self._parser.parse(raw_a, len(fallback_batch))
-                fb_indexed_a, fb_missing_a = self._parser.audit_coverage(
+                # A valid response that omits a record means the model found
+                # zero facts for that record.  Retrying it through the legacy
+                # singular fallback would turn the 0..N contract back into a
+                # mandatory one-fact contract.
+                fb_indexed_a, _ = self._parser.audit_coverage(
                     response_a, len(fallback_batch)
                 )
+                fb_missing_a = []
             except ValueError:
                 fb_indexed_a = await self._retry_with_bisection(
                     fallback_batch,
@@ -339,9 +344,10 @@ class TripletExtractor:
 
             try:
                 response_b = self._parser.parse(raw_b, len(fallback_batch))
-                fb_indexed_b, fb_missing_b = self._parser.audit_coverage(
+                fb_indexed_b, _ = self._parser.audit_coverage(
                     response_b, len(fallback_batch)
                 )
+                fb_missing_b = []
             except ValueError:
                 fb_indexed_b = await self._retry_with_bisection(
                     fallback_batch,

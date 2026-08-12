@@ -185,3 +185,42 @@ async def test_llm_fallback_multi_fact_extraction_when_rebel_fails(monkeypatch):
         ("Database", "USES", "PostgreSQL"),
         ("Cache", "USES", "Redis"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_preserves_flat_multi_fact_and_no_fact_responses(monkeypatch):
+    """A REBEL outage must retain repeated-index facts and allow intentional zero facts."""
+    from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
+
+    multi = BatchExtractionResponse(
+        triplets=[
+            ExtractedTriplet(record_index=0, head="Backend", relation="USES", tail="FastAPI"),
+            ExtractedTriplet(record_index=0, head="Database", relation="USES", tail="PostgreSQL"),
+            ExtractedTriplet(record_index=0, head="Cache", relation="USES", tail="Redis"),
+        ]
+    )
+    extractor = TripletExtractor(
+        SimpleNamespace(complete=lambda *_args: multi),
+        SimpleNamespace(complete=lambda *_args: multi),
+    )
+    monkeypatch.setattr(
+        extractor.rebel_extractor,
+        "extract_triplets",
+        lambda _content: (_ for _ in ()).throw(RuntimeError("REBEL disabled")),
+    )
+    indexed_a, indexed_b = await extractor.extract_batch(
+        [{"content_payload": "Backend FastAPI. Database PostgreSQL. Cache Redis."}]
+    )
+    assert [fact.tail for fact in indexed_a[0].all_triplets()] == [
+        "FastAPI", "PostgreSQL", "Redis"
+    ]
+    assert [fact.tail for fact in indexed_b[0].all_triplets()] == [
+        "FastAPI", "PostgreSQL", "Redis"
+    ]
+
+    no_fact = TripletExtractor(
+        SimpleNamespace(complete=lambda *_args: BatchExtractionResponse(triplets=[])),
+        SimpleNamespace(complete=lambda *_args: BatchExtractionResponse(triplets=[])),
+    )
+    monkeypatch.setattr(no_fact.rebel_extractor, "extract_triplets", lambda _content: [])
+    assert await no_fact.extract_batch([{"content_payload": "..."}]) == ({}, {})

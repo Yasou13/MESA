@@ -184,10 +184,9 @@ class ExtractedTriplet(BaseModel):
 
 
 class BatchExtractionResponse(BaseModel):
-    """Root schema: array of triplets for a multi-record batch."""
+    """Root schema: zero or more triplets for a multi-record batch."""
 
     triplets: list[ExtractedTriplet] = Field(
-        ...,
-        min_length=1,
-        description="One triplet per input record, indexed by record_index",
+        default_factory=list,
+        description="Zero or more triplets per input record, indexed by record_index",
     )
