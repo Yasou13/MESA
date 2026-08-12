@@ -210,3 +210,117 @@ async def _commit_projected_mutation(dao, engine, agent_id, mutation, triplets):
                 db, mutation["mutation_id"]
             )
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_corrections_from_same_predecessor_enforce_single_active_head(tmp_path):
+    """Two concurrent corrections from the same predecessor must not both become ACTIVE."""
+    db_path = tmp_path / "mesa_test_concurrent_head.db"
+    engine = AsyncEngine(str(db_path))
+    await engine.initialize()
+    await initialize_schema(engine)
+
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=SimpleNamespace(), graph_provider=SimpleNamespace())
+
+    tenant_id = "tenant_cas"
+    workspace_id = "ws_cas"
+    dataset_id = "dataset_cas"
+    doc_id = "doc_cas"
+
+    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS CAS")
+    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
+    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Doc CAS", document_id=doc_id)
+
+    # Base revision R0 (ACTIVE)
+    await dao.create_v4_revision(
+        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
+        revision_id="rev_0", revision_number=1, content_hash="0" * 64
+    )
+
+    # Correction 1 (superseding R0)
+    await dao.create_v4_revision(
+        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
+        revision_id="rev_1", revision_number=2, supersedes_revision_id="rev_0", content_hash="1" * 64
+    )
+
+    # Correction 2 (also superseding R0)
+    await dao.create_v4_revision(
+        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
+        revision_id="rev_2", revision_number=3, supersedes_revision_id="rev_0", content_hash="2" * 64
+    )
+
+    # Commit Correction 1 first -> R1 becomes ACTIVE, R0 becomes SUPERSEDED
+    m1 = {
+        "tenant_id": tenant_id, "workspace_id": workspace_id, "dataset_id": dataset_id,
+        "document_id": doc_id, "revision_id": "rev_1", "chunk_id": "c1", "agent_id": "agent_cas",
+        "session_id": "sess_1", "pipeline_run_id": "run_1", "source_ref": "ref_1",
+        "mutation_id": "mut_1", "candidate_id": "cand_1", "content_payload": "C1",
+    }
+    await dao.record_mutation(m1, raw_log_id=None)
+    await _commit_projected_mutation(dao, engine, "agent_cas", m1, [])
+
+    # Now attempt to commit Correction 2 whose predecessor R0 is no longer ACTIVE -> Must fail closed!
+    m2 = {
+        "tenant_id": tenant_id, "workspace_id": workspace_id, "dataset_id": dataset_id,
+        "document_id": doc_id, "revision_id": "rev_2", "chunk_id": "c2", "agent_id": "agent_cas",
+        "session_id": "sess_2", "pipeline_run_id": "run_2", "source_ref": "ref_2",
+        "mutation_id": "mut_2", "candidate_id": "cand_2", "content_payload": "C2",
+    }
+    await dao.record_mutation(m2, raw_log_id=None)
+    with pytest.raises(ValueError, match="revision supersession conflict"):
+        await _commit_projected_mutation(dao, engine, "agent_cas", m2, [])
+
+    # Verify document has exactly ONE active revision (R1)
+    async with engine.connection() as db:
+        async with db.execute("SELECT revision_id FROM document_revisions WHERE document_id = ? AND status = 'ACTIVE'", (doc_id,)) as cur:
+            rows = await cur.fetchall()
+            assert len(rows) == 1
+            assert rows[0][0] == "rev_1"
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_cannot_append_chunks_to_finalized_revision(tmp_path):
+    """Appending a new chunk to an already finalized/ACTIVE revision must be rejected."""
+    db_path = tmp_path / "mesa_test_freeze.db"
+    engine = AsyncEngine(str(db_path))
+    await engine.initialize()
+    await initialize_schema(engine)
+
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=SimpleNamespace(), graph_provider=SimpleNamespace())
+
+    tenant_id = "tenant_freeze"
+    workspace_id = "ws_freeze"
+    dataset_id = "dataset_freeze"
+    doc_id = "doc_freeze"
+    rev_id = "rev_freeze"
+
+    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Freeze")
+    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
+
+    # 1. Create initial provenance (Revision + Chunk 1) -> status is ACTIVE
+    p1 = await dao.create_v4_source_chunk(
+        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
+        revision_id=rev_id, chunk_id="chk_1", title="Title", content_payload="Chunk 1",
+        source_ref="ref_1", revision_number=1, chunk_ordinal=0
+    )
+    assert p1["manifest_hash"] is not None
+
+    # 2. Re-inserting identical chunk 1 is idempotent
+    p1_again = await dao.create_v4_source_chunk(
+        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
+        revision_id=rev_id, chunk_id="chk_1", title="Title", content_payload="Chunk 1",
+        source_ref="ref_1", revision_number=1, chunk_ordinal=0
+    )
+    assert p1_again["manifest_hash"] == p1["manifest_hash"]
+
+    # 3. Attempting to append a NEW chunk_2 to finalized rev_id must fail!
+    with pytest.raises(ValueError, match="cannot append source chunk to finalized revision"):
+        await dao.create_v4_source_chunk(
+            tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
+            revision_id=rev_id, chunk_id="chk_2", title="Title", content_payload="Chunk 2",
+            source_ref="ref_2", revision_number=1, chunk_ordinal=1
+        )
+
+    await engine.close()

@@ -693,11 +693,21 @@ class MemoryDAO:
                 revision = await cursor.fetchone()
             if revision is None or tuple(revision) != (tenant_id, document_id):
                 raise ValueError("revision identity collides with another document")
-            if existing_revision is not None and (
-                existing_revision["revision_number"] != revision_number
-                or existing_revision["supersedes_revision_id"] != supersedes_revision_id
-            ):
-                raise ValueError("revision identity is immutable and already differs")
+            if existing_revision is not None:
+                if existing_revision["status"] in ("ACTIVE", "SUPERSEDED", "PURGED", "ROLLED_BACK"):
+                    async with db.execute(
+                        "SELECT chunk_id FROM source_chunks WHERE chunk_id = ?", (chunk_id,)
+                    ) as cur:
+                        c_row = await cur.fetchone()
+                    if c_row is None:
+                        raise ValueError(
+                            f"cannot append source chunk to finalized revision in state {existing_revision['status']}"
+                        )
+                if (
+                    existing_revision["revision_number"] != revision_number
+                    or existing_revision["supersedes_revision_id"] != supersedes_revision_id
+                ):
+                    raise ValueError("revision identity is immutable and already differs")
             if existing_revision is None and supersedes_revision_id:
                 async with db.execute(
                     "SELECT document_id FROM document_revisions WHERE revision_id = ?",
@@ -2293,6 +2303,15 @@ class MemoryDAO:
             if isinstance(metadata, dict)
             else ""
         )
+        async with db.execute(
+            "SELECT status FROM document_revisions WHERE revision_id = ?",
+            (row[4],),
+        ) as cur:
+            pred = await cur.fetchone()
+        if pred is None or pred[0] != "ACTIVE":
+            raise ValueError(
+                f"revision supersession conflict: predecessor {row[4]} is no longer ACTIVE ({pred[0] if pred else 'missing'})"
+            )
         await db.execute(
             "UPDATE document_revisions SET status = 'ACTIVE' "
             "WHERE revision_id = ? AND status = 'PENDING'",
@@ -2821,7 +2840,42 @@ class MemoryDAO:
                         "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ?",
                         (projection_id,),
                     )
+                mutation_id_str = str(row["mutation_id"])
+                async with db.execute(
+                    "SELECT store_name, artifact_kind, artifact_id FROM memory_artifacts WHERE mutation_id = ?",
+                    (mutation_id_str,),
+                ) as art_cur:
+                    arts = await art_cur.fetchall()
+                await db.execute("DELETE FROM memory_artifacts WHERE mutation_id = ?", (mutation_id_str,))
                 await db.commit()
+
+                agent_id_str = str(row["agent_id"]) if "agent_id" in row.keys() and row["agent_id"] else ""
+                if not agent_id_str:
+                    async with self._sql.connection() as c_db:
+                        async with c_db.execute(
+                            "SELECT agent_id FROM memory_mutations WHERE mutation_id = ?",
+                            (mutation_id_str,),
+                        ) as m_cur:
+                            m_row = await m_cur.fetchone()
+                            if m_row:
+                                agent_id_str = str(m_row[0])
+
+                for art in arts:
+                    s_name, a_kind, a_id = art[0], art[1], art[2]
+                    if s_name == "VECTOR":
+                        try:
+                            await self._vec.hard_delete(a_id, agent_id_str)
+                        except Exception:
+                            pass
+                    elif s_name == "GRAPH":
+                        try:
+                            g = self._require_graph()
+                            if a_kind == "ASSERTION":
+                                await g.delete_assertions(agent_id=agent_id_str, assertion_ids=[a_id])
+                            elif a_kind == "ENTITY":
+                                await g.delete_nodes(purge_id=f"fence_comp:{mutation_id_str}", agent_id=agent_id_str, node_ids=[a_id])
+                        except Exception:
+                            pass
                 return False
             await db.execute(
                 "INSERT OR IGNORE INTO projection_attempts "
@@ -3590,18 +3644,25 @@ class MemoryDAO:
             embedding=embedding,
             content_hash=hashlib.sha256(entity_name.encode("utf-8")).hexdigest(),
         )
-        await self.record_mutation_artifact(
-            str(mutation["mutation_id"]),
-            store_name="VECTOR",
-            artifact_kind="ENTITY_VECTOR",
-            artifact_id=node_id,
-            metadata={
-                "embedding_provider": str(mutation.get("embedding_provider") or ""),
-                "embedding_model": str(mutation.get("embedding_model") or ""),
-                "embedding_version": str(mutation.get("embedding_version") or ""),
-                "embedding_dimension": len(embedding),
-            },
-        )
+        try:
+            await self.record_mutation_artifact(
+                str(mutation["mutation_id"]),
+                store_name="VECTOR",
+                artifact_kind="ENTITY_VECTOR",
+                artifact_id=node_id,
+                metadata={
+                    "embedding_provider": str(mutation.get("embedding_provider") or ""),
+                    "embedding_model": str(mutation.get("embedding_model") or ""),
+                    "embedding_version": str(mutation.get("embedding_version") or ""),
+                    "embedding_dimension": len(embedding),
+                },
+            )
+        except Exception as exc:
+            try:
+                await self._vec.hard_delete(node_id, agent_id)
+            except Exception:
+                pass
+            raise exc
         return node_id
 
     async def project_v4_graph_triplet(
@@ -3736,31 +3797,38 @@ class MemoryDAO:
                 agent_id=agent_id,
                 relation_type="SUPERSEDES",
             )
-        await self.record_mutation_artifact(
-            str(mutation["mutation_id"]),
-            store_name="SQL",
-            artifact_kind="ASSERTION",
-            artifact_id=assertion_id,
-            metadata={"predicate": relation},
-        )
-        graph_entities = [(subject_id, head)]
-        if object_id and tail:
-            graph_entities.append((object_id, tail))
-        for entity_id, entity_name in graph_entities:
+        try:
+            await self.record_mutation_artifact(
+                str(mutation["mutation_id"]),
+                store_name="SQL",
+                artifact_kind="ASSERTION",
+                artifact_id=assertion_id,
+                metadata={"predicate": relation},
+            )
+            graph_entities = [(subject_id, head)]
+            if object_id and tail:
+                graph_entities.append((object_id, tail))
+            for entity_id, entity_name in graph_entities:
+                await self.record_mutation_artifact(
+                    str(mutation["mutation_id"]),
+                    store_name="GRAPH",
+                    artifact_kind="ENTITY",
+                    artifact_id=entity_id,
+                    metadata={"entity_name": entity_name},
+                )
             await self.record_mutation_artifact(
                 str(mutation["mutation_id"]),
                 store_name="GRAPH",
-                artifact_kind="ENTITY",
-                artifact_id=entity_id,
-                metadata={"entity_name": entity_name},
+                artifact_kind="ASSERTION",
+                artifact_id=assertion_id,
+                metadata={"predicate": relation},
             )
-        await self.record_mutation_artifact(
-            str(mutation["mutation_id"]),
-            store_name="GRAPH",
-            artifact_kind="ASSERTION",
-            artifact_id=assertion_id,
-            metadata={"predicate": relation},
-        )
+        except Exception as exc:
+            try:
+                await graph.delete_assertions(agent_id=agent_id, assertion_ids=[assertion_id])
+            except Exception:
+                pass
+            raise exc
         return assertion_id
 
     async def search_v4_memory(
@@ -5239,12 +5307,10 @@ class MemoryDAO:
             raise PurgeBlockedError(f"purge is not resumable from {record['state']}.")
         node_ids = json.loads(record["target_node_ids"])
         agent_id = record["agent_id"]
+        if self._graph is None or self._vec is None:
+            return len(node_ids)
         if record["kuzu_result"] != "APPLIED":
             try:
-                if self._graph is None:
-                    raise RuntimeError(
-                        "Kuzu graph provider is required for purge finalization."
-                    )
                 await self._graph.delete_nodes(
                     purge_id=purge_id, agent_id=agent_id, node_ids=node_ids
                 )

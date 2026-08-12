@@ -361,7 +361,7 @@ class MesaConfig(BaseSettings):
         "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
     )
     llm_embedding_model_name: str = Field(
-        "text-embedding-3-small", validation_alias="LLM_EMBEDDING_MODEL"
+        "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
     llm_timeout_seconds: float = Field(20.0, validation_alias="LLM_TIMEOUT_SECONDS")
     tier3_llm_provider_a: str | None = Field(
@@ -376,7 +376,7 @@ class MesaConfig(BaseSettings):
     tier3_llm_model_name_b: str | None = Field(
         None, validation_alias="MESA_TIER3_LLM_MODEL_B"
     )
-    embedding_dimension: int = Field(1536, validation_alias="MESA_EMBEDDING_DIMENSION")
+    embedding_dimension: int = Field(384, validation_alias="MESA_EMBEDDING_DIMENSION")
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )

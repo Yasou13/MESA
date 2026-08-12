@@ -214,5 +214,132 @@ async def test_projection_parity_requeues_every_missing_lane_for_one_mutation(tm
     await engine.close()
 
 
+@pytest.mark.asyncio
+async def test_physical_vector_and_graph_side_effect_compensated_on_fencing_loss(tmp_path):
+    """Orchestrate physical write -> rollback -> complete_projection_outbox -> compensating deletion -> physical state absent."""
+    db_path = tmp_path / "mesa_test_physical_comp.db"
+    engine = AsyncEngine(str(db_path))
+    await engine.initialize()
+    await initialize_schema(engine)
+
+    stored_vectors: dict[str, list[float]] = {}
+    stored_assertions: set[str] = set()
+
+    class FakeVectorEngine:
+        is_initialized = True
+
+        async def compute_embedding(self, _text: str) -> list[float]:
+            return [0.1] * 384
+
+        async def upsert(self, node_id: str, agent_id: str, embedding: list[float], content_hash: str | None = None) -> None:
+            stored_vectors[node_id] = embedding
+
+        async def hard_delete(self, node_id: str, agent_id: str) -> None:
+            stored_vectors.pop(node_id, None)
+
+        async def get_active_node_ids(self, agent_id: str) -> list[str]:
+            return list(stored_vectors.keys())
+
+    class FakeGraphProvider:
+        async def insert_node(self, subject_id: str, head: str, agent_id: str) -> None:
+            pass
+
+        async def insert_assertion(self, assertion_id: str, **_kwargs) -> None:
+            stored_assertions.add(assertion_id)
+
+        async def delete_assertions(self, agent_id: str, assertion_ids: list[str]) -> None:
+            for aid in assertion_ids:
+                stored_assertions.discard(aid)
+
+        async def delete_nodes(self, **_kwargs) -> None:
+            pass
+
+        async def link_assertions(self, **_kwargs) -> None:
+            pass
+
+    vec_engine = FakeVectorEngine()
+    graph_provider = FakeGraphProvider()
+    dao = MemoryDAO(engine, vec_engine, graph_provider=graph_provider)
+
+    tenant_id = "tenant_phys"
+    agent_id = "agent_phys"
+    workspace_id = "ws_phys"
+    dataset_id = "dataset_phys"
+    document_id = "doc_phys"
+    pipeline_run_id = "run_phys_race"
+    mutation_id = "mut_phys_race"
+
+    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Phys")
+    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
+    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Phys", document_id=document_id)
+
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
+            "VALUES (?, ?, ?, ?, ?, 'sess', 'PROJECTING')",
+            (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id),
+        )
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, revision_id, chunk_id, session_id, pipeline_run_id, source_ref, content_payload, state) "
+            "VALUES (?, 'cand_p', ?, ?, ?, ?, 'rev_p', 'chk_p', 'sess', ?, 'ref_p', '{\"projection_triplets\": [{\"head\": \"A\", \"relation\": \"R\", \"tail\": \"B\"}]}', 'VALIDATED')",
+            (mutation_id, tenant_id, agent_id, dataset_id, document_id, pipeline_run_id),
+        )
+        await db.execute(
+            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
+            "VALUES (?, ?, 'SQL', 'PENDING')",
+            (f"proj_sql_{mutation_id}", mutation_id),
+        )
+        await db.execute(
+            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
+            "VALUES (?, ?, 'VECTOR', 'PENDING')",
+            (f"proj_vec_{mutation_id}", mutation_id),
+        )
+        await db.execute(
+            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
+            "VALUES (?, ?, 'GRAPH', 'PENDING')",
+            (f"proj_graph_{mutation_id}", mutation_id),
+        )
+        await db.commit()
+
+    # 1. Claim and complete SQL projection first (lane ordering requirement)
+    sql_claims = await dao.claim_projection_outbox(worker_id="worker_phys", limit=1)
+    assert len(sql_claims) == 1
+    assert sql_claims[0]["projection_name"] == "SQL"
+    await dao.complete_projection_outbox(sql_claims[0]["projection_id"], worker_id="worker_phys", claim_token=sql_claims[0]["claim_token"], outcome="APPLIED")
+
+    # 2. Claim VECTOR projection outbox
+    claims = await dao.claim_projection_outbox(worker_id="worker_phys", limit=1)
+    assert len(claims) == 1
+    assert claims[0]["projection_name"] == "VECTOR"
+
+    # 2. Worker performs physical writes
+    mut = await dao.get_projection_mutation(mutation_id)
+    node_id = await dao.project_v4_vector_entity(mutation=mut, entity_name="A")
+    assert node_id in stored_vectors
+
+    triplet = {"head": "A", "relation": "R", "tail": "B"}
+    assertion_id = await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    assert assertion_id in stored_assertions
+
+    # 3. Rollback pipeline run in parallel (simulating race)
+    await dao.request_pipeline_rollback(pipeline_run_id)
+
+    # 4. Worker attempts complete_projection_outbox
+    for claim in claims:
+        success = await dao.complete_projection_outbox(
+            str(claim["projection_id"]),
+            worker_id="worker_phys",
+            claim_token=str(claim["claim_token"]),
+            outcome="APPLIED",
+        )
+        assert success is False
+
+    # 5. VERIFY PHYSICAL STATE ABSENCE: Compensating physical deletion executed!
+    assert node_id not in stored_vectors, "Physical vector must be deleted after rollback fencing loss"
+    assert assertion_id not in stored_assertions, "Physical graph assertion must be deleted after rollback fencing loss"
+
+    await engine.close()
+
+
 async def _empty_ids() -> set[str]:
     return set()

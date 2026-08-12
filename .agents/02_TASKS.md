@@ -54,10 +54,10 @@ Inspect especially:
 - rollback;
 - artifact ownership.
 
-Status: VERIFIED
-Evidence: Added checks in complete_projection_outbox, record_mutation_artifact, and _advance_mutation_projection_state preventing stale projection completion or artifact creation when a pipeline run or mutation is rolled back, cancelled, or purged.
+Status: BUILT
+Evidence: Added post-write compensating physical deletion in complete_projection_outbox, project_v4_vector_entity, and project_v4_graph_triplet so that fenced or stale projection claims immediately purge unowned physical secondary vectors and graph assertions from LanceDB/Kuzu.
 Tests: tests/test_p0_projection_fencing.py
-Commit: 7b53b72
+Commit: pending
 
 ---
 
@@ -76,10 +76,10 @@ Required:
 
 Purge must not rely only on already-existing artifact ownership.
 
-Status: VERIFIED
+Status: BUILT
 Evidence: Enforced purge-before-projection fencing in purge_v4_document, purge_memory, complete_projection_outbox, and record_mutation_artifact, preventing pending or replayed mutations from recreating active artifacts for purged sources.
 Tests: tests/test_p0_purge_fencing.py
-Commit: a2642d3
+Commit: pending
 
 ---
 
@@ -99,10 +99,10 @@ Required:
 - stale CAS/fencing respected;
 - historical rollback/replay not incorrectly dependent on original session still being ACTIVE.
 
-Status: VERIFIED
-Evidence: Added _transition_memory_mutation_in_tx and updated _transition_pipeline_run_in_tx to enforce transition matrices across every reachable mutation and pipeline state change, preventing terminal states (ROLLED_BACK, PURGED, REJECTED, CANCELLED) from re-entering forward lifecycle.
-Tests: tests/test_p0_mutation_state_machine.py
-Commit: 64eae48
+Status: BUILT
+Evidence: Added CAS check in _apply_pipeline_supersession_in_tx, chunk append freeze check in create_v4_source_chunk, and transition state enforcement across mutation and pipeline state changes.
+Tests: tests/test_p0_mutation_state_machine.py, tests/test_p0_canonical_correction.py
+Commit: pending
 
 ---
 
@@ -128,7 +128,7 @@ canonical intent
 -> physical secondary work
 -> canonical completion.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Reordered insert_memory and bulk_insert_memory write pipelines to commit canonical SQL intent in SQLite first before invoking LanceDB vector and Kuzu graph secondary store projections, preventing un-tracked secondary store state if SQL write fails.
 Tests: tests/test_p0_write_hazards.py
 Commit: 6d39823
@@ -154,7 +154,7 @@ Inspect:
 
 Split runtime must not strand session finalization.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Fixed worker_runtime.py and ingestion_worker.py so that worker-only and combined runtimes process session finalization, projection outbox, cleanup, and lease recovery without stranding any durable work category.
 Tests: tests/test_p0_worker_ownership.py
 Commit: 99e1d32
@@ -188,7 +188,7 @@ Required eligibility where applicable:
 
 Stale results must not survive fusion.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Added status = 'ACTIVE' filtering on v4_entities in search_v4_memory and guarded output items so that superseded, purged, or temporal-ineligible memories do not survive retrieval or RRF fusion.
 Tests: tests/test_p0_retrieval_eligibility.py
 Commit: bd85de7
@@ -219,10 +219,10 @@ Required actual identity:
 
 Incompatible spaces must not be compared.
 
-Status: VERIFIED
-Evidence: Added fail-closed embedding dimension validation and full identity metadata tracking (provider, model, version, dimension) in project_v4_vector_entity to prevent silent dimension mismatch and vector space corruption.
+Status: BUILT
+Evidence: Unified MesaConfig default embedding model to sentence-transformers/all-MiniLM-L6-v2 and default dimension to 384, resolving 1536-vs-384 local default mismatch while enforcing fail-closed dimension validation.
 Tests: tests/test_p0_embedding_contract.py
-Commit: cba3fad
+Commit: pending
 
 ---
 
@@ -243,7 +243,7 @@ Inspect:
 
 A fix must prevent overwrite without causing retrieval leakage.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Updated VectorEngine merge_insert keys in _sync_upsert and _sync_bulk_upsert to composite ["node_id", "agent_id"] so shared logical entity IDs across different agents never overwrite vector records.
 Tests: tests/test_p0_cross_agent_vector_ownership.py
 Commit: 27f1d71
@@ -282,10 +282,10 @@ must support three independent facts.
 
 Noise must support zero durable facts.
 
-Status: VERIFIED
-Evidence: Added get_pipeline_mutations and outbox generation to record_mutation, supporting 1 Event -> 0..N Memories extraction without dropping provenance, single-memory locking assumptions, or outbox corruption.
+Status: BUILT
+Evidence: Added LLM fallback multi-fact extraction tests forcing REBEL failure and proving all three independent facts (FastAPI, PostgreSQL, Redis) survive downstream.
 Tests: tests/test_p0_multi_memory_extraction.py
-Commit: 152f1f4
+Commit: pending
 
 ---
 
@@ -305,7 +305,7 @@ Valid behavior may include:
 
 Do not accept durable work that can never progress under the advertised runtime profile.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Handled disabled model runtime in search_v4_memory so that if no embedding provider or local embedder exists, search degrades gracefully to lexical (BM25) and graph (assertion) lanes without 500 error.
 Tests: tests/test_p0_model_disabled_truth.py
 Commit: 31bcbcd
@@ -330,7 +330,7 @@ to one durable root contract.
 
 Ensure queues/DLQ/review/backup/rebuild paths do not silently split.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Mapped MESA_STORAGE_ROOT, MESA_STORAGE_PATH, MESA_STORAGE_DIR, and MESA_DB_PATH into single canonical storage_root in load_runtime_profile to eliminate split storage roots.
 Tests: tests/test_p0_config_bootstrap.py
 Commit: 2765451
@@ -357,7 +357,7 @@ Inspect:
 
 Prefer shared primitives over transport-specific policy duplication.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Shared write admission policy (agent validation, catalog scope check, payload size limit, idempotency hash pairing) enforced across MemoryDAO admission entry points.
 Tests: tests/test_p0_shared_write_admission.py
 Commit: 878d557
@@ -386,7 +386,7 @@ Session A records PostgreSQL.
 
 Session B can obtain PostgreSQL from durable context.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Added first-class ContextBuilder combining current session logs, long-term canonical memories (via search_v4_memory), provenance, and token budget management. Connected to V4 session context API endpoint.
 Tests: tests/test_p0_context_builder.py
 Commit: 18a3982
@@ -415,10 +415,10 @@ Correction must not directly mutate independent secondary truth.
 
 Inspection must respect scope.
 
-Status: VERIFIED
-Evidence: Updated project_v4_graph_triplet to update status = 'SUPERSEDED' on active assertions when a revision supersedes a prior revision, ensuring normal retrieval returns only current active truth while preserving historical provenance.
+Status: BUILT
+Evidence: Added CAS check for same-predecessor concurrent corrections and chunk append freeze for ACTIVE revisions, ensuring single active revision head and immutable finalized revisions.
 Tests: tests/test_p0_canonical_correction.py
-Commit: fcd0c56
+Commit: pending
 
 ---
 
@@ -443,7 +443,7 @@ Inspect:
 - searchable corrected memory;
 - stale public gateway paths.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: HTTP API, Python SDK, and MCP service layer mapped to common canonical V4 storage DAO semantics and unified error codes (400 -> INVALID_ARGUMENT, 401 -> ACCESS_DENIED, etc.).
 Tests: tests/test_p0_http_sdk_mcp_convergence.py
 Commit: 5cb16e5
@@ -469,7 +469,7 @@ Also review always-on LLM judge behavior.
 
 Ordinary low-risk events should not automatically require redundant judging when confidence/escalation/audit mechanisms already provide selective validation.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Made LLM-as-a-Judge evaluation selective in AdaptiveRouter so clean, valid small-model JSON parses skip redundant judge calls, cutting token cost by ~50% on ordinary low-risk events while maintaining full validation when schema parsing fails or in legal domain mode.
 Tests: tests/test_p0_token_aware_batching.py
 Commit: b22a12a
@@ -490,7 +490,7 @@ Use:
 
 Do not rewrite the whole retrieval subsystem.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Added count_active_memories (SQL COUNT(*)) and has_active_memories (LIMIT 1 existence query) to MemoryDAO to eliminate O(N) memory materialization for count/existence checks.
 Tests: tests/test_p0_retrieval_count_safety.py
 Commit: b2a6286
@@ -519,7 +519,7 @@ Use it to bound relevant:
 
 Avoid unnecessary heavy model duplication in API processes.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Reordered calculate_dynamic_limits precedence hierarchy (1. MESA_MAX_RAM_MB / MESA_MAX_MEMORY_BYTES, 2. Linux cgroup v1/v2 container caps, 3. host psutil RAM, 4. 1GB safe fallback) to prevent OOM kills in containerized environments.
 Tests: tests/test_p0_ram_oom_safety.py
 Commit: b64f49d
@@ -550,7 +550,7 @@ over:
 
 when identity mismatch is possible.
 
-Status: VERIFIED
+Status: ALREADY_FIXED_VERIFIED
 Evidence: Enforced strict catalog scoping in MemoryDAO and CatalogRepository so dataset identities and documents cannot cross tenant or workspace boundaries, throwing clear fail-closed errors.
 Tests: tests/test_p0_tenant_accounting.py
 Commit: 05d6a18
@@ -575,10 +575,10 @@ Inspect:
 
 Ensure experimental cognitive features remain default-off/optional and do not control MVP critical-path correctness.
 
-Status: VERIFIED
-Evidence: Experimental features (rebel_enabled, crossencoder_enabled, v4_rebuild_enabled) are disabled by default and isolated from default execution paths without crashing core API/worker runtime.
+Status: BUILT
+Evidence: Experimental features (rebel_enabled, crossencoder_enabled, v4_rebuild_enabled) are disabled by default, and worker composition root isolates background REM, PageRank, entity rewrite, and Valence loops.
 Tests: tests/test_p0_experimental_isolation.py
-Commit: 22a16e7
+Commit: pending
 
 ---
 

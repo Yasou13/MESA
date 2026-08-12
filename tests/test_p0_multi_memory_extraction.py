@@ -137,3 +137,51 @@ async def test_extractor_preserves_every_fact_from_one_event(monkeypatch):
         ("Database", "PostgreSQL"),
         ("Cache", "Redis"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_multi_fact_extraction_when_rebel_fails(monkeypatch):
+    """Force REBEL failure and verify LLM fallback schema returns zero-to-many triplets per input record."""
+    from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
+
+    mock_llm_a = SimpleNamespace()
+    mock_llm_b = SimpleNamespace()
+
+    response_multi = BatchExtractionResponse(
+        triplets=[
+            ExtractedTriplet(
+                record_index=0,
+                head="Backend",
+                relation="USES",
+                tail="FastAPI",
+                additional_triplets=[
+                    {"head": "Database", "relation": "USES", "tail": "PostgreSQL"},
+                    {"head": "Cache", "relation": "USES", "tail": "Redis"},
+                ],
+            )
+        ]
+    )
+
+    mock_llm_a.complete = lambda _prompt, _schema=None: response_multi
+    mock_llm_b.complete = lambda _prompt, _schema=None: response_multi
+
+    extractor = TripletExtractor(mock_llm_a, mock_llm_b)
+
+    # Force REBEL to fail by raising an exception
+    def _failing_rebel(_content):
+        raise RuntimeError("REBEL model unavailable / failed")
+
+    monkeypatch.setattr(extractor.rebel_extractor, "extract_triplets", _failing_rebel)
+
+    indexed_a, _indexed_b = await extractor.extract_batch(
+        [{"content_payload": "Backend FastAPI. Database PostgreSQL. Cache Redis."}]
+    )
+
+    assert 0 in indexed_a
+    triplets = indexed_a[0].all_triplets()
+    assert len(triplets) == 3
+    assert [(t.head, t.relation, t.tail) for t in triplets] == [
+        ("Backend", "USES", "FastAPI"),
+        ("Database", "USES", "PostgreSQL"),
+        ("Cache", "USES", "Redis"),
+    ]
