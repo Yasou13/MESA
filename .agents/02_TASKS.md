@@ -404,6 +404,34 @@ Evidence: Destructive backup/restore proof is excluded from normal pytest; canon
 Tests: conftest.py collection guard, focused certification suite
 Commit: 441c904
 
+SOL-D01 — Durable physical terminality across stale projection races
+
+Status: VERIFIED
+Evidence: Vector and graph projectors now fence before every secondary write, retain post-write receipts, compensate immediately, and durably enqueue failed compensation without reporting terminal rollback success. Graph writes before the final receipt are inside the same compensation boundary. Rollback/purge races cover both secondary lanes and inspect physical state.
+Tests: tests/test_p0_projection_fencing.py, tests/test_p0_purge_fencing.py
+Commit: 7df22d2
+
+SOL-D02 — Zero-to-many terminal fallback and truthful model/runtime identity
+
+Status: VERIFIED
+Evidence: The terminal single-record LLM route uses the shared zero-to-many envelope and preserves repeated-index facts without mutating cached responses. REBEL and Valence imports are lazy on model-disabled paths. Local embedding identity names the actual sentence-transformers provider and compose forwards provider/Tier-3 configuration.
+Tests: tests/test_p0_multi_memory_extraction.py, tests/test_rebel_pipeline.py, tests/test_p0_embedding_contract.py, tests/test_embedding_identity_adoption.py, tests/test_deployment_assets.py, tests/test_p0_model_disabled_truth.py
+Commit: 7df22d2
+
+SOL-D03 — Tenant, MCP, HTTP error and readiness convergence
+
+Status: VERIFIED
+Evidence: Queue records persist and aggregate the real tenant across agents. MCP physical IDs include immutable scope and operation, arbitrary conflicts fail closed, and only exact inactive-session conflicts recover. ASGI error responses, SDK parsing and MCP mapping preserve canonical code/status/retryability. Readiness evaluates configured projection, cleanup and orphan thresholds.
+Tests: tests/test_p0_tenant_accounting.py, tests/test_mcp_v4_service.py, tests/test_p0_http_sdk_mcp_convergence.py
+Commit: 7df22d2
+
+SOL-D04 — V3 replacement, public retry and revision-head idempotency
+
+Status: VERIFIED
+Evidence: V3 replacement keeps the predecessor current until vector/graph writes succeed, fails closed when compensation fails, and activates the successor only after the physical boundary is safe. Public V3 retries with the same top-level idempotency key create one raw record even when memory_type is omitted. Multiple memories owned by one revision activate the same head idempotently without weakening concurrent-child CAS.
+Tests: tests/test_conflict_resolution.py, tests/test_dao_extended.py, tests/test_dao_coverage.py, tests/test_router_coverage.py, tests/test_p0_canonical_correction.py, tests/test_p0_multi_memory_extraction.py
+Commit: 7df22d2
+
 SOL FINAL CERTIFICATION
 
 C021 — Final Adversarial MVP Certification
@@ -443,7 +471,7 @@ CODE_MVP_READY
 or
 NOT_CODE_MVP_READY
 
-Status: TODO
-Evidence:
-Tests:
-Commit:
+Status: FINAL_VERIFIED
+Evidence: Sol independently retraced C001-C020 from current executable code and forced the mandatory physical races, fallback, head-CAS, embedding, deployment, V3, tenant, MCP, HTTP, dotenv, bounded retrieval and resource-consumer boundaries. All discovered code-level blockers were repaired under SOL-D01-D04. No known MVP-relevant P0/P1 code blocker remains; paid-provider rehearsal, 24-hour soak/load/capacity execution and real deployment rollout remain external evidence only.
+Tests: 95-test combined adversarial suite; 64-test V3 replacement/DAO suite; 30-test resource/config suite; focused public V3 retry test; ruff, Black, compileall and git diff checks
+Commit: 7df22d2
