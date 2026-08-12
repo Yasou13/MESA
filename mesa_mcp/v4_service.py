@@ -201,7 +201,7 @@ class MesaHttpV4Service:
         search_arguments = {
             "query": kwargs["query"],
             "dataset_ids": [dataset_id],
-            "limit": kwargs.get("limit", self._settings.search_default_limit),
+            "limit": kwargs.get("limit") or self._settings.search_default_limit,
         }
         try:
             resp = await client.search(session_id=session_id, **search_arguments)

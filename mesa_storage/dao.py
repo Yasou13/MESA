@@ -645,6 +645,8 @@ class MemoryDAO:
             )
         ):
             raise ValueError("complete document provenance is required")
+        from mesa_memory.security.input_validation import validate_write_payload
+        validate_write_payload(content_payload, {})
         content_hash = hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
         async with self._sql.transaction() as db:
             async with db.execute(
@@ -6144,6 +6146,10 @@ class MemoryDAO:
         _assert_valid_agent_id(agent_id)
         if payload.get("agent_id") not in (None, agent_id):
             raise ValueError("payload agent_id must match the durable admission tenant")
+        content_str = str(payload.get("content_payload") or payload.get("text") or payload.get("content") or "")
+        meta_dict = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        from mesa_memory.security.input_validation import validate_write_payload
+        validate_write_payload(content_str, meta_dict)
         serialized, payload_bytes = _canonical_payload_bytes(payload)
         metadata = payload.get("metadata", {})
         idempotency_key = (

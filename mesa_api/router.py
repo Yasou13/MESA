@@ -257,11 +257,14 @@ def create_memory_router(
             level="WRITE",
         )
 
+        metadata = dict(payload.metadata or {})
+        if payload.idempotency_key and "idempotency_key" not in metadata:
+            metadata["idempotency_key"] = payload.idempotency_key
         payload_dict = {
             "agent_id": payload.agent_id,
             "session_id": payload.session_id,
             "content": payload.content,
-            "metadata": payload.metadata,
+            "metadata": metadata,
         }
 
         try:
