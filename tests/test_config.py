@@ -39,7 +39,8 @@ def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode(
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false")
     identity = configured_embedding_identity()
 
-    assert identity.provider == "local"
+    assert identity.provider == "sentence-transformers"
     assert identity.model
     assert identity.version == "v1"
     assert identity.dimension > 0
+    assert identity.normalized is False

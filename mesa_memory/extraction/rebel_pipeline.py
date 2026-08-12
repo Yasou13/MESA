@@ -1,11 +1,21 @@
 import logging
+import os
 import threading
 from typing import Dict, List
 
-try:
-    from transformers import pipeline as pipeline  # type: ignore[no-redef]
-except ImportError:
-    pipeline = None  # type: ignore[assignment]
+
+def pipeline(*args, **kwargs):  # type: ignore[no-untyped-def]
+    """Load transformers only when REBEL is actually invoked.
+
+    Model-disabled API and worker processes must not import the multi-gigabyte
+    ML runtime merely because extraction types are imported.
+    """
+    try:
+        from transformers import pipeline as transformers_pipeline
+    except ImportError as exc:
+        raise ImportError("transformers library is not installed") from exc
+    return transformers_pipeline(*args, **kwargs)
+
 
 logger = logging.getLogger("MESA_Extraction")
 
@@ -64,14 +74,7 @@ class RebelExtractor:
         self.model_name = model_name
         self._rebel_failures: list[dict[str, str]] = []
 
-        try:
-            import torch
-
-            if not torch.cuda.is_available():
-                logger.warning(
-                    "REBEL running on CPU — expect ~2-5s/record. Set MESA_REBEL_DEVICE=cuda for GPU acceleration."
-                )
-        except ImportError:
+        if os.getenv("MESA_REBEL_DEVICE", "cpu").lower() != "cuda":
             logger.warning(
                 "REBEL running on CPU — expect ~2-5s/record. Set MESA_REBEL_DEVICE=cuda for GPU acceleration."
             )

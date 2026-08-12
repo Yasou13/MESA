@@ -140,11 +140,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--full",
         action="store_true",
-        help="Start ConsolidationLoop, MaintenanceWorker, and REMCycleWorker",
+        help="Unsupported legacy cognitive workers (always rejected)",
     )
     # When launched via `uvicorn`, sys.argv may contain unexpected args.
     # parse_known_args tolerates that gracefully.
     args, _ = parser.parse_known_args()
+    if args.full:
+        parser.error(
+            "--full is unsupported: use docker-compose.v4.yml so cognitive "
+            "writes remain under the canonical lifecycle authority"
+        )
     return args
 
 

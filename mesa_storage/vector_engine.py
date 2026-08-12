@@ -823,6 +823,9 @@ class VectorEngine:
                     table_name,
                     exc,
                 )
+                with self._metrics._lock:
+                    self._metrics.errors += 1
+                raise
 
     async def hard_delete(self, node_id: str, agent_id: str) -> None:
         """Physically remove a vector record from disk.

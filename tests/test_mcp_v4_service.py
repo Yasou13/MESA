@@ -151,7 +151,7 @@ async def test_session_cache_single_flights_and_replaces_a_rejected_session() ->
         async def search(self, *, session_id: str, **_kwargs):
             self.search_sessions.append(session_id)
             if session_id == "session-1":
-                raise MesaAPIError(404, "NotFound", "session ended")
+                raise MesaAPIError(409, "SESSION_INACTIVE", "Session is not active")
             return {"results": []}
 
         async def aclose(self) -> None:
@@ -186,6 +186,80 @@ async def test_session_cache_single_flights_and_replaces_a_rejected_session() ->
         == []
     )
     assert client.search_sessions == ["session-1", "session-2"]
+
+
+@pytest.mark.asyncio
+async def test_v4_physical_ids_are_scoped_and_unrelated_409_is_not_swallowed():
+    class ConflictClient(RecordingV4Client):
+        async def create_document(self, **kwargs):
+            raise MesaAPIError(409, "CONFLICT", "unrelated document collision")
+
+        async def list_documents(self, **_kwargs):
+            return {"documents": []}
+
+    first = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    second = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    first_client = RecordingV4Client()
+    second_client = RecordingV4Client()
+    first._http_client = first_client  # type: ignore[assignment]
+    second._http_client = second_client  # type: ignore[assignment]
+
+    await first.v4_remember(
+        tenant_id="tenant-a",
+        workspace_id="workspace",
+        dataset_id="dataset",
+        actor_id="agent",
+        content="fact",
+        idempotency_key="same-key",
+    )
+    await second.v4_remember(
+        tenant_id="tenant-b",
+        workspace_id="workspace",
+        dataset_id="dataset",
+        actor_id="agent",
+        content="fact",
+        idempotency_key="same-key",
+    )
+    assert (
+        first_client.inserts[0]["document_id"]
+        != second_client.inserts[0]["document_id"]
+    )
+
+    conflict = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    conflict._http_client = ConflictClient()  # type: ignore[assignment]
+    with pytest.raises(Exception) as raised:
+        await conflict.v4_remember(
+            tenant_id="tenant-a",
+            workspace_id="workspace",
+            dataset_id="dataset",
+            actor_id="agent",
+            content="fact",
+            idempotency_key="same-key",
+        )
+    assert getattr(raised.value, "code", None) == "CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_unrelated_session_409_is_not_treated_as_cache_recovery():
+    class ConflictClient(RecordingV4Client):
+        def __init__(self):
+            super().__init__()
+            self.start_calls = 0
+
+        async def start_session(self, **_kwargs):
+            self.start_calls += 1
+            return {"session_id": "session-1"}
+
+        async def search(self, **_kwargs):
+            raise MesaAPIError(409, "REVISION_HEAD_CONFLICT", "not a session error")
+
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    client = ConflictClient()
+    service._http_client = client  # type: ignore[assignment]
+    with pytest.raises(Exception) as raised:
+        await service.v4_recall(query="x")
+    assert getattr(raised.value, "code", None) == "REVISION_HEAD_CONFLICT"
+    assert client.start_calls == 1
 
 
 @pytest.mark.asyncio

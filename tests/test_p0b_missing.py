@@ -114,6 +114,7 @@ async def test_hybrid_exceptions():
     analyzer_mock.extract_entities.return_value = ["E1", "E2"]
     dao_mock.find_nodes_by_name.return_value = [{"id": "node1"}, {"id": "node2"}]
     dao_mock.get_memories.return_value = [{"id": "node1"}]
+    dao_mock.count_active_memories.return_value = 100
     dao_mock.search_memory_fts.side_effect = Exception("FTS error")
     dao_mock.get_neighbors.side_effect = Exception("KùzuDB error")
     dao_mock.graph_provider = AsyncMock()

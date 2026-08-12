@@ -28,7 +28,6 @@ from mesa_memory.consolidation.validator import (
     tier3_provenance_context,
 )
 from mesa_memory.observability.metrics import ObservabilityLayer
-from mesa_memory.valence.core import ValenceMotor
 from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_Router")
@@ -141,6 +140,8 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         # Valence Motor — persists adaptive novelty thresholds (EWMAD).
         # Must be assigned here so server.py lifespan hooks can access
         # it via getattr(router, "valence_motor") for save/load_state.
+        from mesa_memory.valence.core import ValenceMotor
+
         _obs = obs_layer or ObservabilityLayer()
         self.valence_motor = ValenceMotor(
             llm_adapter=self.small_llm,

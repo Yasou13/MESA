@@ -91,6 +91,7 @@ def _provider_runtime() -> RebuildProviderRuntime:
             "embedding_model": identity.model,
             "embedding_version": identity.version,
             "dimension": identity.dimension,
+            "normalized": identity.normalized,
         },
         embedding_provider=embedding_provider,
         allow_model_loading=model_enabled,

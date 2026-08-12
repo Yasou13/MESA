@@ -142,7 +142,10 @@ _SECRET_PATTERNS = (
     re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{16,}\b", re.IGNORECASE),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b", re.IGNORECASE),
     re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
-    re.compile(r"\b(?:password|api[_-]?key|access[_-]?token|secret)\s*[:=]\s*\S+", re.IGNORECASE),
+    re.compile(
+        r"\b(?:password|api[_-]?key|access[_-]?token|secret)\s*[:=]\s*\S+",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -168,7 +171,6 @@ def _validate_metadata_depth(value: dict[str, Any], *, depth: int) -> None:
         elif isinstance(item, list):
             if depth >= 2 or any(isinstance(entry, (dict, list)) for entry in item):
                 raise ValueError("metadata nesting exceeds the supported depth")
-
 
 
 class PurgeRetryPendingError(RuntimeError):
@@ -731,9 +733,15 @@ class MemoryDAO:
             if revision is None or tuple(revision) != (tenant_id, document_id):
                 raise ValueError("revision identity collides with another document")
             if existing_revision is not None:
-                if existing_revision["status"] in ("ACTIVE", "SUPERSEDED", "PURGED", "ROLLED_BACK"):
+                if existing_revision["status"] in (
+                    "ACTIVE",
+                    "SUPERSEDED",
+                    "PURGED",
+                    "ROLLED_BACK",
+                ):
                     async with db.execute(
-                        "SELECT chunk_id FROM source_chunks WHERE chunk_id = ?", (chunk_id,)
+                        "SELECT chunk_id FROM source_chunks WHERE chunk_id = ?",
+                        (chunk_id,),
                     ) as cur:
                         c_row = await cur.fetchone()
                     if c_row is None:
@@ -742,9 +750,12 @@ class MemoryDAO:
                         )
                 if (
                     existing_revision["revision_number"] != revision_number
-                    or existing_revision["supersedes_revision_id"] != supersedes_revision_id
+                    or existing_revision["supersedes_revision_id"]
+                    != supersedes_revision_id
                 ):
-                    raise ValueError("revision identity is immutable and already differs")
+                    raise ValueError(
+                        "revision identity is immutable and already differs"
+                    )
             if existing_revision is None and supersedes_revision_id:
                 async with db.execute(
                     "SELECT document_id FROM document_revisions WHERE revision_id = ?",
@@ -940,7 +951,9 @@ class MemoryDAO:
                 ") WHERE pipeline_run_id IS NOT NULL",
                 (dataset_id, document_id, dataset_id, document_id),
             ) as cursor:
-                pipeline_ids = [str(row[0]) for row in await cursor.fetchall() if row[0]]
+                pipeline_ids = [
+                    str(row[0]) for row in await cursor.fetchall() if row[0]
+                ]
 
             purged_mutation_ids = await self._purge_mutations_in_tx(
                 db,
@@ -2334,6 +2347,16 @@ class MemoryDAO:
             (mutation_id,),
         ) as cursor:
             row = await cursor.fetchone()
+        if row is not None and row[1]:
+            async with db.execute(
+                "SELECT status FROM document_revisions WHERE revision_id = ?",
+                (row[1],),
+            ) as cursor:
+                successor = await cursor.fetchone()
+            # A revision can own 0..N committed memory mutations. Activating
+            # its head is therefore idempotent across all of them.
+            if successor is not None and successor[0] == "ACTIVE":
+                return
         if row is None or not row[4]:
             if row is not None and row[1]:
                 cursor = await db.execute(
@@ -2345,16 +2368,16 @@ class MemoryDAO:
                     (row[1],),
                 )
                 if cursor.rowcount != 1:
-                    raise ValueError("revision-head conflict: document already has an ACTIVE revision")
+                    raise ValueError(
+                        "revision-head conflict: document already has an ACTIVE revision"
+                    )
             return
         try:
             metadata = json.loads(str(row[2] or "{}"))
         except (TypeError, json.JSONDecodeError):
             metadata = {}
         valid_from = (
-            str(metadata.get("valid_from") or "")
-            if isinstance(metadata, dict)
-            else ""
+            str(metadata.get("valid_from") or "") if isinstance(metadata, dict) else ""
         )
         async with db.execute(
             "SELECT status FROM document_revisions WHERE revision_id = ?",
@@ -2715,11 +2738,24 @@ class MemoryDAO:
                 mutation = await cursor.fetchone()
             if mutation is None:
                 raise ValueError("unknown mutation artifact owner")
-            if (
-                mutation["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
-                or mutation["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
+            if mutation["mutation_state"] in (
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+                "REJECTED",
+            ) or mutation["pipeline_state"] in (
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+                "REJECTED",
             ):
-                raise ValueError(f"cannot register artifact for mutation in state {mutation['mutation_state']}")
+                raise ValueError(
+                    f"cannot register artifact for mutation in state {mutation['mutation_state']}"
+                )
             if mutation["document_id"]:
                 async with db.execute(
                     "SELECT status FROM documents WHERE document_id = ?",
@@ -2727,7 +2763,9 @@ class MemoryDAO:
                 ) as doc_cur:
                     doc_row = await doc_cur.fetchone()
                 if doc_row and doc_row[0] == "PURGED":
-                    raise ValueError(f"cannot register artifact for purged document {mutation['document_id']}")
+                    raise ValueError(
+                        f"cannot register artifact for purged document {mutation['document_id']}"
+                    )
             artifact_row_id = str(uuid.uuid4())
             await db.execute(
                 "INSERT OR IGNORE INTO memory_artifacts "
@@ -2872,9 +2910,20 @@ class MemoryDAO:
             if row is None:
                 await db.commit()
                 return False
-            is_fenced = (
-                row["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
-                or row["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED")
+            is_fenced = row["mutation_state"] in (
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+                "REJECTED",
+            ) or row["pipeline_state"] in (
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+                "REJECTED",
             )
             doc_id = row["document_id"] if "document_id" in row.keys() else None
             if not is_fenced and doc_id:
@@ -2903,10 +2952,13 @@ class MemoryDAO:
                     (mutation_id_str,),
                 ) as art_cur:
                     arts = await art_cur.fetchall()
-                await db.execute("DELETE FROM memory_artifacts WHERE mutation_id = ?", (mutation_id_str,))
                 await db.commit()
 
-                agent_id_str = str(row["agent_id"]) if "agent_id" in row.keys() and row["agent_id"] else ""
+                agent_id_str = (
+                    str(row["agent_id"])
+                    if "agent_id" in row.keys() and row["agent_id"]
+                    else ""
+                )
                 if not agent_id_str:
                     async with self._sql.connection() as c_db:
                         async with c_db.execute(
@@ -2917,22 +2969,37 @@ class MemoryDAO:
                             if m_row:
                                 agent_id_str = str(m_row[0])
 
+                failed_compensations: list[tuple[str, str, str]] = []
                 for art in arts:
                     s_name, a_kind, a_id = art[0], art[1], art[2]
                     if s_name == "VECTOR":
                         try:
                             await self._vec.hard_delete(a_id, agent_id_str)
                         except Exception:
-                            pass
+                            failed_compensations.append((s_name, a_kind, a_id))
                     elif s_name == "GRAPH":
                         try:
                             g = self._require_graph()
                             if a_kind == "ASSERTION":
-                                await g.delete_assertions(agent_id=agent_id_str, assertion_ids=[a_id])
+                                await g.delete_assertions(
+                                    agent_id=agent_id_str, assertion_ids=[a_id]
+                                )
                             elif a_kind == "ENTITY":
-                                await g.delete_nodes(purge_id=f"fence_comp:{mutation_id_str}", agent_id=agent_id_str, node_ids=[a_id])
+                                await g.delete_nodes(
+                                    purge_id=f"fence_comp:{mutation_id_str}",
+                                    agent_id=agent_id_str,
+                                    node_ids=[a_id],
+                                )
                         except Exception:
-                            pass
+                            failed_compensations.append((s_name, a_kind, a_id))
+                if failed_compensations:
+                    await self._enqueue_unowned_projection_cleanup(
+                        mutation_id_str, failed_compensations
+                    )
+                else:
+                    await self._finalize_terminal_projection_compensation(
+                        mutation_id_str
+                    )
                 return False
             await db.execute(
                 "INSERT OR IGNORE INTO projection_attempts "
@@ -3053,6 +3120,14 @@ class MemoryDAO:
             if run["state"] == "ROLLED_BACK":
                 await db.commit()
                 return {"pipeline_run_id": pipeline_run_id, "cleanup_count": 0}
+            async with db.execute(
+                "SELECT COUNT(*) FROM projection_outbox WHERE state = 'IN_FLIGHT' "
+                "AND mutation_id IN (SELECT mutation_id FROM memory_mutations "
+                "WHERE pipeline_run_id = ?)",
+                (pipeline_run_id,),
+            ) as cursor:
+                in_flight_row = await cursor.fetchone()
+            in_flight_projection_count = int(in_flight_row[0]) if in_flight_row else 0
             transitioned = await self._transition_pipeline_run_in_tx(
                 db,
                 pipeline_run_id,
@@ -3125,7 +3200,7 @@ class MemoryDAO:
                 "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations WHERE pipeline_run_id = ?)",
                 (pipeline_run_id,),
             )
-            if not cleanup:
+            if not cleanup and in_flight_projection_count == 0:
                 await self._transition_pipeline_run_in_tx(
                     db,
                     pipeline_run_id,
@@ -3139,7 +3214,11 @@ class MemoryDAO:
         return {
             "pipeline_run_id": pipeline_run_id,
             "cleanup_count": len(cleanup),
-            "state": "ROLLING_BACK" if cleanup else "ROLLED_BACK",
+            "state": (
+                "ROLLING_BACK"
+                if cleanup or in_flight_projection_count
+                else "ROLLED_BACK"
+            ),
         }
 
     async def replay_pipeline_run(self, pipeline_run_id: str) -> dict[str, Any]:
@@ -3722,7 +3801,14 @@ class MemoryDAO:
             try:
                 await self._vec.hard_delete(node_id, agent_id)
             except Exception:
-                pass
+                await self._enqueue_unowned_projection_cleanup(
+                    str(mutation["mutation_id"]),
+                    [("VECTOR", "ENTITY_VECTOR", node_id)],
+                )
+            else:
+                await self._finalize_terminal_projection_compensation(
+                    str(mutation["mutation_id"])
+                )
             raise exc
         return node_id
 
@@ -3746,13 +3832,135 @@ class MemoryDAO:
                 row = await cursor.fetchone()
         if row is None:
             raise ValueError("unknown projection mutation")
-        terminal = {"ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED"}
+        terminal = {
+            "ROLLING_BACK",
+            "ROLLED_BACK",
+            "PURGING",
+            "PURGED",
+            "CANCELLED",
+            "REJECTED",
+        }
         if (
             row["mutation_state"] in terminal
             or row["pipeline_state"] in terminal
             or row["document_status"] == "PURGED"
         ):
             raise ValueError("projection mutation is fenced or terminal")
+
+    async def _enqueue_unowned_projection_cleanup(
+        self,
+        mutation_id: str,
+        artifacts: list[tuple[str, str, str]],
+    ) -> None:
+        """Durably retain failed immediate compensation without false success."""
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT tenant_id, agent_id, dataset_id, pipeline_run_id "
+                "FROM memory_mutations WHERE mutation_id = ?",
+                (mutation_id,),
+            ) as cursor:
+                mutation = await cursor.fetchone()
+            if mutation is None or not mutation[3]:
+                raise RuntimeError("unowned projection cleanup lacks pipeline scope")
+            pipeline_run_id = str(mutation[3])
+            # This is cleanup-only reopening: terminal work remains fenced and
+            # can never return to a forward projection state.
+            await db.execute(
+                "UPDATE pipeline_runs SET state = 'ROLLING_BACK', "
+                "failure_class = 'PhysicalCompensationPending', "
+                "updated_at = CURRENT_TIMESTAMP WHERE pipeline_run_id = ? "
+                "AND state IN ('ROLLED_BACK', 'ROLLING_BACK')",
+                (pipeline_run_id,),
+            )
+            await db.execute(
+                "UPDATE memory_mutations SET state = 'ROLLING_BACK', "
+                "failure_class = 'PhysicalCompensationPending', "
+                "updated_at = CURRENT_TIMESTAMP WHERE mutation_id = ? "
+                "AND state IN ('ROLLED_BACK', 'ROLLING_BACK')",
+                (mutation_id,),
+            )
+            for store_name, artifact_kind, artifact_id in artifacts:
+                registry_agent_id = (
+                    "__tenant__" if store_name == "SQL" else str(mutation[1])
+                )
+                registry_id = str(
+                    uuid.uuid5(
+                        _V4_CATALOG_NAMESPACE,
+                        "\x1f".join(
+                            (
+                                str(mutation[0]),
+                                registry_agent_id,
+                                store_name,
+                                artifact_kind,
+                                artifact_id,
+                            )
+                        ),
+                    )
+                )
+                await db.execute(
+                    "INSERT OR IGNORE INTO artifact_registry "
+                    "(registry_id, tenant_id, agent_id, dataset_id, store_name, "
+                    "artifact_kind, physical_artifact_id, state) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'TOMBSTONED')",
+                    (
+                        registry_id,
+                        mutation[0],
+                        registry_agent_id,
+                        mutation[2],
+                        store_name,
+                        artifact_kind,
+                        artifact_id,
+                    ),
+                )
+                await db.execute(
+                    "UPDATE artifact_registry SET state = 'TOMBSTONED', "
+                    "invalidated_at = CURRENT_TIMESTAMP WHERE registry_id = ?",
+                    (registry_id,),
+                )
+                cleanup_id = str(
+                    uuid.uuid5(
+                        _V4_CATALOG_NAMESPACE,
+                        f"cleanup:{pipeline_run_id}:{registry_id}",
+                    )
+                )
+                await db.execute(
+                    "INSERT OR IGNORE INTO artifact_cleanup_outbox "
+                    "(cleanup_id, pipeline_run_id, registry_id) VALUES (?, ?, ?)",
+                    (cleanup_id, pipeline_run_id, registry_id),
+                )
+            await db.commit()
+
+    async def _finalize_terminal_projection_compensation(
+        self, mutation_id: str
+    ) -> None:
+        """Finish rollback only when no physical cleanup remains outstanding."""
+        async with self._sql.transaction() as db:
+            async with db.execute(
+                "SELECT pipeline_run_id FROM memory_mutations WHERE mutation_id = ?",
+                (mutation_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None or not row[0]:
+                await db.commit()
+                return
+            pipeline_run_id = str(row[0])
+            async with db.execute(
+                "SELECT COUNT(*) FROM artifact_cleanup_outbox WHERE pipeline_run_id = ? "
+                "AND state != 'COMPLETED'",
+                (pipeline_run_id,),
+            ) as cursor:
+                pending_row = await cursor.fetchone()
+            if pending_row and int(pending_row[0]) == 0:
+                await self._transition_pipeline_run_in_tx(
+                    db,
+                    pipeline_run_id,
+                    to_state="ROLLED_BACK",
+                    event_type="POST_WRITE_COMPENSATION_COMPLETED",
+                )
+                await self._transition_pipeline_mutations_in_tx(
+                    db, pipeline_run_id, to_state="ROLLED_BACK"
+                )
+            await db.commit()
 
     async def project_v4_graph_triplet(
         self, *, mutation: dict[str, Any], triplet: dict[str, Any]
@@ -3772,23 +3980,11 @@ class MemoryDAO:
         if (tail is None) == (literal_value is None):
             raise ValueError("assertion requires one entity or literal object")
         relation = str(triplet["relation"])
-        subject = await self.resolve_v4_entity(tenant_id=tenant_id, canonical_name=head)
-        subject_id = str(subject["entity_id"])
-        object_id = None
-        if tail is not None:
-            object_entity = await self.resolve_v4_entity(
-                tenant_id=tenant_id, canonical_name=tail
-            )
-            object_id = str(object_entity["entity_id"])
-        # Keep this immediately adjacent to the first graph write.  A terminal
-        # transition after this point is caught by the receipt fence below and
-        # compensated in the exception handler.
-        await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
+        subject_id = self.v4_entity_id(tenant_id, head)
+        object_id = self.v4_entity_id(tenant_id, tail) if tail is not None else None
         graph_entities = [(subject_id, head)]
-        await graph.insert_node(subject_id, head, agent_id)
         if object_id and tail:
             graph_entities.append((object_id, tail))
-            await graph.insert_node(object_id, tail, agent_id)
         assertion_id = self.v4_assertion_id(
             tenant_id=tenant_id,
             dataset_id=str(mutation["dataset_id"]),
@@ -3801,98 +3997,106 @@ class MemoryDAO:
             evidence_span=str(mutation.get("evidence_span") or ""),
         )
         metadata = mutation.get("metadata") or {}
-        superseded_assertion_ids: list[str] = []
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO v4_assertions "
-                "(assertion_id, tenant_id, dataset_id, subject_id, predicate, "
-                "object_entity_id, literal_value, source_ref, document_id, revision_id, chunk_id, "
-                "evidence_span, jurisdiction, authority_level, valid_from, valid_to, "
-                "observed_at, confidence, status, mutation_id, pipeline_run_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
-                (
-                    assertion_id,
-                    tenant_id,
-                    mutation["dataset_id"],
-                    subject_id,
-                    relation,
-                    object_id,
-                    literal_value,
-                    mutation["source_ref"],
-                    mutation["document_id"],
-                    mutation["revision_id"],
-                    mutation["chunk_id"],
-                    mutation.get("evidence_span") or "",
-                    str(metadata.get("jurisdiction") or ""),
-                    str(metadata.get("authority_level") or ""),
-                    str(metadata.get("valid_from") or ""),
-                    str(metadata.get("valid_to") or ""),
-                    str(metadata.get("observed_at") or ""),
-                    float(triplet.get("confidence", 1.0)),
-                    mutation["mutation_id"],
-                    mutation["pipeline_run_id"],
-                ),
-            )
-            async with db.execute(
-                "SELECT supersedes_revision_id FROM document_revisions "
-                "WHERE revision_id = ?",
-                (mutation["revision_id"],),
-            ) as cursor:
-                revision = await cursor.fetchone()
-            if revision and revision[0]:
-                async with db.execute(
-                    "SELECT assertion_id FROM v4_assertions "
-                    "WHERE tenant_id = ? AND revision_id = ? "
-                    "AND subject_id = ? AND predicate = ? "
-                    "AND status IN ('ACTIVE', 'SUPERSEDED')",
+        # Keep this immediately adjacent to the first graph write.  A terminal
+        # transition after this point is caught by the receipt fence below and
+        # compensated in the exception handler.
+        await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
+        try:
+            # SQL entity creation is also inside the compensation boundary.
+            # IDs are deterministic, so cleanup can safely distinguish shared
+            # entities by consulting the ownership registry.
+            await self.resolve_v4_entity(tenant_id=tenant_id, canonical_name=head)
+            if tail is not None:
+                await self.resolve_v4_entity(tenant_id=tenant_id, canonical_name=tail)
+            for entity_id, entity_name in graph_entities:
+                await graph.insert_node(entity_id, entity_name, agent_id)
+
+            superseded_assertion_ids: list[str] = []
+            async with self._sql.transaction() as db:
+                await db.execute(
+                    "INSERT OR IGNORE INTO v4_assertions "
+                    "(assertion_id, tenant_id, dataset_id, subject_id, predicate, "
+                    "object_entity_id, literal_value, source_ref, document_id, revision_id, chunk_id, "
+                    "evidence_span, jurisdiction, authority_level, valid_from, valid_to, "
+                    "observed_at, confidence, status, mutation_id, pipeline_run_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
                     (
+                        assertion_id,
                         tenant_id,
-                        revision[0],
+                        mutation["dataset_id"],
                         subject_id,
                         relation,
+                        object_id,
+                        literal_value,
+                        mutation["source_ref"],
+                        mutation["document_id"],
+                        mutation["revision_id"],
+                        mutation["chunk_id"],
+                        mutation.get("evidence_span") or "",
+                        str(metadata.get("jurisdiction") or ""),
+                        str(metadata.get("authority_level") or ""),
+                        str(metadata.get("valid_from") or ""),
+                        str(metadata.get("valid_to") or ""),
+                        str(metadata.get("observed_at") or ""),
+                        float(triplet.get("confidence", 1.0)),
+                        mutation["mutation_id"],
+                        mutation["pipeline_run_id"],
                     ),
+                )
+                async with db.execute(
+                    "SELECT supersedes_revision_id FROM document_revisions "
+                    "WHERE revision_id = ?",
+                    (mutation["revision_id"],),
                 ) as cursor:
-                    superseded_assertion_ids = [
-                        str(row[0]) for row in await cursor.fetchall()
-                    ]
-                for old_assertion_id in superseded_assertion_ids:
-                    await db.execute(
-                        "INSERT OR IGNORE INTO v4_assertion_links "
-                        "(source_assertion_id, target_assertion_id, relation_type, mutation_id) "
-                        "VALUES (?, ?, 'SUPERSEDES', ?)",
-                        (
-                            assertion_id,
-                            old_assertion_id,
-                            mutation["mutation_id"],
-                        ),
-                    )
-            await db.commit()
-        await graph.insert_assertion(
-            assertion_id=assertion_id,
-            subject_id=subject_id,
-            object_id=object_id,
-            object_value=literal_value,
-            agent_id=agent_id,
-            predicate=relation,
-            mutation_id=str(mutation["mutation_id"]),
-            source_ref=str(mutation["source_ref"]),
-            evidence_span=str(mutation.get("evidence_span") or ""),
-            jurisdiction=str(metadata.get("jurisdiction") or ""),
-            authority_level=str(metadata.get("authority_level") or ""),
-            valid_from=str(metadata.get("valid_from") or ""),
-            valid_to=str(metadata.get("valid_to") or ""),
-            observed_at=str(metadata.get("observed_at") or ""),
-            confidence=float(triplet.get("confidence", 1.0)),
-            pipeline_run_id=str(mutation.get("pipeline_run_id") or ""),
-        )
-        for old_assertion_id in superseded_assertion_ids:
-            await graph.link_assertions(
-                source_assertion_id=assertion_id,
-                target_assertion_id=old_assertion_id,
+                    revision = await cursor.fetchone()
+                if revision and revision[0]:
+                    async with db.execute(
+                        "SELECT assertion_id FROM v4_assertions "
+                        "WHERE tenant_id = ? AND revision_id = ? "
+                        "AND subject_id = ? AND predicate = ? "
+                        "AND status IN ('ACTIVE', 'SUPERSEDED')",
+                        (tenant_id, revision[0], subject_id, relation),
+                    ) as cursor:
+                        superseded_assertion_ids = [
+                            str(row[0]) for row in await cursor.fetchall()
+                        ]
+                    for old_assertion_id in superseded_assertion_ids:
+                        await db.execute(
+                            "INSERT OR IGNORE INTO v4_assertion_links "
+                            "(source_assertion_id, target_assertion_id, relation_type, mutation_id) "
+                            "VALUES (?, ?, 'SUPERSEDES', ?)",
+                            (
+                                assertion_id,
+                                old_assertion_id,
+                                mutation["mutation_id"],
+                            ),
+                        )
+                await db.commit()
+            await graph.insert_assertion(
+                assertion_id=assertion_id,
+                subject_id=subject_id,
+                object_id=object_id,
+                object_value=literal_value,
                 agent_id=agent_id,
-                relation_type="SUPERSEDES",
+                predicate=relation,
+                mutation_id=str(mutation["mutation_id"]),
+                source_ref=str(mutation["source_ref"]),
+                evidence_span=str(mutation.get("evidence_span") or ""),
+                jurisdiction=str(metadata.get("jurisdiction") or ""),
+                authority_level=str(metadata.get("authority_level") or ""),
+                valid_from=str(metadata.get("valid_from") or ""),
+                valid_to=str(metadata.get("valid_to") or ""),
+                observed_at=str(metadata.get("observed_at") or ""),
+                confidence=float(triplet.get("confidence", 1.0)),
+                pipeline_run_id=str(mutation.get("pipeline_run_id") or ""),
             )
-        try:
+            for old_assertion_id in superseded_assertion_ids:
+                await graph.link_assertions(
+                    source_assertion_id=assertion_id,
+                    target_assertion_id=old_assertion_id,
+                    agent_id=agent_id,
+                    relation_type="SUPERSEDES",
+                )
             await self.record_mutation_artifact(
                 str(mutation["mutation_id"]),
                 store_name="SQL",
@@ -3919,46 +4123,69 @@ class MemoryDAO:
                 metadata={"predicate": relation},
             )
         except Exception as exc:
-            try:
-                await graph.delete_assertions(agent_id=agent_id, assertion_ids=[assertion_id])
-            except Exception:
-                pass
-            # The SQL assertion is created before the graph assertion in order
-            # to preserve canonical provenance.  If the post-write receipt
-            # fence loses, it is not owned by any surviving mutation and must
-            # be removed with the graph side effect.
-            async with self._sql.transaction() as db:
-                await db.execute(
-                    "DELETE FROM v4_assertion_links WHERE source_assertion_id = ? "
-                    "OR target_assertion_id = ?",
-                    (assertion_id, assertion_id),
-                )
-                await db.execute(
-                    "DELETE FROM v4_assertions WHERE assertion_id = ? AND mutation_id = ?",
-                    (assertion_id, str(mutation["mutation_id"])),
-                )
-                await db.commit()
-            for entity_id, _entity_name in graph_entities:
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT 1 FROM artifact_registry r "
-                        "JOIN artifact_sources s ON s.registry_id = r.registry_id "
-                        "WHERE r.store_name = 'GRAPH' AND r.artifact_kind = 'ENTITY' "
-                        "AND r.physical_artifact_id = ? AND s.state = 'ACTIVE' LIMIT 1",
-                        (entity_id,),
-                    ) as cursor:
-                        has_owner = await cursor.fetchone()
-                if has_owner is None:
-                    try:
-                        await graph.delete_nodes(
-                            purge_id=f"fence_comp:{mutation['mutation_id']}",
-                            agent_id=agent_id,
-                            node_ids=[entity_id],
-                        )
-                    except Exception:
-                        pass
+            await self._compensate_v4_graph_projection(
+                mutation=mutation,
+                assertion_id=assertion_id,
+                graph_entities=graph_entities,
+            )
             raise exc
         return assertion_id
+
+    async def _compensate_v4_graph_projection(
+        self,
+        *,
+        mutation: dict[str, Any],
+        assertion_id: str,
+        graph_entities: list[tuple[str, str]],
+    ) -> None:
+        """Remove or durably queue every graph write after a lost fence."""
+        graph = self._require_graph()
+        agent_id = str(mutation["agent_id"])
+        failed: list[tuple[str, str, str]] = []
+        try:
+            await graph.delete_assertions(
+                agent_id=agent_id, assertion_ids=[assertion_id]
+            )
+        except Exception:
+            failed.append(("GRAPH", "ASSERTION", assertion_id))
+        async with self._sql.transaction() as db:
+            await db.execute(
+                "DELETE FROM v4_assertion_links WHERE source_assertion_id = ? "
+                "OR target_assertion_id = ?",
+                (assertion_id, assertion_id),
+            )
+            await db.execute(
+                "DELETE FROM v4_assertions WHERE assertion_id = ? AND mutation_id = ?",
+                (assertion_id, str(mutation["mutation_id"])),
+            )
+            await db.commit()
+        for entity_id, _entity_name in graph_entities:
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT 1 FROM artifact_registry r "
+                    "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                    "WHERE r.store_name = 'GRAPH' AND r.artifact_kind = 'ENTITY' "
+                    "AND r.physical_artifact_id = ? AND s.state = 'ACTIVE' LIMIT 1",
+                    (entity_id,),
+                ) as cursor:
+                    has_owner = await cursor.fetchone()
+            if has_owner is None:
+                try:
+                    await graph.delete_nodes(
+                        purge_id=f"fence_comp:{mutation['mutation_id']}",
+                        agent_id=agent_id,
+                        node_ids=[entity_id],
+                    )
+                except Exception:
+                    failed.append(("GRAPH", "ENTITY", entity_id))
+        if failed:
+            await self._enqueue_unowned_projection_cleanup(
+                str(mutation["mutation_id"]), failed
+            )
+        else:
+            await self._finalize_terminal_projection_compensation(
+                str(mutation["mutation_id"])
+            )
 
     async def search_v4_memory(
         self,
@@ -4191,14 +4418,18 @@ class MemoryDAO:
                 metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
                 if metadata:
                     assertion["metadata"] = metadata
-        by_entity: dict[str, list[dict[str, Any]]] = {item: [] for item in entity_ids if item in entities}
+        by_entity: dict[str, list[dict[str, Any]]] = {
+            item: [] for item in entity_ids if item in entities
+        }
         authority_factor = {
             "OFFICIAL": 1.15,
             "PRIMARY": 1.10,
             "SUPREME_COURT": 1.15,
             "SECONDARY": 0.95,
         }
-        legal_factor: dict[str, float] = {item: 1.0 for item in entity_ids if item in entities}
+        legal_factor: dict[str, float] = {
+            item: 1.0 for item in entity_ids if item in entities
+        }
         for assertion in provenance:
             for raw_entity_id in (
                 assertion["subject_id"],
@@ -4225,7 +4456,8 @@ class MemoryDAO:
             if supporting_assertions
         ]
         ordered = [
-            item for item in sorted(
+            item
+            for item in sorted(
                 eligible_entity_ids,
                 key=lambda item: (-(ranks[item] * legal_factor[item]), item),
             )
@@ -4254,7 +4486,9 @@ class MemoryDAO:
         async with self._sql.connection() as db:
             datasets = list(dataset_ids or [])
             placeholders = ",".join("?" for _ in datasets)
-            dataset_filter = f"AND s.dataset_id IN ({placeholders}) " if datasets else ""
+            dataset_filter = (
+                f"AND s.dataset_id IN ({placeholders}) " if datasets else ""
+            )
             agent_filter = "AND m.agent_id = ? " if agent_id else ""
             params: tuple[Any, ...] = (
                 tenant_id,
@@ -4283,7 +4517,9 @@ class MemoryDAO:
         async with self._sql.connection() as db:
             datasets = list(dataset_ids or [])
             placeholders = ",".join("?" for _ in datasets)
-            dataset_filter = f"AND s.dataset_id IN ({placeholders}) " if datasets else ""
+            dataset_filter = (
+                f"AND s.dataset_id IN ({placeholders}) " if datasets else ""
+            )
             async with db.execute(
                 "SELECT 1 FROM artifact_registry r "
                 "JOIN artifact_sources s ON s.registry_id = r.registry_id "
@@ -4348,7 +4584,27 @@ class MemoryDAO:
             (mutation_id,),
         ) as cursor:
             m_row = await cursor.fetchone()
-        if not m_row or m_row["mutation_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED") or m_row["pipeline_state"] in ("ROLLING_BACK", "ROLLED_BACK", "PURGING", "PURGED", "CANCELLED", "REJECTED"):
+        if (
+            not m_row
+            or m_row["mutation_state"]
+            in (
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+                "REJECTED",
+            )
+            or m_row["pipeline_state"]
+            in (
+                "ROLLING_BACK",
+                "ROLLED_BACK",
+                "PURGING",
+                "PURGED",
+                "CANCELLED",
+                "REJECTED",
+            )
+        ):
             return
         async with db.execute(
             "SELECT projection_name, state FROM projection_outbox WHERE mutation_id = ?",
@@ -4716,31 +4972,25 @@ class MemoryDAO:
 
         is_migrating = await self._is_lancedb_migrating()
 
-        # PHASE 1: Canonical SQLite transaction FIRST
+        # PHASE 1: stage the replacement in canonical SQLite without making it
+        # current.  The previous good memory remains visible until every new
+        # secondary projection is complete.
         async with self._sql.transaction() as db:
-            if conflicting_node_ids:
-                placeholders = ",".join("?" for _ in conflicting_node_ids)
-                await db.execute(
-                    f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
-                    f"WHERE id IN ({placeholders}) AND agent_id = ? "
-                    f"AND invalid_at IS NULL",
-                    (*conflicting_node_ids, agent_id),
-                )
-                logger.info(
-                    "SEMANTIC_CONFLICT_RESOLUTION | agent_id=%s new_node_id=%s "
-                    "resolved_conflicts=%d soft_deleted=%s",
-                    agent_id,
-                    node_id,
-                    len(conflicting_node_ids),
-                    conflicting_node_ids,
-                )
-
             await db.execute(
                 "INSERT INTO nodes "
                 "(id, entity_name, type, content_payload, is_consolidated, created_at, "
-                " agent_id, session_id) "
-                "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
-                (node_id, entity_name, node_type, content, now, agent_id, session_id),
+                " agent_id, session_id, invalid_at) "
+                "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+                (
+                    node_id,
+                    entity_name,
+                    node_type,
+                    content,
+                    now,
+                    agent_id,
+                    session_id,
+                    now,
+                ),
             )
 
             if is_migrating:
@@ -4775,9 +5025,6 @@ class MemoryDAO:
         soft_deleted_cids: list[str] = []
         if not is_migrating:
             try:
-                for cid in conflicting_node_ids:
-                    await self._vec.soft_delete(cid, agent_id)
-                    soft_deleted_cids.append(cid)
                 await self._vec.upsert(
                     node_id=node_id,
                     agent_id=agent_id,
@@ -4791,16 +5038,11 @@ class MemoryDAO:
                     node_id,
                     vec_exc,
                 )
+                compensation_error: Exception | None = None
                 try:
                     await self._vec.hard_delete(node_id, agent_id)
-                except Exception:
-                    pass
-                for cid in soft_deleted_cids:
-                    try:
-                        if hasattr(self._vec, "restore_soft_delete"):
-                            await self._vec.restore_soft_delete(cid, agent_id)
-                    except Exception:
-                        pass
+                except Exception as cleanup_exc:
+                    compensation_error = cleanup_exc
                 async with self._sql.transaction() as db:
                     await db.execute(
                         "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
@@ -4813,6 +5055,10 @@ class MemoryDAO:
                             (*conflicting_node_ids, agent_id),
                         )
                     await db.commit()
+                if compensation_error is not None:
+                    raise RuntimeError(
+                        "V3 failed vector replacement left compensation pending"
+                    ) from compensation_error
                 raise
 
         if self._graph is not None and not is_migrating:
@@ -4829,17 +5075,21 @@ class MemoryDAO:
                     node_id,
                     graph_exc,
                 )
+                compensation_errors: list[Exception] = []
                 if not is_migrating:
                     try:
                         await self._vec.hard_delete(node_id, agent_id)
-                    except Exception:
-                        pass
-                    for cid in soft_deleted_cids:
+                    except Exception as cleanup_exc:
+                        compensation_errors.append(cleanup_exc)
+                    if hasattr(self._graph, "delete_nodes"):
                         try:
-                            if hasattr(self._vec, "restore_soft_delete"):
-                                await self._vec.restore_soft_delete(cid, agent_id)
-                        except Exception:
-                            pass
+                            await self._graph.delete_nodes(
+                                purge_id=f"failed-replacement:{node_id}",
+                                agent_id=agent_id,
+                                node_ids=[node_id],
+                            )
+                        except Exception as cleanup_exc:
+                            compensation_errors.append(cleanup_exc)
                 async with self._sql.transaction() as db:
                     await db.execute(
                         "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
@@ -4852,7 +5102,79 @@ class MemoryDAO:
                             (*conflicting_node_ids, agent_id),
                         )
                     await db.commit()
+                if compensation_errors:
+                    raise RuntimeError(
+                        "V3 failed graph replacement left compensation pending"
+                    ) from compensation_errors[0]
                 raise
+
+        # PHASE 3: only after the replacement exists in every required
+        # secondary store may the old vector visibility and SQL head move.
+        # Any failure before the SQL CAS leaves the previous SQL memory active.
+        try:
+            if not is_migrating:
+                for cid in conflicting_node_ids:
+                    await self._vec.soft_delete(cid, agent_id)
+                    soft_deleted_cids.append(cid)
+            async with self._sql.transaction() as db:
+                if conflicting_node_ids:
+                    placeholders = ",".join("?" for _ in conflicting_node_ids)
+                    await db.execute(
+                        f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
+                        f"WHERE id IN ({placeholders}) AND agent_id = ? "
+                        f"AND invalid_at IS NULL",
+                        (*conflicting_node_ids, agent_id),
+                    )
+                activated = await db.execute(
+                    "UPDATE nodes SET invalid_at = NULL WHERE id = ? AND agent_id = ? "
+                    "AND invalid_at = ?",
+                    (node_id, agent_id, now),
+                )
+                if activated.rowcount != 1:
+                    raise RuntimeError("replacement activation fence lost")
+                await db.commit()
+        except Exception:
+            compensation_errors: list[Exception] = []
+            for cid in soft_deleted_cids:
+                try:
+                    await self._vec.restore_soft_delete(cid, agent_id)
+                except Exception as restore_exc:
+                    compensation_errors.append(restore_exc)
+            if not is_migrating:
+                try:
+                    await self._vec.hard_delete(node_id, agent_id)
+                except Exception as delete_exc:
+                    compensation_errors.append(delete_exc)
+            if self._graph is not None and hasattr(self._graph, "delete_nodes"):
+                try:
+                    await self._graph.delete_nodes(
+                        purge_id=f"failed-replacement:{node_id}",
+                        agent_id=agent_id,
+                        node_ids=[node_id],
+                    )
+                except Exception as graph_delete_exc:
+                    compensation_errors.append(graph_delete_exc)
+            async with self._sql.transaction() as db:
+                await db.execute(
+                    "DELETE FROM nodes WHERE id = ? AND agent_id = ? AND invalid_at IS NOT NULL",
+                    (node_id, agent_id),
+                )
+                await db.commit()
+            if compensation_errors:
+                raise RuntimeError(
+                    "V3 replacement compensation could not restore physical state"
+                ) from compensation_errors[0]
+            raise
+
+        if conflicting_node_ids:
+            logger.info(
+                "SEMANTIC_CONFLICT_RESOLUTION | agent_id=%s new_node_id=%s "
+                "resolved_conflicts=%d soft_deleted=%s",
+                agent_id,
+                node_id,
+                len(conflicting_node_ids),
+                conflicting_node_ids,
+            )
 
         logger.info(
             "INSERT_MEMORY | agent_id=%s node_id=%s entity=%s dim=%d",
@@ -5398,9 +5720,7 @@ class MemoryDAO:
                     db, where_sql=mutation_where, params=mutation_params
                 )
                 if purged_mutation_ids:
-                    mutation_placeholders = ",".join(
-                        "?" for _ in purged_mutation_ids
-                    )
+                    mutation_placeholders = ",".join("?" for _ in purged_mutation_ids)
                     await db.execute(
                         "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
                         "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
@@ -6204,14 +6524,14 @@ class MemoryDAO:
     # ==================================================================
 
     async def _queue_usage(
-        self, db: aiosqlite.Connection, agent_id: str | None = None
+        self, db: aiosqlite.Connection, tenant_id: str | None = None
     ) -> dict[str, int]:
         placeholders = ",".join("?" for _ in _ADMISSION_ACTIVE_STATES)
         predicate = f"state IN ({placeholders})"
         params: list[Any] = list(_ADMISSION_ACTIVE_STATES)
-        if agent_id is not None:
-            predicate += " AND agent_id = ?"
-            params.append(agent_id)
+        if tenant_id is not None:
+            predicate += " AND tenant_id = ?"
+            params.append(tenant_id)
         async with db.execute(
             f"SELECT COUNT(*) AS records, COALESCE(SUM(payload_bytes), 0) AS bytes, "
             f"COALESCE(SUM(CASE WHEN state = 'IN_FLIGHT' THEN 1 ELSE 0 END), 0) AS in_flight, "
@@ -6272,7 +6592,12 @@ class MemoryDAO:
                 raise QueueOverCapacityError(scope)
 
     async def admit_raw_log(
-        self, agent_id: str, payload: dict[str, Any], *, policy: QueueAdmissionPolicy
+        self,
+        agent_id: str,
+        payload: dict[str, Any],
+        *,
+        policy: QueueAdmissionPolicy,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         """Atomically admit a raw log and durable dispatch receipt, or persist nothing.
 
@@ -6281,10 +6606,23 @@ class MemoryDAO:
         bypassing count, byte, tenant, retry, or in-flight budgets.
         """
         _assert_valid_agent_id(agent_id)
+        durable_tenant_id = tenant_id or str(payload.get("tenant_id") or agent_id)
+        if not durable_tenant_id or payload.get("tenant_id") not in (
+            None,
+            durable_tenant_id,
+        ):
+            raise ValueError("payload tenant_id must match the durable tenant scope")
         if payload.get("agent_id") not in (None, agent_id):
             raise ValueError("payload agent_id must match the durable admission tenant")
-        content_str = str(payload.get("content_payload") or payload.get("text") or payload.get("content") or "")
-        meta_dict = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        content_str = str(
+            payload.get("content_payload")
+            or payload.get("text")
+            or payload.get("content")
+            or ""
+        )
+        meta_dict = (
+            payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        )
         _validate_write_payload(content_str, meta_dict)
         serialized, payload_bytes = _canonical_payload_bytes(payload)
         metadata = payload.get("metadata", {})
@@ -6304,14 +6642,18 @@ class MemoryDAO:
                 ):
                     async with db.execute(
                         "SELECT id FROM raw_logs WHERE agent_id = ? "
+                        "AND json_extract(payload, '$.tenant_id') = ? "
                         "AND json_extract(payload, '$.session_id') = ? "
-                        "AND json_extract(payload, '$.metadata.memory_type') = ? "
+                        "AND ((? IS NULL AND json_extract(payload, '$.metadata.memory_type') IS NULL) "
+                        "OR json_extract(payload, '$.metadata.memory_type') = ?) "
                         "AND ((? IS NOT NULL AND json_extract(payload, '$.metadata.idempotency_key') = ?) "
                         "OR (? IS NOT NULL AND json_extract(payload, '$.metadata.content_sha256') = ?)) "
                         "ORDER BY id ASC LIMIT 1",
                         (
                             agent_id,
+                            durable_tenant_id,
                             payload.get("session_id"),
+                            memory_type,
                             memory_type,
                             idempotency_key,
                             idempotency_key,
@@ -6328,7 +6670,7 @@ class MemoryDAO:
                             "deduplicated": True,
                         }
                 global_usage = await self._queue_usage(db)
-                tenant_usage = await self._queue_usage(db, agent_id)
+                tenant_usage = await self._queue_usage(db, durable_tenant_id)
                 self._enforce_queue_capacity(
                     global_usage, tenant_usage, payload_bytes, policy
                 )
@@ -6348,7 +6690,7 @@ class MemoryDAO:
                     (
                         dispatch_id,
                         log_id,
-                        agent_id,
+                        durable_tenant_id,
                         agent_id,
                         idempotency_key,
                         queue_id,
@@ -6360,7 +6702,7 @@ class MemoryDAO:
                     (
                         queue_id,
                         dispatch_id,
-                        agent_id,
+                        durable_tenant_id,
                         agent_id,
                         log_id,
                         payload_bytes,
@@ -6374,7 +6716,7 @@ class MemoryDAO:
                         str(uuid.uuid4()),
                         dispatch_id,
                         queue_id,
-                        agent_id,
+                        durable_tenant_id,
                         agent_id,
                         idempotency_key,
                     ),
@@ -6391,13 +6733,15 @@ class MemoryDAO:
             "deduplicated": False,
         }
 
-    async def get_queue_admission_metrics(self, agent_id: str) -> dict[str, Any]:
+    async def get_queue_admission_metrics(
+        self, agent_id: str, *, tenant_id: str | None = None
+    ) -> dict[str, Any]:
         """Return bounded queue pressure counts for readiness/metrics consumers."""
         _assert_valid_agent_id(agent_id)
         try:
             async with self._sql.connection() as db:
                 global_usage = await self._queue_usage(db)
-                tenant_usage = await self._queue_usage(db, agent_id)
+                tenant_usage = await self._queue_usage(db, tenant_id or agent_id)
                 async with db.execute(
                     "SELECT COUNT(*) FROM dispatch_queue WHERE state = 'BLOCKED'"
                 ) as cursor:

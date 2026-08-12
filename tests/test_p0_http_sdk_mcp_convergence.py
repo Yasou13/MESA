@@ -1,12 +1,15 @@
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
-from mesa_client.client import AsyncMesaV4Client, MesaAPIError
+from mesa_client.client import AsyncMesaV4Client, MesaAPIError, _parse_api_error
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.errors import MCPError
 from mesa_mcp.v4_service import MesaHttpV4Service
+from mesa_memory.api.server import _canonical_readiness_failures, app
+from mesa_memory.config import config
 
 
 @pytest.mark.asyncio
@@ -25,7 +28,9 @@ async def test_sdk_mcp_convergence_and_error_mapping():
 
     # 1. Verify AsyncMesaV4Client error propagation
     mock_client = AsyncMock()
-    mock_client.capability.side_effect = MesaAPIError(401, "UNAUTHORIZED", "Unauthorized API Key")
+    mock_client.capability.side_effect = MesaAPIError(
+        401, "UNAUTHORIZED", "Unauthorized API Key"
+    )
     mcp_service._http_client = mock_client
 
     with pytest.raises(MCPError) as exc_info:
@@ -35,11 +40,68 @@ async def test_sdk_mcp_convergence_and_error_mapping():
     assert "denied access" in exc_info.value.message
 
     # 2. Verify invalid argument error mapping
-    mock_client.capability.side_effect = MesaAPIError(400, "INVALID_ARGUMENT", "payload size exceeds limit")
+    mock_client.capability.side_effect = MesaAPIError(
+        400, "INVALID_ARGUMENT", "payload size exceeds limit"
+    )
     with pytest.raises(MCPError) as exc_info:
         await mcp_service.v4_capability()
 
     assert exc_info.value.code == "INVALID_ARGUMENT"
+
+
+@pytest.mark.asyncio
+async def test_real_http_error_body_is_parsed_by_sdk_and_mcp():
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://mesa.test"
+    ) as client:
+        response = await client.get("/health/init")
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": "BACKEND_UNAVAILABLE",
+        "detail": "System initializing",
+        "status_code": 503,
+        "retryable": True,
+    }
+    sdk_error = _parse_api_error(response)
+    assert sdk_error.error == "BACKEND_UNAVAILABLE"
+    assert sdk_error.status_code == 503
+
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    service._http_client = AsyncMock(
+        capability=AsyncMock(side_effect=sdk_error)
+    )  # type: ignore[assignment]
+    with pytest.raises(MCPError) as raised:
+        await service.v4_capability()
+    assert raised.value.code == "BACKEND_UNAVAILABLE"
+    assert raised.value.retryable is True
+
+
+def test_readiness_uses_configured_canonical_backlog_thresholds(monkeypatch):
+    monkeypatch.setattr(config, "readiness_projection_backlog_max", 2)
+    monkeypatch.setattr(config, "readiness_projection_dead_letter_max", 0)
+    monkeypatch.setattr(config, "readiness_projection_stuck_max", 0)
+    monkeypatch.setattr(config, "readiness_cleanup_backlog_max", 3)
+    monkeypatch.setattr(config, "readiness_cleanup_blocked_max", 0)
+    monkeypatch.setattr(config, "readiness_orphan_registry_max", 0)
+    failures = _canonical_readiness_failures(
+        {
+            "v4_projection": {"backlog": 3, "dead_letter": 1, "stuck_claims": 1},
+            "v4_ownership": {
+                "cleanup_backlog": 4,
+                "cleanup_blocked": 1,
+                "orphan_registry": 1,
+            },
+        }
+    )
+    assert failures == [
+        "projection_backlog=3>2",
+        "projection_dead_letter=1>0",
+        "projection_stuck=1>0",
+        "cleanup_backlog=4>3",
+        "cleanup_blocked=1>0",
+        "orphan_registry=1>0",
+    ]
 
 
 @pytest.mark.asyncio
@@ -87,9 +149,7 @@ async def test_mcp_improve_admits_searchable_canonical_correction():
 
 @pytest.mark.asyncio
 async def test_sdk_context_forwards_cross_session_query_and_temporal_budget():
-    client = AsyncMesaV4Client(
-        base_url="http://mesa.invalid", api_key="test_api_key"
-    )
+    client = AsyncMesaV4Client(base_url="http://mesa.invalid", api_key="test_api_key")
     request = AsyncMock(return_value={"canonical_memories": [{"memory_id": "m1"}]})
     client._request = request
     try:

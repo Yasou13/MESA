@@ -261,6 +261,7 @@ def create_memory_router(
         if payload.idempotency_key and "idempotency_key" not in metadata:
             metadata["idempotency_key"] = payload.idempotency_key
         payload_dict = {
+            "tenant_id": payload.tenant_id or payload.agent_id,
             "agent_id": payload.agent_id,
             "session_id": payload.session_id,
             "content": payload.content,
@@ -269,7 +270,10 @@ def create_memory_router(
 
         try:
             admission = await dao.admit_raw_log(
-                payload.agent_id, payload_dict, policy=config.queue_admission_policy
+                payload.agent_id,
+                payload_dict,
+                policy=config.queue_admission_policy,
+                tenant_id=payload.tenant_id or payload.agent_id,
             )
         except QueueRecordTooLargeError:
             return JSONResponse(

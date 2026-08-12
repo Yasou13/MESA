@@ -79,6 +79,7 @@ class EmbeddingIdentity:
     model: str
     version: str
     dimension: int
+    normalized: bool = False
 
 
 def load_runtime_profile(
@@ -279,7 +280,9 @@ def _read_env_ram_limit() -> Optional[int]:
         try:
             total = int(raw_bytes)
             if total > 0:
-                logger.info("RAM limit sourced from MESA_MAX_MEMORY_BYTES: %d bytes", total)
+                logger.info(
+                    "RAM limit sourced from MESA_MAX_MEMORY_BYTES: %d bytes", total
+                )
                 return total
         except ValueError:
             pass
@@ -290,7 +293,11 @@ def _read_env_ram_limit() -> Optional[int]:
             mb = int(raw_mb)
             if mb > 0:
                 total = mb * 1024 * 1024
-                logger.info("RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)", mb, total)
+                logger.info(
+                    "RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)",
+                    mb,
+                    total,
+                )
                 return total
         except ValueError:
             pass
@@ -580,6 +587,24 @@ class MesaConfig(BaseSettings):
     queue_retry_after_seconds: int = Field(
         5, validation_alias="MESA_QUEUE_RETRY_AFTER_SECONDS"
     )
+    readiness_projection_backlog_max: int = Field(
+        1000, ge=0, validation_alias="MESA_READINESS_PROJECTION_BACKLOG_MAX"
+    )
+    readiness_projection_dead_letter_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_PROJECTION_DEAD_LETTER_MAX"
+    )
+    readiness_projection_stuck_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_PROJECTION_STUCK_MAX"
+    )
+    readiness_cleanup_backlog_max: int = Field(
+        1000, ge=0, validation_alias="MESA_READINESS_CLEANUP_BACKLOG_MAX"
+    )
+    readiness_cleanup_blocked_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_CLEANUP_BLOCKED_MAX"
+    )
+    readiness_orphan_registry_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_ORPHAN_REGISTRY_MAX"
+    )
 
     @property
     def queue_admission_policy(self) -> QueueAdmissionPolicy:
@@ -748,7 +773,7 @@ def configured_embedding_identity(
         default=False,
     )
     return EmbeddingIdentity(
-        provider=config.mesa_llm_provider if external else "local",
+        provider=config.mesa_llm_provider if external else "sentence-transformers",
         model=(
             config.llm_embedding_model_name
             if external
@@ -756,4 +781,5 @@ def configured_embedding_identity(
         ),
         version=config.embedding_version,
         dimension=config.embedding_dimension,
+        normalized=False,
     )

@@ -16,7 +16,8 @@ setup_logging(role="api")
 
 import kuzu
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -658,6 +659,59 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
 
+def _canonical_error_code(status_code: int, detail: str) -> str:
+    normalized = detail.casefold()
+    if status_code == 409 and "session is not active" in normalized:
+        return "SESSION_INACTIVE"
+    if status_code == 409 and "revision" in normalized and "conflict" in normalized:
+        return "REVISION_HEAD_CONFLICT"
+    if status_code == 409 and "idempotency" in normalized:
+        return "IDEMPOTENCY_CONFLICT"
+    return {
+        400: "INVALID_ARGUMENT",
+        401: "UNAUTHORIZED",
+        403: "ACCESS_DENIED",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        413: "PAYLOAD_TOO_LARGE",
+        422: "VALIDATION_ERROR",
+        429: "RATE_LIMITED",
+        501: "NOT_SUPPORTED",
+        503: "BACKEND_UNAVAILABLE",
+    }.get(status_code, "HTTP_ERROR")
+
+
+def _canonical_error_body(status_code: int, detail: str) -> dict[str, object]:
+    return {
+        "error": _canonical_error_code(status_code, detail),
+        "detail": detail,
+        "status_code": status_code,
+        "retryable": status_code in {408, 429, 502, 503, 504},
+    }
+
+
+@app.exception_handler(HTTPException)
+async def canonical_http_exception_response(
+    _request: Request, exc: HTTPException
+) -> JSONResponse:
+    detail = str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_canonical_error_body(exc.status_code, detail),
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def canonical_validation_exception_response(
+    _request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content=_canonical_error_body(422, str(exc)),
+    )
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_response(request: Request, exc: Exception) -> Response:
     """Preserve FastAPI's generic 500 body while returning the correlation ID."""
@@ -772,6 +826,13 @@ async def health_init():
     if not getattr(state, "is_ready", False):
         raise HTTPException(status_code=503, detail="System initializing")
     health = await state.dao.health_check()
+    readiness_failures = _canonical_readiness_failures(health)
+    if readiness_failures:
+        raise HTTPException(
+            status_code=503,
+            detail="Canonical work backlog exceeded readiness thresholds: "
+            + ", ".join(readiness_failures),
+        )
     runtime = getattr(state, "runtime_profile", None)
     workers_required = runtime is None or runtime.worker_enabled
     worker_health = state.worker_supervisor.readiness()
@@ -792,6 +853,51 @@ async def health_init():
         if health.get("graph", {}).get("status") in ("healthy", "not_initialized"):
             return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")
+
+
+def _canonical_readiness_failures(health: dict[str, object]) -> list[str]:
+    """Return severe canonical-work conditions that make this process unready."""
+    projection = health.get("v4_projection")
+    ownership = health.get("v4_ownership")
+    projection = projection if isinstance(projection, dict) else {}
+    ownership = ownership if isinstance(ownership, dict) else {}
+    checks = (
+        (
+            "projection_backlog",
+            int(projection.get("backlog", 0)),
+            config.readiness_projection_backlog_max,
+        ),
+        (
+            "projection_dead_letter",
+            int(projection.get("dead_letter", 0)),
+            config.readiness_projection_dead_letter_max,
+        ),
+        (
+            "projection_stuck",
+            int(projection.get("stuck_claims", 0)),
+            config.readiness_projection_stuck_max,
+        ),
+        (
+            "cleanup_backlog",
+            int(ownership.get("cleanup_backlog", 0)),
+            config.readiness_cleanup_backlog_max,
+        ),
+        (
+            "cleanup_blocked",
+            int(ownership.get("cleanup_blocked", 0)),
+            config.readiness_cleanup_blocked_max,
+        ),
+        (
+            "orphan_registry",
+            int(ownership.get("orphan_registry", 0)),
+            config.readiness_orphan_registry_max,
+        ),
+    )
+    return [
+        f"{name}={actual}>{maximum}"
+        for name, actual, maximum in checks
+        if actual > maximum
+    ]
 
 
 @app.get("/v3/health", dependencies=[Depends(get_api_key)])

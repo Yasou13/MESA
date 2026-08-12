@@ -335,6 +335,13 @@ Full cognitive processing uses `docker-compose.v4.yml`, explicitly sets
 runs one combined storage owner. It has different cost, latency,
 model-download and provider-rate-limit characteristics from v3.
 
+The full-cognitive profile requires two explicit, distinct Tier-3
+provider/model pairs via `MESA_TIER3_LLM_PROVIDER_A`,
+`MESA_TIER3_LLM_MODEL_A`, `MESA_TIER3_LLM_PROVIDER_B`, and
+`MESA_TIER3_LLM_MODEL_B`. Compose forwards these together with the selected
+LLM/embedding provider variables; startup fails closed when the pairs are
+missing or identical.
+
 | Capability | MESA | LangChain Memory | MemGPT |
 |---|---|---|---|
 | **Hallucination Mitigation** | Mandatory Tier-3 gate; rejected mutations create no active artifact | Prompt-based | Self-correction |
@@ -506,14 +513,16 @@ mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing
 black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
 ruff check .
 
-# MESA çekirdek değerlendirme/CI paketi (rakip benchmarkı değildir)
+# Historical synthetic diagnostics (not a release gate)
 python -m mesa_evals.evals        # Run 30-entry synthetic benchmark
-python -m mesa_evals.gatekeeper   # CI/CD gate (exit 0 = PASS)
+
+# Canonical benchmark/release evidence
+mesa-benchmark --help
 ```
 
-`mesa_evals`, MESA çekirdeğinin sentetik golden-dataset ve CI regresyon
-paketidir. MESA, Mem0, Zep veya Letta arasında yayınlanabilir karşılaştırma
-sonucu üretmez. Bu amaçla ayrı paket ve CLI olan `mesa-benchmark` kullanılır;
+`mesa_evals`, yalnız tarihsel sentetik tanılama paketidir ve release authority
+değildir. MESA, Mem0, Zep veya Letta arasında yayınlanabilir karşılaştırma
+sonucu üretmez. Bu amaçla kanonik paket ve CLI olan `mesa-benchmark` kullanılır;
 onun metodolojisi, external dataset kuralları ve sonuç geçerliliği
 `mesa-benchmark/README.md` içinde tanımlanır.
 
