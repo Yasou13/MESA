@@ -780,6 +780,42 @@ class VectorEngine:
         with self._metrics._lock:
             self._metrics.soft_deletes += 1
 
+    async def restore_soft_delete(self, node_id: str, agent_id: str) -> None:
+        """Restore a soft-deleted vector record by clearing expired_at."""
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+
+        loop = asyncio.get_running_loop()
+        async with self._mutation_lock:
+            await loop.run_in_executor(
+                self._executor, self._sync_restore_soft_delete, node_id, agent_id
+            )
+
+    def _sync_restore_soft_delete(self, node_id: str, agent_id: str) -> None:
+        """Synchronous restore soft-delete (runs in executor thread)."""
+        assert self._db is not None
+        table_names = self._list_table_names()
+        for table_name in table_names:
+            if not table_name.startswith(_DEFAULT_TABLE_PREFIX):
+                continue
+            try:
+                table = self._db.open_table(table_name)
+                _validate_filter_value(node_id, "node_id")
+                _validate_filter_value(agent_id, "agent_id")
+                table.update(
+                    where=f"node_id = '{node_id}' AND agent_id = '{agent_id}'",
+                    values={"expired_at": None},
+                )
+                with self._table_lock:
+                    self._tables.pop(table_name, None)
+            except Exception as exc:
+                logger.error(
+                    "VECTOR_RESTORE_SOFT_DELETE_ERROR | node_id=%s table=%s error=%s",
+                    node_id,
+                    table_name,
+                    exc,
+                )
+
     async def hard_delete(self, node_id: str, agent_id: str) -> None:
         """Physically remove a vector record from disk.
 

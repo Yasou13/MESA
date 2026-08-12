@@ -4642,10 +4642,12 @@ class MemoryDAO:
             await db.commit()
 
         # PHASE 2: Secondary store projections
+        soft_deleted_cids: list[str] = []
         if not is_migrating:
             try:
                 for cid in conflicting_node_ids:
                     await self._vec.soft_delete(cid, agent_id)
+                    soft_deleted_cids.append(cid)
                 await self._vec.upsert(
                     node_id=node_id,
                     agent_id=agent_id,
@@ -4659,18 +4661,27 @@ class MemoryDAO:
                     node_id,
                     vec_exc,
                 )
-                # The SQL intent is committed before any secondary mutation.
-                # A failed synchronous legacy write must nevertheless preserve
-                # its all-or-nothing API contract by compensating both stores.
                 try:
-                    await self._vec.soft_delete(node_id, agent_id)
+                    await self._vec.hard_delete(node_id, agent_id)
                 except Exception:
                     pass
+                for cid in soft_deleted_cids:
+                    try:
+                        if hasattr(self._vec, "restore_soft_delete"):
+                            await self._vec.restore_soft_delete(cid, agent_id)
+                    except Exception:
+                        pass
                 async with self._sql.transaction() as db:
                     await db.execute(
                         "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
                         (node_id, agent_id),
                     )
+                    if conflicting_node_ids:
+                        placeholders = ",".join("?" for _ in conflicting_node_ids)
+                        await db.execute(
+                            f"UPDATE nodes SET invalid_at = NULL WHERE id IN ({placeholders}) AND agent_id = ?",
+                            (*conflicting_node_ids, agent_id),
+                        )
                     await db.commit()
                 raise
 
@@ -4690,14 +4701,26 @@ class MemoryDAO:
                 )
                 if not is_migrating:
                     try:
-                        await self._vec.soft_delete(node_id, agent_id)
+                        await self._vec.hard_delete(node_id, agent_id)
                     except Exception:
                         pass
+                    for cid in soft_deleted_cids:
+                        try:
+                            if hasattr(self._vec, "restore_soft_delete"):
+                                await self._vec.restore_soft_delete(cid, agent_id)
+                        except Exception:
+                            pass
                 async with self._sql.transaction() as db:
                     await db.execute(
                         "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
                         (node_id, agent_id),
                     )
+                    if conflicting_node_ids:
+                        placeholders = ",".join("?" for _ in conflicting_node_ids)
+                        await db.execute(
+                            f"UPDATE nodes SET invalid_at = NULL WHERE id IN ({placeholders}) AND agent_id = ?",
+                            (*conflicting_node_ids, agent_id),
+                        )
                     await db.commit()
                 raise
 

@@ -99,3 +99,44 @@ class TestSemanticConflictResolution:
         assert (
             node_a not in returned_nids
         ), "Triplet A should have been soft-deleted from LanceDB"
+
+    def test_failed_conflict_replacement_restores_predecessor(self, dao_env):
+        dao, sql, vec_eng, loop = dao_env
+        agent_id = "agent-conflict-restore"
+        emb = [0.1] * 8
+
+        # 1. Insert original good memory A
+        node_a = loop.run_until_complete(
+            dao.insert_memory(
+                agent_id=agent_id,
+                entity_name="Server",
+                content='{"subject": "Server", "predicate": "status", "object": "Online"}',
+                embedding=emb,
+            )
+        )
+
+        # 2. Inject failure on LanceDB upsert during replacement
+        original_upsert = vec_eng.upsert
+        async def failing_upsert(node_id, agent_id, embedding, content_hash=None):
+            if node_id != node_a:
+                raise RuntimeError("LanceDB secondary write failure simulated")
+            return await original_upsert(node_id, agent_id, embedding, content_hash)
+
+        vec_eng.upsert = failing_upsert
+
+        # 3. Attempt replacement with conflicting memory B
+        with pytest.raises(RuntimeError, match="LanceDB secondary write failure"):
+            loop.run_until_complete(
+                dao.insert_memory(
+                    agent_id=agent_id,
+                    entity_name="Server",
+                    content='{"subject": "Server", "predicate": "status", "object": "Offline"}',
+                    embedding=emb,
+                )
+            )
+
+        # 4. Assert original memory A is restored in SQL (invalid_at IS NULL) and active
+        memories = loop.run_until_complete(dao.get_memories(agent_id))
+        active_ids = [m["id"] for m in memories]
+        assert node_a in active_ids, "Original memory A must be restored after secondary replacement failure"
+
