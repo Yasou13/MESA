@@ -42,7 +42,7 @@ Tests must pause after physical write and trigger rollback/purge before receipt/
 Status: VERIFIED
 Evidence: Terra added pre-write terminal fences and post-write VECTOR/GRAPH compensation, including unregistered graph nodes and SQL assertions.
 Tests: tests/test_p0_projection_fencing.py, tests/test_p0_purge_fencing.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C002 — Canonical Embedding Runtime / Valid Default Identity
 
@@ -60,7 +60,7 @@ valid default identity succeeds.
 Status: VERIFIED
 Evidence: Runtime API, worker, and rebuild now pass the configured local model; external provider is wired in worker too; container exports ML/adapters extras.
 Tests: tests/test_p0_embedding_contract.py, tests/test_runtime_profiles_contract.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C003 — LLM Fallback Zero-to-Many Extraction
 
@@ -77,7 +77,7 @@ verify noise may yield zero facts.
 Status: VERIFIED
 Evidence: Empty valid fallback responses are zero facts and repeated record indices merge rather than overwrite.
 Tests: tests/test_p0_multi_memory_extraction.py, tests/test_p0a_batch.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C004 — Single ACTIVE Revision / Head CAS
 
@@ -94,7 +94,7 @@ loser receives deterministic revision-head conflict.
 Status: VERIFIED
 Evidence: Partial unique index uq_active_document_revision on document_revisions(document_id) WHERE status = 'ACTIVE'.
 Tests: tests/test_p0_canonical_correction.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C005 — Revision Draft/Finalize/Freeze
 
@@ -110,7 +110,7 @@ content_hash semantics represent the finalized revision, not merely the first ch
 Status: VERIFIED
 Evidence: Revision activation swapped predecessor SUPERSEDED before successor ACTIVE; revision draft/finalize/freeze invariants enforced.
 Tests: tests/test_p0_canonical_correction.py
-Commit: pending Terra repair
+Commit: 441c904
 
 WAVE B — Runtime / Mutation Authority / V3 Safety
 
@@ -130,7 +130,7 @@ bounded model-enabled boot/config contract test without automatic downloads/paid
 Status: VERIFIED
 Evidence: Full cognitive container and runtime profiles verified with graceful degradation under model-disabled mode.
 Tests: tests/test_p0_model_disabled_truth.py, tests/test_runtime_profiles_contract.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C007 — Experimental Cognitive Isolation / Single Mutation Authority
 
@@ -150,7 +150,7 @@ Future enabled mutation should route through canonical mutation proposals/lifecy
 Status: VERIFIED
 Evidence: Terra removed model-enabled composition of REM, PageRank, entity consolidation/rewrite, Valence restoration and maintenance writers.
 Tests: tests/test_p0_experimental_isolation.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C008 — V3 Conflict Replacement Atomicity
 
@@ -169,7 +169,7 @@ Add failure injection after old-vector soft delete and before successful replace
 Status: VERIFIED
 Evidence: insert_memory_with_conflict_resolution restores SQL invalid_at and vector soft-deletes upon secondary store projection failures.
 Tests: tests/test_conflict_resolution.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C009 — V3 Split Single-Writer Purge
 
@@ -184,7 +184,7 @@ split-topology test proves one physical writer.
 Status: VERIFIED
 Evidence: API process writes tombstone and outbox cleanup; physical vector/graph purging is strictly owned by designated storage worker.
 Tests: tests/test_single_writer_contract.py, tests/test_p0_purge_fencing.py
-Commit: pending Terra repair
+Commit: 441c904
 
 WAVE C — Scope / Write / Transport Contracts
 
@@ -335,7 +335,7 @@ dead public resource knobs are removed or wired.
 Status: VERIFIED
 Evidence: HybridRetriever uses the catalog COUNT aggregate, and calculated RAM budget controls VectorEngine executor concurrency.
 Tests: tests/test_p0_retrieval_count_safety.py, tests/test_config.py
-Commit: pending Terra repair
+Commit: 441c904
 
 C019 — Rebuild Parity and Readiness Thresholds
 
@@ -359,21 +359,21 @@ TERRA-D01 — Projection physical-write fence completeness
 Status: VERIFIED
 Evidence: Graph and vector writes now fence immediately before physical effects; failed post-write receipt compensates vector, graph assertion/node, and preliminary SQL assertion state.
 Tests: tests/test_p0_projection_fencing.py
-Commit: pending Terra repair
+Commit: 441c904
 
 TERRA-D02 — V3 split purge ownership
 
 Status: VERIFIED
 Evidence: API-only runtime records V3 purge intent/tombstone only; worker owns vector/graph purge resume with initialized graph provider.
 Tests: tests/test_worker_runtime_contract.py, tests/test_purge_journal_contract.py
-Commit: pending Terra repair
+Commit: 441c904
 
 TERRA-D03 — LLM fallback flat multi-fact/no-fact semantics
 
 Status: VERIFIED
 Evidence: Valid empty arrays represent no facts; multiple flat items for one record are merged without loss.
 Tests: tests/test_p0_multi_memory_extraction.py, tests/test_p0a_batch.py
-Commit: pending Terra repair
+Commit: 441c904
 
 WAVE E — Developer / Release / Boundedness Cleanup
 
@@ -395,7 +395,7 @@ P2-only polish must not delay P0/P1 closure.
 Status: VERIFIED
 Evidence: Destructive backup/restore proof is excluded from normal pytest; canonical release/runtime paths were traced.
 Tests: conftest.py collection guard, focused certification suite
-Commit: pending Terra repair
+Commit: 441c904
 
 SOL FINAL CERTIFICATION
 
