@@ -307,6 +307,11 @@ async def test_cannot_append_chunks_to_finalized_revision(tmp_path):
     )
     assert p1["manifest_hash"] is not None
 
+    # Manually activate revision to simulate pipeline run finalization
+    async with engine.connection() as db:
+        await db.execute("UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = ?", (rev_id,))
+        await db.commit()
+
     # 2. Re-inserting identical chunk 1 is idempotent
     p1_again = await dao.create_v4_source_chunk(
         tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,

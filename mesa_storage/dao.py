@@ -674,14 +674,13 @@ class MemoryDAO:
             await db.execute(
                 "INSERT OR IGNORE INTO document_revisions "
                 "(revision_id, tenant_id, document_id, revision_number, content_hash, "
-                "status, supersedes_revision_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "status, supersedes_revision_id) VALUES (?, ?, ?, ?, ?, 'PENDING', ?)",
                 (
                     revision_id,
                     tenant_id,
                     document_id,
                     revision_number,
                     content_hash,
-                    "PENDING" if supersedes_revision_id else "ACTIVE",
                     supersedes_revision_id,
                 ),
             )
@@ -2313,14 +2312,14 @@ class MemoryDAO:
                 f"revision supersession conflict: predecessor {row[4]} is no longer ACTIVE ({pred[0] if pred else 'missing'})"
             )
         await db.execute(
-            "UPDATE document_revisions SET status = 'ACTIVE' "
-            "WHERE revision_id = ? AND status = 'PENDING'",
-            (row[1],),
-        )
-        await db.execute(
             "UPDATE document_revisions SET status = 'SUPERSEDED' "
             "WHERE revision_id = ? AND document_id = ?",
             (row[4], row[3]),
+        )
+        await db.execute(
+            "UPDATE document_revisions SET status = 'ACTIVE' "
+            "WHERE revision_id = ? AND status = 'PENDING'",
+            (row[1],),
         )
         await db.execute(
             "UPDATE v4_assertions SET status = 'SUPERSEDED', "
