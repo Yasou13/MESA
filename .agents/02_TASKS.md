@@ -304,7 +304,7 @@ Tests must prove explicit dotenv changes actual active runtime/model/storage/res
 Status: VERIFIED
 Evidence: Explicit dotenv now loads before active profile reparse and refreshes the shared injected settings object.
 Tests: tests/test_p0_config_bootstrap.py, tests/test_runtime_profiles_contract.py
-Commit: pending Terra bootstrap repair
+Commit: c176424
 
 C017 — Replay and Historical Operation Semantics
 
@@ -380,7 +380,7 @@ TERRA-D04 — Explicit dotenv active-bootstrap ordering
 Status: VERIFIED
 Evidence: Launcher, API and worker validate an explicit dotenv path, load it, refresh config, then reparse the active runtime profile.
 Tests: tests/test_p0_config_bootstrap.py
-Commit: pending Terra bootstrap repair
+Commit: c176424
 
 WAVE E — Developer / Release / Boundedness Cleanup
 
