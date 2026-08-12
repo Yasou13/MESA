@@ -1,10 +1,12 @@
 import asyncio
-import os
+
 import pytest
-from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.schemas import initialize_schema
+
+from mesa_memory.config import MesaConfig, load_runtime_profile
 from mesa_storage.dao import MemoryDAO
-from mesa_memory.config import load_runtime_profile, MesaConfig
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+
 
 @pytest.mark.asyncio
 async def test_claim_recovery_after_worker_crash(tmp_path):

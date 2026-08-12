@@ -13,6 +13,7 @@ def test_experimental_features_disabled_by_default():
 def test_worker_runtime_composition_isolates_cognitive_writers():
     """Verify that worker composition root does not instantiate cognitive writers by default."""
     import inspect
+
     from mesa_memory import worker_runtime
 
     source = inspect.getsource(worker_runtime._run_worker_owned)
