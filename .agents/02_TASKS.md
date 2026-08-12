@@ -302,9 +302,9 @@ Remove startup dependence on stale import-time global config where it can diverg
 Tests must prove explicit dotenv changes actual active runtime/model/storage/resource settings.
 
 Status: VERIFIED
-Evidence: load_runtime_profile evaluates explicit environment and maps canonical storage root aliases.
-Tests: tests/test_p0_config_bootstrap.py
-Commit: f60c38c
+Evidence: Explicit dotenv now loads before active profile reparse and refreshes the shared injected settings object.
+Tests: tests/test_p0_config_bootstrap.py, tests/test_runtime_profiles_contract.py
+Commit: pending Terra bootstrap repair
 
 C017 — Replay and Historical Operation Semantics
 
@@ -374,6 +374,13 @@ Status: VERIFIED
 Evidence: Valid empty arrays represent no facts; multiple flat items for one record are merged without loss.
 Tests: tests/test_p0_multi_memory_extraction.py, tests/test_p0a_batch.py
 Commit: 441c904
+
+TERRA-D04 — Explicit dotenv active-bootstrap ordering
+
+Status: VERIFIED
+Evidence: Launcher, API and worker validate an explicit dotenv path, load it, refresh config, then reparse the active runtime profile.
+Tests: tests/test_p0_config_bootstrap.py
+Commit: pending Terra bootstrap repair
 
 WAVE E — Developer / Release / Boundedness Cleanup
 

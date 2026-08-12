@@ -26,6 +26,7 @@ from mesa_memory.config import (
     config,
     load_explicit_dotenv,
     load_runtime_profile,
+    refresh_config_from_environment,
 )
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
@@ -286,6 +287,9 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
 
 
 async def run_worker_only() -> None:
+    bootstrap = load_runtime_profile()
+    load_explicit_dotenv(bootstrap)
+    refresh_config_from_environment()
     runtime = load_runtime_profile()
     if (
         runtime.profile is not RuntimeProfile.WORKER_ONLY
@@ -297,7 +301,6 @@ async def run_worker_only() -> None:
         raise RuntimeProfileError(
             "model-disabled worker runtime refuses model or external provider activation"
         )
-    load_explicit_dotenv(runtime)
     runtime.storage_root.mkdir(parents=True, exist_ok=True)
     try:
         writer_lock = StorageWriterLock.acquire(

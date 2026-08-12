@@ -31,6 +31,7 @@ from mesa_memory.config import (
     config,
     load_explicit_dotenv,
     load_runtime_profile,
+    refresh_config_from_environment,
 )
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
@@ -632,8 +633,10 @@ async def _close_runtime_storage_resources() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Configure and fence the storage root before opening any embedded store.
+    bootstrap = load_runtime_profile()
+    load_explicit_dotenv(bootstrap)
+    refresh_config_from_environment()
     runtime = load_runtime_profile()
-    load_explicit_dotenv(runtime)
     _refresh_auth_config()
     _configure_runtime_paths(runtime)
     state.runtime_profile = runtime  # type: ignore[attr-defined]

@@ -191,7 +191,9 @@ def load_explicit_dotenv(runtime: RuntimeProfileConfig) -> None:
     assert runtime.dotenv_path is not None
     if not runtime.dotenv_path.is_file():
         raise RuntimeProfileError("explicit dotenv path is unavailable")
-    load_dotenv(dotenv_path=runtime.dotenv_path, override=False)
+    # The file is an explicitly authorized startup source, not ambient shell
+    # discovery; its declared runtime values must win during bootstrap.
+    load_dotenv(dotenv_path=runtime.dotenv_path, override=True)
 
 
 class QueueAdmissionPolicy(BaseModel):
@@ -719,6 +721,20 @@ def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:
 
 
 config = calculate_dynamic_limits(MesaConfig())
+
+
+def refresh_config_from_environment() -> MesaConfig:
+    """Refresh the shared settings object after an explicit dotenv bootstrap.
+
+    Modules intentionally import the single ``config`` object.  Updating that
+    object in place preserves those references while ensuring an operator's
+    explicit startup dotenv controls the configuration actually injected into
+    runtime construction.
+    """
+    refreshed = calculate_dynamic_limits(MesaConfig())
+    for field_name in MesaConfig.model_fields:
+        object.__setattr__(config, field_name, getattr(refreshed, field_name))
+    return config
 
 
 def configured_embedding_identity(
