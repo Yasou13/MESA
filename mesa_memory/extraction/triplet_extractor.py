@@ -325,7 +325,7 @@ class TripletExtractor:
                 fb_indexed_a, _ = self._parser.audit_coverage(
                     response_a, len(fallback_batch)
                 )
-                fb_missing_a = []
+                fb_missing_a: list[int] = []
             except ValueError:
                 fb_indexed_a = await self._retry_with_bisection(
                     fallback_batch,
@@ -340,7 +340,7 @@ class TripletExtractor:
                 fb_indexed_b, _ = self._parser.audit_coverage(
                     response_b, len(fallback_batch)
                 )
-                fb_missing_b = []
+                fb_missing_b: list[int] = []
             except ValueError:
                 fb_indexed_b = await self._retry_with_bisection(
                     fallback_batch,

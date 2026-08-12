@@ -116,7 +116,8 @@ def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
     } <= set(environment)
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "--extra ml --extra adapters" in dockerfile
-    assert "mesa_memory-*.whl[ml,adapters]" in dockerfile
+    assert "find /wheels -maxdepth 1 -name 'mesa_memory-*.whl'" in dockerfile
+    assert '"${wheel}[ml,adapters]"' in dockerfile
 
 
 def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> None:

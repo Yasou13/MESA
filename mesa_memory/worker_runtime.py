@@ -77,8 +77,12 @@ def _write_readiness(storage_root: Path, payload: dict[str, Any]) -> None:
 
 async def _recover_once(dao: MemoryDAO | AsyncEngine) -> dict[str, int]:
     """Recover leased work; retain engine-only compatibility for old callers."""
-    owns_secondary_stores = isinstance(dao, MemoryDAO)
-    recovery_dao = dao if owns_secondary_stores else MemoryDAO(dao, cast(VectorEngine, None))
+    if isinstance(dao, MemoryDAO):
+        recovery_dao = dao
+        owns_secondary_stores = True
+    else:
+        recovery_dao = MemoryDAO(dao, cast(VectorEngine, None))
+        owns_secondary_stores = False
     result = {
         "raw_log_claims": await recovery_dao.recover_expired_raw_log_claims(),
         "wal_claims": await recovery_dao.recover_expired_lancedb_wal_claims(),

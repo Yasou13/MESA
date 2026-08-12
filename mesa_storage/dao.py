@@ -56,7 +56,7 @@ import re
 import unicodedata
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit, urlunsplit
 
 import aiosqlite
@@ -5134,17 +5134,17 @@ class MemoryDAO:
                     raise RuntimeError("replacement activation fence lost")
                 await db.commit()
         except Exception:
-            compensation_errors: list[Exception] = []
+            rollback_compensation_errors: list[Exception] = []
             for cid in soft_deleted_cids:
                 try:
                     await self._vec.restore_soft_delete(cid, agent_id)
                 except Exception as restore_exc:
-                    compensation_errors.append(restore_exc)
+                    rollback_compensation_errors.append(restore_exc)
             if not is_migrating:
                 try:
                     await self._vec.hard_delete(node_id, agent_id)
                 except Exception as delete_exc:
-                    compensation_errors.append(delete_exc)
+                    rollback_compensation_errors.append(delete_exc)
             if self._graph is not None and hasattr(self._graph, "delete_nodes"):
                 try:
                     await self._graph.delete_nodes(
@@ -5153,17 +5153,17 @@ class MemoryDAO:
                         node_ids=[node_id],
                     )
                 except Exception as graph_delete_exc:
-                    compensation_errors.append(graph_delete_exc)
+                    rollback_compensation_errors.append(graph_delete_exc)
             async with self._sql.transaction() as db:
                 await db.execute(
                     "DELETE FROM nodes WHERE id = ? AND agent_id = ? AND invalid_at IS NOT NULL",
                     (node_id, agent_id),
                 )
                 await db.commit()
-            if compensation_errors:
+            if rollback_compensation_errors:
                 raise RuntimeError(
                     "V3 replacement compensation could not restore physical state"
-                ) from compensation_errors[0]
+                ) from rollback_compensation_errors[0]
             raise
 
         if conflicting_node_ids:
@@ -6620,8 +6620,11 @@ class MemoryDAO:
             or payload.get("content")
             or ""
         )
+        raw_metadata = payload.get("metadata")
         meta_dict = (
-            payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+            cast(dict[str, Any], raw_metadata)
+            if isinstance(raw_metadata, dict)
+            else {}
         )
         _validate_write_payload(content_str, meta_dict)
         serialized, payload_bytes = _canonical_payload_bytes(payload)
