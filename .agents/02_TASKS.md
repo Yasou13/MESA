@@ -57,7 +57,7 @@ Inspect especially:
 Status: BUILT
 Evidence: Added post-write compensating physical deletion in complete_projection_outbox, project_v4_vector_entity, and project_v4_graph_triplet so that fenced or stale projection claims immediately purge unowned physical secondary vectors and graph assertions from LanceDB/Kuzu.
 Tests: tests/test_p0_projection_fencing.py
-Commit: pending
+Commit: 45e0528
 
 ---
 
@@ -79,7 +79,7 @@ Purge must not rely only on already-existing artifact ownership.
 Status: BUILT
 Evidence: Enforced purge-before-projection fencing in purge_v4_document, purge_memory, complete_projection_outbox, and record_mutation_artifact, preventing pending or replayed mutations from recreating active artifacts for purged sources.
 Tests: tests/test_p0_purge_fencing.py
-Commit: pending
+Commit: 45e0528
 
 ---
 
@@ -102,7 +102,7 @@ Required:
 Status: BUILT
 Evidence: Added CAS check in _apply_pipeline_supersession_in_tx, chunk append freeze check in create_v4_source_chunk, and transition state enforcement across mutation and pipeline state changes.
 Tests: tests/test_p0_mutation_state_machine.py, tests/test_p0_canonical_correction.py
-Commit: pending
+Commit: 45e0528
 
 ---
 
@@ -222,7 +222,7 @@ Incompatible spaces must not be compared.
 Status: BUILT
 Evidence: Unified MesaConfig default embedding model to sentence-transformers/all-MiniLM-L6-v2 and default dimension to 384, resolving 1536-vs-384 local default mismatch while enforcing fail-closed dimension validation.
 Tests: tests/test_p0_embedding_contract.py
-Commit: pending
+Commit: 45e0528
 
 ---
 
@@ -285,7 +285,7 @@ Noise must support zero durable facts.
 Status: BUILT
 Evidence: Added LLM fallback multi-fact extraction tests forcing REBEL failure and proving all three independent facts (FastAPI, PostgreSQL, Redis) survive downstream.
 Tests: tests/test_p0_multi_memory_extraction.py
-Commit: pending
+Commit: 45e0528
 
 ---
 
@@ -418,7 +418,7 @@ Inspection must respect scope.
 Status: BUILT
 Evidence: Added CAS check for same-predecessor concurrent corrections and chunk append freeze for ACTIVE revisions, ensuring single active revision head and immutable finalized revisions.
 Tests: tests/test_p0_canonical_correction.py
-Commit: pending
+Commit: 45e0528
 
 ---
 
@@ -578,7 +578,7 @@ Ensure experimental cognitive features remain default-off/optional and do not co
 Status: BUILT
 Evidence: Experimental features (rebel_enabled, crossencoder_enabled, v4_rebuild_enabled) are disabled by default, and worker composition root isolates background REM, PageRank, entity rewrite, and Valence loops.
 Tests: tests/test_p0_experimental_isolation.py
-Commit: pending
+Commit: 45e0528
 
 ---
 
