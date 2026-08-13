@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_storage.sqlite_engine import AsyncEngine
 
+from ..bounded_cache import BoundedLRUCache
 from ..errors import MCPError
 from ..security import MEMORY_TYPES
 from ..v4_service import MesaHttpV4Service
@@ -59,13 +60,11 @@ class CircuitBreaker:
     async def call(
         self, operation: Callable[[], Awaitable[_ResultT]]
     ) -> _ResultT:
-        probe = False
         async with self._lock:
-            if self._opened_at is not None:
-                if time.monotonic() - self._opened_at < self._recovery_seconds:
-                    raise MCPError(
-                        "BACKEND_UNAVAILABLE", "MESA circuit is open", retryable=True
-                    )
+            st = self.state
+            if st == "OPEN":
+                raise MCPError("TEMPORARY_FAILURE", "circuit breaker is open")
+            if st == "HALF_OPEN":
                 if self._half_open_probe_in_flight:
                     raise MCPError(
                         "BACKEND_UNAVAILABLE",
@@ -111,7 +110,9 @@ class GatewayOperationService:
         self._v4 = v4_service
         self._cipher = Fernet(encryption_key.encode())
         self._breaker = CircuitBreaker()
-        self._recall_cache: dict[str, _CacheEntry] = {}
+        self._recall_cache: BoundedLRUCache[str, dict[str, Any]] = BoundedLRUCache(
+            max_size=512, default_ttl_seconds=45.0
+        )
         self._inflight_recalls: dict[str, asyncio.Task[dict[str, Any]]] = {}
 
     async def handshake(
@@ -453,8 +454,8 @@ class GatewayOperationService:
             ).encode()
         ).hexdigest()
         cached = self._recall_cache.get(key)
-        if cached and cached.expires_at > time.monotonic():
-            return {**cached.value, "cache_status": "HIT"}
+        if cached is not None:
+            return {**cached, "cache_status": "HIT"}
         task = self._inflight_recalls.get(key)
         if task is None:
             task = asyncio.create_task(
@@ -468,7 +469,7 @@ class GatewayOperationService:
         finally:
             if task.done():
                 self._inflight_recalls.pop(key, None)
-        self._recall_cache[key] = _CacheEntry(result, time.monotonic() + 45.0)
+        self._recall_cache.put(key, result, ttl_seconds=45.0)
         return {**result, "cache_status": "MISS"}
 
     async def _fetch_recall(

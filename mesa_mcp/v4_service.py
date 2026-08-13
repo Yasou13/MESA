@@ -9,6 +9,7 @@ from typing import Any
 
 from mesa_client.client import AsyncMesaV4Client, MesaAPIError, MesaNetworkError
 
+from .bounded_cache import BoundedLRUCache
 from .configuration import MCPSettings
 from .errors import MCPError
 
@@ -18,8 +19,8 @@ class MesaHttpV4Service:
 
     def __init__(self, settings: MCPSettings):
         self._settings = settings
-        self._session_cache: dict[str, str] = {}
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_cache: BoundedLRUCache[str, str] = BoundedLRUCache(max_size=512)
+        self._session_locks: BoundedLRUCache[str, asyncio.Lock] = BoundedLRUCache(max_size=512)
         self._http_client = AsyncMesaV4Client(
             base_url=settings.base_url,
             api_key=settings.api_key,
@@ -58,7 +59,7 @@ class MesaHttpV4Service:
         cache_key = self._session_cache_key(
             tenant_id, workspace_id, actor_id, dataset_id
         )
-        lock = self._session_locks.setdefault(cache_key, asyncio.Lock())
+        lock = self._session_locks.setdefault(cache_key, asyncio.Lock)
         async with lock:
             cached = self._session_cache.get(cache_key)
             if cached is not None:
@@ -71,7 +72,7 @@ class MesaHttpV4Service:
                     agent_id=actor_id,
                 )
                 session_id = resp["session_id"]
-                self._session_cache[cache_key] = session_id
+                self._session_cache.put(cache_key, session_id)
                 return session_id
             except Exception as exc:
                 raise _map_exception(exc) from exc

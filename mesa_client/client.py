@@ -603,6 +603,8 @@ class MesaV4Client(MesaClient):
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -614,6 +616,8 @@ class MesaV4Client(MesaClient):
                 "limit": limit,
                 "jurisdiction": jurisdiction,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )
 
@@ -670,6 +674,8 @@ class MesaV4Client(MesaClient):
         query: str = "",
         token_budget: int = 2048,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "GET",
@@ -678,6 +684,8 @@ class MesaV4Client(MesaClient):
                 "query": query,
                 "token_budget": token_budget,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )
 
@@ -915,6 +923,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -926,6 +936,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "limit": limit,
                 "jurisdiction": jurisdiction,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )
 
@@ -982,6 +994,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
         query: str = "",
         token_budget: int = 2048,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "GET",
@@ -990,5 +1004,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "query": query,
                 "token_budget": token_budget,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )
