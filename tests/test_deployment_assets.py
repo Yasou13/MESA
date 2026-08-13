@@ -95,6 +95,9 @@ def test_compose_has_isolated_api_and_worker_roles_without_host_bind_or_dotenv(
         compose["services"]["mesa-worker"]["environment"]["MESA_RUNTIME_PROFILE"]
         == "worker-only"
     )
+    assert compose["services"]["mesa-api"]["depends_on"] == {
+        "mesa-worker": {"condition": "service_healthy"}
+    }
 
 
 def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:

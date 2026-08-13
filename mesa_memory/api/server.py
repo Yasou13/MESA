@@ -302,8 +302,19 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.sqlite_engine = AsyncEngine(db_path=str(_SQLITE_PATH))
     await state.sqlite_engine.initialize()
 
-    # Schema DDL — single source of truth (B-1 fix)
-    await initialize_schema(state.sqlite_engine)
+    # In the split deployment the worker owns schema changes.  Letting the
+    # API run Alembic against the same SQLite file races the worker's startup
+    # migration and, more importantly, gives the non-storage-owner process
+    # write authority over durable state.  Combined/test profiles retain the
+    # self-contained startup path.
+    if runtime.profile is not RuntimeProfile.API_ONLY:
+        await initialize_schema(state.sqlite_engine)
+    elif runtime.require_worker_readiness and not worker_is_ready(
+        runtime.storage_root
+    ):
+        raise RuntimeError(
+            "api-only runtime requires a ready worker before opening storage"
+        )
     generation_repository = ProjectionGenerationRepository(state.sqlite_engine)
     projection_paths = await generation_repository.resolve_active(
         storage_root=runtime.storage_root,

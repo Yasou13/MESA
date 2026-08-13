@@ -33,6 +33,9 @@ x-mesa-runtime: &mesa-runtime
 services:
   mesa-api:
     <<: *mesa-runtime
+    depends_on:
+      mesa-worker:
+        condition: service_healthy
     environment:
       <<: *mesa-environment
       MESA_RUNTIME_PROFILE: api-only
