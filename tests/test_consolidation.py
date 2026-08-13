@@ -102,12 +102,15 @@ async def test_consolidation_divergence_paths(tmp_path, monkeypatch):
         "source": "agent",
     }
 
-    llm_a.complete.return_value = json.dumps(
-        {"head": "X", "relation": "rel", "tail": "Y"}
+    extraction = json.dumps(
+        {
+            "triplets": [
+                {"record_index": 0, "head": "X", "relation": "rel", "tail": "Y"}
+            ]
+        }
     )
-    llm_b.complete.return_value = json.dumps(
-        {"head": "X", "relation": "rel", "tail": "Y"}
-    )
+    llm_a.complete.return_value = extraction
+    llm_b.complete.return_value = extraction
     llm_a.acomplete = AsyncMock(
         return_value=json.dumps({"decision": "STORE", "justification": "test"})
     )
