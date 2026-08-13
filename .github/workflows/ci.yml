@@ -457,7 +457,7 @@ jobs:
           python -m zipfile -l dist/a/mesa_memory-*.whl | grep -q 'mesa_storage/alembic/versions/'
       - name: Generate reproducible locked-runtime SBOM
         run: |
-          uv export --quiet --frozen --no-dev --no-emit-project --output-file dist/runtime-requirements.txt
+          uv export --quiet --frozen --no-dev --no-emit-project --no-hashes --output-file dist/runtime-requirements.txt
           uv run cyclonedx-py requirements --pyproject pyproject.toml --mc-type library --output-reproducible --of JSON --output-file dist/mesa-runtime.cdx.json dist/runtime-requirements.txt
       - name: Fresh wheel install and CLI smoke
         run: |
