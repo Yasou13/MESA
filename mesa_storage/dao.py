@@ -819,9 +819,9 @@ class MemoryDAO:
         manifest = json.dumps(chunks, sort_keys=True, separators=(",", ":"))
         manifest_hash = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
         cursor = await db.execute(
-            "UPDATE document_revisions SET manifest_hash = ?, content_hash = ? "
+            "UPDATE document_revisions SET manifest_hash = ? "
             "WHERE revision_id = ? AND status = 'PENDING'",
-            (manifest_hash, manifest_hash, revision_id),
+            (manifest_hash, revision_id),
         )
         if cursor.rowcount != 1:
             # Calling the idempotent chunk endpoint for an already finalized
@@ -1640,7 +1640,7 @@ class MemoryDAO:
                 await self._update_revision_manifest(db, revision_id)
 
                 global_usage = await self._queue_usage(db)
-                tenant_usage = await self._queue_usage(db, agent_id)
+                tenant_usage = await self._queue_usage(db, tenant_id)
                 self._enforce_queue_capacity(
                     global_usage, tenant_usage, payload_bytes, policy
                 )
@@ -1656,7 +1656,7 @@ class MemoryDAO:
                     "INSERT INTO dispatch_journal (dispatch_id, source_record_id, tenant_id, agent_id, "
                     "job_type, idempotency_key, state, attempt_count, queue_record_id, dispatched_at, finalized_at, created_at, updated_at) "
                     "VALUES (?, ?, ?, ?, 'cold_path', ?, 'RECEIPT_RECORDED', 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    (dispatch_id, log_id, agent_id, agent_id, dispatch_key, queue_id),
+                    (dispatch_id, log_id, tenant_id, agent_id, dispatch_key, queue_id),
                 )
                 await db.execute(
                     "INSERT INTO dispatch_queue (queue_record_id, dispatch_id, tenant_id, agent_id, job_type, "
@@ -1664,7 +1664,7 @@ class MemoryDAO:
                     (
                         queue_id,
                         dispatch_id,
-                        agent_id,
+                        tenant_id,
                         agent_id,
                         log_id,
                         payload_bytes,
@@ -1678,7 +1678,7 @@ class MemoryDAO:
                         str(uuid.uuid4()),
                         dispatch_id,
                         queue_id,
-                        agent_id,
+                        tenant_id,
                         agent_id,
                         dispatch_key,
                     ),
@@ -2081,6 +2081,9 @@ class MemoryDAO:
             },
             "RUNNING": {
                 "EXTRACTED",
+                "VALIDATED",
+                "PROJECTING",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DLQ",
                 "ROLLING_BACK",
@@ -2090,6 +2093,8 @@ class MemoryDAO:
             },
             "EXTRACTED": {
                 "VALIDATED",
+                "PROJECTING",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DLQ",
                 "ROLLING_BACK",
@@ -2099,6 +2104,7 @@ class MemoryDAO:
             },
             "VALIDATED": {
                 "PROJECTING",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DLQ",
                 "ROLLING_BACK",
@@ -2118,6 +2124,7 @@ class MemoryDAO:
             "RETRY_PENDING": {
                 "RUNNING",
                 "PROJECTING",
+                "COMMITTED",
                 "DLQ",
                 "ROLLING_BACK",
                 "BLOCKED",
@@ -2179,6 +2186,48 @@ class MemoryDAO:
         return True
 
     @staticmethod
+    async def _recompute_pipeline_state_in_tx(
+        db: Any,
+        pipeline_run_id: str,
+        *,
+        event_type: str = "MUTATION_STATE_CHANGE",
+        failure_class: str | None = None,
+        event_detail: dict[str, Any] | None = None,
+    ) -> bool:
+        """Derive parent pipeline state from the aggregate state of all child mutations."""
+        async with db.execute(
+            "SELECT state FROM memory_mutations WHERE pipeline_run_id = ?",
+            (pipeline_run_id,),
+        ) as cursor:
+            child_states = [r[0] for r in await cursor.fetchall()]
+        if not child_states:
+            return False
+
+        if all(s == "COMMITTED" for s in child_states):
+            target_state = "COMMITTED"
+        elif any(s in ("DEAD_LETTER", "BLOCKED", "REJECTED") for s in child_states):
+            target_state = "DLQ"
+        elif any(s == "RETRY_PENDING" for s in child_states):
+            target_state = "RETRY_PENDING"
+        elif any(s in ("SQL_APPLIED", "VECTOR_APPLIED", "GRAPH_APPLIED") for s in child_states):
+            target_state = "PROJECTING"
+        elif any(s == "VALIDATED" for s in child_states):
+            target_state = "VALIDATED"
+        elif any(s == "EXTRACTED" for s in child_states):
+            target_state = "EXTRACTED"
+        else:
+            target_state = "RUNNING"
+
+        return await MemoryDAO._transition_pipeline_run_in_tx(
+            db,
+            pipeline_run_id,
+            to_state=target_state,
+            event_type=event_type,
+            failure_class=failure_class,
+            event_detail=event_detail,
+        )
+
+    @staticmethod
     async def _transition_memory_mutation_in_tx(
         db: Any,
         mutation_id: str,
@@ -2190,6 +2239,11 @@ class MemoryDAO:
         transitions = {
             "RECEIVED": {
                 "EXTRACTED",
+                "VALIDATED",
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2201,6 +2255,10 @@ class MemoryDAO:
             },
             "EXTRACTED": {
                 "VALIDATED",
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2212,6 +2270,9 @@ class MemoryDAO:
             },
             "VALIDATED": {
                 "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2223,6 +2284,9 @@ class MemoryDAO:
             },
             "PENDING": {
                 "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2234,6 +2298,8 @@ class MemoryDAO:
             },
             "SQL_APPLIED": {
                 "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2245,6 +2311,7 @@ class MemoryDAO:
             },
             "VECTOR_APPLIED": {
                 "GRAPH_APPLIED",
+                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2273,6 +2340,12 @@ class MemoryDAO:
             },
             "RETRY_PENDING": {
                 "PENDING",
+                "EXTRACTED",
+                "VALIDATED",
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
                 "DEAD_LETTER",
                 "BLOCKED",
                 "REJECTED",
@@ -2281,7 +2354,17 @@ class MemoryDAO:
                 "PURGED",
                 "CANCELLED",
             },
-            "DEAD_LETTER": {"RETRY_PENDING", "ROLLING_BACK", "PURGED"},
+            "DEAD_LETTER": {
+                "RETRY_PENDING",
+                "EXTRACTED",
+                "VALIDATED",
+                "SQL_APPLIED",
+                "VECTOR_APPLIED",
+                "GRAPH_APPLIED",
+                "COMMITTED",
+                "ROLLING_BACK",
+                "PURGED",
+            },
             "BLOCKED": {"RETRY_PENDING", "ROLLING_BACK", "PURGED"},
             "ROLLING_BACK": {"ROLLED_BACK", "BLOCKED", "CANCELLED"},
             "PURGING": {"PURGED"},
@@ -2307,7 +2390,18 @@ class MemoryDAO:
             "WHERE mutation_id = ? AND state = ?",
             (to_state, failure_class, mutation_id, current),
         )
-        return cursor.rowcount == 1
+        if cursor.rowcount == 1:
+            async with db.execute(
+                "SELECT pipeline_run_id FROM memory_mutations WHERE mutation_id = ?",
+                (mutation_id,),
+            ) as c:
+                pr = await c.fetchone()
+                if pr and pr[0]:
+                    await MemoryDAO._recompute_pipeline_state_in_tx(db, str(pr[0]))
+            if to_state == "COMMITTED":
+                await MemoryDAO._activate_committed_revision_in_tx(db, mutation_id)
+            return True
+        return False
 
     async def _transition_pipeline_mutations_in_tx(
         self,
@@ -2363,6 +2457,25 @@ class MemoryDAO:
         # when the mutation is attached to a persisted document revision.
         if row is None or not row[3]:
             return
+        revision_id = row[1]
+        if revision_id:
+            async with db.execute(
+                "SELECT state FROM memory_mutations WHERE revision_id = ?",
+                (revision_id,),
+            ) as cursor:
+                child_states = [r[0] for r in await cursor.fetchall()]
+            async with db.execute(
+                "SELECT COUNT(*) FROM source_chunks WHERE revision_id = ?",
+                (revision_id,),
+            ) as cursor:
+                chunk_row = await cursor.fetchone()
+                expected_chunks = int(chunk_row[0]) if chunk_row else 0
+            if (
+                not child_states
+                or any(s != "COMMITTED" for s in child_states)
+                or (expected_chunks > 0 and len(child_states) < expected_chunks)
+            ):
+                return
         if not row[4]:
             if row[1]:
                 cursor = await db.execute(
@@ -2584,26 +2697,13 @@ class MemoryDAO:
                     (mutation_id,),
                 )
             if changed and pipeline_row and pipeline_row[0]:
-                pipeline_state = {
-                    "EXTRACTED": "EXTRACTED",
-                    "VALIDATED": "VALIDATED",
-                    "SQL_APPLIED": "PROJECTING",
-                    "VECTOR_APPLIED": "PROJECTING",
-                    "GRAPH_APPLIED": "PROJECTING",
-                    "COMMITTED": "COMMITTED",
-                    "REJECTED": "BLOCKED",
-                    "RETRY_PENDING": "RETRY_PENDING",
-                    "DEAD_LETTER": "DLQ",
-                }.get(state)
-                if pipeline_state:
-                    await self._transition_pipeline_run_in_tx(
-                        db,
-                        str(pipeline_row[0]),
-                        to_state=pipeline_state,
-                        event_type=f"MUTATION_{state}",
-                        failure_class=failure_class,
-                        event_detail=event_detail,
-                    )
+                await self._recompute_pipeline_state_in_tx(
+                    db,
+                    str(pipeline_row[0]),
+                    event_type=f"MUTATION_{state}",
+                    failure_class=failure_class,
+                    event_detail=event_detail,
+                )
             await db.commit()
         return changed
 
@@ -3126,6 +3226,26 @@ class MemoryDAO:
             if run["state"] == "ROLLED_BACK":
                 await db.commit()
                 return {"pipeline_run_id": pipeline_run_id, "cleanup_count": 0}
+            async with db.execute(
+                "SELECT DISTINCT r.document_id, r.revision_id, r.status "
+                "FROM memory_mutations m "
+                "JOIN document_revisions r ON r.revision_id = m.revision_id "
+                "WHERE m.pipeline_run_id = ?",
+                (pipeline_run_id,),
+            ) as cursor:
+                pipeline_revisions = await cursor.fetchall()
+            for doc_id, rev_id, rev_status in pipeline_revisions:
+                if doc_id and rev_id:
+                    async with db.execute(
+                        "SELECT revision_id FROM document_revisions "
+                        "WHERE document_id = ? AND status = 'ACTIVE'",
+                        (doc_id,),
+                    ) as cursor:
+                        active_head = await cursor.fetchone()
+                    if active_head and active_head[0] != rev_id:
+                        raise ValueError(
+                            f"409 NON_HEAD_ROLLBACK_CONFLICT: revision {rev_id} is not current active head {active_head[0]} for document {doc_id}"
+                        )
             async with db.execute(
                 "SELECT COUNT(*) FROM projection_outbox WHERE state = 'IN_FLIGHT' "
                 "AND mutation_id IN (SELECT mutation_id FROM memory_mutations "
@@ -4662,12 +4782,9 @@ class MemoryDAO:
         ) as cursor:
             row = await cursor.fetchone()
         if row and row[0]:
-            await MemoryDAO._transition_pipeline_run_in_tx(
+            await MemoryDAO._recompute_pipeline_state_in_tx(
                 db,
                 str(row[0]),
-                to_state=(
-                    "COMMITTED" if current_state == "COMMITTED" else "PROJECTING"
-                ),
                 event_type=f"PROJECTION_{current_state}",
             )
 
