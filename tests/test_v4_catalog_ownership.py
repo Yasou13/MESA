@@ -55,7 +55,9 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
             revision_number=1,
             content_hash=first_hash,
         )
-        assert first["status"] == "ACTIVE"
+        # A revision becomes visible as the document head only after one of
+        # its canonical mutations has completed every projection lane.
+        assert first["status"] == "PENDING"
         await dao.create_v4_revision(
             tenant_id="tenant-a",
             dataset_id="dataset-a",
@@ -70,7 +72,7 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
         )
         # Declaring a replacement revision does not activate the correction;
         # supersession is committed with its canonical mutation.
-        assert [item["status"] for item in revisions] == ["ACTIVE", "PENDING"]
+        assert [item["status"] for item in revisions] == ["PENDING", "PENDING"]
         with pytest.raises(ValueError, match="immutable"):
             await dao.create_v4_revision(
                 tenant_id="tenant-a",

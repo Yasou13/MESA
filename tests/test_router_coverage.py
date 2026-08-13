@@ -475,3 +475,36 @@ class TestInsertErrors:
             json={"agent_id": "agent-err", "session_id": "s1", "content": "text"},
         )
         assert resp.status_code == 403
+
+
+class TestInsertIdempotency:
+    def test_public_retry_with_top_level_key_creates_one_raw_record(
+        self, client, engines
+    ):
+        payload = {
+            "tenant_id": "tenant-retry",
+            "agent_id": "agent-retry",
+            "session_id": "session-retry",
+            "content": "exactly once",
+            "idempotency_key": "retry-key-1",
+        }
+
+        first = client.post("/v3/memory/insert", json=payload)
+        second = client.post("/v3/memory/insert", json=payload)
+
+        assert first.status_code == second.status_code == 202
+        assert first.json()["log_id"] == second.json()["log_id"]
+        assert first.json()["deduplicated"] is False
+        assert second.json()["deduplicated"] is True
+        sql, _vec, loop = engines
+
+        async def _count() -> int:
+            async with sql.connection() as db:
+                async with db.execute(
+                    "SELECT COUNT(*) FROM raw_logs WHERE agent_id = 'agent-retry'"
+                ) as cursor:
+                    row = await cursor.fetchone()
+            assert row is not None
+            return int(row[0])
+
+        assert loop.run_until_complete(_count()) == 1

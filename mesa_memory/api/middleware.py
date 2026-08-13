@@ -53,7 +53,12 @@ def rate_limit_exceeded_handler(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=429,
-        content={"error": "Rate limit exceeded", "detail": str(exc.detail)},
+        content={
+            "error": "RATE_LIMITED",
+            "detail": str(exc.detail),
+            "status_code": 429,
+            "retryable": True,
+        },
     )
 
 

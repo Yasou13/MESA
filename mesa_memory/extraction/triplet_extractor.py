@@ -11,9 +11,7 @@ This module owns:
 
 import asyncio
 import functools
-import json
 import logging
-from typing import Optional
 
 from pydantic import ValidationError
 
@@ -29,7 +27,6 @@ from mesa_memory.consolidation.parser import (
 )
 from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet
 from mesa_memory.extraction.rebel_pipeline import RebelExtractor
-from mesa_memory.utils import _strip_markdown_json
 
 logger = logging.getLogger("MESA_Consolidation")
 
@@ -109,11 +106,11 @@ class TripletExtractor:
         record: dict,
         llm: BaseUniversalLLMAdapter,
         template: str,
-    ) -> Optional[dict]:
-        """Extract a single triplet using legacy 1:1 prompting.
+    ) -> ExtractedTriplet | None:
+        """Extract zero or more facts for one record through the terminal fallback.
 
-        Used as terminal fallback when batch parsing fails for individual
-        records. Returns a plain dict ``{head, relation, tail}`` or None.
+        Repeated record-0 entries are merged by the shared response parser, so
+        bisection can never narrow the public 0..N extraction contract.
         """
         content = record.get("content_payload", "")
         source = record.get("source", "")
@@ -123,11 +120,12 @@ class TripletExtractor:
         try:
             raw = await loop.run_in_executor(
                 None,
-                functools.partial(llm.complete, prompt),
+                functools.partial(llm.complete, prompt, BatchExtractionResponse),
             )
-            cleaned = _strip_markdown_json(raw) if isinstance(raw, str) else ""
-            return json.loads(cleaned) if cleaned else None
-        except (json.JSONDecodeError, TypeError, Exception) as exc:
+            response = self._parser.parse(raw, 1)
+            indexed, _missing = self._parser.audit_coverage(response, 1)
+            return indexed.get(0)
+        except Exception as exc:
             logger.warning(
                 "Single-record fallback failed | exception_type=%s",
                 type(exc).__name__,
@@ -163,13 +161,8 @@ class TripletExtractor:
                     llm,
                     fallback_template,
                 )
-                if trip and trip.get("head"):
-                    results[i] = ExtractedTriplet(
-                        record_index=i,
-                        head=trip["head"],
-                        relation=trip.get("relation", ""),
-                        tail=trip.get("tail", ""),
-                    )
+                if trip is not None:
+                    results[i] = trip.model_copy(update={"record_index": i}, deep=True)
             return results
 
         mid = len(sub_batch) // 2
@@ -193,9 +186,9 @@ class TripletExtractor:
                     ),
                 )
                 response = self._parser.parse(raw, len(half))
-                for triplet in response.triplets:
-                    if 0 <= triplet.record_index < len(half):
-                        results[offset + triplet.record_index] = triplet
+                indexed, _missing = self._parser.audit_coverage(response, len(half))
+                for record_index, triplet in indexed.items():
+                    results[offset + record_index] = triplet
             except (ValueError, ValidationError, Exception) as exc:
                 logger.warning(
                     f"Bisection retry depth={depth} failed ({len(half)} records): {exc}"
@@ -325,9 +318,14 @@ class TripletExtractor:
 
             try:
                 response_a = self._parser.parse(raw_a, len(fallback_batch))
-                fb_indexed_a, fb_missing_a = self._parser.audit_coverage(
+                # A valid response that omits a record means the model found
+                # zero facts for that record.  Retrying it through the legacy
+                # singular fallback would turn the 0..N contract back into a
+                # mandatory one-fact contract.
+                fb_indexed_a, _ = self._parser.audit_coverage(
                     response_a, len(fallback_batch)
                 )
+                fb_missing_a: list[int] = []
             except ValueError:
                 fb_indexed_a = await self._retry_with_bisection(
                     fallback_batch,
@@ -339,9 +337,10 @@ class TripletExtractor:
 
             try:
                 response_b = self._parser.parse(raw_b, len(fallback_batch))
-                fb_indexed_b, fb_missing_b = self._parser.audit_coverage(
+                fb_indexed_b, _ = self._parser.audit_coverage(
                     response_b, len(fallback_batch)
                 )
+                fb_missing_b: list[int] = []
             except ValueError:
                 fb_indexed_b = await self._retry_with_bisection(
                     fallback_batch,
@@ -367,12 +366,9 @@ class TripletExtractor:
                 trip = await self._single_record_extract(
                     sorted_batch[global_idx], self.llm_a, PROMPT_A_TEMPLATE
                 )
-                if trip and trip.get("head"):
-                    indexed_a[global_idx] = ExtractedTriplet(
-                        record_index=global_idx,
-                        head=trip["head"],
-                        relation=trip.get("relation", ""),
-                        tail=trip.get("tail", ""),
+                if trip is not None:
+                    indexed_a[global_idx] = trip.model_copy(
+                        update={"record_index": global_idx}, deep=True
                     )
 
             for local_idx in fb_missing_b:
@@ -380,12 +376,9 @@ class TripletExtractor:
                 trip = await self._single_record_extract(
                     sorted_batch[global_idx], self.llm_b, PROMPT_B_TEMPLATE
                 )
-                if trip and trip.get("head"):
-                    indexed_b[global_idx] = ExtractedTriplet(
-                        record_index=global_idx,
-                        head=trip["head"],
-                        relation=trip.get("relation", ""),
-                        tail=trip.get("tail", ""),
+                if trip is not None:
+                    indexed_b[global_idx] = trip.model_copy(
+                        update={"record_index": global_idx}, deep=True
                     )
 
         return indexed_a, indexed_b

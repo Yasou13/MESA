@@ -79,6 +79,7 @@ class EmbeddingIdentity:
     model: str
     version: str
     dimension: int
+    normalized: bool = False
 
 
 def load_runtime_profile(
@@ -191,7 +192,9 @@ def load_explicit_dotenv(runtime: RuntimeProfileConfig) -> None:
     assert runtime.dotenv_path is not None
     if not runtime.dotenv_path.is_file():
         raise RuntimeProfileError("explicit dotenv path is unavailable")
-    load_dotenv(dotenv_path=runtime.dotenv_path, override=False)
+    # The file is an explicitly authorized startup source, not ambient shell
+    # discovery; its declared runtime values must win during bootstrap.
+    load_dotenv(dotenv_path=runtime.dotenv_path, override=True)
 
 
 class QueueAdmissionPolicy(BaseModel):
@@ -277,7 +280,9 @@ def _read_env_ram_limit() -> Optional[int]:
         try:
             total = int(raw_bytes)
             if total > 0:
-                logger.info("RAM limit sourced from MESA_MAX_MEMORY_BYTES: %d bytes", total)
+                logger.info(
+                    "RAM limit sourced from MESA_MAX_MEMORY_BYTES: %d bytes", total
+                )
                 return total
         except ValueError:
             pass
@@ -288,7 +293,11 @@ def _read_env_ram_limit() -> Optional[int]:
             mb = int(raw_mb)
             if mb > 0:
                 total = mb * 1024 * 1024
-                logger.info("RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)", mb, total)
+                logger.info(
+                    "RAM limit sourced from MESA_MAX_RAM_MB: %d MB (%d bytes)",
+                    mb,
+                    total,
+                )
                 return total
         except ValueError:
             pass
@@ -361,7 +370,7 @@ class MesaConfig(BaseSettings):
         "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
     )
     llm_embedding_model_name: str = Field(
-        "text-embedding-3-small", validation_alias="LLM_EMBEDDING_MODEL"
+        "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
     llm_timeout_seconds: float = Field(20.0, validation_alias="LLM_TIMEOUT_SECONDS")
     tier3_llm_provider_a: str | None = Field(
@@ -376,7 +385,7 @@ class MesaConfig(BaseSettings):
     tier3_llm_model_name_b: str | None = Field(
         None, validation_alias="MESA_TIER3_LLM_MODEL_B"
     )
-    embedding_dimension: int = Field(1536, validation_alias="MESA_EMBEDDING_DIMENSION")
+    embedding_dimension: int = Field(384, validation_alias="MESA_EMBEDDING_DIMENSION")
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )
@@ -389,6 +398,13 @@ class MesaConfig(BaseSettings):
 
     # Dynamic limits: fraction of total RAM allocated to LanceDB (M1)
     ram_allocation_fraction: float = 0.18
+
+    @property
+    def vector_worker_limit(self) -> int:
+        """Bound vector model/I/O concurrency from the effective RAM budget."""
+        # One worker per 512 MiB allocated to the vector subsystem, clamped
+        # to keep normal deployments responsive and bounded.
+        return max(1, min(4, self.lancedb_memory_limit_bytes // (512 * 1024 * 1024)))
 
     # Cross-validation lock thresholds (Module 8)
     entity_similarity_threshold: float = 0.80
@@ -571,6 +587,24 @@ class MesaConfig(BaseSettings):
     queue_retry_after_seconds: int = Field(
         5, validation_alias="MESA_QUEUE_RETRY_AFTER_SECONDS"
     )
+    readiness_projection_backlog_max: int = Field(
+        1000, ge=0, validation_alias="MESA_READINESS_PROJECTION_BACKLOG_MAX"
+    )
+    readiness_projection_dead_letter_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_PROJECTION_DEAD_LETTER_MAX"
+    )
+    readiness_projection_stuck_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_PROJECTION_STUCK_MAX"
+    )
+    readiness_cleanup_backlog_max: int = Field(
+        1000, ge=0, validation_alias="MESA_READINESS_CLEANUP_BACKLOG_MAX"
+    )
+    readiness_cleanup_blocked_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_CLEANUP_BLOCKED_MAX"
+    )
+    readiness_orphan_registry_max: int = Field(
+        0, ge=0, validation_alias="MESA_READINESS_ORPHAN_REGISTRY_MAX"
+    )
 
     @property
     def queue_admission_policy(self) -> QueueAdmissionPolicy:
@@ -714,6 +748,20 @@ def calculate_dynamic_limits(config: MesaConfig) -> MesaConfig:
 config = calculate_dynamic_limits(MesaConfig())
 
 
+def refresh_config_from_environment() -> MesaConfig:
+    """Refresh the shared settings object after an explicit dotenv bootstrap.
+
+    Modules intentionally import the single ``config`` object.  Updating that
+    object in place preserves those references while ensuring an operator's
+    explicit startup dotenv controls the configuration actually injected into
+    runtime construction.
+    """
+    refreshed = calculate_dynamic_limits(MesaConfig())
+    for field_name in MesaConfig.model_fields:
+        object.__setattr__(config, field_name, getattr(refreshed, field_name))
+    return config
+
+
 def configured_embedding_identity(
     environ: Mapping[str, str] | None = None,
 ) -> EmbeddingIdentity:
@@ -725,7 +773,7 @@ def configured_embedding_identity(
         default=False,
     )
     return EmbeddingIdentity(
-        provider=config.mesa_llm_provider if external else "local",
+        provider=config.mesa_llm_provider if external else "sentence-transformers",
         model=(
             config.llm_embedding_model_name
             if external
@@ -733,4 +781,5 @@ def configured_embedding_identity(
         ),
         version=config.embedding_version,
         dimension=config.embedding_dimension,
+        normalized=False,
     )

@@ -61,6 +61,10 @@ class _TrackingVector:
         self.soft_delete_calls.append((node_id, agent_id))
         self.active_node_ids.discard((node_id, agent_id))
 
+    async def hard_delete(self, node_id: str, agent_id: str) -> None:
+        self.soft_delete_calls.append((node_id, agent_id))
+        self.active_node_ids.discard((node_id, agent_id))
+
 
 class _FailingGraph:
     async def insert_node(self, *, node_id: str, name: str, agent_id: str) -> None:

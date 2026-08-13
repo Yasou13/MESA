@@ -30,7 +30,9 @@ async def test_multi_memory_extraction_contract(tmp_path):
     mock_graph.insert_triplet = AsyncMock()
     mock_graph.insert_assertion = AsyncMock()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph)
+    dao = MemoryDAO(
+        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+    )
 
     tenant_id = "tenant_multi"
     agent_id = "agent_multi"
@@ -42,9 +44,26 @@ async def test_multi_memory_extraction_contract(tmp_path):
     session_id = "sess_multi"
     pipeline_run_id = f"run_{uuid.uuid4().hex[:8]}"
 
-    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Multi")
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
-    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Multi Doc", document_id=document_id)
+    await dao.create_v4_workspace(
+        tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Multi"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id
+    )
+    await dao.create_v4_document(
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        title="Multi Doc",
+        document_id=document_id,
+    )
+    await dao.create_v4_revision(
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=document_id,
+        revision_id=revision_id,
+        revision_number=1,
+        content_hash="1" * 64,
+    )
 
     # 1 Event -> 3 Memories extracted from single document chunk
     candidate_base = {
@@ -68,9 +87,24 @@ async def test_multi_memory_extraction_contract(tmp_path):
     mut_2_id = f"mut_{uuid.uuid4().hex[:8]}"
     mut_3_id = f"mut_{uuid.uuid4().hex[:8]}"
 
-    m1 = {**candidate_base, "mutation_id": mut_1_id, "candidate_id": f"cand_1_{mut_1_id}", "content_payload": "Alice is CEO"}
-    m2 = {**candidate_base, "mutation_id": mut_2_id, "candidate_id": f"cand_2_{mut_2_id}", "content_payload": "Acme Corp founded in 2020"}
-    m3 = {**candidate_base, "mutation_id": mut_3_id, "candidate_id": f"cand_3_{mut_3_id}", "content_payload": "Alice lives in London"}
+    m1 = {
+        **candidate_base,
+        "mutation_id": mut_1_id,
+        "candidate_id": f"cand_1_{mut_1_id}",
+        "content_payload": "Alice is CEO",
+    }
+    m2 = {
+        **candidate_base,
+        "mutation_id": mut_2_id,
+        "candidate_id": f"cand_2_{mut_2_id}",
+        "content_payload": "Acme Corp founded in 2020",
+    }
+    m3 = {
+        **candidate_base,
+        "mutation_id": mut_3_id,
+        "candidate_id": f"cand_3_{mut_3_id}",
+        "content_payload": "Alice lives in London",
+    }
 
     # Record all 3 memories for the single event/pipeline run
     await dao.record_mutation(m1, raw_log_id=None)
@@ -78,9 +112,21 @@ async def test_multi_memory_extraction_contract(tmp_path):
     await dao.record_mutation(m3, raw_log_id=None)
 
     # Attach extractions
-    await dao.record_mutation_extraction(agent_id, mut_1_id, [{"head": "Alice", "relation": "ROLE", "literal_value": "CEO"}])
-    await dao.record_mutation_extraction(agent_id, mut_2_id, [{"head": "Acme Corp", "relation": "FOUNDED", "literal_value": "2020"}])
-    await dao.record_mutation_extraction(agent_id, mut_3_id, [{"head": "Alice", "relation": "LIVES_IN", "literal_value": "London"}])
+    await dao.record_mutation_extraction(
+        agent_id,
+        mut_1_id,
+        [{"head": "Alice", "relation": "ROLE", "literal_value": "CEO"}],
+    )
+    await dao.record_mutation_extraction(
+        agent_id,
+        mut_2_id,
+        [{"head": "Acme Corp", "relation": "FOUNDED", "literal_value": "2020"}],
+    )
+    await dao.record_mutation_extraction(
+        agent_id,
+        mut_3_id,
+        [{"head": "Alice", "relation": "LIVES_IN", "literal_value": "London"}],
+    )
 
     # Validate mutations to unblock projection outbox
     await dao.set_mutation_state(agent_id, mut_1_id, "VALIDATED")
@@ -136,4 +182,163 @@ async def test_extractor_preserves_every_fact_from_one_event(monkeypatch):
         ("Backend", "FastAPI"),
         ("Database", "PostgreSQL"),
         ("Cache", "Redis"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_multi_fact_extraction_when_rebel_fails(monkeypatch):
+    """Force REBEL failure and verify LLM fallback schema returns zero-to-many triplets per input record."""
+    from mesa_memory.consolidation.schemas import (
+        BatchExtractionResponse,
+        ExtractedTriplet,
+    )
+
+    mock_llm_a = SimpleNamespace()
+    mock_llm_b = SimpleNamespace()
+
+    response_multi = BatchExtractionResponse(
+        triplets=[
+            ExtractedTriplet(
+                record_index=0,
+                head="Backend",
+                relation="USES",
+                tail="FastAPI",
+                additional_triplets=[
+                    {"head": "Database", "relation": "USES", "tail": "PostgreSQL"},
+                    {"head": "Cache", "relation": "USES", "tail": "Redis"},
+                ],
+            )
+        ]
+    )
+
+    mock_llm_a.complete = lambda _prompt, _schema=None: response_multi
+    mock_llm_b.complete = lambda _prompt, _schema=None: response_multi
+
+    extractor = TripletExtractor(mock_llm_a, mock_llm_b)
+
+    # Force REBEL to fail by raising an exception
+    def _failing_rebel(_content):
+        raise RuntimeError("REBEL model unavailable / failed")
+
+    monkeypatch.setattr(extractor.rebel_extractor, "extract_triplets", _failing_rebel)
+
+    indexed_a, _indexed_b = await extractor.extract_batch(
+        [{"content_payload": "Backend FastAPI. Database PostgreSQL. Cache Redis."}]
+    )
+
+    assert 0 in indexed_a
+    triplets = indexed_a[0].all_triplets()
+    assert len(triplets) == 3
+    assert [(t.head, t.relation, t.tail) for t in triplets] == [
+        ("Backend", "USES", "FastAPI"),
+        ("Database", "USES", "PostgreSQL"),
+        ("Cache", "USES", "Redis"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_preserves_flat_multi_fact_and_no_fact_responses(
+    monkeypatch,
+):
+    """A REBEL outage must retain repeated-index facts and allow intentional zero facts."""
+    from mesa_memory.consolidation.schemas import (
+        BatchExtractionResponse,
+        ExtractedTriplet,
+    )
+
+    multi = BatchExtractionResponse(
+        triplets=[
+            ExtractedTriplet(
+                record_index=0, head="Backend", relation="USES", tail="FastAPI"
+            ),
+            ExtractedTriplet(
+                record_index=0, head="Database", relation="USES", tail="PostgreSQL"
+            ),
+            ExtractedTriplet(
+                record_index=0, head="Cache", relation="USES", tail="Redis"
+            ),
+        ]
+    )
+    extractor = TripletExtractor(
+        SimpleNamespace(complete=lambda *_args: multi),
+        SimpleNamespace(complete=lambda *_args: multi),
+    )
+    monkeypatch.setattr(
+        extractor.rebel_extractor,
+        "extract_triplets",
+        lambda _content: (_ for _ in ()).throw(RuntimeError("REBEL disabled")),
+    )
+    indexed_a, indexed_b = await extractor.extract_batch(
+        [{"content_payload": "Backend FastAPI. Database PostgreSQL. Cache Redis."}]
+    )
+    assert [fact.tail for fact in indexed_a[0].all_triplets()] == [
+        "FastAPI",
+        "PostgreSQL",
+        "Redis",
+    ]
+    assert [fact.tail for fact in indexed_b[0].all_triplets()] == [
+        "FastAPI",
+        "PostgreSQL",
+        "Redis",
+    ]
+
+    no_fact = TripletExtractor(
+        SimpleNamespace(complete=lambda *_args: BatchExtractionResponse(triplets=[])),
+        SimpleNamespace(complete=lambda *_args: BatchExtractionResponse(triplets=[])),
+    )
+    monkeypatch.setattr(
+        no_fact.rebel_extractor, "extract_triplets", lambda _content: []
+    )
+    assert await no_fact.extract_batch([{"content_payload": "..."}]) == ({}, {})
+
+
+@pytest.mark.asyncio
+async def test_terminal_single_record_fallback_remains_zero_to_many(monkeypatch):
+    """Force batch parsing and bisection to the last fallback boundary."""
+    import asyncio
+
+    from mesa_memory.config import config
+
+    class TerminalFallbackLLM:
+        def complete(self, prompt, _schema=None):
+            if "=== RECORD" in prompt:
+                return "not-json"
+            return (
+                '{"triplets": ['
+                '{"record_index": 0, "head": "Backend", "relation": "USES", "tail": "FastAPI"},'
+                '{"record_index": 0, "head": "Database", "relation": "USES", "tail": "PostgreSQL"},'
+                '{"record_index": 0, "head": "Cache", "relation": "USES", "tail": "Redis"}'
+                "]}"
+            )
+
+    extractor = TripletExtractor(TerminalFallbackLLM(), TerminalFallbackLLM())
+    loop = asyncio.get_running_loop()
+
+    async def _inline_executor(_executor, func, *args):
+        return func(*args)
+
+    # The fake is synchronous, so keep this contract test independent of the
+    # host Python/torch thread-wakeup combination while exercising every
+    # extraction branch itself.
+    monkeypatch.setattr(loop, "run_in_executor", _inline_executor)
+    monkeypatch.setattr(config, "truncation_max_retries", 0)
+    monkeypatch.setattr(
+        extractor.rebel_extractor,
+        "extract_triplets",
+        lambda _content: (_ for _ in ()).throw(RuntimeError("REBEL unavailable")),
+    )
+
+    indexed_a, indexed_b = await extractor.extract_batch(
+        [{"content_payload": "Backend FastAPI. Database PostgreSQL. Cache Redis."}]
+    )
+
+    assert [fact.tail for fact in indexed_a[0].all_triplets()] == [
+        "FastAPI",
+        "PostgreSQL",
+        "Redis",
+    ]
+    assert [fact.tail for fact in indexed_b[0].all_triplets()] == [
+        "FastAPI",
+        "PostgreSQL",
+        "Redis",
     ]

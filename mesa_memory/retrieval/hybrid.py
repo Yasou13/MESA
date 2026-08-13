@@ -81,9 +81,14 @@ class HybridRetriever:
         seed_ids = [n["id"] for n in seed_nodes]
 
         # Cold-start detection via DAO
-        all_nodes = await self.dao.get_memories(agent_id)
+        # Legacy retrieval is agent-scoped while V4 catalog count requires a
+        # tenant.  Ask the DAO for the same bounded aggregate via its explicit
+        # agent filter instead of materialising ``get_memories``.
+        active_memory_count = await self.dao.count_active_memories(
+            agent_id, agent_id=agent_id
+        )
         is_cold_start = (
-            len(seed_ids) == 0 or len(all_nodes) < config.cold_start_min_nodes
+            len(seed_ids) == 0 or active_memory_count < config.cold_start_min_nodes
         )
 
         vector_results: list[Any] = []

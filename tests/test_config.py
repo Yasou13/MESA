@@ -20,6 +20,7 @@ def test_dynamic_ram_limit():
     cfg = calculate_dynamic_limits(MesaConfig())
     assert isinstance(cfg.lancedb_memory_limit_bytes, int)
     assert cfg.lancedb_memory_limit_bytes == int(psutil.virtual_memory().total * 0.18)
+    assert 1 <= cfg.vector_worker_limit <= 4
 
 
 def test_v4_rebuild_feature_flag_is_disabled_by_default_and_explicitly_enabled(
@@ -38,7 +39,8 @@ def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode(
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false")
     identity = configured_embedding_identity()
 
-    assert identity.provider == "local"
+    assert identity.provider == "sentence-transformers"
     assert identity.model
     assert identity.version == "v1"
     assert identity.dimension > 0
+    assert identity.normalized is False

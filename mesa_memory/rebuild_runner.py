@@ -62,6 +62,7 @@ class RebuildProviderRuntime:
     manifest: dict[str, Any]
     embedding_provider: EmbeddingProvider | None
     allow_model_loading: bool
+    local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def _environment_bool(name: str, *, default: bool = False) -> bool:
@@ -90,9 +91,11 @@ def _provider_runtime() -> RebuildProviderRuntime:
             "embedding_model": identity.model,
             "embedding_version": identity.version,
             "dimension": identity.dimension,
+            "normalized": identity.normalized,
         },
         embedding_provider=embedding_provider,
         allow_model_loading=model_enabled,
+        local_embedding_model=config.local_embedding_model,
     )
 
 
@@ -323,6 +326,7 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 lease_seconds=args.lease_seconds,
                 embedding_provider=providers.embedding_provider,
                 allow_model_loading=providers.allow_model_loading,
+                local_embedding_model=providers.local_embedding_model,
                 should_stop=stop_requested.is_set,
             )
         log_rebuild_event(
@@ -340,6 +344,7 @@ async def run_rebuild(args: argparse.Namespace) -> int:
         vector_factory = default_vector_verification_factory(
             embedding_provider=providers.embedding_provider,
             allow_model_loading=providers.allow_model_loading,
+            local_embedding_model=providers.local_embedding_model,
         )
         result = await ParityGatedActivator(operations, generations).activate(
             preparation=preparation,

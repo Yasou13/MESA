@@ -278,6 +278,11 @@ def upgrade() -> None:
         "CREATE INDEX IF NOT EXISTS idx_pipeline_runs_scope "
         "ON pipeline_runs(tenant_id, dataset_id, state, updated_at)"
     )
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_document_revision "
+        "ON document_revisions(document_id) WHERE status = 'ACTIVE'"
+    )
+
 
     # Preserve already-created V4 receipts as canonical physical artifacts and
     # ownership links. Legacy rows may not have dataset/document provenance;

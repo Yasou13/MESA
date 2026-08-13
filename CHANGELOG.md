@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Round-2 lifecycle certification:** Projection writes now retain durable
+  compensation ownership until vector/graph cleanup succeeds; V3 replacement
+  stages the successor until secondary writes are safe; repeated mutations for
+  one revision activate its head idempotently.
+- **Runtime and extraction truth:** Terminal LLM fallback preserves zero-to-many
+  facts, local embedding identity names the actual provider, model-disabled
+  imports avoid eager ML loading, and supported compose profiles forward the
+  declared provider and Tier-3 settings.
+- **Tenant and transport contracts:** Durable queue accounting uses the real
+  tenant across agents; MCP identities include immutable scope and only recover
+  exact inactive-session conflicts; API errors and readiness failures use the
+  canonical structured contract.
 - **Truthful V4 capability contract:** Capability responses now distinguish
   vector, lexical, relational, validity and graph projection support, advertise
   rebuild limits, and expose durable rebuild only when

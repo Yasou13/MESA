@@ -14,8 +14,14 @@ COPY mesa_client ./mesa_client
 COPY mesa_evals ./mesa_evals
 COPY mesa_mcp ./mesa_mcp
 COPY --from=uv /uv /usr/local/bin/uv
-RUN uv export --quiet --frozen --no-dev --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
-    && python -m pip wheel --no-cache-dir --wheel-dir=/wheels -r /tmp/requirements.txt \
+# The PyPI Linux torch wheel is CUDA-enabled and pulls multi-gigabyte GPU
+# libraries. Runtime images are CPU-only, so use the matching CPU build and
+# remove GPU-only transitive requirements from the exported lock set.
+RUN uv export --quiet --frozen --no-dev --no-hashes --extra ml --extra adapters --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
+    && sed -i '/^nvidia-/d; /^triton==/d' /tmp/requirements.txt \
+    && python -m pip wheel --no-cache-dir --retries 5 --timeout 120 \
+      --extra-index-url https://download.pytorch.org/whl/cpu \
+      --wheel-dir=/wheels -r /tmp/requirements.txt \
     && python -m pip wheel --no-cache-dir --no-deps --wheel-dir=/wheels .
 
 FROM ${PYTHON_IMAGE} AS runtime
@@ -29,7 +35,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN groupadd --system mesa && useradd --system --gid mesa --home-dir /nonexistent --shell /usr/sbin/nologin mesa \
     && mkdir -p /var/lib/mesa && chown mesa:mesa /var/lib/mesa
 COPY --from=builder /wheels /wheels
-RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels /wheels/mesa_memory-*.whl && rm -rf /wheels
+RUN wheel="$(find /wheels -maxdepth 1 -name 'mesa_memory-*.whl' -print -quit)" \
+    && test -n "$wheel" \
+    && python -m pip install --no-cache-dir --no-index --find-links=/wheels "${wheel}[ml,adapters]" \
+    && rm -rf /wheels
 USER mesa:mesa
 WORKDIR /var/lib/mesa
 VOLUME ["/var/lib/mesa"]

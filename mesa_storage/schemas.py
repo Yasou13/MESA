@@ -141,6 +141,7 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "uq_system_operations_active_rebuild",
         "idx_system_operation_events_sequence",
         "idx_projection_generations_lifecycle",
+        "uq_active_document_revision",
     }
     expected_triggers = {
         "trg_nodes_fts_insert",

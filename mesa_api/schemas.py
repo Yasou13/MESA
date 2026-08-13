@@ -188,6 +188,15 @@ class MemoryInsertRequest(BaseModel):
         description="Tenant identifier for row-level isolation",
         examples=["agent_alpha", "data-pipeline-v2"],
     )
+    tenant_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description=(
+            "Stable tenant quota/accounting scope. Legacy callers that omit it "
+            "retain the historical one-agent-per-tenant behavior."
+        ),
+    )
     session_id: str = Field(
         ...,
         min_length=1,
@@ -215,6 +224,11 @@ class MemoryInsertRequest(BaseModel):
     @classmethod
     def validate_agent_id(cls, v: str) -> str:
         return _validate_identifier(v, "agent_id")
+
+    @field_validator("tenant_id")
+    @classmethod
+    def validate_tenant_id(cls, v: str | None) -> str | None:
+        return _validate_identifier(v, "tenant_id") if v is not None else None
 
     @field_validator("session_id")
     @classmethod
@@ -419,11 +433,16 @@ class SourceLocatorV2(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    document_id: str | None = Field(default=None, description="External document reference")
+    document_id: str | None = Field(
+        default=None, description="External document reference"
+    )
     revision: str | None = Field(default=None, description="Document revision tag")
     chunk_id: str | None = Field(default=None, description="Specific chunk reference")
     page_number: int | None = Field(default=None, description="Physical page number")
-    temporal_version: str | None = Field(default=None, description="Temporal version label (e.g. 2023-01-01)")
+    temporal_version: str | None = Field(
+        default=None, description="Temporal version label (e.g. 2023-01-01)"
+    )
+
 
 class SearchResultItem(BaseModel):
     """Single result item in a search response."""
@@ -447,6 +466,7 @@ class SearchResultItem(BaseModel):
         default=None, description="Precise source locator"
     )
     agent_id: str = Field(..., description="Owning tenant identifier")
+
 
 class MemorySearchResponse(BaseModel):
     """Response returned after a memory search query."""
@@ -489,6 +509,9 @@ class ErrorResponse(BaseModel):
     error: str = Field(..., description="Machine-readable error code")
     detail: str = Field(..., description="Human-readable error description")
     status_code: int = Field(..., ge=400, le=599)
+    retryable: bool = Field(
+        default=False, description="Whether retrying unchanged may succeed later"
+    )
 
 
 class HealthResponse(BaseModel):

@@ -95,6 +95,48 @@ def test_compose_has_isolated_api_and_worker_roles_without_host_bind_or_dotenv(
         compose["services"]["mesa-worker"]["environment"]["MESA_RUNTIME_PROFILE"]
         == "worker-only"
     )
+    assert compose["services"]["mesa-api"]["depends_on"] == {
+        "mesa-worker": {"condition": "service_healthy"}
+    }
+
+
+def test_single_container_image_canary_uses_the_self_contained_runtime() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "external-release-gates.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    docker_image = workflow["jobs"]["docker-image"]
+    smoke_step = next(
+        step
+        for step in docker_image["steps"]
+        if step.get("name") == "Build, inspect, and smoke the non-root image"
+    )
+    assert "--env MESA_RUNTIME_PROFILE=combined" in smoke_step["run"]
+    assert "--env MESA_RUNTIME_PROFILE=api-only" not in smoke_step["run"]
+
+
+def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
+    compose = yaml.safe_load(
+        (ROOT / "docker-compose.v4.yml").read_text(encoding="utf-8")
+    )
+    environment = compose["services"]["mesa-v4"]["environment"]
+    assert {
+        "MESA_LLM_PROVIDER",
+        "LLM_BASE_URL",
+        "LLM_API_KEY",
+        "LLM_MODEL_NAME",
+        "LLM_EMBEDDING_MODEL",
+        "MESA_TIER3_LLM_PROVIDER_A",
+        "MESA_TIER3_LLM_MODEL_A",
+        "MESA_TIER3_LLM_PROVIDER_B",
+        "MESA_TIER3_LLM_MODEL_B",
+        "MESA_OLLAMA_URL",
+    } <= set(environment)
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "--extra ml --extra adapters" in dockerfile
+    assert "find /wheels -maxdepth 1 -name 'mesa_memory-*.whl'" in dockerfile
+    assert '"${wheel}[ml,adapters]"' in dockerfile
 
 
 def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> None:
@@ -238,10 +280,10 @@ def test_mcp_and_benchmark_coverage_gates_reject_regressions() -> None:
     assert "benchmark-coverage.json" in benchmark_workflow
     assert "npm run test:coverage" in benchmark_workflow
 
-    frontend_config = (ROOT / "mesa-benchmark" / "dashboard-ui" / "vite.config.ts").read_text(
-        encoding="utf-8"
-    )
-    assert "provider: \"v8\"" in frontend_config
+    frontend_config = (
+        ROOT / "mesa-benchmark" / "dashboard-ui" / "vite.config.ts"
+    ).read_text(encoding="utf-8")
+    assert 'provider: "v8"' in frontend_config
     assert "lines: 10" in frontend_config
     assert "branches: 30" in frontend_config
 
@@ -266,9 +308,12 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_benchmark_image() ->
     assert "npm ci --ignore-scripts" in supply_chain
     assert "npm audit --omit=dev --audit-level=high" in supply_chain
     assert "docker build --pull=false --tag mesa-benchmark:security" in supply_chain
-    assert supply_chain.count(
-        "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
-    ) == 3
+    assert (
+        supply_chain.count(
+            "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
+        )
+        == 3
+    )
     assert supply_chain.count('exit-code: "1"') == 2
     assert supply_chain.count("severity: HIGH,CRITICAL") == 2
     assert "format: cyclonedx" in supply_chain
@@ -316,13 +361,21 @@ def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:
     monkeypatch.setattr(
         entrypoint,
         "load_runtime_profile",
-        lambda: SimpleNamespace(profile=RuntimeProfile.WORKER_ONLY, api_enabled=False),
+        lambda: SimpleNamespace(
+            profile=RuntimeProfile.WORKER_ONLY,
+            api_enabled=False,
+            load_dotenv=False,
+        ),
     )
     assert command_for_profile() == [sys.executable, "-m", "mesa_memory.worker_runtime"]
     monkeypatch.setattr(
         entrypoint,
         "load_runtime_profile",
-        lambda: SimpleNamespace(profile=RuntimeProfile.API_ONLY, api_enabled=True),
+        lambda: SimpleNamespace(
+            profile=RuntimeProfile.API_ONLY,
+            api_enabled=True,
+            load_dotenv=False,
+        ),
     )
     monkeypatch.setenv("MESA_PORT", "8123")
     assert command_for_profile()[-1] == "8123"

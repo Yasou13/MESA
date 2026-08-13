@@ -87,6 +87,7 @@ async def test_hybrid_retrieve_full():
     dao.find_nodes_by_name.return_value = []
     dao.get_memories.return_value = []
     dao.get_epistemic_data_for_nodes.return_value = {}
+    dao.count_active_memories.side_effect = [0, 100]
 
     retriever.get_vector_results = AsyncMock(
         return_value=[{"cmb_id": "1", "score": 0.8, "fitness_score": 0.5}]

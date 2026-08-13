@@ -119,6 +119,12 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
     monkeypatch.setattr(
         worker_runtime, "VectorEngine", lambda *_args, **_kwargs: vector_engine
     )
+    graph_provider = MagicMock()
+    graph_provider.initialize = AsyncMock()
+    graph_provider.close = AsyncMock()
+    monkeypatch.setattr(
+        worker_runtime, "KuzuGraphProvider", lambda *_args, **_kwargs: graph_provider
+    )
     monkeypatch.setattr(worker_runtime, "MemoryDAO", lambda *_args, **_kwargs: dao)
     monkeypatch.setattr(
         worker_runtime, "WorkerSupervisor", lambda **_kwargs: supervisor

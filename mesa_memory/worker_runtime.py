@@ -18,14 +18,18 @@ from mesa_memory.observability.logger import setup_logging
 
 setup_logging(role="worker")
 
+from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import (
     RuntimeProfile,
     RuntimeProfileConfig,
     RuntimeProfileError,
+    config,
     load_explicit_dotenv,
     load_runtime_profile,
+    refresh_config_from_environment,
 )
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -71,13 +75,23 @@ def _write_readiness(storage_root: Path, payload: dict[str, Any]) -> None:
         os.close(directory)
 
 
-async def _recover_once(engine: AsyncEngine) -> dict[str, int]:
-    dao = MemoryDAO(engine, cast(VectorEngine, None))
-    return {
-        "raw_log_claims": await dao.recover_expired_raw_log_claims(),
-        "wal_claims": await dao.recover_expired_lancedb_wal_claims(),
-        "session_finalizations": await dao.recover_expired_session_finalizations(),
+async def _recover_once(dao: MemoryDAO | AsyncEngine) -> dict[str, int]:
+    """Recover leased work; retain engine-only compatibility for old callers."""
+    if isinstance(dao, MemoryDAO):
+        recovery_dao = dao
+        owns_secondary_stores = True
+    else:
+        recovery_dao = MemoryDAO(dao, cast(VectorEngine, None))
+        owns_secondary_stores = False
+    result = {
+        "raw_log_claims": await recovery_dao.recover_expired_raw_log_claims(),
+        "wal_claims": await recovery_dao.recover_expired_lancedb_wal_claims(),
+        "session_finalizations": await recovery_dao.recover_expired_session_finalizations(),
     }
+    if owns_secondary_stores:
+        purges = await recovery_dao.resume_incomplete_purges()
+        result["purges"] = sum(outcome == "FINALIZED" for outcome in purges.values())
+    return result
 
 
 async def _consume_dispatches_once(
@@ -157,6 +171,7 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
 
     engine: AsyncEngine | None = None
     vector_engine: VectorEngine | None = None
+    graph_provider: KuzuGraphProvider | None = None
     supervisor: WorkerSupervisor | None = None
     running = False
     try:
@@ -167,15 +182,29 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
             storage_root=runtime.storage_root,
             trusted_root=runtime.storage_root,
         )
+        embedding_provider = None
+        if runtime.external_provider_enabled:
+            embedding_provider = AdapterFactory.get_adapter().aembed
         vector_engine = VectorEngine(
             str(projection_paths.vector_path),
+            max_workers=config.vector_worker_limit,
             allow_model_loading=runtime.model_enabled,
+            embedding_provider=embedding_provider,
+            local_embedding_model=config.local_embedding_model,
         )
         await vector_engine.initialize()
-        dao = MemoryDAO(engine, vector_engine)
+        from mesa_storage import kuzu_setup
+
+        # The worker is the split runtime's storage owner.  It must promote a
+        # journaled live graph, rather than creating an unjournaled staging
+        # artifact that the read-only API correctly rejects at startup.
+        kuzu_setup.initialize_schema(str(projection_paths.graph_path))
+        graph_provider = KuzuGraphProvider(str(projection_paths.graph_path))
+        await graph_provider.initialize()
+        dao = MemoryDAO(engine, vector_engine, graph_provider=graph_provider)
         await dao.initialize()
         supervisor = WorkerSupervisor(max_restarts=3)
-        initial_recovery = await _recover_once(engine)
+        initial_recovery = await _recover_once(dao)
 
         async def recovery_loop() -> None:
             while not stopped.is_set():
@@ -200,7 +229,7 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
                         stopped.wait(), timeout=_DISPATCH_POLL_SECONDS
                     )
                 except TimeoutError:
-                    recovered = await _recover_once(engine)
+                    recovered = await _recover_once(dao)
                     _write_readiness(
                         runtime.storage_root,
                         {
@@ -243,6 +272,11 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
                 await vector_engine.close()
             except Exception as exc:
                 logger.warning("VECTOR_ENGINE_CLOSE_FAILED", error=type(exc).__name__)
+        if graph_provider is not None:
+            try:
+                await graph_provider.close()
+            except Exception as exc:
+                logger.warning("GRAPH_ENGINE_CLOSE_FAILED", error=type(exc).__name__)
         if engine is not None:
             try:
                 await engine.close()
@@ -261,6 +295,9 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
 
 
 async def run_worker_only() -> None:
+    bootstrap = load_runtime_profile()
+    load_explicit_dotenv(bootstrap)
+    refresh_config_from_environment()
     runtime = load_runtime_profile()
     if (
         runtime.profile is not RuntimeProfile.WORKER_ONLY
@@ -272,7 +309,6 @@ async def run_worker_only() -> None:
         raise RuntimeProfileError(
             "model-disabled worker runtime refuses model or external provider activation"
         )
-    load_explicit_dotenv(runtime)
     runtime.storage_root.mkdir(parents=True, exist_ok=True)
     try:
         writer_lock = StorageWriterLock.acquire(

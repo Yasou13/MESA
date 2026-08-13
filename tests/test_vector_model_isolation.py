@@ -43,5 +43,5 @@ def test_explicit_model_loading_is_local_files_only(monkeypatch) -> None:
         "/storage/mesa-lab/storage/MASTER-CLOSURE/model-isolation/explicit",
         allow_model_loading=True,
     )
-    assert calls == [("all-MiniLM-L6-v2", True)]
+    assert calls == [("sentence-transformers/all-MiniLM-L6-v2", True)]
     assert engine._fallback_embedder is False

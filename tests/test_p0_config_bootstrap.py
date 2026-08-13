@@ -1,4 +1,8 @@
-from mesa_memory.config import load_runtime_profile
+from mesa_memory.config import (
+    load_explicit_dotenv,
+    load_runtime_profile,
+    refresh_config_from_environment,
+)
 
 
 def test_config_storage_root_aliases(tmp_path):
@@ -25,3 +29,43 @@ def test_config_storage_root_aliases(tmp_path):
     env4 = {"MESA_RUNTIME_PROFILE": "combined", "MESA_DB_PATH": str(db_file)}
     cfg4 = load_runtime_profile(env4)
     assert cfg4.storage_root == target_dir
+
+
+def test_explicit_dotenv_is_loaded_before_the_active_profile_is_reparsed(tmp_path):
+    dotenv = tmp_path / "runtime.env"
+    storage = tmp_path / "from-dotenv"
+    dotenv.write_text(
+        f"MESA_STORAGE_ROOT={storage}\nMESA_MODEL_ENABLED=true\n",
+        encoding="utf-8",
+    )
+    bootstrap = load_runtime_profile(
+        {
+            "MESA_RUNTIME_PROFILE": "combined",
+            "MESA_STORAGE_ROOT": str(tmp_path / "bootstrap"),
+            "MESA_LOAD_DOTENV": "true",
+            "MESA_DOTENV_PATH": str(dotenv),
+        }
+    )
+    # ``load_explicit_dotenv`` intentionally writes only missing values; use
+    # a fresh process env contract here through the runtime helper itself.
+    import os
+
+    old = dict(os.environ)
+    try:
+        os.environ.clear()
+        os.environ.update(
+            {
+                "MESA_RUNTIME_PROFILE": "combined",
+                "MESA_STORAGE_ROOT": str(tmp_path / "bootstrap"),
+                "MESA_LOAD_DOTENV": "true",
+                "MESA_DOTENV_PATH": str(dotenv),
+            }
+        )
+        load_explicit_dotenv(bootstrap)
+        refresh_config_from_environment()
+        active = load_runtime_profile()
+        assert active.storage_root == storage
+        assert active.model_enabled is True
+    finally:
+        os.environ.clear()
+        os.environ.update(old)

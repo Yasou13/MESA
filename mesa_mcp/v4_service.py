@@ -97,6 +97,56 @@ class MesaHttpV4Service:
         if self._session_cache.get(cache_key) == session_id:
             self._session_cache.pop(cache_key, None)
 
+    @staticmethod
+    def _physical_identity_seed(
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        actor_id: str,
+        operation_type: str,
+        idempotency_key: str,
+    ) -> str:
+        scope = "\x1f".join(
+            (
+                tenant_id,
+                workspace_id,
+                dataset_id,
+                actor_id,
+                operation_type,
+                idempotency_key,
+            )
+        )
+        return hashlib.sha256(scope.encode("utf-8")).hexdigest()[:24]
+
+    @staticmethod
+    def _is_inactive_session_conflict(exc: MesaAPIError) -> bool:
+        return exc.status_code == 409 and exc.error == "SESSION_INACTIVE"
+
+    async def _verify_existing_document(
+        self,
+        client: AsyncMesaV4Client,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+    ) -> bool:
+        response = await client.list_documents(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_id=dataset_id,
+        )
+        return any(
+            isinstance(item, dict)
+            and item.get("document_id") == document_id
+            and item.get("tenant_id") == tenant_id
+            and item.get("dataset_id") == dataset_id
+            and item.get("title") == title
+            for item in response.get("documents", [])
+        )
+
     async def v4_remember(self, **kwargs: Any) -> dict[str, Any]:
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
         tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
@@ -108,7 +158,14 @@ class MesaHttpV4Service:
             # same physical identities.  Derive all three from the durable
             # idempotency key instead of reusing `rev_1` / `chunk_1` across
             # unrelated documents.
-            seed = hashlib.sha256(idempotency_key.encode()).hexdigest()[:24]
+            seed = self._physical_identity_seed(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                actor_id=actor_id,
+                operation_type="REMEMBER",
+                idempotency_key=idempotency_key,
+            )
             document_id = kwargs.get("document_id") or f"doc_{seed}"
             revision_id = f"rev_{seed}"
             chunk_id = f"chunk_{seed}"
@@ -128,23 +185,31 @@ class MesaHttpV4Service:
             actor_id=actor_id,
         )
 
+        title = kwargs.get("title", f"Memory {document_id}")
         try:
             await client.create_document(
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
                 dataset_id=dataset_id,
                 document_id=document_id,
-                title=kwargs.get("title", f"Memory {document_id}"),
+                title=title,
             )
         except MesaAPIError as exc:
-            if exc.status_code != 409:
+            if exc.status_code != 409 or not await self._verify_existing_document(
+                client,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
+                title=title,
+            ):
                 raise _map_exception(exc) from exc
         insert_arguments = {
             "dataset_id": dataset_id,
             "document_id": document_id,
             "revision_id": revision_id,
             "chunk_id": chunk_id,
-            "title": kwargs.get("title", f"Memory {document_id}"),
+            "title": title,
             "source_ref": kwargs.get("source_ref", "mcp_tool"),
             "evidence_span": kwargs.get("evidence_span", ""),
             "content": content,
@@ -154,7 +219,7 @@ class MesaHttpV4Service:
         try:
             return await client.insert(session_id=session_id, **insert_arguments)
         except MesaAPIError as exc:
-            if exc.status_code not in {401, 404}:
+            if not self._is_inactive_session_conflict(exc):
                 raise _map_exception(exc) from exc
             self._invalidate_session(
                 tenant_id=tenant_id,
@@ -201,12 +266,12 @@ class MesaHttpV4Service:
         search_arguments = {
             "query": kwargs["query"],
             "dataset_ids": [dataset_id],
-            "limit": kwargs.get("limit", self._settings.search_default_limit),
+            "limit": kwargs.get("limit") or self._settings.search_default_limit,
         }
         try:
             resp = await client.search(session_id=session_id, **search_arguments)
         except MesaAPIError as exc:
-            if exc.status_code not in {401, 404}:
+            if not self._is_inactive_session_conflict(exc):
                 raise _map_exception(exc) from exc
             self._invalidate_session(
                 tenant_id=tenant_id,
@@ -252,11 +317,9 @@ class MesaHttpV4Service:
             "valid_at": kwargs.get("valid_at"),
         }
         try:
-            return await client.get_context(
-                session_id=session_id, **context_arguments
-            )
+            return await client.get_context(session_id=session_id, **context_arguments)
         except MesaAPIError as exc:
-            if exc.status_code not in {401, 404}:
+            if not self._is_inactive_session_conflict(exc):
                 raise _map_exception(exc) from exc
             self._invalidate_session(
                 tenant_id=tenant_id,
@@ -291,7 +354,14 @@ class MesaHttpV4Service:
         content = kwargs["content"]
         idempotency_key = kwargs.get("idempotency_key")
         identity_seed = (
-            hashlib.sha256(str(idempotency_key).encode()).hexdigest()[:24]
+            self._physical_identity_seed(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                actor_id=actor_id,
+                operation_type="IMPROVE",
+                idempotency_key=str(idempotency_key),
+            )
             if idempotency_key
             else uuid.uuid4().hex
         )
@@ -326,10 +396,13 @@ class MesaHttpV4Service:
             if latest is not None:
                 supersedes_revision_id = latest.get("revision_id")
         if revision_number is None:
-            revision_number = max(
-                (int(item.get("revision_number", 0)) for item in revisions),
-                default=0,
-            ) + 1
+            revision_number = (
+                max(
+                    (int(item.get("revision_number", 0)) for item in revisions),
+                    default=0,
+                )
+                + 1
+            )
             if not revisions and supersedes_revision_id:
                 revision_number = 2
         revision_number = int(revision_number)
@@ -429,6 +502,8 @@ def _map_exception(exc: Exception) -> MCPError:
             )
         if exc.status_code == 404:
             return MCPError("NOT_FOUND", "memory was not found")
+        if exc.status_code == 409:
+            return MCPError(exc.error or "CONFLICT", exc.detail)
         if exc.status_code in {408, 429, 503, 504}:
             return MCPError(
                 "BACKEND_UNAVAILABLE",

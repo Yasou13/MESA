@@ -134,7 +134,7 @@ jobs:
             --volume mesa-gate-data:/var/lib/mesa \
             --env MESA_API_KEY=ci-non-secret-placeholder \
             --env MESA_PRINCIPAL_ID=ci-principal \
-            --env MESA_RUNTIME_PROFILE=api-only \
+            --env MESA_RUNTIME_PROFILE=combined \
             --env MESA_STORAGE_ROOT=/var/lib/mesa/data \
             mesa-memory:gate
           trap 'docker logs mesa-gate > docker-runtime.log 2>&1 || true; docker rm -f mesa-gate || true; docker volume rm mesa-gate-data || true' EXIT

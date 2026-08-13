@@ -11,10 +11,20 @@ from mesa_memory.observability.logger import setup_logging
 
 setup_logging(role="launcher")
 
-from mesa_memory.config import RuntimeProfile, load_runtime_profile
+from mesa_memory.config import (
+    RuntimeProfile,
+    load_explicit_dotenv,
+    load_runtime_profile,
+    refresh_config_from_environment,
+)
 
 
 def command_for_profile() -> list[str]:
+    # Parse only enough to validate the explicit dotenv path, then load and
+    # reparse so profile/storage/model decisions use the declared values.
+    bootstrap = load_runtime_profile()
+    load_explicit_dotenv(bootstrap)
+    refresh_config_from_environment()
     runtime = load_runtime_profile()
     if runtime.profile is RuntimeProfile.WORKER_ONLY:
         return [sys.executable, "-m", "mesa_memory.worker_runtime"]
