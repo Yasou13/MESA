@@ -2357,8 +2357,14 @@ class MemoryDAO:
             # its head is therefore idempotent across all of them.
             if successor is not None and successor[0] == "ACTIVE":
                 return
-        if row is None or not row[4]:
-            if row is not None and row[1]:
+        # Legacy candidates carry deterministic revision identifiers without
+        # necessarily owning a catalog revision.  They must still be able to
+        # complete their physical projections; head activation only applies
+        # when the mutation is attached to a persisted document revision.
+        if row is None or not row[3]:
+            return
+        if not row[4]:
+            if row[1]:
                 cursor = await db.execute(
                     "UPDATE document_revisions SET status = 'ACTIVE' "
                     "WHERE revision_id = ? AND status = 'PENDING' AND NOT EXISTS ("
@@ -6627,7 +6633,10 @@ class MemoryDAO:
             else {}
         )
         _validate_write_payload(content_str, meta_dict)
-        serialized, payload_bytes = _canonical_payload_bytes(payload)
+        durable_payload = dict(payload)
+        durable_payload.setdefault("tenant_id", durable_tenant_id)
+        durable_payload.setdefault("agent_id", agent_id)
+        serialized, payload_bytes = _canonical_payload_bytes(durable_payload)
         metadata = payload.get("metadata", {})
         idempotency_key = (
             metadata.get("idempotency_key") if isinstance(metadata, dict) else None

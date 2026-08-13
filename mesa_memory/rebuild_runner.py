@@ -62,7 +62,7 @@ class RebuildProviderRuntime:
     manifest: dict[str, Any]
     embedding_provider: EmbeddingProvider | None
     allow_model_loading: bool
-    local_embedding_model: str
+    local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def _environment_bool(name: str, *, default: bool = False) -> bool:
