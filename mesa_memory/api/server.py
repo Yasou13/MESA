@@ -872,12 +872,19 @@ async def health_init():
         and not worker_is_ready(runtime.storage_root)
     ):
         raise HTTPException(status_code=503, detail="External worker is not ready")
+    graph_status = health.get("graph", {}).get("status")
+    graph_is_worker_owned = (
+        runtime is not None
+        and getattr(runtime, "profile", None) is RuntimeProfile.API_ONLY
+    )
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
+        and (
+            graph_status in ("healthy", "not_initialized") or graph_is_worker_owned
+        )
     ):
-        if health.get("graph", {}).get("status") in ("healthy", "not_initialized"):
-            return {"status": "ready"}  # type: ignore[no-untyped-def]
+        return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")
 
 

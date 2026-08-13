@@ -157,3 +157,44 @@ async def test_api_only_readiness_requires_configured_external_worker(
 
     monkeypatch.setattr(server, "worker_is_ready", lambda storage_root: True)
     assert (await server.health_init())["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_api_only_readiness_accepts_worker_owned_graph_store(
+    monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+
+    from mesa_memory.api import server
+    from mesa_memory.config import RuntimeProfile
+
+    async def storage_health():
+        return {
+            "sqlite": {"status": "healthy"},
+            "vector": {"status": "healthy"},
+        }
+
+    monkeypatch.setattr(server.state, "is_ready", True, raising=False)
+    monkeypatch.setattr(
+        server.state, "dao", SimpleNamespace(health_check=storage_health), raising=False
+    )
+    monkeypatch.setattr(
+        server.state,
+        "runtime_profile",
+        SimpleNamespace(
+            profile=RuntimeProfile.API_ONLY,
+            worker_enabled=False,
+            require_worker_readiness=True,
+            storage_root=tmp_path,
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        server.state,
+        "worker_supervisor",
+        SimpleNamespace(readiness=lambda: {"status": "blocked"}),
+        raising=False,
+    )
+    monkeypatch.setattr(server, "worker_is_ready", lambda storage_root: True)
+
+    assert (await server.health_init())["status"] == "ready"
