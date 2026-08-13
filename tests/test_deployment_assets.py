@@ -100,6 +100,22 @@ def test_compose_has_isolated_api_and_worker_roles_without_host_bind_or_dotenv(
     }
 
 
+def test_single_container_image_canary_uses_the_self_contained_runtime() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "external-release-gates.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    docker_image = workflow["jobs"]["docker-image"]
+    smoke_step = next(
+        step
+        for step in docker_image["steps"]
+        if step.get("name") == "Build, inspect, and smoke the non-root image"
+    )
+    assert "--env MESA_RUNTIME_PROFILE=combined" in smoke_step["run"]
+    assert "--env MESA_RUNTIME_PROFILE=api-only" not in smoke_step["run"]
+
+
 def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
     compose = yaml.safe_load(
         (ROOT / "docker-compose.v4.yml").read_text(encoding="utf-8")
