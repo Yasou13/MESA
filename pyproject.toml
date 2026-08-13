@@ -28,7 +28,8 @@ dependencies = [
     "cryptography>=42.0.0",
     # Web / API
     "uvicorn>=0.29.0",
-    "fastapi>=0.111.0",
+    "fastapi>=0.111.0,<0.112.0",
+    "starlette>=0.37.2,<0.38.0",
     "slowapi>=0.1.9",
     "prometheus_client>=0.20.0",
     # LLM Provider SDKs (Core)
