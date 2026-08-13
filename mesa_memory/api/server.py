@@ -338,32 +338,46 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     )
     await state.vector_engine.initialize()
 
-    # Initialize KùzuDB embedded graph database (disk-backed)
-    # NOTE: Only the Database handle is created here. kuzu.Connection
-    # instances must be created per-thread to avoid file-lock contention.
-    if _KUZU_PATH is not None:
-        _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # type: ignore[union-attr]
-    logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
-    from mesa_storage import kuzu_setup
+    # Kùzu permits only one live read-write Database handle for a graph path.
+    # The worker owns that handle in api-only/worker-only deployments, so the
+    # API must neither open the graph nor create a second physical writer.
+    # Combined runtimes retain their self-contained graph lifecycle.
+    graph_provider = None
+    if runtime.profile is not RuntimeProfile.API_ONLY:
+        # Initialize KùzuDB embedded graph database (disk-backed).
+        # NOTE: Only the Database handle is created here. kuzu.Connection
+        # instances must be created per-thread to avoid file-lock contention.
+        if _KUZU_PATH is not None:
+            _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # type: ignore[union-attr]
+        logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
+        from mesa_storage import kuzu_setup
 
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
-    logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, kuzu_setup.initialize_schema, str(_KUZU_PATH)
+        )
+        logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
 
-    state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
-    logger.info("KùzuDB initialised at %s", _KUZU_PATH)
-    logger.info("KUZU_DATABASE_OPENED")
+        state.kuzu_db = await loop.run_in_executor(
+            None, kuzu.Database, str(_KUZU_PATH)
+        )
+        logger.info("KùzuDB initialised at %s", _KUZU_PATH)
+        logger.info("KUZU_DATABASE_OPENED")
 
-    # Initialize the async-safe KuzuGraphProvider for edge operations
-    state.graph_provider = KuzuGraphProvider(db_path=str(_KUZU_PATH))
-    await state.graph_provider.initialize()
+        # Initialize the async-safe KuzuGraphProvider for edge operations.
+        graph_provider = KuzuGraphProvider(db_path=str(_KUZU_PATH))
+        await graph_provider.initialize()
+    else:
+        logger.info("API_ONLY_GRAPH_STORE_OWNED_BY_WORKER")
+
+    state.graph_provider = graph_provider  # type: ignore[assignment]
 
     # Wire the unified Data Access Object
     state.dao = MemoryDAO(
         sqlite_engine=state.sqlite_engine,
         vector_engine=state.vector_engine,
-        graph_provider=state.graph_provider,
+        graph_provider=graph_provider,
         canonical_v4_writes_enabled=(
             runtime.profile is RuntimeProfile.COMBINED and runtime.model_enabled
         ),
