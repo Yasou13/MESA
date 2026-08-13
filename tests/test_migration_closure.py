@@ -17,8 +17,8 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "fd4e5f6a7b8c"
-PREVIOUS_HEAD = "fb2c3d4e5f6a"
+HEAD = "fe5f6a7b8c9d"
+PREVIOUS_HEAD = "fd4e5f6a7b8c"
 
 # Explicitly anchor the pre-remediation (v0.2.x) state to prevent
 # regressions in legacy cluster schema adoption.
@@ -151,7 +151,7 @@ def test_previous_head_upgrades_with_legacy_projection_generation(
     database = tmp_path / "previous-head.db"
     config = _config(database)
     command.upgrade(config, PREVIOUS_HEAD)
-    assert "system_operations" not in _tables(database)
+    assert "system_operations" in _tables(database)
 
     command.upgrade(config, "head")
 
