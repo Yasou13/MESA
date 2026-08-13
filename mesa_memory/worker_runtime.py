@@ -195,7 +195,10 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
         await vector_engine.initialize()
         from mesa_storage import kuzu_setup
 
-        kuzu_setup.initialize_schema_artifact(str(projection_paths.graph_path))
+        # The worker is the split runtime's storage owner.  It must promote a
+        # journaled live graph, rather than creating an unjournaled staging
+        # artifact that the read-only API correctly rejects at startup.
+        kuzu_setup.initialize_schema(str(projection_paths.graph_path))
         graph_provider = KuzuGraphProvider(str(projection_paths.graph_path))
         await graph_provider.initialize()
         dao = MemoryDAO(engine, vector_engine, graph_provider=graph_provider)
