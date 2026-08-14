@@ -268,10 +268,14 @@ class MesaHttpV4Service:
             "query": kwargs["query"],
             "dataset_ids": [dataset_id],
             "limit": kwargs.get("limit") or self._settings.search_default_limit,
-            "valid_at": kwargs.get("valid_at"),
-            "valid_from": kwargs.get("valid_from"),
-            "valid_to": kwargs.get("valid_to"),
         }
+        search_arguments.update(
+            {
+                key: kwargs[key]
+                for key in ("valid_at", "valid_from", "valid_to")
+                if kwargs.get(key) is not None
+            }
+        )
         try:
             resp = await client.search(session_id=session_id, **search_arguments)
         except MesaAPIError as exc:
@@ -318,10 +322,14 @@ class MesaHttpV4Service:
             "token_budget": kwargs.get(
                 "token_budget", self._settings.context_default_token_budget
             ),
-            "valid_at": kwargs.get("valid_at"),
-            "valid_from": kwargs.get("valid_from"),
-            "valid_to": kwargs.get("valid_to"),
         }
+        context_arguments.update(
+            {
+                key: kwargs[key]
+                for key in ("valid_at", "valid_from", "valid_to")
+                if kwargs.get(key) is not None
+            }
+        )
         try:
             return await client.get_context(session_id=session_id, **context_arguments)
         except MesaAPIError as exc:

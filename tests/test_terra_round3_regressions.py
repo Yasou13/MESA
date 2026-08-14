@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from mesa_memory.consolidation.router import _BoundedRoutingStates
-from mesa_storage.dao import MemoryDAO, _physical_catalog_id
+from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -22,15 +22,14 @@ async def test_revision_waits_for_each_manifest_chunk_not_duplicate_children(tmp
     await dao.create_v4_revision(tenant_id=tenant, dataset_id=dataset, document_id=document, revision_id=revision, revision_number=1, content_hash="a" * 64)
     for ordinal in range(2):
         await dao.create_v4_source_chunk(tenant_id=tenant, dataset_id=dataset, document_id=document, revision_id=revision, chunk_id=f"chunk-{ordinal}", title="Document", content_payload=f"payload {ordinal}", source_ref="test", chunk_ordinal=ordinal)
-    ids = {kind: _physical_catalog_id(tenant_id=tenant, kind=kind, external_id=value) for kind, value in {"dataset": dataset, "document": document, "revision": revision, "chunk": "chunk-0"}.items()}
     async with engine.transaction() as db:
-        await db.execute("INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, workspace_id, dataset_id, session_id, agent_id, state) VALUES ('pipeline', ?, ?, ?, 'session', 'agent', 'RUNNING')", (tenant, _physical_catalog_id(tenant_id=tenant, kind="workspace", external_id=workspace), ids["dataset"]))
-        for mutation_id in ("a", "b"):
-            await db.execute("INSERT INTO memory_mutations (mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, document_id, revision_id, chunk_id, source_ref, evidence_span, agent_id, session_id, content_payload, metadata_json, source, pipeline_run_id, extraction_version, embedding_provider, embedding_model, embedding_version, embedding_dimension, state) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 'test', '', 'agent', 'session', 'payload', '{}', 'api', 'pipeline', 'v4', 'local', 'model', 'v1', 384, 'RECEIVED')", (mutation_id, f"candidate-{mutation_id}", tenant, _physical_catalog_id(tenant_id=tenant, kind="workspace", external_id=workspace), ids["dataset"], ids["document"], ids["revision"], ids["chunk"]))
+        await db.execute("INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, workspace_id, dataset_id, session_id, agent_id, state) VALUES ('pipeline', ?, ?, ?, 'session', 'agent', 'RUNNING')", (tenant, workspace, dataset))
+        for raw_log_id, mutation_id in enumerate(("a", "b"), start=1):
+            await db.execute("INSERT INTO memory_mutations (mutation_id, candidate_id, raw_log_id, tenant_id, workspace_id, dataset_id, document_id, revision_id, chunk_id, source_ref, evidence_span, agent_id, session_id, content_payload, metadata_json, source, pipeline_run_id, extraction_version, embedding_provider, embedding_model, embedding_version, embedding_dimension, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'test', '', 'agent', 'session', 'payload', '{}', 'api', 'pipeline', 'v4', 'local', 'model', 'v1', 384, 'RECEIVED')", (mutation_id, f"candidate-{mutation_id}", raw_log_id, tenant, workspace, dataset, document, revision, "chunk-0"))
             assert await dao._transition_memory_mutation_in_tx(db, mutation_id, to_state="COMMITTED")
         await db.commit()
     async with engine.connection() as db:
-        row = await (await db.execute("SELECT status FROM document_revisions WHERE revision_id = ?", (ids["revision"],))).fetchone()
+        row = await (await db.execute("SELECT status FROM document_revisions WHERE revision_id = ?", (revision,))).fetchone()
     assert row[0] == "PENDING"
     await engine.close()
 
