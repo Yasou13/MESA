@@ -17,7 +17,7 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "fe5f6a7b8c9d"
+HEAD = "0a7b8c9d0e1f"
 PREVIOUS_HEAD = "fd4e5f6a7b8c"
 
 # Explicitly anchor the pre-remediation (v0.2.x) state to prevent
@@ -151,7 +151,9 @@ def test_postflight_requires_active_document_head_index(tmp_path: Path) -> None:
     command.upgrade(config, "head")
     connection = sqlite3.connect(database)
     connection.execute("DROP INDEX uq_active_document_revision")
-    with pytest.raises(schema_contract.SchemaContractError, match="ACTIVE document-head"):
+    with pytest.raises(
+        schema_contract.SchemaContractError, match="ACTIVE document-head"
+    ):
         schema_contract.validate_postflight(connection, config, require_head=True)
     connection.close()
 
@@ -163,6 +165,15 @@ def test_previous_head_upgrades_with_legacy_projection_generation(
     config = _config(database)
     command.upgrade(config, PREVIOUS_HEAD)
     assert "system_operations" in _tables(database)
+    connection = sqlite3.connect(database)
+    assert (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'uq_active_document_revision'"
+        ).fetchone()
+        is None
+    )
+    connection.close()
 
     command.upgrade(config, "head")
 
@@ -203,6 +214,64 @@ def test_previous_head_upgrades_with_legacy_projection_generation(
         connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
         == HEAD
     )
+    connection.close()
+
+
+def test_active_head_forward_migration_repairs_previous_release_duplicates(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "duplicate-active-heads.db"
+    config = _config(database)
+    command.upgrade(config, PREVIOUS_HEAD)
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "INSERT INTO tenants (tenant_id, display_name) VALUES ('tenant', 'Tenant')"
+    )
+    connection.execute(
+        "INSERT INTO workspaces (workspace_id, tenant_id, name) "
+        "VALUES ('workspace', 'tenant', 'Workspace')"
+    )
+    connection.execute(
+        "INSERT INTO datasets (dataset_id, tenant_id, workspace_id, name) "
+        "VALUES ('dataset', 'tenant', 'workspace', 'Dataset')"
+    )
+    connection.execute(
+        "INSERT INTO documents (document_id, tenant_id, dataset_id, title) "
+        "VALUES ('document', 'tenant', 'dataset', 'Document')"
+    )
+    connection.execute(
+        "INSERT INTO document_revisions (revision_id, tenant_id, document_id, "
+        "revision_number, content_hash, manifest_hash, status, created_at) VALUES "
+        "('r1', 'tenant', 'document', 1, ?, ?, 'ACTIVE', '2026-01-01'), "
+        "('r2', 'tenant', 'document', 2, ?, ?, 'ACTIVE', '2026-01-02'), "
+        "('r3', 'tenant', 'document', 3, ?, ?, 'PENDING', '2026-01-03')",
+        ("1" * 64, "a" * 64, "2" * 64, "b" * 64, "3" * 64, "c" * 64),
+    )
+    connection.commit()
+    connection.close()
+
+    command.upgrade(config, "head")
+
+    connection = sqlite3.connect(database)
+    assert connection.execute(
+        "SELECT revision_id, status FROM document_revisions " "ORDER BY revision_number"
+    ).fetchall() == [
+        ("r1", "SUPERSEDED"),
+        ("r2", "ACTIVE"),
+        ("r3", "PENDING"),
+    ]
+    frozen = dict(
+        connection.execute(
+            "SELECT revision_id, manifest_frozen_at FROM document_revisions"
+        ).fetchall()
+    )
+    assert frozen["r1"] is not None
+    assert frozen["r2"] is not None
+    assert frozen["r3"] is None
+    assert connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' "
+        "AND name = 'uq_active_document_revision'"
+    ).fetchone() == (1,)
     connection.close()
 
 

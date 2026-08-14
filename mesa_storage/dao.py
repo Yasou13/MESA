@@ -185,6 +185,10 @@ class PurgeAlreadyFinalizedError(RuntimeError):
     """A finalized purge cannot be reported as a duplicate success."""
 
 
+class NonHeadRollbackConflictError(ValueError):
+    """A historical revision cannot be rolled back beneath a newer head."""
+
+
 class QueueAdmissionError(RuntimeError):
     """Base class for stable, non-sensitive queue admission outcomes."""
 
@@ -510,7 +514,22 @@ class MemoryDAO:
         """Create an immutable dataset-owned document identity."""
         if not tenant_id or not dataset_id or not document_id or not title:
             raise ValueError("complete document identity is required")
+        external_dataset_id = dataset_id
+        external_document_id = document_id
         async with self._sql.transaction() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="dataset",
+                external_id=external_dataset_id,
+            )
+            document_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="document",
+                external_id=external_document_id,
+                create=True,
+            )
             async with db.execute(
                 "SELECT tenant_id FROM datasets WHERE dataset_id = ?",
                 (dataset_id,),
@@ -538,16 +557,31 @@ class MemoryDAO:
             if external_ref and row["external_ref"] not in (None, external_ref):
                 raise ValueError("document external_ref is immutable")
             await db.commit()
-        return dict(row)
+        result = dict(row)
+        result["dataset_id"] = external_dataset_id
+        result["document_id"] = external_document_id
+        return result
 
     async def list_v4_documents(
         self, *, tenant_id: str, dataset_id: str
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="dataset",
+                external_id=dataset_id,
+            )
             async with db.execute(
-                "SELECT document_id, tenant_id, dataset_id, external_ref, title, "
-                "status, created_at FROM documents WHERE tenant_id = ? "
-                "AND dataset_id = ? ORDER BY created_at, document_id",
+                "SELECT i.external_id AS document_id, d.tenant_id, "
+                "di.external_id AS dataset_id, d.external_ref, d.title, "
+                "d.status, d.created_at FROM documents d "
+                "JOIN v4_catalog_identities i ON i.tenant_id = d.tenant_id "
+                "AND i.kind = 'document' AND i.physical_id = d.document_id "
+                "JOIN v4_catalog_identities di ON di.tenant_id = d.tenant_id "
+                "AND di.kind = 'dataset' AND di.physical_id = d.dataset_id "
+                "WHERE d.tenant_id = ? AND d.dataset_id = ? "
+                "ORDER BY d.created_at, i.external_id",
                 (tenant_id, dataset_id),
             ) as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
@@ -573,7 +607,31 @@ class MemoryDAO:
             or not re.fullmatch(r"[0-9a-f]{64}", normalized_hash)
         ):
             raise ValueError("complete revision identity and SHA-256 hash are required")
+        external_dataset_id = dataset_id
+        external_document_id = document_id
+        external_revision_id = revision_id
+        external_supersedes_id = supersedes_revision_id
         async with self._sql.transaction() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            document_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="document", external_id=document_id
+            )
+            revision_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="revision",
+                external_id=revision_id,
+                create=True,
+            )
+            if supersedes_revision_id:
+                supersedes_revision_id = await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="revision",
+                    external_id=supersedes_revision_id,
+                )
             async with db.execute(
                 "SELECT tenant_id, dataset_id FROM documents WHERE document_id = ? "
                 "AND status != 'PURGED'",
@@ -637,22 +695,49 @@ class MemoryDAO:
                 raise ValueError("revision identity is immutable and already differs")
             assert row is not None
             await db.commit()
-        return dict(row)
+        result = dict(row)
+        result["document_id"] = external_document_id
+        result["revision_id"] = external_revision_id
+        result["supersedes_revision_id"] = external_supersedes_id
+        result["dataset_id"] = external_dataset_id
+        return result
 
     async def list_v4_revisions(
         self, *, tenant_id: str, dataset_id: str, document_id: str
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            document_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="document", external_id=document_id
+            )
             async with db.execute(
-                "SELECT r.revision_id, r.tenant_id, r.document_id, r.revision_number, "
+                "SELECT ri.external_id AS revision_id, r.tenant_id, "
+                "di.external_id AS document_id, r.revision_number, "
                 "r.content_hash, r.manifest_hash, r.status, r.supersedes_revision_id, r.created_at "
                 "FROM document_revisions r JOIN documents d "
                 "ON d.document_id = r.document_id "
+                "JOIN v4_catalog_identities ri ON ri.tenant_id = r.tenant_id "
+                "AND ri.kind = 'revision' AND ri.physical_id = r.revision_id "
+                "JOIN v4_catalog_identities di ON di.tenant_id = r.tenant_id "
+                "AND di.kind = 'document' AND di.physical_id = r.document_id "
                 "WHERE r.tenant_id = ? AND d.dataset_id = ? AND r.document_id = ? "
                 "ORDER BY r.revision_number, r.revision_id",
                 (tenant_id, dataset_id, document_id),
             ) as cursor:
-                return [dict(row) for row in await cursor.fetchall()]
+                rows = [dict(row) for row in await cursor.fetchall()]
+            for row in rows:
+                if row["supersedes_revision_id"]:
+                    row["supersedes_revision_id"] = (
+                        await self._catalog.external_id_in_tx(
+                            db,
+                            tenant_id=tenant_id,
+                            kind="revision",
+                            physical_id=str(row["supersedes_revision_id"]),
+                        )
+                    )
+            return rows
 
     async def create_v4_source_chunk(
         self,
@@ -669,6 +754,7 @@ class MemoryDAO:
         chunk_ordinal: int = 0,
         external_ref: str | None = None,
         supersedes_revision_id: str | None = None,
+        finalize_revision: bool = True,
     ) -> dict[str, Any]:
         """Create immutable document/revision/chunk provenance."""
         if not all(
@@ -684,9 +770,45 @@ class MemoryDAO:
             )
         ):
             raise ValueError("complete document provenance is required")
+        external_dataset_id = dataset_id
+        external_document_id = document_id
+        external_revision_id = revision_id
+        external_chunk_id = chunk_id
+        external_supersedes_id = supersedes_revision_id
         _validate_write_payload(content_payload, {})
         content_hash = hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
         async with self._sql.transaction() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            document_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="document",
+                external_id=document_id,
+                create=True,
+            )
+            revision_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="revision",
+                external_id=revision_id,
+                create=True,
+            )
+            chunk_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="chunk",
+                external_id=chunk_id,
+                create=True,
+            )
+            if supersedes_revision_id:
+                supersedes_revision_id = await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="revision",
+                    external_id=supersedes_revision_id,
+                )
             async with db.execute(
                 "SELECT tenant_id FROM datasets WHERE dataset_id = ?", (dataset_id,)
             ) as cursor:
@@ -733,11 +855,15 @@ class MemoryDAO:
             if revision is None or tuple(revision) != (tenant_id, document_id):
                 raise ValueError("revision identity collides with another document")
             if existing_revision is not None:
-                if existing_revision["status"] in (
-                    "ACTIVE",
-                    "SUPERSEDED",
-                    "PURGED",
-                    "ROLLED_BACK",
+                if (
+                    existing_revision["status"]
+                    in (
+                        "ACTIVE",
+                        "SUPERSEDED",
+                        "PURGED",
+                        "ROLLED_BACK",
+                    )
+                    or existing_revision["manifest_frozen_at"] is not None
                 ):
                     async with db.execute(
                         "SELECT chunk_id FROM source_chunks WHERE chunk_id = ?",
@@ -746,7 +872,8 @@ class MemoryDAO:
                         c_row = await cur.fetchone()
                     if c_row is None:
                         raise ValueError(
-                            f"cannot append source chunk to finalized revision in state {existing_revision['status']}"
+                            "cannot append source chunk to finalized revision "
+                            f"in state {existing_revision['status']}"
                         )
                 if (
                     existing_revision["revision_number"] != revision_number
@@ -797,15 +924,27 @@ class MemoryDAO:
                 raise ValueError(
                     "source chunk identity is immutable and already differs"
                 )
-            manifest_hash = await self._update_revision_manifest(db, revision_id)
+            manifest_hash = await self._update_revision_manifest(
+                db,
+                revision_id,
+                finalize_revision=finalize_revision,
+            )
             row_data = dict(row)
             row_data["manifest_hash"] = manifest_hash
+            row_data["dataset_id"] = external_dataset_id
+            row_data["document_id"] = external_document_id
+            row_data["revision_id"] = external_revision_id
+            row_data["chunk_id"] = external_chunk_id
+            row_data["supersedes_revision_id"] = external_supersedes_id
             await db.commit()
         return row_data
 
     @staticmethod
     async def _update_revision_manifest(
-        db: aiosqlite.Connection, revision_id: str
+        db: aiosqlite.Connection,
+        revision_id: str,
+        *,
+        finalize_revision: bool = False,
     ) -> str:
         """Persist a stable hash over every source chunk in a revision."""
         async with db.execute(
@@ -818,9 +957,13 @@ class MemoryDAO:
             raise RuntimeError("revision manifest requires at least one source chunk")
         manifest = json.dumps(chunks, sort_keys=True, separators=(",", ":"))
         manifest_hash = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+        freeze_sql = (
+            ", manifest_frozen_at = CURRENT_TIMESTAMP" if finalize_revision else ""
+        )
         cursor = await db.execute(
-            "UPDATE document_revisions SET manifest_hash = ? "
-            "WHERE revision_id = ? AND status = 'PENDING'",
+            f"UPDATE document_revisions SET manifest_hash = ?{freeze_sql} "
+            "WHERE revision_id = ? AND status = 'PENDING' "
+            "AND manifest_frozen_at IS NULL",
             (manifest_hash, revision_id),
         )
         if cursor.rowcount != 1:
@@ -849,9 +992,25 @@ class MemoryDAO:
         _assert_valid_agent_id(agent_id)
         if not tenant_id or not workspace_id or not principal_id or not dataset_ids:
             raise ValueError("complete session scope is required")
-        unique_datasets = sorted(set(dataset_ids))
+        external_workspace_id = workspace_id
+        external_datasets = sorted(set(dataset_ids))
         identifier = session_id or f"sess_{uuid.uuid4().hex}"
         async with self._sql.transaction() as db:
+            workspace_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="workspace",
+                external_id=workspace_id,
+            )
+            unique_datasets = [
+                await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="dataset",
+                    external_id=item,
+                )
+                for item in external_datasets
+            ]
             placeholders = ",".join("?" for _ in unique_datasets)
             async with db.execute(
                 f"SELECT dataset_id FROM datasets WHERE tenant_id = ? "
@@ -876,10 +1035,10 @@ class MemoryDAO:
         return {
             "session_id": identifier,
             "tenant_id": tenant_id,
-            "workspace_id": workspace_id,
+            "workspace_id": external_workspace_id,
             "agent_id": agent_id,
             "principal_id": principal_id,
-            "dataset_ids": unique_datasets,
+            "dataset_ids": external_datasets,
             "status": "ACTIVE",
         }
 
@@ -894,10 +1053,18 @@ class MemoryDAO:
             if row is None:
                 return None
             result = dict(row)
+            result["workspace_id"] = await self._catalog.external_id_in_tx(
+                db,
+                tenant_id=str(row["tenant_id"]),
+                kind="workspace",
+                physical_id=str(row["workspace_id"]),
+            )
             async with db.execute(
-                "SELECT dataset_id FROM v4_session_datasets "
-                "WHERE session_id = ? ORDER BY dataset_id",
-                (session_id,),
+                "SELECT i.external_id FROM v4_session_datasets sd "
+                "JOIN v4_catalog_identities i ON i.tenant_id = ? "
+                "AND i.kind = 'dataset' AND i.physical_id = sd.dataset_id "
+                "WHERE sd.session_id = ? ORDER BY i.external_id",
+                (row["tenant_id"], session_id),
             ) as cursor:
                 result["dataset_ids"] = [item[0] for item in await cursor.fetchall()]
         return result
@@ -906,10 +1073,22 @@ class MemoryDAO:
         self, *, tenant_id: str, workspace_id: str
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
+            workspace_id = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="workspace",
+                external_id=workspace_id,
+            )
             async with db.execute(
-                "SELECT dataset_id, tenant_id, workspace_id, name, status, created_at "
-                "FROM datasets WHERE tenant_id = ? AND workspace_id = ? "
-                "ORDER BY name, dataset_id",
+                "SELECT di.external_id AS dataset_id, d.tenant_id, "
+                "wi.external_id AS workspace_id, d.name, d.status, d.created_at "
+                "FROM datasets d JOIN v4_catalog_identities di "
+                "ON di.tenant_id = d.tenant_id AND di.kind = 'dataset' "
+                "AND di.physical_id = d.dataset_id "
+                "JOIN v4_catalog_identities wi ON wi.tenant_id = d.tenant_id "
+                "AND wi.kind = 'workspace' AND wi.physical_id = d.workspace_id "
+                "WHERE d.tenant_id = ? AND d.workspace_id = ? "
+                "ORDER BY d.name, di.external_id",
                 (tenant_id, workspace_id),
             ) as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
@@ -929,7 +1108,14 @@ class MemoryDAO:
         self, *, tenant_id: str, dataset_id: str, document_id: str
     ) -> dict[str, Any]:
         """Purge one document by rolling back its source-owned pipeline runs and fencing pending mutations."""
+        external_document_id = document_id
         async with self._sql.transaction() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            document_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="document", external_id=document_id
+            )
             async with db.execute(
                 "SELECT tenant_id FROM documents WHERE document_id = ? AND dataset_id = ?",
                 (document_id, dataset_id),
@@ -995,7 +1181,7 @@ class MemoryDAO:
                 "document is purge-fenced but artifact cleanup remains pending"
             ) from rollback_errors[0]
         return {
-            "document_id": document_id,
+            "document_id": external_document_id,
             "pipeline_runs": outcomes,
             "state": "PURGED",
         }
@@ -1453,6 +1639,7 @@ class MemoryDAO:
         policy: QueueAdmissionPolicy,
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
+        finalize_revision: bool = True,
     ) -> dict[str, Any]:
         """Atomically admit one V4 write and all of its durable records.
 
@@ -1508,6 +1695,18 @@ class MemoryDAO:
 
         try:
             async with self._sql.transaction() as db:
+                workspace_id = await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="workspace",
+                    external_id=workspace_id,
+                )
+                dataset_id = await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="dataset",
+                    external_id=dataset_id,
+                )
                 if idempotency_key is not None:
                     insert_cursor = await db.execute(
                         "INSERT OR IGNORE INTO v4_idempotency_receipts "
@@ -1546,6 +1745,34 @@ class MemoryDAO:
                             }
                         return {"outcome": "IN_PROGRESS"}
 
+                document_id = await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="document",
+                    external_id=document_id,
+                    create=True,
+                )
+                revision_id = await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="revision",
+                    external_id=revision_id,
+                    create=True,
+                )
+                chunk_id = await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="chunk",
+                    external_id=chunk_id,
+                    create=True,
+                )
+                if supersedes_revision_id:
+                    supersedes_revision_id = await self._catalog.resolve_id_in_tx(
+                        db,
+                        tenant_id=tenant_id,
+                        kind="revision",
+                        external_id=supersedes_revision_id,
+                    )
                 async with db.execute(
                     "SELECT tenant_id FROM datasets WHERE dataset_id = ?", (dataset_id,)
                 ) as cursor:
@@ -1590,6 +1817,19 @@ class MemoryDAO:
                     raise ValueError(
                         "revision identity is immutable and already differs"
                     )
+                if existing_revision is not None and (
+                    existing_revision["status"] != "PENDING"
+                    or existing_revision["manifest_frozen_at"] is not None
+                ):
+                    async with db.execute(
+                        "SELECT chunk_id FROM source_chunks WHERE chunk_id = ?",
+                        (chunk_id,),
+                    ) as cursor:
+                        existing_chunk = await cursor.fetchone()
+                    if existing_chunk is None:
+                        raise ValueError(
+                            "cannot append source chunk to finalized revision"
+                        )
                 if supersedes_revision_id:
                     async with db.execute(
                         "SELECT document_id FROM document_revisions WHERE revision_id = ?",
@@ -1637,7 +1877,11 @@ class MemoryDAO:
                     raise ValueError(
                         "source chunk identity is immutable and already differs"
                     )
-                await self._update_revision_manifest(db, revision_id)
+                await self._update_revision_manifest(
+                    db,
+                    revision_id,
+                    finalize_revision=finalize_revision,
+                )
 
                 global_usage = await self._queue_usage(db)
                 tenant_usage = await self._queue_usage(db, tenant_id)
@@ -2038,6 +2282,22 @@ class MemoryDAO:
                 mutation["projections"] = [
                     dict(item) for item in await cursor.fetchall()
                 ]
+            tenant_id = str(mutation["tenant_id"])
+            for field, kind in (
+                ("workspace_id", "workspace"),
+                ("dataset_id", "dataset"),
+                ("document_id", "document"),
+                ("revision_id", "revision"),
+                ("chunk_id", "chunk"),
+            ):
+                physical_id = mutation.get(field)
+                if physical_id:
+                    mutation[field] = await self._catalog.external_id_in_tx(
+                        db,
+                        tenant_id=tenant_id,
+                        kind=kind,
+                        physical_id=str(physical_id),
+                    )
         return mutation
 
     async def list_session_mutation_summaries(
@@ -2056,7 +2316,25 @@ class MemoryDAO:
                 "WHERE agent_id = ? AND session_id = ? ORDER BY created_at DESC LIMIT ?",
                 (agent_id, session_id, limit),
             ) as cursor:
-                return [dict(row) for row in await cursor.fetchall()]
+                rows = [dict(row) for row in await cursor.fetchall()]
+            for mutation in rows:
+                tenant_id = str(mutation["tenant_id"])
+                for field, kind in (
+                    ("workspace_id", "workspace"),
+                    ("dataset_id", "dataset"),
+                    ("document_id", "document"),
+                    ("revision_id", "revision"),
+                    ("chunk_id", "chunk"),
+                ):
+                    physical_id = mutation.get(field)
+                    if physical_id:
+                        mutation[field] = await self._catalog.external_id_in_tx(
+                            db,
+                            tenant_id=tenant_id,
+                            kind=kind,
+                            physical_id=str(physical_id),
+                        )
+            return rows
 
     @staticmethod
     async def _transition_pipeline_run_in_tx(
@@ -2209,7 +2487,10 @@ class MemoryDAO:
             target_state = "DLQ"
         elif any(s == "RETRY_PENDING" for s in child_states):
             target_state = "RETRY_PENDING"
-        elif any(s in ("SQL_APPLIED", "VECTOR_APPLIED", "GRAPH_APPLIED") for s in child_states):
+        elif any(
+            s in ("SQL_APPLIED", "VECTOR_APPLIED", "GRAPH_APPLIED")
+            for s in child_states
+        ):
             target_state = "PROJECTING"
         elif any(s == "VALIDATED" for s in child_states):
             target_state = "VALIDATED"
@@ -2218,6 +2499,27 @@ class MemoryDAO:
         else:
             target_state = "RUNNING"
 
+        async with db.execute(
+            "SELECT state FROM pipeline_runs WHERE pipeline_run_id = ?",
+            (pipeline_run_id,),
+        ) as cursor:
+            pipeline = await cursor.fetchone()
+        if pipeline is None:
+            raise ValueError("unknown pipeline run")
+        if pipeline[0] == "QUEUED" and target_state in {
+            "EXTRACTED",
+            "VALIDATED",
+            "PROJECTING",
+            "COMMITTED",
+        }:
+            started = await MemoryDAO._transition_pipeline_run_in_tx(
+                db,
+                pipeline_run_id,
+                to_state="RUNNING",
+                event_type="AGGREGATE_STARTED",
+            )
+            if not started:
+                return False
         return await MemoryDAO._transition_pipeline_run_in_tx(
             db,
             pipeline_run_id,
@@ -2239,11 +2541,6 @@ class MemoryDAO:
         transitions = {
             "RECEIVED": {
                 "EXTRACTED",
-                "VALIDATED",
-                "SQL_APPLIED",
-                "VECTOR_APPLIED",
-                "GRAPH_APPLIED",
-                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2255,10 +2552,6 @@ class MemoryDAO:
             },
             "EXTRACTED": {
                 "VALIDATED",
-                "SQL_APPLIED",
-                "VECTOR_APPLIED",
-                "GRAPH_APPLIED",
-                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2270,9 +2563,6 @@ class MemoryDAO:
             },
             "VALIDATED": {
                 "SQL_APPLIED",
-                "VECTOR_APPLIED",
-                "GRAPH_APPLIED",
-                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2284,9 +2574,6 @@ class MemoryDAO:
             },
             "PENDING": {
                 "SQL_APPLIED",
-                "VECTOR_APPLIED",
-                "GRAPH_APPLIED",
-                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2298,8 +2585,6 @@ class MemoryDAO:
             },
             "SQL_APPLIED": {
                 "VECTOR_APPLIED",
-                "GRAPH_APPLIED",
-                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2311,7 +2596,6 @@ class MemoryDAO:
             },
             "VECTOR_APPLIED": {
                 "GRAPH_APPLIED",
-                "COMMITTED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
                 "BLOCKED",
@@ -2340,12 +2624,6 @@ class MemoryDAO:
             },
             "RETRY_PENDING": {
                 "PENDING",
-                "EXTRACTED",
-                "VALIDATED",
-                "SQL_APPLIED",
-                "VECTOR_APPLIED",
-                "GRAPH_APPLIED",
-                "COMMITTED",
                 "DEAD_LETTER",
                 "BLOCKED",
                 "REJECTED",
@@ -2354,17 +2632,7 @@ class MemoryDAO:
                 "PURGED",
                 "CANCELLED",
             },
-            "DEAD_LETTER": {
-                "RETRY_PENDING",
-                "EXTRACTED",
-                "VALIDATED",
-                "SQL_APPLIED",
-                "VECTOR_APPLIED",
-                "GRAPH_APPLIED",
-                "COMMITTED",
-                "ROLLING_BACK",
-                "PURGED",
-            },
+            "DEAD_LETTER": {"RETRY_PENDING", "ROLLING_BACK", "PURGED"},
             "BLOCKED": {"RETRY_PENDING", "ROLLING_BACK", "PURGED"},
             "ROLLING_BACK": {"ROLLED_BACK", "BLOCKED", "CANCELLED"},
             "PURGING": {"PURGED"},
@@ -2434,7 +2702,8 @@ class MemoryDAO:
         """Make supersession visible only after the replacing mutation commits."""
         async with db.execute(
             "SELECT m.tenant_id, m.revision_id, m.metadata_json, "
-            "r.document_id, r.supersedes_revision_id "
+            "r.document_id, r.supersedes_revision_id, r.manifest_hash, "
+            "r.manifest_frozen_at "
             "FROM memory_mutations m "
             "LEFT JOIN document_revisions r ON r.revision_id = m.revision_id "
             "WHERE m.mutation_id = ?",
@@ -2457,6 +2726,8 @@ class MemoryDAO:
         # when the mutation is attached to a persisted document revision.
         if row is None or not row[3]:
             return
+        if not row[5] or not row[6]:
+            return
         revision_id = row[1]
         if revision_id:
             async with db.execute(
@@ -2469,6 +2740,11 @@ class MemoryDAO:
             # chunk used to let a missing sibling chunk activate the revision.
             # Each frozen source chunk must own at least one committed child.
             async with db.execute(
+                "SELECT COUNT(*) FROM source_chunks WHERE revision_id = ?",
+                (revision_id,),
+            ) as cursor:
+                manifest_size = int((await cursor.fetchone())[0])
+            async with db.execute(
                 "SELECT COUNT(*) FROM source_chunks c WHERE c.revision_id = ? "
                 "AND NOT EXISTS (SELECT 1 FROM memory_mutations m "
                 "WHERE m.revision_id = c.revision_id AND m.chunk_id = c.chunk_id "
@@ -2478,6 +2754,7 @@ class MemoryDAO:
                 missing_work = int((await cursor.fetchone())[0])
             if (
                 not child_states
+                or manifest_size < 1
                 or any(s != "COMMITTED" for s in child_states)
                 or missing_work > 0
             ):
@@ -2619,14 +2896,38 @@ class MemoryDAO:
         event_detail: dict[str, Any] | None = None,
     ) -> bool:
         async with self._sql.transaction() as db:
-            changed = await self._transition_pipeline_run_in_tx(
-                db,
-                pipeline_run_id,
-                to_state=to_state,
-                event_type=event_type,
-                failure_class=failure_class,
-                event_detail=event_detail,
-            )
+            aggregate_states = {
+                "RUNNING",
+                "EXTRACTED",
+                "VALIDATED",
+                "PROJECTING",
+                "COMMITTED",
+                "RETRY_PENDING",
+                "DLQ",
+            }
+            if to_state in aggregate_states:
+                await self._recompute_pipeline_state_in_tx(
+                    db,
+                    pipeline_run_id,
+                    event_type=event_type,
+                    failure_class=failure_class,
+                    event_detail=event_detail,
+                )
+                async with db.execute(
+                    "SELECT state FROM pipeline_runs WHERE pipeline_run_id = ?",
+                    (pipeline_run_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                changed = row is not None and row[0] == to_state
+            else:
+                changed = await self._transition_pipeline_run_in_tx(
+                    db,
+                    pipeline_run_id,
+                    to_state=to_state,
+                    event_type=event_type,
+                    failure_class=failure_class,
+                    event_detail=event_detail,
+                )
             await db.commit()
         return changed
 
@@ -2788,25 +3089,20 @@ class MemoryDAO:
             metadata = json.loads(row[0] or "{}")
             metadata["_mesa_v4_projection_triplets"] = normalized
             cursor = await db.execute(
-                "UPDATE memory_mutations SET metadata_json = ?, state = 'EXTRACTED', updated_at = CURRENT_TIMESTAMP "
+                "UPDATE memory_mutations SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP "
                 "WHERE mutation_id = ? AND agent_id = ? AND state IN ('RECEIVED', 'EXTRACTED')",
                 (json.dumps(metadata, sort_keys=True), mutation_id, agent_id),
             )
-            if cursor.rowcount == 1 and row[1]:
-                await self._transition_pipeline_run_in_tx(
+            changed = (
+                cursor.rowcount == 1
+                and await self._transition_memory_mutation_in_tx(
                     db,
-                    str(row[1]),
-                    to_state="RUNNING",
-                    event_type="EXTRACTION_STARTED",
-                )
-                await self._transition_pipeline_run_in_tx(
-                    db,
-                    str(row[1]),
+                    mutation_id,
                     to_state="EXTRACTED",
-                    event_type="EXTRACTION_DURABLE",
                 )
+            )
             await db.commit()
-        return cursor.rowcount == 1
+        return changed
 
     async def get_projection_mutation(self, mutation_id: str) -> dict[str, Any] | None:
         """Load the canonical payload and durable extraction for one projector."""
@@ -3241,16 +3537,21 @@ class MemoryDAO:
             ) as cursor:
                 pipeline_revisions = await cursor.fetchall()
             for doc_id, rev_id, rev_status in pipeline_revisions:
-                if doc_id and rev_id:
+                if doc_id and rev_id and rev_status in {"ACTIVE", "SUPERSEDED"}:
                     async with db.execute(
                         "SELECT revision_id FROM document_revisions "
                         "WHERE document_id = ? AND status = 'ACTIVE'",
                         (doc_id,),
                     ) as cursor:
                         active_head = await cursor.fetchone()
-                    if active_head and active_head[0] != rev_id:
-                        raise ValueError(
-                            f"409 NON_HEAD_ROLLBACK_CONFLICT: revision {rev_id} is not current active head {active_head[0]} for document {doc_id}"
+                    if rev_status == "SUPERSEDED" or (
+                        active_head and active_head[0] != rev_id
+                    ):
+                        current_head = active_head[0] if active_head else "missing"
+                        raise NonHeadRollbackConflictError(
+                            "409 NON_HEAD_ROLLBACK_CONFLICT: revision "
+                            f"{rev_id} is not current active head {current_head} "
+                            f"for document {doc_id}"
                         )
             async with db.execute(
                 "SELECT COUNT(*) FROM projection_outbox WHERE state = 'IN_FLIGHT' "
@@ -4341,9 +4642,19 @@ class MemoryDAO:
             or not 1 <= limit <= 50
         ):
             raise ValueError("invalid v4 search scope")
-        datasets = sorted(set(dataset_ids))
-        placeholders = ",".join("?" for _ in datasets)
         async with self._sql.connection() as db:
+            datasets = sorted(
+                {
+                    await self._catalog.resolve_id_in_tx(
+                        db,
+                        tenant_id=tenant_id,
+                        kind="dataset",
+                        external_id=dataset_id,
+                    )
+                    for dataset_id in dataset_ids
+                }
+            )
+            placeholders = ",".join("?" for _ in datasets)
             async with db.execute(
                 "SELECT DISTINCT r.physical_artifact_id FROM artifact_registry r "
                 "JOIN artifact_sources s ON s.registry_id = r.registry_id "
@@ -6751,9 +7062,7 @@ class MemoryDAO:
         )
         raw_metadata = payload.get("metadata")
         meta_dict = (
-            cast(dict[str, Any], raw_metadata)
-            if isinstance(raw_metadata, dict)
-            else {}
+            cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
         )
         _validate_write_payload(content_str, meta_dict)
         durable_payload = dict(payload)

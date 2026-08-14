@@ -412,7 +412,21 @@ def validate_postflight(
         raise SchemaContractError("MESA schema postflight: integrity_check failed.")
     if _rows(connection, "PRAGMA foreign_key_check"):
         raise SchemaContractError("MESA schema postflight: foreign key check failed.")
-    if "document_revisions" in snapshot.tables:
+    if "document_revisions" in snapshot.tables and require_head:
+        _require_members(
+            snapshot.tables,
+            {"v4_catalog_identities"},
+            label="tenant-scoped catalog identity tables",
+        )
+        revision_columns = {
+            str(row[1])
+            for row in _rows(connection, "PRAGMA table_info(document_revisions)")
+        }
+        _require_members(
+            revision_columns,
+            {"manifest_hash", "manifest_frozen_at"},
+            label="revision manifest columns",
+        )
         _require_members(
             snapshot.indexes,
             {"uq_active_document_revision"},
@@ -424,5 +438,7 @@ def validate_postflight(
             "GROUP BY document_id HAVING count(*) > 1",
         )
         if dup_active:
-            raise SchemaContractError("MESA schema postflight: duplicate ACTIVE document heads detected.")
+            raise SchemaContractError(
+                "MESA schema postflight: duplicate ACTIVE document heads detected."
+            )
     _rows(connection, "SELECT count(*) FROM nodes_fts")
