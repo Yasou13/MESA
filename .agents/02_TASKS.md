@@ -51,9 +51,9 @@ revision becomes ACTIVE exactly once and remains the single document head.
 Inspect actual expected-child manifest/work-set semantics.
 
 Status: VERIFIED
-Evidence: Terra traced activation to the source-chunk manifest and closed the duplicate-child/missing-chunk bypass.
-Tests: tests/test_terra_round3_regressions.py; tests/test_d001_d002_aggregate_state.py
-Commit: 0d59cdc
+Evidence: Sol added an explicit fail-closed manifest freeze barrier, rejected vacuous/partial work sets, and restored strict child lifecycle transitions.
+Tests: tests/test_d001_d002_aggregate_state.py; tests/test_terra_round3_regressions.py; tests/test_p0_canonical_correction.py
+Commit: 9b9203d
 
 ---
 
@@ -82,7 +82,7 @@ Test mixed states and later failure/retry behavior.
 Status: VERIFIED
 Evidence: Parent state is recomputed from all child mutation states on each CAS transition.
 Tests: tests/test_d001_d002_aggregate_state.py
-Commit: 2c5cff6
+Commit: 9b9203d
 
 ---
 
@@ -109,9 +109,9 @@ R3 remains ACTIVE.
 No R1 reactivation.
 
 Status: VERIFIED
-Evidence: request_pipeline_rollback rejects revisions that are not the document ACTIVE head before compensation.
-Tests: tests/test_d003_d004_rollback_hash.py
-Commit: 2c5cff6
+Evidence: request_pipeline_rollback permits safe PENDING rollback but rejects historical non-head rollback through a typed API 409 conflict.
+Tests: tests/test_d003_d004_rollback_hash.py; tests/test_v4_api_contract.py
+Commit: 9b9203d
 
 ---
 
@@ -132,9 +132,9 @@ Required:
 - idempotent create retry remains valid after manifest construction.
 
 Status: VERIFIED
-Evidence: content_hash is no longer overwritten by manifest construction; finalized manifests reject drift.
+Evidence: content_hash remains caller identity while manifest_hash freezes independently; finalized manifests reject drift.
 Tests: tests/test_d003_d004_rollback_hash.py
-Commit: 2c5cff6
+Commit: 9b9203d
 
 ---
 
@@ -181,9 +181,9 @@ Required:
 Fresh and upgraded schemas must converge.
 
 Status: VERIFIED
-Evidence: forward migration fe5f6a7b8c9d creates the partial head index; Terra made postflight require it and updated the rebuild head.
-Tests: tests/test_migration_closure.py -k 'previous_head_upgrades or fresh_upgrade or postflight_requires'
-Commit: 0d59cdc
+Evidence: Historical 9a1 migration semantics are restored; forward migrations repair duplicate heads, create the invariant, freeze only provably terminal manifests, and add tenant-scoped physical identity.
+Tests: tests/test_migration_closure.py
+Commit: 9b9203d
 
 ---
 
@@ -202,9 +202,9 @@ Required:
 - no misleading 1536 MiniLM default.
 
 Status: VERIFIED
-Evidence: local MiniLM example is 384 and Tier-3 examples remain commented.
+Evidence: local MiniLM example uses runtime-recognized provider/model variables at dimension 384 and includes coherent commented Tier-3 A/B profiles.
 Tests: tests/test_d007_d008_d009_composition_catalog.py
-Commit: 0005d46
+Commit: 9b9203d
 
 ---
 
@@ -257,9 +257,9 @@ Tenant A and Tenant B may both use equivalent natural external identifiers witho
 Preserve API compatibility where practical.
 
 Status: VERIFIED
-Evidence: V4 catalog primary keys are now deterministic tenant-scoped opaque IDs while names/external refs remain logical scope data.
+Evidence: A compatibility identity table maps tenant-scoped public IDs to distinct physical catalog keys and translates public lifecycle receipts back to logical IDs.
 Tests: tests/test_d007_d008_d009_composition_catalog.py; tests/test_terra_round3_regressions.py
-Commit: 0d59cdc
+Commit: 9b9203d
 
 ---
 
@@ -285,9 +285,9 @@ HTTP V4
 all forward/validate equivalent semantics.
 
 Status: VERIFIED
-Evidence: MCP recall/context and HTTP context now preserve valid_at, valid_from and valid_to through the canonical client/core path.
-Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py
-Commit: 0d59cdc
+Evidence: HTTP, sync/async SDK and MCP recall/context preserve valid_at, valid_from and valid_to through serialized requests.
+Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py; tests/test_mcp_v4_service.py; tests/test_p0_http_sdk_mcp_convergence.py
+Commit: f87c0f7
 
 ---
 
@@ -313,9 +313,9 @@ Required:
 Tests must prove entries disappear or are evicted under bounded load.
 
 Status: VERIFIED
-Evidence: recall/session caches use locked bounded LRU+TTL; adaptive routing state uses bounded locked LRU+TTL.
+Evidence: recall/session caches use bounded LRU+TTL, adaptive routing uses locked LRU+TTL, and keyed session locks never evict active/waiting scopes or leak canceled waiters.
 Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py; tests/test_terra_round3_regressions.py
-Commit: 0d59cdc
+Commit: f87c0f7
 
 ---
 
@@ -336,9 +336,55 @@ Required review/fix:
 Do not broaden into general cleanup.
 
 Status: VERIFIED
-Evidence: Terra retained CI SBOM coverage and direct dependency/run-server hygiene changes after inspection.
-Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py; tests/test_deployment_assets.py
-Commit: d715cff
+Evidence: CI scans and emits an SBOM for the shipped full-cognitive image; run_server is a thin canonical launcher; score semantics and public support docs are accurate.
+Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py; tests/test_deployment_assets.py; tests/test_ci_coverage_contracts.py
+Commit: f87c0f7; 242870e
+
+---
+
+# Sol-Discovered Tasks
+
+## SOL-D01 — Freeze Required Revision Work
+
+Status: VERIFIED
+Evidence: PENDING manifests require explicit finalization; activation requires a nonempty frozen chunk set and one committed child per chunk.
+Tests: tests/test_d001_d002_aggregate_state.py; tests/test_p0_canonical_correction.py
+Commit: 9b9203d
+
+## SOL-D02 — Restore Legal Aggregate State Transitions
+
+Status: VERIFIED
+Evidence: Pre-projection and terminal-failure mutations can no longer jump directly to COMMITTED; parent state is recomputed from every child.
+Tests: tests/test_d001_d002_aggregate_state.py; tests/test_terra_round3_regressions.py
+Commit: 9b9203d
+
+## SOL-D03 — Close Rollback and Upgrade Boundaries
+
+Status: VERIFIED
+Evidence: Non-head rollback is a typed HTTP 409 and the previous-release upgrade proof starts without the active-head index and repairs duplicates forward.
+Tests: tests/test_d003_d004_rollback_hash.py; tests/test_v4_api_contract.py; tests/test_migration_closure.py
+Commit: 9b9203d
+
+## SOL-D04 — Separate Tenant Public and Physical Catalog IDs
+
+Status: VERIFIED
+Evidence: Identical workspace/dataset/document/revision/chunk IDs coexist across tenants with distinct physical keys and logical API receipts.
+Tests: tests/test_d007_d008_d009_composition_catalog.py
+Commit: 9b9203d
+
+## SOL-D05 — Make Process Bounds Cancellation-Safe
+
+Status: VERIFIED
+Evidence: Session lock capacity cannot evict an active scope and canceled waiters are pruned; circuit failures retain retryable backend semantics.
+Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py
+Commit: f87c0f7
+
+## SOL-D06 — Gate the Shipped Runtime Image
+
+Status: VERIFIED
+Evidence: The main runtime image now has vulnerability and CycloneDX SBOM gates, and the stale server composition root delegates to the canonical app.
+Tests: tests/test_deployment_assets.py; tests/test_ci_coverage_contracts.py
+Commit: f87c0f7
 
 ---
 
@@ -374,10 +420,10 @@ Status: FINAL_VERIFIED
 
 Otherwise do not mark FINAL_VERIFIED.
 
-Status: TODO
-Evidence:
-Tests:
-Commit:
+Status: FINAL_VERIFIED
+Evidence: Sol independently reopened false D001/D002/D003/D006/D007/D009/D011/D012 closures, repaired the code-level blockers, and verified a single migration head plus clean lint, format, compile, layer, type, and diff gates.
+Tests: 59 focused D001-D012 tests; 100 prior-invariant, V3 compensation/ownership, deployment, and CI contract tests.
+Commit: 9b9203d; f87c0f7; 242870e
 
 ---
 
