@@ -1,14 +1,15 @@
 """Adversarial regression test suite for Task D005 (Canonical Tenant-Wide V4 Queue Accounting)
 and Task D006 (Immutable Alembic Upgrade Closure)."""
 
-import pytest
-import asyncio
 from dataclasses import dataclass
 from types import SimpleNamespace
+
+import pytest
+
 from mesa_storage.dao import MemoryDAO, QueueOverCapacityError
-from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.schemas import initialize_schema
 from mesa_storage.schema_contract import validate_postflight
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
 
 
 @dataclass
@@ -38,9 +39,27 @@ async def test_d005_tenant_wide_queue_accounting(tmp_path):
     dataset_id = "ds_shared"
     ws_id = "ws_shared"
 
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=ws_id, dataset_id=dataset_id)
-    sess_a = (await dao.create_v4_session(tenant_id=tenant_id, workspace_id=ws_id, dataset_ids=[dataset_id], agent_id="agent_A", principal_id="p1"))["session_id"]
-    sess_b = (await dao.create_v4_session(tenant_id=tenant_id, workspace_id=ws_id, dataset_ids=[dataset_id], agent_id="agent_B", principal_id="p2"))["session_id"]
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=ws_id, dataset_id=dataset_id
+    )
+    sess_a = (
+        await dao.create_v4_session(
+            tenant_id=tenant_id,
+            workspace_id=ws_id,
+            dataset_ids=[dataset_id],
+            agent_id="agent_A",
+            principal_id="p1",
+        )
+    )["session_id"]
+    sess_b = (
+        await dao.create_v4_session(
+            tenant_id=tenant_id,
+            workspace_id=ws_id,
+            dataset_ids=[dataset_id],
+            agent_id="agent_B",
+            principal_id="p2",
+        )
+    )["session_id"]
 
     # Restrict tenant queue limit to 2 records total
     strict_policy = StrictQueuePolicy()
@@ -110,15 +129,20 @@ async def test_d005_tenant_wide_queue_accounting(tmp_path):
 @pytest.mark.asyncio
 async def test_d006_postflight_and_alembic_upgrade_closure(tmp_path):
     """Verify that postflight validation catches duplicate active heads, and
-    new Alembic migration fe5f6a7b8c9d cleans duplicate active heads and creates uq_active_document_revision."""
+    new Alembic migration fe5f6a7b8c9d cleans duplicate active heads and creates uq_active_document_revision.
+    """
     db_path = str(tmp_path / "mesa_test_d006.db")
     engine = AsyncEngine(db_path)
     await engine.initialize()
     await initialize_schema(engine)
 
     dao = MemoryDAO(engine, SimpleNamespace())
-    await dao.ensure_v4_catalog_scope(tenant_id="t6", workspace_id="ws6", dataset_id="ds6")
-    await dao.create_v4_document(tenant_id="t6", dataset_id="ds6", document_id="doc6", title="Doc6")
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="t6", workspace_id="ws6", dataset_id="ds6"
+    )
+    await dao.create_v4_document(
+        tenant_id="t6", dataset_id="ds6", document_id="doc6", title="Doc6"
+    )
 
     # Verify that partial unique index uq_active_document_revision prevents duplicate ACTIVE heads
     with pytest.raises(Exception, match="UNIQUE constraint failed"):
@@ -136,7 +160,9 @@ async def test_d006_postflight_and_alembic_upgrade_closure(tmp_path):
 
     # validate_postflight must pass on clean schema
     import sqlite3
+
     from alembic.config import Config
+
     cfg = Config()
     sync_conn = sqlite3.connect(db_path)
     try:

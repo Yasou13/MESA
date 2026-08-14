@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mesa_storage.dao import MemoryDAO, _DEFAULT_QUEUE_ADMISSION_POLICY
+from mesa_storage.dao import _DEFAULT_QUEUE_ADMISSION_POLICY, MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
