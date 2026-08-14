@@ -233,10 +233,10 @@ build/compose or equivalent runtime composition
 
 Model-disabled smoke is insufficient.
 
-Status: TODO
-Evidence: Existing D008 test directly drives DAO state and does not enter the model-enabled runtime composition root; not accepted as certification evidence.
-Tests: tests/test_d007_d008_d009_composition_catalog.py (insufficient)
-Commit:
+Status: VERIFIED
+Evidence: Terra runs the production combined-runtime lifespan with model_enabled=true; only AdapterFactory/REBEL provider boundaries are deterministic fakes. The durable dispatch, consolidation, mutation ledger, projection, retrieval, ContextBuilder and restart paths are real.
+Tests: tests/test_d008_model_enabled_runtime_e2e.py
+Commit: pending
 
 ---
 
