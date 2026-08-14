@@ -10,7 +10,7 @@ MESA before Alembic advances a revision.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, cast
+from typing import Any, Iterable, cast
 
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
@@ -413,6 +413,11 @@ def validate_postflight(
     if _rows(connection, "PRAGMA foreign_key_check"):
         raise SchemaContractError("MESA schema postflight: foreign key check failed.")
     if "document_revisions" in snapshot.tables:
+        _require_members(
+            snapshot.indexes,
+            {"uq_active_document_revision"},
+            label="ACTIVE document-head indexes",
+        )
         dup_active = _rows(
             connection,
             "SELECT document_id FROM document_revisions WHERE status = 'ACTIVE' "

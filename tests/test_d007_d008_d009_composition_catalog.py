@@ -117,18 +117,18 @@ async def test_d009_multi_tenant_catalog_physical_identity(tmp_path):
     dao = MemoryDAO(engine, SimpleNamespace())
 
     # Tenant A setup
-    await dao.ensure_v4_catalog_scope(tenant_id="tenant_A", workspace_id="ws_A", dataset_id="ds_A")
+    await dao.ensure_v4_catalog_scope(tenant_id="tenant_A", workspace_id="default", dataset_id="main")
 
     # Tenant B setup
-    await dao.ensure_v4_catalog_scope(tenant_id="tenant_B", workspace_id="ws_B", dataset_id="ds_B")
+    await dao.ensure_v4_catalog_scope(tenant_id="tenant_B", workspace_id="default", dataset_id="main")
 
     # Tenant A creates document with external_ref = "contract_2026.pdf"
     await dao.create_v4_source_chunk(
         tenant_id="tenant_A",
-        dataset_id="ds_A",
-        document_id="doc_A_1",
-        revision_id="rev_A_1",
-        chunk_id="chk_A_1",
+        dataset_id="main",
+        document_id="doc-1",
+        revision_id="rev-1",
+        chunk_id="chunk-1",
         title="Tenant A Contract",
         content_payload="Tenant A contract text",
         source_ref="ref_A",
@@ -138,10 +138,10 @@ async def test_d009_multi_tenant_catalog_physical_identity(tmp_path):
     # Tenant B creates document with identical external_ref = "contract_2026.pdf"
     await dao.create_v4_source_chunk(
         tenant_id="tenant_B",
-        dataset_id="ds_B",
-        document_id="doc_B_1",
-        revision_id="rev_B_1",
-        chunk_id="chk_B_1",
+        dataset_id="main",
+        document_id="doc-1",
+        revision_id="rev-1",
+        chunk_id="chunk-1",
         title="Tenant B Contract",
         content_payload="Tenant B contract text",
         source_ref="ref_B",
@@ -149,12 +149,13 @@ async def test_d009_multi_tenant_catalog_physical_identity(tmp_path):
     )
 
     # Verify both documents exist in isolation under their respective datasets
-    docs_a = await dao.list_v4_documents(tenant_id="tenant_A", dataset_id="ds_A")
-    docs_b = await dao.list_v4_documents(tenant_id="tenant_B", dataset_id="ds_B")
+    docs_a = await dao.list_v4_documents(tenant_id="tenant_A", dataset_id="main")
+    docs_b = await dao.list_v4_documents(tenant_id="tenant_B", dataset_id="main")
 
     assert len(docs_a) == 1
     assert len(docs_b) == 1
     assert docs_a[0]["title"] == "Tenant A Contract"
     assert docs_b[0]["title"] == "Tenant B Contract"
+    assert docs_a[0]["document_id"] != docs_b[0]["document_id"]
 
     await engine.close()

@@ -27,6 +27,7 @@ from mesa_storage.dao import (
     QueueOverCapacityError,
     QueueRecordTooLargeError,
     QueueUnavailableError,
+    _physical_catalog_id,
 )
 from mesa_storage.repositories.operations import (
     OperationActiveConflictError,
@@ -872,7 +873,12 @@ def create_v4_router(
             payload.session_id,
             level="WRITE",
         )
-        if payload.dataset_id not in session["dataset_ids"]:
+        physical_dataset_id = _physical_catalog_id(
+            tenant_id=str(session["tenant_id"]),
+            kind="dataset",
+            external_id=payload.dataset_id,
+        )
+        if physical_dataset_id not in session["dataset_ids"]:
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
             )
@@ -885,7 +891,7 @@ def create_v4_router(
             admission = await dao.admit_v4_memory(
                 tenant_id=str(session["tenant_id"]),
                 workspace_id=str(session["workspace_id"]),
-                dataset_id=payload.dataset_id,
+                dataset_id=physical_dataset_id,
                 agent_id=str(session["agent_id"]),
                 session_id=payload.session_id,
                 document_id=payload.document_id,
@@ -934,7 +940,18 @@ def create_v4_router(
         session = await _authorized_v4_session(
             request, dao, access_control, payload.session_id, level="READ"
         )
-        datasets = payload.dataset_ids or list(session["dataset_ids"])
+        datasets = (
+            [
+                _physical_catalog_id(
+                    tenant_id=str(session["tenant_id"]),
+                    kind="dataset",
+                    external_id=dataset_id,
+                )
+                for dataset_id in payload.dataset_ids
+            ]
+            if payload.dataset_ids
+            else list(session["dataset_ids"])
+        )
         if not set(datasets).issubset(set(session["dataset_ids"])):
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
@@ -1052,13 +1069,17 @@ def create_v4_router(
         request: Request,
         query: str = "",
         token_budget: int = 2048,
-        valid_at: str | None = None,
+        valid_at: datetime | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
         session = await _authorized_v4_session(
             request, dao, access_control, session_id, level="READ"
         )
+        if valid_from and valid_to and valid_from > valid_to:
+            raise HTTPException(status_code=422, detail="valid_from must not be after valid_to")
         agent_id = str(session["agent_id"])
         builder = ContextBuilder(dao)
         ctx = await builder.build_context(
@@ -1068,7 +1089,9 @@ def create_v4_router(
             query=query,
             session_id=session_id,
             token_budget=token_budget,
-            valid_at=valid_at,
+            valid_at=valid_at.isoformat() if valid_at else None,
+            valid_from=valid_from.isoformat() if valid_from else None,
+            valid_to=valid_to.isoformat() if valid_to else None,
         )
         mutations = await dao.list_session_mutation_summaries(
             agent_id, session_id, limit=20

@@ -145,6 +145,17 @@ def test_fresh_upgrade_has_one_head_and_complete_durable_schema(tmp_path: Path) 
     } <= _tables(database)
 
 
+def test_postflight_requires_active_document_head_index(tmp_path: Path) -> None:
+    database = tmp_path / "missing-active-head-index.db"
+    config = _config(database)
+    command.upgrade(config, "head")
+    connection = sqlite3.connect(database)
+    connection.execute("DROP INDEX uq_active_document_revision")
+    with pytest.raises(schema_contract.SchemaContractError, match="ACTIVE document-head"):
+        schema_contract.validate_postflight(connection, config, require_head=True)
+    connection.close()
+
+
 def test_previous_head_upgrades_with_legacy_projection_generation(
     tmp_path: Path,
 ) -> None:

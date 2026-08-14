@@ -24,6 +24,8 @@ class ContextBuilder:
         session_id: str | None = None,
         token_budget: int = 2048,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
         include_provenance: bool = True,
     ) -> dict[str, Any]:
         """Construct context combining current-session logs and long-term canonical truth."""
@@ -49,6 +51,8 @@ class ContextBuilder:
                     query=search_query,
                     limit=20,
                     valid_at=valid_at,
+                    valid_from=valid_from,
+                    valid_to=valid_to,
                 )
 
         # 3. Format context string with token budget bounding (~4 chars per token).

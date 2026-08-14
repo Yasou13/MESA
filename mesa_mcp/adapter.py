@@ -176,6 +176,8 @@ class MesaMCPAdapter:
                 query=query,
                 token_budget=token_budget,
                 valid_at=arguments.get("valid_at"),
+                valid_from=arguments.get("valid_from"),
+                valid_to=arguments.get("valid_to"),
             )
         # 4 chars/token is deliberately conservative and keeps MCP responses bounded.
         candidates = await self._service.search_memories(
@@ -256,7 +258,12 @@ class MesaMCPAdapter:
         dataset_id = arguments.get("dataset_id")
         query = _required_string(arguments, "query", max_length=_MAX_QUERY_LENGTH)
         results = await self._v4_service.v4_recall(
-            dataset_id=dataset_id, query=query, limit=arguments.get("limit")
+            dataset_id=dataset_id,
+            query=query,
+            limit=arguments.get("limit"),
+            valid_at=arguments.get("valid_at"),
+            valid_from=arguments.get("valid_from"),
+            valid_to=arguments.get("valid_to"),
         )
         return {"results": results, "total": len(results)}
 

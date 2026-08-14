@@ -268,6 +268,9 @@ class MesaHttpV4Service:
             "query": kwargs["query"],
             "dataset_ids": [dataset_id],
             "limit": kwargs.get("limit") or self._settings.search_default_limit,
+            "valid_at": kwargs.get("valid_at"),
+            "valid_from": kwargs.get("valid_from"),
+            "valid_to": kwargs.get("valid_to"),
         }
         try:
             resp = await client.search(session_id=session_id, **search_arguments)
@@ -316,6 +319,8 @@ class MesaHttpV4Service:
                 "token_budget", self._settings.context_default_token_budget
             ),
             "valid_at": kwargs.get("valid_at"),
+            "valid_from": kwargs.get("valid_from"),
+            "valid_to": kwargs.get("valid_to"),
         }
         try:
             return await client.get_context(session_id=session_id, **context_arguments)

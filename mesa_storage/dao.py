@@ -149,6 +149,23 @@ _SECRET_PATTERNS = (
 )
 
 
+def _physical_catalog_id(*, tenant_id: str, kind: str, external_id: str) -> str:
+    """Return a server-owned catalog primary key for a tenant-scoped name.
+
+    V4 accepts stable client names (``default``, ``main``, ``doc-1``), but
+    historical schema primary keys are global.  Persisting the raw name lets a
+    tenant reserve another tenant's namespace.  The deterministic opaque key
+    keeps retries stable while making the physical identity tenant-scoped.
+    Already-normalized values are accepted by internal follow-up calls.
+    """
+    prefix = f"mesa-{kind}-"
+    if external_id.startswith(prefix):
+        return external_id
+    return prefix + uuid.uuid5(
+        _V4_CATALOG_NAMESPACE, f"{kind}\x1f{tenant_id}\x1f{external_id}"
+    ).hex
+
+
 def _validate_write_payload(content: str, metadata: dict[str, Any]) -> dict[str, Any]:
     encoded = json.dumps(metadata, sort_keys=True, default=str).encode()
     if len(encoded) > 16 * 1024:
@@ -469,11 +486,14 @@ class MemoryDAO:
         tenant_name: str | None = None,
         workspace_name: str | None = None,
     ) -> dict[str, Any]:
+        external_workspace_id = workspace_id
         return await self._catalog.create_workspace(
             tenant_id=tenant_id,
-            workspace_id=workspace_id,
+            workspace_id=_physical_catalog_id(
+                tenant_id=tenant_id, kind="workspace", external_id=workspace_id
+            ),
             tenant_name=tenant_name,
-            workspace_name=workspace_name,
+            workspace_name=workspace_name or external_workspace_id,
         )
 
     async def list_v4_workspaces(self, *, tenant_id: str) -> list[dict[str, Any]]:
@@ -489,13 +509,19 @@ class MemoryDAO:
         workspace_name: str | None = None,
         dataset_name: str | None = None,
     ) -> None:
+        external_workspace_id = workspace_id
+        external_dataset_id = dataset_id
         await self._catalog.ensure_scope(
             tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            dataset_id=dataset_id,
+            workspace_id=_physical_catalog_id(
+                tenant_id=tenant_id, kind="workspace", external_id=workspace_id
+            ),
+            dataset_id=_physical_catalog_id(
+                tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            ),
             tenant_name=tenant_name,
-            workspace_name=workspace_name,
-            dataset_name=dataset_name,
+            workspace_name=workspace_name or external_workspace_id,
+            dataset_name=dataset_name or external_dataset_id,
         )
 
     async def create_v4_document(
@@ -510,6 +536,12 @@ class MemoryDAO:
         """Create an immutable dataset-owned document identity."""
         if not tenant_id or not dataset_id or not document_id or not title:
             raise ValueError("complete document identity is required")
+        dataset_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
+        document_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="document", external_id=document_id
+        )
         async with self._sql.transaction() as db:
             async with db.execute(
                 "SELECT tenant_id FROM datasets WHERE dataset_id = ?",
@@ -543,6 +575,9 @@ class MemoryDAO:
     async def list_v4_documents(
         self, *, tenant_id: str, dataset_id: str
     ) -> list[dict[str, Any]]:
+        dataset_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT document_id, tenant_id, dataset_id, external_ref, title, "
@@ -573,6 +608,21 @@ class MemoryDAO:
             or not re.fullmatch(r"[0-9a-f]{64}", normalized_hash)
         ):
             raise ValueError("complete revision identity and SHA-256 hash are required")
+        dataset_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
+        document_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="document", external_id=document_id
+        )
+        revision_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="revision", external_id=revision_id
+        )
+        if supersedes_revision_id:
+            supersedes_revision_id = _physical_catalog_id(
+                tenant_id=tenant_id,
+                kind="revision",
+                external_id=supersedes_revision_id,
+            )
         async with self._sql.transaction() as db:
             async with db.execute(
                 "SELECT tenant_id, dataset_id FROM documents WHERE document_id = ? "
@@ -642,6 +692,12 @@ class MemoryDAO:
     async def list_v4_revisions(
         self, *, tenant_id: str, dataset_id: str, document_id: str
     ) -> list[dict[str, Any]]:
+        dataset_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
+        document_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="document", external_id=document_id
+        )
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT r.revision_id, r.tenant_id, r.document_id, r.revision_number, "
@@ -684,6 +740,24 @@ class MemoryDAO:
             )
         ):
             raise ValueError("complete document provenance is required")
+        dataset_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
+        document_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="document", external_id=document_id
+        )
+        revision_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="revision", external_id=revision_id
+        )
+        chunk_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="chunk", external_id=chunk_id
+        )
+        if supersedes_revision_id:
+            supersedes_revision_id = _physical_catalog_id(
+                tenant_id=tenant_id,
+                kind="revision",
+                external_id=supersedes_revision_id,
+            )
         _validate_write_payload(content_payload, {})
         content_hash = hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
         async with self._sql.transaction() as db:
@@ -849,7 +923,17 @@ class MemoryDAO:
         _assert_valid_agent_id(agent_id)
         if not tenant_id or not workspace_id or not principal_id or not dataset_ids:
             raise ValueError("complete session scope is required")
-        unique_datasets = sorted(set(dataset_ids))
+        workspace_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="workspace", external_id=workspace_id
+        )
+        unique_datasets = sorted(
+            {
+                _physical_catalog_id(
+                    tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+                )
+                for dataset_id in dataset_ids
+            }
+        )
         identifier = session_id or f"sess_{uuid.uuid4().hex}"
         async with self._sql.transaction() as db:
             placeholders = ",".join("?" for _ in unique_datasets)
@@ -905,6 +989,9 @@ class MemoryDAO:
     async def list_v4_datasets(
         self, *, tenant_id: str, workspace_id: str
     ) -> list[dict[str, Any]]:
+        workspace_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="workspace", external_id=workspace_id
+        )
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT dataset_id, tenant_id, workspace_id, name, status, created_at "
@@ -929,6 +1016,12 @@ class MemoryDAO:
         self, *, tenant_id: str, dataset_id: str, document_id: str
     ) -> dict[str, Any]:
         """Purge one document by rolling back its source-owned pipeline runs and fencing pending mutations."""
+        dataset_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
+        document_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="document", external_id=document_id
+        )
         async with self._sql.transaction() as db:
             async with db.execute(
                 "SELECT tenant_id FROM documents WHERE document_id = ? AND dataset_id = ?",
@@ -1488,6 +1581,28 @@ class MemoryDAO:
             or embedding_dimension < 1
         ):
             raise ValueError("complete embedding identity is required")
+
+        workspace_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="workspace", external_id=workspace_id
+        )
+        dataset_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
+        document_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="document", external_id=document_id
+        )
+        revision_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="revision", external_id=revision_id
+        )
+        chunk_id = _physical_catalog_id(
+            tenant_id=tenant_id, kind="chunk", external_id=chunk_id
+        )
+        if supersedes_revision_id:
+            supersedes_revision_id = _physical_catalog_id(
+                tenant_id=tenant_id,
+                kind="revision",
+                external_id=supersedes_revision_id,
+            )
 
         raw_payload = {
             "tenant_id": tenant_id,
@@ -2464,16 +2579,22 @@ class MemoryDAO:
                 (revision_id,),
             ) as cursor:
                 child_states = [r[0] for r in await cursor.fetchall()]
+            # The source manifest is the authoritative work-set.  Counting
+            # mutations is insufficient: several retries/duplicates for one
+            # chunk used to let a missing sibling chunk activate the revision.
+            # Each frozen source chunk must own at least one committed child.
             async with db.execute(
-                "SELECT COUNT(*) FROM source_chunks WHERE revision_id = ?",
+                "SELECT COUNT(*) FROM source_chunks c WHERE c.revision_id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.revision_id = c.revision_id AND m.chunk_id = c.chunk_id "
+                "AND m.state = 'COMMITTED')",
                 (revision_id,),
             ) as cursor:
-                chunk_row = await cursor.fetchone()
-                expected_chunks = int(chunk_row[0]) if chunk_row else 0
+                missing_work = int((await cursor.fetchone())[0])
             if (
                 not child_states
                 or any(s != "COMMITTED" for s in child_states)
-                or (expected_chunks > 0 and len(child_states) < expected_chunks)
+                or missing_work > 0
             ):
                 return
         if not row[4]:
@@ -4335,7 +4456,14 @@ class MemoryDAO:
             or not 1 <= limit <= 50
         ):
             raise ValueError("invalid v4 search scope")
-        datasets = sorted(set(dataset_ids))
+        datasets = sorted(
+            {
+                _physical_catalog_id(
+                    tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+                )
+                for dataset_id in dataset_ids
+            }
+        )
         placeholders = ",".join("?" for _ in datasets)
         async with self._sql.connection() as db:
             async with db.execute(
