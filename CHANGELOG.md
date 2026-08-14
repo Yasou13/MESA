@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Round-3 aggregate lifecycle:** Revision manifests freeze explicitly,
+  revision and pipeline terminal success is derived from all required child
+  work, and non-head historical rollback returns a typed conflict.
+- **Tenant-scoped catalog identity:** Public catalog identifiers can be reused
+  safely across tenants while the durable schema retains distinct physical
+  keys.
+- **Temporal and runtime parity:** HTTP, sync/async SDK and MCP now carry
+  `valid_at`, `valid_from` and `valid_to`; long-lived MCP/routing state is
+  bounded with safe expiration and concurrency.
+- **Release hygiene:** The shipped full-cognitive image receives vulnerability
+  and SBOM gates, and the legacy server launcher delegates to the canonical
+  runtime composition.
+
 - **Round-2 lifecycle certification:** Projection writes now retain durable
   compensation ownership until vector/graph cleanup succeeds; V3 replacement
   stages the successor until secondary writes are safe; repeated mutations for
