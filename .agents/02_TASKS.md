@@ -236,7 +236,7 @@ Model-disabled smoke is insufficient.
 Status: VERIFIED
 Evidence: Terra runs the production combined-runtime lifespan with model_enabled=true; only AdapterFactory/REBEL provider boundaries are deterministic fakes. The durable dispatch, consolidation, mutation ledger, projection, retrieval, ContextBuilder and restart paths are real.
 Tests: tests/test_d008_model_enabled_runtime_e2e.py
-Commit: pending
+Commit: 9d85905
 
 ---
 
