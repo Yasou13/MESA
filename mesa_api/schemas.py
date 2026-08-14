@@ -454,7 +454,7 @@ class SearchResultItem(BaseModel):
     type: str = Field(default="ENTITY", description="Type of the node")
     source: str = Field(default="hybrid", description="Source of the retrieval")
     score: float = Field(
-        ..., ge=0.0, description="Relevance score (lower distance = better)"
+        ..., ge=0.0, description="Fused relevance score (higher is better)"
     )
     content_hash: str | None = Field(
         default=None, description="SHA-256 of the stored content"

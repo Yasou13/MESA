@@ -170,6 +170,8 @@ async def test_sdk_context_forwards_cross_session_query_and_temporal_budget():
             "query": "Which database is used?",
             "token_budget": 321,
             "valid_at": "2024-01-01T00:00:00Z",
+            "valid_from": None,
+            "valid_to": None,
         },
     )
 
@@ -203,6 +205,8 @@ async def test_mcp_adapter_preserves_canonical_context_and_write_semantics():
         query="Which database?",
         token_budget=100,
         valid_at=None,
+        valid_from=None,
+        valid_to=None,
     )
 
     await adapter.mesa_remember(

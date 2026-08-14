@@ -305,6 +305,8 @@ async def test_v4_context_and_improve_preserve_canonical_v4_arguments() -> None:
         query="current policy",
         token_budget=321,
         valid_at="2026-01-01T00:00:00Z",
+        valid_from="2025-01-01T00:00:00Z",
+        valid_to="2027-01-01T00:00:00Z",
     )
     mutation = await service.v4_improve(
         tenant_id="tenant",
@@ -324,6 +326,8 @@ async def test_v4_context_and_improve_preserve_canonical_v4_arguments() -> None:
             "query": "current policy",
             "token_budget": 321,
             "valid_at": "2026-01-01T00:00:00Z",
+            "valid_from": "2025-01-01T00:00:00Z",
+            "valid_to": "2027-01-01T00:00:00Z",
         }
     ]
     assert client.revision_calls == [

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import uuid
 from typing import Any
 
 from mesa_client.client import AsyncMesaV4Client, MesaAPIError, MesaNetworkError
 
-from .bounded_cache import BoundedLRUCache
+from .bounded_cache import BoundedAsyncKeyedLocks, BoundedLRUCache
 from .configuration import MCPSettings
 from .errors import MCPError
 
@@ -19,8 +18,11 @@ class MesaHttpV4Service:
 
     def __init__(self, settings: MCPSettings):
         self._settings = settings
-        self._session_cache: BoundedLRUCache[str, str] = BoundedLRUCache(max_size=512)
-        self._session_locks: BoundedLRUCache[str, asyncio.Lock] = BoundedLRUCache(max_size=512)
+        self._session_cache: BoundedLRUCache[str, str] = BoundedLRUCache(
+            max_size=512,
+            default_ttl_seconds=3600.0,
+        )
+        self._session_locks = BoundedAsyncKeyedLocks[str](max_size=512)
         self._http_client = AsyncMesaV4Client(
             base_url=settings.base_url,
             api_key=settings.api_key,
@@ -59,8 +61,7 @@ class MesaHttpV4Service:
         cache_key = self._session_cache_key(
             tenant_id, workspace_id, actor_id, dataset_id
         )
-        lock = self._session_locks.setdefault(cache_key, asyncio.Lock)
-        async with lock:
+        async with self._session_locks.hold(cache_key):
             cached = self._session_cache.get(cache_key)
             if cached is not None:
                 return cached

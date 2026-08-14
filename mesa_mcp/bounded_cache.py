@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import OrderedDict
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from threading import RLock
-from typing import Any, Generic, TypeVar
+from typing import Any, AsyncIterator, Generic, TypeVar
 
 KeyT = TypeVar("KeyT")
 ValT = TypeVar("ValT")
@@ -45,7 +48,9 @@ class BoundedLRUCache(Generic[KeyT, ValT]):
             while len(self._cache) > self._max_size:
                 self._cache.popitem(last=False)
 
-    def setdefault(self, key: KeyT, default_factory: Any, ttl_seconds: float | None = None) -> ValT:
+    def setdefault(
+        self, key: KeyT, default_factory: Any, ttl_seconds: float | None = None
+    ) -> ValT:
         with self._lock:
             self._prune_expired()
             existing = self._cache.get(key)
@@ -78,6 +83,51 @@ class BoundedLRUCache(Generic[KeyT, ValT]):
 
     def _prune_expired(self) -> None:
         now = time.monotonic()
-        expired = [k for k, (_, exp) in self._cache.items() if exp is not None and exp <= now]
+        expired = [
+            k for k, (_, exp) in self._cache.items() if exp is not None and exp <= now
+        ]
         for k in expired:
             del self._cache[k]
+
+
+@dataclass
+class _AsyncLockEntry:
+    lock: asyncio.Lock
+    users: int = 0
+
+
+class BoundedAsyncKeyedLocks(Generic[KeyT]):
+    """Bounded keyed async locks that never evict a holder or waiter."""
+
+    def __init__(self, max_size: int = 512) -> None:
+        if max_size < 1:
+            raise ValueError("max_size must be at least 1")
+        self._max_size = max_size
+        self._entries: dict[KeyT, _AsyncLockEntry] = {}
+        self._guard = asyncio.Lock()
+
+    @asynccontextmanager
+    async def hold(self, key: KeyT) -> AsyncIterator[None]:
+        async with self._guard:
+            entry = self._entries.get(key)
+            if entry is None:
+                if len(self._entries) >= self._max_size:
+                    raise RuntimeError("session lock capacity exhausted")
+                entry = _AsyncLockEntry(asyncio.Lock())
+                self._entries[key] = entry
+            entry.users += 1
+        acquired = False
+        try:
+            await entry.lock.acquire()
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                entry.lock.release()
+            async with self._guard:
+                entry.users -= 1
+                if entry.users == 0 and self._entries.get(key) is entry:
+                    del self._entries[key]
+
+    def __len__(self) -> int:
+        return len(self._entries)

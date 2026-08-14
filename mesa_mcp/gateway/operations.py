@@ -8,7 +8,6 @@ import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from cryptography.fernet import Fernet
@@ -32,12 +31,6 @@ _POLICY_OPERATIONS = {
 _ResultT = TypeVar("_ResultT")
 
 
-@dataclass
-class _CacheEntry:
-    value: dict[str, Any]
-    expires_at: float
-
-
 class CircuitBreaker:
     """Small async circuit breaker for the gateway-to-MESA seam."""
 
@@ -57,13 +50,16 @@ class CircuitBreaker:
             return "HALF_OPEN"
         return "OPEN"
 
-    async def call(
-        self, operation: Callable[[], Awaitable[_ResultT]]
-    ) -> _ResultT:
+    async def call(self, operation: Callable[[], Awaitable[_ResultT]]) -> _ResultT:
+        probe = False
         async with self._lock:
             st = self.state
             if st == "OPEN":
-                raise MCPError("TEMPORARY_FAILURE", "circuit breaker is open")
+                raise MCPError(
+                    "BACKEND_UNAVAILABLE",
+                    "MESA circuit is open",
+                    retryable=True,
+                )
             if st == "HALF_OPEN":
                 if self._half_open_probe_in_flight:
                     raise MCPError(
