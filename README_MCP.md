@@ -19,6 +19,7 @@ MESA_BASE_URL=http://127.0.0.1:8000 \
 MESA_GATEWAY_ENCRYPTION_KEY=fernet-key \
 MESA_GATEWAY_CONTROL_DB=/absolute/path/to/mesa-data/mesa.db \
 .venv/bin/mesa-mcp-gateway
+```
 
 ## Codex direct HTTP integration
 
@@ -53,7 +54,6 @@ dashboard shows safe credential summaries and can revoke a credential, but it
 never issues or displays plaintext tokens. Codex hooks load bounded project
 memory on session start and compaction; they never write transcript content to
 memory and do not prevent a session from starting when MESA is unavailable.
-```
 
 Do not commit credentials. The systemd service and protected local environment
 must both be mode `0600`.
@@ -68,6 +68,30 @@ The dashboard may manage the local control plane from a loopback browser
 connection. Remote `/control/mcp/*` callers require the normal `X-API-Key`;
 deploy the dashboard behind an authenticated reverse proxy when it is not
 local-only.
+
+## Operator approval
+
+Approval and rejection are local control-plane operations. Grant the operator
+the existing server-side `ADMIN` control role, then point the CLI at the same
+gateway and RBAC databases used by the running MESA services:
+
+```bash
+export MESA_STORAGE_ROOT=/absolute/path/to/mesa-data
+export MESA_GATEWAY_CONTROL_DB=$MESA_STORAGE_ROOT/mesa.db
+export MESA_PRINCIPAL_ID=memory-operator
+
+mesa-v4-admin --policy-db $MESA_STORAGE_ROOT/rbac_policy.db \
+  grant-control --principal $MESA_PRINCIPAL_ID
+mesa operations approve op_012345 --reason "source reviewed"
+mesa operations reject op_678901 --reason "insufficient provenance"
+```
+
+The commands accept the public `operation_id`, not the internal approval ID.
+They fail closed unless the operation is still `PENDING_APPROVAL`, its client
+and project binding remain active, and the named principal has the control
+administrator role. A decision is recorded once with its operator and reason.
+The running gateway then claims approved work through its normal approval loop;
+rejected work becomes terminal `REJECTED` and is never dispatched.
 
 ## Antigravity
 
