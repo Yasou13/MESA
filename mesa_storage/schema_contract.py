@@ -10,7 +10,7 @@ MESA before Alembic advances a revision.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, cast
+from typing import Any, Iterable, cast
 
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
@@ -108,8 +108,12 @@ _LEGACY_NODE_DEFINITIONS = {
 }
 
 
-def _rows(connection: Connection, statement: str) -> list[tuple[object, ...]]:
-    return [tuple(row) for row in connection.exec_driver_sql(statement).fetchall()]
+def _rows(connection: Any, statement: str) -> list[tuple[object, ...]]:
+    if hasattr(connection, "exec_driver_sql"):
+        cursor = connection.exec_driver_sql(statement)
+    else:
+        cursor = connection.execute(statement)
+    return [tuple(row) for row in cursor.fetchall()]
 
 
 def inspect_schema(connection: Connection) -> SchemaSnapshot:
@@ -408,4 +412,33 @@ def validate_postflight(
         raise SchemaContractError("MESA schema postflight: integrity_check failed.")
     if _rows(connection, "PRAGMA foreign_key_check"):
         raise SchemaContractError("MESA schema postflight: foreign key check failed.")
-    connection.exec_driver_sql("SELECT count(*) FROM nodes_fts").scalar_one()
+    if "document_revisions" in snapshot.tables and require_head:
+        _require_members(
+            snapshot.tables,
+            {"v4_catalog_identities"},
+            label="tenant-scoped catalog identity tables",
+        )
+        revision_columns = {
+            str(row[1])
+            for row in _rows(connection, "PRAGMA table_info(document_revisions)")
+        }
+        _require_members(
+            revision_columns,
+            {"manifest_hash", "manifest_frozen_at"},
+            label="revision manifest columns",
+        )
+        _require_members(
+            snapshot.indexes,
+            {"uq_active_document_revision"},
+            label="ACTIVE document-head indexes",
+        )
+        dup_active = _rows(
+            connection,
+            "SELECT document_id FROM document_revisions WHERE status = 'ACTIVE' "
+            "GROUP BY document_id HAVING count(*) > 1",
+        )
+        if dup_active:
+            raise SchemaContractError(
+                "MESA schema postflight: duplicate ACTIVE document heads detected."
+            )
+    _rows(connection, "SELECT count(*) FROM nodes_fts")

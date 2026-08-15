@@ -120,6 +120,17 @@ almaz; bunları doğrulanmış session’dan türetir. İstek `session_id`,
 `content` taşır. `202` yanıtı `mutation_id`, `candidate_id`,
 `pipeline_run_id` ve `raw_log_id` döndürür.
 
+Bir revision birden çok chunk içeriyorsa son chunk dışındaki insert'ler
+`finalize_revision=false`, son insert ise `finalize_revision=true` gönderir.
+Finalization source/chunk manifestini dondurur; bundan sonra aynı revision'a
+yeni chunk eklenemez ve revision yalnız manifestteki bütün chunk mutation'ları
+başarıyla tamamlanınca `ACTIVE` olur.
+
+Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
+`valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
+yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. Search sonucu `score`
+alanı fused relevance skorudur; daha yüksek değer daha iyi eşleşmedir.
+
 Başarılı mutation yolu:
 
 ```text
@@ -160,6 +171,10 @@ with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
     )
     committed = client.wait_until_committed(accepted["mutation_id"])
 ```
+
+Çok chunk'lı revision için ilk çağrılarda `finalize_revision=False`, son
+çağrıda varsayılan `True` kullanılır. `search` ve `get_context` metotları
+`valid_at`, `valid_from` ve `valid_to` parametrelerinin üçünü de destekler.
 
 `MesaV4Client` ve `AsyncMesaV4Client`; capability, catalog, session, insert,
 search, status, wait, replay, rollback, purge, context ve end işlemlerinin

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import uuid
 from typing import Any
 
 from mesa_client.client import AsyncMesaV4Client, MesaAPIError, MesaNetworkError
 
+from .bounded_cache import BoundedAsyncKeyedLocks, BoundedLRUCache
 from .configuration import MCPSettings
 from .errors import MCPError
 
@@ -18,8 +18,11 @@ class MesaHttpV4Service:
 
     def __init__(self, settings: MCPSettings):
         self._settings = settings
-        self._session_cache: dict[str, str] = {}
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_cache: BoundedLRUCache[str, str] = BoundedLRUCache(
+            max_size=512,
+            default_ttl_seconds=3600.0,
+        )
+        self._session_locks = BoundedAsyncKeyedLocks[str](max_size=512)
         self._http_client = AsyncMesaV4Client(
             base_url=settings.base_url,
             api_key=settings.api_key,
@@ -58,8 +61,7 @@ class MesaHttpV4Service:
         cache_key = self._session_cache_key(
             tenant_id, workspace_id, actor_id, dataset_id
         )
-        lock = self._session_locks.setdefault(cache_key, asyncio.Lock())
-        async with lock:
+        async with self._session_locks.hold(cache_key):
             cached = self._session_cache.get(cache_key)
             if cached is not None:
                 return cached
@@ -71,7 +73,7 @@ class MesaHttpV4Service:
                     agent_id=actor_id,
                 )
                 session_id = resp["session_id"]
-                self._session_cache[cache_key] = session_id
+                self._session_cache.put(cache_key, session_id)
                 return session_id
             except Exception as exc:
                 raise _map_exception(exc) from exc
@@ -268,6 +270,13 @@ class MesaHttpV4Service:
             "dataset_ids": [dataset_id],
             "limit": kwargs.get("limit") or self._settings.search_default_limit,
         }
+        search_arguments.update(
+            {
+                key: kwargs[key]
+                for key in ("valid_at", "valid_from", "valid_to")
+                if kwargs.get(key) is not None
+            }
+        )
         try:
             resp = await client.search(session_id=session_id, **search_arguments)
         except MesaAPIError as exc:
@@ -314,8 +323,14 @@ class MesaHttpV4Service:
             "token_budget": kwargs.get(
                 "token_budget", self._settings.context_default_token_budget
             ),
-            "valid_at": kwargs.get("valid_at"),
         }
+        context_arguments.update(
+            {
+                key: kwargs[key]
+                for key in ("valid_at", "valid_from", "valid_to")
+                if kwargs.get(key) is not None
+            }
+        )
         try:
             return await client.get_context(session_id=session_id, **context_arguments)
         except MesaAPIError as exc:

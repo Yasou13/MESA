@@ -29,7 +29,9 @@ async def test_canonical_correction_flow(tmp_path):
     mock_graph.set_assertion_status = AsyncMock()
     mock_graph.execute_write = AsyncMock()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph)
+    dao = MemoryDAO(
+        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+    )
 
     tenant_id = "tenant_corr"
     agent_id = "agent_corr"
@@ -37,9 +39,15 @@ async def test_canonical_correction_flow(tmp_path):
     dataset_id = "dataset_corr"
     doc_id = f"doc_{uuid.uuid4().hex[:8]}"
 
-    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Corr")
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
-    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Corr", document_id=doc_id)
+    await dao.create_v4_workspace(
+        tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Corr"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id
+    )
+    await dao.create_v4_document(
+        tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Corr", document_id=doc_id
+    )
 
     # 1. Create Revision 1 with old truth: Alice -> ROLE -> "Engineer"
     rev1_id = f"rev1_{uuid.uuid4().hex[:8]}"
@@ -51,6 +59,16 @@ async def test_canonical_correction_flow(tmp_path):
         revision_number=1,
         content_hash="a" * 64,
     )
+    await dao.create_v4_source_chunk(
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id=rev1_id,
+        chunk_id="c2",
+        title="Doc Corr",
+        content_payload="Alice is Engineer",
+        source_ref="ref_1",
+    )
 
     mut1 = {
         "tenant_id": tenant_id,
@@ -58,7 +76,7 @@ async def test_canonical_correction_flow(tmp_path):
         "dataset_id": dataset_id,
         "document_id": doc_id,
         "revision_id": rev1_id,
-        "chunk_id": "c1",
+        "chunk_id": "c2",
         "agent_id": agent_id,
         "session_id": "sess_1",
         "pipeline_run_id": "run_1",
@@ -74,7 +92,12 @@ async def test_canonical_correction_flow(tmp_path):
     }
     await dao.record_mutation(mut1, raw_log_id=None)
     await dao.project_v4_sql_entity(mutation=mut1, entity_name="Alice")
-    t1 = {"head": "Alice", "relation": "ROLE", "literal_value": "Engineer", "confidence": 1.0}
+    t1 = {
+        "head": "Alice",
+        "relation": "ROLE",
+        "literal_value": "Engineer",
+        "confidence": 1.0,
+    }
     ass1_id = await dao.project_v4_graph_triplet(mutation=mut1, triplet=t1)
     await _commit_projected_mutation(dao, engine, agent_id, mut1, [t1])
 
@@ -88,6 +111,18 @@ async def test_canonical_correction_flow(tmp_path):
         revision_number=2,
         supersedes_revision_id=rev1_id,
         content_hash="b" * 64,
+    )
+    await dao.create_v4_source_chunk(
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id=rev2_id,
+        chunk_id="c1",
+        title="Doc Corr",
+        content_payload="Alice is Chief Architect",
+        source_ref="ref_2",
+        revision_number=2,
+        supersedes_revision_id=rev1_id,
     )
 
     mut2 = {
@@ -112,7 +147,12 @@ async def test_canonical_correction_flow(tmp_path):
     }
     await dao.record_mutation(mut2, raw_log_id=None)
     await dao.project_v4_sql_entity(mutation=mut2, entity_name="Alice")
-    t2 = {"head": "Alice", "relation": "ROLE", "literal_value": "Chief Architect", "confidence": 1.0}
+    t2 = {
+        "head": "Alice",
+        "relation": "ROLE",
+        "literal_value": "Chief Architect",
+        "confidence": 1.0,
+    }
     ass2_id = await dao.project_v4_graph_triplet(mutation=mut2, triplet=t2)
 
     # Admission/projection is not activation: until commit, old truth remains
@@ -131,9 +171,13 @@ async def test_canonical_correction_flow(tmp_path):
 
     # 3. Check assertion status in SQLite
     async with dao._sql.connection() as db:
-        async with db.execute("SELECT status FROM v4_assertions WHERE assertion_id = ?", (ass1_id,)) as cursor:
+        async with db.execute(
+            "SELECT status FROM v4_assertions WHERE assertion_id = ?", (ass1_id,)
+        ) as cursor:
             st1 = (await cursor.fetchone())[0]
-        async with db.execute("SELECT status FROM v4_assertions WHERE assertion_id = ?", (ass2_id,)) as cursor:
+        async with db.execute(
+            "SELECT status FROM v4_assertions WHERE assertion_id = ?", (ass2_id,)
+        ) as cursor:
             st2 = (await cursor.fetchone())[0]
 
     assert st1 == "SUPERSEDED"
@@ -187,18 +231,14 @@ async def test_canonical_correction_flow(tmp_path):
         query="Alice",
         limit=10,
     )
-    assert [item["literal_value"] for item in restored[0]["provenance"]] == [
-        "Engineer"
-    ]
+    assert [item["literal_value"] for item in restored[0]["provenance"]] == ["Engineer"]
 
     await engine.close()
 
 
 async def _commit_projected_mutation(dao, engine, agent_id, mutation, triplets):
     await dao.record_mutation_extraction(agent_id, mutation["mutation_id"], triplets)
-    assert await dao.set_mutation_state(
-        agent_id, mutation["mutation_id"], "VALIDATED"
-    )
+    assert await dao.set_mutation_state(agent_id, mutation["mutation_id"], "VALIDATED")
     async with engine.transaction() as db:
         for lane in ("SQL", "VECTOR", "GRAPH"):
             await db.execute(
@@ -213,28 +253,44 @@ async def _commit_projected_mutation(dao, engine, agent_id, mutation, triplets):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_corrections_from_same_predecessor_enforce_single_active_head(tmp_path):
+async def test_concurrent_corrections_from_same_predecessor_enforce_single_active_head(
+    tmp_path,
+):
     """Two concurrent corrections from the same predecessor must not both become ACTIVE."""
     db_path = tmp_path / "mesa_test_concurrent_head.db"
     engine = AsyncEngine(str(db_path))
     await engine.initialize()
     await initialize_schema(engine)
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=SimpleNamespace(), graph_provider=SimpleNamespace())
+    dao = MemoryDAO(
+        sqlite_engine=engine,
+        vector_engine=SimpleNamespace(),
+        graph_provider=SimpleNamespace(),
+    )
 
     tenant_id = "tenant_cas"
     workspace_id = "ws_cas"
     dataset_id = "dataset_cas"
     doc_id = "doc_cas"
 
-    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS CAS")
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
-    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Doc CAS", document_id=doc_id)
+    await dao.create_v4_workspace(
+        tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS CAS"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id
+    )
+    await dao.create_v4_document(
+        tenant_id=tenant_id, dataset_id=dataset_id, title="Doc CAS", document_id=doc_id
+    )
 
     # Base revision R0 (ACTIVE)
     await dao.create_v4_revision(
-        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
-        revision_id="rev_0", revision_number=1, content_hash="0" * 64
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id="rev_0",
+        revision_number=1,
+        content_hash="0" * 64,
     )
     async with engine.transaction() as db:
         await db.execute(
@@ -244,32 +300,84 @@ async def test_concurrent_corrections_from_same_predecessor_enforce_single_activ
 
     # Correction 1 (superseding R0)
     await dao.create_v4_revision(
-        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
-        revision_id="rev_1", revision_number=2, supersedes_revision_id="rev_0", content_hash="1" * 64
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id="rev_1",
+        revision_number=2,
+        supersedes_revision_id="rev_0",
+        content_hash="1" * 64,
+    )
+    await dao.create_v4_source_chunk(
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id="rev_1",
+        chunk_id="c1",
+        title="Correction 1",
+        content_payload="C1",
+        source_ref="ref_1",
+        revision_number=2,
+        supersedes_revision_id="rev_0",
     )
 
     # Correction 2 (also superseding R0)
     await dao.create_v4_revision(
-        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
-        revision_id="rev_2", revision_number=3, supersedes_revision_id="rev_0", content_hash="2" * 64
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id="rev_2",
+        revision_number=3,
+        supersedes_revision_id="rev_0",
+        content_hash="2" * 64,
+    )
+    await dao.create_v4_source_chunk(
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id="rev_2",
+        chunk_id="c2",
+        title="Correction 2",
+        content_payload="C2",
+        source_ref="ref_2",
+        revision_number=3,
+        supersedes_revision_id="rev_0",
     )
 
     # Commit Correction 1 first -> R1 becomes ACTIVE, R0 becomes SUPERSEDED
     m1 = {
-        "tenant_id": tenant_id, "workspace_id": workspace_id, "dataset_id": dataset_id,
-        "document_id": doc_id, "revision_id": "rev_1", "chunk_id": "c1", "agent_id": "agent_cas",
-        "session_id": "sess_1", "pipeline_run_id": "run_1", "source_ref": "ref_1",
-        "mutation_id": "mut_1", "candidate_id": "cand_1", "content_payload": "C1",
+        "tenant_id": tenant_id,
+        "workspace_id": workspace_id,
+        "dataset_id": dataset_id,
+        "document_id": doc_id,
+        "revision_id": "rev_1",
+        "chunk_id": "c1",
+        "agent_id": "agent_cas",
+        "session_id": "sess_1",
+        "pipeline_run_id": "run_1",
+        "source_ref": "ref_1",
+        "mutation_id": "mut_1",
+        "candidate_id": "cand_1",
+        "content_payload": "C1",
     }
     await dao.record_mutation(m1, raw_log_id=None)
     await _commit_projected_mutation(dao, engine, "agent_cas", m1, [])
 
     # Now attempt to commit Correction 2 whose predecessor R0 is no longer ACTIVE -> Must fail closed!
     m2 = {
-        "tenant_id": tenant_id, "workspace_id": workspace_id, "dataset_id": dataset_id,
-        "document_id": doc_id, "revision_id": "rev_2", "chunk_id": "c2", "agent_id": "agent_cas",
-        "session_id": "sess_2", "pipeline_run_id": "run_2", "source_ref": "ref_2",
-        "mutation_id": "mut_2", "candidate_id": "cand_2", "content_payload": "C2",
+        "tenant_id": tenant_id,
+        "workspace_id": workspace_id,
+        "dataset_id": dataset_id,
+        "document_id": doc_id,
+        "revision_id": "rev_2",
+        "chunk_id": "c2",
+        "agent_id": "agent_cas",
+        "session_id": "sess_2",
+        "pipeline_run_id": "run_2",
+        "source_ref": "ref_2",
+        "mutation_id": "mut_2",
+        "candidate_id": "cand_2",
+        "content_payload": "C2",
     }
     await dao.record_mutation(m2, raw_log_id=None)
     with pytest.raises(ValueError, match="revision supersession conflict"):
@@ -277,7 +385,10 @@ async def test_concurrent_corrections_from_same_predecessor_enforce_single_activ
 
     # Verify document has exactly ONE active revision (R1)
     async with engine.connection() as db:
-        async with db.execute("SELECT revision_id FROM document_revisions WHERE document_id = ? AND status = 'ACTIVE'", (doc_id,)) as cur:
+        async with db.execute(
+            "SELECT revision_id FROM document_revisions WHERE document_id = ? AND status = 'ACTIVE'",
+            (doc_id,),
+        ) as cur:
             rows = await cur.fetchall()
             assert len(rows) == 1
             assert rows[0][0] == "rev_1"
@@ -293,7 +404,11 @@ async def test_cannot_append_chunks_to_finalized_revision(tmp_path):
     await engine.initialize()
     await initialize_schema(engine)
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=SimpleNamespace(), graph_provider=SimpleNamespace())
+    dao = MemoryDAO(
+        sqlite_engine=engine,
+        vector_engine=SimpleNamespace(),
+        graph_provider=SimpleNamespace(),
+    )
 
     tenant_id = "tenant_freeze"
     workspace_id = "ws_freeze"
@@ -301,36 +416,66 @@ async def test_cannot_append_chunks_to_finalized_revision(tmp_path):
     doc_id = "doc_freeze"
     rev_id = "rev_freeze"
 
-    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Freeze")
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
+    await dao.create_v4_workspace(
+        tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Freeze"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id
+    )
 
     # 1. Create initial provenance (Revision + Chunk 1) -> status is ACTIVE
     p1 = await dao.create_v4_source_chunk(
-        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
-        revision_id=rev_id, chunk_id="chk_1", title="Title", content_payload="Chunk 1",
-        source_ref="ref_1", revision_number=1, chunk_ordinal=0
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id=rev_id,
+        chunk_id="chk_1",
+        title="Title",
+        content_payload="Chunk 1",
+        source_ref="ref_1",
+        revision_number=1,
+        chunk_ordinal=0,
     )
     assert p1["manifest_hash"] is not None
 
     # Manually activate revision to simulate pipeline run finalization
     async with engine.connection() as db:
-        await db.execute("UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = ?", (rev_id,))
+        await db.execute(
+            "UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = ?",
+            (rev_id,),
+        )
         await db.commit()
 
     # 2. Re-inserting identical chunk 1 is idempotent
     p1_again = await dao.create_v4_source_chunk(
-        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
-        revision_id=rev_id, chunk_id="chk_1", title="Title", content_payload="Chunk 1",
-        source_ref="ref_1", revision_number=1, chunk_ordinal=0
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        revision_id=rev_id,
+        chunk_id="chk_1",
+        title="Title",
+        content_payload="Chunk 1",
+        source_ref="ref_1",
+        revision_number=1,
+        chunk_ordinal=0,
     )
     assert p1_again["manifest_hash"] == p1["manifest_hash"]
 
     # 3. Attempting to append a NEW chunk_2 to finalized rev_id must fail!
-    with pytest.raises(ValueError, match="cannot append source chunk to finalized revision"):
+    with pytest.raises(
+        ValueError, match="cannot append source chunk to finalized revision"
+    ):
         await dao.create_v4_source_chunk(
-            tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id,
-            revision_id=rev_id, chunk_id="chk_2", title="Title", content_payload="Chunk 2",
-            source_ref="ref_2", revision_number=1, chunk_ordinal=1
+            tenant_id=tenant_id,
+            dataset_id=dataset_id,
+            document_id=doc_id,
+            revision_id=rev_id,
+            chunk_id="chk_2",
+            title="Title",
+            content_payload="Chunk 2",
+            source_ref="ref_2",
+            revision_number=1,
+            chunk_ordinal=1,
         )
 
     await engine.close()

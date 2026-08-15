@@ -569,6 +569,7 @@ class MesaV4Client(MesaClient):
         evidence_span: str = "",
         revision_number: int = 1,
         chunk_ordinal: int = 0,
+        finalize_revision: bool = True,
         supersedes_revision_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
@@ -588,6 +589,7 @@ class MesaV4Client(MesaClient):
                 "evidence_span": evidence_span,
                 "revision_number": revision_number,
                 "chunk_ordinal": chunk_ordinal,
+                "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
                 "metadata": metadata or {},
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
@@ -603,6 +605,8 @@ class MesaV4Client(MesaClient):
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -614,6 +618,8 @@ class MesaV4Client(MesaClient):
                 "limit": limit,
                 "jurisdiction": jurisdiction,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )
 
@@ -670,6 +676,8 @@ class MesaV4Client(MesaClient):
         query: str = "",
         token_budget: int = 2048,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "GET",
@@ -678,6 +686,8 @@ class MesaV4Client(MesaClient):
                 "query": query,
                 "token_budget": token_budget,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )
 
@@ -881,6 +891,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         evidence_span: str = "",
         revision_number: int = 1,
         chunk_ordinal: int = 0,
+        finalize_revision: bool = True,
         supersedes_revision_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
@@ -900,6 +911,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "evidence_span": evidence_span,
                 "revision_number": revision_number,
                 "chunk_ordinal": chunk_ordinal,
+                "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
                 "metadata": metadata or {},
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
@@ -915,6 +927,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -926,6 +940,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "limit": limit,
                 "jurisdiction": jurisdiction,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )
 
@@ -982,6 +998,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
         query: str = "",
         token_budget: int = 2048,
         valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "GET",
@@ -990,5 +1008,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "query": query,
                 "token_budget": token_budget,
                 "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
         )

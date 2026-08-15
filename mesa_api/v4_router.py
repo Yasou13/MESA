@@ -23,6 +23,7 @@ from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
     MemoryDAO,
+    NonHeadRollbackConflictError,
     PurgeRetryPendingError,
     QueueOverCapacityError,
     QueueRecordTooLargeError,
@@ -171,6 +172,7 @@ class V4SourceChunkRequest(BaseModel):
     source_ref: str = Field(min_length=1, max_length=2048)
     revision_number: int = Field(default=1, ge=1)
     chunk_ordinal: int = Field(default=0, ge=0)
+    finalize_revision: bool = True
     external_ref: str | None = Field(default=None, max_length=2048)
     supersedes_revision_id: str | None = Field(default=None, max_length=256)
 
@@ -198,6 +200,7 @@ class V4MemoryInsertRequest(BaseModel):
     evidence_span: str = Field(default="", max_length=4096)
     revision_number: int = Field(default=1, ge=1)
     chunk_ordinal: int = Field(default=0, ge=0)
+    finalize_revision: bool = True
     supersedes_revision_id: str | None = Field(default=None, max_length=256)
     metadata: dict = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, max_length=128)
@@ -601,6 +604,7 @@ def create_v4_router(
             source_ref=payload.source_ref,
             revision_number=payload.revision_number,
             chunk_ordinal=payload.chunk_ordinal,
+            finalize_revision=payload.finalize_revision,
             external_ref=payload.external_ref,
             supersedes_revision_id=payload.supersedes_revision_id,
         )
@@ -700,7 +704,9 @@ def create_v4_router(
             projection_outbox=canonical_writes_available,
             idempotent_ingestion=canonical_writes_available,
             durable_rebuild=config.v4_rebuild_enabled,
-            vector_retrieval=vector_available if isinstance(vector_available, bool) else False,
+            vector_retrieval=(
+                vector_available if isinstance(vector_available, bool) else False
+            ),
             graph_projection=canonical_writes_available,
         )
         return V4CapabilityResponse(
@@ -906,6 +912,7 @@ def create_v4_router(
                 policy=config.queue_admission_policy,
                 idempotency_key=payload.idempotency_key,
                 payload_hash=payload_hash if payload.idempotency_key else None,
+                finalize_revision=payload.finalize_revision,
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
@@ -1016,7 +1023,13 @@ def create_v4_router(
         ):
             raise HTTPException(status_code=403, detail="ROLLBACK permission required")
         await _require_mutation_admission(dao)
-        return await dao.request_pipeline_rollback(str(mutation["pipeline_run_id"]))
+        try:
+            return await dao.request_pipeline_rollback(str(mutation["pipeline_run_id"]))
+        except NonHeadRollbackConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="NON_HEAD_ROLLBACK_CONFLICT",
+            ) from exc
 
     @router.post("/mutations/{mutation_id}/replay", status_code=202)
     async def replay_mutation(
@@ -1052,13 +1065,19 @@ def create_v4_router(
         request: Request,
         query: str = "",
         token_budget: int = 2048,
-        valid_at: str | None = None,
+        valid_at: datetime | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
         session = await _authorized_v4_session(
             request, dao, access_control, session_id, level="READ"
         )
+        if valid_from and valid_to and valid_from > valid_to:
+            raise HTTPException(
+                status_code=422, detail="valid_from must not be after valid_to"
+            )
         agent_id = str(session["agent_id"])
         builder = ContextBuilder(dao)
         ctx = await builder.build_context(
@@ -1068,7 +1087,9 @@ def create_v4_router(
             query=query,
             session_id=session_id,
             token_budget=token_budget,
-            valid_at=valid_at,
+            valid_at=valid_at.isoformat() if valid_at else None,
+            valid_from=valid_from.isoformat() if valid_from else None,
+            valid_to=valid_to.isoformat() if valid_to else None,
         )
         mutations = await dao.list_session_mutation_summaries(
             agent_id, session_id, limit=20

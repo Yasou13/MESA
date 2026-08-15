@@ -638,6 +638,13 @@ async def _close_runtime_storage_resources() -> None:
         else:
             delattr(state, attribute)
 
+    # APIKeyStore opens short-lived SQLite connections per operation and has
+    # no close hook, but the process-global state must not retain a registry
+    # from a previous lifespan/storage root.  A stale registry makes the next
+    # lifespan authenticate against the wrong deployment database.
+    if hasattr(state, "api_key_store"):
+        delattr(state, "api_key_store")
+
     database = getattr(state, "kuzu_db", None)
     if database is not None:
         try:

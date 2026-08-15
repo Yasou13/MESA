@@ -70,6 +70,7 @@ async def test_api_request_lifespan_failure_still_closes_storage_and_writer_lock
     engine = SimpleNamespace(close=AsyncMock())
     isolated_state = server.AppState()
     isolated_state.sqlite_engine = engine  # type: ignore[assignment]
+    isolated_state.api_key_store = object()  # type: ignore[assignment]
 
     @asynccontextmanager
     async def initialized_runtime(_app, _runtime):  # type: ignore[no-untyped-def]
@@ -91,3 +92,4 @@ async def test_api_request_lifespan_failure_still_closes_storage_and_writer_lock
 
     engine.close.assert_awaited_once()
     writer_lock.release.assert_called_once()
+    assert not hasattr(isolated_state, "api_key_store")

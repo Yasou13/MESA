@@ -224,6 +224,13 @@ with MesaV4Client("http://localhost:8000", api_key=credential) as client:
     client.wait_until_committed(accepted["mutation_id"])
 ```
 
+For a multi-chunk revision, pass `finalize_revision=False` on every insert
+except the last one; the final insert freezes the manifest and enables
+aggregate activation once every required mutation commits. V4 `search` and
+`get_context` accept the same `valid_at`, `valid_from`, and `valid_to`
+ISO-8601 filters across HTTP, sync/async SDK, and MCP. Search scores are fused
+relevance scores, so higher is better.
+
 The following client remains the v3 compatibility SDK:
 
 ```python

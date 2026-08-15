@@ -12,6 +12,7 @@ from pydantic import ValidationError
 import mesa_api.v4_router as v4_api
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
 from mesa_storage.dao import (
+    NonHeadRollbackConflictError,
     QueueOverCapacityError,
     QueueRecordTooLargeError,
     QueueUnavailableError,
@@ -889,3 +890,39 @@ async def test_v4_session_scope_and_mutation_control_fail_closed(
     assert rollback.json() == {"detail": "ROLLBACK permission required"}
     assert replay.status_code == 403
     assert replay.json() == {"detail": "ROLLBACK permission required"}
+
+
+@pytest.mark.asyncio
+async def test_v4_non_head_rollback_returns_typed_conflict(
+    asgi_client: ClientFactory,
+) -> None:
+    session = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "dataset_ids": ["dataset-a"],
+        "agent_id": "agent-a",
+        "session_id": "session-a",
+        "status": "ACTIVE",
+    }
+    mutation = {
+        "mutation_id": "mutation-a",
+        "candidate_id": "candidate-a",
+        "dataset_id": "dataset-a",
+        "session_id": "session-a",
+        "pipeline_run_id": "pipeline-a",
+        "state": "COMMITTED",
+        "failure_class": None,
+        "artifacts": [],
+        "projections": [],
+    }
+    dao = MagicMock()
+    dao.get_v4_session = AsyncMock(return_value=session)
+    dao.get_mutation_summary = AsyncMock(return_value=mutation)
+    dao.request_pipeline_rollback = AsyncMock(
+        side_effect=NonHeadRollbackConflictError("non-head")
+    )
+    response = await asgi_client(_app(dao, _access())).post(
+        "/v4/mutations/mutation-a/rollback"
+    )
+    assert response.status_code == 409
+    assert response.json() == {"detail": "NON_HEAD_ROLLBACK_CONFLICT"}

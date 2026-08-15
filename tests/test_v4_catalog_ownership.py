@@ -108,7 +108,7 @@ async def test_catalog_hierarchy_is_listable_and_revisions_are_immutable(
 
 
 @pytest.mark.asyncio
-async def test_catalog_rejects_cross_tenant_workspace_and_identity_collision(
+async def test_catalog_scopes_reused_public_ids_and_rejects_cross_tenant_links(
     tmp_path,
 ) -> None:
     engine = AsyncEngine(str(tmp_path / "catalog-scope.sqlite"))
@@ -121,22 +121,30 @@ async def test_catalog_rejects_cross_tenant_workspace_and_identity_collision(
             workspace_id="workspace-a",
             dataset_id="dataset-a",
         )
-        with pytest.raises(ValueError, match="workspace identity collides"):
-            await dao.ensure_v4_catalog_scope(
-                tenant_id="tenant-b",
-                workspace_id="workspace-a",
-                dataset_id="dataset-b",
-            )
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-b",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+        )
         async with engine.connection() as db:
-            await db.execute(
-                "INSERT INTO tenants (tenant_id, display_name) VALUES (?, ?)",
-                ("tenant-b", "Tenant B"),
-            )
+            async with db.execute(
+                "SELECT tenant_id, physical_id FROM v4_catalog_identities "
+                "WHERE kind = 'workspace' AND external_id = 'workspace-a' "
+                "ORDER BY tenant_id"
+            ) as cursor:
+                workspaces = await cursor.fetchall()
+            assert len(workspaces) == 2
+            assert workspaces[0][1] != workspaces[1][1]
             with pytest.raises(sqlite3.IntegrityError, match="workspace must belong"):
                 await db.execute(
                     "INSERT INTO datasets (dataset_id, tenant_id, workspace_id, name) "
                     "VALUES (?, ?, ?, ?)",
-                    ("dataset-b", "tenant-b", "workspace-a", "Dataset B"),
+                    (
+                        "malicious-dataset",
+                        "tenant-b",
+                        str(workspaces[0][1]),
+                        "Malicious Dataset",
+                    ),
                 )
     finally:
         await engine.close()
@@ -163,7 +171,9 @@ async def test_source_chunk_id_cannot_be_reused_for_different_content(tmp_path) 
             "title": "Belge",
             "source_ref": "source-a",
         }
-        await dao.create_v4_source_chunk(content_payload="ilk içerik", **common)
+        await dao.create_v4_source_chunk(
+            content_payload="ilk içerik", finalize_revision=False, **common
+        )
         second = await dao.create_v4_source_chunk(
             content_payload="ikinci içerik",
             **{**common, "chunk_id": "chunk-b", "chunk_ordinal": 1},

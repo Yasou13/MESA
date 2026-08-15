@@ -16,7 +16,9 @@ import logging
 import random
 import re
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
+from threading import RLock
 from typing import Any, TypedDict
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
@@ -85,6 +87,51 @@ class RoutingState:
     last_update_time: float = 0.0
 
 
+class _BoundedRoutingStates:
+    """Small locked LRU for adaptive agent state held by one worker."""
+
+    def __init__(self, *, max_entries: int, ttl_seconds: float) -> None:
+        self._max_entries = max_entries
+        self._ttl_seconds = ttl_seconds
+        self._entries: OrderedDict[str, tuple[RoutingState, float]] = OrderedDict()
+        self._lock = RLock()
+
+    def get_or_create(self, agent_id: str, threshold: float) -> RoutingState:
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            existing = self._entries.get(agent_id)
+            if existing is not None:
+                self._entries.move_to_end(agent_id)
+                return existing[0]
+            state = RoutingState(threshold)
+            self._entries[agent_id] = (state, now + self._ttl_seconds)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
+            return state
+
+    def __getitem__(self, agent_id: str) -> RoutingState:
+        """Preserve read-only mapping access used by diagnostics and tests."""
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            state, _ = self._entries[agent_id]
+            self._entries.move_to_end(agent_id)
+            return state
+
+    def __len__(self) -> int:
+        """Expose the observable live size without leaking the backing map."""
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            return len(self._entries)
+
+    def _prune(self, now: float) -> None:
+        for key, (_, expires_at) in list(self._entries.items()):
+            if expires_at <= now:
+                del self._entries[key]
+
+
 class AdaptiveRouter:
     """Routes validation requests between a small LLM and Dual-LLM gate.
 
@@ -151,11 +198,17 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
 
         # Dynamic threshold state is strictly tenant-scoped.  A noisy tenant
         # must never alter another tenant's routing cost/quality trade-off.
-        self._routing_states: dict[str, RoutingState] = {}
+        # The router lives for the process lifetime.  Agent-scoped adaptive
+        # state therefore needs a real capacity bound rather than a plain
+        # dictionary that grows with every tenant ever seen by this worker.
+        self._routing_states = _BoundedRoutingStates(
+            max_entries=512,
+            ttl_seconds=3600.0,
+        )
         self._update_interval = 60.0  # seconds
 
     def _state_for(self, agent_id: str) -> RoutingState:
-        return self._routing_states.setdefault(agent_id, RoutingState(self.t_route))
+        return self._routing_states.get_or_create(agent_id, self.t_route)
 
     async def update_dynamic_threshold(self, agent_id: str):  # type: ignore[no-untyped-def]
         """Periodically recalibrate T_route based on recent audit performance."""

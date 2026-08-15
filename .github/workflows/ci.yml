@@ -161,6 +161,8 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Build the digest-pinned benchmark image for scanning
         run: docker build --pull=false --tag mesa-benchmark:security --file mesa-benchmark/Dockerfile .
+      - name: Build the shipped full-cognitive runtime image for scanning
+        run: docker build --pull=false --tag mesa-memory:security --target runtime --file Dockerfile .
       - name: Fail on high or critical Python and Node dependency findings
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
@@ -179,7 +181,25 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+      - name: Fail on high or critical full-cognitive image findings
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: image
+          image-ref: mesa-memory:security
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Generate the full-cognitive image CycloneDX SBOM
+        if: always()
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: image
+          image-ref: mesa-memory:security
+          format: cyclonedx
+          output: mesa-runtime-image.cdx.json
+          exit-code: "0"
       - name: Generate a CycloneDX SBOM from locked dependencies and image inputs
+        if: always()
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: fs
@@ -191,7 +211,9 @@ jobs:
         if: always()
         with:
           name: supply-chain-sbom
-          path: supply-chain-sbom.cdx.json
+          path: |
+            supply-chain-sbom.cdx.json
+            mesa-runtime-image.cdx.json
           if-no-files-found: error
           retention-days: 30
 

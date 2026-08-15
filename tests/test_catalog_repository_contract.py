@@ -38,11 +38,23 @@ async def test_catalog_repository_owns_scope_and_dao_preserves_compatibility(
             for item in await dao.list_v4_workspaces(tenant_id="tenant-a")
         ] == ["workspace-a"]
 
-        with pytest.raises(ValueError, match="collides"):
-            await repository.ensure_scope(
-                tenant_id="tenant-b",
-                workspace_id="workspace-a",
-                dataset_id="dataset-b",
-            )
+        await repository.ensure_scope(
+            tenant_id="tenant-b",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+        )
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT tenant_id, physical_id FROM v4_catalog_identities "
+                "WHERE kind = 'workspace' AND external_id = 'workspace-a' "
+                "ORDER BY tenant_id"
+            ) as cursor:
+                physical_workspaces = await cursor.fetchall()
+        assert len(physical_workspaces) == 2
+        assert physical_workspaces[0][1] != physical_workspaces[1][1]
+        assert [
+            item["workspace_id"]
+            for item in await dao.list_v4_workspaces(tenant_id="tenant-b")
+        ] == ["workspace-a"]
     finally:
         await engine.close()

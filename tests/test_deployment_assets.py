@@ -142,8 +142,8 @@ def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
 def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert (
-        "python:3.13.5-slim-bookworm@sha256:"
-        "4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419"
+        "python:3.13.12-slim-bookworm@sha256:"
+        "a58daefb915e1e03ad48f3ca4df8832065412c5c35cacb9d39f4229184de12b6"
     ) in dockerfile
     assert (
         "ghcr.io/astral-sh/uv:0.11.30@sha256:"
@@ -157,6 +157,8 @@ def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> N
     assert "uv.lock" in dockerfile
     assert "uv export" in dockerfile
     assert "--frozen" in dockerfile
+    assert "FROM ${PYTHON_IMAGE} AS python-base" in dockerfile
+    assert "apt-get upgrade -y --no-install-recommends" in dockerfile
 
 
 def test_readme_compose_quickstart_matches_the_fail_closed_compose_profile() -> None:
@@ -298,7 +300,7 @@ def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cos
     assert "uv sync --locked --extra dev --extra adapters" in workflow
 
 
-def test_ci_supply_chain_gate_scans_locked_dependencies_and_benchmark_image() -> None:
+def test_ci_supply_chain_gate_scans_locked_dependencies_and_shipped_images() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     supply_chain = workflow.split("  supply-chain-security:", maxsplit=1)[1].split(
         "  zero-cost-contract:", maxsplit=1
@@ -308,16 +310,19 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_benchmark_image() ->
     assert "npm ci --ignore-scripts" in supply_chain
     assert "npm audit --omit=dev --audit-level=high" in supply_chain
     assert "docker build --pull=false --tag mesa-benchmark:security" in supply_chain
+    assert "docker build --pull=false --tag mesa-memory:security" in supply_chain
     assert (
         supply_chain.count(
             "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
         )
-        == 3
+        == 5
     )
-    assert supply_chain.count('exit-code: "1"') == 2
-    assert supply_chain.count("severity: HIGH,CRITICAL") == 2
+    assert supply_chain.count('exit-code: "1"') == 3
+    assert supply_chain.count("severity: HIGH,CRITICAL") == 3
     assert "format: cyclonedx" in supply_chain
+    assert supply_chain.count("if: always()") == 3
     assert "supply-chain-sbom.cdx.json" in supply_chain
+    assert "mesa-runtime-image.cdx.json" in supply_chain
 
     dependabot = yaml.safe_load(
         (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")

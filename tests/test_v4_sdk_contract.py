@@ -137,6 +137,7 @@ def test_sync_v4_insert_sends_server_scoped_provenance(monkeypatch) -> None:
             "evidence_span": "0:13",
             "revision_number": 1,
             "chunk_ordinal": 0,
+            "finalize_revision": True,
             "supersedes_revision_id": None,
             "metadata": {},
         },
