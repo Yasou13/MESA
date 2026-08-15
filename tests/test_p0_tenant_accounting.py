@@ -24,23 +24,31 @@ async def test_tenant_workspace_dataset_boundary_isolation(tmp_path):
         tenant_id="tenant_A", workspace_id="ws_A", dataset_id="dataset_shared"
     )
 
-    # 2. Attempting to register dataset_shared under Tenant B / Workspace B MUST fail closed
+    # 2. Public IDs are tenant-scoped and may safely coexist physically.
     await dao.create_v4_workspace(
         tenant_id="tenant_B", workspace_id="ws_B", workspace_name="WS B"
     )
-    with pytest.raises(
-        ValueError,
-        match="dataset identity collides|already bound|belongs to|cross tenant",
-    ):
-        await dao.ensure_v4_catalog_scope(
-            tenant_id="tenant_B", workspace_id="ws_B", dataset_id="dataset_shared"
-        )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="tenant_B", workspace_id="ws_B", dataset_id="dataset_shared"
+    )
+    async with engine.connection() as db:
+        async with db.execute(
+            "SELECT tenant_id, physical_id FROM v4_catalog_identities "
+            "WHERE kind = 'dataset' AND external_id = 'dataset_shared' "
+            "ORDER BY tenant_id"
+        ) as cursor:
+            physical_datasets = await cursor.fetchall()
+    assert len(physical_datasets) == 2
+    assert physical_datasets[0][1] != physical_datasets[1][1]
 
-    # 3. Attempting to create document for Tenant B under dataset_shared (which belongs to Tenant A) MUST fail closed
+    # 3. The opaque collision-safe physical ID from Tenant B still cannot be
+    # smuggled into Tenant A.  (Tenant A's legacy-compatible physical key is
+    # also the shared external ID, so resolving it in Tenant B correctly maps
+    # to Tenant B's own scoped dataset rather than crossing the boundary.)
     with pytest.raises(ValueError, match="dataset does not belong to tenant"):
         await dao.create_v4_document(
-            tenant_id="tenant_B",
-            dataset_id="dataset_shared",
+            tenant_id="tenant_A",
+            dataset_id=str(physical_datasets[1][1]),
             document_id="doc_stolen",
             title="Stolen Document",
         )

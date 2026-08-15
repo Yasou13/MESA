@@ -110,6 +110,22 @@ class _BoundedRoutingStates:
                 self._entries.popitem(last=False)
             return state
 
+    def __getitem__(self, agent_id: str) -> RoutingState:
+        """Preserve read-only mapping access used by diagnostics and tests."""
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            state, _ = self._entries[agent_id]
+            self._entries.move_to_end(agent_id)
+            return state
+
+    def __len__(self) -> int:
+        """Expose the observable live size without leaking the backing map."""
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            return len(self._entries)
+
     def _prune(self, now: float) -> None:
         for key, (_, expires_at) in list(self._entries.items()):
             if expires_at <= now:
