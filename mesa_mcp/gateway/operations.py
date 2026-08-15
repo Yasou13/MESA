@@ -220,7 +220,7 @@ class GatewayOperationService:
         operation = await self._create_operation(
             client_id, binding, connection_id, tool_name, idempotency_key, arguments
         )
-        if operation["status"] not in {"CREATED", "APPROVED"}:
+        if operation["status"] != "CREATED":
             return await self.operation_status(client_id, operation["operation_id"])
         effect = await self._middleware.policy_engine.evaluate(
             client_id, binding["external_project_id"], _POLICY_OPERATIONS[tool_name]
@@ -248,11 +248,11 @@ class GatewayOperationService:
         return await self._run_operation(operation, binding, client)
 
     async def process_approved_operations(self) -> int:
-        """Execute dashboard-approved work after a restart or disconnected bridge."""
+        """Claim and execute approved work after a restart or disconnected bridge."""
         async with self._engine.connection() as db:
             db.row_factory = __import__("aiosqlite").Row
             async with db.execute(
-                "SELECT * FROM mcp_operations WHERE status = 'PENDING_APPROVAL'"
+                "SELECT * FROM mcp_operations WHERE status IN ('PENDING_APPROVAL', 'APPROVED')"
             ) as cursor:
                 operations = [dict(row) for row in await cursor.fetchall()]
         completed = 0
@@ -262,21 +262,44 @@ class GatewayOperationService:
             )
             if approval is None or approval["status"] == "PENDING":
                 continue
-            if approval["status"] != "APPROVED":
-                await self._set_operation(operation["operation_id"], "DENIED")
-                completed += 1
+            if operation["status"] == "PENDING_APPROVAL":
+                target = (
+                    "APPROVED" if approval["status"] == "APPROVED" else "REJECTED"
+                )
+                transitioned = await self._transition_operation(
+                    operation["operation_id"], "PENDING_APPROVAL", target
+                )
+                if not transitioned:
+                    continue
+                operation["status"] = target
+                if target == "REJECTED":
+                    completed += 1
+                    continue
+            elif approval["status"] != "APPROVED":
                 continue
             if approval["payload_hash"] != operation["payload_hash"]:
-                await self._set_operation(
+                if await self._transition_operation(
                     operation["operation_id"],
+                    "APPROVED",
                     "DENIED",
                     error_code="APPROVAL_PAYLOAD_MISMATCH",
-                )
-                completed += 1
+                ):
+                    completed += 1
                 continue
-            binding, client = await self._scope_for_operation(operation)
-            await self._set_operation(operation["operation_id"], "APPROVED")
-            await self._run_operation(operation, binding, client)
+            if not await self._transition_operation(
+                operation["operation_id"], "APPROVED", "DISPATCHING"
+            ):
+                continue
+            try:
+                binding, client = await self._scope_for_operation(operation)
+                await self._run_operation(operation, binding, client)
+            except MCPError as exc:
+                await self._set_operation(
+                    operation["operation_id"],
+                    "FAILED",
+                    error_code=exc.code,
+                    error_message=exc.message,
+                )
             completed += 1
         return completed
 
@@ -327,7 +350,7 @@ class GatewayOperationService:
             idempotency_key,
             arguments,
         )
-        if operation["status"] not in {"CREATED", "APPROVED"}:
+        if operation["status"] != "CREATED":
             return await self.operation_status_for_principal(
                 principal, operation["operation_id"]
             )
@@ -722,6 +745,38 @@ class GatewayOperationService:
             )
             await db.commit()
 
+    async def _transition_operation(
+        self,
+        operation_id: str,
+        expected_status: str,
+        status: str,
+        *,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> bool:
+        terminal = status in {"COMMITTED", "REJECTED", "DENIED", "FAILED"}
+        async with self._engine.transaction() as db:
+            cursor = await db.execute(
+                """
+                UPDATE mcp_operations
+                SET status = ?, error_code = COALESCE(?, error_code),
+                    error_message = COALESCE(?, error_message),
+                    updated_at = CURRENT_TIMESTAMP,
+                    completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END
+                WHERE operation_id = ? AND status = ?
+                """,
+                (
+                    status,
+                    error_code,
+                    error_message,
+                    terminal,
+                    operation_id,
+                    expected_status,
+                ),
+            )
+            await db.commit()
+            return cursor.rowcount == 1
+
     async def _get_operation(self, operation_id: str) -> dict[str, Any] | None:
         async with self._engine.connection() as db:
             db.row_factory = __import__("aiosqlite").Row
@@ -833,7 +888,13 @@ def _operation_response(operation: dict[str, Any]) -> dict[str, Any]:
             "code": operation["error_code"],
             "message": operation.get("error_message"),
         }
-    if operation["status"] in {"PENDING_APPROVAL", "SUBMITTED", "PROCESSING"}:
+    if operation["status"] in {
+        "PENDING_APPROVAL",
+        "APPROVED",
+        "DISPATCHING",
+        "SUBMITTED",
+        "PROCESSING",
+    }:
         result["poll_after_ms"] = 2000
     return result
 
