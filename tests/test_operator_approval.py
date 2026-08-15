@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from cryptography.fernet import Fernet
 
+from mesa_mcp.codex_cli import _execute_operation_decision, _parser
 from mesa_mcp.gateway.approval import OperationApprovalService
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_mcp.gateway.operations import GatewayOperationService
@@ -60,7 +61,10 @@ async def approval_lifecycle(tmp_path):
         "credential:test",
         "mesa_remember",
         "operator-idempotency",
-        {"content": "Operators approve durable memories.", "idempotency_key": "operator-idempotency"},
+        {
+            "content": "Operators approve durable memories.",
+            "idempotency_key": "operator-idempotency",
+        },
     )
     approval_id = "apr-operator"
     await middleware.approval_repo.create_approval_request(
@@ -170,3 +174,38 @@ async def test_repeated_approval_is_rejected_and_dispatches_once(
     assert await gateway.process_approved_operations() == 1
     assert await gateway.process_approved_operations() == 0
     assert boundary.remember_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "decision"), (("approve", "APPROVED"), ("reject", "REJECTED"))
+)
+async def test_mesa_operations_cli_decides_by_operation_id(
+    approval_lifecycle, capsys, command: str, decision: str
+) -> None:
+    approval, gateway, _middleware, _boundary, operation_id = approval_lifecycle
+    args = _parser().parse_args(
+        [
+            "operations",
+            command,
+            operation_id,
+            "--control-db",
+            gateway._engine.db_path,
+            "--policy-db",
+            approval._access_control.policy_path,
+            "--principal",
+            "operator-admin",
+            "--reason",
+            "reviewed in CLI",
+        ]
+    )
+
+    await _execute_operation_decision(args)
+
+    assert args.group == "operations"
+    assert args.command == command
+    assert __import__("json").loads(capsys.readouterr().out) == {
+        "operation_id": operation_id,
+        "status": decision,
+        "decision": decision,
+    }

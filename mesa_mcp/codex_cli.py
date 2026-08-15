@@ -23,6 +23,7 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
 from .configuration import MCPSettings
+from .gateway.approval import OperationApprovalService
 from .gateway.middleware import ControlPlaneMiddleware
 from .workspace import workspace_fingerprint
 
@@ -41,6 +42,12 @@ _MANAGED_END = "# <<< MESA CODEX (managed)"
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
+    if args.group == "operations":
+        try:
+            asyncio.run(_execute_operation_decision(args))
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.error(str(exc))
+        return
     if args.group == "antigravity":
         from .antigravity_cli import main_for_args
 
@@ -62,6 +69,29 @@ def main() -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mesa", description="MESA local tools")
     commands = parser.add_subparsers(dest="group", required=True)
+    operations = commands.add_parser(
+        "operations", help="approve or reject durable operations"
+    )
+    operation_commands = operations.add_subparsers(dest="command", required=True)
+    for name in ("approve", "reject"):
+        command = operation_commands.add_parser(
+            name, help=f"{name} an operation awaiting operator review"
+        )
+        command.add_argument("operation_id")
+        command.add_argument(
+            "--control-db", type=Path, default=MCPSettings().gateway_control_db
+        )
+        command.add_argument(
+            "--policy-db",
+            type=Path,
+            default=Path(os.environ.get("MESA_STORAGE_ROOT", "./storage"))
+            .expanduser()
+            .resolve()
+            / "rbac_policy.db",
+        )
+        command.add_argument("--principal", default=os.environ.get("MESA_PRINCIPAL_ID"))
+        command.add_argument("--reason")
+
     codex = commands.add_parser("codex", help="manage Codex project memory")
     codex.set_defaults(group="codex")
     sub = codex.add_subparsers(dest="command", required=True)
@@ -139,6 +169,33 @@ async def _execute(args: argparse.Namespace) -> None:
         await _uninstall(args, root)
     elif args.command == "profile":
         await _profile(args, root)
+
+
+async def _execute_operation_decision(args: argparse.Namespace) -> None:
+    from mesa_memory.security.rbac import AccessControl
+
+    if not args.principal:
+        raise ValueError(
+            "operator principal is required; set MESA_PRINCIPAL_ID or use --principal"
+        )
+    engine = AsyncEngine(str(args.control_db.expanduser().resolve()))
+    access = AccessControl(str(args.policy_db.expanduser().resolve()))
+    await engine.initialize()
+    await initialize_schema(engine)
+    await access.initialize()
+    try:
+        result = await OperationApprovalService(
+            engine=engine, access_control=access
+        ).decide(
+            operation_id=args.operation_id,
+            decision="APPROVED" if args.command == "approve" else "REJECTED",
+            decided_by=args.principal,
+            reason=args.reason,
+        )
+    finally:
+        await access.close()
+        await engine.close()
+    print(json.dumps(result, ensure_ascii=False))
 
 
 async def _open_control(args: argparse.Namespace) -> ControlPlaneMiddleware:

@@ -263,9 +263,7 @@ class GatewayOperationService:
             if approval is None or approval["status"] == "PENDING":
                 continue
             if operation["status"] == "PENDING_APPROVAL":
-                target = (
-                    "APPROVED" if approval["status"] == "APPROVED" else "REJECTED"
-                )
+                target = "APPROVED" if approval["status"] == "APPROVED" else "REJECTED"
                 transitioned = await self._transition_operation(
                     operation["operation_id"], "PENDING_APPROVAL", target
                 )
