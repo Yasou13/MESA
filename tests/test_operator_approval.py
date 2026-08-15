@@ -132,10 +132,10 @@ async def test_operator_can_reject_pending_operation(approval_lifecycle) -> None
 
 
 @pytest.mark.asyncio
-async def test_operator_approval_fails_closed_for_invalid_state_and_actor(
+async def test_operator_approval_fails_closed_for_unauthorized_actor(
     approval_lifecycle,
 ) -> None:
-    approval, gateway, _middleware, _boundary, operation_id = approval_lifecycle
+    approval, _gateway, _middleware, _boundary, operation_id = approval_lifecycle
 
     with pytest.raises(PermissionError, match="control administrator"):
         await approval.decide(
@@ -144,7 +144,17 @@ async def test_operator_approval_fails_closed_for_invalid_state_and_actor(
             decided_by="unauthorized-operator",
         )
 
-    await gateway._set_operation(operation_id, "FAILED")
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "terminal_state", ("COMMITTED", "FAILED", "REJECTED", "CANCELLED")
+)
+async def test_operator_approval_fails_closed_for_non_pending_state(
+    approval_lifecycle, terminal_state: str
+) -> None:
+    approval, gateway, _middleware, _boundary, operation_id = approval_lifecycle
+    await gateway._set_operation(operation_id, terminal_state)
+
     with pytest.raises(ValueError, match="PENDING_APPROVAL"):
         await approval.decide(
             operation_id=operation_id,
