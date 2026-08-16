@@ -6,6 +6,7 @@ the production combined-runtime composition.
 """
 
 import asyncio
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.api import server
 from mesa_memory.config import configured_embedding_identity
 from mesa_memory.context_builder import ContextBuilder
+from mesa_storage.vector_engine import VectorEngine
 
 
 class _DeterministicProvider(BaseUniversalLLMAdapter):
@@ -87,24 +89,24 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
     monkeypatch.setenv("MESA_MODEL_ENABLED", "true")
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
     monkeypatch.setenv("MESA_TIER3_MODE", "2")
+    monkeypatch.setenv("MESA_TIER3_LLM_PROVIDER_A", "mock")
+    monkeypatch.setenv("MESA_TIER3_LLM_MODEL_A", "terra-validator-a")
+    monkeypatch.setenv("MESA_TIER3_LLM_PROVIDER_B", "mock")
+    monkeypatch.setenv("MESA_TIER3_LLM_MODEL_B", "terra-validator-b")
     monkeypatch.setenv("MESA_EMBEDDING_DIMENSION", "384")
     monkeypatch.setenv("MESA_LLM_PROVIDER", "mock")
     monkeypatch.setenv("MESA_API_KEY", "d008-test-key")
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "d008-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
+    def provider_boundary(provider_name=None, *, model_name=None):
+        if model_name == "terra-validator-a":
+            return validator_a
+        if model_name == "terra-validator-b":
+            return validator_b
+        return provider
+
     monkeypatch.setattr(
-        server.AdapterFactory, "get_adapter", staticmethod(lambda: provider)
-    )
-    monkeypatch.setattr(
-        server.AdapterFactory,
-        "get_validation_adapters",
-        staticmethod(
-            lambda mode: (
-                (validator_a, validator_b)
-                if mode == 2
-                else (_ for _ in ()).throw(AssertionError(f"unexpected mode {mode}"))
-            )
-        ),
+        server.AdapterFactory, "get_adapter", staticmethod(provider_boundary)
     )
 
     # The REBEL provider boundary is deliberately unavailable: real
@@ -199,7 +201,6 @@ async def test_r4_mode_zero_combined_runtime_has_no_validator_dependency(
 ) -> None:
     storage = tmp_path / "mode-zero-runtime-storage"
     provider = _DeterministicProvider()
-    validation_modes: list[int] = []
     monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
     monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
     monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
@@ -215,23 +216,11 @@ async def test_r4_mode_zero_combined_runtime_has_no_validator_dependency(
         server.AdapterFactory, "get_adapter", staticmethod(lambda: provider)
     )
 
-    def no_validator_adapters(mode: int):
-        validation_modes.append(mode)
-        assert mode == 0
-        return ()
-
-    monkeypatch.setattr(
-        server.AdapterFactory,
-        "get_validation_adapters",
-        staticmethod(no_validator_adapters),
-    )
-
     async with server.lifespan(FastAPI()):
         loop = server.state.consolidation_loop
         assert loop.validation_policy.mode == 0
         assert loop.validation_policy.validator_count == 0
         assert loop.validation_policy.llm_validation_enabled is False
-        assert validation_modes == [0]
         dao = server.state.dao
         await dao.ensure_v4_catalog_scope(
             tenant_id="tenant-r4-0", workspace_id="default", dataset_id="main"
@@ -286,7 +275,6 @@ async def test_r4_mode_zero_combined_runtime_has_no_validator_dependency(
         )
         assert recall_after_restart
 
-    assert validation_modes == [0, 0]
     assert provider.completions > 0
     assert provider.embeddings > 0
 
@@ -298,28 +286,26 @@ async def test_r4_mode_one_combined_runtime_uses_only_validator_a(
     storage = tmp_path / "mode-one-runtime-storage"
     provider = _DeterministicProvider()
     validator_a = _DeterministicProvider("terra-validator-a")
-    validation_modes: list[int] = []
     monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
     monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
     monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
     monkeypatch.setenv("MESA_MODEL_ENABLED", "true")
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
     monkeypatch.setenv("MESA_TIER3_MODE", "1")
+    monkeypatch.setenv("MESA_TIER3_LLM_PROVIDER_A", "mock")
+    monkeypatch.setenv("MESA_TIER3_LLM_MODEL_A", "terra-validator-a")
+    monkeypatch.delenv("MESA_TIER3_LLM_PROVIDER_B", raising=False)
+    monkeypatch.delenv("MESA_TIER3_LLM_MODEL_B", raising=False)
     monkeypatch.setenv("MESA_REBEL_ENABLED", "false")
     monkeypatch.setenv("MESA_API_KEY", "r4-mode-one-key")
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "r4-mode-one-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
-    monkeypatch.setattr(
-        server.AdapterFactory, "get_adapter", staticmethod(lambda: provider)
-    )
 
-    def one_validator(mode: int):
-        validation_modes.append(mode)
-        assert mode == 1
-        return (validator_a,)
+    def provider_boundary(provider_name=None, *, model_name=None):
+        return validator_a if model_name == "terra-validator-a" else provider
 
     monkeypatch.setattr(
-        server.AdapterFactory, "get_validation_adapters", staticmethod(one_validator)
+        server.AdapterFactory, "get_adapter", staticmethod(provider_boundary)
     )
 
     async with server.lifespan(FastAPI()):
@@ -367,5 +353,71 @@ async def test_r4_mode_one_combined_runtime_uses_only_validator_a(
             "secondary": "NOT_RUN",
         }
 
-    assert validation_modes == [1]
     assert validator_a.completions == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "provider_a", "model_a", "provider_b", "model_b"),
+    [
+        (1, None, None, None, None),
+        (2, "mock", "validator-a", None, None),
+        (2, "mock", "same", "mock", "same"),
+    ],
+)
+async def test_r4_invalid_validation_composition_fails_server_startup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: int,
+    provider_a: str | None,
+    model_a: str | None,
+    provider_b: str | None,
+    model_b: str | None,
+) -> None:
+    storage = tmp_path / f"invalid-mode-{mode}-{model_a}-{model_b}"
+    provider = _DeterministicProvider()
+    monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
+    monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
+    monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
+    monkeypatch.setenv("MESA_MODEL_ENABLED", "true")
+    monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
+    monkeypatch.setenv("MESA_TIER3_MODE", str(mode))
+    monkeypatch.setenv("MESA_API_KEY", "r4-invalid-composition-key")
+    monkeypatch.setenv("MESA_PRINCIPAL_ID", "r4-invalid-composition-principal")
+    monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
+    for name, value in (
+        ("MESA_TIER3_LLM_PROVIDER_A", provider_a),
+        ("MESA_TIER3_LLM_MODEL_A", model_a),
+        ("MESA_TIER3_LLM_PROVIDER_B", provider_b),
+        ("MESA_TIER3_LLM_MODEL_B", model_b),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        server.AdapterFactory, "get_adapter", staticmethod(lambda *args, **kwargs: provider)
+    )
+
+    with pytest.raises(ValueError):
+        async with server.lifespan(FastAPI()):
+            raise AssertionError("invalid validation composition reached READY")
+
+
+@pytest.mark.asyncio
+async def test_lancedb_background_loop_is_one_bounded_daemon_after_restarts(
+    tmp_path: Path,
+) -> None:
+    for index in range(3):
+        engine = VectorEngine(str(tmp_path / f"lance-restart-{index}"))
+        await engine.initialize()
+        await engine.close()
+
+    threads = [
+        thread
+        for thread in threading.enumerate()
+        if thread.name == "LanceDBBackgroundEventLoop" and thread.is_alive()
+    ]
+
+    assert len(threads) == 1
+    assert threads[0].daemon is True
