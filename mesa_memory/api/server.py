@@ -47,6 +47,12 @@ from mesa_memory.observability.tracer import setup_telemetry_tracing
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
+from mesa_memory.consolidation.policy import (
+    DeterministicOnlyValidationPolicy,
+    DualLLMValidationPolicy,
+    SingleLLMValidationPolicy,
+)
+from mesa_memory.consolidation.validator import Tier3Validator
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import (
     ProjectionGenerationRepository,
@@ -417,13 +423,28 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.consolidation_loop = None  # type: ignore[assignment]
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
-        # Wire the Consolidation Loop directly to the DAO
-        llm_a, llm_b = AdapterFactory.get_tier3_adapters()
+        effective_mode = config.effective_tier3_mode(model_enabled=True)
+        if effective_mode == 0:
+            validation_policy = DeterministicOnlyValidationPolicy()
+        elif effective_mode == 1:
+            validators = AdapterFactory.get_validation_adapters(1)
+            validation_policy = SingleLLMValidationPolicy(validators[0])
+        elif effective_mode == 2:
+            validators = AdapterFactory.get_validation_adapters(2)
+            validation_policy = DualLLMValidationPolicy(
+                Tier3Validator(validators[0], validators[1])
+            )
+        else:
+            raise ValueError(f"Unknown validation mode: {effective_mode}")
+
+        extraction_adapter = AdapterFactory.get_adapter()
+        embedding_adapter = AdapterFactory.get_adapter()
+
         state.consolidation_loop = ConsolidationLoop(
             dao=state.dao,
-            embedder=AdapterFactory.get_adapter(),
-            llm_a=llm_a,
-            llm_b=llm_b,
+            embedder=embedding_adapter,
+            validation_policy=validation_policy,
+            extraction_llm=extraction_adapter,
             obs_layer=state.obs_layer,
         )
         consolidation_loop_task = await state.worker_supervisor.start(
@@ -440,7 +461,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         logger.info("EXPERIMENTAL_COGNITIVE_WORKERS_DISABLED")
 
         # ------------------------------------------------------------------
-        # Background workers: Tier-3 Deferred and DLQ
+        # Background workers: Tier-3 Deferred (when LLM active) and DLQ
         # ------------------------------------------------------------------
         try:
             from mesa_memory.consolidation.loop import (
@@ -448,17 +469,18 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
                 start_tier3_deferred_worker,
             )
 
-            tier3_task = await state.worker_supervisor.start(
-                "tier3-deferred",
-                lambda: start_tier3_deferred_worker(
-                    dao=state.dao,
-                    consolidation_loop=state.consolidation_loop,
-                    sleep_interval=15,
-                    batch_size=20,
-                ),
-            )
-            state.background_tasks.add(tier3_task)
-            logger.info("Tier-3 Deferred worker scheduled successfully.")
+            if effective_mode > 0:
+                tier3_task = await state.worker_supervisor.start(
+                    "tier3-deferred",
+                    lambda: start_tier3_deferred_worker(
+                        dao=state.dao,
+                        consolidation_loop=state.consolidation_loop,
+                        sleep_interval=15,
+                        batch_size=20,
+                    ),
+                )
+                state.background_tasks.add(tier3_task)
+                logger.info("Tier-3 Deferred worker scheduled successfully.")
 
             dlq_task = await state.worker_supervisor.start(
                 "dlq",

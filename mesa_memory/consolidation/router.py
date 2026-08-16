@@ -23,6 +23,12 @@ from typing import Any, TypedDict
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
+from mesa_memory.consolidation.policy import (
+    DeterministicOnlyValidationPolicy,
+    DualLLMValidationPolicy,
+    SingleLLMValidationPolicy,
+    ValidationPolicy,
+)
 from mesa_memory.consolidation.validator import (
     VALENCE_PROMPT_A_TEMPLATE,
     Tier3Validator,
@@ -171,14 +177,29 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         self,
         dao: MemoryDAO,
         small_llm: BaseUniversalLLMAdapter,
-        dual_llm_validator: Tier3Validator,
+        dual_llm_validator: Tier3Validator | ValidationPolicy | None = None,
+        *,
+        validation_policy: ValidationPolicy | None = None,
         t_route: float = 0.85,
         audit_probability: float = 0.05,
         obs_layer: ObservabilityLayer | None = None,
     ):
         self.dao = dao
         self.small_llm = small_llm
-        self.validator = dual_llm_validator
+        if validation_policy is not None:
+            self.validation_policy = validation_policy
+        elif isinstance(dual_llm_validator, ValidationPolicy):
+            self.validation_policy = dual_llm_validator
+        elif isinstance(dual_llm_validator, Tier3Validator):
+            self.validation_policy = DualLLMValidationPolicy(dual_llm_validator)
+        else:
+            self.validation_policy = DeterministicOnlyValidationPolicy()
+
+        self.validator = (
+            self.validation_policy.validator
+            if isinstance(self.validation_policy, DualLLMValidationPolicy)
+            else self.validation_policy
+        )
         # Retained as the configured default for compatibility.  Live routing
         # decisions use the agent-scoped state below.
         self.t_route = t_route
@@ -335,198 +356,56 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
     # ------------------------------------------------------------------
 
     async def validate(self, record: dict) -> RoutingDecision:
-        """Adaptive validation logic.
+        """Adaptive validation logic obeying the configured ValidationPolicy.
 
-        Returns a ``RoutingDecision`` across **all** execution paths:
-
-        1. **Legal-domain bypass** → ``decision=None, route="dual_llm"``
-           (caller must forward to Dual-LLM gate).
-        2. **Small-model accept** → ``decision=bool, route="small_model"``.
-        3. **Dual-LLM fallback/audit** → ``decision=bool, route="dual_llm"``.
-
-        v0.7.1 Phase 3: When LEGAL_DOMAIN_MODE is active, steps 1-3 are
-        entirely bypassed. Every record is routed to the Dual-LLM to
-        guarantee zero-hallucination consensus on legal data.
-
-        v0.7.1 Phase 1.2: Confidence scoring now uses LLM-as-a-Judge
-        instead of the mathematically invalid pseudo-entropy placeholder.
+        Mode 0:
+            Unconditionally zero validation LLM calls. Returns SKIPPED_BY_POLICY.
+        Mode 1:
+            Single LLM validator participates. Returns single_model STORE/DISCARD.
+        Mode 2:
+            Dual LLM consensus gate (A+B). Both participate in final decision.
         """
-        # Explicit corrections frequently resemble the record they replace.
-        # Route them to Tier-3 before any small-model/novelty shortcut can
-        # discard the update as redundant.
+        # Mode 0: Zero validation LLM unconditionally
+        if self.validation_policy.mode == 0:
+            audit = await self.validation_policy.validate_with_audit(record)
+            return RoutingDecision(
+                route="deterministic_only",
+                decision=True,
+                reason="skipped_by_policy",
+                tier3_audit=audit,
+            )
+
+        # Mode 1: Single LLM validator unconditionally (no validator B)
+        if self.validation_policy.mode == 1:
+            audit = await self.validation_policy.validate_with_audit(record)
+            accepted = bool(audit.get("accepted"))
+            return RoutingDecision(
+                route="single_model",
+                decision=accepted,
+                reason=str(audit.get("reason", "single_llm_store" if accepted else "single_llm_discard")),
+                tier3_audit=audit,
+            )
+
+        # Mode 2: True dual LLM consensus
+        route_reason = "dual_llm_consensus"
         if _requires_tier3_correction_review(record):
             record["tier3_deferred"] = True
             record["explicit_correction"] = True
-            return RoutingDecision(
-                route="dual_llm",
-                decision=None,
-                reason="explicit_correction_requires_tier3",
-                tier3_audit=None,
-            )
+            route_reason = "explicit_correction_requires_tier3"
+        elif getattr(config, "legal_domain_mode", False):
+            route_reason = "legal_domain_strict_mode"
+        elif record.get("_mesa_force_dual_llm"):
+            route_reason = "provenance_dual_review"
 
-        # -----------------------------------------------------------------
-        # PATH 1 — GUARDRAIL: Zero-Hallucination Legal Mode
-        # When active, the small-model confidence gate is unconditionally
-        # bypassed.  The dynamic T_route threshold is irrelevant; every
-        # payload is forced through the heavy Dual-LLM ConsolidationLoop.
-        # -----------------------------------------------------------------
-        if getattr(config, "legal_domain_mode", False):
-            logger.warning(
-                "LEGAL_DOMAIN_STRICT_MODE is ACTIVE! "
-                "All records will bypass the small-model gate and route directly to Dual-LLM. "
-                "EXPECT SIGNIFICANTLY HIGHER API COSTS AND LATENCY PER RECORD."
-            )
-            logger.info(
-                "LEGAL_DOMAIN_STRICT_MODE | Bypassing small-model gate. "
-                "Routing directly to Dual-LLM for record: %s",
-                record.get("cmb_id", record.get("id", "unknown")),
-            )
-            return RoutingDecision(
-                route="dual_llm",
-                decision=None,
-                reason="legal_domain_strict_mode",
-                tier3_audit=None,
-            )
+        dual_llm_audit = await self.validation_policy.validate_with_audit(record)
+        dual_llm_decision = bool(dual_llm_audit.get("accepted"))
 
-        if record.get("_mesa_force_dual_llm"):
-            return RoutingDecision(
-                route="dual_llm",
-                decision=None,
-                reason="provenance_dual_review",
-                tier3_audit=None,
-            )
-
-        agent_id = record.get("agent_id", "mesa_consolidation_system")
-        await self.update_dynamic_threshold(agent_id)
-        routing_state = self._state_for(agent_id)
-
-        prompt = VALENCE_PROMPT_A_TEMPLATE.format(
-            content=record.get("content_payload", ""),
-            source=tier3_provenance_context(record, default_source="unknown"),
-            performative=record.get("performative", "unknown"),
-        )
-
-        # 1. Route to small model
-        raw_response = str(await self.small_llm.acomplete(prompt))
-
-        parse_success = False
-        small_model_decision = False
-        small_model_justification = "No model justification supplied."
-
-        # 2. SCHEMA PARSING: Try parsing small model response first
-        try:
-            small_response = self.validator._parse_response(raw_response, "small_llm")
-            if isinstance(small_response, dict):
-                small_model_decision = small_response["decision"] == "STORE"
-                small_model_justification = str(
-                    small_response.get("justification", small_model_justification)
-                )
-                parse_success = True
-            else:  # Compatibility with pre-audit validator test doubles.
-                small_model_decision = (
-                    self.validator._parse_decision(raw_response, "small_llm") == "STORE"
-                )
-                parse_success = True
-        except Exception:
-            parse_success = False
-
-        # 3. Selective LLM-as-a-Judge: skip redundant judge call for clean low-risk parses
-        if parse_success and not getattr(config, "legal_domain_mode", False):
-            confidence_score = 0.90 if small_model_decision else 0.85
-        else:
-            confidence_score = await self._llm_judge_confidence(prompt, raw_response)
-
-        requires_fallback = not parse_success
-
-        # Routing Logic
-        if not requires_fallback:
-            requires_fallback = confidence_score < routing_state.threshold
-
-        is_audit = random.random() < self.audit_probability
-
-        # -----------------------------------------------------------------
-        # PATH 2 — Small-model accepted, no audit required
-        # -----------------------------------------------------------------
-        if not requires_fallback and not is_audit:
-            return RoutingDecision(
-                route="small_model",
-                decision=small_model_decision,
-                reason="small_model_confident",
-                tier3_audit=single_model_audit(
-                    decision="STORE" if small_model_decision else "DISCARD",
-                    justification=small_model_justification,
-                    model=self.small_llm,
-                    route_reason="small_model_confident",
-                ),
-            )
-
-        # -----------------------------------------------------------------
-        # PATH 3 — Dual-LLM Fallback or Audit Execution
-        # -----------------------------------------------------------------
-        logger.debug(
-            "ROUTER | fallback=%s audit=%s confidence=%.2f",
-            requires_fallback,
-            is_audit,
-            confidence_score,
-        )
-
-        dual_llm_audit = await self.validator.validate_with_audit(record)
-        if isinstance(dual_llm_audit, dict) and "accepted" in dual_llm_audit:
-            dual_llm_decision = bool(dual_llm_audit["accepted"])
-        else:  # Compatibility with pre-audit validator test doubles.
-            dual_llm_decision = await self.validator.validate(record)
-            dual_llm_audit = {
-                "route": "dual_llm",
-                "decisions": {
-                    "primary": "STORE" if dual_llm_decision else "DISCARD",
-                    "secondary": "NOT_AVAILABLE",
-                },
-                "justifications": {
-                    "primary": "Legacy validator result without a detailed receipt.",
-                    "secondary": None,
-                },
-                "models": {"primary": None, "secondary": None},
-                "prompt_version": "unknown",
-                "accepted": dual_llm_decision,
-                "reason": "legacy_validator_result",
-            }
-
-        if is_audit and not requires_fallback:
-            # We are auditing a "confident" small model response.
-            is_hallucination = small_model_decision != dual_llm_decision
-
-            if is_hallucination:
-                logger.warning(
-                    "ROUTER_AUDIT_FAILURE | Silent hallucination detected. "
-                    "Small model: %s, Dual LLM: %s, Confidence: %.2f",
-                    small_model_decision,
-                    dual_llm_decision,
-                    confidence_score,
-                )
-
-            # Telemetry logging via MemoryDAO
-            record_id = record.get("cmb_id", record.get("id", "unknown"))
-            try:
-                await self.dao.insert_routing_telemetry(
-                    agent_id=agent_id,
-                    record_id=record_id,
-                    small_model_decision=int(small_model_decision),
-                    small_model_confidence=confidence_score,
-                    dual_llm_decision=int(dual_llm_decision),
-                    is_hallucination=is_hallucination,
-                )
-            except Exception as e:
-                logger.error("Failed to log routing telemetry: %s", e)
-
-        # The Dual-LLM is the ground truth
         return RoutingDecision(
             route="dual_llm",
             decision=dual_llm_decision,
-            reason="dual_llm_fallback" if requires_fallback else "dual_llm_audit",
+            reason=route_reason,
             tier3_audit={
                 **dual_llm_audit,
-                "route_reason": (
-                    "dual_llm_fallback" if requires_fallback else "dual_llm_audit"
-                ),
+                "route_reason": route_reason,
             },
         )

@@ -42,6 +42,14 @@ from mesa_memory.consolidation.parser import (  # noqa: F401
     _salvage_truncated_json,
     _sanitize_llm_response,
 )
+from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.consolidation.policy import (
+    DeterministicOnlyValidationPolicy,
+    DualLLMValidationPolicy,
+    SingleLLMValidationPolicy,
+    ValidationPolicy,
+    get_validation_policy,
+)
 from mesa_memory.consolidation.router import AdaptiveRouter
 from mesa_memory.consolidation.schemas import ExtractedTriplet
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
@@ -596,17 +604,20 @@ class ConsolidationLoop:
         self,
         dao: MemoryDAO,
         embedder: BaseUniversalLLMAdapter,
-        llm_a: BaseUniversalLLMAdapter,
-        llm_b: BaseUniversalLLMAdapter,
-        obs_layer: ObservabilityLayer,
+        llm_a: BaseUniversalLLMAdapter | None = None,
+        llm_b: BaseUniversalLLMAdapter | None = None,
+        obs_layer: ObservabilityLayer | None = None,
         agent_id: str = "mesa_consolidation_system",
         queue_root: str | Path | None = None,
+        *,
+        validation_policy: ValidationPolicy | None = None,
+        extraction_llm: BaseUniversalLLMAdapter | None = None,
     ):
         self.dao = dao
         self.embedder = embedder
         self.llm_a = llm_a
         self.llm_b = llm_b
-        self.obs_layer = obs_layer
+        self.obs_layer = obs_layer or ObservabilityLayer()
         self._agent_id = agent_id
         self._running = False
 
@@ -634,14 +645,53 @@ class ConsolidationLoop:
         # Concurrency Control: Bound concurrent LLM API calls to prevent 429 Too Many Requests  # type: ignore[no-untyped-def]
         self._llm_semaphore = asyncio.Semaphore(5)
 
-        # Delegate modules
-        self.triplet_extractor = TripletExtractor(llm_a=llm_a, llm_b=llm_b)
-        self.validator = Tier3Validator(llm_a=llm_a, llm_b=llm_b)
+        # Validation Policy Resolution
+        if validation_policy is not None:
+            self.validation_policy = validation_policy
+        elif llm_a is not None and llm_b is not None:
+            self.validation_policy = DualLLMValidationPolicy(Tier3Validator(llm_a, llm_b))
+        elif llm_a is not None:
+            self.validation_policy = SingleLLMValidationPolicy(llm_a)
+        else:
+            effective_mode = config.effective_tier3_mode(model_enabled=True)
+            if effective_mode == 0:
+                self.validation_policy = DeterministicOnlyValidationPolicy()
+            elif effective_mode == 1:
+                adapters = AdapterFactory.get_validation_adapters(1)
+                self.validation_policy = SingleLLMValidationPolicy(adapters[0])
+            else:
+                adapters = AdapterFactory.get_validation_adapters(2)
+                self.validation_policy = DualLLMValidationPolicy(
+                    Tier3Validator(adapters[0], adapters[1])
+                )
+
+        # Backward compatibility validator handle
+        self.validator = (
+            self.validation_policy.validator
+            if isinstance(self.validation_policy, DualLLMValidationPolicy)
+            else self.validation_policy
+        )
+
+        # Delegate modules: Extraction and Routing
+        ext_a = extraction_llm or llm_a
+        ext_b = extraction_llm or llm_b or ext_a
+        if ext_a is None:
+            if isinstance(self.validation_policy, DualLLMValidationPolicy):
+                ext_a = getattr(self.validation_policy.validator, "llm_a", None)
+                ext_b = getattr(self.validation_policy.validator, "llm_b", ext_a)
+            elif isinstance(self.validation_policy, SingleLLMValidationPolicy):
+                ext_a = getattr(self.validation_policy, "llm_a", None)
+                ext_b = ext_a
+        if ext_a is None:
+            ext_a = embedder
+            ext_b = ext_a
+
+        self.triplet_extractor = TripletExtractor(llm_a=ext_a, llm_b=ext_b)
         self.router = AdaptiveRouter(
             dao=dao,
-            small_llm=llm_a,  # type: ignore[no-untyped-def]
-            dual_llm_validator=self.validator,
-            obs_layer=obs_layer,
+            small_llm=ext_a or embedder,
+            validation_policy=self.validation_policy,
+            obs_layer=self.obs_layer,
         )
         self.graph_writer = GraphWriter(  # type: ignore[no-untyped-def]
             dao=dao,
@@ -649,7 +699,7 @@ class ConsolidationLoop:
             human_review_queue=self.human_review_queue,
             similarity_fn=calculate_composite_similarity,
             agent_id=agent_id,
-        )  # type: ignore[no-untyped-def]
+        )
 
     # Expose rebel_extractor for backward compatibility
     @property
@@ -807,7 +857,7 @@ class ConsolidationLoop:
         # --- Phase 1: Tier-3 validation gate ---
         ready_batch = []
         for record in batch:
-            if record.get("tier3_deferred"):
+            if record.get("tier3_deferred") or record.get("validation_mode") is not None:
                 if _requires_provenance_dual_review(record):
                     record["_mesa_force_dual_llm"] = True
                 try:
@@ -871,15 +921,21 @@ class ConsolidationLoop:
                 is_pass = False
                 tier3_audit: dict[str, Any] | None = None
                 if isinstance(is_valid, dict):
-                    candidate_audit = is_valid.get("tier3_audit")
-                    if isinstance(candidate_audit, dict):
-                        tier3_audit = candidate_audit
-                    decision_val = is_valid.get("decision")
-                    if decision_val is None and is_valid.get("route") == "dual_llm":
-                        # B-5: Legal-domain bypass — decision deferred, forward to Dual-LLM
-                        tier3_audit = await self.validator.validate_with_audit(record)
-                        is_pass = bool(tier3_audit["accepted"])
-                    elif decision_val is not None:
+                    if "tier3_audit" in is_valid:
+                        tier3_audit = is_valid.get("tier3_audit")
+                        decision_val = is_valid.get("decision")
+                        if decision_val is None and is_valid.get("route") == "dual_llm":
+                            tier3_audit = await self.validator.validate_with_audit(record)
+                            is_pass = bool(tier3_audit["accepted"])
+                        elif decision_val is not None:
+                            is_pass = decision_val in (True, "STORE", "ADMIT")
+                        elif isinstance(tier3_audit, dict) and "accepted" in tier3_audit:
+                            is_pass = bool(tier3_audit["accepted"])
+                    elif "accepted" in is_valid:
+                        tier3_audit = is_valid
+                        is_pass = bool(is_valid["accepted"])
+                    else:
+                        decision_val = is_valid.get("decision")
                         is_pass = decision_val in (True, "STORE", "ADMIT")
                 else:
                     is_pass = bool(is_valid)
@@ -1069,23 +1125,46 @@ class ConsolidationLoop:
         record: dict,
         timeout_seconds: float = 30.0,
     ) -> Any:
-        """Run Tier-3 Dual-LLM validation with a hard timeout and retry logic.
+        """Run validation with a hard timeout and retry logic obeying ValidationPolicy.
 
         Wraps the validator call with ``asyncio.wait_for`` and limits
         concurrent execution via semaphore. Automatically retries
         on transient faults (API limits, network jitter).
         """
+        record_mode = record.get("validation_mode")
+        # Mode 0 short-circuit: zero LLM calls, no semaphore, no timeout
+        if record_mode == 0 or (record_mode is None and self.validation_policy.mode == 0):
+            return await DeterministicOnlyValidationPolicy().validate_with_audit(record)
+
         if llm_circuit_breaker.is_open:
             raise Exception("Circuit breaker is OPEN. Failing fast.")
         async with self._llm_semaphore:
             try:
-                res = await asyncio.wait_for(
-                    self.router.validate(record),
-                    timeout=timeout_seconds,
-                )
+                if record_mode == 1 and self.validation_policy.mode != 1:
+                    if self.llm_a is not None:
+                        policy: ValidationPolicy = SingleLLMValidationPolicy(self.llm_a)
+                    else:
+                        adapters = AdapterFactory.get_validation_adapters(1)
+                        policy = SingleLLMValidationPolicy(adapters[0])
+                    res = await asyncio.wait_for(
+                        policy.validate_with_audit(record),
+                        timeout=timeout_seconds,
+                    )
+                elif record_mode == 2 and self.validation_policy.mode != 2:
+                    adapters = AdapterFactory.get_validation_adapters(2)
+                    policy = DualLLMValidationPolicy(Tier3Validator(adapters[0], adapters[1]))
+                    res = await asyncio.wait_for(
+                        policy.validate_with_audit(record),
+                        timeout=timeout_seconds,
+                    )
+                else:
+                    res = await asyncio.wait_for(
+                        self.router.validate(record),
+                        timeout=timeout_seconds,
+                    )
                 llm_circuit_breaker.record_success()
                 return res
-            except Exception:  # type: ignore[no-untyped-def]
+            except Exception:
                 llm_circuit_breaker.record_failure()
                 raise
 
