@@ -1,20 +1,31 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
-from mesa_memory.config import MesaConfig
+from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.policy import (
     DeterministicOnlyValidationPolicy,
     DualLLMValidationPolicy,
-    SingleLLMValidationPolicy,
 )
 from mesa_memory.consolidation.schemas import MemoryCandidate
-from mesa_memory.consolidation.validator import Tier3Validator, Tier3ValidationError
+from mesa_memory.consolidation.validator import Tier3Validator
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_workers import ingestion_worker
+from mesa_workers.ingestion_worker import process_cold_path
 
 
 class MockAdapter(BaseUniversalLLMAdapter):
-    def __init__(self, response: str = '{"decision": "STORE", "justification": "Approved"}', model_name: str = "mock-model"):
+    def __init__(
+        self,
+        response: str = '{"decision": "STORE", "justification": "Approved"}',
+        model_name: str = "mock-model",
+    ):
         self.response = response
         self.model_name = model_name
         self.call_count = 0
@@ -132,4 +143,122 @@ async def test_durable_snapshot_mode_0_preserved_on_mode_2_server(tmp_path):
     assert adapter_a.call_count == 0
     assert adapter_b.call_count == 0
     assert record_mode_0["_mesa_tier3_audit"]["reason"] == "skipped_by_policy"
-    assert record_mode_0["_mesa_tier3_audit"]["decisions"]["primary"] == "SKIPPED_BY_POLICY"
+    assert (
+        record_mode_0["_mesa_tier3_audit"]["decisions"]["primary"]
+        == "SKIPPED_BY_POLICY"
+    )
+
+
+@pytest.mark.asyncio
+async def test_durable_admission_preserves_mode_across_reconfigured_processors(
+    tmp_path, monkeypatch
+):
+    """Persisted raw-log policy, not the new processor default, controls work."""
+    engine = AsyncEngine(str(tmp_path / "durable-policy.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(engine, SimpleNamespace())
+    validator_a = MockAdapter(model_name="validator-a")
+    validator_b = MockAdapter(model_name="validator-b")
+    embedder = MockAdapter(model_name="embedder")
+    extractor = MockAdapter(model_name="extractor")
+    monkeypatch.setattr(
+        ingestion_worker, "_run_ecod_gate", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        AdapterFactory,
+        "get_validation_adapters",
+        staticmethod(lambda mode: (validator_a, validator_b) if mode == 2 else ()),
+    )
+
+    async def admit(*, document_id: str, mode: int) -> dict:
+        embedding = configured_embedding_identity()
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-snapshot", workspace_id="workspace", dataset_id="data"
+        )
+        session = await dao.create_v4_session(
+            tenant_id="tenant-snapshot",
+            workspace_id="workspace",
+            dataset_ids=["data"],
+            agent_id="agent-snapshot",
+            principal_id="principal-snapshot",
+        )
+        return await dao.admit_v4_memory(
+            tenant_id="tenant-snapshot",
+            workspace_id="workspace",
+            dataset_id="data",
+            agent_id="agent-snapshot",
+            session_id=session["session_id"],
+            document_id=document_id,
+            revision_id=f"{document_id}-revision",
+            chunk_id=f"{document_id}-chunk",
+            title="Durable validation policy snapshot",
+            content_payload="The durable policy must survive a processor restart.",
+            source_ref="snapshot-test",
+            evidence_span="0:54",
+            revision_number=1,
+            chunk_ordinal=0,
+            supersedes_revision_id=None,
+            metadata={"_mesa_validation_mode": mode},
+            embedding_provider=embedding.provider,
+            embedding_model=embedding.model,
+            embedding_version=embedding.version,
+            embedding_dimension=embedding.dimension,
+            policy=config.queue_admission_policy,
+        )
+
+    try:
+        # Admit under Mode 2, then process through a newly configured Mode 0 loop.
+        mode_2 = await admit(document_id="mode-two-document", mode=2)
+        before = await dao.get_mutation_summary(mode_2["response"]["mutation_id"])
+        assert {row["state"] for row in before["projections"]} == {"BLOCKED_VALIDATION"}
+        restarted_mode_0 = ConsolidationLoop(
+            dao=dao,
+            embedder=embedder,
+            validation_policy=DeterministicOnlyValidationPolicy(),
+            extraction_llm=extractor,
+            queue_root=tmp_path / "mode-zero-processor",
+        )
+        await process_cold_path(
+            mode_2["response"]["raw_log_id"],
+            "agent-snapshot",
+            dao,
+            consolidation_loop=restarted_mode_0,
+            model_processing_enabled=True,
+            require_tier3_validation=True,
+        )
+        after_mode_2 = await dao.get_mutation_summary(mode_2["response"]["mutation_id"])
+        assert after_mode_2["state"] == "VALIDATED"
+        assert after_mode_2["tier3_audit"]["decisions"] == {
+            "primary": "STORE",
+            "secondary": "STORE",
+        }
+        assert validator_a.call_count == validator_b.call_count == 1
+
+        # Admit under Mode 0, then process through a newly configured Mode 2 loop.
+        mode_0 = await admit(document_id="mode-zero-document", mode=0)
+        restarted_mode_2 = ConsolidationLoop(
+            dao=dao,
+            embedder=embedder,
+            validation_policy=DualLLMValidationPolicy(
+                Tier3Validator(validator_a, validator_b)
+            ),
+            extraction_llm=extractor,
+            queue_root=tmp_path / "mode-two-processor",
+        )
+        await process_cold_path(
+            mode_0["response"]["raw_log_id"],
+            "agent-snapshot",
+            dao,
+            consolidation_loop=restarted_mode_2,
+            model_processing_enabled=True,
+            require_tier3_validation=True,
+        )
+        after_mode_0 = await dao.get_mutation_summary(mode_0["response"]["mutation_id"])
+        assert after_mode_0["state"] in {"VALIDATED", "RETRY_PENDING"}
+        assert (
+            after_mode_0["tier3_audit"]["decisions"]["primary"] == "SKIPPED_BY_POLICY"
+        )
+        assert validator_a.call_count == validator_b.call_count == 1
+    finally:
+        await engine.close()

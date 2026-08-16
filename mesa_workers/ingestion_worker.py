@@ -42,6 +42,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -81,6 +82,24 @@ def _safe_context_id(value: str) -> str:
         if value not in {"__unset__", "__system__"} and _CONTEXT_ID_RE.fullmatch(value)
         else "invalid"
     )
+
+
+async def _await_optional_dao_call(
+    dao: Any, method_name: str, *args: Any, **kwargs: Any
+) -> Any:
+    """Await real async DAO hooks while retaining lightweight test doubles.
+
+    `MagicMock` manufactures arbitrary attributes, so `hasattr` is not a
+    reliable capability check. A real DAO method (or an explicit AsyncMock)
+    returns an awaitable; an unspecified compatibility mock is a no-op.
+    """
+    method = getattr(dao, method_name, None)
+    if method is None:
+        return None
+    result = method(*args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return None
 
 
 def _write_cold_path_trace(message: str) -> None:
@@ -390,8 +409,9 @@ async def _process_cold_path_impl(
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;
                 # lightweight legacy mocks intentionally remain supported.
-                if hasattr(dao, "record_mutation"):
-                    await dao.record_mutation(candidate_record, raw_log_id=log_id)
+                await _await_optional_dao_call(
+                    dao, "record_mutation", candidate_record, raw_log_id=log_id
+                )
 
                 if consolidation_loop is not None:
                     async with _tier3_semaphore:
@@ -414,18 +434,22 @@ async def _process_cold_path_impl(
                 event_detail: dict[str, Any] | None = None
                 if isinstance(tier3_audit, dict):
                     event_detail = {"tier3": tier3_audit}
-                    if hasattr(dao, "record_mutation_tier3_audit"):
-                        await dao.record_mutation_tier3_audit(
-                            payload_agent_id, candidate.mutation_id, tier3_audit
-                        )
+                    await _await_optional_dao_call(
+                        dao,
+                        "record_mutation_tier3_audit",
+                        payload_agent_id,
+                        candidate.mutation_id,
+                        tier3_audit,
+                    )
                 if candidate.candidate_id in outcome.get("accepted", []):
-                    if hasattr(dao, "set_mutation_state"):
-                        await dao.set_mutation_state(
-                            payload_agent_id,
-                            candidate.mutation_id,
-                            "VALIDATED",
-                            event_detail=event_detail,
-                        )
+                    await _await_optional_dao_call(
+                        dao,
+                        "set_mutation_state",
+                        payload_agent_id,
+                        candidate.mutation_id,
+                        "VALIDATED",
+                        event_detail=event_detail,
+                    )
                     await _transition("processed", target_agent_id=payload_agent_id)
                     logger.info(
                         "COLD_PATH_VALIDATED_AND_PROJECTED | log_id=%d candidate_id=%s mode=%d",
@@ -435,28 +459,30 @@ async def _process_cold_path_impl(
                     )
                     return
                 if candidate.candidate_id in outcome.get("rejected", []):
-                    if hasattr(dao, "set_mutation_state"):
-                        await dao.set_mutation_state(
-                            payload_agent_id,
-                            candidate.mutation_id,
-                            "REJECTED",
-                            failure_class="Tier3Rejected",
-                            event_detail=event_detail,
-                        )
+                    await _await_optional_dao_call(
+                        dao,
+                        "set_mutation_state",
+                        payload_agent_id,
+                        candidate.mutation_id,
+                        "REJECTED",
+                        failure_class="Tier3Rejected",
+                        event_detail=event_detail,
+                    )
                     await _transition(
                         "rejected",
                         error_reason="tier3_validation_rejected",
                         target_agent_id=payload_agent_id,
                     )
                     return
-                if hasattr(dao, "set_mutation_state"):
-                    await dao.set_mutation_state(
-                        payload_agent_id,
-                        candidate.mutation_id,
-                        "RETRY_PENDING",
-                        failure_class="Tier3Unavailable",
-                        event_detail=event_detail,
-                    )
+                await _await_optional_dao_call(
+                    dao,
+                    "set_mutation_state",
+                    payload_agent_id,
+                    candidate.mutation_id,
+                    "RETRY_PENDING",
+                    failure_class="Tier3Unavailable",
+                    event_detail=event_detail,
+                )
                 await _transition("DEFERRED", target_agent_id=payload_agent_id)
                 return
 
