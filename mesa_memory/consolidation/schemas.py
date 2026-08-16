@@ -51,6 +51,8 @@ class MemoryCandidate(BaseModel):
     embedding_version: str | None = None
     embedding_dimension: int | None = Field(default=None, ge=1)
     created_artifact_ids: list[str] = Field(default_factory=list)
+    validation_mode: int | None = None
+    validation_policy: str | None = None
 
     @classmethod
     def from_raw_log(
@@ -74,6 +76,8 @@ class MemoryCandidate(BaseModel):
         embedding_model: str | None = None,
         embedding_version: str | None = None,
         embedding_dimension: int | None = None,
+        validation_mode: int | None = None,
+        validation_policy: str | None = None,
     ) -> "MemoryCandidate":
         """Create deterministic IDs so a redelivery cannot duplicate work."""
         tenant = tenant_id or agent_id
@@ -84,6 +88,17 @@ class MemoryCandidate(BaseModel):
         chunk = chunk_id or f"{revision}:chunk:0"
         reference = source_ref or f"raw-log:{raw_log_id}"
         identity = f"mesa:v4:{tenant}:{agent_id}:{raw_log_id}"
+        effective_metadata = metadata or {}
+        mode = (
+            validation_mode
+            if validation_mode is not None
+            else effective_metadata.get("_mesa_validation_mode")
+        )
+        policy = (
+            validation_policy
+            if validation_policy is not None
+            else effective_metadata.get("_mesa_validation_policy")
+        )
         return cls(
             candidate_id=str(uuid5(NAMESPACE_URL, f"{identity}:candidate")),
             mutation_id=str(uuid5(NAMESPACE_URL, f"{identity}:mutation")),
@@ -99,11 +114,13 @@ class MemoryCandidate(BaseModel):
             content_payload=content_payload,
             source_ref=reference,
             evidence_span=evidence_span,
-            metadata=metadata or {},
+            metadata=effective_metadata,
             embedding_provider=embedding_provider,
             embedding_model=embedding_model,
             embedding_version=embedding_version,
             embedding_dimension=embedding_dimension,
+            validation_mode=mode,
+            validation_policy=policy,
             pipeline_run_id=pipeline_run_id
             or str(uuid5(NAMESPACE_URL, f"{identity}:pipeline-run")),
         )
@@ -136,7 +153,9 @@ class MemoryCandidate(BaseModel):
             "embedding_version": self.embedding_version,
             "embedding_dimension": self.embedding_dimension,
             "created_artifact_ids": self.created_artifact_ids,
-            "tier3_deferred": True,
+            "validation_mode": self.validation_mode,
+            "validation_policy": self.validation_policy,
+            "tier3_deferred": self.validation_mode is None or self.validation_mode > 0,
         }
 
 

@@ -14,6 +14,7 @@ from mesa_memory.adapter.tokenizer import count_tokens
 from mesa_memory.config import config
 
 logger = logging.getLogger("MESA_Adapter")
+_DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
 # ---------------------------------------------------------------------------
 # Optional imports — deferred to avoid hard crashes when either SDK is absent
@@ -97,10 +98,12 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
         self,
         anthropic_api_key: Optional[str] = None,
         openai_api_key: Optional[str] = None,
+        model_name: Optional[str] = None,
     ):
         if anthropic is None:
             raise RuntimeError("ClaudeAdapter requires mesa-memory[adapters]")
         self.openai_api_key = openai_api_key
+        self.model_name = model_name or _DEFAULT_CLAUDE_MODEL
         self._sync_anthropic = anthropic.Anthropic(api_key=anthropic_api_key)
         self._async_anthropic = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
 
@@ -116,7 +119,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
     ) -> Union[str, BaseModel]:
         max_tokens = kwargs.get("max_tokens", 1024)
         temperature = kwargs.get("temperature", 0.7)
-        model = kwargs.get("model", "claude-sonnet-4-20250514")
+        model = kwargs.get("model", self.model_name)
 
         response = self._sync_anthropic.messages.create(
             model=model,
@@ -135,7 +138,7 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
     ) -> Union[str, BaseModel]:
         max_tokens = kwargs.get("max_tokens", 1024)
         temperature = kwargs.get("temperature", 0.7)
-        model = kwargs.get("model", "claude-sonnet-4-20250514")
+        model = kwargs.get("model", self.model_name)
 
         response = await self._async_anthropic.messages.create(
             model=model,

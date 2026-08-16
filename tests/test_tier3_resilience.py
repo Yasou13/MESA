@@ -140,21 +140,21 @@ class TestInfrastructureErrors:
     async def test_llm_a_rate_limited(self, llm_a, llm_b):
         llm_a.complete.side_effect = RuntimeError("HTTP 429: Too Many Requests")
         v = Tier3Validator(llm_a=llm_a, llm_b=llm_b)
-        with pytest.raises(RuntimeError, match="429"):
+        with pytest.raises(Tier3ValidationError, match="LLM_A failed: RuntimeError"):
             await v.validate(_make_record())
 
     @pytest.mark.asyncio
     async def test_llm_b_server_error(self, llm_a, llm_b):
         llm_b.complete.side_effect = RuntimeError("HTTP 500: Internal Server Error")
         v = Tier3Validator(llm_a=llm_a, llm_b=llm_b)
-        with pytest.raises(RuntimeError, match="500"):
+        with pytest.raises(Tier3ValidationError, match="LLM_B failed: RuntimeError"):
             await v.validate(_make_record())
 
     @pytest.mark.asyncio
     async def test_timeout(self, llm_a, llm_b):
         llm_a.complete.side_effect = TimeoutError("Connection timed out")
         v = Tier3Validator(llm_a=llm_a, llm_b=llm_b)
-        with pytest.raises(TimeoutError):
+        with pytest.raises(Tier3ValidationError, match="LLM_A failed: TimeoutError"):
             await v.validate(_make_record())
 
 

@@ -37,6 +37,9 @@ from mesa_memory.config import (
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
 )
+from mesa_memory.consolidation.policy import (
+    compose_validation_policy,
+)
 from mesa_memory.container_health import worker_is_ready
 from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.metrics import (
@@ -309,9 +312,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     # self-contained startup path.
     if runtime.profile is not RuntimeProfile.API_ONLY:
         await initialize_schema(state.sqlite_engine)
-    elif runtime.require_worker_readiness and not worker_is_ready(
-        runtime.storage_root
-    ):
+    elif runtime.require_worker_readiness and not worker_is_ready(runtime.storage_root):
         raise RuntimeError(
             "api-only runtime requires a ready worker before opening storage"
         )
@@ -354,14 +355,10 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         from mesa_storage import kuzu_setup
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None, kuzu_setup.initialize_schema, str(_KUZU_PATH)
-        )
+        await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
         logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
 
-        state.kuzu_db = await loop.run_in_executor(
-            None, kuzu.Database, str(_KUZU_PATH)
-        )
+        state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
         logger.info("KùzuDB initialised at %s", _KUZU_PATH)
         logger.info("KUZU_DATABASE_OPENED")
 
@@ -417,13 +414,17 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.consolidation_loop = None  # type: ignore[assignment]
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
-        # Wire the Consolidation Loop directly to the DAO
-        llm_a, llm_b = AdapterFactory.get_tier3_adapters()
+        effective_mode = config.effective_tier3_mode(model_enabled=True)
+        validation_policy = compose_validation_policy(effective_mode)
+
+        extraction_adapter = AdapterFactory.get_adapter()
+        embedding_adapter = AdapterFactory.get_adapter()
+
         state.consolidation_loop = ConsolidationLoop(
             dao=state.dao,
-            embedder=AdapterFactory.get_adapter(),
-            llm_a=llm_a,
-            llm_b=llm_b,
+            embedder=embedding_adapter,
+            validation_policy=validation_policy,
+            extraction_llm=extraction_adapter,
             obs_layer=state.obs_layer,
         )
         consolidation_loop_task = await state.worker_supervisor.start(
@@ -440,7 +441,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         logger.info("EXPERIMENTAL_COGNITIVE_WORKERS_DISABLED")
 
         # ------------------------------------------------------------------
-        # Background workers: Tier-3 Deferred and DLQ
+        # Background workers: Tier-3 Deferred (when LLM active) and DLQ
         # ------------------------------------------------------------------
         try:
             from mesa_memory.consolidation.loop import (
@@ -448,17 +449,18 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
                 start_tier3_deferred_worker,
             )
 
-            tier3_task = await state.worker_supervisor.start(
-                "tier3-deferred",
-                lambda: start_tier3_deferred_worker(
-                    dao=state.dao,
-                    consolidation_loop=state.consolidation_loop,
-                    sleep_interval=15,
-                    batch_size=20,
-                ),
-            )
-            state.background_tasks.add(tier3_task)
-            logger.info("Tier-3 Deferred worker scheduled successfully.")
+            if effective_mode > 0:
+                tier3_task = await state.worker_supervisor.start(
+                    "tier3-deferred",
+                    lambda: start_tier3_deferred_worker(
+                        dao=state.dao,
+                        consolidation_loop=state.consolidation_loop,
+                        sleep_interval=15,
+                        batch_size=20,
+                    ),
+                )
+                state.background_tasks.add(tier3_task)
+                logger.info("Tier-3 Deferred worker scheduled successfully.")
 
             dlq_task = await state.worker_supervisor.start(
                 "dlq",
@@ -834,7 +836,13 @@ memory_router = create_memory_router(
 # We can't attach dependencies to the include_router directly if the router already defines some,
 # but it's simpler to inject them directly on include_router
 app.include_router(memory_router, dependencies=router_dependencies)
-v4_router = create_v4_router(get_dao=get_dao, get_access_control=get_access_control)
+v4_router = create_v4_router(
+    get_dao=get_dao,
+    get_access_control=get_access_control,
+    get_composed_validation_policy=lambda: getattr(
+        getattr(state, "consolidation_loop", None), "validation_policy", None
+    ),
+)
 app.include_router(v4_router, dependencies=router_dependencies)
 app.include_router(
     create_control_router(
@@ -887,9 +895,7 @@ async def health_init():
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
-        and (
-            graph_status in ("healthy", "not_initialized") or graph_is_worker_owned
-        )
+        and (graph_status in ("healthy", "not_initialized") or graph_is_worker_owned)
     ):
         return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")

@@ -71,6 +71,7 @@ async def test_v4_admission_is_atomic_and_idempotent_without_catalog_orphans(
         "embedding_model": "embed-model",
         "embedding_version": "v1",
         "embedding_dimension": 3,
+        "validation_mode": 0,
         "idempotency_key": "insert-a",
         "payload_hash": "a" * 64,
     }
@@ -196,6 +197,7 @@ async def test_v4_admission_fault_rolls_back_then_retries_without_orphans(
         "embedding_model": "embed-model",
         "embedding_version": "v1",
         "embedding_dimension": 3,
+        "validation_mode": 0,
         "idempotency_key": "insert-after-fault",
         "payload_hash": "b" * 64,
         "policy": config.queue_admission_policy,

@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_memory.config import config, configured_embedding_identity
+from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
@@ -71,6 +72,15 @@ class V4CapabilityFlags(BaseModel):
     human_review: bool = False
 
 
+class V4ValidationCapability(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    mode: int = 0
+    policy: str = "deterministic_only"
+    llm_validation_enabled: bool = False
+    validator_count: int = 0
+
+
 class V4CapabilityLimits(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -85,6 +95,7 @@ class V4CapabilityResponse(BaseModel):
     api_version: str = "v4"
     features: list[str]
     capabilities: V4CapabilityFlags
+    validation: V4ValidationCapability = Field(default_factory=V4ValidationCapability)
     limits: V4CapabilityLimits = Field(default_factory=V4CapabilityLimits)
 
 
@@ -363,8 +374,16 @@ def create_v4_router(
     get_dao: Callable[[], MemoryDAO],
     *,
     get_access_control: Callable[[], AccessControl],
+    get_composed_validation_policy: Callable[[], ValidationPolicy | None] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/v4", tags=["v4-full-cognitive"])
+
+    def current_validation_policy() -> ValidationPolicy | None:
+        return (
+            get_composed_validation_policy()
+            if get_composed_validation_policy is not None
+            else None
+        )
 
     @router.post("/catalog/workspaces", status_code=201)
     async def create_workspace(
@@ -709,11 +728,35 @@ def create_v4_router(
             ),
             graph_projection=canonical_writes_available,
         )
+        policy = current_validation_policy()
+        if policy is not None:
+            val_cap = V4ValidationCapability(
+                mode=policy.mode,
+                policy=policy.name,
+                llm_validation_enabled=policy.llm_validation_enabled,
+                validator_count=policy.validator_count,
+            )
+        elif config.effective_tier3_mode(model_enabled=config.model_enabled) == 0:
+            val_cap = V4ValidationCapability(
+                mode=0,
+                policy="deterministic_only",
+                llm_validation_enabled=False,
+                validator_count=0,
+            )
+        else:
+            val_cap = V4ValidationCapability(
+                mode=config.effective_tier3_mode(model_enabled=config.model_enabled),
+                policy="not_composed",
+                llm_validation_enabled=False,
+                validator_count=0,
+            )
+
         return V4CapabilityResponse(
             features=[
                 name for name, enabled in capabilities.model_dump().items() if enabled
             ],
             capabilities=capabilities,
+            validation=val_cap,
         )
 
     async def submit_rebuild_operation(
@@ -887,6 +930,7 @@ def create_v4_router(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
         embedding_identity = configured_embedding_identity()
+        validation_policy = current_validation_policy()
         try:
             admission = await dao.admit_v4_memory(
                 tenant_id=str(session["tenant_id"]),
@@ -910,6 +954,11 @@ def create_v4_router(
                 embedding_version=embedding_identity.version,
                 embedding_dimension=embedding_identity.dimension,
                 policy=config.queue_admission_policy,
+                validation_mode=(
+                    validation_policy.mode
+                    if validation_policy is not None
+                    else config.effective_tier3_mode(model_enabled=config.model_enabled)
+                ),
                 idempotency_key=payload.idempotency_key,
                 payload_hash=payload_hash if payload.idempotency_key else None,
                 finalize_revision=payload.finalize_revision,

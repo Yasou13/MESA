@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Selectable validation policy:** Added explicit deterministic-only,
+  single-LLM and dual-LLM consensus modes with truthful runtime capability
+  reporting and durable per-mutation policy snapshots.
 - **Durable projection rebuild:** Added storage-root-scoped rebuild operations,
   append-only operation events, fenced leases/checkpoints, projection generation
   pointers and retained-generation rollback.
@@ -60,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Runtime-owned validation assurance:** Reserved `_mesa_*` metadata can no
+  longer be supplied by API writers or used to downgrade a mutation's
+  operator-selected validation mode.
 - **Rebuild maintenance admission:** Mutating v3/v4 requests are rejected with
   `503 maintenance_pending` while a rebuild is active; read, health and safe
   operation-control paths remain available.

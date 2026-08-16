@@ -11,6 +11,11 @@ from pydantic import ValidationError
 
 import mesa_api.v4_router as v4_api
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
+from mesa_memory.consolidation.policy import (
+    DeterministicOnlyValidationPolicy,
+    SingleLLMValidationPolicy,
+    ValidationPolicy,
+)
 from mesa_storage.dao import (
     NonHeadRollbackConflictError,
     QueueOverCapacityError,
@@ -30,6 +35,7 @@ def _app(
     *,
     principal_id: str = "principal-a",
     maintenance_pending: bool = False,
+    validation_policy: ValidationPolicy | None = None,
 ) -> FastAPI:  # type: ignore[no-untyped-def]
     async def attach_principal(request: Request) -> None:
         request.state.principal = SimpleNamespace(
@@ -50,6 +56,9 @@ def _app(
         create_v4_router(
             get_dao=get_dao,
             get_access_control=get_access_control,
+            get_composed_validation_policy=(
+                (lambda: validation_policy) if validation_policy is not None else None
+            ),
         )
     )
     return app
@@ -137,6 +146,8 @@ def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
         V4MemoryInsertRequest(**(payload | {"content": "password=not-for-storage"}))
     with pytest.raises(ValidationError, match="metadata exceeds"):
         V4MemoryInsertRequest(**(payload | {"metadata": {"x": "a" * (16 * 1024)}}))
+    with pytest.raises(ValidationError, match="reserved"):
+        V4MemoryInsertRequest(**(payload | {"metadata": {"_mesa_validation_mode": 0}}))
 
 
 @pytest.mark.asyncio
@@ -145,6 +156,8 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", False)
+    monkeypatch.setattr(v4_api.config, "model_enabled", False)
+    monkeypatch.setattr(v4_api.config, "tier3_mode", None)
     available_dao = MagicMock()
     available_dao.canonical_v4_writes_enabled = True
     client = asgi_client(_app(available_dao, _access()))
@@ -177,6 +190,12 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
             "durable_rebuild": False,
             "human_review": False,
         },
+        "validation": {
+            "mode": 0,
+            "policy": "deterministic_only",
+            "llm_validation_enabled": False,
+            "validator_count": 0,
+        },
         "limits": {
             "rebuild_kind": "projection",
             "rebuild_scope": "storage_root",
@@ -200,6 +219,41 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     assert unavailable["capabilities"]["idempotent_ingestion"] is False
     assert unavailable["capabilities"]["projection_outbox"] is False
     assert unavailable["capabilities"]["graph_projection"] is False
+
+
+@pytest.mark.asyncio
+async def test_v4_capability_reports_the_composed_validation_policy(
+    asgi_client: ClientFactory,
+) -> None:
+    dao = MagicMock()
+    dao.canonical_v4_writes_enabled = True
+    policy = SingleLLMValidationPolicy(MagicMock())
+
+    async def attach_principal(request: Request) -> None:
+        request.state.principal = SimpleNamespace(
+            principal_id="principal-a", principal_type="USER", status="active"
+        )
+
+    async def get_dao():  # type: ignore[no-untyped-def]
+        return dao
+
+    app = FastAPI(dependencies=[Depends(attach_principal)])
+    app.include_router(
+        create_v4_router(
+            get_dao=get_dao,
+            get_access_control=_access(),
+            get_composed_validation_policy=lambda: policy,
+        )
+    )
+    response = await asgi_client(app).get("/v4/capability")
+
+    assert response.status_code == 200
+    assert response.json()["validation"] == {
+        "mode": 1,
+        "policy": "single_llm",
+        "llm_validation_enabled": True,
+        "validator_count": 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -229,7 +283,13 @@ async def test_v4_insert_creates_canonical_mutation_after_authorized_admission(
             "status": "ACTIVE",
         }
     )
-    client = asgi_client(_app(dao, _access()))
+    client = asgi_client(
+        _app(
+            dao,
+            _access(),
+            validation_policy=DeterministicOnlyValidationPolicy(),
+        )
+    )
 
     response = await client.post(
         "/v4/memory/insert",
@@ -260,6 +320,7 @@ async def test_v4_insert_creates_canonical_mutation_after_authorized_admission(
     assert admission["embedding_model"]
     assert admission["embedding_version"] == "v1"
     assert admission["embedding_dimension"] > 0
+    assert admission["validation_mode"] == 0
 
 
 @pytest.mark.asyncio

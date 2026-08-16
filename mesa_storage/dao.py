@@ -95,7 +95,13 @@ def _public_tier3_audit(value: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(models, dict):
         return None
-    allowed_decisions = {"STORE", "DISCARD", "NOT_RUN", "NOT_AVAILABLE"}
+    allowed_decisions = {
+        "STORE",
+        "DISCARD",
+        "NOT_RUN",
+        "NOT_AVAILABLE",
+        "SKIPPED_BY_POLICY",
+    }
     primary = decisions.get("primary")
     secondary = decisions.get("secondary")
     if primary not in allowed_decisions or secondary not in allowed_decisions:
@@ -1637,6 +1643,7 @@ class MemoryDAO:
         embedding_version: str,
         embedding_dimension: int,
         policy: QueueAdmissionPolicy,
+        validation_mode: int,
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
         finalize_revision: bool = True,
@@ -1676,6 +1683,20 @@ class MemoryDAO:
         ):
             raise ValueError("complete embedding identity is required")
 
+        # Caller metadata is untrusted and must never select the validation
+        # assurance attached to durable work.  Snapshot only runtime-owned
+        # policy truth, and remove the entire reserved namespace before adding
+        # canonical fields.
+        effective_metadata = {
+            str(key): value
+            for key, value in (metadata.items() if isinstance(metadata, dict) else ())
+            if not str(key).startswith("_mesa_")
+        }
+        if type(validation_mode) is not int or validation_mode not in (0, 1, 2):
+            raise ValueError("validation_mode must be 0, 1, or 2")
+        effective_mode = validation_mode
+        effective_metadata["_mesa_validation_mode"] = effective_mode
+
         raw_payload = {
             "tenant_id": tenant_id,
             "workspace_id": workspace_id,
@@ -1688,7 +1709,8 @@ class MemoryDAO:
             "agent_id": agent_id,
             "session_id": session_id,
             "content": content_payload,
-            "metadata": metadata,
+            "metadata": effective_metadata,
+            "validation_mode": effective_mode,
         }
         serialized, payload_bytes = _canonical_payload_bytes(raw_payload)
         content_hash = hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
@@ -1982,7 +2004,7 @@ class MemoryDAO:
                         agent_id,
                         session_id,
                         content_payload,
-                        json.dumps(metadata, sort_keys=True),
+                        json.dumps(effective_metadata, sort_keys=True),
                         pipeline_run_id,
                         embedding_provider,
                         embedding_model,

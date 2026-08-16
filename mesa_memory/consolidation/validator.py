@@ -73,6 +73,35 @@ class Tier3ValidationError(Exception):
     pass
 
 
+def _parse_validator_response(raw: Any, llm_label: str) -> dict[str, str]:
+    """Parse one validator response without retaining its raw text.
+
+    The stored justification is a bounded, redacted explanation.  The
+    complete model response and the candidate content must never become a
+    pipeline event: those events are later exposed through operator APIs.
+    """
+    try:
+        cleaned = _strip_markdown_json(raw) if isinstance(raw, str) else ""
+        if not cleaned:
+            raise Tier3ValidationError(
+                f"{llm_label} returned empty/non-string response"
+            )
+        result = json.loads(cleaned)
+        decision = result.get("decision")
+        if decision not in ("STORE", "DISCARD"):
+            raise Tier3ValidationError(
+                f"{llm_label} returned invalid decision: {decision!r}"
+            )
+        return {
+            "decision": decision,
+            "justification": _safe_justification(result.get("justification")),
+        }
+    except (json.JSONDecodeError, TypeError, AttributeError) as exc:
+        raise Tier3ValidationError(
+            f"{llm_label} response is not valid JSON: {exc}"
+        ) from exc
+
+
 class Tier3Validator:
     """LLM-based consensus validator for Tier-3 deferred memory candidates.
 
@@ -97,32 +126,8 @@ class Tier3Validator:
         return self._parse_response(raw, llm_label)["decision"]
 
     def _parse_response(self, raw: Any, llm_label: str) -> dict[str, str]:
-        """Parse one validator response without retaining its raw text.
-
-        The stored justification is a bounded, redacted explanation.  The
-        complete model response and the candidate content must never become a
-        pipeline event: those events are later exposed through operator APIs.
-        """
-        try:
-            cleaned = _strip_markdown_json(raw) if isinstance(raw, str) else ""
-            if not cleaned:
-                raise Tier3ValidationError(
-                    f"{llm_label} returned empty/non-string response"
-                )
-            result = json.loads(cleaned)
-            decision = result.get("decision")
-            if decision not in ("STORE", "DISCARD"):
-                raise Tier3ValidationError(
-                    f"{llm_label} returned invalid decision: {decision!r}"
-                )
-            return {
-                "decision": decision,
-                "justification": _safe_justification(result.get("justification")),
-            }
-        except (json.JSONDecodeError, TypeError, AttributeError) as exc:
-            raise Tier3ValidationError(
-                f"{llm_label} response is not valid JSON: {exc}"
-            ) from exc
+        """Parse one validator response without retaining its raw text."""
+        return _parse_validator_response(raw, llm_label)
 
     async def validate(self, record: dict) -> bool:
         """Run dual-LLM consensus validation on a Tier-3 deferred record.
@@ -171,9 +176,11 @@ class Tier3Validator:
             return_exceptions=True,
         )
 
-        for res in results:
+        for label, res in zip(("LLM_A", "LLM_B"), results):
             if isinstance(res, BaseException):
-                raise res  # pragma: no cover
+                raise Tier3ValidationError(
+                    f"Validator {label} failed: {type(res).__name__}"
+                ) from res
 
         raw_a, raw_b = results
         response_a = self._parse_response(raw_a, "LLM_A")

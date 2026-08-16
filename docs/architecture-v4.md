@@ -56,9 +56,9 @@ revision, chunk, source reference, evidence span, agent/session, pipeline,
 extraction and embedding versions. Authorization fields are never read from
 free-form metadata.
 
-Tier-3 validation is a mandatory gate. A rejected mutation may keep its raw
+Validation is an explicit policy gate configured via `MESA_TIER3_MODE` (0 = deterministic-only, 1 = single LLM validator, 2 = dual-LLM consensus). A rejected mutation may keep its raw
 audit source, but it cannot create an active SQL, vector, entity, edge or
-assertion artifact.
+assertion artifact. In Mode 0, deterministic admission checks gate progression with zero LLM validator dependencies.
 
 ## Pipeline and failure model
 

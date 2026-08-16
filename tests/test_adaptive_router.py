@@ -1,9 +1,9 @@
 """
 Verification of Adaptive Routing Logic.
 
-Tests the specific routing branches of the ``AdaptiveRouter``:
-- Scenario A: High Confidence (0.95) bypasses Tier-3 Dual-LLM.
-- Scenario B: Low Confidence (0.40) triggers Tier-3 Dual-LLM.
+Tests that the configured validation policy is the assurance boundary.
+Mode 2 always runs true dual-LLM consensus; adaptive confidence is telemetry,
+not an admission bypass.
 
 asyncio_mode = strict -> every async test requires explicit @pytest.mark.asyncio.
 """
@@ -61,8 +61,8 @@ def _make_router_and_mocks(t_route: float = 0.90):
 
 
 @pytest.mark.asyncio
-async def test_scenario_a_high_confidence_bypasses_tier3():
-    """Scenario A: High confidence bypasses Tier-3 validation."""
+async def test_mode_2_high_confidence_still_runs_dual_consensus():
+    """A confident small model cannot bypass the configured Mode 2 policy."""
     router, validator, small_llm = _make_router_and_mocks()
 
     # 1. Mock the LLM-as-a-judge function to return 0.95 (High Confidence)
@@ -82,29 +82,20 @@ async def test_scenario_a_high_confidence_bypasses_tier3():
         decision = await router.validate(record)
 
     # 3. Assertions
-    # Must bypass Tier-3.
-    validator.validate.assert_not_awaited()
-    validator.validate_with_audit.assert_not_awaited()
+    validator.validate_with_audit.assert_awaited_once_with(record)
 
-    # Must return the small model's decision
-    assert decision["route"] == "small_model"
+    assert decision["route"] == "dual_llm"
     assert decision["decision"] is True
-    assert decision["reason"] == "small_model_confident"
+    assert decision["reason"] == "dual_llm_consensus"
 
 
 @pytest.mark.asyncio
-async def test_scenario_b_low_confidence_triggers_tier3():
-    """Scenario B: Low confidence triggers Tier-3 Dual-LLM validation."""
+async def test_mode_2_low_confidence_runs_dual_consensus():
+    """Low confidence preserves the same selected Mode 2 assurance."""
     router, validator, small_llm = _make_router_and_mocks()
 
     # 1. Mock the LLM-as-a-judge function to return 0.40 (Low Confidence)
     router._llm_judge_confidence = AsyncMock(return_value=0.40)
-    # A syntactically valid small-model response takes the deterministic
-    # low-risk shortcut and deliberately does not invoke the judge.  Make the
-    # primary response unparseable so this scenario actually exercises the
-    # low-confidence judge/fallback branch it names.
-    validator._parse_response.side_effect = ValueError("unparseable response")
-
     record = {
         "cmb_id": "test-scenario-b",
         "content_payload": "Some ambiguous or contradictory text.",
@@ -125,7 +116,7 @@ async def test_scenario_b_low_confidence_triggers_tier3():
     # Must return the dual LLM's decision
     assert decision["route"] == "dual_llm"
     assert decision["decision"] is True  # Based on our mock
-    assert decision["reason"] == "dual_llm_fallback"
+    assert decision["reason"] == "dual_llm_consensus"
 
 
 @pytest.mark.asyncio
@@ -141,14 +132,12 @@ async def test_strong_provenance_forces_dual_review_before_small_model():
         mock_config.legal_domain_mode = False
         decision = await router.validate(record)
 
-    assert decision == {
-        "route": "dual_llm",
-        "decision": None,
-        "reason": "provenance_dual_review",
-        "tier3_audit": None,
-    }
+    assert decision["route"] == "dual_llm"
+    assert decision["decision"] is True
+    assert decision["reason"] == "provenance_dual_review"
+    assert decision["tier3_audit"] is not None
     small_llm.acomplete.assert_not_awaited()
-    validator.validate_with_audit.assert_not_awaited()
+    validator.validate_with_audit.assert_awaited_once_with(record)
 
 
 @pytest.mark.asyncio
@@ -170,6 +159,8 @@ async def test_dynamic_threshold_and_cooldown_are_tenant_scoped():
     assert router._routing_states["agent-clean"].threshold == 0.83
     assert router._routing_states["agent-risky"].last_update_time == 100.0
     assert router._routing_states["agent-clean"].last_update_time == 100.0
+
+
 from mesa_memory.consolidation.router import _requires_tier3_correction_review
 
 

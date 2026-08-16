@@ -87,6 +87,7 @@ async def test_d005_tenant_wide_queue_accounting(tmp_path):
             embedding_model="m",
             embedding_version="v",
             embedding_dimension=384,
+            validation_mode=0,
             policy=strict_policy,
         )
 
@@ -120,6 +121,7 @@ async def test_d005_tenant_wide_queue_accounting(tmp_path):
             embedding_model="m",
             embedding_version="v",
             embedding_dimension=384,
+            validation_mode=0,
             policy=strict_policy,
         )
 

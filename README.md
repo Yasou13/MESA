@@ -10,7 +10,7 @@
 
 **A durable, tenant- and dataset-isolated memory engine for autonomous AI agents.**
 The v3 compatibility runtime remains a model-disabled lexical core. The
-unreleased v4 runtime adds canonical source provenance, mandatory validation,
+unreleased v4 runtime adds canonical source provenance, selectable validation,
 idempotent SQL/vector/graph projection and Graph V2 in one storage-owner
 process. V4 remains `NO-GO` until its external release and soak gates pass.
 
@@ -150,8 +150,8 @@ curl -X POST http://localhost:8000/v3/memory/insert \
 
 The insert endpoint returns **202 Accepted** after durable admission; latency
 depends on the deployment, storage, and queue state. The safe-core cold path
-performs novelty checks and a raw-memory commit. Model extraction and dual-LLM
-consensus are available only in an explicitly enabled full cognitive runtime.
+performs novelty checks and a raw-memory commit. Model extraction and LLM
+validation are available only in an explicitly enabled full cognitive runtime.
 The [historical five-minute soak result](docs/historical_benchmarks/v0.4.2_results.md)
 used 20 RPS and 30 connections and explicitly states that it is not production
 certification; do not treat it as a universal latency guarantee.
@@ -342,16 +342,17 @@ Full cognitive processing uses `docker-compose.v4.yml`, explicitly sets
 runs one combined storage owner. It has different cost, latency,
 model-download and provider-rate-limit characteristics from v3.
 
-The full-cognitive profile requires two explicit, distinct Tier-3
-provider/model pairs via `MESA_TIER3_LLM_PROVIDER_A`,
-`MESA_TIER3_LLM_MODEL_A`, `MESA_TIER3_LLM_PROVIDER_B`, and
-`MESA_TIER3_LLM_MODEL_B`. Compose forwards these together with the selected
-LLM/embedding provider variables; startup fails closed when the pairs are
-missing or identical.
+The full-cognitive profile selects validation with `MESA_TIER3_MODE`: Mode 0
+uses deterministic checks and requires no validation adapter; Mode 1 requires
+validator A; Mode 2 requires explicit, distinct A/B provider-model pairs via
+`MESA_TIER3_LLM_PROVIDER_A`, `MESA_TIER3_LLM_MODEL_A`,
+`MESA_TIER3_LLM_PROVIDER_B`, and `MESA_TIER3_LLM_MODEL_B`. Compose forwards
+these together with the selected LLM/embedding provider variables, and startup
+fails closed when the selected mode's dependencies are missing or invalid.
 
 | Capability | MESA | LangChain Memory | MemGPT |
 |---|---|---|---|
-| **Hallucination Mitigation** | Mandatory Tier-3 gate; rejected mutations create no active artifact | Prompt-based | Self-correction |
+| **Hallucination Mitigation** | Selectable deterministic/single/dual validation policy; rejected mutations create no active artifact | Prompt-based | Self-correction |
 | **Validation Architecture** | Versioned pipeline with ledger, retries, DLQ and rollback | None | Prompt-based |
 | **Knowledge Graph** | Graph V2 Entity/Assertion projection with provenance | Manual | None |
 | **Zero-Cost Mode** | Native 100% local execution via Ollama (`MESA_ZERO_COST_MODE`) | External | External |
@@ -401,7 +402,7 @@ MESA uses three physical stores, but v4 has one decision source:
 ```mermaid
 flowchart LR
     C[Authorized v4 session] --> A[Admission + mutation]
-    A --> V{Tier-3 validation}
+    A --> V{Selected validation policy}
     V -->|reject| R[REJECTED: no active artifact]
     V -->|accept| L[SQLite ledger and SQL projection]
     L --> X[Vector projection]
