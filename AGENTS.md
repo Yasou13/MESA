@@ -1,31 +1,44 @@
-# MESA MVP — Certification Round 3 Agent Contract
+# MESA MVP — Certification Round 4 Agent Contract
 
 ## 1. Mission
 
-The repository is now in MESA MVP Certification Round 3.
+The repository is now in:
 
-This is a DELTA CERTIFICATION pass.
+MESA MVP Certification Round 4
 
-Do NOT start another broad architecture audit.
+Active branch:
 
-Do NOT reopen already-closed areas without concrete executable evidence.
+mvp/certification-round-4
 
-The objective is to close the remaining known code/release blockers discovered after Certification Round 2 and produce the strongest defensible code-level MVP candidate.
+Round 4 is a targeted architecture migration and certification pass.
 
-The primary unresolved areas are:
+The central change is:
 
-- aggregate revision completeness;
-- aggregate pipeline completeness;
-- historical rollback safety;
-- revision hash identity;
-- canonical tenant-wide queue accounting;
-- immutable Alembic upgrade closure;
-- fresh-install embedding/config contract;
-- deterministic model-enabled full-cognitive E2E;
-- multi-tenant physical catalog identity;
-- HTTP/SDK/MCP temporal parity;
-- bounded long-lived process state;
-- release/runtime hygiene.
+Mandatory Tier-3 dual-LLM validation
+→
+Selectable validation policy:
+
+- Mode 0 = deterministic validation only
+- Mode 1 = one LLM validator
+- Mode 2 = two independent LLM validators with consensus
+
+This round exists because the previous architecture coupled:
+
+model-enabled runtime
+=
+mandatory dual-LLM Tier-3 infrastructure
+
+That coupling is no longer the intended product contract.
+
+Round 3 is historical evidence.
+
+Do not reopen Round 3 as the active execution plan.
+
+Do not append Round 4 tasks to the Round 3 ledger.
+
+Do not start a general MESA rewrite.
+
+Production code changes must remain the smallest coherent root-cause changes required to implement and certify the new validation-policy architecture.
 
 ---
 
@@ -34,40 +47,121 @@ The primary unresolved areas are:
 Use this evidence hierarchy:
 
 1. current user instruction;
-2. actual executable source code;
+2. actual executable production code;
 3. database schema and migration history;
 4. runtime composition/configuration;
-5. executable tests that prove the real invariant;
-6. `.agents/` certification contract;
-7. audit reports, documentation, README, comments and previous AI conclusions.
+5. executable tests proving the real invariant;
+6. current Round 4 `.agents/` contract;
+7. audit reports, README, docs, comments and old AI output.
 
-The two August 14 regression reports are inputs.
+Previous Round 3 VERIFIED statuses are useful historical evidence.
 
-They are NOT proof.
-
-Gemini, Terra and Sol must independently verify whether each finding still exists in current code.
+They are not proof that Round 4 changes preserve those invariants.
 
 ---
 
 # 3. Mandatory Reading
 
-Before modifying code read:
+Before modifying production code read:
 
 1. `AGENTS.md`
 2. `.agents/00_RULES.md`
 3. `.agents/01_MVP_SCOPE.md`
 4. `.agents/02_TASKS.md`
 5. `.agents/03_VERIFICATION.md`
+6. the prompt file for the current agent
 
-Then inspect only the production paths needed for the current certification tasks.
-
-Do not bulk-read historical reports or the complete docs tree.
+Do not use previous-round control files from Git history as the active contract.
 
 ---
 
-# 4. Frozen Architecture
+# 4. Agent Roles
 
-The intended MVP architecture remains:
+## Gemini
+
+Primary implementation agent.
+
+Gemini:
+
+- verifies each issue against current executable code;
+- implements V001-V014;
+- writes bounded regression tests;
+- commits coherent root-cause repairs;
+- pushes the Round 4 branch.
+
+Gemini may report:
+
+BUILT
+ALREADY_FIXED_VERIFIED
+BLOCKED_ENV
+
+Gemini may not declare final MVP certification.
+
+---
+
+## Terra
+
+Independent reviewer and repairer.
+
+Terra assumes Gemini may be wrong.
+
+Terra independently verifies:
+
+- production call paths;
+- configuration;
+- runtime composition;
+- state-machine semantics;
+- persistence;
+- tests;
+- failure paths.
+
+If Terra finds a safe code-level blocker, Terra fixes it and adds regression coverage.
+
+Terra marks independently proven tasks:
+
+VERIFIED
+
+Terra may create:
+
+TERRA-V01
+TERRA-V02
+...
+
+inside the same Round 4 ledger.
+
+Terra may not issue the final MVP verdict.
+
+---
+
+## Sol
+
+Final adversarial certifier and finalizer.
+
+Sol trusts neither Gemini nor Terra.
+
+Sol independently compares the actual branch against the frozen Round 4 contract.
+
+Sol may create and repair:
+
+SOL-V01
+SOL-V02
+...
+
+Sol gives the final code-level verdict:
+
+CODE_MVP_READY
+
+or:
+
+NOT_CODE_MVP_READY
+
+---
+
+# 5. Frozen Core Architecture
+
+Round 4 does not replace the canonical MESA architecture.
+
+The intended architecture remains:
 
 V3 compatibility
         \
@@ -77,503 +171,572 @@ V4 native
 
 Canonical durable truth:
 
-SQL / mutation ledger / canonical catalog lifecycle.
+SQL
+mutation ledger
+pipeline lifecycle
+catalog lifecycle
 
-Derived projections:
+Derived state:
 
-- vector;
-- graph.
+vector projection
+graph projection
 
-V3 must not become a second independent authoritative memory engine.
+Validation policy controls admission validation.
 
----
-
-# 5. New Central Invariant — Aggregate Completeness
-
-Certification Round 3 introduces a hard invariant:
-
-A parent object must not expose terminal success before its required children have collectively satisfied the success contract.
-
-This applies especially to:
-
-- document revisions;
-- pipeline runs.
-
-For a revision containing several chunks/mutations:
-
-one child COMMITTED
-
-does NOT imply:
-
-revision ACTIVE.
-
-For a pipeline containing several mutations:
-
-one child COMMITTED
-
-does NOT imply:
-
-pipeline COMMITTED.
-
-Parent terminal state must represent the entire logical unit.
+It does not become a second persistence engine.
 
 ---
 
-# 6. Revision Activation Contract
+# 6. Central Round 4 Invariant
 
-Preferred MVP contract:
+Model processing and LLM validation are different capabilities.
 
-PENDING revision
--> source/chunk manifest frozen
--> expected child work known
--> all required child mutations successful
--> aggregate revision barrier
--> ACTIVE
+The following must be valid:
 
-A failed/retrying required child keeps the revision non-ACTIVE.
+MESA_MODEL_ENABLED=true
+MESA_TIER3_MODE=0
 
-A document must have exactly one ACTIVE head.
+This means:
 
-Concurrent corrections must fail closed through CAS/head protection.
+- model-dependent extraction may run;
+- embedding may run;
+- vector retrieval may run;
+- graph processing may run;
+- canonical mutation lifecycle may run;
+- zero validation LLMs are required.
 
----
-
-# 7. Pipeline State Contract
-
-Pipeline state must either:
-
-A. be derived from all child mutations;
-
-or
-
-B. schema/service must enforce exactly one mutation per pipeline.
-
-Do not retain an ambiguous model.
-
-If multiple child mutations are permitted, no child may directly declare the entire pipeline COMMITTED.
-
-Recommended semantics:
-
-COMMITTED:
-all required children committed.
-
-PROJECTING:
-at least one required child is actively projecting and no terminal failure prevents success.
-
-RETRY_PENDING:
-retryable children remain.
-
-BLOCKED / DEAD_LETTER:
-required child has terminally failed according to policy.
-
-ROLLING_BACK / ROLLED_BACK:
-controlled only by lifecycle operations.
+Validation mode must not accidentally disable unrelated model capabilities.
 
 ---
 
-# 8. Historical Rollback Contract
+# 7. Public Validation Modes
 
-Rollback must be document-head aware.
+Only these explicit values are supported:
 
-MVP behavior:
+MESA_TIER3_MODE=0
+MESA_TIER3_MODE=1
+MESA_TIER3_MODE=2
 
-If the revision created by the target pipeline is not the current document head because a newer descendant exists:
+Do not introduce a public `auto` mode in Round 4.
 
-reject rollback deterministically.
+## Mode 0
 
-Preferred response:
+Meaning:
 
-409 NON_HEAD_ROLLBACK_CONFLICT
+deterministic validation only.
 
-Do not reactivate an old predecessor underneath a newer ACTIVE descendant.
+Requirements:
 
-Explicit descendant cascade/rebase semantics are post-MVP.
+- zero validation LLM adapters;
+- zero validation LLM calls;
+- no Tier3Unavailable failure caused by an intentionally disabled validator;
+- all existing deterministic admission, schema, identity, tenancy, idempotency and lifecycle checks remain active;
+- projection remains fenced until the active validation policy is satisfied.
 
----
+Mode 0 does NOT mean:
 
-# 9. Revision Hash Contract
-
-Do not overload one hash field with multiple identities.
-
-Declared document/content hash and computed source-chunk manifest hash represent different concepts.
-
-They must remain distinct.
-
-A caller-provided immutable content hash must not later be overwritten by a manifest hash.
-
-Manifest identity must freeze at revision finalization.
+accept everything.
 
 ---
 
-# 10. Tenant Accounting Contract
+## Mode 1
 
-Canonical V4 queue accounting must use the real tenant identity.
+Meaning:
 
-Never substitute:
+one LLM validator participates in validation.
 
-agent_id
+Requirements:
 
-for:
-
-tenant_id.
-
-The following must agree:
-
-- admission quota;
-- dispatch journal;
-- dispatch queue;
-- receipts;
-- telemetry/audit;
-- queue usage.
-
-Two agents belonging to one tenant share the tenant quota.
-
-Creating another agent must not bypass tenant-wide admission limits.
+- one configured validation model;
+- no second validator dependency;
+- no fake A+A consensus;
+- explicit STORE/DISCARD decision;
+- infrastructure failure remains distinguishable from cognitive rejection.
 
 ---
 
-# 11. Migration Immutability
+## Mode 2
 
-Released Alembic revisions are immutable historical artifacts.
+Meaning:
 
-Do not fix upgrade behavior by editing an already-released migration.
+two independently configured LLM validators participate in the final validation decision.
 
-If a critical index/constraint was previously added by mutating historical migration content:
+Requirements:
 
-restore historical migration semantics where practical and add a NEW Alembic revision at current head.
+- validator A exists;
+- validator B exists;
+- provider/model pairs are distinct;
+- both participate;
+- consensus determines STORE/DISCARD;
+- disagreement fails closed according to the existing consensus contract.
 
-Upgrade safety must be proven from a previous released schema.
-
-Fresh install and upgraded install must converge on the same critical schema invariants.
-
----
-
-# 12. Embedding / Fresh Install Contract
-
-The default local embedding profile must be internally consistent.
-
-If the default model is:
-
-sentence-transformers/all-MiniLM-L6-v2
-
-the corresponding default dimension must be:
-
-384
-
-unless runtime-probed identity defines another valid configuration.
-
-`.env.example` must not override a correct code default with an incompatible value.
-
-Tier-3/provider examples must accurately represent the supported full-cognitive profile.
+Mode 2 must not silently degrade to one-model validation because an adaptive router considers one model confident.
 
 ---
 
-# 13. Full-Cognitive Certification Contract
+# 8. Backward-Compatible Default
 
-Packaging/config existence is not sufficient.
+Do not add a user-visible `auto` value.
 
-Round 3 requires a deterministic model-enabled full-composition test.
+If `MESA_TIER3_MODE` is explicitly supplied, use exactly 0, 1 or 2.
 
-It does NOT require a paid provider.
+If it is omitted:
 
-A deterministic fake/local test provider may be used if it exercises the real runtime composition.
+- model-enabled full-cognitive runtime should preserve the previous dual-validation behavior;
+- model-disabled runtime must not create validation adapters.
 
-The test must prove:
+This compatibility resolution must be explicit in code and testable.
 
-full image/runtime composition
--> startup READY
--> session/catalog setup
--> remember/event
--> extraction
--> 0..N admission
--> projection
--> recall
--> context
--> restart
--> same durable memory retrievable
-
-Model-disabled smoke is not proof of model-enabled composition.
+Do not let an implicit default silently weaken an existing full-cognitive deployment.
 
 ---
 
-# 14. Catalog Physical Identity
+# 9. Validation Policy Is a First-Class Runtime Capability
 
-Client-visible scoped identifiers must not cause cross-tenant global-PK collisions.
+Do not scatter checks such as:
 
-Preferred MVP direction:
+if mode == 0
 
-- server-generated globally unique physical IDs;
-- caller-provided stable names/external refs scoped by tenant/workspace/dataset.
+through unrelated production code.
 
-If existing client-provided IDs remain, physical identity must still prevent one tenant from reserving another tenant's natural identifier namespace.
+Prefer one explicit validation-policy abstraction or equivalent composition boundary.
 
-Do not perform an unnecessarily huge schema rewrite if a safe compatibility layer can solve the problem.
+The architecture should conceptually expose:
 
----
+ValidationPolicy
 
-# 15. Temporal Transport Parity
+with implementations equivalent to:
 
-HTTP, SDK and MCP must express the same supported temporal query contract.
+DeterministicOnlyValidationPolicy
+SingleLLMValidationPolicy
+DualLLMValidationPolicy
 
-If HTTP supports:
+The existing Tier3Validator may and should be reused for Mode 2 where correct.
 
-- valid_at;
-- valid_from;
-- valid_to;
-
-SDK and MCP must expose and forward the same semantics.
-
-Avoid transport-specific narrowing of canonical retrieval capability.
-
-Prefer one shared validation/request model where practical.
+Do not rewrite a proven dual validator merely to rename it.
 
 ---
 
-# 16. Long-Lived Process Bounds
+# 10. Extraction and Validation Must Be Decoupled
 
-Long-running process state must not grow without bound.
+Current code historically shares `llm_a` / `llm_b` between validation, routing and extraction-related components.
 
-Review:
+Round 4 must remove validation-count coupling from extraction capability.
 
-- MCP recall cache;
-- MCP session locks;
-- adaptive routing state;
-- similar scope-indexed dictionaries touched by Round 3.
+Mode 0 must not accidentally disable LLM extraction.
 
-Use bounded TTL/LRU or equivalent bounded structures.
+Mode 1 must not imply that extraction is restricted to one model unless extraction itself requires that contract.
 
-Required characteristics:
+Mode 2 validation must not force unrelated extraction calls.
 
-- max entries;
-- expiration;
-- eviction/pruning;
-- safe concurrency;
-- observable size where practical.
-
-Do not build distributed cache infrastructure for MVP.
+Validation adapters and extraction adapters may use the same underlying provider when intentionally configured, but their roles must be compositionally distinct.
 
 ---
 
-# 17. Release Hygiene
+# 11. Adaptive Router Contract
 
-Round 3 also closes low-cost release hazards that directly affect supported runtime/developer confidence.
+Validation mode is the upper policy boundary.
 
-Relevant items include:
-
-- main full-cognitive image vulnerability/SBOM coverage;
-- explicitly declared direct runtime dependencies;
-- stale `scripts/run_server.py` composition root;
-- misleading search score semantics;
-- supported/deprecated surface clarity.
-
-Do not turn this into a broad cleanup project.
-
----
-
-# 18. Already-Closed Areas
-
-Do not broadly redesign previously closed areas unless Round 3 changes expose a regression.
-
-Previously closed/high-confidence areas include:
-
-- physical rollback/purge compensation;
-- 0..N extraction foundation;
-- single ACTIVE head CAS foundation;
-- experimental cognitive worker isolation;
-- V3 reverse compensation;
-- V3 supported single-writer topology;
-- V3 idempotency/secret validation;
-- MCP scoped idempotency IDs;
-- O(N) cold-start count;
-- rebuild parity;
-- readiness backlog visibility;
-- storage-root/config refresh improvements.
-
-Regression-test them where Round 3 changes interact with them.
-
-Do not rewrite them for aesthetics.
-
----
-
-# 19. No Hallucinated Completion
-
-The following are not sufficient evidence:
-
-- a task marked VERIFIED;
-- a class/function name;
-- comments;
-- README;
-- passing test that mocks away the critical boundary;
-- fresh-schema migration test when the defect is upgrade-only;
-- one committed child when parent aggregation is under test;
-- model-disabled Docker smoke when model-enabled composition is under test.
-
-Trace the actual invariant.
-
----
-
-# 20. Root-Cause Changes
-
-For every task:
-
-1. locate the real implementation;
-2. locate callers;
-3. identify state/storage ownership;
-4. reproduce or prove the issue;
-5. search for reusable primitives;
-6. make the smallest coherent root-cause repair;
-7. add adversarial regression coverage;
-8. run bounded verification;
-9. commit;
-10. continue.
-
-Do not stop for user approval between tasks.
-
----
-
-# 21. Git Contract
-
-No implementation agent may work on:
-
-main
-
-or:
-
-master.
-
-Gemini creates/uses:
-
-mvp/certification-round-3
-
-Terra continues on the same branch.
-
-Sol continues on the same branch.
-
-Do not create Terra/Sol branches.
-
-Do not merge into main.
-
-Do not force-push main.
-
-Preserve unrelated user changes.
-
----
-
-# 22. Commit Discipline
-
-Commit coherent repairs independently.
+Adaptive routing must not increase or decrease the selected validation assurance level.
 
 Examples:
 
-fix(lifecycle): enforce aggregate revision activation
+Mode 0 + legal_domain_mode
+→ still zero validation LLMs.
 
-fix(lifecycle): derive pipeline state from child mutations
+Mode 1 + explicit correction
+→ still one validation model.
 
-fix(revision): reject non-head historical rollback
+Mode 2 + confident small model
+→ still dual-validator consensus.
 
-fix(catalog): separate content and manifest identity
-
-fix(queue): enforce tenant-wide v4 accounting
-
-fix(migration): add active-head invariant migration
-
-fix(config): align local embedding example
-
-test(runtime): certify model-enabled composition
-
-fix(api): align temporal transport contract
-
-fix(runtime): bound process caches
-
-chore(release): remove stale runtime surface
-
-Do not create one giant Round 3 commit.
+The router may influence routing inside a mode only when doing so does not violate the mode contract.
 
 ---
 
-# 23. Machine Safety
+# 12. Legal Domain Contract
 
-Do NOT automatically run:
+MESA Core must not hard-code:
 
-- uncontrolled full pytest;
-- pytest -n auto;
-- 24-hour soak;
-- sustained load;
-- large research benchmark;
-- large model downloads;
-- paid provider benchmarks;
-- destructive production migration;
-- giant Docker topology.
+legal data
+→ dual LLM
 
-Use focused bounded tests.
+as a universal architectural rule.
 
-A deterministic fake/local provider is preferred for full-cognitive composition certification.
+`MESA_LEGAL_DOMAIN_MODE` may continue to control legal-specific extraction, prompts, provenance handling or conservative routing where appropriate.
 
----
+It must not override:
 
-# 24. Agent Roles
+MESA_TIER3_MODE
 
-Gemini:
+and silently change the number of validation LLMs.
 
-implements D001-D012.
+MESA Law or an operator may choose:
 
-Allowed status:
+MESA_TIER3_MODE=0
 
-- BUILT
-- ALREADY_FIXED_VERIFIED
-- BLOCKED_ENV
+for deterministic trusted-source ingestion.
 
-Terra:
-
-independently verifies and repairs D001-D012.
-
-Allowed independent status:
-
-VERIFIED
-
-Sol:
-
-owns D013 final delta certification.
-
-Sol may reopen any prior task.
-
-Sol must repair safely fixable blockers before final decision.
+Source-specific legal trust policy itself is not to be hard-coded into MESA Core during Round 4.
 
 ---
 
-# 25. Final Status
+# 13. Zero-Cost Contract
 
-Only Sol may return:
+`MESA_ZERO_COST_MODE` must not silently mutate validation assurance level.
 
-CODE_MVP_READY
+It may select local providers or local extraction/embedding resources.
+
+It may not silently convert:
+
+Mode 2
+→ Mode 1
 
 or:
 
-NOT_CODE_MVP_READY
+Mode 1
+→ Mode 0.
 
-CODE_MVP_READY requires no known unresolved code-level Round 3 blocker.
-
-MVP_FULLY_VERIFIED requires external runtime/release evidence including the user-run production validation gates.
-
-Do not confuse the two.
+If the selected validation mode cannot be satisfied with the available zero-cost providers, fail closed with a truthful configuration error.
 
 ---
 
-# 26. Completion Principle
+# 14. Durable Policy Snapshot
 
-Round 3 is complete when:
+MESA uses asynchronous durable work.
 
-- revision success is aggregate;
-- pipeline success is aggregate or structurally single-child;
-- historical rollback cannot corrupt current head;
-- hash identity is stable;
-- tenant queue accounting is truly tenant-wide;
-- upgrade migration safety is correct;
-- fresh-install config is coherent;
-- model-enabled composition has deterministic E2E evidence;
-- catalog physical identity is multi-tenant safe;
-- temporal transport parity exists;
-- long-lived state is bounded;
-- critical release/runtime drift is closed.
+The validation contract attached to admitted work must not silently change because the process restarts with different environment variables.
 
-After this, stop static-audit cycling and move to dependency-complete external certification.
+Example:
+
+record admitted under Mode 2
+→ process restart
+→ runtime now configured Mode 0
+
+The old record must not silently bypass the policy under which it was admitted.
+
+Round 4 must persist sufficient validation-policy identity with canonical work.
+
+At minimum preserve:
+
+effective validation mode
+
+and, if needed for safe evolution:
+
+validation policy version.
+
+The implementation may use existing canonical metadata if that is safe and immutable enough.
+
+If schema changes are required, use a new Alembic migration.
+
+Do not mutate released migrations.
+
+---
+
+# 15. State-Machine Semantics
+
+The following concepts must be different:
+
+SKIPPED_BY_POLICY
+VALIDATED
+REJECTED
+UNAVAILABLE
+
+Mode 0:
+
+SKIPPED_BY_POLICY
+→ normal canonical processing continues.
+
+Mode 1/2 accepted:
+
+VALIDATED
+→ normal canonical processing continues.
+
+Mode 1/2 cognitive reject:
+
+REJECTED
+
+Infrastructure/provider failure:
+
+UNAVAILABLE
+→ retry/deferred lifecycle where applicable.
+
+Intentional Mode 0 must never appear as:
+
+Tier3Unavailable.
+
+---
+
+# 16. Projection Safety
+
+Projection fencing remains mandatory.
+
+Existing:
+
+BLOCKED_VALIDATION
+
+may remain as a storage state if changing it would create unnecessary risk.
+
+Its semantic meaning becomes:
+
+blocked until the selected validation policy has completed successfully.
+
+Mode 0 must not mean:
+
+directly project before canonical validation/lifecycle gates.
+
+The transition remains conceptually:
+
+RECEIVED
+→ active validation policy satisfied
+→ VALIDATED or equivalent admission-complete state
+→ projection PENDING
+→ projection lifecycle
+
+---
+
+# 17. Candidate / Deferred Semantics
+
+Hard-coded assumptions such as:
+
+tier3_deferred=True
+
+must be reviewed.
+
+A canonical V4 candidate must not claim dual-LLM deferral when Mode 0 or Mode 1 is active.
+
+Historical field names may remain temporarily for compatibility only if runtime meaning is correct and unambiguous.
+
+Do not perform a broad rename solely for cosmetic reasons.
+
+---
+
+# 18. Capability Truth
+
+Runtime capability output must describe actual composed behavior.
+
+At minimum expose enough information to determine:
+
+configured/effective validation mode;
+validation enabled/disabled;
+validator count;
+validation policy name.
+
+Example Mode 0:
+
+mode = 0
+policy = deterministic_only
+llm_validation_enabled = false
+validator_count = 0
+
+Mode 1:
+
+validator_count = 1
+
+Mode 2:
+
+validator_count = 2
+
+A config variable existing is not proof that a runtime capability is active.
+
+---
+
+# 19. Embedding Independence
+
+Tier-3 mode must not change embedding identity by itself.
+
+The configured:
+
+provider
+model
+version
+dimension
+
+must remain coherent across:
+
+writer
+projection
+query
+rebuild
+
+Mode 0 with model processing enabled must still support normal embedding/vector retrieval.
+
+Do not redesign the complete `MESA_MODEL_ENABLED` system in Round 4 unless a concrete blocker requires a small root-cause repair.
+
+---
+
+# 20. Existing Round 3 Invariants Must Survive
+
+Round 4 must not regress:
+
+- aggregate revision completeness;
+- aggregate pipeline completeness;
+- single ACTIVE document head;
+- historical non-head rollback protection;
+- immutable content vs manifest identity;
+- tenant-wide queue accounting;
+- immutable migration history;
+- previous-release upgrade parity;
+- multi-tenant catalog physical isolation;
+- HTTP/SDK/MCP temporal parity;
+- bounded long-lived runtime state;
+- physical rollback compensation;
+- physical purge compensation;
+- restart durability;
+- 0..N extraction behavior;
+- rebuild parity;
+- embedding identity.
+
+Round 3 tests are regression evidence, not substitutes for Round 4 tests.
+
+---
+
+# 21. Migration Rules
+
+Released Alembic migrations are immutable.
+
+If Round 4 requires durable validation-policy fields:
+
+create a NEW migration at current head.
+
+Required:
+
+fresh install
+and
+previous-release upgrade
+
+must converge on the same critical schema contract.
+
+Do not edit historical migration files to make fresh install tests pass.
+
+---
+
+# 22. Testing Epistemology
+
+A test file existing is not proof.
+
+A mock returning PASS is not proof.
+
+The test must exercise the real invariant.
+
+Fake providers are allowed at provider/AdapterFactory boundaries.
+
+Do not directly mutate DAO state and then claim the full runtime validation pipeline worked.
+
+Mode E2E tests must use the real runtime composition path wherever practical.
+
+---
+
+# 23. Resource Safety
+
+Do not automatically run:
+
+pytest -n auto
+unbounded full-suite loops
+large benchmarks
+24h soak
+paid provider benchmarks
+large model downloads
+Ollama model pulls
+destructive migrations
+huge Docker environments
+
+Use bounded focused verification.
+
+If the environment lacks a required dependency and safe installation is outside the current task:
+
+BLOCKED_ENV
+
+Do not convert environment failures into fake code PASS results.
+
+---
+
+# 24. Branch Policy
+
+Active branch:
+
+mvp/certification-round-4
+
+Gemini creates or uses this branch.
+
+Terra uses the SAME branch.
+
+Sol uses the SAME branch.
+
+Do not implement on main/master.
+
+Do not merge to main/master.
+
+Do not open a new Terra or Sol branch.
+
+---
+
+# 25. Commit Policy
+
+Use coherent root-cause commits.
+
+Examples:
+
+feat(validation): add selectable validation policy
+
+fix(runtime): decouple validation from model composition
+
+fix(ingestion): preserve validation policy across durable work
+
+fix(router): enforce configured validation assurance
+
+test(validation): certify mode zero one two runtime paths
+
+Do not create:
+
+one giant unrelated commit
+
+or:
+
+meaningless micro-commits for every line.
+
+---
+
+# 26. Scope Discipline
+
+Do not:
+
+- split DAO merely because it is large;
+- rewrite the application architecture;
+- replace vector or graph engines;
+- redesign retrieval without a Round 4 blocker;
+- optimize experimental cognitive features;
+- add public `auto` validation mode;
+- hard-code Resmî Gazete or another legal source into MESA Core;
+- convert this round into general cleanup.
+
+Fix adjacent issues only when they directly violate the frozen Round 4 contract or create a clear code-level blocker.
+
+---
+
+# 27. Final Status Ownership
+
+Gemini:
+
+BUILT
+ALREADY_FIXED_VERIFIED
+BLOCKED_ENV
+
+Terra:
+
+VERIFIED
+or creates/fixes TERRA-Vxx tasks.
+
+Sol:
+
+CODE_MVP_READY
+or
+NOT_CODE_MVP_READY
+
+CODE_MVP_READY is code-level certification.
+
+It is not:
+
+MVP_FULLY_VERIFIED.
+
+Real providers, load, soak and deployment rehearsal remain external validation gates.

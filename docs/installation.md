@@ -42,6 +42,7 @@ V4’ün desteklenen storage-writing topology’si tek `combined` process’tir:
 ```bash
 export MESA_RUNTIME_PROFILE=combined
 export MESA_MODEL_ENABLED=true
+export MESA_TIER3_MODE=0
 export MESA_EXTERNAL_PROVIDER_ENABLED=true
 export MESA_PRINCIPAL_ID=service-api
 export MESA_PRINCIPAL_TYPE=SERVICE

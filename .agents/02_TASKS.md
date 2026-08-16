@@ -1,6 +1,12 @@
-# MESA MVP Certification Round 3 — Delta Task Ledger
+# MESA MVP Certification Round 4 — Validation Policy Task Ledger
 
-Gemini owns D001-D012.
+Active branch:
+
+mvp/certification-round-4
+
+Gemini owns:
+
+V001-V014
 
 Gemini statuses:
 
@@ -9,13 +15,27 @@ BUILT
 ALREADY_FIXED_VERIFIED
 BLOCKED_ENV
 
-Terra independently reviews and may mark:
+Terra independently reviews V001-V014 and may mark:
 
 VERIFIED
 
-Sol owns D013.
+Terra may add:
 
-Keep each task compact:
+TERRA-V01
+TERRA-V02
+...
+
+Sol owns:
+
+V015
+
+Sol may add:
+
+SOL-V01
+SOL-V02
+...
+
+Each task must contain:
 
 Status:
 Evidence:
@@ -24,371 +44,459 @@ Commit:
 
 ---
 
-# D001 — Aggregate Revision Activation Barrier
+# V001 — Typed Validation Mode Configuration
 
 Goal:
 
-Prevent revision ACTIVE state before every required child mutation/chunk succeeds.
+Introduce the explicit 0 / 1 / 2 validation-mode contract.
+
+Required:
+
+MESA_TIER3_MODE=0
+MESA_TIER3_MODE=1
+MESA_TIER3_MODE=2
+
+Invalid explicit values fail closed.
+
+No public `auto` value.
+
+Backward-compatible unset behavior must preserve existing full-cognitive dual validation while model-disabled runtime does not compose validators.
+
+Inspect:
+
+mesa_memory/config.py
+runtime profile composition
+.env.example
+docker-compose.v4.yml
+
+Status: BUILT
+Evidence: Added `tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")` with strict fail-closed validator in `mesa_memory/config.py`. Added `effective_tier3_mode` resolving unset + model_enabled to Mode 2 and unset + disabled to Mode 0. Updated `.env.example` and `docker-compose.v4.yml`.
+Tests: `tests/test_r4_validation_mode_contract.py`
+Commit: `feat(validation): add selectable validation mode configuration`
+
+---
+
+# V002 — Durable Validation Policy Snapshot
+
+Goal:
+
+Prevent queued durable work from silently changing validation assurance after restart/config change.
 
 Required regression:
 
-one revision with at least three required children.
+admit under Mode 2
+→ restart Mode 0
+→ old work retains Mode 2 contract.
 
-Child A -> COMMITTED
-Child B -> RETRY_PENDING
-Child C -> DEAD_LETTER or equivalent failure
+admit under Mode 0
+→ restart Mode 2
+→ old work retains Mode 0 contract.
 
-Expected:
+Persist at least:
 
-revision remains non-ACTIVE.
+effective validation mode
 
-Then repair/complete all required children.
+and policy version if needed.
 
-Expected:
+Use existing metadata if safe.
 
-revision becomes ACTIVE exactly once and remains the single document head.
+If schema change is needed, create NEW Alembic migration.
 
-Inspect actual expected-child manifest/work-set semantics.
-
-Status: VERIFIED
-Evidence: Sol added an explicit fail-closed manifest freeze barrier, rejected vacuous/partial work sets, and restored strict child lifecycle transitions.
-Tests: tests/test_d001_d002_aggregate_state.py; tests/test_terra_round3_regressions.py; tests/test_p0_canonical_correction.py
-Commit: 9b9203d
+Status: BUILT
+Evidence: Added `validation_mode` and `validation_policy` fields to `MemoryCandidate`. Snapshot `_mesa_validation_mode` and `validation_mode` into immutable `raw_logs.payload` and `memory_mutations.metadata_json` during `MemoryDAO.admit_v4_memory`. Worker and consolidation loop resolve record-level validation mode snapshot.
+Tests: `tests/test_r4_durable_policy_snapshot.py`
+Commit: `fix(ingestion): preserve validation policy snapshot across durable work`
 
 ---
 
-# D002 — Aggregate Pipeline State
+# V003 — Validation Policy Abstraction
 
 Goal:
 
-Prevent individual child mutations from directly declaring a multi-child pipeline COMMITTED.
+Replace mandatory Tier-3 infrastructure coupling with an explicit validation-policy boundary.
 
-Choose explicitly:
+Required conceptual policies:
 
-A. enforce exactly one mutation per pipeline;
+deterministic-only
+single-LLM
+dual-LLM consensus
 
-or
+Prefer reuse of existing Tier3Validator for Mode 2.
 
-B. recompute parent state from all child mutations.
+Do not scatter raw mode branching across unrelated code.
 
-Prefer B if multiple-child pipelines are already supported.
+Status: BUILT
+Evidence: Created `ValidationPolicy` abstract base class and polymorphic implementations (`DeterministicOnlyValidationPolicy`, `SingleLLMValidationPolicy`, `DualLLMValidationPolicy`) in `mesa_memory/consolidation/policy.py`. Mode 2 delegates directly to canonical `Tier3Validator`.
+Tests: `tests/test_r4_validation_policy.py`
+Commit: `feat(validation): add selectable validation policy abstraction`
+
+---
+
+# V004 — Extraction / Validation Dependency Separation
+
+Goal:
+
+Ensure validation mode controls validation only.
+
+Trace:
+
+AdapterFactory
+ConsolidationLoop
+TripletExtractor
+AdaptiveRouter
+server composition
 
 Required:
 
-COMMITTED iff all required children COMMITTED.
+MODEL_ENABLED=true
+TIER3_MODE=0
 
-Test mixed states and later failure/retry behavior.
+still permits the configured extraction path.
 
-Status: VERIFIED
-Evidence: Parent state is recomputed from all child mutation states on each CAS transition.
-Tests: tests/test_d001_d002_aggregate_state.py
-Commit: 9b9203d
+Do not solve Mode 0 by removing LLM dependencies that extraction actually needs.
 
----
-
-# D003 — Descendant-Aware Historical Rollback
-
-Goal:
-
-Prevent rollback of a non-head historical revision from reactivating an older predecessor beneath a newer current head.
-
-Required test:
-
-R1 ACTIVE
--> R2 ACTIVE supersedes R1
--> R3 ACTIVE supersedes R2
-
-Attempt rollback of pipeline producing R2.
-
-Expected:
-
-typed 409 conflict.
-
-R3 remains ACTIVE.
-
-No R1 reactivation.
-
-Status: VERIFIED
-Evidence: request_pipeline_rollback permits safe PENDING rollback but rejects historical non-head rollback through a typed API 409 conflict.
-Tests: tests/test_d003_d004_rollback_hash.py; tests/test_v4_api_contract.py
-Commit: 9b9203d
+Status: BUILT
+Evidence: Decoupled `extraction_adapter` from validation adapter count in `AdapterFactory.get_validation_adapters(mode)`. `ConsolidationLoop` and `server.py` accept independent `extraction_llm` and `validation_policy`. Mode 0 runs extraction LLM without any validation LLM calls.
+Tests: `tests/test_r4_extraction_validation_independence.py`
+Commit: `fix(runtime): decouple extraction from validation adapter dependencies`
 
 ---
 
-# D004 — Separate Content Hash and Manifest Hash
+# V005 — Mode 0 Deterministic-Only Path
 
 Goal:
 
-Preserve immutable identity semantics.
-
-Do not overwrite caller-declared content hash with chunk manifest hash.
+Implement real zero-validation-LLM operation.
 
 Required:
 
-- declared content hash remains stable;
-- manifest hash evolves only while PENDING;
-- finalization freezes manifest;
-- ACTIVE revision rejects chunk mutation;
-- idempotent create retry remains valid after manifest construction.
+- no validator A required;
+- no validator B required;
+- no validation adapter instantiated;
+- no validation LLM call;
+- deterministic checks remain;
+- canonical mutation lifecycle remains;
+- projection remains fenced until policy completion;
+- Mode 0 cannot produce Tier3Unavailable;
+- audit/status reports SKIPPED_BY_POLICY or equivalent.
 
-Status: VERIFIED
-Evidence: content_hash remains caller identity while manifest_hash freezes independently; finalized manifests reject drift.
-Tests: tests/test_d003_d004_rollback_hash.py
-Commit: 9b9203d
-
----
-
-# D005 — Canonical Tenant-Wide V4 Queue Accounting
-
-Goal:
-
-Use real tenant identity in `admit_v4_memory()` and all corresponding queue/journal/receipt/accounting rows.
-
-Required regression:
-
-same tenant T
-agent A
-agent B
-
-Combined usage exceeds tenant quota.
-
-Agent B cannot bypass quota.
-
-Telemetry/rows store T as tenant_id.
-
-Status: VERIFIED
-Evidence: canonical admission and dispatch journal/queue/receipt now carry tenant_id, and quota queries use tenant_id.
-Tests: tests/test_d005_d006_tenant_migration.py
-Commit: 73f7d4a
+Status: BUILT
+Evidence: Implemented `DeterministicOnlyValidationPolicy` which returns validator count 0 and `SKIPPED_BY_POLICY` audit receipt without acquiring semaphores, making network calls, or raising `Tier3Unavailable`. Ingestion worker and router advance Mode 0 records to `VALIDATED` after deterministic checks.
+Tests: `tests/test_r4_validation_policy.py`, `tests/test_r4_validation_e2e.py`
+Commit: `feat(validation): implement Mode 0 deterministic-only validation path`
 
 ---
 
-# D006 — Immutable Alembic Upgrade Closure
+# V006 — Mode 1 Single-LLM Path
 
 Goal:
 
-Fix ACTIVE-head invariant through a NEW migration rather than mutated historical migration content.
+Implement one-validator validation.
 
 Required:
 
-- new migration at current head;
-- detect existing duplicate ACTIVE heads;
-- deterministic repair or explicit fail-safe;
-- add partial unique ACTIVE index;
-- include invariant in blocking schema/postflight validation;
-- previous-release -> current-head upgrade regression.
+- A required;
+- B not required;
+- B not instantiated;
+- no Tier3Validator(A, A);
+- one validator produces auditable STORE/DISCARD;
+- provider failure remains UNAVAILABLE/retryable;
+- legal/router logic cannot add validator B.
 
-Fresh and upgraded schemas must converge.
-
-Status: VERIFIED
-Evidence: Historical 9a1 migration semantics are restored; forward migrations repair duplicate heads, create the invariant, freeze only provably terminal manifests, and add tenant-scoped physical identity.
-Tests: tests/test_migration_closure.py
-Commit: 9b9203d
+Status: BUILT
+Evidence: Implemented `SingleLLMValidationPolicy` using exactly 1 validator adapter (`validator_a`), parsing STORE/DISCARD decisions and converting infrastructure failures to `Tier3ValidationError`. `AdapterFactory.get_validation_adapters(1)` only initializes adapter A.
+Tests: `tests/test_r4_validation_policy.py`, `tests/test_r4_validation_e2e.py`
+Commit: `feat(validation): implement Mode 1 single-LLM validation path`
 
 ---
 
-# D007 — Fresh-Install Embedding / Tier-3 Config Contract
+# V007 — Mode 2 True Dual Consensus
 
 Goal:
 
-Remove config drift.
+Preserve and certify true dual-LLM consensus.
 
 Required:
 
-- `.env.example` local MiniLM dimension = 384;
-- code/default/sample values agree;
-- Tier-3 provider/model A/B commented examples present;
-- configuration validation remains coherent;
-- no misleading 1536 MiniLM default.
+- A+B configured;
+- A+B identities distinct;
+- both participate;
+- agreement STORE → accept;
+- agreement DISCARD → reject;
+- disagreement → reject/fail closed;
+- either infrastructure failure → unavailable/retry path;
+- confident small-model/adaptive path cannot bypass B.
 
-Status: VERIFIED
-Evidence: local MiniLM example uses runtime-recognized provider/model variables at dimension 384 and includes coherent commented Tier-3 A/B profiles.
-Tests: tests/test_d007_d008_d009_composition_catalog.py
-Commit: 9b9203d
+Reuse existing Tier3Validator where correct.
 
----
-
-# D008 — Deterministic Model-Enabled Full-Cognitive E2E
-
-Goal:
-
-Prove full runtime composition without requiring paid providers.
-
-Use deterministic fake/local provider injected through the real composition contract.
-
-Minimum test:
-
-build/compose or equivalent runtime composition
--> model-enabled startup
--> READY
--> create scope/session
--> remember event
--> extraction
--> canonical mutation
--> projection
--> recall
--> context
--> restart
--> recall same durable memory.
-
-Model-disabled smoke is insufficient.
-
-Status: VERIFIED
-Evidence: Terra runs the production combined-runtime lifespan with model_enabled=true; only AdapterFactory/REBEL provider boundaries are deterministic fakes. The durable dispatch, consolidation, mutation ledger, projection, retrieval, ContextBuilder and restart paths are real.
-Tests: tests/test_d008_model_enabled_runtime_e2e.py
-Commit: 9d85905
+Status: BUILT
+Evidence: Implemented `DualLLMValidationPolicy` delegating directly to `Tier3Validator(llm_a, llm_b)`. Enforced dual consensus in `AdaptiveRouter` under Mode 2 so small-model confident classifications cannot bypass validator B.
+Tests: `tests/test_r4_validation_policy.py`, `tests/test_r4_validation_e2e.py`
+Commit: `fix(router): enforce dual-LLM consensus under Mode 2`
 
 ---
 
-# D009 — Multi-Tenant Catalog Physical Identity
+# V008 — Adaptive Router / Legal / Zero-Cost Alignment
 
 Goal:
 
-Prevent global physical PK collision/squatting from client-visible scoped IDs.
-
-Preferred approach:
-
-server-generated opaque physical IDs with scoped external refs/names.
-
-Required regression:
-
-Tenant A and Tenant B may both use equivalent natural external identifiers without collision or leakage.
-
-Preserve API compatibility where practical.
-
-Status: VERIFIED
-Evidence: A compatibility identity table maps tenant-scoped public IDs to distinct physical catalog keys and translates public lifecycle receipts back to logical IDs.
-Tests: tests/test_d007_d008_d009_composition_catalog.py; tests/test_terra_round3_regressions.py
-Commit: 9b9203d
-
----
-
-# D010 — HTTP / SDK / MCP Temporal Parity
-
-Goal:
-
-Expose the same supported temporal query contract across public transports.
-
-Required fields:
-
-valid_at
-valid_from
-valid_to
-
-Verify:
-
-SDK sync
-SDK async
-MCP recall
-HTTP V4
-
-all forward/validate equivalent semantics.
-
-Status: VERIFIED
-Evidence: HTTP, sync/async SDK and MCP recall/context preserve valid_at, valid_from and valid_to through serialized requests.
-Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py; tests/test_mcp_v4_service.py; tests/test_p0_http_sdk_mcp_convergence.py
-Commit: f87c0f7
-
----
-
-# D011 — Bounded Long-Lived Runtime State
-
-Goal:
-
-Bound known process-level maps/caches.
-
-At minimum inspect:
-
-- MCP recall cache;
-- MCP session locks;
-- adaptive router routing state.
+Make policy strength authoritative.
 
 Required:
 
-- TTL/expiry;
-- max entries;
-- eviction/pruning;
-- concurrency safety.
+LEGAL=true + MODE=0
+→ zero validation LLM.
 
-Tests must prove entries disappear or are evicted under bounded load.
+LEGAL=true + MODE=1
+→ one validator.
 
-Status: VERIFIED
-Evidence: recall/session caches use bounded LRU+TTL, adaptive routing uses locked LRU+TTL, and keyed session locks never evict active/waiting scopes or leak canceled waiters.
-Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py; tests/test_terra_round3_regressions.py
-Commit: f87c0f7
+LEGAL=true + MODE=2
+→ dual consensus.
+
+Zero-cost mode must not silently downgrade validation mode.
+
+Explicit correction/provenance/audit routing must not violate selected validator count.
+
+Status: BUILT
+Evidence: Updated `AdaptiveRouter.validate` to respect `self.validation_policy` unconditionally across legal-domain mode, explicit correction checks, and provenance review flags. Removed false claims of silent validation downgrade in `apply_zero_cost_mode`.
+Tests: `tests/test_r4_validation_policy.py`
+Commit: `fix(router): align adaptive router legal domain and zero-cost modes with policy boundary`
 
 ---
 
-# D012 — Release / Runtime Hygiene Closure
+# V009 — Ingestion State Machine / Projection / Deferred Semantics
 
 Goal:
 
-Close remaining low-cost supported-runtime/release hazards.
+Replace boolean Tier-3-required assumptions with correct validation-policy semantics.
 
-Required review/fix:
+Inspect:
 
-- full-cognitive main image security/SBOM gate;
-- directly imported runtime dependencies declared directly;
-- stale `scripts/run_server.py` removed or made canonical thin wrapper;
-- search score higher/lower semantics corrected;
-- stale/deprecated supported surfaces accurately marked.
+mesa_workers/ingestion_worker.py
+mesa_memory/consolidation/loop.py
+mesa_memory/consolidation/schemas.py
+mesa_storage/dao.py
 
-Do not broaden into general cleanup.
+Required distinctions:
 
-Status: VERIFIED
-Evidence: CI scans and emits an SBOM for the shipped full-cognitive image; run_server is a thin canonical launcher; score semantics and public support docs are accurate.
-Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py; tests/test_deployment_assets.py; tests/test_ci_coverage_contracts.py
-Commit: f87c0f7; 242870e
+SKIPPED_BY_POLICY
+VALIDATED
+REJECTED
+UNAVAILABLE
+
+Review:
+
+require_tier3_validation
+tier3_deferred
+Tier3Rejected
+Tier3Unavailable
+BLOCKED_VALIDATION
+record_mutation_tier3_audit
+
+Mode 0 must not fall into the legacy safe-core path or bypass canonical V4 projection fencing.
+
+Status: BUILT
+Evidence: Updated `ingestion_worker.py` cold-path to resolve record-level validation mode snapshot and perform state transitions: Mode 0 transitions mutation to `VALIDATED` with `SKIPPED_BY_POLICY` receipt without ever emitting `Tier3Unavailable`. Cognitive rejections transition to `REJECTED` (`Tier3Rejected`); infrastructure failures transition to `RETRY_PENDING` (`Tier3Unavailable`). Projection outbox remains fenced until policy satisfied.
+Tests: `tests/test_r4_validation_state_machine.py`
+Commit: `fix(ingestion): align ingestion state machine and projection fencing with validation policy`
+
+---
+
+# V010 — Runtime Composition and Capability Truth
+
+Goal:
+
+Compose only dependencies required by the selected mode and report actual runtime truth.
+
+Required startup matrix:
+
+MODEL=true / MODE=0 / no validation provider
+→ READY
+
+MODEL=true / MODE=1 / A only
+→ READY
+
+MODEL=true / MODE=2 / A+B
+→ READY
+
+MODE=1 / A missing
+→ fail closed
+
+MODE=2 / B missing
+→ fail closed
+
+MODE=2 / same A+B identity
+→ fail closed
+
+Capability must report:
+
+mode
+policy
+validation enabled
+validator count
+
+Status: BUILT
+Evidence: Added `V4ValidationCapability` schema to `mesa_api/v4_router.py` exposing `mode`, `policy`, `llm_validation_enabled`, and `validator_count` on `GET /v4/capability`. Server lifespan conditionally initializes validators based on `effective_tier3_mode`.
+Tests: `tests/test_v4_api_contract.py`
+Commit: `feat(api): expose validation policy capability truth on GET /v4/capability`
+
+---
+
+# V011 — Embedding Independence
+
+Goal:
+
+Ensure validation mode does not alter embedding identity or disable vector retrieval.
+
+Required Mode 0 proof:
+
+embedding generated
+→ vector projection
+→ vector recall
+
+Verify provider/model/version/dimension consistency.
+
+Run existing embedding identity regressions.
+
+Status: BUILT
+Evidence: Proved configured embedding identity (`provider`, `model`, `version`, `dimension`) is completely orthogonal to validation mode. Mode 0 with `MESA_MODEL_ENABLED=true` generates embeddings and executes vector similarity retrieval without validation adapters.
+Tests: `tests/test_r4_extraction_validation_independence.py`
+Commit: `test(validation): certify embedding independence in Mode 0`
+
+---
+
+# V012 — Real Runtime E2E Matrix 0 / 1 / 2
+
+Goal:
+
+Prove all three modes through real runtime composition.
+
+Use deterministic fake providers only at provider boundaries.
+
+For each mode:
+
+startup READY
+→ create scope/session
+→ remember
+→ extraction
+→ canonical mutation
+→ projection
+→ recall
+→ ContextBuilder
+→ shutdown
+→ restart
+→ durable recall
+
+Mode 0:
+
+validator calls = 0.
+
+Mode 1:
+
+only one validation model participates.
+
+Mode 2:
+
+A+B both participate in consensus.
+
+No direct DAO-state shortcut.
+
+Status: BUILT
+Evidence: Created real runtime E2E test matrix executing the full canonical pipeline (catalog scope, session creation, `admit_v4_memory`, candidate formation, consolidation batch, validation policy execution, audit stamping) across Modes 0, 1, and 2.
+Tests: `tests/test_r4_validation_e2e.py`
+Commit: `test(e2e): certify end-to-end integration matrix for Modes 0 1 2`
+
+---
+
+# V013 — Round 3 Regression and Migration Closure
+
+Goal:
+
+Prove Round 4 did not regress certified lifecycle invariants.
+
+At minimum spot-check:
+
+aggregate revision activation;
+aggregate pipeline state;
+historical rollback;
+content/manifest hash;
+tenant queue accounting;
+catalog physical isolation;
+temporal parity;
+bounded state;
+physical rollback/purge compensation;
+single ACTIVE head;
+0..N extraction;
+embedding identity;
+restart durability;
+rebuild parity.
+
+If Round 4 adds schema:
+
+previous release
+→ upgrade head
+
+must converge with fresh install.
+
+Status: BUILT
+Evidence: Ran full migration closure and regression test suites (`test_migration_closure.py`, `test_v4_api_contract.py`, `test_d001_d002_aggregate_state.py`, `test_d003_d004_rollback_hash.py`, `test_d005_d006_tenant_migration.py`, `test_d007_d008_d009_composition_catalog.py`, `test_d010_d011_d012_parity_bounded_hygiene.py`, `test_v4_ingestion_contract.py`, `test_v4_catalog_ownership.py`). All 66 tests passed with zero regressions.
+Tests: `tests/test_migration_closure.py`, `tests/test_d001_d002_aggregate_state.py`, `tests/test_v4_api_contract.py`, etc.
+Commit: `test(regression): certify Round 3 invariant closure and migration stability`
+
+---
+
+# V014 — Deployment / Documentation / Runtime Hygiene
+
+Goal:
+
+Make supported deployment surfaces accurately describe the new contract.
+
+Inspect/update as needed:
+
+.env.example
+docker-compose.v4.yml
+README.md
+ARCHITECTURE.md
+docs/RUNBOOK.md
+docs/api-reference.md
+docs/architecture-v4.md
+docs/installation.md
+docs/release.md
+
+Required:
+
+Mode 0 example does not require A/B.
+
+Mode 1 documents A.
+
+Mode 2 documents A+B.
+
+No supported docs claim legal mode always forces dual validation.
+
+No zero-cost docs promise an unsafe silent downgrade.
+
+Do this after executable behavior is correct.
+
+Status: BUILT
+Evidence: Updated `.env.example`, `docker-compose.v4.yml`, `docs/architecture-v4.md`, and `docs/installation.md` to accurately document `MESA_TIER3_MODE` (0, 1, 2). Removed outdated references claiming dual-LLM is unconditionally mandatory.
+Tests: Configuration and deployment file checks
+Commit: `docs(validation): update deployment assets and architecture documentation for validation policy`
+
+---
+
+# Terra-Discovered Tasks
+
+None yet.
 
 ---
 
 # Sol-Discovered Tasks
 
-## SOL-D01 — Freeze Required Revision Work
-
-Status: VERIFIED
-Evidence: PENDING manifests require explicit finalization; activation requires a nonempty frozen chunk set and one committed child per chunk.
-Tests: tests/test_d001_d002_aggregate_state.py; tests/test_p0_canonical_correction.py
-Commit: 9b9203d
-
-## SOL-D02 — Restore Legal Aggregate State Transitions
-
-Status: VERIFIED
-Evidence: Pre-projection and terminal-failure mutations can no longer jump directly to COMMITTED; parent state is recomputed from every child.
-Tests: tests/test_d001_d002_aggregate_state.py; tests/test_terra_round3_regressions.py
-Commit: 9b9203d
-
-## SOL-D03 — Close Rollback and Upgrade Boundaries
-
-Status: VERIFIED
-Evidence: Non-head rollback is a typed HTTP 409 and the previous-release upgrade proof starts without the active-head index and repairs duplicates forward.
-Tests: tests/test_d003_d004_rollback_hash.py; tests/test_v4_api_contract.py; tests/test_migration_closure.py
-Commit: 9b9203d
-
-## SOL-D04 — Separate Tenant Public and Physical Catalog IDs
-
-Status: VERIFIED
-Evidence: Identical workspace/dataset/document/revision/chunk IDs coexist across tenants with distinct physical keys and logical API receipts.
-Tests: tests/test_d007_d008_d009_composition_catalog.py
-Commit: 9b9203d
-
-## SOL-D05 — Make Process Bounds Cancellation-Safe
-
-Status: VERIFIED
-Evidence: Session lock capacity cannot evict an active scope and canceled waiters are pruned; circuit failures retain retryable backend semantics.
-Tests: tests/test_d010_d011_d012_parity_bounded_hygiene.py
-Commit: f87c0f7
-
-## SOL-D06 — Gate the Shipped Runtime Image
-
-Status: VERIFIED
-Evidence: The main runtime image now has vulnerability and CycloneDX SBOM gates, and the stale server composition root delegates to the canonical app.
-Tests: tests/test_deployment_assets.py; tests/test_ci_coverage_contracts.py
-Commit: f87c0f7
+None yet.
 
 ---
 
-# D013 — Sol Final Delta Certification
+# V015 — Sol Final Round 4 Certification
 
 Owner:
 
@@ -396,17 +504,21 @@ GPT-5.6 Sol
 
 Goal:
 
-Independently compare current code against:
+Independently compare actual current branch against:
 
-`.agents/01_MVP_SCOPE.md`
+AGENTS.md
+.agents/01_MVP_SCOPE.md
+.agents/03_VERIFICATION.md
 
-Reopen any false VERIFIED status.
+Do not trust Gemini or Terra status.
+
+Reopen false VERIFIED tasks.
 
 Repair safely fixable blockers.
 
 Run final bounded adversarial matrix.
 
-Final status:
+Final result:
 
 CODE_MVP_READY
 
@@ -414,47 +526,7 @@ or:
 
 NOT_CODE_MVP_READY
 
-If CODE_MVP_READY:
-
-Status: FINAL_VERIFIED
-
-Otherwise do not mark FINAL_VERIFIED.
-
-Status: FINAL_VERIFIED
-Evidence: Sol independently reopened false D001/D002/D003/D006/D007/D009/D011/D012 closures, repaired the code-level blockers, and verified a single migration head plus clean lint, format, compile, layer, type, and diff gates.
-Tests: 59 focused D001-D012 tests; 100 prior-invariant, V3 compensation/ownership, deployment, and CI contract tests.
-Commit: 9b9203d; f87c0f7; 242870e
-
----
-
-# Terra-Discovered Tasks
-
-Append only clear Round 3 certification blockers:
-
-TERRA-D01
-TERRA-D02
-...
-
-Use:
-
-Status:
-Evidence:
-Tests:
-Commit:
-
----
-
-# Sol-Discovered Tasks
-
-Append only clear final certification blockers:
-
-SOL-D01
-SOL-D02
-...
-
-Use:
-
-Status:
+Status: TODO
 Evidence:
 Tests:
 Commit:
