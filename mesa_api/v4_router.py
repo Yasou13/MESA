@@ -71,6 +71,15 @@ class V4CapabilityFlags(BaseModel):
     human_review: bool = False
 
 
+class V4ValidationCapability(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    mode: int = 0
+    policy: str = "deterministic_only"
+    llm_validation_enabled: bool = False
+    validator_count: int = 0
+
+
 class V4CapabilityLimits(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -85,6 +94,7 @@ class V4CapabilityResponse(BaseModel):
     api_version: str = "v4"
     features: list[str]
     capabilities: V4CapabilityFlags
+    validation: V4ValidationCapability = Field(default_factory=V4ValidationCapability)
     limits: V4CapabilityLimits = Field(default_factory=V4CapabilityLimits)
 
 
@@ -709,11 +719,42 @@ def create_v4_router(
             ),
             graph_projection=canonical_writes_available,
         )
+        effective_mode = config.effective_tier3_mode(model_enabled=config.model_enabled)
+        if effective_mode == 0:
+            val_cap = V4ValidationCapability(
+                mode=0,
+                policy="deterministic_only",
+                llm_validation_enabled=False,
+                validator_count=0,
+            )
+        elif effective_mode == 1:
+            val_cap = V4ValidationCapability(
+                mode=1,
+                policy="single_llm",
+                llm_validation_enabled=True,
+                validator_count=1,
+            )
+        elif effective_mode == 2:
+            val_cap = V4ValidationCapability(
+                mode=2,
+                policy="dual_llm",
+                llm_validation_enabled=True,
+                validator_count=2,
+            )
+        else:
+            val_cap = V4ValidationCapability(
+                mode=effective_mode,
+                policy="unknown",
+                llm_validation_enabled=False,
+                validator_count=0,
+            )
+
         return V4CapabilityResponse(
             features=[
                 name for name, enabled in capabilities.model_dump().items() if enabled
             ],
             capabilities=capabilities,
+            validation=val_cap,
         )
 
     async def submit_rebuild_operation(

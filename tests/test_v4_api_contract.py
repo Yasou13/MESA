@@ -177,6 +177,12 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
             "durable_rebuild": False,
             "human_review": False,
         },
+        "validation": {
+            "mode": 0,
+            "policy": "deterministic_only",
+            "llm_validation_enabled": False,
+            "validator_count": 0,
+        },
         "limits": {
             "rebuild_kind": "projection",
             "rebuild_scope": "storage_root",
