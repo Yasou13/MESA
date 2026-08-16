@@ -95,7 +95,13 @@ def _public_tier3_audit(value: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(models, dict):
         return None
-    allowed_decisions = {"STORE", "DISCARD", "NOT_RUN", "NOT_AVAILABLE"}
+    allowed_decisions = {
+        "STORE",
+        "DISCARD",
+        "NOT_RUN",
+        "NOT_AVAILABLE",
+        "SKIPPED_BY_POLICY",
+    }
     primary = decisions.get("primary")
     secondary = decisions.get("secondary")
     if primary not in allowed_decisions or secondary not in allowed_decisions:
@@ -1676,6 +1682,14 @@ class MemoryDAO:
         ):
             raise ValueError("complete embedding identity is required")
 
+        effective_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        if "_mesa_validation_mode" not in effective_metadata:
+            from mesa_memory.config import config
+            effective_mode = config.effective_tier3_mode(model_enabled=True)
+            effective_metadata["_mesa_validation_mode"] = effective_mode
+        else:
+            effective_mode = int(effective_metadata["_mesa_validation_mode"])
+
         raw_payload = {
             "tenant_id": tenant_id,
             "workspace_id": workspace_id,
@@ -1688,7 +1702,8 @@ class MemoryDAO:
             "agent_id": agent_id,
             "session_id": session_id,
             "content": content_payload,
-            "metadata": metadata,
+            "metadata": effective_metadata,
+            "validation_mode": effective_mode,
         }
         serialized, payload_bytes = _canonical_payload_bytes(raw_payload)
         content_hash = hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
@@ -1982,7 +1997,7 @@ class MemoryDAO:
                         agent_id,
                         session_id,
                         content_payload,
-                        json.dumps(metadata, sort_keys=True),
+                        json.dumps(effective_metadata, sort_keys=True),
                         pipeline_run_id,
                         embedding_provider,
                         embedding_model,
