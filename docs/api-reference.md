@@ -145,8 +145,8 @@ QUEUED → RUNNING → EXTRACTED → VALIDATED → PROJECTING → COMMITTED
 ```
 
 Terminal/kurtarma durumları arasında `REJECTED`, `RETRY_PENDING`, `DLQ`,
-`ROLLING_BACK`, `ROLLED_BACK` ve `BLOCKED` bulunur. Tier-3 reddi aktif
-retrieval artifact’ı üretmez.
+`ROLLING_BACK`, `ROLLED_BACK` ve `BLOCKED` bulunur. Seçili validation
+policy’sinin reddi aktif retrieval artifact’ı üretmez.
 
 ## V4 Python SDK
 

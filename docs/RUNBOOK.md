@@ -147,8 +147,8 @@ paylaşımlı lease/koordinasyon servisi tasarlanıp doğrulandıktan sonra aç�
 
 `MESA_MODEL_ENABLED` ve `MESA_EXTERNAL_PROVIDER_ENABLED` açıkça ayarlanır.
 Provider timeout/rate-limit hatası retryable; bozuk şema permanent; sürekli
-aynı toksik payload poison olarak sınıflanır. Tier-3 geçmeden SQL/vector/graph
-projection başlamaz. Provider’ı atlamak için mutation’ı doğrudan VALIDATED
+aynı toksik payload poison olarak sınıflanır. Seçili validation policy
+tamamlanmadan SQL/vector/graph projection başlamaz. Provider’ı atlamak için mutation’ı doğrudan VALIDATED
 duruma çekmeyin.
 
 ## 8. PageRank

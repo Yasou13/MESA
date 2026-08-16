@@ -513,12 +513,10 @@ class MesaConfig(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
-    # v0.7.1 Phase 3: Zero-Hallucination Legal Mode
-    # When True, the AdaptiveRouter bypasses the small-model confidence gate
-    # and ALWAYS routes to the Dual-LLM ConsolidationLoop.  This eliminates
-    # the risk of "confident hallucinations" from lightweight models when
-    # processing legal documents (statutes, case law, regulatory filings).
-    # Prioritises absolute accuracy over token cost optimisation.
+    # v0.7.1 Phase 3: Legal Domain Mode
+    # Legal-specific routing and provenance signals remain available inside
+    # the assurance level selected by MESA_TIER3_MODE.  This flag never changes
+    # the configured number of validation LLMs.
     # -----------------------------------------------------------------------
     legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
 
