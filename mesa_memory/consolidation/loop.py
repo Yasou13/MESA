@@ -42,13 +42,12 @@ from mesa_memory.consolidation.parser import (  # noqa: F401
     _salvage_truncated_json,
     _sanitize_llm_response,
 )
-from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.consolidation.policy import (
     DeterministicOnlyValidationPolicy,
     DualLLMValidationPolicy,
     SingleLLMValidationPolicy,
     ValidationPolicy,
-    get_validation_policy,
+    compose_validation_policy,
 )
 from mesa_memory.consolidation.router import AdaptiveRouter
 from mesa_memory.consolidation.schemas import ExtractedTriplet
@@ -653,17 +652,9 @@ class ConsolidationLoop:
         elif llm_a is not None:
             self.validation_policy = SingleLLMValidationPolicy(llm_a)
         else:
-            effective_mode = config.effective_tier3_mode(model_enabled=True)
-            if effective_mode == 0:
-                self.validation_policy = DeterministicOnlyValidationPolicy()
-            elif effective_mode == 1:
-                adapters = AdapterFactory.get_validation_adapters(1)
-                self.validation_policy = SingleLLMValidationPolicy(adapters[0])
-            else:
-                adapters = AdapterFactory.get_validation_adapters(2)
-                self.validation_policy = DualLLMValidationPolicy(
-                    Tier3Validator(adapters[0], adapters[1])
-                )
+            self.validation_policy = compose_validation_policy(
+                config.effective_tier3_mode(model_enabled=True)
+            )
 
         # Backward compatibility validator handle
         self.validator = (
@@ -673,15 +664,14 @@ class ConsolidationLoop:
         )
 
         # Delegate modules: Extraction and Routing
-        ext_a = extraction_llm or llm_a
-        ext_b = extraction_llm or llm_b or ext_a
-        if ext_a is None:
-            if isinstance(self.validation_policy, DualLLMValidationPolicy):
-                ext_a = getattr(self.validation_policy.validator, "llm_a", None)
-                ext_b = getattr(self.validation_policy.validator, "llm_b", ext_a)
-            elif isinstance(self.validation_policy, SingleLLMValidationPolicy):
-                ext_a = getattr(self.validation_policy, "llm_a", None)
-                ext_b = ext_a
+        # An explicitly composed policy must not supply extraction adapters.
+        # ``llm_a``/``llm_b`` remain an old positional compatibility path only
+        # when no policy was injected by the runtime composition boundary.
+        ext_a = extraction_llm
+        ext_b = extraction_llm
+        if ext_a is None and validation_policy is None and llm_a is not None:
+            ext_a = llm_a
+            ext_b = llm_b or llm_a
         if ext_a is None:
             ext_a = embedder
             ext_b = ext_a
@@ -1132,30 +1122,18 @@ class ConsolidationLoop:
         on transient faults (API limits, network jitter).
         """
         record_mode = record.get("validation_mode")
+        policy = self._policy_for_record_mode(record_mode)
         # Mode 0 short-circuit: zero LLM calls, no semaphore, no timeout
-        if record_mode == 0 or (record_mode is None and self.validation_policy.mode == 0):
+        if policy.mode == 0:
             return await DeterministicOnlyValidationPolicy().validate_with_audit(record)
 
         if llm_circuit_breaker.is_open:
             raise Exception("Circuit breaker is OPEN. Failing fast.")
         async with self._llm_semaphore:
             try:
-                if record_mode == 1 and self.validation_policy.mode != 1:
-                    if self.llm_a is not None:
-                        policy: ValidationPolicy = SingleLLMValidationPolicy(self.llm_a)
-                    else:
-                        adapters = AdapterFactory.get_validation_adapters(1)
-                        policy = SingleLLMValidationPolicy(adapters[0])
+                if policy is not self.validation_policy:
                     res = await asyncio.wait_for(
-                        policy.validate_with_audit(record),
-                        timeout=timeout_seconds,
-                    )
-                elif record_mode == 2 and self.validation_policy.mode != 2:
-                    adapters = AdapterFactory.get_validation_adapters(2)
-                    policy = DualLLMValidationPolicy(Tier3Validator(adapters[0], adapters[1]))
-                    res = await asyncio.wait_for(
-                        policy.validate_with_audit(record),
-                        timeout=timeout_seconds,
+                        policy.validate_with_audit(record), timeout=timeout_seconds
                     )
                 else:
                     res = await asyncio.wait_for(
@@ -1167,6 +1145,14 @@ class ConsolidationLoop:
             except Exception:
                 llm_circuit_breaker.record_failure()
                 raise
+
+    def _policy_for_record_mode(self, record_mode: Any) -> ValidationPolicy:
+        """Resolve durable policy snapshots without weakening their assurance."""
+        if record_mode is None or record_mode == self.validation_policy.mode:
+            return self.validation_policy
+        if not isinstance(record_mode, int) or record_mode not in (0, 1, 2):
+            raise Tier3ValidationError("persisted validation mode is invalid")
+        return compose_validation_policy(record_mode)
 
 
 def _requires_provenance_dual_review(record: dict[str, Any]) -> bool:

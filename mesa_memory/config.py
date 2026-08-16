@@ -554,7 +554,8 @@ class MesaConfig(BaseSettings):
     #   - LLM provider  → OllamaAdapter (localhost:11434)
     #   - Embeddings    → sentence-transformers/all-MiniLM-L6-v2 (local)
     #   - REBEL         → enabled (local, zero API cost)
-    #   - Dual-LLM      → single local LLM (latency tradeoff acknowledged)
+    #   - Validation    → preserves the explicitly selected assurance mode;
+    #                      Mode 2 still requires two distinct validators.
     # This mode requires Ollama to be running locally with a pulled model.
     # -----------------------------------------------------------------------
     zero_cost_mode: bool = Field(False, validation_alias="MESA_ZERO_COST_MODE")
@@ -719,7 +720,7 @@ class MesaConfig(BaseSettings):
           - mesa_llm_provider → "ollama"
           - llm_model_name    → "llama3.2:3b"
           - rebel_enabled     → True  (local transformer extraction)
-          - Logs a latency warning re: single-LLM consensus
+          - Leaves validation policy and validator identities unchanged
         """
         if not self.zero_cost_mode:
             return self

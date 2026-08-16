@@ -41,3 +41,13 @@ def test_empty_string_treated_as_unset():
     assert cfg.tier3_mode is None
     assert cfg.effective_tier3_mode(model_enabled=True) == 2
     assert cfg.effective_tier3_mode(model_enabled=False) == 0
+
+
+def test_zero_cost_mode_preserves_explicit_validation_assurance(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("MESA_OLLAMA_URL", "http://test-ollama:11434")
+
+    cfg = MesaConfig(tier3_mode=2, zero_cost_mode=True)
+
+    assert cfg.effective_tier3_mode(model_enabled=True) == 2

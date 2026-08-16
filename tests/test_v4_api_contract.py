@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 import mesa_api.v4_router as v4_api
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
+from mesa_memory.consolidation.policy import SingleLLMValidationPolicy
 from mesa_storage.dao import (
     NonHeadRollbackConflictError,
     QueueOverCapacityError,
@@ -206,6 +207,41 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     assert unavailable["capabilities"]["idempotent_ingestion"] is False
     assert unavailable["capabilities"]["projection_outbox"] is False
     assert unavailable["capabilities"]["graph_projection"] is False
+
+
+@pytest.mark.asyncio
+async def test_v4_capability_reports_the_composed_validation_policy(
+    asgi_client: ClientFactory,
+) -> None:
+    dao = MagicMock()
+    dao.canonical_v4_writes_enabled = True
+    policy = SingleLLMValidationPolicy(MagicMock())
+
+    async def attach_principal(request: Request) -> None:
+        request.state.principal = SimpleNamespace(
+            principal_id="principal-a", principal_type="USER", status="active"
+        )
+
+    async def get_dao():  # type: ignore[no-untyped-def]
+        return dao
+
+    app = FastAPI(dependencies=[Depends(attach_principal)])
+    app.include_router(
+        create_v4_router(
+            get_dao=get_dao,
+            get_access_control=_access(),
+            get_composed_validation_policy=lambda: policy,
+        )
+    )
+    response = await asgi_client(app).get("/v4/capability")
+
+    assert response.status_code == 200
+    assert response.json()["validation"] == {
+        "mode": 1,
+        "policy": "single_llm",
+        "llm_validation_enabled": True,
+        "validator_count": 1,
+    }
 
 
 @pytest.mark.asyncio

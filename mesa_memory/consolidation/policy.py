@@ -155,3 +155,18 @@ def get_validation_policy(
         return DualLLMValidationPolicy(Tier3Validator(llm_a, llm_b))
     else:
         raise ValueError(f"Invalid validation mode: {mode}")
+
+
+def compose_validation_policy(mode: int) -> ValidationPolicy:
+    """Compose the configured validation policy without touching extraction.
+
+    This is the sole runtime composition boundary for validation adapters.
+    Extraction obtains its own adapter through the normal adapter factory and
+    must never need a validator merely because a validation mode is selected.
+    """
+    # Imported lazily to keep the policy interface independent from concrete
+    # provider construction and to avoid a module import cycle.
+    from mesa_memory.adapter.factory import AdapterFactory
+
+    validators = AdapterFactory.get_validation_adapters(mode)
+    return get_validation_policy(mode, *validators)

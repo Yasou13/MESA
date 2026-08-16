@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.context_builder import ContextBuilder
+from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
@@ -373,6 +374,7 @@ def create_v4_router(
     get_dao: Callable[[], MemoryDAO],
     *,
     get_access_control: Callable[[], AccessControl],
+    get_composed_validation_policy: Callable[[], ValidationPolicy | None] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/v4", tags=["v4-full-cognitive"])
 
@@ -719,32 +721,29 @@ def create_v4_router(
             ),
             graph_projection=canonical_writes_available,
         )
-        effective_mode = config.effective_tier3_mode(model_enabled=config.model_enabled)
-        if effective_mode == 0:
+        policy = (
+            get_composed_validation_policy()
+            if get_composed_validation_policy is not None
+            else None
+        )
+        if policy is not None:
+            val_cap = V4ValidationCapability(
+                mode=policy.mode,
+                policy=policy.name,
+                llm_validation_enabled=policy.llm_validation_enabled,
+                validator_count=policy.validator_count,
+            )
+        elif config.effective_tier3_mode(model_enabled=config.model_enabled) == 0:
             val_cap = V4ValidationCapability(
                 mode=0,
                 policy="deterministic_only",
                 llm_validation_enabled=False,
                 validator_count=0,
             )
-        elif effective_mode == 1:
-            val_cap = V4ValidationCapability(
-                mode=1,
-                policy="single_llm",
-                llm_validation_enabled=True,
-                validator_count=1,
-            )
-        elif effective_mode == 2:
-            val_cap = V4ValidationCapability(
-                mode=2,
-                policy="dual_llm",
-                llm_validation_enabled=True,
-                validator_count=2,
-            )
         else:
             val_cap = V4ValidationCapability(
-                mode=effective_mode,
-                policy="unknown",
+                mode=config.effective_tier3_mode(model_enabled=config.model_enabled),
+                policy="not_composed",
                 llm_validation_enabled=False,
                 validator_count=0,
             )

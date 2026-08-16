@@ -48,11 +48,8 @@ from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_memory.consolidation.policy import (
-    DeterministicOnlyValidationPolicy,
-    DualLLMValidationPolicy,
-    SingleLLMValidationPolicy,
+    compose_validation_policy,
 )
-from mesa_memory.consolidation.validator import Tier3Validator
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import (
     ProjectionGenerationRepository,
@@ -424,18 +421,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
         effective_mode = config.effective_tier3_mode(model_enabled=True)
-        if effective_mode == 0:
-            validation_policy = DeterministicOnlyValidationPolicy()
-        elif effective_mode == 1:
-            validators = AdapterFactory.get_validation_adapters(1)
-            validation_policy = SingleLLMValidationPolicy(validators[0])
-        elif effective_mode == 2:
-            validators = AdapterFactory.get_validation_adapters(2)
-            validation_policy = DualLLMValidationPolicy(
-                Tier3Validator(validators[0], validators[1])
-            )
-        else:
-            raise ValueError(f"Unknown validation mode: {effective_mode}")
+        validation_policy = compose_validation_policy(effective_mode)
 
         extraction_adapter = AdapterFactory.get_adapter()
         embedding_adapter = AdapterFactory.get_adapter()
@@ -856,7 +842,13 @@ memory_router = create_memory_router(
 # We can't attach dependencies to the include_router directly if the router already defines some,
 # but it's simpler to inject them directly on include_router
 app.include_router(memory_router, dependencies=router_dependencies)
-v4_router = create_v4_router(get_dao=get_dao, get_access_control=get_access_control)
+v4_router = create_v4_router(
+    get_dao=get_dao,
+    get_access_control=get_access_control,
+    get_composed_validation_policy=lambda: getattr(
+        getattr(state, "consolidation_loop", None), "validation_policy", None
+    ),
+)
 app.include_router(v4_router, dependencies=router_dependencies)
 app.include_router(
     create_control_router(

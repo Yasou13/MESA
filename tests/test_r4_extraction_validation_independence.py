@@ -164,6 +164,40 @@ async def test_mode_1_extraction_and_validation_independent(tmp_path, monkeypatc
     assert extraction_adapter.complete_count >= 1
 
 
+@pytest.mark.asyncio
+async def test_injected_policy_never_becomes_an_extraction_fallback(
+    tmp_path, monkeypatch
+):
+    """A runtime-composed validator must not silently serve extraction."""
+    monkeypatch.setattr(config, "rebel_enabled", False)
+
+    validator_a = TrackingAdapter("validator_a")
+    embedder = TrackingAdapter("embedder")
+    loop = ConsolidationLoop(
+        dao=make_mock_dao(),
+        embedder=embedder,
+        validation_policy=SingleLLMValidationPolicy(validator_a),
+        queue_root=tmp_path / "queue_policy_extraction_boundary",
+    )
+    candidate = MemoryCandidate.from_raw_log(
+        raw_log_id=303,
+        agent_id="test_agent",
+        session_id="session_1",
+        content_payload="Service A publishes an event to Service B.",
+        metadata={"_mesa_validation_mode": 1},
+        embedding_provider="openai_compatible",
+        embedding_model="text-embedding-3-small",
+        embedding_version="v1",
+        embedding_dimension=384,
+    )
+
+    outcome = await loop.run_batch([candidate.as_consolidation_record()])
+
+    assert candidate.candidate_id in outcome["accepted"]
+    assert validator_a.complete_count == 1
+    assert embedder.complete_count >= 1
+
+
 def test_embedding_identity_independence():
     # Embedding identity is configured independently of Tier-3 validation mode
     identity = configured_embedding_identity()
