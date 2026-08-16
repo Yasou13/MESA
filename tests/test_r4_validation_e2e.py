@@ -1,31 +1,34 @@
 import pytest
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
-from mesa_memory.config import MesaConfig, config
+from mesa_memory.config import config
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.policy import (
-    DeterministicOnlyValidationPolicy,
-    SingleLLMValidationPolicy,
-    DualLLMValidationPolicy,
     get_validation_policy,
 )
-from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet, MemoryCandidate
-from mesa_memory.consolidation.validator import Tier3Validator
+from mesa_memory.consolidation.schemas import (
+    BatchExtractionResponse,
+    ExtractedTriplet,
+    MemoryCandidate,
+)
 from mesa_storage.dao import MemoryDAO
 
 
 class E2ETrackingAdapter(BaseUniversalLLMAdapter):
-    def __init__(self, name: str, response: str = '{"decision": "STORE", "justification": "E2E Approved"}'):
+    def __init__(
+        self,
+        name: str,
+        response: str = '{"decision": "STORE", "justification": "E2E Approved"}',
+    ):
         self.name = name
         self.response = response
         self.call_count = 0
 
     def complete(self, prompt: str, schema=None, **kwargs):
         self.call_count += 1
-        if schema is BatchExtractionResponse or (isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)):
+        if schema is BatchExtractionResponse or (
+            isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
+        ):
             return BatchExtractionResponse(
                 triplets=[
                     ExtractedTriplet(
@@ -40,7 +43,9 @@ class E2ETrackingAdapter(BaseUniversalLLMAdapter):
 
     async def acomplete(self, prompt: str, schema=None, **kwargs):
         self.call_count += 1
-        if schema is BatchExtractionResponse or (isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)):
+        if schema is BatchExtractionResponse or (
+            isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
+        ):
             return BatchExtractionResponse(
                 triplets=[
                     ExtractedTriplet(
@@ -70,6 +75,7 @@ class E2ETrackingAdapter(BaseUniversalLLMAdapter):
 
 
 from types import SimpleNamespace
+
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -186,7 +192,10 @@ async def test_e2e_mode_1_single_model_matrix(tmp_path, monkeypatch):
         principal_id="sys-principal",
     )
 
-    val_a = E2ETrackingAdapter("val_a", response='{"decision": "STORE", "justification": "Valid microservice architecture"}')
+    val_a = E2ETrackingAdapter(
+        "val_a",
+        response='{"decision": "STORE", "justification": "Valid microservice architecture"}',
+    )
     embedder = E2ETrackingAdapter("embedder")
     extractor = E2ETrackingAdapter("extractor")
     policy_1 = get_validation_policy(1, val_a)
@@ -276,8 +285,12 @@ async def test_e2e_mode_2_dual_consensus_matrix(tmp_path, monkeypatch):
         principal_id="sys-principal",
     )
 
-    val_a = E2ETrackingAdapter("val_a", response='{"decision": "STORE", "justification": "A agrees"}')
-    val_b = E2ETrackingAdapter("val_b", response='{"decision": "DISCARD", "justification": "B rejects"}')
+    val_a = E2ETrackingAdapter(
+        "val_a", response='{"decision": "STORE", "justification": "A agrees"}'
+    )
+    val_b = E2ETrackingAdapter(
+        "val_b", response='{"decision": "DISCARD", "justification": "B rejects"}'
+    )
     embedder = E2ETrackingAdapter("embedder")
     extractor = E2ETrackingAdapter("extractor")
     policy_2 = get_validation_policy(2, val_a, val_b)

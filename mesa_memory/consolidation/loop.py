@@ -648,7 +648,9 @@ class ConsolidationLoop:
         if validation_policy is not None:
             self.validation_policy = validation_policy
         elif llm_a is not None and llm_b is not None:
-            self.validation_policy = DualLLMValidationPolicy(Tier3Validator(llm_a, llm_b))
+            self.validation_policy = DualLLMValidationPolicy(
+                Tier3Validator(llm_a, llm_b)
+            )
         elif llm_a is not None:
             self.validation_policy = SingleLLMValidationPolicy(llm_a)
         else:
@@ -674,6 +676,8 @@ class ConsolidationLoop:
             ext_b = llm_b or llm_a
         if ext_a is None:
             ext_a = embedder
+            ext_b = ext_a
+        if ext_b is None:
             ext_b = ext_a
 
         self.triplet_extractor = TripletExtractor(llm_a=ext_a, llm_b=ext_b)
@@ -847,7 +851,10 @@ class ConsolidationLoop:
         # --- Phase 1: Tier-3 validation gate ---
         ready_batch = []
         for record in batch:
-            if record.get("tier3_deferred") or record.get("validation_mode") is not None:
+            if (
+                record.get("tier3_deferred")
+                or record.get("validation_mode") is not None
+            ):
                 if _requires_provenance_dual_review(record):
                     record["_mesa_force_dual_llm"] = True
                 try:
@@ -915,11 +922,15 @@ class ConsolidationLoop:
                         tier3_audit = is_valid.get("tier3_audit")
                         decision_val = is_valid.get("decision")
                         if decision_val is None and is_valid.get("route") == "dual_llm":
-                            tier3_audit = await self.validator.validate_with_audit(record)
+                            tier3_audit = await self.validator.validate_with_audit(
+                                record
+                            )
                             is_pass = bool(tier3_audit["accepted"])
                         elif decision_val is not None:
                             is_pass = decision_val in (True, "STORE", "ADMIT")
-                        elif isinstance(tier3_audit, dict) and "accepted" in tier3_audit:
+                        elif (
+                            isinstance(tier3_audit, dict) and "accepted" in tier3_audit
+                        ):
                             is_pass = bool(tier3_audit["accepted"])
                     elif "accepted" in is_valid:
                         tier3_audit = is_valid
@@ -1131,6 +1142,7 @@ class ConsolidationLoop:
             raise Exception("Circuit breaker is OPEN. Failing fast.")
         async with self._llm_semaphore:
             try:
+                res: Any
                 if policy is not self.validation_policy:
                     res = await asyncio.wait_for(
                         policy.validate_with_audit(record), timeout=timeout_seconds

@@ -13,7 +13,6 @@ Features:
 """
 
 import logging
-import random
 import re
 import time
 from collections import OrderedDict
@@ -26,14 +25,10 @@ from mesa_memory.config import config
 from mesa_memory.consolidation.policy import (
     DeterministicOnlyValidationPolicy,
     DualLLMValidationPolicy,
-    SingleLLMValidationPolicy,
     ValidationPolicy,
 )
 from mesa_memory.consolidation.validator import (
-    VALENCE_PROMPT_A_TEMPLATE,
     Tier3Validator,
-    single_model_audit,
-    tier3_provenance_context,
 )
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_storage.dao import MemoryDAO
@@ -382,7 +377,12 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
             return RoutingDecision(
                 route="single_model",
                 decision=accepted,
-                reason=str(audit.get("reason", "single_llm_store" if accepted else "single_llm_discard")),
+                reason=str(
+                    audit.get(
+                        "reason",
+                        "single_llm_store" if accepted else "single_llm_discard",
+                    )
+                ),
                 tier3_audit=audit,
             )
 

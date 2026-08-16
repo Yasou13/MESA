@@ -14,7 +14,10 @@ _SECRET_PATTERNS = (
     re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{16,}\b", re.IGNORECASE),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b", re.IGNORECASE),
     re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
-    re.compile(r"\b(?:password|api[_-]?key|access[_-]?token|secret)\s*[:=]\s*\S+", re.IGNORECASE),
+    re.compile(
+        r"\b(?:password|api[_-]?key|access[_-]?token|secret)\s*[:=]\s*\S+",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -41,5 +44,7 @@ def _validate_metadata(value: dict[str, Any], *, depth: int) -> None:
         if isinstance(item, dict):
             _validate_metadata(item, depth=depth + 1)
         elif isinstance(item, list):
-            if depth >= MAX_METADATA_DEPTH or any(isinstance(entry, (dict, list)) for entry in item):
+            if depth >= MAX_METADATA_DEPTH or any(
+                isinstance(entry, (dict, list)) for entry in item
+            ):
                 raise ValueError("metadata nesting exceeds the supported depth")

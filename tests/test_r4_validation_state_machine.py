@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -7,22 +8,29 @@ from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.policy import (
     DeterministicOnlyValidationPolicy,
     SingleLLMValidationPolicy,
-    DualLLMValidationPolicy,
 )
-from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet, MemoryCandidate
-from mesa_memory.consolidation.validator import Tier3Validator
+from mesa_memory.consolidation.schemas import (
+    BatchExtractionResponse,
+    ExtractedTriplet,
+)
 from mesa_workers.ingestion_worker import process_cold_path
 
 
 class StateMachineTrackingAdapter(BaseUniversalLLMAdapter):
-    def __init__(self, response: str = '{"decision": "STORE", "justification": "Approved"}', model_name: str = "tracker"):
+    def __init__(
+        self,
+        response: str = '{"decision": "STORE", "justification": "Approved"}',
+        model_name: str = "tracker",
+    ):
         self.response = response
         self.model_name = model_name
         self.complete_count = 0
 
     def complete(self, prompt: str, schema=None, **kwargs):
         self.complete_count += 1
-        if schema is BatchExtractionResponse or (isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)):
+        if schema is BatchExtractionResponse or (
+            isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
+        ):
             return BatchExtractionResponse(
                 triplets=[
                     ExtractedTriplet(
@@ -37,7 +45,9 @@ class StateMachineTrackingAdapter(BaseUniversalLLMAdapter):
 
     async def acomplete(self, prompt: str, schema=None, **kwargs):
         self.complete_count += 1
-        if schema is BatchExtractionResponse or (isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)):
+        if schema is BatchExtractionResponse or (
+            isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
+        ):
             return BatchExtractionResponse(
                 triplets=[
                     ExtractedTriplet(
@@ -121,7 +131,13 @@ async def test_mode_0_state_machine_transitions(tmp_path, monkeypatch):
     dao.set_mutation_state.assert_awaited_once()
     args, kwargs = dao.set_mutation_state.call_args
     assert args[2] == "VALIDATED"
-    assert kwargs.get("event_detail", {}).get("tier3", {}).get("decisions", {}).get("primary") == "SKIPPED_BY_POLICY"
+    assert (
+        kwargs.get("event_detail", {})
+        .get("tier3", {})
+        .get("decisions", {})
+        .get("primary")
+        == "SKIPPED_BY_POLICY"
+    )
     assert "failure_class" not in kwargs or kwargs.get("failure_class") is None
 
     # 2. Raw log transitioned to processed

@@ -124,6 +124,7 @@ async def test_d009_multi_tenant_catalog_physical_identity(tmp_path):
         embedding_model="sentence-transformers/all-MiniLM-L6-v2",
         embedding_version="v1",
         embedding_dimension=384,
+        validation_mode=0,
         policy=_DEFAULT_QUEUE_ADMISSION_POLICY,
     )
     summary = await dao.get_mutation_summary(admitted["response"]["mutation_id"])

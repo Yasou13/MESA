@@ -20,7 +20,6 @@ from mesa_memory.consolidation.validator import (
     Tier3ValidationError,
     Tier3Validator,
     _parse_validator_response,
-    _safe_justification,
     _safe_model_name,
     tier3_provenance_context,
 )
@@ -151,7 +150,9 @@ def get_validation_policy(
         return SingleLLMValidationPolicy(llm_a)
     elif mode == 2:
         if llm_a is None or llm_b is None:
-            raise ValueError("Mode 2 validation requires both validator llm_a and llm_b")
+            raise ValueError(
+                "Mode 2 validation requires both validator llm_a and llm_b"
+            )
         return DualLLMValidationPolicy(Tier3Validator(llm_a, llm_b))
     else:
         raise ValueError(f"Invalid validation mode: {mode}")

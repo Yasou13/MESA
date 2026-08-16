@@ -1,19 +1,24 @@
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.consolidation.policy import (
     DeterministicOnlyValidationPolicy,
-    SingleLLMValidationPolicy,
     DualLLMValidationPolicy,
+    SingleLLMValidationPolicy,
     get_validation_policy,
 )
 from mesa_memory.consolidation.router import AdaptiveRouter
-from mesa_memory.consolidation.validator import Tier3Validator, Tier3ValidationError
+from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 
 
 class MockAdapter(BaseUniversalLLMAdapter):
-    def __init__(self, response: str = '{"decision": "STORE", "justification": "Valid item"}', model_name: str = "mock-model"):
+    def __init__(
+        self,
+        response: str = '{"decision": "STORE", "justification": "Valid item"}',
+        model_name: str = "mock-model",
+    ):
         self.response = response
         self.model_name = model_name
         self.call_count = 0
@@ -85,7 +90,10 @@ async def test_mode_0_deterministic_only():
 @pytest.mark.asyncio
 async def test_mode_1_single_llm_store_and_discard():
     # 1. STORE decision
-    adapter_store = MockAdapter(response='{"decision": "STORE", "justification": "High relevance fact"}', model_name="model-a")
+    adapter_store = MockAdapter(
+        response='{"decision": "STORE", "justification": "High relevance fact"}',
+        model_name="model-a",
+    )
     policy_1 = SingleLLMValidationPolicy(adapter_store)
     assert policy_1.mode == 1
     assert policy_1.validator_count == 1
@@ -101,7 +109,10 @@ async def test_mode_1_single_llm_store_and_discard():
     assert adapter_store.call_count == 1
 
     # 2. DISCARD decision
-    adapter_discard = MockAdapter(response='{"decision": "DISCARD", "justification": "Spam noise"}', model_name="model-a")
+    adapter_discard = MockAdapter(
+        response='{"decision": "DISCARD", "justification": "Spam noise"}',
+        model_name="model-a",
+    )
     policy_discard = SingleLLMValidationPolicy(adapter_discard)
     audit_discard = await policy_discard.validate_with_audit(record)
 
@@ -123,8 +134,14 @@ async def test_mode_1_error_handling():
 
 @pytest.mark.asyncio
 async def test_mode_2_dual_consensus():
-    adapter_a = MockAdapter(response='{"decision": "STORE", "justification": "Validator A approves"}', model_name="model-a")
-    adapter_b = MockAdapter(response='{"decision": "STORE", "justification": "Validator B approves"}', model_name="model-b")
+    adapter_a = MockAdapter(
+        response='{"decision": "STORE", "justification": "Validator A approves"}',
+        model_name="model-a",
+    )
+    adapter_b = MockAdapter(
+        response='{"decision": "STORE", "justification": "Validator B approves"}',
+        model_name="model-b",
+    )
 
     validator = Tier3Validator(adapter_a, adapter_b)
     policy_2 = DualLLMValidationPolicy(validator)
@@ -145,8 +162,14 @@ async def test_mode_2_dual_consensus():
 
 @pytest.mark.asyncio
 async def test_mode_2_disagreement_fails_closed():
-    adapter_a = MockAdapter(response='{"decision": "STORE", "justification": "Validator A approves"}', model_name="model-a")
-    adapter_b = MockAdapter(response='{"decision": "DISCARD", "justification": "Validator B rejects"}', model_name="model-b")
+    adapter_a = MockAdapter(
+        response='{"decision": "STORE", "justification": "Validator A approves"}',
+        model_name="model-a",
+    )
+    adapter_b = MockAdapter(
+        response='{"decision": "DISCARD", "justification": "Validator B rejects"}',
+        model_name="model-b",
+    )
 
     validator = Tier3Validator(adapter_a, adapter_b)
     policy_2 = DualLLMValidationPolicy(validator)
@@ -204,7 +227,10 @@ async def test_router_respects_mode_zero_under_all_guards():
 @pytest.mark.asyncio
 async def test_router_respects_mode_1_under_all_guards():
     dao = MagicMock()
-    adapter_a = MockAdapter(response='{"decision": "STORE", "justification": "A admits"}', model_name="validator-a")
+    adapter_a = MockAdapter(
+        response='{"decision": "STORE", "justification": "A admits"}',
+        model_name="validator-a",
+    )
     policy_1 = SingleLLMValidationPolicy(adapter_a)
 
     router = AdaptiveRouter(dao=dao, small_llm=adapter_a, validation_policy=policy_1)
@@ -229,7 +255,9 @@ async def test_legal_mode_preserves_selected_validator_count(mode, monkeypatch):
     router = AdaptiveRouter(
         dao=MagicMock(), small_llm=MockAdapter(), validation_policy=policy
     )
-    monkeypatch.setattr("mesa_memory.consolidation.router.config.legal_domain_mode", True)
+    monkeypatch.setattr(
+        "mesa_memory.consolidation.router.config.legal_domain_mode", True
+    )
 
     decision = await router.validate({"content_payload": "Legal domain record"})
 

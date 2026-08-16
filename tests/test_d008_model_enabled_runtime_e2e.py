@@ -98,6 +98,7 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
     monkeypatch.setenv("MESA_API_KEY", "d008-test-key")
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "d008-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
+
     def provider_boundary(provider_name=None, *, model_name=None):
         if model_name == "terra-validator-a":
             return validator_a
@@ -124,6 +125,7 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
 
     async with server.lifespan(FastAPI()):
         assert server.state.is_ready is True
+        assert "tier3-deferred" in server.state.worker_supervisor.readiness()["workers"]
         dao = server.state.dao
         await dao.ensure_v4_catalog_scope(
             tenant_id="tenant-d008", workspace_id="default", dataset_id="main"
@@ -157,6 +159,7 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
             embedding_model=embedding_identity.model,
             embedding_version=embedding_identity.version,
             embedding_dimension=embedding_identity.dimension,
+            validation_mode=2,
             policy=server.config.queue_admission_policy,
         )
         mutation_id = admitted["response"]["mutation_id"]
@@ -221,6 +224,10 @@ async def test_r4_mode_zero_combined_runtime_has_no_validator_dependency(
         assert loop.validation_policy.mode == 0
         assert loop.validation_policy.validator_count == 0
         assert loop.validation_policy.llm_validation_enabled is False
+        assert (
+            "tier3-deferred"
+            not in server.state.worker_supervisor.readiness()["workers"]
+        )
         dao = server.state.dao
         await dao.ensure_v4_catalog_scope(
             tenant_id="tenant-r4-0", workspace_id="default", dataset_id="main"
@@ -254,6 +261,7 @@ async def test_r4_mode_zero_combined_runtime_has_no_validator_dependency(
             embedding_model=embedding_identity.model,
             embedding_version=embedding_identity.version,
             embedding_dimension=embedding_identity.dimension,
+            validation_mode=0,
             policy=server.config.queue_admission_policy,
         )
         summary = await _wait_for_committed(dao, admitted["response"]["mutation_id"])
@@ -312,6 +320,7 @@ async def test_r4_mode_one_combined_runtime_uses_only_validator_a(
         loop = server.state.consolidation_loop
         assert loop.validation_policy.mode == 1
         assert loop.validation_policy.validator_count == 1
+        assert "tier3-deferred" in server.state.worker_supervisor.readiness()["workers"]
         dao = server.state.dao
         await dao.ensure_v4_catalog_scope(
             tenant_id="tenant-r4-1", workspace_id="default", dataset_id="main"
@@ -345,6 +354,7 @@ async def test_r4_mode_one_combined_runtime_uses_only_validator_a(
             embedding_model=embedding_identity.model,
             embedding_version=embedding_identity.version,
             embedding_dimension=embedding_identity.dimension,
+            validation_mode=1,
             policy=server.config.queue_admission_policy,
         )
         summary = await _wait_for_committed(dao, admitted["response"]["mutation_id"])
@@ -396,7 +406,9 @@ async def test_r4_invalid_validation_composition_fails_server_startup(
         else:
             monkeypatch.setenv(name, value)
     monkeypatch.setattr(
-        server.AdapterFactory, "get_adapter", staticmethod(lambda *args, **kwargs: provider)
+        server.AdapterFactory,
+        "get_adapter",
+        staticmethod(lambda *args, **kwargs: provider),
     )
 
     with pytest.raises(ValueError):

@@ -18,8 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_memory.config import config, configured_embedding_identity
-from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.consolidation.policy import ValidationPolicy
+from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
@@ -957,9 +957,7 @@ def create_v4_router(
                 validation_mode=(
                     validation_policy.mode
                     if validation_policy is not None
-                    else config.effective_tier3_mode(
-                        model_enabled=config.model_enabled
-                    )
+                    else config.effective_tier3_mode(model_enabled=config.model_enabled)
                 ),
                 idempotency_key=payload.idempotency_key,
                 payload_hash=payload_hash if payload.idempotency_key else None,

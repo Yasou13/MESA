@@ -20,7 +20,9 @@ async def test_shared_write_admission_policy(tmp_path):
     mock_vec.is_initialized = True
     mock_graph = SimpleNamespace()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph)
+    dao = MemoryDAO(
+        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+    )
 
     tenant_id = "tenant_adm"
     agent_id = "agent_adm"
@@ -29,9 +31,15 @@ async def test_shared_write_admission_policy(tmp_path):
     doc_id = f"doc_{uuid.uuid4().hex[:8]}"
     rev_id = f"rev_{uuid.uuid4().hex[:8]}"
 
-    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Adm")
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
-    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Adm", document_id=doc_id)
+    await dao.create_v4_workspace(
+        tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Adm"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id
+    )
+    await dao.create_v4_document(
+        tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Adm", document_id=doc_id
+    )
     await dao.create_v4_revision(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
@@ -70,6 +78,7 @@ async def test_shared_write_admission_policy(tmp_path):
             embedding_model="model",
             embedding_version="1.0",
             embedding_dimension=384,
+            validation_mode=0,
             policy=policy,
         )
 
@@ -97,11 +106,14 @@ async def test_shared_write_admission_policy(tmp_path):
             embedding_model="model",
             embedding_version="1.0",
             embedding_dimension=384,
+            validation_mode=0,
             policy=policy,
         )
 
     # 3. Idempotency key supplied without payload hash raises ValueError
-    with pytest.raises(ValueError, match="idempotency key and payload hash must be supplied together"):
+    with pytest.raises(
+        ValueError, match="idempotency key and payload hash must be supplied together"
+    ):
         await dao.admit_v4_memory(
             tenant_id=tenant_id,
             workspace_id=workspace_id,
@@ -123,6 +135,7 @@ async def test_shared_write_admission_policy(tmp_path):
             embedding_model="model",
             embedding_version="1.0",
             embedding_dimension=384,
+            validation_mode=0,
             policy=SimpleNamespace(
                 queue_max_single_record_bytes=100000,
                 queue_max_total_bytes=1000000,

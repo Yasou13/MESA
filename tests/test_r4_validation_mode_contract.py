@@ -24,7 +24,21 @@ def test_string_tier3_modes_parsed_and_accepted():
 
 
 def test_invalid_explicit_modes_rejected():
-    invalid_values = [-1, 3, 10, -5, "auto", "two", "invalid", "-1", "3", "auto ", "none", "True", True]
+    invalid_values = [
+        -1,
+        3,
+        10,
+        -5,
+        "auto",
+        "two",
+        "invalid",
+        "-1",
+        "3",
+        "auto ",
+        "none",
+        "True",
+        True,
+    ]
     for inv in invalid_values:
         with pytest.raises(ValidationError):
             MesaConfig(tier3_mode=inv)

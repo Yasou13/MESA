@@ -11,7 +11,11 @@ from pydantic import ValidationError
 
 import mesa_api.v4_router as v4_api
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
-from mesa_memory.consolidation.policy import SingleLLMValidationPolicy
+from mesa_memory.consolidation.policy import (
+    DeterministicOnlyValidationPolicy,
+    SingleLLMValidationPolicy,
+    ValidationPolicy,
+)
 from mesa_storage.dao import (
     NonHeadRollbackConflictError,
     QueueOverCapacityError,
@@ -31,6 +35,7 @@ def _app(
     *,
     principal_id: str = "principal-a",
     maintenance_pending: bool = False,
+    validation_policy: ValidationPolicy | None = None,
 ) -> FastAPI:  # type: ignore[no-untyped-def]
     async def attach_principal(request: Request) -> None:
         request.state.principal = SimpleNamespace(
@@ -51,6 +56,9 @@ def _app(
         create_v4_router(
             get_dao=get_dao,
             get_access_control=get_access_control,
+            get_composed_validation_policy=(
+                (lambda: validation_policy) if validation_policy is not None else None
+            ),
         )
     )
     return app
@@ -139,9 +147,7 @@ def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
     with pytest.raises(ValidationError, match="metadata exceeds"):
         V4MemoryInsertRequest(**(payload | {"metadata": {"x": "a" * (16 * 1024)}}))
     with pytest.raises(ValidationError, match="reserved"):
-        V4MemoryInsertRequest(
-            **(payload | {"metadata": {"_mesa_validation_mode": 0}})
-        )
+        V4MemoryInsertRequest(**(payload | {"metadata": {"_mesa_validation_mode": 0}}))
 
 
 @pytest.mark.asyncio
@@ -277,7 +283,13 @@ async def test_v4_insert_creates_canonical_mutation_after_authorized_admission(
             "status": "ACTIVE",
         }
     )
-    client = asgi_client(_app(dao, _access()))
+    client = asgi_client(
+        _app(
+            dao,
+            _access(),
+            validation_policy=DeterministicOnlyValidationPolicy(),
+        )
+    )
 
     response = await client.post(
         "/v4/memory/insert",

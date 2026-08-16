@@ -267,15 +267,13 @@ async def test_durable_admission_preserves_mode_across_reconfigured_processors(
 
 @pytest.mark.asyncio
 async def test_dao_admission_ignores_caller_controlled_validation_metadata(
-    tmp_path, monkeypatch
+    tmp_path,
 ):
     """A writer cannot downgrade the runtime's validation assurance."""
     engine = AsyncEngine(str(tmp_path / "reserved-policy-metadata.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
     dao = MemoryDAO(engine, SimpleNamespace())
-    monkeypatch.setattr(config, "model_enabled", True)
-    monkeypatch.setattr(config, "tier3_mode", 2)
     embedding = configured_embedding_identity()
 
     try:
@@ -311,6 +309,7 @@ async def test_dao_admission_ignores_caller_controlled_validation_metadata(
             embedding_version=embedding.version,
             embedding_dimension=embedding.dimension,
             policy=config.queue_admission_policy,
+            validation_mode=2,
         )
 
         raw_log = await dao.get_raw_log(
@@ -323,8 +322,6 @@ async def test_dao_admission_ignores_caller_controlled_validation_metadata(
             "public": "kept",
         }
 
-        monkeypatch.setattr(config, "model_enabled", False)
-        monkeypatch.setattr(config, "tier3_mode", None)
         model_disabled = await dao.admit_v4_memory(
             tenant_id="tenant-reserved",
             workspace_id="workspace",
@@ -347,6 +344,7 @@ async def test_dao_admission_ignores_caller_controlled_validation_metadata(
             embedding_version=embedding.version,
             embedding_dimension=embedding.dimension,
             policy=config.queue_admission_policy,
+            validation_mode=0,
         )
         raw_model_disabled = await dao.get_raw_log(
             "agent-reserved", model_disabled["response"]["raw_log_id"]

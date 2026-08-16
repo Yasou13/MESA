@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config, configured_embedding_identity
@@ -7,14 +8,20 @@ from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.policy import (
     DeterministicOnlyValidationPolicy,
     SingleLLMValidationPolicy,
-    DualLLMValidationPolicy,
 )
-from mesa_memory.consolidation.schemas import BatchExtractionResponse, ExtractedTriplet, MemoryCandidate
-from mesa_memory.consolidation.validator import Tier3Validator
+from mesa_memory.consolidation.schemas import (
+    BatchExtractionResponse,
+    ExtractedTriplet,
+    MemoryCandidate,
+)
 
 
 class TrackingAdapter(BaseUniversalLLMAdapter):
-    def __init__(self, name: str, response: str = '{"decision": "STORE", "justification": "Valid"}'):
+    def __init__(
+        self,
+        name: str,
+        response: str = '{"decision": "STORE", "justification": "Valid"}',
+    ):
         self.name = name
         self.response = response
         self.complete_count = 0
@@ -22,7 +29,9 @@ class TrackingAdapter(BaseUniversalLLMAdapter):
 
     def complete(self, prompt: str, schema=None, **kwargs):
         self.complete_count += 1
-        if schema is BatchExtractionResponse or (isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)):
+        if schema is BatchExtractionResponse or (
+            isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
+        ):
             return BatchExtractionResponse(
                 triplets=[
                     ExtractedTriplet(
@@ -37,7 +46,9 @@ class TrackingAdapter(BaseUniversalLLMAdapter):
 
     async def acomplete(self, prompt: str, schema=None, **kwargs):
         self.complete_count += 1
-        if schema is BatchExtractionResponse or (isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)):
+        if schema is BatchExtractionResponse or (
+            isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
+        ):
             return BatchExtractionResponse(
                 triplets=[
                     ExtractedTriplet(
@@ -129,7 +140,10 @@ async def test_mode_1_extraction_and_validation_independent(tmp_path, monkeypatc
     monkeypatch.setattr(config, "rebel_enabled", False)
 
     extraction_adapter = TrackingAdapter("extraction_llm")
-    validator_a = TrackingAdapter("validator_a", response='{"decision": "STORE", "justification": "Approved by A"}')
+    validator_a = TrackingAdapter(
+        "validator_a",
+        response='{"decision": "STORE", "justification": "Approved by A"}',
+    )
     embedder = TrackingAdapter("embedder")
     mode_1_policy = SingleLLMValidationPolicy(validator_a)
 

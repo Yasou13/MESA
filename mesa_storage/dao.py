@@ -1643,7 +1643,7 @@ class MemoryDAO:
         embedding_version: str,
         embedding_dimension: int,
         policy: QueueAdmissionPolicy,
-        validation_mode: int | None = None,
+        validation_mode: int,
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
         finalize_revision: bool = True,
@@ -1692,16 +1692,9 @@ class MemoryDAO:
             for key, value in (metadata.items() if isinstance(metadata, dict) else ())
             if not str(key).startswith("_mesa_")
         }
-        if validation_mode is None:
-            from mesa_memory.config import config
-
-            effective_mode = config.effective_tier3_mode(
-                model_enabled=config.model_enabled
-            )
-        else:
-            if isinstance(validation_mode, bool) or validation_mode not in (0, 1, 2):
-                raise ValueError("validation_mode must be 0, 1, or 2")
-            effective_mode = validation_mode
+        if type(validation_mode) is not int or validation_mode not in (0, 1, 2):
+            raise ValueError("validation_mode must be 0, 1, or 2")
+        effective_mode = validation_mode
         effective_metadata["_mesa_validation_mode"] = effective_mode
 
         raw_payload = {

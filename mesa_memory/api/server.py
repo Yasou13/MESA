@@ -37,6 +37,9 @@ from mesa_memory.config import (
 from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
 )
+from mesa_memory.consolidation.policy import (
+    compose_validation_policy,
+)
 from mesa_memory.container_health import worker_is_ready
 from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.metrics import (
@@ -47,9 +50,6 @@ from mesa_memory.observability.tracer import setup_telemetry_tracing
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
-from mesa_memory.consolidation.policy import (
-    compose_validation_policy,
-)
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import (
     ProjectionGenerationRepository,
@@ -312,9 +312,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     # self-contained startup path.
     if runtime.profile is not RuntimeProfile.API_ONLY:
         await initialize_schema(state.sqlite_engine)
-    elif runtime.require_worker_readiness and not worker_is_ready(
-        runtime.storage_root
-    ):
+    elif runtime.require_worker_readiness and not worker_is_ready(runtime.storage_root):
         raise RuntimeError(
             "api-only runtime requires a ready worker before opening storage"
         )
@@ -357,14 +355,10 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         from mesa_storage import kuzu_setup
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None, kuzu_setup.initialize_schema, str(_KUZU_PATH)
-        )
+        await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
         logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
 
-        state.kuzu_db = await loop.run_in_executor(
-            None, kuzu.Database, str(_KUZU_PATH)
-        )
+        state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
         logger.info("KùzuDB initialised at %s", _KUZU_PATH)
         logger.info("KUZU_DATABASE_OPENED")
 
@@ -901,9 +895,7 @@ async def health_init():
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
-        and (
-            graph_status in ("healthy", "not_initialized") or graph_is_worker_owned
-        )
+        and (graph_status in ("healthy", "not_initialized") or graph_is_worker_owned)
     ):
         return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")
