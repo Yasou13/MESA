@@ -161,6 +161,17 @@ async def test_mode_2_disagreement_fails_closed():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failing_side", ["a", "b"])
+async def test_mode_2_provider_outage_is_unavailable_not_rejected(failing_side):
+    adapter_a = ErrorAdapter() if failing_side == "a" else MockAdapter()
+    adapter_b = ErrorAdapter() if failing_side == "b" else MockAdapter()
+    policy = DualLLMValidationPolicy(Tier3Validator(adapter_a, adapter_b))
+
+    with pytest.raises(Tier3ValidationError, match=f"LLM_{failing_side.upper()}"):
+        await policy.validate_with_audit({"content_payload": "Important fact"})
+
+
+@pytest.mark.asyncio
 async def test_router_respects_mode_zero_under_all_guards():
     dao = MagicMock()
     small_llm = MockAdapter()
@@ -203,3 +214,25 @@ async def test_router_respects_mode_1_under_all_guards():
     assert decision["route"] == "single_model"
     assert decision["decision"] is True
     assert adapter_a.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [0, 1, 2])
+async def test_legal_mode_preserves_selected_validator_count(mode, monkeypatch):
+    adapter_a = MockAdapter(model_name="validator-a")
+    adapter_b = MockAdapter(model_name="validator-b")
+    policy = get_validation_policy(
+        mode,
+        adapter_a if mode > 0 else None,
+        adapter_b if mode > 1 else None,
+    )
+    router = AdaptiveRouter(
+        dao=MagicMock(), small_llm=MockAdapter(), validation_policy=policy
+    )
+    monkeypatch.setattr("mesa_memory.consolidation.router.config.legal_domain_mode", True)
+
+    decision = await router.validate({"content_payload": "Legal domain record"})
+
+    assert decision["decision"] is True
+    assert adapter_a.call_count == (1 if mode > 0 else 0)
+    assert adapter_b.call_count == (1 if mode > 1 else 0)

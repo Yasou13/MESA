@@ -176,9 +176,11 @@ class Tier3Validator:
             return_exceptions=True,
         )
 
-        for res in results:
+        for label, res in zip(("LLM_A", "LLM_B"), results):
             if isinstance(res, BaseException):
-                raise res  # pragma: no cover
+                raise Tier3ValidationError(
+                    f"Validator {label} failed: {type(res).__name__}"
+                ) from res
 
         raw_a, raw_b = results
         response_a = self._parse_response(raw_a, "LLM_A")
