@@ -36,6 +36,8 @@ def _validate_metadata(value: dict[str, Any], *, depth: int) -> None:
     for key, item in value.items():
         if not isinstance(key, str):
             raise ValueError("metadata keys must be strings")
+        if key.startswith("_mesa_"):
+            raise ValueError("metadata keys beginning with '_mesa_' are reserved")
         if isinstance(item, dict):
             _validate_metadata(item, depth=depth + 1)
         elif isinstance(item, list):

@@ -133,6 +133,7 @@ async def test_e2e_mode_0_deterministic_matrix(tmp_path, monkeypatch):
         embedding_version="v1",
         embedding_dimension=384,
         policy=config.queue_admission_policy,
+        validation_mode=0,
     )
     raw_log_id = admitted["response"]["raw_log_id"]
     mutation_id = admitted["response"]["mutation_id"]
@@ -224,6 +225,7 @@ async def test_e2e_mode_1_single_model_matrix(tmp_path, monkeypatch):
         embedding_version="v1",
         embedding_dimension=384,
         policy=config.queue_admission_policy,
+        validation_mode=1,
     )
     raw_log_id = admitted["response"]["raw_log_id"]
     mutation_id = admitted["response"]["mutation_id"]
@@ -314,6 +316,7 @@ async def test_e2e_mode_2_dual_consensus_matrix(tmp_path, monkeypatch):
         embedding_version="v1",
         embedding_dimension=384,
         policy=config.queue_admission_policy,
+        validation_mode=2,
     )
     raw_log_id = admitted["response"]["raw_log_id"]
     mutation_id = admitted["response"]["mutation_id"]

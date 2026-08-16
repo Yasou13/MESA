@@ -138,6 +138,10 @@ def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
         V4MemoryInsertRequest(**(payload | {"content": "password=not-for-storage"}))
     with pytest.raises(ValidationError, match="metadata exceeds"):
         V4MemoryInsertRequest(**(payload | {"metadata": {"x": "a" * (16 * 1024)}}))
+    with pytest.raises(ValidationError, match="reserved"):
+        V4MemoryInsertRequest(
+            **(payload | {"metadata": {"_mesa_validation_mode": 0}})
+        )
 
 
 @pytest.mark.asyncio
@@ -146,6 +150,8 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", False)
+    monkeypatch.setattr(v4_api.config, "model_enabled", False)
+    monkeypatch.setattr(v4_api.config, "tier3_mode", None)
     available_dao = MagicMock()
     available_dao.canonical_v4_writes_enabled = True
     client = asgi_client(_app(available_dao, _access()))
@@ -302,6 +308,7 @@ async def test_v4_insert_creates_canonical_mutation_after_authorized_admission(
     assert admission["embedding_model"]
     assert admission["embedding_version"] == "v1"
     assert admission["embedding_dimension"] > 0
+    assert admission["validation_mode"] == 0
 
 
 @pytest.mark.asyncio

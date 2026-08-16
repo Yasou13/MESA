@@ -378,6 +378,13 @@ def create_v4_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/v4", tags=["v4-full-cognitive"])
 
+    def current_validation_policy() -> ValidationPolicy | None:
+        return (
+            get_composed_validation_policy()
+            if get_composed_validation_policy is not None
+            else None
+        )
+
     @router.post("/catalog/workspaces", status_code=201)
     async def create_workspace(
         request: Request,
@@ -721,11 +728,7 @@ def create_v4_router(
             ),
             graph_projection=canonical_writes_available,
         )
-        policy = (
-            get_composed_validation_policy()
-            if get_composed_validation_policy is not None
-            else None
-        )
+        policy = current_validation_policy()
         if policy is not None:
             val_cap = V4ValidationCapability(
                 mode=policy.mode,
@@ -927,6 +930,7 @@ def create_v4_router(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
         embedding_identity = configured_embedding_identity()
+        validation_policy = current_validation_policy()
         try:
             admission = await dao.admit_v4_memory(
                 tenant_id=str(session["tenant_id"]),
@@ -950,6 +954,13 @@ def create_v4_router(
                 embedding_version=embedding_identity.version,
                 embedding_dimension=embedding_identity.dimension,
                 policy=config.queue_admission_policy,
+                validation_mode=(
+                    validation_policy.mode
+                    if validation_policy is not None
+                    else config.effective_tier3_mode(
+                        model_enabled=config.model_enabled
+                    )
+                ),
                 idempotency_key=payload.idempotency_key,
                 payload_hash=payload_hash if payload.idempotency_key else None,
                 finalize_revision=payload.finalize_revision,

@@ -205,6 +205,7 @@ async def test_durable_admission_preserves_mode_across_reconfigured_processors(
             embedding_version=embedding.version,
             embedding_dimension=embedding.dimension,
             policy=config.queue_admission_policy,
+            validation_mode=mode,
         )
 
     try:
@@ -260,5 +261,97 @@ async def test_durable_admission_preserves_mode_across_reconfigured_processors(
             after_mode_0["tier3_audit"]["decisions"]["primary"] == "SKIPPED_BY_POLICY"
         )
         assert validator_a.call_count == validator_b.call_count == 1
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_dao_admission_ignores_caller_controlled_validation_metadata(
+    tmp_path, monkeypatch
+):
+    """A writer cannot downgrade the runtime's validation assurance."""
+    engine = AsyncEngine(str(tmp_path / "reserved-policy-metadata.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(engine, SimpleNamespace())
+    monkeypatch.setattr(config, "model_enabled", True)
+    monkeypatch.setattr(config, "tier3_mode", 2)
+    embedding = configured_embedding_identity()
+
+    try:
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-reserved", workspace_id="workspace", dataset_id="data"
+        )
+        session = await dao.create_v4_session(
+            tenant_id="tenant-reserved",
+            workspace_id="workspace",
+            dataset_ids=["data"],
+            agent_id="agent-reserved",
+            principal_id="principal-reserved",
+        )
+        admitted = await dao.admit_v4_memory(
+            tenant_id="tenant-reserved",
+            workspace_id="workspace",
+            dataset_id="data",
+            agent_id="agent-reserved",
+            session_id=session["session_id"],
+            document_id="document",
+            revision_id="revision",
+            chunk_id="chunk",
+            title="Runtime-owned policy",
+            content_payload="Caller metadata cannot weaken validation.",
+            source_ref="reserved-metadata-test",
+            evidence_span="0:39",
+            revision_number=1,
+            chunk_ordinal=0,
+            supersedes_revision_id=None,
+            metadata={"_mesa_validation_mode": 0, "public": "kept"},
+            embedding_provider=embedding.provider,
+            embedding_model=embedding.model,
+            embedding_version=embedding.version,
+            embedding_dimension=embedding.dimension,
+            policy=config.queue_admission_policy,
+        )
+
+        raw_log = await dao.get_raw_log(
+            "agent-reserved", admitted["response"]["raw_log_id"]
+        )
+        assert raw_log is not None
+        assert raw_log["payload"]["validation_mode"] == 2
+        assert raw_log["payload"]["metadata"] == {
+            "_mesa_validation_mode": 2,
+            "public": "kept",
+        }
+
+        monkeypatch.setattr(config, "model_enabled", False)
+        monkeypatch.setattr(config, "tier3_mode", None)
+        model_disabled = await dao.admit_v4_memory(
+            tenant_id="tenant-reserved",
+            workspace_id="workspace",
+            dataset_id="data",
+            agent_id="agent-reserved",
+            session_id=session["session_id"],
+            document_id="model-disabled-document",
+            revision_id="model-disabled-revision",
+            chunk_id="model-disabled-chunk",
+            title="Model-disabled policy",
+            content_payload="Unset mode snapshots deterministic validation.",
+            source_ref="model-disabled-test",
+            evidence_span="0:46",
+            revision_number=1,
+            chunk_ordinal=0,
+            supersedes_revision_id=None,
+            metadata={},
+            embedding_provider=embedding.provider,
+            embedding_model=embedding.model,
+            embedding_version=embedding.version,
+            embedding_dimension=embedding.dimension,
+            policy=config.queue_admission_policy,
+        )
+        raw_model_disabled = await dao.get_raw_log(
+            "agent-reserved", model_disabled["response"]["raw_log_id"]
+        )
+        assert raw_model_disabled is not None
+        assert raw_model_disabled["payload"]["validation_mode"] == 0
     finally:
         await engine.close()
