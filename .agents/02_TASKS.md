@@ -665,7 +665,69 @@ Commit: `8009187 test(validation): certify runtime policy replay`
 
 # Sol-Discovered Tasks
 
-None yet.
+## SOL-V01 — Make the durable validation snapshot runtime-owned
+
+Status: VERIFIED
+
+Evidence: Adversarial review proved that public V4 metadata could supply
+`_mesa_validation_mode=0` while a Mode 2 runtime was active, causing the worker to
+honor a caller-controlled assurance downgrade. Public validation now rejects the
+reserved `_mesa_` namespace, DAO admission strips any reserved metadata and
+overwrites it with the explicit composed runtime mode, and `admit_v4_memory`
+requires that mode at its storage boundary instead of importing runtime config.
+
+Tests: `tests/test_v4_api_contract.py`,
+`tests/test_r4_durable_policy_snapshot.py`, full focused Round 4 matrix (149
+passed), layer-import check PASS.
+
+Commit: `5200ba3 fix(validation): make durable policy snapshot runtime-owned`;
+`8a72004 fix(validation): require explicit admission policy snapshot`
+
+## SOL-V02 — Preserve configured validator model identity
+
+Status: VERIFIED
+
+Evidence: The Claude adapter previously accepted a configured model through the
+factory but silently called a fixed default model. The adapter now retains and
+uses the configured model, so the provider/model identity checked for Mode 2 is
+the identity that actually participates.
+
+Tests: `tests/test_r4_validation_mode_contract.py` (factory composition and Claude
+model identity); focused Round 4 matrix (149 passed).
+
+Commit: `261e954 fix(validation): preserve configured validator model identity`
+
+## SOL-V03 — Preserve UNAVAILABLE semantics for either dual-validator outage
+
+Status: VERIFIED
+
+Evidence: `Tier3Validator` previously allowed a raw provider exception from the
+gathered A/B calls to escape. Either validator outage is now normalized to
+`Tier3ValidationError`, preserving the retryable infrastructure-failure path and
+preventing an outage from becoming a cognitive DISCARD.
+
+Tests: `tests/test_tier3_validator.py`, `tests/test_r4_validation_policy.py`,
+`tests/test_r4_validation_state_machine.py`; focused Round 4 matrix (149 passed).
+
+Commit: `ac18dc6 fix(validation): classify dual provider outages as unavailable`
+
+## SOL-V04 — Certify actual runtime composition and supported-surface truth
+
+Status: VERIFIED
+
+Evidence: Runtime E2E tests now patch only the provider boundary and exercise the
+real adapter factory, policy composition, background-worker selection, durable
+pipeline, projection, recall and restart paths for Modes 0/1/2. Invalid Mode 1/2
+composition fails startup closed. Supported docs and changelog now match selectable
+policy behavior.
+
+Tests: `tests/test_d008_model_enabled_runtime_e2e.py`,
+`tests/test_r4_validation_mode_contract.py`, `tests/test_deployment_assets.py`,
+`tests/test_v4_rebuild_runbook_contract.py`; 149 focused tests and 52
+deployment/CI contract tests passed.
+
+Commit: `84c26b0 test(validation): adversarially certify runtime composition`;
+`fe9f7ca docs(validation): align supported surfaces with policy modes`
 
 ---
 
@@ -699,7 +761,20 @@ or:
 
 NOT_CODE_MVP_READY
 
-Status: TODO
-Evidence:
-Tests:
-Commit:
+Status: CODE_MVP_READY
+
+Evidence: Sol independently traced current production composition, validation,
+durable admission/replay, worker state transitions, projection fencing,
+capability reporting, extraction, embeddings, and provider identity. V001-V014,
+TERRA-V01, TERRA-V02, and SOL-V01 through SOL-V04 are VERIFIED. No unresolved
+Round 4 code-level blocker remains. No historical migration changed and Alembic
+reports the single head `0a7b8c9d0e1f`.
+
+Tests: Focused Round 4/adversarial matrix — 149 passed; bounded Round 3 invariant
+matrix — 75 passed; deployment/runbook/logging/CI contracts — 52 passed; Ruff,
+Black, layer-import check, mypy (124 production files), mypy override ratchet,
+compileall, and `git diff --check` — PASS. The LanceDB backend retains one
+daemonized background event-loop thread after shutdown; repeated initialization
+proves it is bounded at one and it does not prevent process exit.
+
+Commit: `docs(agents): record Sol final certification`
