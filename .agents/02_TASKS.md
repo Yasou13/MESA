@@ -486,7 +486,147 @@ Commit: `docs(validation): update deployment assets and architecture documentati
 
 # Terra-Discovered Tasks
 
-None yet.
+## TERRA-V01 — Centralize validation composition and runtime capability truth
+
+Status: BLOCKED_ENV
+
+Evidence: Independent source trace found three contract violations after Gemini's
+implementation: `ConsolidationLoop` could reuse validator adapters for extraction,
+runtime policy composition was duplicated across server/loop/replay, and
+`GET /v4/capability` echoed configuration rather than the composed policy. The
+repair adds `compose_validation_policy`, removes policy-to-extraction fallback for
+injected policies, resolves durable replay through that same seam, and injects the
+composed policy into the capability route. It also corrects the zero-cost comment
+that claimed a dual-validator downgrade.
+
+Tests: `python3 -m py_compile` for all changed production and test modules; `python3
+-m compileall -q mesa_memory mesa_api mesa_storage mesa_workers tests`; `git diff
+--check` — PASS. Targeted pytest execution is BLOCKED_ENV because this checkout has
+no pytest installation and no project virtual environment.
+
+Commit: `3203cc0 fix(validation): compose policy from runtime truth`
+
+## Terra Independent Review Status — V001–V014
+
+Dynamic executable certification is BLOCKED_ENV in this checkout: `/usr/bin/python3`
+has no `pytest`, and `/tmp/mesa-ci-quality-venv/bin/python` is absent. The statuses
+below therefore deliberately do not upgrade Gemini's `BUILT` claims to `VERIFIED`.
+
+### V001
+
+Status: BLOCKED_ENV
+Evidence: Static trace confirms strict 0/1/2 parsing and unset resolution in
+`mesa_memory/config.py`; runtime startup remains unexecuted.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `774053e`, independently repaired composition in `3203cc0`.
+
+### V002
+
+Status: BLOCKED_ENV
+Evidence: `MemoryDAO.admit_v4_memory` persists `validation_mode` in durable raw
+payload/metadata and replay resolves the record's mode before current runtime mode.
+The supplied test is not a durable restart test, so runtime persistence remains
+unverified.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `37e8186`, replay composition repaired in `3203cc0`.
+
+### V003
+
+Status: BLOCKED_ENV
+Evidence: `ValidationPolicy` has explicit deterministic, single and dual
+implementations; `compose_validation_policy` is now the adapter composition seam.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `774053e`, `3203cc0`.
+
+### V004
+
+Status: BLOCKED_ENV
+Evidence: Server composes extraction independently. TERRA-V01 additionally removes
+the injected-policy fallback from validators to extraction.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `1ca3ab8`, `3203cc0`.
+
+### V005
+
+Status: BLOCKED_ENV
+Evidence: Mode 0 composes an empty validator tuple and its policy returns an
+explicit `SKIPPED_BY_POLICY` receipt; server skips the deferred validation worker.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `774053e`, `1ca3ab8`, `3203cc0`.
+
+### V006
+
+Status: BLOCKED_ENV
+Evidence: Mode 1 factory requests only A; `SingleLLMValidationPolicy` maps provider
+exceptions to `Tier3ValidationError` and the worker maps deferred outcome to retry.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `774053e`, `3203cc0`.
+
+### V007
+
+Status: BLOCKED_ENV
+Evidence: Mode 2 delegates to `Tier3Validator`; AdapterFactory rejects missing or
+identical provider/model pairs, and router Mode 2 always invokes policy consensus.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `774053e`, `1ca3ab8`, `3203cc0`.
+
+### V008
+
+Status: BLOCKED_ENV
+Evidence: Router's legal/correction/provenance branches retain the selected policy;
+zero-cost mode no longer claims a validation downgrade.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `1ca3ab8`, `3203cc0`.
+
+### V009
+
+Status: BLOCKED_ENV
+Evidence: The combined worker admits a V4 candidate, runs policy before setting
+`VALIDATED`, maps cognitive reject to `REJECTED`, and maps deferred provider failure
+to `RETRY_PENDING` with `Tier3Unavailable`.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `37e8186`.
+
+### V010
+
+Status: BLOCKED_ENV
+Evidence: Server uses `compose_validation_policy`; capability reads the composed
+policy when available and otherwise reports `not_composed` rather than inventing
+validator count.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `7cb99e6`, `3203cc0`.
+
+### V011
+
+Status: BLOCKED_ENV
+Evidence: Validation policy selection does not modify configured embedding identity;
+server separately composes extraction and embedding adapters.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `1ca3ab8`, `3203cc0`.
+
+### V012
+
+Status: BLOCKED_ENV
+Evidence: Gemini's claimed E2E matrix injects adapters/policies directly into
+`ConsolidationLoop`, so it does not prove runtime/AdapterFactory/dispatch/restart.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: `7cb99e6`, `3203cc0`.
+
+### V013
+
+Status: BLOCKED_ENV
+Evidence: Migration history was inspected as unchanged by the Round 4 diff; bounded
+Round 3 regressions could not be executed in this environment.
+Tests: Static compile PASS; targeted pytest BLOCKED_ENV.
+Commit: No Terra code commit for regressions.
+
+### V014
+
+Status: BLOCKED_ENV
+Evidence: Sample config/docs state Modes 0/1/2; TERRA-V01 corrects the remaining
+zero-cost source comment that contradicted the no-downgrade contract.
+Tests: Static compile PASS; deployment/config tests BLOCKED_ENV.
+Commit: `447ff03`, `3203cc0`.
 
 ---
 
