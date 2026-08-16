@@ -9,9 +9,9 @@ Proves that:
      - Regex float extraction from prose ("The score is 0.85.")
      - Fallback to 0.0 on total failure
   3. Return values are clamped to [0.0, 1.0].
-  4. LLM exceptions degrade gracefully to 0.0 (triggers Dual-LLM fallback).
-  5. The T_route threshold now operates on judge-evaluated metrics.
-  6. Full routing integration: high confidence → small_model, low → dual_llm.
+  4. LLM exceptions degrade gracefully to 0.0 for diagnostic scoring.
+  5. Mode 2 assurance cannot be reduced by a confidence score.
+  6. Full routing integration always reaches dual consensus in Mode 2.
 
 asyncio_mode = strict → every async test requires explicit @pytest.mark.asyncio.
 """
@@ -81,7 +81,9 @@ def _dual_audit(accepted: bool) -> dict:
         "justifications": {"primary": "test", "secondary": "test"},
         "models": {"primary": "test-a", "secondary": "test-b"},
         "prompt_version": "tier3-valence-v2",
-        "reason": "dual_llm_consensus_store" if accepted else "dual_llm_consensus_discard",
+        "reason": (
+            "dual_llm_consensus_store" if accepted else "dual_llm_consensus_discard"
+        ),
     }
 
 
@@ -257,26 +259,14 @@ class TestJudgeConfidenceParseCascade:
 
 
 class TestRoutingIntegration:
-    """End-to-end: verify T_route operates on judge-evaluated confidence."""
+    """End-to-end: verify adaptive signals cannot alter the selected policy."""
 
     @pytest.mark.asyncio
-    async def test_high_confidence_routes_to_small_model(self):
-        """When judge returns 0.95 and T_route=0.90, small model is accepted."""
+    async def test_high_confidence_cannot_bypass_dual_consensus(self):
+        """A confident small model cannot finalize a Mode 2 decision."""
         router, dao, llm = _make_router(t_route=0.90)
-
-        # Call sequence: (1) small model response, (2) judge score
-        call_count = {"n": 0}
-
-        async def _mock_acomplete(prompt, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                # Small model STORE response
-                return '{"decision": "STORE", "justification": "Valid memory"}'
-            else:
-                # Judge: high confidence
-                return "0.95"
-
-        llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
+        router._llm_judge_confidence = AsyncMock(return_value=0.99)
+        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
 
         record = {
             "cmb_id": "test-001",
@@ -288,35 +278,18 @@ class TestRoutingIntegration:
 
         result = await router.validate(record)
 
-        assert result["route"] == "small_model"
+        assert result["route"] == "dual_llm"
         assert result["decision"] is True
-        assert result["reason"] == "small_model_confident"
+        assert result["reason"] == "dual_llm_consensus"
+        router.validator.validate_with_audit.assert_awaited_once()
+        router._llm_judge_confidence.assert_not_awaited()
+        llm.acomplete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_low_confidence_routes_to_dual_llm(self):
-        """When judge returns 0.40 and T_route=0.90, Dual-LLM is triggered."""
+        """Low confidence also preserves the selected Mode 2 policy."""
         router, dao, llm = _make_router(t_route=0.90)
-
-        call_count = {"n": 0}
-
-        async def _mock_acomplete(prompt, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return '{"decision": "STORE", "justification": "Uncertain"}'
-            else:
-                return "0.40"  # Below T_route
-
-        llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
-
-        # Mock the Dual-LLM validator receipt.
-        router.validator.validate_with_audit = AsyncMock(
-            return_value=_dual_audit(True)
-        )
-        # The router deliberately skips the judge for a clean parsed response.
-        # Make parsing fail so this test exercises the judge-driven fallback.
-        router.validator._parse_response = MagicMock(
-            side_effect=ValueError("unparseable response")
-        )
+        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
 
         record = {
             "cmb_id": "test-002",
@@ -329,28 +302,15 @@ class TestRoutingIntegration:
         result = await router.validate(record)
 
         assert result["route"] == "dual_llm"
-        assert result["reason"] == "dual_llm_fallback"
+        assert result["reason"] == "dual_llm_consensus"
         router.validator.validate_with_audit.assert_awaited_once()
+        llm.acomplete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_judge_failure_forces_dual_llm(self):
-        """When judge returns garbage (0.0), record escalates to Dual-LLM."""
+        """Judge availability cannot change the selected Mode 2 assurance."""
         router, dao, llm = _make_router(t_route=0.90)
-
-        call_count = {"n": 0}
-
-        async def _mock_acomplete(prompt, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return '{"decision": "STORE", "justification": "ok"}'
-            else:
-                return "Cannot evaluate"  # → 0.0
-
-        llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
         router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
-        router.validator._parse_response = MagicMock(
-            side_effect=ValueError("unparseable response")
-        )
 
         record = {
             "cmb_id": "test-003",
@@ -363,24 +323,17 @@ class TestRoutingIntegration:
         result = await router.validate(record)
 
         assert result["route"] == "dual_llm"
-        assert result["reason"] == "dual_llm_fallback"
+        assert result["reason"] == "dual_llm_consensus"
+        router.validator.validate_with_audit.assert_awaited_once()
+        llm.acomplete.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_schema_failure_overrides_confidence_to_zero(self):
-        """When small model returns invalid JSON, confidence is forced to 0.0."""
+    async def test_mode_two_discard_returns_dual_decision(self):
+        """A dual-policy DISCARD remains an explicit cognitive rejection."""
         router, dao, llm = _make_router(t_route=0.90)
-
-        call_count = {"n": 0}
-
-        async def _mock_acomplete(prompt, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return "NOT JSON AT ALL"  # Will fail schema parse
-            else:
-                return "0.99"  # High confidence — but irrelevant
-
-        llm.acomplete = AsyncMock(side_effect=_mock_acomplete)
-        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(False))
+        router.validator.validate_with_audit = AsyncMock(
+            return_value=_dual_audit(False)
+        )
 
         record = {
             "cmb_id": "test-004",
@@ -392,13 +345,17 @@ class TestRoutingIntegration:
 
         result = await router.validate(record)
 
-        # Schema failure → requires_fallback=True, confidence=0.0
         assert result["route"] == "dual_llm"
+        assert result["decision"] is False
+        assert result["reason"] == "dual_llm_consensus"
+        router.validator.validate_with_audit.assert_awaited_once()
+        llm.acomplete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_legal_domain_mode_bypasses_judge(self):
-        """In legal domain mode, judge is never called."""
+        """Legal mode keeps dual consensus and never adds a judge call."""
         router, dao, llm = _make_router(t_route=0.90)
+        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
 
         with patch("mesa_memory.consolidation.router.config") as mock_config:
             mock_config.legal_domain_mode = True
@@ -414,9 +371,9 @@ class TestRoutingIntegration:
 
         assert result["route"] == "dual_llm"
         assert result["reason"] == "legal_domain_strict_mode"
-        assert result["decision"] is None
+        assert result["decision"] is True
 
-        # LLM was NEVER called (judge was bypassed)
+        router.validator.validate_with_audit.assert_awaited_once()
         llm.acomplete.assert_not_awaited()
 
 
@@ -458,18 +415,9 @@ class TestReturnTypeContract:
     """Verify RoutingDecision shape is maintained across all paths."""
 
     @pytest.mark.asyncio
-    async def test_small_model_path_returns_routing_decision(self):
-        router, _, llm = _make_router(t_route=0.50)  # Low threshold
-
-        call_count = {"n": 0}
-
-        async def _mock(prompt, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return '{"decision": "STORE", "justification": "ok"}'
-            return "0.95"
-
-        llm.acomplete = AsyncMock(side_effect=_mock)
+    async def test_mode_two_path_returns_routing_decision(self):
+        router, _, llm = _make_router(t_route=0.50)
+        router.validator.validate_with_audit = AsyncMock(return_value=_dual_audit(True))
 
         record = {
             "content_payload": "x",
@@ -485,3 +433,4 @@ class TestReturnTypeContract:
         assert isinstance(result["route"], str)
         assert isinstance(result["decision"], bool)
         assert isinstance(result["reason"], str)
+        llm.acomplete.assert_not_awaited()
