@@ -113,6 +113,34 @@ class AdapterFactory:
         raise ValueError(f"Unknown LLM provider: {provider}")
 
     @staticmethod
+    def get_validation_adapters(
+        mode: int,
+    ) -> tuple[BaseUniversalLLMAdapter, ...]:
+        """Build validator adapters according to the selected validation mode.
+
+        Mode 0: returns empty tuple () - zero validation adapters.
+        Mode 1: returns (adapter_a,) - exactly one validation adapter.
+        Mode 2: returns (adapter_a, adapter_b) - two distinct validation adapters.
+        """
+        if mode == 0:
+            return ()
+        elif mode == 1:
+            if not config.tier3_llm_provider_a or not config.tier3_llm_model_name_a:
+                raise ValueError(
+                    "Mode 1 validation requires provider and model for adapter A"
+                )
+            return (
+                AdapterFactory.get_adapter(
+                    config.tier3_llm_provider_a,
+                    model_name=config.tier3_llm_model_name_a,
+                ),
+            )
+        elif mode == 2:
+            return AdapterFactory.get_tier3_adapters()
+        else:
+            raise ValueError(f"Invalid validation mode: {mode}")
+
+    @staticmethod
     def get_tier3_adapters() -> tuple[BaseUniversalLLMAdapter, BaseUniversalLLMAdapter]:
         """Build the two independently configured Tier-3 validators.
 

@@ -3,11 +3,11 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Any, Mapping, Optional
 
 import psutil
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("MESA_Config")
@@ -373,6 +373,8 @@ class MesaConfig(BaseSettings):
         "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
     llm_timeout_seconds: float = Field(20.0, validation_alias="LLM_TIMEOUT_SECONDS")
+    model_enabled: bool = Field(False, validation_alias="MESA_MODEL_ENABLED")
+    tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")
     tier3_llm_provider_a: str | None = Field(
         None, validation_alias="MESA_TIER3_LLM_PROVIDER_A"
     )
@@ -389,6 +391,50 @@ class MesaConfig(BaseSettings):
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )
+
+    @field_validator("tier3_mode", mode="before")
+    @classmethod
+    def validate_tier3_mode_input(cls, v: Any) -> int | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str:
+                return None
+            if not (v_str.isdigit() or (v_str.startswith("-") and v_str[1:].isdigit())):
+                raise ValueError(
+                    f"MESA_TIER3_MODE must be 0, 1, or 2; got '{v}' (public 'auto' is not supported)"
+                )
+            try:
+                v_int = int(v_str)
+            except ValueError:
+                raise ValueError(f"MESA_TIER3_MODE must be 0, 1, or 2; got '{v}'")
+        elif isinstance(v, int):
+            if isinstance(v, bool):
+                raise ValueError(f"MESA_TIER3_MODE must be 0, 1, or 2; got boolean {v}")
+            v_int = v
+        else:
+            raise ValueError(
+                f"MESA_TIER3_MODE must be an integer 0, 1, or 2; got {type(v).__name__}"
+            )
+
+        if v_int not in (0, 1, 2):
+            raise ValueError(f"MESA_TIER3_MODE must be 0, 1, or 2; got {v_int}")
+        return v_int
+
+    def effective_tier3_mode(self, *, model_enabled: bool | None = None) -> int:
+        """Resolve the effective validation mode.
+
+        If explicitly set: returns 0, 1, or 2.
+        If unset (None):
+          - when model_enabled is True: returns 2 (backward-compatible dual validation)
+          - when model_enabled is False (or unspecified): returns 0 (no validators composed)
+        """
+        if self.tier3_mode is not None:
+            return self.tier3_mode
+        if model_enabled is True:
+            return 2
+        return 0
 
     tiebreaker_latency_threshold_ms: float = 500.0
     bootstrap_cosine_threshold: float = 0.75
@@ -683,14 +729,10 @@ class MesaConfig(BaseSettings):
         _zcm_logger = logging.getLogger("MESA_ZeroCost")
         _zcm_logger.info(
             "━━━ ZERO-COST MODE ACTIVE ━━━ "
-            "All inference routed to local Ollama (%s). "
+            "Local Ollama provider selected (%s). "
             "Embeddings: %s (local). REBEL: enabled.",
             self.ollama_url,
             self.local_embedding_model,
-        )
-        _zcm_logger.warning(
-            "Tier-3 dual-LLM consensus downgraded to single local LLM. "
-            "Latency tradeoff acknowledged — CRA may differ from cloud benchmarks."
         )
 
         object.__setattr__(self, "mesa_llm_provider", "ollama")
