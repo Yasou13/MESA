@@ -1,7 +1,11 @@
+from unittest.mock import MagicMock
+
 import pytest
 from pydantic import ValidationError
 
-from mesa_memory.config import MesaConfig
+from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.config import MesaConfig, config
+from mesa_memory.consolidation.policy import compose_validation_policy
 
 
 def test_explicit_tier3_modes_accepted():
@@ -51,3 +55,74 @@ def test_zero_cost_mode_preserves_explicit_validation_assurance(
     cfg = MesaConfig(tier3_mode=2, zero_cost_mode=True)
 
     assert cfg.effective_tier3_mode(model_enabled=True) == 2
+
+
+def test_runtime_composition_constructs_exact_selected_validator_count(monkeypatch):
+    created: list[tuple[str | None, str | None]] = []
+
+    def provider_boundary(provider=None, *, model_name=None):
+        created.append((provider, model_name))
+        return MagicMock(model_name=model_name)
+
+    monkeypatch.setattr(AdapterFactory, "get_adapter", staticmethod(provider_boundary))
+    monkeypatch.setattr(config, "tier3_llm_provider_a", "mock")
+    monkeypatch.setattr(config, "tier3_llm_model_name_a", "validator-a")
+    monkeypatch.setattr(config, "tier3_llm_provider_b", "mock")
+    monkeypatch.setattr(config, "tier3_llm_model_name_b", "validator-b")
+
+    assert compose_validation_policy(0).validator_count == 0
+    assert created == []
+    assert compose_validation_policy(1).validator_count == 1
+    assert created == [("mock", "validator-a")]
+    assert compose_validation_policy(2).validator_count == 2
+    assert created == [
+        ("mock", "validator-a"),
+        ("mock", "validator-a"),
+        ("mock", "validator-b"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("provider_a", "model_a", "provider_b", "model_b"),
+    [
+        (None, None, None, None),
+        ("mock", "validator-a", None, None),
+        ("mock", "same", "mock", "same"),
+    ],
+)
+def test_mode_two_invalid_runtime_composition_fails_closed(
+    monkeypatch, provider_a, model_a, provider_b, model_b
+):
+    monkeypatch.setattr(config, "tier3_llm_provider_a", provider_a)
+    monkeypatch.setattr(config, "tier3_llm_model_name_a", model_a)
+    monkeypatch.setattr(config, "tier3_llm_provider_b", provider_b)
+    monkeypatch.setattr(config, "tier3_llm_model_name_b", model_b)
+
+    with pytest.raises(ValueError):
+        compose_validation_policy(2)
+
+
+def test_mode_one_missing_a_fails_closed_without_constructing_b(monkeypatch):
+    get_adapter = MagicMock()
+    monkeypatch.setattr(AdapterFactory, "get_adapter", get_adapter)
+    monkeypatch.setattr(config, "tier3_llm_provider_a", None)
+    monkeypatch.setattr(config, "tier3_llm_model_name_a", None)
+    monkeypatch.setattr(config, "tier3_llm_provider_b", "mock")
+    monkeypatch.setattr(config, "tier3_llm_model_name_b", "validator-b")
+
+    with pytest.raises(ValueError):
+        compose_validation_policy(1)
+    get_adapter.assert_not_called()
+
+
+def test_claude_validator_factory_preserves_configured_model_identity(monkeypatch):
+    from mesa_memory.adapter import claude
+
+    class FakeClaudeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(claude, "ClaudeAdapter", FakeClaudeAdapter)
+    adapter = AdapterFactory.get_adapter("claude", model_name="claude-validator-b")
+
+    assert adapter.kwargs["model_name"] == "claude-validator-b"

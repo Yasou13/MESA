@@ -94,6 +94,7 @@ class AdapterFactory:
 
             return ClaudeAdapter(
                 anthropic_api_key=config.llm_api_key,
+                model_name=selected_model,
             )
         elif provider == "ollama":
             from mesa_memory.adapter.ollama import OllamaAdapter
