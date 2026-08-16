@@ -797,7 +797,7 @@ def get_consolidation_loop() -> ConsolidationLoop | None:
     """Dependency injection for the ConsolidationLoop.
 
     Returns ``None`` before the lifespan has initialised the loop,
-    which safely disables Tier-3 consensus during startup.
+    which safely disables model processing during startup.
     """
     return getattr(state, "consolidation_loop", None)
 

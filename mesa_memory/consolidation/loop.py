@@ -589,13 +589,13 @@ class ConsolidationLoop:
 
     Delegates to:
     - ``TripletExtractor``: REBEL + LLM extraction with bisection retry.
-    - ``Tier3Validator``: LLM consensus gate for deferred records.
+    - ``ValidationPolicy``: selected validation gate for deferred records.
     - ``GraphWriter``: Cross-validation scoring and graph commits via DAO.
     - ``BatchResponseParser``: Response parsing and recovery.  # type: ignore[no-untyped-def]
 
     Retains ownership of:
     - Batch queue management and lifecycle (start/stop).  # type: ignore[no-untyped-def]
-    - Tier-3 validation gating.
+    - Validation-policy gating.
     - Observability logging.
     """
 
@@ -830,12 +830,12 @@ class ConsolidationLoop:
         """Process a batch of raw log records through the consolidation pipeline.
 
         P0-A compliant flow:
-        1. Tier-3 validation via ``Tier3Validator`` (Dual-LLM consensus).
+        1. Validation through the configured Mode 0/1/2 policy.
         2. Sort by salience (high-density records at edges, LitM Layer 2).
         3. Full extraction via ``TripletExtractor`` (REBEL → LLM → bisection).
         4. Cross-validate and commit via ``GraphWriter`` → ``MemoryDAO``.
 
-        Consensus failures are flagged via ``dao.invalidate_node``.
+        Cognitive validation failures are flagged via ``dao.invalidate_node``.
         """
         if batch is None:
             batch = await self.dao.get_memories(
@@ -848,7 +848,7 @@ class ConsolidationLoop:
         if not batch:
             return outcome
 
-        # --- Phase 1: Tier-3 validation gate ---
+        # --- Phase 1: selected validation-policy gate ---
         ready_batch = []
         for record in batch:
             if (
@@ -952,7 +952,7 @@ class ConsolidationLoop:
                     self.obs_layer.log_valence_decision(
                         tier=3,
                         decision="ADMIT",
-                        justification="Deferred Tier-3 validation passed in consolidation loop",
+                        justification="Selected validation policy satisfied in consolidation loop",
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
                     ready_batch.append(record)
@@ -963,7 +963,7 @@ class ConsolidationLoop:
                     self.obs_layer.log_valence_decision(
                         tier=3,
                         decision="DISCARD",
-                        justification="Deferred Tier-3 validation failed in consolidation loop",
+                        justification="Selected validation policy rejected in consolidation loop",
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
                     # Validation Rejection: Invalidate via DAO soft-invalidation (sets invalid_at)
@@ -1201,8 +1201,9 @@ async def start_tier3_deferred_worker(
     batch_size: int = 10,
 ):
     """
-    Background worker that continuously consumes and processes
-    unconsolidated records flagged with tier3_deferred=True.
+    Background worker that continuously consumes and processes records marked
+    with the compatibility field ``tier3_deferred=True``. The composed policy
+    determines whether one or two validation LLMs participate.
 
     Reads exclusively from ``MemoryDAO`` — the single source of truth.
     """

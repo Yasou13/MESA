@@ -160,8 +160,8 @@ def create_memory_router(
         get_dao: Dependency factory returning an initialised MemoryDAO.
         get_embedder: Callable that converts text → float vector.
         get_consolidation_loop: Callable returning the active
-            ``ConsolidationLoop`` instance (or ``None`` if Tier-3
-            consensus is disabled).  Deferred via callable because
+            ``ConsolidationLoop`` instance (or ``None`` if model processing
+            is disabled). Deferred via callable because
             the loop is initialised in the async lifespan, after
             router construction at module-load time.
         prefix: URL prefix for all routes (default: /v3/memory).

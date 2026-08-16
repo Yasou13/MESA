@@ -1,7 +1,13 @@
 # ADR 0003: Adaptive LLM Routing with Telemetry
 
 ## Status
-Accepted
+Superseded
+
+## Supersession Note
+This ADR describes the pre-Round-4 adaptive validation architecture. It has
+been superseded by the selectable validation-policy contract: Mode 0 / Mode 1 /
+Mode 2. Adaptive routing must not change the configured validation assurance
+level.
 
 ## Context
 Running a Dual-LLM (Tier-3) consensus gate for every memory node extraction is financially unsustainable and induces high latency. However, routing everything blindly to a smaller model exposes the system to silent hallucinations and schema failures, threatening data integrity.

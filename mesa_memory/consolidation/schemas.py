@@ -23,8 +23,8 @@ class MemoryCandidate(BaseModel):
     """Canonical, retry-stable hand-off record for cognitive ingestion.
 
     The durable raw log remains the admission/audit source. This model is the
-    only shape passed from a worker to Tier-3/projection code, preventing the
-    legacy ``id/content`` aliases from omitting the validated payload.
+    only shape passed from a worker to validation/projection code, preventing
+    the legacy ``id/content`` aliases from omitting the validated payload.
     """
 
     candidate_id: str = Field(min_length=1)

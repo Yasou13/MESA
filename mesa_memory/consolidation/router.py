@@ -1,15 +1,9 @@
-"""
-Adaptive Routing Layer for MESA Consolidation Pipeline.
+"""Validation routing for the MESA consolidation pipeline.
 
-Implements Cost Optimization via Adaptive LLM Routing.
-Defaults to a smaller, cheaper LLM for extraction validation, and falls back
-to the expensive Dual-LLM only when uncertain.
-
-Features:
-- Temperature Scaling for Expected Calibration Error (ECE) minimization.
-- 5% Audit Sampling for continuous telemetry and feedback loops.
-- Dynamic Thresholding to adapt to model hallucination rates.
-- Unified ``RoutingDecision`` return contract (B-5 fix).
+The configured validation policy is the assurance boundary: Mode 0 uses no
+validation LLM, Mode 1 uses one, and Mode 2 always uses dual consensus. Bounded
+adaptive telemetry and confidence helpers remain available, but cannot change
+that validator count.
 """
 
 import logging
@@ -44,9 +38,9 @@ _EXPLICIT_CORRECTION_RE = re.compile(
 def _requires_tier3_correction_review(record: dict) -> bool:
     """Identify explicit update/correction language conservatively.
 
-    This is a routing signal, never a truth decision: matching records are
-    sent to the independent Tier-3 validators rather than accepted or
-    discarded by novelty heuristics.
+    This is a routing signal, never a truth decision. It can annotate why a
+    record needs validation, but cannot increase or decrease the assurance
+    level selected by the configured validation policy.
     """
     return bool(_EXPLICIT_CORRECTION_RE.search(str(record.get("content_payload", ""))))
 
@@ -65,12 +59,11 @@ class RoutingDecision(TypedDict):
     to gate admission and ``route`` to detect forwarding intent.
 
     Fields:
-        route:    Which model produced the decision.
-                  One of ``"small_model"``, ``"dual_llm"``.
+        route:    Which policy path produced the decision. One of
+                  ``"deterministic_only"``, ``"single_model"``, or
+                  ``"dual_llm"``.
         decision: ``True`` (STORE), ``False`` (DISCARD), or ``None``
-                  when the decision is deferred to a downstream gate
-                  (e.g. legal-domain bypass routes to dual_llm without
-                  evaluating here).
+                  for compatibility with a deferred downstream decision.
         reason:   Human-readable justification for observability.
     """
 

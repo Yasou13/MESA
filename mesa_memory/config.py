@@ -716,7 +716,7 @@ class MesaConfig(BaseSettings):
 
         Overrides:
           - mesa_llm_provider → "ollama"
-          - llm_model_name    → "llama3.2:3b"
+          - llm_model_name    → "qwen3:8b"
           - rebel_enabled     → True  (local transformer extraction)
           - Leaves validation policy and validator identities unchanged
         """

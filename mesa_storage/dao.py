@@ -2207,9 +2207,10 @@ class MemoryDAO:
                         (*candidate_identity, mutation_id),
                     )
                     existing.update(zip(identity_fields, candidate_identity))
-            # A mutation is never projectable before Tier-3 approval.  The
-            # durable rows exist now so a rejection can be audited/cancelled,
-            # but consumers cannot claim them until ``VALIDATED``.
+            # A mutation is never projectable before the selected validation
+            # policy is satisfied. The durable rows exist now so a rejection
+            # can be audited/cancelled, but consumers cannot claim them until
+            # ``VALIDATED``.
             for projection_name in ("SQL", "VECTOR", "GRAPH"):
                 await db.execute(
                     "INSERT OR IGNORE INTO projection_outbox "

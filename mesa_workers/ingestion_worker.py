@@ -8,7 +8,7 @@
 #       1. Retrieve payload from raw_logs
 #       2. Tier-1 ECOD anomaly detection
 #       3. Tier-2 REBEL triple extraction
-#       4. Tier-3 Dual-LLM consensus (ConsolidationLoop)
+#       4. Selected Mode 0/1/2 validation policy (ConsolidationLoop)
 #       5. Graph commit via DAO (insert_memory + insert_edge)
 #       6. Status update (queued → processing → processed | failed | rejected)
 #
@@ -28,7 +28,7 @@ Pipeline stages::
     2. Status transition: queued → processing
     3. Tier-1 ECOD novelty gate (cosine fast-path + anomaly scoring)
     4. Tier-2 REBEL triple extraction (zero-cost HF pipeline)
-    5. Tier-3 Dual-LLM consensus via ConsolidationLoop.run_batch()
+    5. Selected validation policy via ConsolidationLoop.run_batch()
     6. Graph commit: dao.insert_memory() + dao.insert_edge()
     7. Status transition: processing → processed | failed | rejected
 
@@ -156,8 +156,8 @@ async def process_cold_path(
     ``model_processing_enabled`` is deliberately keyword-only so durable
     safe-core workers can opt out of REBEL/LLM work without changing existing
     direct callers.  When disabled, the record still receives novelty checks
-    and a durable raw-memory commit, but no model-derived triplets or Tier-3
-    consensus are attempted.
+    and a durable raw-memory commit, but no model-derived triplets or LLM
+    validation are attempted.
     """
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(
@@ -321,8 +321,8 @@ async def _process_cold_path_impl(
             # A low novelty score is useful as a cheap duplicate heuristic for
             # the legacy projection path.  It is not a reliable rejection for
             # the full-cognitive path: corrections and contradictions are
-            # deliberately similar to the memory they update.  Let Tier-3 make
-            # the final STORE/DISCARD decision in that path.
+            # deliberately similar to the memory they update. Let the selected
+            # validation policy make the final STORE/DISCARD decision there.
             if not ecod_passed and not require_tier3_validation:
                 await _transition(
                     "rejected",
@@ -511,7 +511,7 @@ async def _process_cold_path_impl(
                 )
 
             # ==============================================================
-            # 5b. TIER-3: DUAL-LLM CONSENSUS (Backpressure-gated)
+            # 5b. CONFIGURED VALIDATION POLICY (Backpressure-gated)
             # ==============================================================
             if model_processing_enabled and consolidation_loop is not None:
                 record = {
@@ -530,7 +530,7 @@ async def _process_cold_path_impl(
                         payload_agent_id,
                     )
                 except Exception as t3_exc:
-                    # Tier-3 failure must NOT block cold-path commit
+                    # Validation failure must NOT block this legacy cold-path commit.
                     logger.warning(
                         "TIER3_CONSENSUS_FAILED | log_id=%d error=%s",
                         log_id,
@@ -761,7 +761,7 @@ def _get_extraction_prompt(text: str) -> str:
             lang,
         )
 
-    # Truncate to ~2000 chars to stay within Tier-3 context window
+    # Truncate to ~2000 chars to stay within the extraction model context window.
     truncated = text[:2000]
     return template.format(text=truncated)
 
@@ -771,7 +771,7 @@ async def _run_rebel_extraction(content: str) -> list[dict[str, str]]:
 
     Strategy:
         * ``MESA_REBEL_ENABLED=True``  → REBEL HF pipeline (thread-pool)
-        * ``MESA_REBEL_ENABLED=False`` → LLM zero-shot via Tier-3 adapter
+        * ``MESA_REBEL_ENABLED=False`` → LLM zero-shot via extraction adapter
           with language-aware prompt (Turkish or English).
 
     Both paths return the identical ``[{head, relation, tail}, ...]`` format

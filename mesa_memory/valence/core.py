@@ -294,16 +294,18 @@ class ValenceMotor:
         self.obs_layer.log_valence_decision(
             tier=2,
             decision="UNCERTAIN",
-            justification=f"Novelty below threshold ({threshold:.4f}), fitness={fitness:.4f}, escalating to Tier 3",
+            justification=f"Novelty below threshold ({threshold:.4f}), fitness={fitness:.4f}, deferring to selected validation policy",
             cost=cost,
         )
 
-        # Defer Tier-3 cross-validation to the asynchronous consolidation loop
+        # ``tier3_deferred`` is a compatibility field. The composed validation
+        # policy still determines whether completion uses zero, one, or two
+        # validation LLMs in the asynchronous consolidation loop.
         cmb_candidate["tier3_deferred"] = True
         self.obs_layer.log_valence_decision(
             tier=3,
             decision="ADMIT",
-            justification="Tier-3 validation deferred to background consolidation",
+            justification="Selected validation policy deferred to background consolidation",
             cost=cost,
         )
         return "DEFERRED"
