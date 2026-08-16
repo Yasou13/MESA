@@ -506,6 +506,20 @@ no pytest installation and no project virtual environment.
 
 Commit: `3203cc0 fix(validation): compose policy from runtime truth`
 
+## TERRA-V02 — Restore cold-path optional DAO-hook compatibility
+
+Status: VERIFIED
+
+Evidence: Dynamic regression exposed that `hasattr` accepted arbitrary `MagicMock`
+attributes and then attempted to await them. `_await_optional_dao_call` now awaits
+only real async DAO hooks, preserving real DAO state transitions and explicit
+`AsyncMock` boundaries.
+
+Tests: targeted cold-path and adaptive-router tests (8 passed); focused matrix
+(132 passed).
+
+Commit: `8009187 test(validation): certify runtime policy replay`
+
 ## Terra Independent Review Status — V001–V014
 
 Dynamic executable certification is BLOCKED_ENV in this checkout: `/usr/bin/python3`
@@ -627,6 +641,25 @@ Evidence: Sample config/docs state Modes 0/1/2; TERRA-V01 corrects the remaining
 zero-cost source comment that contradicted the no-downgrade contract.
 Tests: Static compile PASS; deployment/config tests BLOCKED_ENV.
 Commit: `447ff03`, `3203cc0`.
+
+## Terra Dynamic Review Supersession — V001–V014
+
+The earlier `BLOCKED_ENV` records above are superseded by canonical environment
+setup: `uv sync --locked --extra dev`. Dynamic evidence is 132 focused Round 4 /
+ingestion / router / validator tests passed and 45 bounded Round 3 regressions
+passed. TERRA-V01 and TERRA-V02 are **VERIFIED**, and all V001–V014 are
+therefore: **VERIFIED**.
+
+Evidence: real combined runtime establishes Mode 0 (zero validator dependency,
+canonical extraction/embedding/projection/recall and restart), Mode 1 (only A),
+and Mode 2 (distinct A+B consensus); real DAO admission proves Mode 2→0 and
+Mode 0→2 durable-policy replay; state-machine, capability, legal/zero-cost, and
+embedding contracts are covered by the focused suite.
+
+Tests: `uv run python -m pytest` focused matrix — 132 passed; bounded Round 3
+matrix — 45 passed; ruff, Black, compile and `git diff --check` passed.
+
+Commit: `8009187 test(validation): certify runtime policy replay`
 
 ---
 
