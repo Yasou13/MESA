@@ -729,6 +729,25 @@ deployment/CI contract tests passed.
 Commit: `84c26b0 test(validation): adversarially certify runtime composition`;
 `fe9f7ca docs(validation): align supported surfaces with policy modes`
 
+## SOL-V05 — Align legacy CI expectations with the frozen validation policy
+
+Status: VERIFIED
+
+Evidence: The Python 3.10 coverage lane exposed nine legacy tests that still
+expected adaptive confidence, legal mode, or audit routing to reduce Mode 2 to a
+small-model decision, and expected raw provider exceptions to escape the Tier-3
+boundary. The tests now inject explicit Mode 1/2 policies, assert that adaptive
+signals cannot bypass dual consensus, and verify provider failures through the
+retryable `Tier3ValidationError` contract. No production assurance behavior was
+weakened to satisfy the legacy expectations.
+
+Tests: Exact failing three-file set — 51 passed on Python 3.10 and 51 passed on
+Python 3.13; complete Core and SDK coverage gate — 1297 passed, 58 deselected,
+85.40% coverage against the required 82%; Ruff, Black, and `git diff --check` —
+PASS.
+
+Commit: `b372aa1 test(ci): align legacy routing tests with validation policy`
+
 ---
 
 # V015 — Sol Final Round 4 Certification
@@ -766,7 +785,7 @@ Status: CODE_MVP_READY
 Evidence: Sol independently traced current production composition, validation,
 durable admission/replay, worker state transitions, projection fencing,
 capability reporting, extraction, embeddings, and provider identity. V001-V014,
-TERRA-V01, TERRA-V02, and SOL-V01 through SOL-V04 are VERIFIED. No unresolved
+TERRA-V01, TERRA-V02, and SOL-V01 through SOL-V05 are VERIFIED. No unresolved
 Round 4 code-level blocker remains. No historical migration changed and Alembic
 reports the single head `0a7b8c9d0e1f`.
 
@@ -776,5 +795,9 @@ Black, layer-import check, mypy (124 production files), mypy override ratchet,
 compileall, and `git diff --check` — PASS. The LanceDB backend retains one
 daemonized background event-loop thread after shutdown; repeated initialization
 proves it is bounded at one and it does not prevent process exit.
+
+Post-certification CI closure: Core and SDK coverage gate — 1297 passed, 58
+deselected, 85.40% coverage; the exact repaired regression set also passed on
+Python 3.10 and Python 3.13 (51 tests on each interpreter).
 
 Commit: `docs(agents): record Sol final certification`
