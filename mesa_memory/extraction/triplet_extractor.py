@@ -12,6 +12,7 @@ This module owns:
 import asyncio
 import functools
 import logging
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -31,6 +32,13 @@ from mesa_memory.extraction.rebel_pipeline import RebelExtractor
 logger = logging.getLogger("MESA_Consolidation")
 
 
+class OptionalRebelExtractorPlaceholder:
+    """Zero-overhead placeholder when REBEL model is disabled."""
+
+    def extract_triplets(self, text: str) -> list[dict[str, Any]]:
+        return []
+
+
 class TripletExtractor:
     """Manages the full extraction lifecycle: REBEL → LLM batch → bisection → 1:1.
 
@@ -40,12 +48,20 @@ class TripletExtractor:
     def __init__(
         self,
         llm_a: BaseUniversalLLMAdapter,
-        llm_b: BaseUniversalLLMAdapter,
+        llm_b: BaseUniversalLLMAdapter | None = None,
     ):
         self.llm_a = llm_a
-        self.llm_b = llm_b
-        self.rebel_extractor = RebelExtractor()
+        self.llm_b = llm_b or llm_a
+        self._rebel_extractor = (
+            RebelExtractor()
+            if config.rebel_enabled
+            else OptionalRebelExtractorPlaceholder()
+        )
         self._parser = BatchResponseParser()
+
+    @property
+    def rebel_extractor(self) -> Any:
+        return self._rebel_extractor
 
     # -------------------------------------------------------------------
     # Batch prompt construction helpers
@@ -231,12 +247,12 @@ class TripletExtractor:
         missing_a = list(range(len(sorted_batch)))
         missing_b = list(range(len(sorted_batch)))
 
-        # --- Phase: Zero-Cost REBEL extraction ---
+        # --- Phase: Zero-Cost REBEL extraction (opt-in only) ---
         for idx, record in enumerate(sorted_batch):
             try:
                 triplets = await loop.run_in_executor(
                     None,
-                    self.rebel_extractor.extract_triplets,
+                    self._rebel_extractor.extract_triplets,
                     record.get("content_payload", ""),
                 )
                 if triplets:
@@ -266,62 +282,34 @@ class TripletExtractor:
                     type(e).__name__,
                 )
 
-        # --- Phase: LLM fallback for missing records ---
+        # --- Phase: LLM fallback for missing records (Single-call structured extraction) ---
         if missing_a:
             fallback_batch = [sorted_batch[i] for i in missing_a]
-            logger.info(f"Falling back to LLMs for {len(fallback_batch)} records.")
+            logger.info(f"Extracting facts with LLM for {len(fallback_batch)} records.")
 
             fallback_records_block = self.build_records_block(fallback_batch)
             fb_prompt_a = BATCH_PROMPT_A_TEMPLATE.format(
                 records_block=fallback_records_block
             )
-            fb_prompt_b = BATCH_PROMPT_B_TEMPLATE.format(
-                records_block=fallback_records_block
-            )
 
-            gather_results = await asyncio.gather(
-                loop.run_in_executor(
+            try:
+                raw_a = await loop.run_in_executor(
                     None,
                     functools.partial(
                         self.llm_a.complete, fb_prompt_a, BatchExtractionResponse
                     ),
-                ),
-                loop.run_in_executor(
-                    None,
-                    functools.partial(
-                        self.llm_b.complete, fb_prompt_b, BatchExtractionResponse
-                    ),
-                ),
-                return_exceptions=True,
-            )
-            # Handle individual LLM failures gracefully
-            raw_a = (
-                gather_results[0]
-                if not isinstance(gather_results[0], Exception)
-                else None
-            )
-            raw_b = (
-                gather_results[1]
-                if not isinstance(gather_results[1], Exception)
-                else None
-            )
-            for idx, r in enumerate(gather_results):
-                if isinstance(r, Exception):
-                    llm_label = "LLM_A" if idx == 0 else "LLM_B"
-                    logger.error(
-                        "TRIPLET_EXTRACT_%s_FAILED | batch_size=%d error=%s",
-                        llm_label,
-                        len(fallback_batch),
-                        r,
-                        exc_info=r,
-                    )
+                )
+            except Exception as r:
+                logger.error(
+                    "TRIPLET_EXTRACT_FAILED | batch_size=%d error=%s",
+                    len(fallback_batch),
+                    r,
+                    exc_info=r,
+                )
+                raw_a = None
 
             try:
                 response_a = self._parser.parse(raw_a, len(fallback_batch))
-                # A valid response that omits a record means the model found
-                # zero facts for that record.  Retrying it through the legacy
-                # singular fallback would turn the 0..N contract back into a
-                # mandatory one-fact contract.
                 fb_indexed_a, _ = self._parser.audit_coverage(
                     response_a, len(fallback_batch)
                 )
@@ -335,31 +323,12 @@ class TripletExtractor:
                 )
                 fb_missing_a = []
 
-            try:
-                response_b = self._parser.parse(raw_b, len(fallback_batch))
-                fb_indexed_b, _ = self._parser.audit_coverage(
-                    response_b, len(fallback_batch)
-                )
-                fb_missing_b: list[int] = []
-            except ValueError:
-                fb_indexed_b = await self._retry_with_bisection(
-                    fallback_batch,
-                    BATCH_PROMPT_B_TEMPLATE,
-                    PROMPT_B_TEMPLATE,
-                    self.llm_b,
-                )
-                fb_missing_b = []
-
             # Map fallback results back to global indices
             for local_idx, triplet in fb_indexed_a.items():
                 global_idx = missing_a[local_idx]
                 triplet.record_index = global_idx
                 indexed_a[global_idx] = triplet
-
-            for local_idx, triplet in fb_indexed_b.items():
-                global_idx = missing_b[local_idx]
-                triplet.record_index = global_idx
-                indexed_b[global_idx] = triplet
+                indexed_b[global_idx] = triplet.model_copy(deep=True)
 
             for local_idx in fb_missing_a:
                 global_idx = missing_a[local_idx]
@@ -367,18 +336,10 @@ class TripletExtractor:
                     sorted_batch[global_idx], self.llm_a, PROMPT_A_TEMPLATE
                 )
                 if trip is not None:
-                    indexed_a[global_idx] = trip.model_copy(
+                    copied = trip.model_copy(
                         update={"record_index": global_idx}, deep=True
                     )
-
-            for local_idx in fb_missing_b:
-                global_idx = missing_b[local_idx]
-                trip = await self._single_record_extract(
-                    sorted_batch[global_idx], self.llm_b, PROMPT_B_TEMPLATE
-                )
-                if trip is not None:
-                    indexed_b[global_idx] = trip.model_copy(
-                        update={"record_index": global_idx}, deep=True
-                    )
+                    indexed_a[global_idx] = copied
+                    indexed_b[global_idx] = copied.model_copy(deep=True)
 
         return indexed_a, indexed_b

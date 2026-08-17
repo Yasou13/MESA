@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -210,6 +210,101 @@ async def test_injected_policy_never_becomes_an_extraction_fallback(
     assert candidate.candidate_id in outcome["accepted"]
     assert validator_a.complete_count == 1
     assert embedder.complete_count >= 1
+
+
+from mesa_memory.consolidation.policy import (
+    DeterministicOnlyValidationPolicy,
+    DualLLMValidationPolicy,
+    SingleLLMValidationPolicy,
+)
+from mesa_memory.consolidation.validator import Tier3Validator
+
+
+@pytest.mark.asyncio
+async def test_mode_2_validation_does_not_duplicate_extraction(tmp_path, monkeypatch):
+    """Mode 2 uses 2 validators but extraction call count MUST remain exactly 1."""
+    monkeypatch.setattr(config, "rebel_enabled", False)
+
+    extraction_adapter = TrackingAdapter("extraction_llm")
+    validator_a = TrackingAdapter(
+        "validator_a",
+        response='{"decision": "STORE", "justification": "Approved by A"}',
+    )
+    validator_b = TrackingAdapter(
+        "validator_b",
+        response='{"decision": "STORE", "justification": "Approved by B"}',
+    )
+    embedder = TrackingAdapter("embedder")
+    tier3_validator = Tier3Validator(validator_a, validator_b)
+    mode_2_policy = DualLLMValidationPolicy(tier3_validator)
+
+    dao = make_mock_dao()
+    loop = ConsolidationLoop(
+        dao=dao,
+        embedder=embedder,
+        validation_policy=mode_2_policy,
+        extraction_llm=extraction_adapter,
+        queue_root=tmp_path / "queue_mode2_ext",
+    )
+
+    candidate = MemoryCandidate.from_raw_log(
+        raw_log_id=304,
+        agent_id="test_agent",
+        session_id="session_1",
+        content_payload="Distributed consensus protocol validated across cluster nodes.",
+        metadata={"_mesa_validation_mode": 2},
+        embedding_provider="openai_compatible",
+        embedding_model="text-embedding-3-small",
+        embedding_version="v1",
+        embedding_dimension=384,
+    )
+    record = candidate.as_consolidation_record()
+
+    outcome = await loop.run_batch([record])
+
+    assert candidate.candidate_id in outcome["accepted"]
+    # Both validators participated in validation
+    assert validator_a.complete_count == 1
+    assert validator_b.complete_count == 1
+    # Extraction was called EXACTLY ONCE (not duplicated for Mode 2)
+    assert extraction_adapter.complete_count == 1
+
+
+@pytest.mark.asyncio
+async def test_rebel_disabled_guarantees_zero_rebel_instantiation(tmp_path, monkeypatch):
+    """With MESA_REBEL_ENABLED=false, RebelExtractor is not instantiated."""
+    monkeypatch.setattr(config, "rebel_enabled", False)
+
+    with patch("mesa_memory.extraction.rebel_pipeline.RebelExtractor") as mock_rebel:
+        mock_rebel.side_effect = RuntimeError("REBEL must not be instantiated")
+
+        extraction_adapter = TrackingAdapter("extraction_llm")
+        embedder = TrackingAdapter("embedder")
+        loop = ConsolidationLoop(
+            dao=make_mock_dao(),
+            embedder=embedder,
+            validation_policy=DeterministicOnlyValidationPolicy(),
+            extraction_llm=extraction_adapter,
+            queue_root=tmp_path / "queue_rebel_disabled",
+        )
+
+        candidate = MemoryCandidate.from_raw_log(
+            raw_log_id=305,
+            agent_id="test_agent",
+            session_id="session_1",
+            content_payload="Kullanıcı PostgreSQL tercih ediyor.",
+            metadata={"_mesa_validation_mode": 0},
+            embedding_provider="openai_compatible",
+            embedding_model="text-embedding-3-small",
+            embedding_version="v1",
+            embedding_dimension=384,
+        )
+
+        outcome = await loop.run_batch([candidate.as_consolidation_record()])
+
+        assert candidate.candidate_id in outcome["accepted"]
+        assert extraction_adapter.complete_count == 1
+        mock_rebel.assert_not_called()
 
 
 def test_embedding_identity_independence():

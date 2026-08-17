@@ -46,7 +46,7 @@ are currently owned.
 Status: BUILT
 Evidence: Traced production call paths across server composition, AdapterFactory, ConsolidationLoop, TripletExtractor, ingestion_worker, VectorEngine, LLM adapters, projection workers, rebuild/cutover, GraphWriter, and embedding identity. Mapped current ownership: (1) Validation is owned by ValidationPolicy (Mode 0/1/2); (2) Extraction is owned by TripletExtractor with unconditional RebelExtractor init and dual-LLM fallback; (3) Embedding generation is scattered across VectorEngine (direct SentenceTransformer loading / provider callback), LLM adapters (embed/aembed methods), and GraphWriter; (4) Graph projection is owned by GraphWriter into KuzuGraphProvider and MemoryDAO.
 Tests: tests/test_r4_durable_policy_snapshot.py
-Commit: pending
+Commit: aad80c2
 
 ---
 
@@ -71,10 +71,10 @@ Prefer wrapping/reusing current working primitives initially.
 
 Do not combine architecture introduction and model migration in one giant change.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Implemented FactExtractionService and FactCandidate in mesa_memory/extraction/service.py with strict structured output schema (FactExtractionResponse) returning 0..N FactCandidate objects. Integrated into ConsolidationLoop and extraction pathways.
+Tests: tests/test_fact_extraction_service.py
+Commit: pending
 
 ---
 
@@ -109,10 +109,10 @@ N facts
 correction/supersession
 ```
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Implemented DeterministicFactValidator in mesa_memory/extraction/service.py performing non-empty schema checks, confidence boundary [0.0, 1.0] checks, source-span verification, deduplication by (subject, predicate, object, valid_from), and normalization without calling validation LLMs. Implemented fact_candidates_to_extracted_triplet to map FactCandidates directly to existing canonical assertion/mutation representations.
+Tests: tests/test_fact_extraction_service.py, tests/test_p0_multi_memory_extraction.py
+Commit: pending
 
 ---
 
@@ -142,10 +142,10 @@ No always-on extractor B.
 
 No dual extraction based on Tier-3 Mode 2.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: FactExtractionService enforces exactly one structured model call on normal extraction. If initial parsing fails, a single bounded schema correction retry is made. If the retry fails, FactExtractionError is raised (no 3rd call, no infinite loop). Removed dual-LLM extraction from TripletExtractor.
+Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
+Commit: pending
 
 ---
 
@@ -165,10 +165,10 @@ no supported canonical V4 call path instantiates or calls REBEL.
 
 REBEL may remain experimental/legacy.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: With MESA_REBEL_ENABLED=false (default), FactExtractionService and TripletExtractor do not instantiate RebelExtractor (using OptionalRebelExtractorPlaceholder). Verified that patching RebelExtractor to raise an error results in 0 constructor calls during canonical extraction.
+Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
+Commit: pending
 
 ---
 
@@ -198,10 +198,10 @@ same FactCandidate contract
 
 Only validator count changes.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Validated across Mode 0 (0 validation LLMs, 1 extraction call), Mode 1 (1 validation LLM, 1 extraction call), and Mode 2 (2 validation LLMs + consensus, 1 extraction call). Injected validation policies never serve extraction.
+Tests: tests/test_r4_extraction_validation_independence.py
+Commit: pending
 
 ---
 

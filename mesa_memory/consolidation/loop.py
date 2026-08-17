@@ -53,6 +53,7 @@ from mesa_memory.consolidation.router import AdaptiveRouter
 from mesa_memory.consolidation.schemas import ExtractedTriplet
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 from mesa_memory.consolidation.writer import GraphWriter
+from mesa_memory.extraction.service import FactExtractionService
 from mesa_memory.extraction.triplet_extractor import TripletExtractor
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_storage.dao import MemoryDAO
@@ -680,6 +681,11 @@ class ConsolidationLoop:
         if ext_b is None:
             ext_b = ext_a
 
+        self.fact_extraction_service = FactExtractionService(
+            llm=ext_a,
+            rebel_enabled=config.rebel_enabled,
+            extraction_lang=config.extraction_lang,
+        )
         self.triplet_extractor = TripletExtractor(llm_a=ext_a, llm_b=ext_b)
         self.router = AdaptiveRouter(
             dao=dao,

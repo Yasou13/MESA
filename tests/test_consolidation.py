@@ -250,9 +250,9 @@ async def test_rebel_extraction_fallback():
     ):
         await loop_obj.run_batch([record])
 
-    # Assert LLM WAS called because rebel failed
+    # Assert single extraction LLM was called (Round 5 single-call invariant)
     assert llm_a.complete.called
-    assert llm_b.complete.called
+    assert not llm_b.complete.called
 
 
 @pytest.mark.asyncio
