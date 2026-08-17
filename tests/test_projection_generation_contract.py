@@ -410,3 +410,59 @@ async def test_active_generation_fences_same_dimension_different_embedding_space
         ProjectionGenerationIdentityMismatchError, match="rebuild is required"
     ):
         await generations.assert_active_embedding_identity(space_b)
+
+
+@pytest.mark.asyncio
+async def test_restart_keeps_old_generation_active_when_new_embedding_rebuild_is_only_staged(
+    tmp_path: Path,
+) -> None:
+    generations, operations, storage, database = _repositories(tmp_path)
+    old_space = {
+        "embedding_space_id": "local:minilm:old:384:norm=true",
+        "provider": "local",
+        "model": "minilm",
+        "model_revision": "old",
+        "version": "v1",
+        "dimension": 384,
+        "normalized": True,
+    }
+    new_space = {
+        "embedding_space_id": "local:magibu:new:768:norm=true",
+        "provider": "local",
+        "model": "magibu",
+        "model_revision": "new",
+        "version": "v1",
+        "dimension": 768,
+        "normalized": True,
+    }
+    await generations.assert_active_embedding_identity(old_space)
+    with pytest.raises(
+        ProjectionGenerationIdentityMismatchError, match="rebuild is required"
+    ):
+        await generations.assert_active_embedding_identity(new_space)
+
+    operation_id, claimed = await _running_operation(operations)
+    await generations.create_staging(
+        operation_id=operation_id,
+        generation_id="magibu-768",
+        runner_id="runner-a",
+        claim_token=claimed["claim_token"],
+        operation_fencing_token=claimed["fencing_token"],
+        provider_manifest=new_space,
+    )
+
+    restarted = ProjectionGenerationRepository(
+        cast(AsyncEngine, _SynchronousSQLiteEngine(database))
+    )
+    active = await restarted.resolve_active(storage_root=storage, trusted_root=tmp_path)
+    assert active.generation_id == "legacy"
+    connection = sqlite3.connect(database)
+    try:
+        states = dict(
+            connection.execute(
+                "SELECT generation_id, lifecycle_state FROM projection_generations"
+            ).fetchall()
+        )
+    finally:
+        connection.close()
+    assert states == {"legacy": "ACTIVE", "magibu-768": "STAGING"}
