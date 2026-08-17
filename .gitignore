@@ -120,7 +120,8 @@ sweep_results.json
 # ------------------------------------------------------------------------------
 .gemini/
 .audit/
-.agents/
+# Local agent instructions and control files must never be committed.
+/.agents/
 .codex/
 
 # ------------------------------------------------------------------------------
