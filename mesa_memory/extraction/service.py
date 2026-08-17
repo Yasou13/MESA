@@ -16,6 +16,7 @@ import asyncio
 import functools
 import json
 import logging
+from datetime import datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -122,6 +123,20 @@ class DeterministicFactValidator:
             0.0 <= candidate.confidence <= 1.0
         ):
             return False
+        if candidate.source_span is not None and source_text is not None:
+            if candidate.source_span.casefold() not in source_text.casefold():
+                return False
+        if candidate.valid_from and candidate.valid_to:
+            try:
+                valid_from = datetime.fromisoformat(candidate.valid_from)
+                valid_to = datetime.fromisoformat(candidate.valid_to)
+            except ValueError:
+                # Natural-language temporal anchors are permitted by the
+                # extraction contract; only compare values that claim ISO form.
+                pass
+            else:
+                if valid_from > valid_to:
+                    return False
         return True
 
     @staticmethod
@@ -256,25 +271,15 @@ class FactExtractionService:
         self,
         llm: BaseUniversalLLMAdapter,
         *,
-        rebel_enabled: bool = False,
+        rebel_enabled: bool | None = None,
         extraction_lang: str = "tr",
     ):
+        # Retained only for call-site compatibility.  Canonical fact
+        # extraction never constructs or invokes REBEL.
+        _ = rebel_enabled
         self.llm = llm
-        self.rebel_enabled = rebel_enabled
         self.extraction_lang = extraction_lang
         self.validator = DeterministicFactValidator()
-        self._rebel_extractor = None
-
-        if self.rebel_enabled:
-            # Opt-in legacy / experimental REBEL only
-            try:
-                from mesa_memory.extraction.rebel_pipeline import RebelExtractor
-
-                self._rebel_extractor = RebelExtractor()
-            except Exception as exc:
-                logger.warning(
-                    "Optional RebelExtractor initialization failed: %s", exc
-                )
 
     def _get_prompt(self, text: str) -> str:
         if self.extraction_lang == "tr":
@@ -316,85 +321,11 @@ class FactExtractionService:
         raise ValueError(f"Unexpected extraction response type: {type(raw_output)}")
 
     def _parse_dict_or_list(self, data: Any) -> FactExtractionResponse:
-        if isinstance(data, list):
-            facts = [self._to_fact_candidate(item) for item in data if item]
-            return FactExtractionResponse(facts=[f for f in facts if f is not None])
-        if isinstance(data, dict):
-            if "facts" in data and isinstance(data["facts"], list):
-                facts = [self._to_fact_candidate(item) for item in data["facts"] if item]
-                return FactExtractionResponse(facts=[f for f in facts if f is not None])
-            if "triplets" in data and isinstance(data["triplets"], list):
-                facts = [self._to_fact_candidate(item) for item in data["triplets"] if item]
-                return FactExtractionResponse(facts=[f for f in facts if f is not None])
-            candidate = self._to_fact_candidate(data)
-            return FactExtractionResponse(facts=[candidate] if candidate else [])
-        raise ValueError(f"Cannot parse extraction response data of type {type(data)}")
-
-    def _to_fact_candidate(self, item: Any) -> Optional[FactCandidate]:
-        if isinstance(item, FactCandidate):
-            return item
-        if not isinstance(item, dict):
-            return None
-        s = item.get("subject") or item.get("head") or item.get("özne") or ""
-        p = (
-            item.get("predicate")
-            or item.get("relation")
-            or item.get("yüklem")
-            or item.get("iliskisi")
-            or ""
-        )
-        o = item.get("object") or item.get("tail") or item.get("nesne") or ""
-        if not s or not p or not o:
-            return None
-        text = item.get("fact_text") or f"{s} {p} {o}".strip()
-        additional = item.get("additional_triplets") or []
-        extra_facts = []
-        for add in additional:
-            if isinstance(add, dict):
-                as_s = add.get("subject") or add.get("head") or ""
-                as_p = add.get("predicate") or add.get("relation") or ""
-                as_o = add.get("object") or add.get("tail") or ""
-                if as_s and as_p and as_o:
-                    extra_facts.append(
-                        {
-                            "fact_text": add.get("fact_text")
-                            or f"{as_s} {as_p} {as_o}".strip(),
-                            "subject": as_s,
-                            "predicate": as_p,
-                            "object": as_o,
-                            "confidence": add.get("confidence"),
-                            "valid_from": add.get("valid_from"),
-                            "valid_to": add.get("valid_to"),
-                            "source_span": add.get("source_span"),
-                            "supersedes": add.get("supersedes"),
-                        }
-                    )
-        return FactCandidate(
-            fact_text=text,
-            subject=s,
-            predicate=p,
-            object=o,
-            confidence=item.get("confidence"),
-            valid_from=item.get("valid_from"),
-            valid_to=item.get("valid_to"),
-            source_span=item.get("source_span"),
-            supersedes=item.get("supersedes"),
-            metadata={"additional": extra_facts} if extra_facts else {},
-        )
-
-    def _expand_fact_candidates(
-        self, candidates: list[FactCandidate]
-    ) -> list[FactCandidate]:
-        expanded: list[FactCandidate] = []
-        for c in candidates:
-            expanded.append(c)
-            if c.metadata and "additional" in c.metadata:
-                for add in c.metadata["additional"]:
-                    try:
-                        expanded.append(FactCandidate.model_validate(add))
-                    except Exception:
-                        pass
-        return expanded
+        if not isinstance(data, dict) or set(data) != {"facts"}:
+            raise ValueError("Extraction response must be an object with only a facts array")
+        if not isinstance(data["facts"], list):
+            raise ValueError("Extraction response facts must be an array")
+        return FactExtractionResponse.model_validate(data)
 
     async def extract_facts(
         self, text: str, *, source_ref: str | None = None
@@ -445,10 +376,9 @@ class FactExtractionService:
                     f"Fact extraction failed after schema correction retry: {second_exc}"
                 ) from second_exc
 
-        all_candidates = self._expand_fact_candidates(parsed_response.facts)
         # Deterministic fact validation & deduplication
         valid_facts = self.validator.deduplicate_and_canonicalize(
-            all_candidates, source_text=text
+            parsed_response.facts, source_text=text
         )
         return valid_facts
 

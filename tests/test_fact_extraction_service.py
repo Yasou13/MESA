@@ -130,6 +130,30 @@ def test_deterministic_fact_validator():
     assert filtered[1].object == "FastAPI"
 
 
+def test_deterministic_fact_validator_rejects_bad_source_span_and_temporal_order():
+    validator = DeterministicFactValidator()
+    assert not validator.validate(
+        FactCandidate(
+            fact_text="PostgreSQL kullanılıyor.",
+            subject="Proje",
+            predicate="veritabanı",
+            object="PostgreSQL",
+            source_span="MySQL kullanılıyor",
+        ),
+        source_text="PostgreSQL kullanılıyor.",
+    )
+    assert not validator.validate(
+        FactCandidate(
+            fact_text="Proje 2025'te başladı ve 2024'te bitti.",
+            subject="Proje",
+            predicate="durum",
+            object="tamamlandı",
+            valid_from="2025-01-01",
+            valid_to="2024-01-01",
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_fact_extraction_single_call_zero_facts():
     adapter = MockExtractionAdapter(
@@ -220,6 +244,20 @@ async def test_fact_extraction_bounded_retry_failure():
         await service.extract_facts("Test metni")
 
     # Exactly 2 calls: bounded retry reached, no 3rd call
+    assert adapter.complete_count == 2
+
+
+@pytest.mark.asyncio
+async def test_malformed_structured_fact_retries_instead_of_becoming_zero_facts():
+    adapter = MockExtractionAdapter(
+        responses=[
+            {"facts": [{"subject": "Proje"}]},
+            {"facts": []},
+        ]
+    )
+    service = FactExtractionService(llm=adapter)
+
+    assert await service.extract_facts("Proje PostgreSQL kullanıyor.") == []
     assert adapter.complete_count == 2
 
 

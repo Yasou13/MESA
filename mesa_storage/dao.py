@@ -3096,7 +3096,19 @@ class MemoryDAO:
                     "relation": str(triplet["relation"]),
                     "tail": str(tail) if tail is not None else None,
                     "literal_value": str(literal) if literal is not None else None,
-                    "confidence": float(triplet.get("confidence", 1.0)),
+                    "confidence": float(
+                        1.0
+                        if triplet.get("confidence") is None
+                        else triplet["confidence"]
+                    ),
+                    "fact_text": str(triplet.get("fact_text") or ""),
+                    "valid_from": triplet.get("valid_from"),
+                    "valid_to": triplet.get("valid_to"),
+                    "source_span": triplet.get("source_span"),
+                    "supersedes": triplet.get("supersedes"),
+                    "metadata": triplet.get("metadata")
+                    if isinstance(triplet.get("metadata"), dict)
+                    else {},
                 }
             )
         async with self._sql.transaction() as db:

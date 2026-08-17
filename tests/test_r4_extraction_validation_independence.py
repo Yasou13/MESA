@@ -1,3 +1,5 @@
+import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,6 +16,10 @@ from mesa_memory.consolidation.schemas import (
     ExtractedTriplet,
     MemoryCandidate,
 )
+from mesa_memory.extraction.service import FactExtractionResponse
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
 
 
 class TrackingAdapter(BaseUniversalLLMAdapter):
@@ -29,6 +35,19 @@ class TrackingAdapter(BaseUniversalLLMAdapter):
 
     def complete(self, prompt: str, schema=None, **kwargs):
         self.complete_count += 1
+        if schema is FactExtractionResponse:
+            return {
+                "facts": [
+                    {
+                        "fact_text": "EntityA is connected to EntityB.",
+                        "subject": "EntityA",
+                        "predicate": "connected_to",
+                        "object": "EntityB",
+                        "confidence": 0.9,
+                        "source_span": "EntityA",
+                    }
+                ]
+            }
         if schema is BatchExtractionResponse or (
             isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
         ):
@@ -45,21 +64,7 @@ class TrackingAdapter(BaseUniversalLLMAdapter):
         return self.response
 
     async def acomplete(self, prompt: str, schema=None, **kwargs):
-        self.complete_count += 1
-        if schema is BatchExtractionResponse or (
-            isinstance(schema, type) and issubclass(schema, BatchExtractionResponse)
-        ):
-            return BatchExtractionResponse(
-                triplets=[
-                    ExtractedTriplet(
-                        record_index=0,
-                        head="EntityA",
-                        relation="connected_to",
-                        tail="EntityB",
-                    )
-                ]
-            )
-        return self.response
+        return self.complete(prompt, schema, **kwargs)
 
     def embed(self, text: str, **kwargs) -> list[float]:
         self.embed_count += 1
@@ -314,3 +319,78 @@ def test_embedding_identity_independence():
     assert identity.model is not None
     assert identity.version is not None
     assert identity.dimension == 768
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [0, 1, 2])
+async def test_canonical_v4_uses_single_fact_extractor_across_validation_modes(
+    tmp_path, mode
+):
+    """The real mutation lane must never fall back to TripletExtractor."""
+    engine = AsyncEngine(str(tmp_path / f"canonical-mode-{mode}.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(engine, SimpleNamespace())
+    await dao.initialize()
+    extraction = TrackingAdapter("extraction")
+    validator_a = TrackingAdapter("validator_a")
+    validator_b = TrackingAdapter("validator_b")
+    if mode == 0:
+        policy = DeterministicOnlyValidationPolicy()
+    elif mode == 1:
+        policy = SingleLLMValidationPolicy(validator_a)
+    else:
+        policy = DualLLMValidationPolicy(Tier3Validator(validator_a, validator_b))
+    identity = configured_embedding_identity()
+    candidate = MemoryCandidate.from_raw_log(
+        raw_log_id=900 + mode,
+        agent_id="tenant-a",
+        session_id="session-a",
+        content_payload="EntityA is connected to EntityB.",
+        metadata={"_mesa_validation_mode": mode},
+        embedding_provider=identity.provider,
+        embedding_model=identity.model,
+        embedding_version=identity.version,
+        embedding_dimension=identity.dimension,
+        validation_mode=mode,
+    )
+    record = candidate.as_consolidation_record()
+    try:
+        await dao.record_mutation(record, raw_log_id=candidate.raw_log_id)
+        loop = ConsolidationLoop(
+            dao=dao,
+            embedder=TrackingAdapter("legacy_embedder"),
+            validation_policy=policy,
+            extraction_llm=extraction,
+            queue_root=tmp_path / f"queue-{mode}",
+        )
+        loop.triplet_extractor.extract_batch = AsyncMock(
+            side_effect=AssertionError("canonical V4 must not use TripletExtractor")
+        )
+
+        outcome = await loop.run_batch([record])
+
+        assert outcome["accepted"] == [candidate.candidate_id]
+        assert extraction.complete_count == 1
+        assert validator_a.complete_count == (1 if mode in (1, 2) else 0)
+        assert validator_b.complete_count == (1 if mode == 2 else 0)
+        mutation = await dao.get_mutation("tenant-a", candidate.mutation_id)
+        assert mutation is not None
+        metadata = json.loads(mutation["metadata_json"])
+        assert metadata["_mesa_v4_projection_triplets"] == [
+            {
+                "confidence": 0.9,
+                "fact_text": "EntityA is connected to EntityB.",
+                "head": "EntityA",
+                "literal_value": None,
+                "metadata": {},
+                "relation": "connected_to",
+                "source_span": "EntityA",
+                "supersedes": None,
+                "tail": "EntityB",
+                "valid_from": None,
+                "valid_to": None,
+            }
+        ]
+    finally:
+        await engine.close()
