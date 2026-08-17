@@ -16,6 +16,7 @@ from alembic.config import Config
 from mesa_storage.projection_generations import (
     ProjectionGenerationConflictError,
     ProjectionGenerationFencedError,
+    ProjectionGenerationIdentityMismatchError,
     ProjectionGenerationRepository,
     ProjectionPathError,
 )
@@ -380,3 +381,32 @@ async def test_rolled_back_generation_can_be_restaged_by_same_operation_retry(
 
     assert rolled_back["active_generation_id"] == "legacy"
     assert restaged["lifecycle_state"] == "STAGING"
+
+
+@pytest.mark.asyncio
+async def test_active_generation_fences_same_dimension_different_embedding_space(
+    tmp_path: Path,
+) -> None:
+    generations, _operations, _storage, _database = _repositories(tmp_path)
+    space_a = {
+        "embedding_space_id": "provider-a:model-a:rev-a:768:norm=true",
+        "provider": "provider-a",
+        "model": "model-a",
+        "model_revision": "rev-a",
+        "version": "v1",
+        "dimension": 768,
+        "normalized": True,
+    }
+    space_b = {
+        **space_a,
+        "embedding_space_id": "provider-b:model-b:rev-b:768:norm=true",
+        "provider": "provider-b",
+        "model": "model-b",
+        "model_revision": "rev-b",
+    }
+
+    await generations.assert_active_embedding_identity(space_a)
+    with pytest.raises(
+        ProjectionGenerationIdentityMismatchError, match="rebuild is required"
+    ):
+        await generations.assert_active_embedding_identity(space_b)

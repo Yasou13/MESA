@@ -50,6 +50,9 @@ class MemoryCandidate(BaseModel):
     embedding_model: str | None = None
     embedding_version: str | None = None
     embedding_dimension: int | None = Field(default=None, ge=1)
+    embedding_space_id: str | None = None
+    embedding_model_revision: str | None = None
+    embedding_normalized: bool | None = None
     created_artifact_ids: list[str] = Field(default_factory=list)
     validation_mode: int | None = None
     validation_policy: str | None = None
@@ -76,6 +79,9 @@ class MemoryCandidate(BaseModel):
         embedding_model: str | None = None,
         embedding_version: str | None = None,
         embedding_dimension: int | None = None,
+        embedding_space_id: str | None = None,
+        embedding_model_revision: str | None = None,
+        embedding_normalized: bool | None = None,
         validation_mode: int | None = None,
         validation_policy: str | None = None,
     ) -> "MemoryCandidate":
@@ -119,6 +125,9 @@ class MemoryCandidate(BaseModel):
             embedding_model=embedding_model,
             embedding_version=embedding_version,
             embedding_dimension=embedding_dimension,
+            embedding_space_id=embedding_space_id,
+            embedding_model_revision=embedding_model_revision,
+            embedding_normalized=embedding_normalized,
             validation_mode=mode,
             validation_policy=policy,
             pipeline_run_id=pipeline_run_id
@@ -127,6 +136,28 @@ class MemoryCandidate(BaseModel):
 
     def as_consolidation_record(self) -> dict[str, Any]:
         """Return the compatibility projection consumed by the existing loop."""
+        metadata = dict(self.metadata)
+        if (
+            self.embedding_provider
+            and self.embedding_model
+            and self.embedding_version
+            and self.embedding_dimension
+        ):
+            revision = self.embedding_model_revision or self.embedding_version
+            metadata["_mesa_embedding_identity"] = {
+                "embedding_space_id": self.embedding_space_id
+                or f"{self.embedding_provider}:{self.embedding_model}:{revision}:{self.embedding_dimension}:norm={str(bool(self.embedding_normalized if self.embedding_normalized is not None else True)).lower()}",
+                "provider": self.embedding_provider,
+                "model": self.embedding_model,
+                "model_revision": self.embedding_model_revision,
+                "version": self.embedding_version,
+                "dimension": self.embedding_dimension,
+                "normalized": (
+                    self.embedding_normalized
+                    if self.embedding_normalized is not None
+                    else True
+                ),
+            }
         return {
             "cmb_id": self.candidate_id,
             "candidate_id": self.candidate_id,
@@ -143,7 +174,7 @@ class MemoryCandidate(BaseModel):
             "content_payload": self.content_payload,
             "source_ref": self.source_ref,
             "evidence_span": self.evidence_span,
-            "metadata": self.metadata,
+            "metadata": metadata,
             "source": self.source,
             "performative": self.performative,
             "pipeline_run_id": self.pipeline_run_id,
@@ -152,6 +183,9 @@ class MemoryCandidate(BaseModel):
             "embedding_model": self.embedding_model,
             "embedding_version": self.embedding_version,
             "embedding_dimension": self.embedding_dimension,
+            "embedding_space_id": self.embedding_space_id,
+            "embedding_model_revision": self.embedding_model_revision,
+            "embedding_normalized": self.embedding_normalized,
             "created_artifact_ids": self.created_artifact_ids,
             "validation_mode": self.validation_mode,
             "validation_policy": self.validation_policy,

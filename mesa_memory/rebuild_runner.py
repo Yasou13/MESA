@@ -96,6 +96,14 @@ def _provider_runtime() -> RebuildProviderRuntime:
     )
     return RebuildProviderRuntime(
         manifest={
+            **EmbeddingIdentity(
+                provider=identity.provider,
+                model=identity.model,
+                dimension=identity.dimension,
+                version=identity.version,
+                normalized=identity.normalized,
+                model_revision=identity.model_revision,
+            ).as_dict(),
             "embedding_provider": identity.provider,
             "embedding_model": identity.model,
             "embedding_version": identity.version,

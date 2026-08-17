@@ -1644,6 +1644,9 @@ class MemoryDAO:
         embedding_dimension: int,
         policy: QueueAdmissionPolicy,
         validation_mode: int,
+        embedding_space_id: str | None = None,
+        embedding_model_revision: str | None = None,
+        embedding_normalized: bool = True,
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
         finalize_revision: bool = True,
@@ -1696,6 +1699,22 @@ class MemoryDAO:
             raise ValueError("validation_mode must be 0, 1, or 2")
         effective_mode = validation_mode
         effective_metadata["_mesa_validation_mode"] = effective_mode
+        revision = embedding_model_revision or embedding_version
+        derived_space_id = (
+            f"{embedding_provider}:{embedding_model}:{revision}:{embedding_dimension}:"
+            f"norm={str(embedding_normalized).lower()}"
+        )
+        if embedding_space_id and embedding_space_id != derived_space_id:
+            raise ValueError("embedding space identity is inconsistent")
+        effective_metadata["_mesa_embedding_identity"] = {
+            "embedding_space_id": embedding_space_id or derived_space_id,
+            "provider": embedding_provider,
+            "model": embedding_model,
+            "model_revision": embedding_model_revision,
+            "version": embedding_version,
+            "dimension": embedding_dimension,
+            "normalized": embedding_normalized,
+        }
 
         raw_payload = {
             "tenant_id": tenant_id,
@@ -3207,6 +3226,7 @@ class MemoryDAO:
             for key, value in metadata.items()
             if not key.startswith("_mesa_")
         }
+        record["embedding_identity_snapshot"] = metadata.get("_mesa_embedding_identity")
         record["projection_triplets"] = metadata.get("_mesa_v4_projection_triplets", [])
         return record
 
@@ -4301,6 +4321,20 @@ class MemoryDAO:
             "version": str(mutation.get("embedding_version") or ""),
             "dimension": int(mutation.get("embedding_dimension") or 0),
         }
+        snapshot = mutation.get("embedding_identity_snapshot")
+        if not isinstance(snapshot, dict):
+            raise ValueError("durable embedding identity snapshot is required")
+        required_snapshot_fields = {
+            "embedding_space_id",
+            "provider",
+            "model",
+            "model_revision",
+            "version",
+            "dimension",
+            "normalized",
+        }
+        if not required_snapshot_fields.issubset(snapshot):
+            raise ValueError("durable embedding identity snapshot is incomplete")
         if producer_identity is None:
             # Existing deterministic test doubles predate EmbeddingService.
             # They are not constructible in production composition; bind them
@@ -4334,6 +4368,25 @@ class MemoryDAO:
             raise ValueError(
                 "embedding identity mismatch: mutation identity does not match "
                 "the canonical vector producer"
+            )
+        snapshot_identity = {
+            key: snapshot[key]
+            for key in (
+                "embedding_space_id",
+                "provider",
+                "model",
+                "model_revision",
+                "version",
+                "dimension",
+                "normalized",
+            )
+        }
+        actual_snapshot_identity = {
+            key: producer_identity_metadata[key] for key in snapshot_identity
+        }
+        if snapshot_identity != actual_snapshot_identity:
+            raise ValueError(
+                "embedding space identity mismatch: re-embedding migration is required"
             )
         embedding = await self._vec.compute_embedding(entity_name)
         expected_dim = mutation.get("embedding_dimension")

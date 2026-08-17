@@ -45,6 +45,10 @@ class EmbeddingIdentityMismatchError(EmbeddingError):
     """Vector dimension or space does not match the configured embedding identity."""
 
 
+class EmbeddingCompositionError(EmbeddingUnavailableError):
+    """Configured embedding identity has no supported executable backend."""
+
+
 # ---------------------------------------------------------------------------
 # Truthful Embedding Identity
 # ---------------------------------------------------------------------------
@@ -189,8 +193,11 @@ class EmbeddingService:
                 # Model acquisition is explicit operator work; canonical
                 # runtime loading must never reach out to download a model.
                 try:
+                    options: dict[str, Any] = {"local_files_only": True}
+                    if self._identity.model_revision is not None:
+                        options["revision"] = self._identity.model_revision
                     self._local_model = SentenceTransformer(
-                        self._identity.model, local_files_only=True
+                        self._identity.model, **options
                     )
                 except Exception as exc:
                     logger.info(
@@ -354,6 +361,68 @@ class EmbeddingService:
         )
 
 
+class _OpenAICompatibleEmbeddingBackend:
+    """Narrow OpenAI-compatible embedding transport, separate from LLM adapters."""
+
+    def __init__(self, identity: EmbeddingIdentity) -> None:
+        try:
+            import openai
+        except ImportError as exc:
+            raise EmbeddingCompositionError(
+                "OpenAI-compatible embedding support is not installed"
+            ) from exc
+        api_key = getattr(config, "llm_api_key", None) or getattr(
+            config, "openai_api_key", None
+        )
+        if not api_key:
+            raise EmbeddingCompositionError(
+                "OpenAI-compatible embedding configuration requires LLM_API_KEY"
+            )
+        options = {
+            "api_key": api_key,
+            "base_url": getattr(config, "llm_base_url", None),
+            "timeout": float(getattr(config, "llm_timeout_seconds", 20.0)),
+            "max_retries": 0,
+        }
+        self._identity = identity
+        self._sync = openai.OpenAI(**options)
+        self._async = openai.AsyncOpenAI(**options)
+
+    def embed(self, text: str) -> list[float]:
+        try:
+            response = self._sync.embeddings.create(
+                model=self._identity.model, input=text
+            )
+            return list(response.data[0].embedding)
+        except Exception as exc:
+            raise EmbeddingGenerationError(
+                f"OpenAI-compatible embedding request failed: {exc}"
+            ) from exc
+
+    async def aembed(self, text: str) -> list[float]:
+        try:
+            response = await self._async.embeddings.create(
+                model=self._identity.model, input=text
+            )
+            return list(response.data[0].embedding)
+        except Exception as exc:
+            raise EmbeddingGenerationError(
+                f"OpenAI-compatible embedding request failed: {exc}"
+            ) from exc
+
+
+def _compose_external_backend(
+    identity: EmbeddingIdentity,
+) -> tuple[Callable[[str], list[float]], Callable[[str], Any]]:
+    """Compose a real, explicit external embedding transport at startup."""
+    if identity.provider.lower() not in {"openai", "openai_compatible"}:
+        raise EmbeddingCompositionError(
+            f"External embedding provider '{identity.provider}' is unsupported"
+        )
+    backend = _OpenAICompatibleEmbeddingBackend(identity)
+    return backend.embed, backend.aembed
+
+
 # Global singleton holder
 _GLOBAL_EMBEDDING_SERVICE: EmbeddingService | None = None
 
@@ -363,6 +432,14 @@ def get_embedding_service(
     identity: EmbeddingIdentity | None = None,
     allow_model_loading: bool = True,
     force_refresh: bool = False,
+    external_enabled: bool | None = None,
+    external_backend_factory: (
+        Callable[
+            [EmbeddingIdentity],
+            tuple[Callable[[str], list[float]], Callable[[str], Any]],
+        ]
+        | None
+    ) = None,
 ) -> EmbeddingService:
     """Factory and dependency injector for EmbeddingService."""
     global _GLOBAL_EMBEDDING_SERVICE
@@ -377,9 +454,28 @@ def get_embedding_service(
                 normalized=configured.normalized,
                 model_revision=configured.model_revision,
             )
+        effective_external_enabled = (
+            getattr(config, "external_provider_enabled", False)
+            if external_enabled is None
+            else external_enabled
+        )
+        provider_fn: Callable[[str], list[float]] | None = None
+        async_provider_fn: Callable[[str], Any] | None = None
+        if identity.provider.lower() in {"openai", "openai_compatible"}:
+            if not effective_external_enabled:
+                raise ExternalProviderForbiddenError(
+                    "External embedding provider is forbidden when "
+                    "MESA_EXTERNAL_PROVIDER_ENABLED=false."
+                )
+            provider_fn, async_provider_fn = (
+                external_backend_factory or _compose_external_backend
+            )(identity)
         _GLOBAL_EMBEDDING_SERVICE = EmbeddingService(
             identity=identity,
+            provider_fn=provider_fn,
+            async_provider_fn=async_provider_fn,
             allow_model_loading=allow_model_loading,
+            external_enabled=effective_external_enabled,
         )
     return _GLOBAL_EMBEDDING_SERVICE
 

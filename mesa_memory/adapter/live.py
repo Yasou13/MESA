@@ -179,11 +179,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 input=text,
             )
             return response.data[0].embedding
-        except _OPENAI_NOT_FOUND_ERRORS:
-            logger.debug("Using local embedding fallback for Groq")
-            from mesa_memory.adapter.claude import _local_embed
-
-            return _local_embed(text)
+        except _OPENAI_NOT_FOUND_ERRORS as exc:
+            raise RuntimeError(
+                "configured external embedding model is unavailable"
+            ) from exc
         except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during embedding: %s", e)
             raise
@@ -204,16 +203,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 input=text,
             )
             return response.data[0].embedding
-        except _OPENAI_NOT_FOUND_ERRORS:
-            import asyncio
-            import functools
-
-            from mesa_memory.adapter.claude import _local_embed
-
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, functools.partial(_local_embed, text)
-            )
+        except _OPENAI_NOT_FOUND_ERRORS as exc:
+            raise RuntimeError(
+                "configured external embedding model is unavailable"
+            ) from exc
         except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during async embedding: %s", e)
             raise
@@ -236,10 +229,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             return [
                 data.embedding for data in sorted(response.data, key=lambda x: x.index)
             ]
-        except _OPENAI_NOT_FOUND_ERRORS:
-            from mesa_memory.adapter.claude import _local_embed_batch
-
-            return _local_embed_batch(texts)
+        except _OPENAI_NOT_FOUND_ERRORS as exc:
+            raise RuntimeError(
+                "configured external embedding model is unavailable"
+            ) from exc
         except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during batch embedding: %s", e)
             raise
@@ -262,16 +255,10 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             return [
                 data.embedding for data in sorted(response.data, key=lambda x: x.index)
             ]
-        except _OPENAI_NOT_FOUND_ERRORS:
-            import asyncio
-            import functools
-
-            from mesa_memory.adapter.claude import _local_embed_batch
-
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, functools.partial(_local_embed_batch, texts)
-            )
+        except _OPENAI_NOT_FOUND_ERRORS as exc:
+            raise RuntimeError(
+                "configured external embedding model is unavailable"
+            ) from exc
         except _OPENAI_RATE_LIMIT_ERRORS as e:
             logger.error("Rate limit error during async batch embedding: %s", e)
             raise

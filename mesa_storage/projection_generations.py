@@ -33,6 +33,10 @@ class ProjectionGenerationFencedError(ProjectionGenerationError):
     """The operation or runtime pointer fence is stale."""
 
 
+class ProjectionGenerationIdentityMismatchError(ProjectionGenerationError):
+    """Configured embeddings cannot safely use the active generation."""
+
+
 class ProjectionPathError(ProjectionGenerationError):
     """A generation store path cannot be proven safe."""
 
@@ -44,6 +48,7 @@ class ProjectionPaths:
     graph_path: Path
     runtime_fencing_token: int
     previous_generation_id: str | None
+    provider_manifest: dict[str, Any]
 
 
 class ProjectionGenerationRepositoryPort(Protocol):
@@ -147,6 +152,7 @@ def _resolve_paths(
     graph_relative_path: str,
     runtime_fencing_token: int,
     previous_generation_id: str | None,
+    provider_manifest: dict[str, Any] | None = None,
 ) -> ProjectionPaths:
     try:
         trusted = trusted_root.resolve(strict=True)
@@ -167,6 +173,7 @@ def _resolve_paths(
         graph_path=graph,
         runtime_fencing_token=runtime_fencing_token,
         previous_generation_id=previous_generation_id,
+        provider_manifest=provider_manifest or {},
     )
 
 
@@ -187,6 +194,11 @@ def resolve_projection_generation_paths(
         graph_relative_path=str(generation["graph_relative_path"]),
         runtime_fencing_token=runtime_fencing_token,
         previous_generation_id=previous_generation_id,
+        provider_manifest=(
+            json.loads(str(generation.get("provider_manifest_json") or "{}"))
+            if isinstance(generation, dict)
+            else {}
+        ),
     )
 
 
@@ -236,7 +248,7 @@ class ProjectionGenerationRepository:
             cursor = await db.execute(
                 "SELECT r.active_generation_id, r.previous_generation_id, "
                 "r.fencing_token, g.vector_relative_path, g.graph_relative_path, "
-                "g.lifecycle_state FROM projection_runtime r "
+                "g.lifecycle_state, g.provider_manifest_json FROM projection_runtime r "
                 "JOIN projection_generations g "
                 "ON g.generation_id = r.active_generation_id "
                 "WHERE r.runtime_id = 1"
@@ -258,7 +270,73 @@ class ProjectionGenerationRepository:
                 if row["previous_generation_id"] is not None
                 else None
             ),
+            provider_manifest=json.loads(str(row["provider_manifest_json"] or "{}")),
         )
+
+    async def assert_active_embedding_identity(self, identity: dict[str, Any]) -> None:
+        """Fence a runtime to the active generation's exact embedding space.
+
+        A manifest can be initialized only for a generation with no active
+        vector artifacts.  Legacy vectors with incomplete provenance remain
+        fail-closed and require the existing explicit rebuild/adoption flow.
+        """
+        required = {
+            "embedding_space_id",
+            "provider",
+            "model",
+            "model_revision",
+            "version",
+            "dimension",
+            "normalized",
+        }
+        if not required.issubset(identity):
+            raise ProjectionGenerationIdentityMismatchError(
+                "configured embedding identity is incomplete"
+            )
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "SELECT r.active_generation_id, g.provider_manifest_json "
+                "FROM projection_runtime r JOIN projection_generations g "
+                "ON g.generation_id = r.active_generation_id WHERE r.runtime_id = 1"
+            )
+            active = await cursor.fetchone()
+            if active is None:
+                raise ProjectionGenerationNotFoundError(
+                    "active projection generation is unavailable"
+                )
+            try:
+                manifest = json.loads(str(active["provider_manifest_json"] or "{}"))
+            except json.JSONDecodeError as exc:
+                raise ProjectionGenerationIdentityMismatchError(
+                    "active embedding manifest is invalid"
+                ) from exc
+            if not manifest:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM artifact_registry r JOIN artifact_sources s "
+                    "ON s.registry_id = r.registry_id AND s.state = 'ACTIVE' "
+                    "WHERE r.store_name = 'VECTOR' AND r.artifact_kind = 'ENTITY_VECTOR' "
+                    "AND r.state = 'ACTIVE'"
+                )
+                has_vectors = int((await cursor.fetchone())[0]) > 0
+                if has_vectors:
+                    raise ProjectionGenerationIdentityMismatchError(
+                        "active vector generation has no full embedding identity; rebuild is required"
+                    )
+                manifest = dict(identity)
+                await db.execute(
+                    "UPDATE projection_generations SET provider_manifest_json = ? "
+                    "WHERE generation_id = ?",
+                    (_provider_manifest(manifest), active["active_generation_id"]),
+                )
+                await db.commit()
+                return
+            if {key: manifest.get(key) for key in required} != {
+                key: identity[key] for key in required
+            }:
+                raise ProjectionGenerationIdentityMismatchError(
+                    "active embedding space differs from configured identity; rebuild is required"
+                )
+            await db.commit()
 
     async def create_staging(
         self,

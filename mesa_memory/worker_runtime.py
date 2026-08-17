@@ -186,6 +186,9 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
             allow_model_loading=runtime.model_enabled,
             force_refresh=True,
         )
+        await ProjectionGenerationRepository(engine).assert_active_embedding_identity(
+            embedding_service.identity().as_dict()
+        )
         vector_engine = VectorEngine(
             str(projection_paths.vector_path),
             max_workers=config.vector_worker_limit,

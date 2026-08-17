@@ -390,6 +390,12 @@ class MesaConfig(BaseSettings):
     llm_embedding_model_name: str = Field(
         "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
+    embedding_provider: str = Field(
+        "openai_compatible", validation_alias="MESA_EMBEDDING_PROVIDER"
+    )
+    external_embedding_model: str = Field(
+        "text-embedding-3-small", validation_alias="MESA_EXTERNAL_EMBEDDING_MODEL"
+    )
     llm_timeout_seconds: float = Field(20.0, validation_alias="LLM_TIMEOUT_SECONDS")
     model_enabled: bool = Field(False, validation_alias="MESA_MODEL_ENABLED")
     tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")
@@ -850,9 +856,9 @@ def configured_embedding_identity(
         default=False,
     )
     return EmbeddingIdentity(
-        provider=config.mesa_llm_provider if external else "local",
+        provider=config.embedding_provider if external else "local",
         model=(
-            config.llm_embedding_model_name
+            config.external_embedding_model
             if external
             else config.local_embedding_model
         ),
