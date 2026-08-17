@@ -129,7 +129,20 @@ _ACTIVE_OWNERSHIP = (
     "WHERE s.registry_id = r.registry_id AND s.state = 'ACTIVE')"
 )
 _VECTOR_QUERY = f"""
-    SELECT DISTINCT r.agent_id, r.physical_artifact_id AS assertion_id,
+    SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
+           a.assertion_id AS assertion_id,
+           subject.canonical_name || ' ' || a.predicate || ' ' ||
+           COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
+    FROM artifact_registry r
+    JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
+                        AND a.tenant_id = r.tenant_id
+    JOIN v4_entities subject ON subject.entity_id = a.subject_id
+    LEFT JOIN v4_entities object_entity ON object_entity.entity_id = a.object_entity_id
+    WHERE {_ACTIVE_OWNERSHIP}
+      AND r.store_name = 'SQL' AND r.artifact_kind = 'ASSERTION'
+    UNION
+    SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
+           r.physical_artifact_id AS assertion_id,
            subject.canonical_name || ' ' || a.predicate || ' ' ||
            COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
     FROM artifact_registry r
@@ -139,7 +152,16 @@ _VECTOR_QUERY = f"""
     LEFT JOIN v4_entities object_entity ON object_entity.entity_id = a.object_entity_id
     WHERE {_ACTIVE_OWNERSHIP}
       AND r.store_name = 'VECTOR' AND r.artifact_kind = 'ASSERTION_VECTOR'
-    ORDER BY r.agent_id, r.physical_artifact_id
+    UNION
+    SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
+           r.physical_artifact_id AS assertion_id,
+           entity.canonical_name AS payload_text
+    FROM artifact_registry r
+    JOIN v4_entities entity ON entity.entity_id = r.physical_artifact_id
+                           AND entity.tenant_id = r.tenant_id
+    WHERE {_ACTIVE_OWNERSHIP}
+      AND r.store_name = 'VECTOR' AND r.artifact_kind = 'ENTITY_VECTOR'
+    ORDER BY tenant_id, agent_id, assertion_id
 """
 _GRAPH_ENTITY_QUERY = f"""
     SELECT DISTINCT r.agent_id, r.physical_artifact_id AS entity_id,
@@ -286,8 +308,13 @@ class ProjectionSnapshot:
                                        AND s.state = 'ACTIVE'
                 JOIN memory_mutations m ON m.mutation_id = s.mutation_id
                 WHERE {_ACTIVE_OWNERSHIP}
-                  AND r.store_name = 'VECTOR'
-                  AND r.artifact_kind = 'ASSERTION_VECTOR'
+                  AND (
+                    (r.store_name = 'SQL' AND r.artifact_kind = 'ASSERTION')
+                    OR (
+                      r.store_name = 'VECTOR'
+                      AND r.artifact_kind IN ('ASSERTION_VECTOR', 'ENTITY_VECTOR')
+                    )
+                  )
                 """).fetchall()
         finally:
             connection.close()
@@ -333,7 +360,8 @@ class ProjectionSnapshot:
         try:
             rows = connection.execute(
                 f"""
-                SELECT DISTINCT r.tenant_id, r.agent_id, s.dataset_id,
+                SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
+                                s.dataset_id AS dataset_id,
                                 r.physical_artifact_id AS assertion_id,
                                 subject.canonical_name || ' ' || a.predicate || ' ' ||
                                 COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
@@ -348,8 +376,21 @@ class ProjectionSnapshot:
                   AND r.store_name = 'VECTOR'
                   AND r.artifact_kind = 'ASSERTION_VECTOR'
                   AND s.dataset_id IS NOT NULL
-                ORDER BY r.tenant_id, r.agent_id, s.dataset_id,
-                         r.physical_artifact_id
+                UNION
+                SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
+                                s.dataset_id AS dataset_id,
+                                r.physical_artifact_id AS assertion_id,
+                                entity.canonical_name AS payload_text
+                FROM artifact_registry r
+                JOIN artifact_sources s ON s.registry_id = r.registry_id
+                                       AND s.state = 'ACTIVE'
+                JOIN v4_entities entity ON entity.entity_id = r.physical_artifact_id
+                                       AND entity.tenant_id = r.tenant_id
+                WHERE {_ACTIVE_OWNERSHIP}
+                  AND r.store_name = 'VECTOR'
+                  AND r.artifact_kind = 'ENTITY_VECTOR'
+                  AND s.dataset_id IS NOT NULL
+                ORDER BY tenant_id, agent_id, dataset_id, assertion_id
                 LIMIT ?
                 """,
                 (limit,),
@@ -371,7 +412,7 @@ class ProjectionSnapshot:
                                        AND s.state = 'ACTIVE'
                 WHERE {_ACTIVE_OWNERSHIP}
                   AND r.store_name = 'VECTOR'
-                  AND r.artifact_kind = 'ASSERTION_VECTOR'
+                  AND r.artifact_kind IN ('ASSERTION_VECTOR', 'ENTITY_VECTOR')
                   AND r.tenant_id = ? AND r.agent_id = ? AND s.dataset_id = ?
                 """,
                 (tenant_id, agent_id, dataset_id),
@@ -393,7 +434,7 @@ class ProjectionSnapshot:
                 "WHERE r.agent_id = ? "
                 "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
                 "AND r.store_name = 'VECTOR' "
-                "AND r.artifact_kind = 'ASSERTION_VECTOR' "
+                "AND r.artifact_kind IN ('ASSERTION_VECTOR', 'ENTITY_VECTOR') "
                 "AND s.dataset_id IS NOT NULL "
                 "ORDER BY r.tenant_id, s.dataset_id LIMIT ?",
                 (agent_id, limit),
@@ -433,8 +474,29 @@ def _validate_provider(
     signatures = snapshot.provider_signatures()
     if not signatures:
         return None
+    # A rebuild deliberately creates a *new* embedding generation from
+    # canonical SQL.  Its target provider may therefore differ from the
+    # admission-time provider recorded in the immutable source snapshot.
+    # Source identities still have to be complete and internally coherent;
+    # they are provenance, not an instruction to reuse the old space.
+    if any(
+        provider is None
+        or model is None
+        or version is None
+        or dimension is None
+        or dimension <= 0
+        for provider, model, version, dimension in signatures
+    ):
+        raise EmbeddingProviderConflictError(
+            "canonical vector source has incomplete embedding identity"
+        )
     expected = _expected_provider_signature(provider_manifest)
-    if len(signatures) != 1 or next(iter(signatures)) != expected:
+    # Older rebuild callers did not carry a full target-space identity.  Keep
+    # their historical same-provider safety contract while requiring new
+    # migration callers to present the durable target identity explicitly.
+    if "embedding_space_id" not in provider_manifest and (
+        len(signatures) != 1 or next(iter(signatures)) != expected
+    ):
         raise EmbeddingProviderConflictError("embedding provider manifest conflicts")
     return expected
 

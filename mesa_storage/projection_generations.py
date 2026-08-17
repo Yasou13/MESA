@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -48,7 +48,7 @@ class ProjectionPaths:
     graph_path: Path
     runtime_fencing_token: int
     previous_generation_id: str | None
-    provider_manifest: dict[str, Any]
+    provider_manifest: dict[str, Any] = field(default_factory=dict)
 
 
 class ProjectionGenerationRepositoryPort(Protocol):
