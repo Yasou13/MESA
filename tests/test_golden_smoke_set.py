@@ -14,7 +14,6 @@ from mesa_memory.extraction.service import (
     FactExtractionService,
 )
 
-
 # ===========================================================================
 # 1. Turkish Fact Extraction Golden Dataset (35 Cases)
 # ===========================================================================
@@ -50,16 +49,13 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "İyi akşamlar, yarın konuşuruz.",
         "expected_facts_count": 0,
     },
-
     # --- Category 2: 1 Fact (5 cases) ---
     {
         "id": "ext_06",
         "category": "1_fact",
         "text": "Ahmet Ankara'da yaşıyor.",
         "expected_facts_count": 1,
-        "facts": [
-            {"subject": "Ahmet", "predicate": "YAŞIYOR", "object": "Ankara"}
-        ],
+        "facts": [{"subject": "Ahmet", "predicate": "YAŞIYOR", "object": "Ankara"}],
     },
     {
         "id": "ext_07",
@@ -67,7 +63,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "MESA projesi Apache 2.0 lisansı ile korunmaktadır.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "MESA projesi", "predicate": "LİSANSLIDIR", "object": "Apache 2.0"}
+            {
+                "subject": "MESA projesi",
+                "predicate": "LİSANSLIDIR",
+                "object": "Apache 2.0",
+            }
         ],
     },
     {
@@ -76,7 +76,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Şirketin merkezi Maslak İstanbul adresindedir.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Şirket merkezi", "predicate": "ADRESİNDEDİR", "object": "Maslak İstanbul"}
+            {
+                "subject": "Şirket merkezi",
+                "predicate": "ADRESİNDEDİR",
+                "object": "Maslak İstanbul",
+            }
         ],
     },
     {
@@ -84,9 +88,7 @@ GOLDEN_EXTRACTION_CASES = [
         "category": "1_fact",
         "text": "Python 3.13 sürümü sistemde kurulu.",
         "expected_facts_count": 1,
-        "facts": [
-            {"subject": "Python", "predicate": "KURULU_SÜRÜM", "object": "3.13"}
-        ],
+        "facts": [{"subject": "Python", "predicate": "KURULU_SÜRÜM", "object": "3.13"}],
     },
     {
         "id": "ext_10",
@@ -94,10 +96,13 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Zeynep kıdemli yazılım mühendisi olarak çalışmaktadır.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Zeynep", "predicate": "GÖREVİNDEDİR", "object": "Kıdemli Yazılım Mühendisi"}
+            {
+                "subject": "Zeynep",
+                "predicate": "GÖREVİNDEDİR",
+                "object": "Kıdemli Yazılım Mühendisi",
+            }
         ],
     },
-
     # --- Category 3: Multiple Facts (5 cases) ---
     {
         "id": "ext_11",
@@ -105,8 +110,16 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "FastAPI web çerçevesi olarak, PostgreSQL ise veritabanı olarak kullanılıyor.",
         "expected_facts_count": 2,
         "facts": [
-            {"subject": "FastAPI", "predicate": "KULLANILIYOR", "object": "Web Çerçevesi"},
-            {"subject": "PostgreSQL", "predicate": "KULLANILIYOR", "object": "Veritabanı"},
+            {
+                "subject": "FastAPI",
+                "predicate": "KULLANILIYOR",
+                "object": "Web Çerçevesi",
+            },
+            {
+                "subject": "PostgreSQL",
+                "predicate": "KULLANILIYOR",
+                "object": "Veritabanı",
+            },
         ],
     },
     {
@@ -149,7 +162,6 @@ GOLDEN_EXTRACTION_CASES = [
             {"subject": "Redis", "predicate": "GÖREVİ", "object": "Önbellek"},
         ],
     },
-
     # --- Category 4: Correction / Supersession (5 cases) ---
     {
         "id": "ext_16",
@@ -221,7 +233,6 @@ GOLDEN_EXTRACTION_CASES = [
             }
         ],
     },
-
     # --- Category 5: Temporal Changes (5 cases) ---
     {
         "id": "ext_21",
@@ -295,7 +306,6 @@ GOLDEN_EXTRACTION_CASES = [
             }
         ],
     },
-
     # --- Category 6: User Preferences (4 cases) ---
     {
         "id": "ext_26",
@@ -303,7 +313,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Bana yanıt verirken teknik terimleri Türkçe açıklamalarıyla kullan.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Kullanıcı", "predicate": "TERCİH_EDİYOR", "object": "Teknik terim Türkçe açıklama"}
+            {
+                "subject": "Kullanıcı",
+                "predicate": "TERCİH_EDİYOR",
+                "object": "Teknik terim Türkçe açıklama",
+            }
         ],
     },
     {
@@ -321,7 +335,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Dokümantasyonu Markdown formatında hazırla.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Dokümantasyon Formatı", "predicate": "TERCİH_EDİLEN", "object": "Markdown"}
+            {
+                "subject": "Dokümantasyon Formatı",
+                "predicate": "TERCİH_EDİLEN",
+                "object": "Markdown",
+            }
         ],
     },
     {
@@ -330,10 +348,13 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Testlerde her zaman pytest kütüphanesini tercih ederim.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Test Kütüphanesi", "predicate": "TERCİH_EDİLEN", "object": "pytest"}
+            {
+                "subject": "Test Kütüphanesi",
+                "predicate": "TERCİH_EDİLEN",
+                "object": "pytest",
+            }
         ],
     },
-
     # --- Category 7: Technical Configuration (3 cases) ---
     {
         "id": "ext_30",
@@ -341,8 +362,16 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "MESA_EMBEDDING_DIMENSION=768 ve MESA_LOCAL_EMBEDDING_MODEL=magibu/embeddingmagibu-200m.",
         "expected_facts_count": 2,
         "facts": [
-            {"subject": "MESA_EMBEDDING_DIMENSION", "predicate": "AYARLANDI", "object": "768"},
-            {"subject": "MESA_LOCAL_EMBEDDING_MODEL", "predicate": "AYARLANDI", "object": "magibu/embeddingmagibu-200m"},
+            {
+                "subject": "MESA_EMBEDDING_DIMENSION",
+                "predicate": "AYARLANDI",
+                "object": "768",
+            },
+            {
+                "subject": "MESA_LOCAL_EMBEDDING_MODEL",
+                "predicate": "AYARLANDI",
+                "object": "magibu/embeddingmagibu-200m",
+            },
         ],
     },
     {
@@ -351,7 +380,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "LanceDB bellek limiti 4GB olarak sınırlandırıldı.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "LanceDB Bellek Limiti", "predicate": "SINIRLANDIRILDI", "object": "4GB"}
+            {
+                "subject": "LanceDB Bellek Limiti",
+                "predicate": "SINIRLANDIRILDI",
+                "object": "4GB",
+            }
         ],
     },
     {
@@ -360,10 +393,13 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Ollama servis adresi http://localhost:11434 olarak tanımlandı.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Ollama Servis Adresi", "predicate": "TANIMLANDI", "object": "http://localhost:11434"}
+            {
+                "subject": "Ollama Servis Adresi",
+                "predicate": "TANIMLANDI",
+                "object": "http://localhost:11434",
+            }
         ],
     },
-
     # --- Category 8: Negative Statement / Constraint (3 cases) ---
     {
         "id": "ext_33",
@@ -371,7 +407,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Üretim ortamında harici ağ sağlayıcılarına erişim kesinlikle yasaktır.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Harici Sağlayıcı Erişimi", "predicate": "DURUMU", "object": "Yasak"}
+            {
+                "subject": "Harici Sağlayıcı Erişimi",
+                "predicate": "DURUMU",
+                "object": "Yasak",
+            }
         ],
     },
     {
@@ -380,7 +420,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Kullanıcı hiçbir şartta şifresini e-posta ile paylaşmamalıdır.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Şifre Paylaşımı", "predicate": "İZİN_DURUMU", "object": "Yasak"}
+            {
+                "subject": "Şifre Paylaşımı",
+                "predicate": "İZİN_DURUMU",
+                "object": "Yasak",
+            }
         ],
     },
     {
@@ -389,7 +433,11 @@ GOLDEN_EXTRACTION_CASES = [
         "text": "Geçersiz şema içeren extraction çıktıları kabul edilmez.",
         "expected_facts_count": 1,
         "facts": [
-            {"subject": "Geçersiz Extraction Çıktısı", "predicate": "KABUL_DURUMU", "object": "Reddedilir"}
+            {
+                "subject": "Geçersiz Extraction Çıktısı",
+                "predicate": "KABUL_DURUMU",
+                "object": "Reddedilir",
+            }
         ],
     },
 ]
@@ -424,7 +472,9 @@ class GoldenExtractionAdapter:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", GOLDEN_EXTRACTION_CASES, ids=[c["id"] for c in GOLDEN_EXTRACTION_CASES])
+@pytest.mark.parametrize(
+    "case", GOLDEN_EXTRACTION_CASES, ids=[c["id"] for c in GOLDEN_EXTRACTION_CASES]
+)
 async def test_golden_smoke_fact_extraction(case):
     """Exercise the strict canonical service against every Turkish smoke case."""
     adapter = GoldenExtractionAdapter(case)

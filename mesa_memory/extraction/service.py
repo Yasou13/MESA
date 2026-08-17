@@ -19,10 +19,9 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
-from mesa_memory.config import config
 from mesa_memory.consolidation.schemas import ExtractedTriplet
 
 logger = logging.getLogger("MESA_FactExtraction")
@@ -76,7 +75,9 @@ class FactCandidate(BaseModel):
             raise ValueError("Field cannot be empty or whitespace only")
         return v_str
 
-    @field_validator("source_span", "supersedes", "valid_from", "valid_to", mode="before")
+    @field_validator(
+        "source_span", "supersedes", "valid_from", "valid_to", mode="before"
+    )
     @classmethod
     def strip_optional_str(cls, v: Any) -> Optional[str]:
         if v is None:
@@ -322,7 +323,9 @@ class FactExtractionService:
 
     def _parse_dict_or_list(self, data: Any) -> FactExtractionResponse:
         if not isinstance(data, dict) or set(data) != {"facts"}:
-            raise ValueError("Extraction response must be an object with only a facts array")
+            raise ValueError(
+                "Extraction response must be an object with only a facts array"
+            )
         if not isinstance(data["facts"], list):
             raise ValueError("Extraction response facts must be an array")
         return FactExtractionResponse.model_validate(data)

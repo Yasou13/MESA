@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mesa_memory.embedding.service import (
-    EmbeddingGenerationError,
     EmbeddingIdentity,
     EmbeddingIdentityMismatchError,
     EmbeddingService,
@@ -25,7 +24,9 @@ def test_embedding_identity_space_id():
         version="v1",
         normalized=True,
     )
-    assert ident.embedding_space_id == "local:magibu/embeddingmagibu-200m:v1:768:norm=true"
+    assert (
+        ident.embedding_space_id == "local:magibu/embeddingmagibu-200m:v1:768:norm=true"
+    )
     assert ident.dimension == 768
     assert ident.normalized is True
 
@@ -98,10 +99,14 @@ def test_fail_closed_on_unavailable_model_no_silent_fallback():
     # allow_model_loading=False simulates unavailable model on local disk
     service = EmbeddingService(identity=ident, allow_model_loading=False)
 
-    with pytest.raises(EmbeddingUnavailableError, match="unavailable and no silent fallback"):
+    with pytest.raises(
+        EmbeddingUnavailableError, match="unavailable and no silent fallback"
+    ):
         service.embed_document("test text")
 
-    with pytest.raises(EmbeddingUnavailableError, match="unavailable and no silent fallback"):
+    with pytest.raises(
+        EmbeddingUnavailableError, match="unavailable and no silent fallback"
+    ):
         service.embed_batch(["test 1", "test 2"])
 
 
@@ -114,7 +119,9 @@ def test_external_provider_egress_fence():
     )
 
     # Should raise ExternalProviderForbiddenError immediately
-    with pytest.raises(ExternalProviderForbiddenError, match="MESA_EXTERNAL_PROVIDER_ENABLED=false"):
+    with pytest.raises(
+        ExternalProviderForbiddenError, match="MESA_EXTERNAL_PROVIDER_ENABLED=false"
+    ):
         EmbeddingService(identity=ident, external_enabled=False)
 
     # When external_enabled=True, construction succeeds
@@ -138,7 +145,10 @@ def test_custom_provider_dimension_mismatch():
         provider_fn=lambda _t: [0.1] * 384,  # Returns 384 instead of 768
     )
 
-    with pytest.raises(EmbeddingIdentityMismatchError, match="does not match configured identity dimension"):
+    with pytest.raises(
+        EmbeddingIdentityMismatchError,
+        match="does not match configured identity dimension",
+    ):
         service.embed_document("sample text")
 
 

@@ -43,7 +43,7 @@ graph projection
 
 are currently owned.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Traced production call paths across server composition, AdapterFactory, ConsolidationLoop, TripletExtractor, ingestion_worker, VectorEngine, LLM adapters, projection workers, rebuild/cutover, GraphWriter, and embedding identity. Mapped current ownership: (1) Validation is owned by ValidationPolicy (Mode 0/1/2); (2) Extraction is owned by TripletExtractor with unconditional RebelExtractor init and dual-LLM fallback; (3) Embedding generation is scattered across VectorEngine (direct SentenceTransformer loading / provider callback), LLM adapters (embed/aembed methods), and GraphWriter; (4) Graph projection is owned by GraphWriter into KuzuGraphProvider and MemoryDAO.
 Tests: tests/test_r4_durable_policy_snapshot.py
 Commit: aad80c2
@@ -71,7 +71,7 @@ Prefer wrapping/reusing current working primitives initially.
 
 Do not combine architecture introduction and model migration in one giant change.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Implemented FactExtractionService and FactCandidate in mesa_memory/extraction/service.py with strict structured output schema (FactExtractionResponse) returning 0..N FactCandidate objects. Integrated into ConsolidationLoop and extraction pathways.
 Tests: tests/test_fact_extraction_service.py
 Commit: c2754fe
@@ -109,7 +109,7 @@ N facts
 correction/supersession
 ```
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Implemented DeterministicFactValidator in mesa_memory/extraction/service.py performing non-empty schema checks, confidence boundary [0.0, 1.0] checks, source-span verification, deduplication by (subject, predicate, object, valid_from), and normalization without calling validation LLMs. Implemented fact_candidates_to_extracted_triplet to map FactCandidates directly to existing canonical assertion/mutation representations.
 Tests: tests/test_fact_extraction_service.py, tests/test_p0_multi_memory_extraction.py
 Commit: c2754fe
@@ -142,7 +142,7 @@ No always-on extractor B.
 
 No dual extraction based on Tier-3 Mode 2.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: FactExtractionService enforces exactly one structured model call on normal extraction. If initial parsing fails, a single bounded schema correction retry is made. If the retry fails, FactExtractionError is raised (no 3rd call, no infinite loop). Removed dual-LLM extraction from TripletExtractor.
 Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
 Commit: c2754fe
@@ -165,7 +165,7 @@ no supported canonical V4 call path instantiates or calls REBEL.
 
 REBEL may remain experimental/legacy.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: With MESA_REBEL_ENABLED=false (default), FactExtractionService and TripletExtractor do not instantiate RebelExtractor (using OptionalRebelExtractorPlaceholder). Verified that patching RebelExtractor to raise an error results in 0 constructor calls during canonical extraction.
 Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
 Commit: c2754fe
@@ -198,7 +198,7 @@ same FactCandidate contract
 
 Only validator count changes.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Validated across Mode 0 (0 validation LLMs, 1 extraction call), Mode 1 (1 validation LLM, 1 extraction call), and Mode 2 (2 validation LLMs + consensus, 1 extraction call). Injected validation policies never serve extraction.
 Tests: tests/test_r4_extraction_validation_independence.py
 Commit: c2754fe
@@ -224,7 +224,7 @@ identity
 
 Initially existing embedding behavior may sit behind the service.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Implemented canonical EmbeddingService in mesa_memory/embedding/service.py with embed_document, embed_query, embed_batch, aembed_document, aembed_query, aembed_batch, and identity() methods.
 Tests: tests/test_embedding_service.py
 Commit: b1094a1
@@ -250,7 +250,7 @@ These may delegate to EmbeddingService during compatibility transition.
 
 VectorEngine becomes storage/search focused.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: VectorEngine in mesa_storage/vector_engine.py no longer instantiates SentenceTransformer directly and delegates embedding computation to canonical EmbeddingService. Server DI in mesa_memory/api/server.py routes get_embedder and get_embedding_service to EmbeddingService.
 Tests: tests/test_embedding_service.py, tests/test_egress_fence.py
 Commit: b1094a1
@@ -288,7 +288,7 @@ same-dimension fallback candidate
 
 must not produce a vector under the original identity.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: EmbeddingIdentity exposes truthful embedding_space_id, provider, model, dimension, normalized, version, and model_revision. EmbeddingService enforces fail-closed semantics (EmbeddingUnavailableError) when a model is missing or fails, preventing silent cross-family fallbacks.
 Tests: tests/test_embedding_service.py
 Commit: b1094a1
@@ -319,7 +319,7 @@ embedding providers
 
 Test provider construction and actual call paths.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Added external_provider_enabled flag to MesaConfig. AdapterFactory and EmbeddingService strictly block external provider instantiation (OpenAI, Claude, hosted endpoints) with ExternalProviderForbiddenError and ValueError when external_provider_enabled=False. Mode 2 validation fails closed when external validators are disallowed.
 Tests: tests/test_egress_fence.py
 Commit: b1094a1
@@ -345,7 +345,7 @@ Use existing projection generation infrastructure.
 
 Do not overwrite the current active generation in place.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Updated MesaConfig defaults to local_embedding_model='magibu/embeddingmagibu-200m', embedding_dimension=768, and normalized=True in configured_embedding_identity.
 Tests: tests/test_embedding_service.py, tests/test_golden_smoke_set.py
 Commit: b1094a1
@@ -382,7 +382,7 @@ write/query/rebuild identity parity
 restart-safe active generation
 ```
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Replay, adoption, and cutover contracts in mesa_storage/rebuild_replay.py and mesa_storage/rebuild_cutover.py execute cleanly with canonical EmbeddingService and dimension partitions.
 Tests: tests/test_rebuild_replay_contract.py, tests/test_rebuild_runner_contract.py, tests/test_embedding_identity_adoption.py, tests/test_projection_generation_contract.py
 Commit: b1094a1
@@ -406,7 +406,7 @@ fact persists even if graph projection fails/retries
 graph projection consumes canonical state
 ```
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Implemented GraphProjector in mesa_memory/graph/projector.py consuming canonical FactCandidate objects to project subject/object nodes and relation edges. Graph projection failures are logged and handled without raising or destroying canonical SQL mutations.
 Tests: tests/test_graph_projector.py
 Commit: b1094a1
@@ -444,7 +444,7 @@ Real local-model smoke is optional if models are already installed.
 
 Do NOT download models automatically.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Implemented tests/test_golden_smoke_set.py containing 35 Turkish fact extraction cases across 8 core categories (0 facts, 1 fact, multiple facts, correction/supersession, temporal, preference, config, negative constraint) and 25 retrieval smoke cases. All 60 cases + 104 regression tests (164 total) pass with zero errors.
 Tests: tests/test_golden_smoke_set.py, tests/test_r4_durable_policy_snapshot.py, tests/test_r4_extraction_validation_independence.py, tests/test_turkish_extraction.py, tests/test_rebuild_replay_contract.py
 Commit: b1094a1
@@ -501,3 +501,60 @@ Status:
 Evidence:
 Tests:
 Commit:
+
+---
+
+## TERRA-F01 — Canonical V4 Extraction Bypassed FactExtractionService
+
+Status: VERIFIED
+
+Root cause: `ConsolidationLoop.run_batch()` instantiated `FactExtractionService` but
+sent supported mutation-backed V4 records through `TripletExtractor.extract_batch()`.
+That retained REBEL/bisection/legacy dual-index ownership in the canonical path.
+
+Evidence: Canonical mutation batches now call only
+`FactExtractionService.extract_facts_from_record()` and persist the full
+FactCandidate representation through `record_mutation_extraction`; they do not enter
+`GraphWriter` or `TripletExtractor`.  REBEL remains legacy-only.
+
+Tests: `tests/test_r4_extraction_validation_independence.py` runs a real `MemoryDAO`
+mutation through modes 0/1/2 with `TripletExtractor.extract_batch` set to fail;
+each mode records one extraction call and the canonical fact payload.
+`tests/test_fact_extraction_service.py` covers malformed structured output, one
+bounded correction retry, source-span and temporal validation.
+
+Commit: dd31421
+
+---
+
+## TERRA-F02 — Runtime and Rebuild Embedding Ownership Bypassed EmbeddingService
+
+Status: VERIFIED
+
+Root cause: API, worker and rebuild composition passed adapter embedding functions
+directly to `VectorEngine`; the service could be bypassed.  The local embedding
+initialization path also attempted a network-capable model load after a cache miss.
+
+Evidence: API, worker and rebuild now inject `EmbeddingService` into `VectorEngine`;
+the engine prioritizes that service over a legacy compatibility provider.  Rebuild
+uses the same explicit service identity.  Local SentenceTransformer construction is
+`local_files_only=True` and fails closed on a cache miss.
+
+Tests: `tests/test_embedding_service.py` proves service precedence, same-dimension
+shape rejection, revision-aware space identity and unavailable-provider failure.
+`tests/test_egress_fence.py`, `tests/test_rebuild_runner_contract.py`, and
+`tests/test_rebuild_replay_contract.py` cover egress and rebuild composition.
+
+Commit: 37115db
+
+---
+
+## TERRA Independent Verification Evidence
+
+F001–F014 were independently rechecked on the current branch.  Bounded evidence:
+`test_v4_ingestion_contract`, `test_r4_durable_policy_snapshot`,
+`test_r4_extraction_validation_independence`, `test_fact_extraction_service`,
+`test_p0_multi_memory_extraction`, `test_embedding_service`, `test_egress_fence`,
+`test_golden_smoke_set`, `test_graph_projector`, `test_rebuild_replay_contract`,
+`test_rebuild_runner_contract`, `test_embedding_identity_adoption`, and
+`test_projection_generation_contract`.

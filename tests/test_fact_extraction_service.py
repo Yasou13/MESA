@@ -1,10 +1,9 @@
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
-from mesa_memory.config import config
 from mesa_memory.extraction.service import (
     DeterministicFactValidator,
     FactCandidate,
@@ -194,7 +193,9 @@ async def test_fact_extraction_single_call_multiple_facts():
     )
     service = FactExtractionService(llm=adapter)
 
-    facts = await service.extract_facts("Backend FastAPI, DB ise PostgreSQL kullanıyor.")
+    facts = await service.extract_facts(
+        "Backend FastAPI, DB ise PostgreSQL kullanıyor."
+    )
     assert len(facts) == 2
     assert adapter.complete_count == 1
     assert facts[0].subject == "Backend"
@@ -299,9 +300,7 @@ async def test_rebel_not_instantiated_when_disabled():
     with patch("mesa_memory.extraction.rebel_pipeline.RebelExtractor") as mock_rebel:
         mock_rebel.side_effect = RuntimeError("REBEL must not be instantiated")
 
-        adapter = MockExtractionAdapter(
-            responses=[FactExtractionResponse(facts=[])]
-        )
+        adapter = MockExtractionAdapter(responses=[FactExtractionResponse(facts=[])])
         service = FactExtractionService(llm=adapter, rebel_enabled=False)
         facts = await service.extract_facts("Normal metin")
         assert len(facts) == 0

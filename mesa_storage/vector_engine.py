@@ -236,7 +236,9 @@ class VectorEngine:
     @property
     def semantic_runtime_available(self) -> bool:
         """Whether this process can create query embeddings."""
-        return self._embedding_provider is not None or self._embedding_service is not None
+        return (
+            self._embedding_provider is not None or self._embedding_service is not None
+        )
 
     @property
     def metrics(self) -> VectorMetrics:

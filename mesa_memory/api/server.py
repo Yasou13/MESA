@@ -40,8 +40,10 @@ from mesa_memory.consolidation.loop import (
 from mesa_memory.consolidation.policy import (
     compose_validation_policy,
 )
-from mesa_memory.embedding.service import get_embedding_service as _get_embedding_service
 from mesa_memory.container_health import worker_is_ready
+from mesa_memory.embedding.service import (
+    get_embedding_service as _get_embedding_service,
+)
 from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.metrics import (
     ObservabilityLayer,

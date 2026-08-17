@@ -218,9 +218,7 @@ async def test_injected_policy_never_becomes_an_extraction_fallback(
 
 
 from mesa_memory.consolidation.policy import (
-    DeterministicOnlyValidationPolicy,
     DualLLMValidationPolicy,
-    SingleLLMValidationPolicy,
 )
 from mesa_memory.consolidation.validator import Tier3Validator
 
@@ -276,7 +274,9 @@ async def test_mode_2_validation_does_not_duplicate_extraction(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_rebel_disabled_guarantees_zero_rebel_instantiation(tmp_path, monkeypatch):
+async def test_rebel_disabled_guarantees_zero_rebel_instantiation(
+    tmp_path, monkeypatch
+):
     """With MESA_REBEL_ENABLED=false, RebelExtractor is not instantiated."""
     monkeypatch.setattr(config, "rebel_enabled", False)
 

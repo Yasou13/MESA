@@ -14,7 +14,6 @@ import functools
 import hashlib
 import logging
 import math
-import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
@@ -89,13 +88,12 @@ def _l2_normalize(vec: Sequence[float]) -> list[float]:
     return [float(x / norm) for x in vec]
 
 
-def _deterministic_mock_vector(text: str, dimension: int, normalized: bool = True) -> list[float]:
+def _deterministic_mock_vector(
+    text: str, dimension: int, normalized: bool = True
+) -> list[float]:
     """Generate a deterministic pseudo-embedding for testing."""
     h = hashlib.sha256(text.encode("utf-8")).digest()
-    raw = [
-        ((h[i % len(h)] + i * 31) % 256) / 255.0 - 0.5
-        for i in range(dimension)
-    ]
+    raw = [((h[i % len(h)] + i * 31) % 256) / 255.0 - 0.5 for i in range(dimension)]
     if normalized:
         return _l2_normalize(raw)
     return raw
@@ -122,7 +120,9 @@ class EmbeddingService:
             # Build default Round 5 identity
             self._identity = EmbeddingIdentity(
                 provider="local",
-                model=getattr(config, "local_embedding_model", "magibu/embeddingmagibu-200m"),
+                model=getattr(
+                    config, "local_embedding_model", "magibu/embeddingmagibu-200m"
+                ),
                 dimension=getattr(config, "embedding_dimension", 768),
                 version=getattr(config, "embedding_version", "v1"),
                 normalized=True,
@@ -148,8 +148,17 @@ class EmbeddingService:
 
     def _validate_egress_fence(self) -> None:
         """Enforce external provider egress fence."""
-        external_providers = {"openai", "openai_compatible", "claude", "anthropic", "hosted"}
-        if not self._external_enabled and self._identity.provider.lower() in external_providers:
+        external_providers = {
+            "openai",
+            "openai_compatible",
+            "claude",
+            "anthropic",
+            "hosted",
+        }
+        if (
+            not self._external_enabled
+            and self._identity.provider.lower() in external_providers
+        ):
             raise ExternalProviderForbiddenError(
                 f"External embedding provider '{self._identity.provider}' is forbidden "
                 "when MESA_EXTERNAL_PROVIDER_ENABLED=false."
@@ -168,7 +177,9 @@ class EmbeddingService:
 
         if provider in ("local", "sentence-transformers", "sentence_transformers"):
             if not self._allow_model_loading:
-                logger.info("Local embedding model loading is disabled by configuration.")
+                logger.info(
+                    "Local embedding model loading is disabled by configuration."
+                )
                 return
 
             try:
@@ -255,7 +266,9 @@ class EmbeddingService:
                     show_progress_bar=False,
                 )
                 return [
-                    self._validate_vector_shape(e.tolist() if hasattr(e, "tolist") else e)
+                    self._validate_vector_shape(
+                        e.tolist() if hasattr(e, "tolist") else e
+                    )
                     for e in embeddings
                 ]
             except Exception as exc:

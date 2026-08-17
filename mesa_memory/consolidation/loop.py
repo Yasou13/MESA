@@ -53,7 +53,11 @@ from mesa_memory.consolidation.router import AdaptiveRouter
 from mesa_memory.consolidation.schemas import ExtractedTriplet
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 from mesa_memory.consolidation.writer import GraphWriter
-from mesa_memory.extraction.service import FactCandidate, FactExtractionError, FactExtractionService
+from mesa_memory.extraction.service import (
+    FactCandidate,
+    FactExtractionError,
+    FactExtractionService,
+)
 from mesa_memory.extraction.triplet_extractor import TripletExtractor
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_storage.dao import MemoryDAO
@@ -1159,7 +1163,11 @@ class ConsolidationLoop:
                     self._canonical_triplets(facts),
                 )
             except FactExtractionError as exc:
-                logger.error("CANONICAL_FACT_EXTRACTION_FAILED | id=%s error=%s", candidate_id, exc)
+                logger.error(
+                    "CANONICAL_FACT_EXTRACTION_FAILED | id=%s error=%s",
+                    candidate_id,
+                    exc,
+                )
                 await self.dead_letter_queue.aappend(
                     {
                         "cmb_id": candidate_id,

@@ -3106,9 +3106,11 @@ class MemoryDAO:
                     "valid_to": triplet.get("valid_to"),
                     "source_span": triplet.get("source_span"),
                     "supersedes": triplet.get("supersedes"),
-                    "metadata": triplet.get("metadata")
-                    if isinstance(triplet.get("metadata"), dict)
-                    else {},
+                    "metadata": (
+                        triplet.get("metadata")
+                        if isinstance(triplet.get("metadata"), dict)
+                        else {}
+                    ),
                 }
             )
         async with self._sql.transaction() as db:
