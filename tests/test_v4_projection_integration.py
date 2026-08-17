@@ -1,5 +1,6 @@
 """Real SQLite/LanceDB/Kùzu proof for the V4 outbox projector."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -80,14 +81,14 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
         mutation = await dao.get_mutation("tenant-a", candidate["mutation_id"])
         assert mutation is not None and mutation["state"] == "COMMITTED"
         vector_ids = await vector.get_active_node_ids("tenant-a")
-        assert len(vector_ids) == 2
+        assert len(vector_ids) == 1
         assertions = await graph.execute_query(
             "MATCH (a:Assertion {agent_id: $agent_id}) RETURN a.id",
             {"agent_id": "tenant-a"},
         )
         assert len(assertions) == 1
         assert await dao.reconcile_v4_projection_parity() == {
-            "checked_artifacts": 8,
+            "checked_artifacts": 7,
             "missing_artifacts": 0,
             "missing_sql": 0,
             "missing_vector": 0,
@@ -134,5 +135,122 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
         )
     finally:
         await graph.close()
+        await vector.close()
+        await sql.close()
+
+
+@pytest.mark.asyncio
+async def test_integrated_canonical_fact_retrieval_smoke(tmp_path) -> None:
+    """Supported V4 retrieval ranks fact vectors, not entity-name vectors."""
+    sql = AsyncEngine(str(tmp_path / "retrieval.sqlite"))
+    identity = EmbeddingIdentity(
+        provider="test", model="keyword", version="v1", dimension=10
+    )
+    keywords = [
+        "dark",
+        "postgres",
+        "calendar",
+        "turkish",
+        "docker",
+        "french",
+        "istanbul",
+        "weekly",
+        "redis",
+        "vegan",
+    ]
+
+    def provider(text: str) -> list[float]:
+        folded = text.casefold()
+        return [1.0 if word in folded else 0.0 for word in keywords]
+
+    vector = VectorEngine(
+        str(tmp_path / "vectors.lance"),
+        max_workers=1,
+        embedding_service=EmbeddingService(identity=identity, provider_fn=provider),
+    )
+    graph = SimpleNamespace(
+        insert_node=AsyncMock(),
+        insert_assertion=AsyncMock(),
+        link_assertions=AsyncMock(),
+        delete_assertions=AsyncMock(),
+        delete_nodes=AsyncMock(),
+    )
+    await sql.initialize()
+    await initialize_schema(sql)
+    await vector.initialize()
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+    cases = [
+        ("ThemePreference", "PREFERS", "dark", "dark tema", "dark"),
+        ("DatabaseConfig", "USES", "postgres", "postgres yapılandırması", "postgres"),
+        ("CalendarPlan", "USES", "calendar", "calendar tercihi", "calendar"),
+        ("LanguageChoice", "USES", "turkish", "turkish ayarı", "turkish"),
+        ("DeploymentConfig", "USES", "docker", "docker yapılandırması", "docker"),
+        ("LanguageCorrection", "USES", "french", "french düzeltmesi", "french"),
+        ("LocationFact", "LOCATED_IN", "istanbul", "istanbul konumu", "istanbul"),
+        ("ScheduleFact", "RUNS", "weekly", "weekly zamanlama", "weekly"),
+        ("CacheConfig", "USES", "redis", "redis yapılandırması", "redis"),
+        ("DietPreference", "PREFERS", "vegan", "vegan tercihi", "vegan"),
+    ]
+    try:
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-a", workspace_id="workspace-a", dataset_id="dataset-a"
+        )
+        for raw_log_id, (
+            subject,
+            predicate,
+            object_value,
+            fact_text,
+            _query,
+        ) in enumerate(cases, start=1):
+            candidate = MemoryCandidate.from_raw_log(
+                raw_log_id=raw_log_id,
+                tenant_id="tenant-a",
+                workspace_id="workspace-a",
+                dataset_id="dataset-a",
+                document_id=f"document-{raw_log_id}",
+                revision_id=f"revision-{raw_log_id}",
+                chunk_id=f"chunk-{raw_log_id}",
+                source_ref=f"source-{raw_log_id}",
+                agent_id="agent-a",
+                session_id="session-a",
+                content_payload=fact_text,
+                embedding_provider=identity.provider,
+                embedding_model=identity.model,
+                embedding_version=identity.version,
+                embedding_dimension=identity.dimension,
+                validation_mode=0,
+            ).as_consolidation_record()
+            await dao.record_mutation(candidate, raw_log_id=raw_log_id)
+            await dao.record_mutation_extraction(
+                "agent-a",
+                candidate["mutation_id"],
+                [
+                    {
+                        "head": subject,
+                        "relation": predicate,
+                        "tail": object_value,
+                        "fact_text": fact_text,
+                        "source_span": fact_text,
+                    }
+                ],
+            )
+            await dao.set_mutation_state(
+                "agent-a", candidate["mutation_id"], "VALIDATED"
+            )
+            for _ in range(3):
+                assert (await process_projection_outbox_once(dao))["completed"] == 1
+
+        for subject, _predicate, _object, _fact_text, query in cases:
+            results = await dao.search_v4_memory(
+                tenant_id="tenant-a",
+                agent_id="agent-a",
+                dataset_ids=["dataset-a"],
+                query=query,
+                limit=3,
+            )
+            assert any(
+                result["entity"]["canonical_name"] == subject for result in results[:3]
+            )
+    finally:
         await vector.close()
         await sql.close()

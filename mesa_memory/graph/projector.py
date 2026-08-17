@@ -1,6 +1,6 @@
 """Canonical Graph Projector for MESA V4.
 
-Projects canonical FactCandidates / assertions into the derived Kùzu graph projection.
+Projects persisted canonical assertions into the derived Kùzu graph projection.
 
 Architectural Invariants:
 1. Graph is a derived projection, never the canonical source of truth.
@@ -24,20 +24,20 @@ class GraphProjector:
     def __init__(self, dao: Any) -> None:
         self.dao = dao
 
-    async def project_triplet(
-        self, *, mutation: dict[str, Any], triplet: dict[str, Any]
+    async def project_assertion(
+        self, *, mutation: dict[str, Any], assertion: dict[str, Any]
     ) -> str:
-        """Project one already-extracted assertion; never parse or extract text."""
+        """Project one already-persisted assertion; never create canonical truth."""
         if not mutation.get("mutation_id"):
             raise GraphProjectionError("graph projection requires a canonical mutation")
-        if not triplet.get("head") or not triplet.get("relation"):
+        if not assertion.get("assertion_id") or not assertion.get("subject_id"):
             raise GraphProjectionError(
-                "graph projection requires a canonical assertion"
+                "graph projection requires a persisted canonical assertion"
             )
         return cast(
             str,
-            await self.dao.project_v4_graph_triplet(
+            await self.dao.project_v4_graph_assertion(
                 mutation=mutation,
-                triplet=triplet,
+                assertion=assertion,
             ),
         )

@@ -129,13 +129,16 @@ _ACTIVE_OWNERSHIP = (
     "WHERE s.registry_id = r.registry_id AND s.state = 'ACTIVE')"
 )
 _VECTOR_QUERY = f"""
-    SELECT DISTINCT r.agent_id, r.physical_artifact_id AS entity_id,
-           e.canonical_name
+    SELECT DISTINCT r.agent_id, r.physical_artifact_id AS assertion_id,
+           subject.canonical_name || ' ' || a.predicate || ' ' ||
+           COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
     FROM artifact_registry r
-    JOIN v4_entities e ON e.entity_id = r.physical_artifact_id
-                      AND e.tenant_id = r.tenant_id
+    JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
+                        AND a.tenant_id = r.tenant_id
+    JOIN v4_entities subject ON subject.entity_id = a.subject_id
+    LEFT JOIN v4_entities object_entity ON object_entity.entity_id = a.object_entity_id
     WHERE {_ACTIVE_OWNERSHIP}
-      AND r.store_name = 'VECTOR' AND r.artifact_kind = 'ENTITY_VECTOR'
+      AND r.store_name = 'VECTOR' AND r.artifact_kind = 'ASSERTION_VECTOR'
     ORDER BY r.agent_id, r.physical_artifact_id
 """
 _GRAPH_ENTITY_QUERY = f"""
@@ -284,7 +287,7 @@ class ProjectionSnapshot:
                 JOIN memory_mutations m ON m.mutation_id = s.mutation_id
                 WHERE {_ACTIVE_OWNERSHIP}
                   AND r.store_name = 'VECTOR'
-                  AND r.artifact_kind = 'ENTITY_VECTOR'
+                  AND r.artifact_kind = 'ASSERTION_VECTOR'
                 """).fetchall()
         finally:
             connection.close()
@@ -331,16 +334,19 @@ class ProjectionSnapshot:
             rows = connection.execute(
                 f"""
                 SELECT DISTINCT r.tenant_id, r.agent_id, s.dataset_id,
-                                r.physical_artifact_id AS entity_id,
-                                e.canonical_name
+                                r.physical_artifact_id AS assertion_id,
+                                subject.canonical_name || ' ' || a.predicate || ' ' ||
+                                COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
                 FROM artifact_registry r
                 JOIN artifact_sources s ON s.registry_id = r.registry_id
                                        AND s.state = 'ACTIVE'
-                JOIN v4_entities e ON e.entity_id = r.physical_artifact_id
-                                  AND e.tenant_id = r.tenant_id
+                JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
+                                    AND a.tenant_id = r.tenant_id
+                JOIN v4_entities subject ON subject.entity_id = a.subject_id
+                LEFT JOIN v4_entities object_entity ON object_entity.entity_id = a.object_entity_id
                 WHERE {_ACTIVE_OWNERSHIP}
                   AND r.store_name = 'VECTOR'
-                  AND r.artifact_kind = 'ENTITY_VECTOR'
+                  AND r.artifact_kind = 'ASSERTION_VECTOR'
                   AND s.dataset_id IS NOT NULL
                 ORDER BY r.tenant_id, r.agent_id, s.dataset_id,
                          r.physical_artifact_id
@@ -365,7 +371,7 @@ class ProjectionSnapshot:
                                        AND s.state = 'ACTIVE'
                 WHERE {_ACTIVE_OWNERSHIP}
                   AND r.store_name = 'VECTOR'
-                  AND r.artifact_kind = 'ENTITY_VECTOR'
+                  AND r.artifact_kind = 'ASSERTION_VECTOR'
                   AND r.tenant_id = ? AND r.agent_id = ? AND s.dataset_id = ?
                 """,
                 (tenant_id, agent_id, dataset_id),
@@ -387,7 +393,7 @@ class ProjectionSnapshot:
                 "WHERE r.agent_id = ? "
                 "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
                 "AND r.store_name = 'VECTOR' "
-                "AND r.artifact_kind = 'ENTITY_VECTOR' "
+                "AND r.artifact_kind = 'ASSERTION_VECTOR' "
                 "AND s.dataset_id IS NOT NULL "
                 "ORDER BY r.tenant_id, s.dataset_id LIMIT ?",
                 (agent_id, limit),
@@ -607,7 +613,7 @@ class ProjectionReplayer:
                     "vector source has no embedding provider identity"
                 )
             embeddings = await vector.compute_embedding_batch(
-                [str(row["canonical_name"]) for row in rows]
+                [str(row["payload_text"]) for row in rows]
             )
             dimension = expected_provider[3]
             if len(embeddings) != len(rows) or any(
@@ -619,11 +625,11 @@ class ProjectionReplayer:
             await vector.bulk_upsert(
                 [
                     {
-                        "node_id": str(row["entity_id"]),
+                        "node_id": str(row["assertion_id"]),
                         "agent_id": str(row["agent_id"]),
                         "embedding": embedding,
                         "content_hash": hashlib.sha256(
-                            str(row["canonical_name"]).encode()
+                            str(row["payload_text"]).encode()
                         ).hexdigest(),
                     }
                     for row, embedding in zip(rows, embeddings)

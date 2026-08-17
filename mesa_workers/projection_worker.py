@@ -111,13 +111,27 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
     if lane == "SQL":
         for entity in entities:
             await dao.project_v4_sql_entity(mutation=mutation, entity_name=entity)
+        for triplet in triplets:
+            await dao.project_v4_sql_assertion(mutation=mutation, triplet=triplet)
     elif lane == "VECTOR":
-        for entity in entities:
-            await dao.project_v4_vector_entity(mutation=mutation, entity_name=entity)
+        assertions = await dao.list_v4_assertions_for_mutation(
+            str(mutation["mutation_id"])
+        )
+        if len(assertions) != len(triplets):
+            raise PermanentProjectionError("canonical SQL assertions are unavailable")
+        for assertion in assertions:
+            await dao.project_v4_vector_assertion(
+                mutation=mutation, assertion=assertion
+            )
     elif lane == "GRAPH":
         projector = GraphProjector(dao)
-        for triplet in triplets:
-            await projector.project_triplet(mutation=mutation, triplet=triplet)
+        assertions = await dao.list_v4_assertions_for_mutation(
+            str(mutation["mutation_id"])
+        )
+        if len(assertions) != len(triplets):
+            raise PermanentProjectionError("canonical SQL assertions are unavailable")
+        for assertion in assertions:
+            await projector.project_assertion(mutation=mutation, assertion=assertion)
     else:
         raise PermanentProjectionError(f"unknown projection lane: {lane}")
 

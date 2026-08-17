@@ -350,6 +350,18 @@ class VectorEngine:
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
+    async def compute_query_embedding(self, text: str) -> list[float]:
+        """Compute a query embedding without letting storage choose a model."""
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+        if self._embedding_service is not None:
+            return await self._embedding_service.aembed_query(text)
+        if self._embedding_provider is not None:
+            return await self._embedding_provider(text)
+        raise RuntimeError(
+            "semantic embedding runtime is disabled or no canonical embedding service is available"
+        )
+
     def _sync_compute_embedding(self, text: str) -> list[float]:
         if self._embedding_service is not None:
             return self._embedding_service.embed_document(text)

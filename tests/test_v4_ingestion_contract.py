@@ -437,7 +437,24 @@ async def test_outbox_projects_each_lane_then_commits_mutation(tmp_path) -> None
             ),
             patch.object(
                 MemoryDAO,
-                "project_v4_graph_triplet",
+                "project_v4_vector_assertion",
+                new=AsyncMock(return_value="assertion"),
+            ),
+            patch.object(
+                MemoryDAO,
+                "project_v4_sql_assertion",
+                new=AsyncMock(return_value="assertion"),
+            ),
+            patch.object(
+                MemoryDAO,
+                "list_v4_assertions_for_mutation",
+                new=AsyncMock(
+                    return_value=[{"assertion_id": "assertion", "subject_id": "entity"}]
+                ),
+            ),
+            patch.object(
+                MemoryDAO,
+                "project_v4_graph_assertion",
                 new=AsyncMock(return_value="assertion"),
             ),
         ):
