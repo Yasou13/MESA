@@ -14,6 +14,7 @@ Resolution order:
 import logging
 import os
 from typing import Optional
+from urllib.parse import urlparse
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -38,7 +39,16 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
     def complete(self, prompt, schema=None, **kwargs):  # type: ignore[no-untyped-def]
         text = "[MOCK] Deterministic response"
         if schema is not None:
-            return schema.model_validate_json('{"results": []}')
+            list_fields = [
+                name
+                for name, field in schema.model_fields.items()
+                if getattr(field.annotation, "__origin__", None) is list
+            ]
+            if len(list_fields) != 1:
+                raise ValueError(
+                    "deterministic mock requires one list-root schema field"
+                )
+            return schema.model_validate({list_fields[0]: []})
         return text
 
     async def acomplete(self, prompt, schema=None, **kwargs):  # type: ignore[no-untyped-def]
@@ -72,8 +82,26 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
 
 class AdapterFactory:
     @staticmethod
+    def _require_permitted_ollama_url(url: str) -> None:
+        """Treat Ollama as local only when its endpoint is actually loopback."""
+        if getattr(config, "external_provider_enabled", False):
+            return
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
+            raise ValueError(
+                "Remote Ollama is forbidden when MESA_EXTERNAL_PROVIDER_ENABLED=false."
+            )
+
+    @staticmethod
     def get_adapter(
-        provider: Optional[str] = None, *, model_name: str | None = None
+        provider: Optional[str] = None,
+        *,
+        model_name: str | None = None,
+        thinking: bool | None = None,
     ) -> BaseUniversalLLMAdapter:
         provider = provider or config.mesa_llm_provider
         selected_model = model_name or config.llm_model_name
@@ -108,10 +136,12 @@ class AdapterFactory:
         elif provider == "ollama":
             from mesa_memory.adapter.ollama import OllamaAdapter
 
-            ollama_url = os.environ.get("MESA_OLLAMA_URL", "http://localhost:11434")
+            ollama_url = os.environ.get("MESA_OLLAMA_URL", config.ollama_url)
+            AdapterFactory._require_permitted_ollama_url(ollama_url)
             return OllamaAdapter(
                 model=selected_model or "llama3.2:3b",
                 base_url=ollama_url,
+                thinking=bool(thinking),
             )
 
         # ── Auto-detection waterfall ─────────────────────────────────────
@@ -121,6 +151,15 @@ class AdapterFactory:
             return DeterministicMockAdapter()
 
         raise ValueError(f"Unknown LLM provider: {provider}")
+
+    @staticmethod
+    def get_extraction_adapter() -> BaseUniversalLLMAdapter:
+        """Compose the frozen, model-configurable fact extraction provider."""
+        return AdapterFactory.get_adapter(
+            config.extraction_provider,
+            model_name=config.extraction_model,
+            thinking=config.extraction_thinking,
+        )
 
     @staticmethod
     def get_validation_adapters(
@@ -181,6 +220,7 @@ class AdapterFactory:
             logger.info("Auto-detected MESA_OLLAMA_URL → OllamaAdapter")
             from mesa_memory.adapter.ollama import OllamaAdapter
 
+            AdapterFactory._require_permitted_ollama_url(ollama_url)
             return OllamaAdapter(
                 model=config.llm_model_name or "qwen3:8b",
                 base_url=ollama_url,

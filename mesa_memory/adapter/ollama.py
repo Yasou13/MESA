@@ -18,12 +18,14 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         model: str = "mistral",
         embedding_model: str = "nomic-embed-text",
         base_url: Optional[str] = None,
+        thinking: bool = False,
     ):
         if ollama is None:
             raise RuntimeError("OllamaAdapter requires mesa-memory[adapters]")
         self._model = model
         self._embedding_model = embedding_model
         self.base_url = base_url  # type: ignore[no-untyped-def]
+        self._thinking = thinking
         self._ollama_client = (
             ollama.Client(host=base_url) if base_url else ollama.Client()
         )
@@ -36,6 +38,7 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
                 model=self._model,
                 prompt=prompt,
                 format=schema.model_json_schema(),
+                think=self._thinking,
             )
             try:
                 return schema.model_validate_json(response["response"])
@@ -51,6 +54,7 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         response = self._ollama_client.generate(
             model=self._model,  # type: ignore[no-untyped-def]
             prompt=prompt,
+            think=self._thinking,
         )
         return response["response"]
 

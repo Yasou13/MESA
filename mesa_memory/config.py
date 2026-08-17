@@ -80,6 +80,15 @@ class EmbeddingIdentity:
     version: str
     dimension: int
     normalized: bool = False
+    model_revision: str | None = None
+
+    @property
+    def embedding_space_id(self) -> str:
+        revision = self.model_revision or self.version
+        return (
+            f"{self.provider.strip()}:{self.model.strip()}:{revision.strip()}:"
+            f"{self.dimension}:norm={str(self.normalized).lower()}"
+        )
 
 
 def load_runtime_profile(
@@ -369,6 +378,15 @@ class MesaConfig(BaseSettings):
     llm_model_name: str | None = Field(
         "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
     )
+    extraction_provider: str = Field(
+        "ollama", validation_alias="MESA_EXTRACTION_PROVIDER"
+    )
+    extraction_model: str = Field(
+        "qwen3:1.7b", validation_alias="MESA_EXTRACTION_MODEL"
+    )
+    extraction_thinking: bool = Field(
+        False, validation_alias="MESA_EXTRACTION_THINKING"
+    )
     llm_embedding_model_name: str = Field(
         "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
@@ -393,6 +411,12 @@ class MesaConfig(BaseSettings):
     embedding_dimension: int = Field(768, validation_alias="MESA_EMBEDDING_DIMENSION")
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
+    )
+    embedding_model_revision: str | None = Field(
+        None, validation_alias="MESA_EMBEDDING_MODEL_REVISION"
+    )
+    embedding_normalized: bool = Field(
+        True, validation_alias="MESA_EMBEDDING_NORMALIZED"
     )
 
     @field_validator("tier3_mode", mode="before")
@@ -721,9 +745,10 @@ class MesaConfig(BaseSettings):
         fully local, zero-API-cost operation.
 
         Overrides:
-          - mesa_llm_provider → "ollama"
-          - llm_model_name    → "qwen3:8b"
-          - rebel_enabled     → True  (local transformer extraction)
+          - extraction_provider → "ollama"
+          - extraction_model    → "qwen3:1.7b"
+          - extraction_thinking → False
+          - rebel_enabled       → False
           - Leaves validation policy and validator identities unchanged
         """
         if not self.zero_cost_mode:
@@ -741,8 +766,11 @@ class MesaConfig(BaseSettings):
         )
 
         object.__setattr__(self, "mesa_llm_provider", "ollama")
-        object.__setattr__(self, "llm_model_name", "qwen3:8b")
-        object.__setattr__(self, "rebel_enabled", True)
+        object.__setattr__(self, "llm_model_name", "qwen3:1.7b")
+        object.__setattr__(self, "extraction_provider", "ollama")
+        object.__setattr__(self, "extraction_model", "qwen3:1.7b")
+        object.__setattr__(self, "extraction_thinking", False)
+        object.__setattr__(self, "rebel_enabled", False)
         # Ensure the OLLAMA_URL env var is set for the adapter factory
         os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)
         return self
@@ -828,5 +856,6 @@ def configured_embedding_identity(
         ),
         version=config.embedding_version,
         dimension=config.embedding_dimension,
-        normalized=True,
+        normalized=config.embedding_normalized,
+        model_revision=config.embedding_model_revision,
     )

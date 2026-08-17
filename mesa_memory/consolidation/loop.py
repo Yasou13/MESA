@@ -1009,13 +1009,18 @@ class ConsolidationLoop:
         if not batch:
             return outcome
 
-        # V4 records are canonical SQL mutations.  They must not enter the
-        # historical TripletExtractor/GraphWriter lane: that lane has REBEL,
-        # bisection and adapter-owned embeddings for V3 compatibility only.
-        if type(self.dao) is MemoryDAO and all(
-            record.get("mutation_id") for record in batch
-        ):
-            return await self._run_canonical_v4_batch(batch, outcome)
+        # V4 records are canonical SQL mutations.  Partition them before the
+        # legacy lane so one V3 compatibility record can never drag a V4
+        # mutation through TripletExtractor/GraphWriter.  ``isinstance`` also
+        # preserves the contract for production MemoryDAO specializations.
+        if isinstance(self.dao, MemoryDAO):
+            canonical_batch = [record for record in batch if record.get("mutation_id")]
+            if canonical_batch:
+                await self._run_canonical_v4_batch(canonical_batch, outcome)
+                canonical_ids = {id(record) for record in canonical_batch}
+                batch = [record for record in batch if id(record) not in canonical_ids]
+                if not batch:
+                    return outcome
 
         start_ms = time.time() * 1000
         batch_id = f"batch_{int(start_ms)}"

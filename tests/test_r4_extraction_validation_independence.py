@@ -394,3 +394,55 @@ async def test_canonical_v4_uses_single_fact_extractor_across_validation_modes(
         ]
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_mixed_batch_cannot_route_v4_mutation_through_legacy_extractor(
+    tmp_path,
+):
+    engine = AsyncEngine(str(tmp_path / "canonical-mixed.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(engine, SimpleNamespace())
+    await dao.initialize()
+    extraction = TrackingAdapter("extraction")
+    identity = configured_embedding_identity()
+    candidate = MemoryCandidate.from_raw_log(
+        raw_log_id=990,
+        agent_id="tenant-a",
+        session_id="session-a",
+        content_payload="EntityA is connected to EntityB.",
+        embedding_provider=identity.provider,
+        embedding_model=identity.model,
+        embedding_version=identity.version,
+        embedding_dimension=identity.dimension,
+        validation_mode=0,
+    )
+    canonical = candidate.as_consolidation_record()
+    legacy = {
+        "id": "legacy-1",
+        "agent_id": "tenant-a",
+        "session_id": "session-a",
+        "content": "legacy compatibility text",
+    }
+    try:
+        await dao.record_mutation(canonical, raw_log_id=candidate.raw_log_id)
+        loop = ConsolidationLoop(
+            dao=dao,
+            embedder=TrackingAdapter("legacy_embedder"),
+            validation_policy=DeterministicOnlyValidationPolicy(),
+            extraction_llm=extraction,
+            queue_root=tmp_path / "queue-mixed",
+        )
+        legacy_extract = AsyncMock(return_value=({}, {}))
+        loop.triplet_extractor.extract_batch = legacy_extract
+
+        outcome = await loop.run_batch([canonical, legacy])
+
+        assert candidate.candidate_id in outcome["accepted"]
+        assert extraction.complete_count == 1
+        legacy_extract.assert_awaited_once()
+        extracted_batch = legacy_extract.await_args.args[0]
+        assert [record.get("id") for record in extracted_batch] == ["legacy-1"]
+    finally:
+        await engine.close()

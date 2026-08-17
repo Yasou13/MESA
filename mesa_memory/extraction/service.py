@@ -16,6 +16,8 @@ import asyncio
 import functools
 import json
 import logging
+import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Optional
 
@@ -127,14 +129,28 @@ class DeterministicFactValidator:
         if candidate.source_span is not None and source_text is not None:
             if candidate.source_span.casefold() not in source_text.casefold():
                 return False
+        parsed_temporal: dict[str, datetime] = {}
+        for field_name in ("valid_from", "valid_to"):
+            value = getattr(candidate, field_name)
+            if value is None:
+                continue
+            if len(value) > 128 or any(ord(char) < 32 for char in value):
+                return False
+            # Natural-language anchors are allowed.  Values that claim the
+            # ISO YYYY-MM-DD shape must, however, be valid ISO timestamps.
+            if re.match(r"^\d{4}-\d{2}-\d{2}", value):
+                try:
+                    parsed_temporal[field_name] = datetime.fromisoformat(
+                        value.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    return False
         if candidate.valid_from and candidate.valid_to:
             try:
-                valid_from = datetime.fromisoformat(candidate.valid_from)
-                valid_to = datetime.fromisoformat(candidate.valid_to)
-            except ValueError:
-                # Natural-language temporal anchors are permitted by the
-                # extraction contract; only compare values that claim ISO form.
-                pass
+                valid_from = parsed_temporal["valid_from"]
+                valid_to = parsed_temporal["valid_to"]
+            except KeyError:
+                pass  # one or both values are explicit natural-language anchors
             else:
                 if valid_from > valid_to:
                     return False
@@ -321,6 +337,21 @@ class FactExtractionService:
             return self._parse_dict_or_list(raw_output)
         raise ValueError(f"Unexpected extraction response type: {type(raw_output)}")
 
+    async def _complete_structured(self, prompt: str) -> Any:
+        """Run a synchronous adapter call without leaking the loop executor."""
+        loop = asyncio.get_running_loop()
+        with ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="mesa_extract"
+        ) as pool:
+            return await loop.run_in_executor(
+                pool,
+                functools.partial(
+                    self.llm.complete,
+                    prompt,
+                    FactExtractionResponse,
+                ),
+            )
+
     def _parse_dict_or_list(self, data: Any) -> FactExtractionResponse:
         if not isinstance(data, dict) or set(data) != {"facts"}:
             raise ValueError(
@@ -341,18 +372,9 @@ class FactExtractionService:
             return []
 
         prompt = self._get_prompt(text)
-        loop = asyncio.get_running_loop()
-
         # Call 1: Normal structured extraction
         try:
-            raw_response = await loop.run_in_executor(
-                None,
-                functools.partial(
-                    self.llm.complete,
-                    prompt,
-                    FactExtractionResponse,
-                ),
-            )
+            raw_response = await self._complete_structured(prompt)
             parsed_response = self._parse_response(raw_response)
         except Exception as first_exc:
             logger.warning(
@@ -362,14 +384,7 @@ class FactExtractionService:
             # Call 2: Single bounded correction retry
             correction_prompt = self._get_correction_prompt(text, str(first_exc))
             try:
-                raw_retry = await loop.run_in_executor(
-                    None,
-                    functools.partial(
-                        self.llm.complete,
-                        correction_prompt,
-                        FactExtractionResponse,
-                    ),
-                )
+                raw_retry = await self._complete_structured(correction_prompt)
                 parsed_response = self._parse_response(raw_retry)
             except Exception as second_exc:
                 logger.error(

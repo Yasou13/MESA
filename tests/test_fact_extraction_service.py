@@ -151,6 +151,24 @@ def test_deterministic_fact_validator_rejects_bad_source_span_and_temporal_order
             valid_to="2024-01-01",
         )
     )
+    assert not validator.validate(
+        FactCandidate(
+            fact_text="Geçersiz ISO tarihli olgu.",
+            subject="Proje",
+            predicate="başlangıç",
+            object="geçersiz",
+            valid_from="2025-99-42",
+        )
+    )
+    assert validator.validate(
+        FactCandidate(
+            fact_text="Proje geçen yıl başladı.",
+            subject="Proje",
+            predicate="başlangıç",
+            object="geçen yıl",
+            valid_from="geçen yıl",
+        )
+    )
 
 
 @pytest.mark.asyncio

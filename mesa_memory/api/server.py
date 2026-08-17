@@ -416,8 +416,11 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         effective_mode = config.effective_tier3_mode(model_enabled=True)
         validation_policy = compose_validation_policy(effective_mode)
 
-        extraction_adapter = AdapterFactory.get_adapter()
-        embedding_adapter = AdapterFactory.get_adapter()
+        extraction_adapter = AdapterFactory.get_extraction_adapter()
+        # Legacy-only collaborators still require an adapter-shaped object.
+        # Canonical vector production is injected separately through
+        # EmbeddingService/VectorEngine, so reuse the extraction adapter here.
+        embedding_adapter = extraction_adapter
 
         state.consolidation_loop = ConsolidationLoop(
             dao=state.dao,
