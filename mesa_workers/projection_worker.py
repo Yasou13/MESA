@@ -10,6 +10,7 @@ import asyncio
 import logging
 from typing import Any
 
+from mesa_memory.graph.projector import GraphProjector
 from mesa_storage.dao import MemoryDAO
 
 logger = logging.getLogger("MESA_ProjectionWorker")
@@ -34,7 +35,7 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             raise PermanentProjectionError("invalid durable projection extraction")
         try:
-            triplet = {
+            triplet: dict[str, Any] = {
                 "head": str(item["head"]),
                 "relation": str(item["relation"]),
                 "tail": str(item["tail"]) if item.get("tail") else None,
@@ -44,6 +45,16 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
                     else None
                 ),
                 "confidence": float(item.get("confidence", 1.0)),
+                "fact_text": str(item.get("fact_text") or ""),
+                "valid_from": item.get("valid_from"),
+                "valid_to": item.get("valid_to"),
+                "source_span": item.get("source_span"),
+                "supersedes": item.get("supersedes"),
+                "metadata": (
+                    item.get("metadata")
+                    if isinstance(item.get("metadata"), dict)
+                    else {}
+                ),
             }
         except KeyError as exc:
             raise PermanentProjectionError(
@@ -90,8 +101,9 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         for entity in entities:
             await dao.project_v4_vector_entity(mutation=mutation, entity_name=entity)
     elif lane == "GRAPH":
+        projector = GraphProjector(dao)
         for triplet in triplets:
-            await dao.project_v4_graph_triplet(mutation=mutation, triplet=triplet)
+            await projector.project_triplet(mutation=mutation, triplet=triplet)
     else:
         raise PermanentProjectionError(f"unknown projection lane: {lane}")
 

@@ -53,6 +53,11 @@ from mesa_memory.consolidation.router import AdaptiveRouter
 from mesa_memory.consolidation.schemas import ExtractedTriplet
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
 from mesa_memory.consolidation.writer import GraphWriter
+from mesa_memory.extraction.service import (
+    FactCandidate,
+    FactExtractionError,
+    FactExtractionService,
+)
 from mesa_memory.extraction.triplet_extractor import TripletExtractor
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_storage.dao import MemoryDAO
@@ -680,6 +685,10 @@ class ConsolidationLoop:
         if ext_b is None:
             ext_b = ext_a
 
+        self.fact_extraction_service = FactExtractionService(
+            llm=ext_a,
+            extraction_lang=config.extraction_lang,
+        )
         self.triplet_extractor = TripletExtractor(llm_a=ext_a, llm_b=ext_b)
         self.router = AdaptiveRouter(
             dao=dao,
@@ -1000,6 +1009,19 @@ class ConsolidationLoop:
         if not batch:
             return outcome
 
+        # V4 records are canonical SQL mutations.  Partition them before the
+        # legacy lane so one V3 compatibility record can never drag a V4
+        # mutation through TripletExtractor/GraphWriter.  ``isinstance`` also
+        # preserves the contract for production MemoryDAO specializations.
+        if isinstance(self.dao, MemoryDAO):
+            canonical_batch = [record for record in batch if record.get("mutation_id")]
+            if canonical_batch:
+                await self._run_canonical_v4_batch(canonical_batch, outcome)
+                canonical_ids = {id(record) for record in canonical_batch}
+                batch = [record for record in batch if id(record) not in canonical_ids]
+                if not batch:
+                    return outcome
+
         start_ms = time.time() * 1000
         batch_id = f"batch_{int(start_ms)}"
 
@@ -1109,6 +1131,58 @@ class ConsolidationLoop:
             writes=successful_writes,
             duration_ms=duration_ms,
         )
+        return outcome
+
+    @staticmethod
+    def _canonical_triplets(facts: list[FactCandidate]) -> list[dict[str, Any]]:
+        """Map facts to the existing V4 assertion representation losslessly."""
+        return [
+            {
+                "head": fact.subject,
+                "relation": fact.predicate,
+                "tail": fact.object,
+                "confidence": fact.confidence,
+                "fact_text": fact.fact_text,
+                "valid_from": fact.valid_from,
+                "valid_to": fact.valid_to,
+                "source_span": fact.source_span,
+                "supersedes": fact.supersedes,
+                "metadata": fact.metadata,
+            }
+            for fact in facts
+        ]
+
+    async def _run_canonical_v4_batch(
+        self, batch: list[dict[str, Any]], outcome: dict[str, list[str]]
+    ) -> dict[str, list[str]]:
+        """Extract and persist V4 facts without legacy extractor dependencies."""
+        for record in batch:
+            candidate_id = str(record.get("cmb_id", record.get("id", "")))
+            try:
+                facts = await self.fact_extraction_service.extract_facts_from_record(
+                    record
+                )
+                await self.dao.record_mutation_extraction(
+                    str(record["agent_id"]),
+                    str(record["mutation_id"]),
+                    self._canonical_triplets(facts),
+                )
+            except FactExtractionError as exc:
+                logger.error(
+                    "CANONICAL_FACT_EXTRACTION_FAILED | id=%s error=%s",
+                    candidate_id,
+                    exc,
+                )
+                await self.dead_letter_queue.aappend(
+                    {
+                        "cmb_id": candidate_id,
+                        "agent_id": record.get("agent_id", self._agent_id),
+                        "error": str(exc),
+                    }
+                )
+                if candidate_id in outcome["accepted"]:
+                    outcome["accepted"].remove(candidate_id)
+                outcome["deferred"].append(candidate_id)
         return outcome
 
     # -------------------------------------------------------------------

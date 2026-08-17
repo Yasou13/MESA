@@ -164,7 +164,9 @@ class ProjectionParityVerifier:
 
             missing_ids = 0
             for lane in ("vector", "graph_entity", "graph_assertion"):
-                identifier_key = "assertion_id" if lane == "graph_assertion" else "entity_id"
+                identifier_key = (
+                    "assertion_id" if lane == "graph_assertion" else "entity_id"
+                )
                 # Exact parity can be bounded in memory without being silently
                 # truncated: iterate every snapshot identity in fixed chunks.
                 for offset in range(0, expected[lane], parity_limit):
@@ -176,10 +178,14 @@ class ProjectionParityVerifier:
                         )
                     for agent_id, identifiers in by_agent.items():
                         if lane == "vector":
-                            found = await vector.get_existing_node_ids(agent_id, identifiers)
+                            found = await vector.get_existing_node_ids(
+                                agent_id, identifiers
+                            )
                         else:
                             label = "Entity" if lane == "graph_entity" else "Assertion"
-                            found = await graph.get_existing_node_ids(label, agent_id, identifiers)
+                            found = await graph.get_existing_node_ids(
+                                label, agent_id, identifiers
+                            )
                         missing_ids += len(set(identifiers) - found)
 
             smoke_checked = 0
@@ -514,12 +520,14 @@ class ParityGatedActivator:
 def default_vector_verification_factory(
     *,
     embedding_provider: EmbeddingProvider | None,
+    embedding_service: Any | None = None,
     allow_model_loading: bool,
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
 ) -> Callable[[Path], VectorVerificationTarget]:
     return lambda path: VectorEngine(
         str(path),
         embedding_provider=embedding_provider,
+        embedding_service=embedding_service,
         allow_model_loading=allow_model_loading,
         local_embedding_model=local_embedding_model,
     )

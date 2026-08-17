@@ -5,6 +5,7 @@ from types import ModuleType
 
 import pytest
 
+from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.vector_engine import VectorEngine
 
 
@@ -39,9 +40,22 @@ def test_explicit_model_loading_is_local_files_only(monkeypatch) -> None:
 
     module.SentenceTransformer = FakeModel
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+    service = EmbeddingService(
+        identity=EmbeddingIdentity(
+            provider="local",
+            model="sentence-transformers/all-MiniLM-L6-v2",
+            dimension=384,
+        ),
+        allow_model_loading=True,
+    )
+    assert service.identity().model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert calls == [("sentence-transformers/all-MiniLM-L6-v2", True)]
+
+    # Storage preserves the compatibility flag but never self-loads a model.
     engine = VectorEngine(
         "/storage/mesa-lab/storage/MASTER-CLOSURE/model-isolation/explicit",
         allow_model_loading=True,
     )
     assert calls == [("sentence-transformers/all-MiniLM-L6-v2", True)]
-    assert engine._fallback_embedder is False
+    assert engine.embedding_identity is None

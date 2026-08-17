@@ -58,7 +58,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 
 import pyarrow as pa
 
@@ -76,6 +76,20 @@ _DEFAULT_TABLE_PREFIX = "mesa_vectors_"
 _MAX_WORKERS = 4
 
 EmbeddingProvider = Callable[[str], Awaitable[list[float]]]
+
+
+class EmbeddingServicePort(Protocol):
+    """Storage-facing structural contract; implementation lives above storage."""
+
+    def identity(self) -> Any: ...
+
+    def embed_document(self, text: str) -> list[float]: ...
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+
+    async def aembed_document(self, text: str) -> list[float]: ...
+
+    async def aembed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
 class VectorSearchError(RuntimeError):
@@ -191,6 +205,7 @@ class VectorEngine:
         allow_model_loading: bool = False,
         embedding_provider: EmbeddingProvider | None = None,
         local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        embedding_service: EmbeddingServicePort | None = None,
     ) -> None:
         self._uri = uri
         self._metric = metric
@@ -208,21 +223,11 @@ class VectorEngine:
         self._metrics = VectorMetrics()
         self._embedding_provider = embedding_provider
         self._local_embedding_model = local_embedding_model
-
-        self._embedder = None
-        self._fallback_embedder = True
-        if allow_model_loading:
-            try:
-                from sentence_transformers import SentenceTransformer
-
-                self._embedder = SentenceTransformer(
-                    self._local_embedding_model, local_files_only=True
-                )
-                self._fallback_embedder = False
-            except (ImportError, OSError):
-                logger.warning(
-                    "VECTOR_EMBEDDER_DISABLED | local model is unavailable; network fallback is forbidden"
-                )
+        self._embedding_service = embedding_service
+        # Retained as a constructor compatibility argument only.  Service
+        # composition belongs to the API/worker/rebuild boundary; storage must
+        # never import or select an embedding implementation.
+        _ = allow_model_loading
 
     # ------------------------------------------------------------------
     # Properties
@@ -238,10 +243,17 @@ class VectorEngine:
 
     @property
     def semantic_runtime_available(self) -> bool:
-        """Whether this process can create query embeddings without a download."""
-        return self._embedding_provider is not None or (
-            self._embedder is not None and not self._fallback_embedder
+        """Whether this process can create query embeddings."""
+        return (
+            self._embedding_provider is not None or self._embedding_service is not None
         )
+
+    @property
+    def embedding_identity(self) -> Any | None:
+        """Return the identity of the service that actually produces vectors."""
+        if self._embedding_service is None:
+            return None
+        return self._embedding_service.identity()
 
     @property
     def metrics(self) -> VectorMetrics:
@@ -321,13 +333,12 @@ class VectorEngine:
     # ------------------------------------------------------------------
 
     async def compute_embedding(self, text: str) -> list[float]:
-        """Compute an embedding with the configured provider or local model.
-
-        External provider dimensions are preserved so their vectors stay in
-        the matching dimension-partitioned LanceDB table.
-        """
+        """Compute an embedding with the canonical EmbeddingService or provider."""
         if not self._initialized:
             raise RuntimeError("VectorEngine has not been initialized.")
+
+        if self._embedding_service is not None:
+            return await self._embedding_service.aembed_document(text)
 
         if self._embedding_provider is not None:
             vector = await self._embedding_provider(text)
@@ -335,43 +346,45 @@ class VectorEngine:
                 raise RuntimeError("embedding provider returned an empty vector")
             return [float(value) for value in vector]
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, self._sync_compute_embedding, text
+        raise RuntimeError(
+            "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
     def _sync_compute_embedding(self, text: str) -> list[float]:
-        if self._embedder is None or self._fallback_embedder:
-            raise RuntimeError(
-                "semantic embedding runtime is disabled or no local-only model is available"
-            )
-        vector = self._embedder.encode(text)
-        return typing.cast(list[float], vector.tolist())
+        if self._embedding_service is not None:
+            return self._embedding_service.embed_document(text)
+        raise RuntimeError(
+            "semantic embedding runtime is disabled or no canonical embedding service is available"
+        )
 
     async def compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
         """Compute embeddings for a batch of texts."""
         if not self._initialized:
             raise RuntimeError("VectorEngine has not been initialized.")
 
+        if not texts:
+            return []
+
+        if self._embedding_service is not None:
+            return await self._embedding_service.aembed_batch(texts)
+
         if self._embedding_provider is not None:
             return list(
                 await asyncio.gather(*(self.compute_embedding(text) for text in texts))
             )
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, self._sync_compute_embedding_batch, texts
+        raise RuntimeError(
+            "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
     def _sync_compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        if self._embedder is None or self._fallback_embedder:
-            raise RuntimeError(
-                "semantic embedding runtime is disabled or no local-only model is available"
-            )
-        vectors = self._embedder.encode(texts)
-        return [vector.tolist() for vector in vectors]
+        if self._embedding_service is not None:
+            return self._embedding_service.embed_batch(texts)
+        raise RuntimeError(
+            "semantic embedding runtime is disabled or no canonical embedding service is available"
+        )
 
     # ------------------------------------------------------------------
     # Write operations

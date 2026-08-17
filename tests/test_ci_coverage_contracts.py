@@ -175,6 +175,7 @@ def test_adapter_factory_resolves_all_supported_provider_paths(monkeypatch) -> N
     monkeypatch.setattr(factory.config, "anthropic_api_key", "anthropic-key")
     monkeypatch.setattr(factory.config, "llm_base_url", "http://provider")
     monkeypatch.setattr(factory.config, "llm_model_name", "model")
+    monkeypatch.setattr(factory.config, "external_provider_enabled", True)
 
     assert isinstance(
         factory.AdapterFactory.get_adapter("openai_compatible"), FakeAdapter

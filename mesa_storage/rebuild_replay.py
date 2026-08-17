@@ -450,6 +450,7 @@ class ProjectionReplayer:
         batch_size: int = 100,
         lease_seconds: int = 300,
         embedding_provider: EmbeddingProvider | None = None,
+        embedding_service: Any | None = None,
         allow_model_loading: bool = False,
         local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         vector_factory: Callable[[Path], VectorReplayTarget] | None = None,
@@ -503,6 +504,7 @@ class ProjectionReplayer:
                 str(paths.vector_path),
                 allow_model_loading=allow_model_loading,
                 embedding_provider=embedding_provider,
+                embedding_service=embedding_service,
                 local_embedding_model=local_embedding_model,
             )
         )

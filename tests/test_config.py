@@ -3,6 +3,7 @@ import psutil
 from mesa_memory.config import (
     MesaConfig,
     calculate_dynamic_limits,
+    config,
     configured_embedding_identity,
 )
 
@@ -33,14 +34,19 @@ def test_v4_rebuild_feature_flag_is_disabled_by_default_and_explicitly_enabled(
     assert MesaConfig(_env_file=None).v4_rebuild_enabled is True
 
 
-def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode(
-    monkeypatch,
-):
-    monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false")
-    identity = configured_embedding_identity()
+def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode():
+    identity = configured_embedding_identity(
+        {"MESA_EXTERNAL_PROVIDER_ENABLED": "false"}
+    )
 
-    assert identity.provider == "sentence-transformers"
-    assert identity.model
+    assert identity.provider == "local"
+    assert identity.model == config.local_embedding_model
     assert identity.version == "v1"
     assert identity.dimension > 0
-    assert identity.normalized is False
+    assert identity.normalized is True
+
+    external_identity = configured_embedding_identity(
+        {"MESA_EXTERNAL_PROVIDER_ENABLED": "true"}
+    )
+    assert external_identity.provider == config.mesa_llm_provider
+    assert external_identity.model == config.llm_embedding_model_name

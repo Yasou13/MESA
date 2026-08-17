@@ -41,6 +41,9 @@ from mesa_memory.consolidation.policy import (
     compose_validation_policy,
 )
 from mesa_memory.container_health import worker_is_ready
+from mesa_memory.embedding.service import (
+    get_embedding_service as _get_embedding_service,
+)
 from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.metrics import (
     ObservabilityLayer,
@@ -324,18 +327,14 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     _configure_projection_paths(projection_paths)
     state.projection_generation_id = projection_paths.generation_id  # type: ignore[attr-defined]
 
-    embedding_provider = None
-    if runtime.external_provider_enabled:
-        # The V4 retrieval lane must embed queries with the same configured
-        # external model used by projection.  Falling back to an unavailable
-        # local model creates a dimension mismatch and turns recall into 500.
-        embedding_provider = AdapterFactory.get_adapter().aembed
+    embedding_service = _get_embedding_service(
+        allow_model_loading=runtime.model_enabled,
+        force_refresh=True,
+    )
     state.vector_engine = VectorEngine(
         uri=str(_VECTOR_PATH),
         max_workers=config.vector_worker_limit,
-        allow_model_loading=runtime.model_enabled,
-        embedding_provider=embedding_provider,
-        local_embedding_model=config.local_embedding_model,
+        embedding_service=embedding_service,
     )
     await state.vector_engine.initialize()
 
@@ -417,8 +416,11 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         effective_mode = config.effective_tier3_mode(model_enabled=True)
         validation_policy = compose_validation_policy(effective_mode)
 
-        extraction_adapter = AdapterFactory.get_adapter()
-        embedding_adapter = AdapterFactory.get_adapter()
+        extraction_adapter = AdapterFactory.get_extraction_adapter()
+        # Legacy-only collaborators still require an adapter-shaped object.
+        # Canonical vector production is injected separately through
+        # EmbeddingService/VectorEngine, so reuse the extraction adapter here.
+        embedding_adapter = extraction_adapter
 
         state.consolidation_loop = ConsolidationLoop(
             dao=state.dao,
@@ -785,12 +787,20 @@ def get_dao() -> MemoryDAO:
     return state.dao  # type: ignore[no-untyped-def]
 
 
+def get_embedding_service():
+    """Dependency injection for the canonical EmbeddingService."""
+    return _get_embedding_service()
+
+
 def get_embedder():
-    """Dependency injection for the embedder function."""
+    """Dependency injection for the embedder function (backward compatibility)."""
     runtime = getattr(state, "runtime_profile", None)
     if runtime is not None and not runtime.model_enabled:
         return lambda _text: [0.0] * 8
-    return AdapterFactory.get_adapter().embed
+    try:
+        return _get_embedding_service().embed_document
+    except Exception as exc:
+        raise RuntimeError("canonical EmbeddingService is unavailable") from exc
 
 
 def get_consolidation_loop() -> ConsolidationLoop | None:

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
+from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
@@ -20,7 +21,14 @@ from mesa_workers.projection_worker import (
 @pytest.mark.asyncio
 async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
     sql = AsyncEngine(str(tmp_path / "mesa.db"))
-    vector = VectorEngine(str(tmp_path / "vectors.lance"), max_workers=1)
+    identity = EmbeddingIdentity(
+        provider="mock", model="projection-test", version="v1", dimension=8
+    )
+    vector = VectorEngine(
+        str(tmp_path / "vectors.lance"),
+        max_workers=1,
+        embedding_service=EmbeddingService(identity=identity),
+    )
     graph_path = tmp_path / "graph"
     await sql.initialize()
     await initialize_schema(sql)
@@ -34,6 +42,10 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
         agent_id="tenant-a",
         session_id="session-a",
         content_payload="Alice knows Bob.",
+        embedding_provider=identity.provider,
+        embedding_model=identity.model,
+        embedding_version=identity.version,
+        embedding_dimension=identity.dimension,
     ).as_consolidation_record()
     try:
         await dao.record_mutation(candidate, raw_log_id=101)
