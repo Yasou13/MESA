@@ -1,93 +1,199 @@
-"""Tests for Task F013: Canonical Graph Projector."""
+"""Tests for the production canonical GraphProjector boundary."""
 
 from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+import asyncio
 import pytest
 
-from mesa_memory.extraction.service import FactCandidate
-from mesa_memory.graph.projector import GraphProjector
+from mesa_memory.consolidation.schemas import MemoryCandidate
+from mesa_memory.embedding.service import EmbeddingIdentity
+from mesa_memory.graph.projector import GraphProjectionError, GraphProjector
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_workers.projection_worker import process_projection_outbox_once
 
 
 @pytest.mark.asyncio
-async def test_graph_projector_projects_canonical_facts():
+async def test_graph_projector_projects_only_durable_canonical_assertions():
     dao = MagicMock()
-    dao.insert_memory = AsyncMock(side_effect=lambda node_id, **kwargs: node_id)
-    dao.insert_edge = AsyncMock(return_value="edge_123")
-
+    dao.project_v4_graph_triplet = AsyncMock(return_value="assertion-1")
     projector = GraphProjector(dao=dao)
+    mutation = {"mutation_id": "mutation-1"}
+    triplet = {"head": "Alice", "relation": "WORKS_AT", "tail": "Acme"}
 
-    facts = [
-        FactCandidate(
-            fact_text="Alice works at Acme Corp",
-            subject="Alice",
-            predicate="WORKS_AT",
-            object="Acme Corp",
-            confidence=0.95,
-            source_span="Alice works at Acme Corp",
-        ),
-        FactCandidate(
-            fact_text="Acme Corp located in Istanbul",
-            subject="Acme Corp",
-            predicate="LOCATED_IN",
-            object="Istanbul",
-            confidence=0.90,
-        ),
-    ]
+    result = await projector.project_triplet(mutation=mutation, triplet=triplet)
 
-    result = await projector.project_facts(facts, agent_id="agent_1")
-
-    assert result["success"] is True
-    assert len(result["projected_nodes"]) == 4  # 2 facts * (subj, obj)
-    assert len(result["projected_edges"]) == 2
-    assert dao.insert_memory.call_count == 4
-    assert dao.insert_edge.call_count == 2
+    assert result == "assertion-1"
+    dao.project_v4_graph_triplet.assert_awaited_once_with(
+        mutation=mutation, triplet=triplet
+    )
 
 
 @pytest.mark.asyncio
-async def test_graph_projector_filters_low_confidence_facts():
+async def test_graph_projector_rejects_noncanonical_input():
     dao = MagicMock()
-    dao.insert_memory = AsyncMock(return_value="node_1")
-    dao.insert_edge = AsyncMock(return_value="edge_1")
-
     projector = GraphProjector(dao=dao)
-
-    facts = [
-        FactCandidate(
-            fact_text="Uncertain rumour",
-            subject="Bob",
-            predicate="MAY_BE",
-            object="Somewhere",
-            confidence=0.2,  # Below 0.5 threshold
+    with pytest.raises(GraphProjectionError):
+        await projector.project_triplet(
+            mutation={}, triplet={"head": "Alice", "relation": "KNOWS"}
         )
-    ]
-
-    result = await projector.project_facts(facts, agent_id="agent_1", confidence_threshold=0.5)
-
-    assert result["success"] is True
-    assert len(result["projected_nodes"]) == 0
-    assert len(result["projected_edges"]) == 0
-    assert dao.insert_memory.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_graph_failure_does_not_raise_to_preserve_canonical_truth():
-    dao = MagicMock()
-    dao.insert_memory = AsyncMock(side_effect=RuntimeError("Kùzu disk lock error"))
-
-    projector = GraphProjector(dao=dao)
-
-    facts = [
-        FactCandidate(
-            fact_text="Critical canonical fact",
-            subject="Server1",
-            predicate="RUNS",
-            object="PostgreSQL",
-            confidence=1.0,
+async def test_graph_failure_preserves_canonical_sql_assertion_for_retry(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "graph-failure.sqlite"))
+    await asyncio.wait_for(engine.initialize(), timeout=5)
+    await asyncio.wait_for(initialize_schema(engine), timeout=5)
+    identity = EmbeddingIdentity(
+        provider="mock", model="canonical", version="v1", dimension=4
+    )
+    vector = SimpleNamespace(
+        embedding_identity=identity,
+        compute_embedding=AsyncMock(return_value=[0.5] * 4),
+        upsert=AsyncMock(),
+        hard_delete=AsyncMock(),
+    )
+    graph = SimpleNamespace(
+        insert_node=AsyncMock(),
+        insert_assertion=AsyncMock(side_effect=RuntimeError("kuzu unavailable")),
+        link_assertions=AsyncMock(),
+        delete_assertions=AsyncMock(),
+        delete_nodes=AsyncMock(),
+    )
+    dao = MemoryDAO(engine, vector, graph_provider=graph)
+    candidate = MemoryCandidate.from_raw_log(
+        raw_log_id=1201,
+        agent_id="tenant-a",
+        session_id="session-a",
+        content_payload="Alice knows Bob.",
+        embedding_provider=identity.provider,
+        embedding_model=identity.model,
+        embedding_version=identity.version,
+        embedding_dimension=identity.dimension,
+        validation_mode=0,
+    ).as_consolidation_record()
+    try:
+        await dao.record_mutation(candidate, raw_log_id=1201)
+        await dao.record_mutation_extraction(
+            "tenant-a",
+            candidate["mutation_id"],
+            [
+                {
+                    "head": "Alice",
+                    "relation": "KNOWS",
+                    "tail": "Bob",
+                    "fact_text": "Alice knows Bob.",
+                    "valid_from": "2026-01-01",
+                    "source_span": "Alice knows Bob.",
+                }
+            ],
         )
-    ]
+        await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
 
-    # Should not raise exception
-    result = await projector.project_facts(facts, agent_id="agent_1")
+        assert (await asyncio.wait_for(process_projection_outbox_once(dao), timeout=5))[
+            "completed"
+        ] == 1
+        assert (await asyncio.wait_for(process_projection_outbox_once(dao), timeout=5))[
+            "completed"
+        ] == 1
+        graph_result = await asyncio.wait_for(
+            process_projection_outbox_once(dao), timeout=5
+        )
 
-    assert result["success"] is False
-    assert len(result["errors"]) == 1
-    assert "Kùzu disk lock error" in result["errors"][0]
+        assert graph_result["retry_pending"] == 1
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT valid_from, evidence_span FROM v4_assertions "
+                "WHERE mutation_id = ?",
+                (candidate["mutation_id"],),
+            ) as cursor:
+                assertion = await cursor.fetchone()
+        assert assertion is not None
+        assert tuple(assertion) == ("2026-01-01", "Alice knows Bob.")
+        mutation = await dao.get_mutation("tenant-a", candidate["mutation_id"])
+        assert mutation is not None and mutation["state"] == "RETRY_PENDING"
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_fact_level_supersession_changes_current_truth_and_rolls_back(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "fact-supersession.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    identity = EmbeddingIdentity(
+        provider="mock", model="canonical", version="v1", dimension=4
+    )
+    vector = SimpleNamespace(
+        embedding_identity=identity,
+        compute_embedding=AsyncMock(return_value=[0.5] * 4),
+        upsert=AsyncMock(),
+        hard_delete=AsyncMock(),
+    )
+    graph = SimpleNamespace(
+        insert_node=AsyncMock(),
+        insert_assertion=AsyncMock(),
+        link_assertions=AsyncMock(),
+        delete_assertions=AsyncMock(),
+        delete_nodes=AsyncMock(),
+    )
+    dao = MemoryDAO(engine, vector, graph_provider=graph)
+
+    async def commit_fact(raw_log_id, object_name, supersedes=None):
+        candidate = MemoryCandidate.from_raw_log(
+            raw_log_id=raw_log_id,
+            agent_id="tenant-a",
+            session_id="session-a",
+            content_payload=f"Backend {object_name} kullanıyor.",
+            embedding_provider=identity.provider,
+            embedding_model=identity.model,
+            embedding_version=identity.version,
+            embedding_dimension=identity.dimension,
+            validation_mode=0,
+        ).as_consolidation_record()
+        await dao.record_mutation(candidate, raw_log_id=raw_log_id)
+        await dao.record_mutation_extraction(
+            "tenant-a",
+            candidate["mutation_id"],
+            [
+                {
+                    "head": "Backend",
+                    "relation": "FRAMEWORK",
+                    "tail": object_name,
+                    "fact_text": f"Backend {object_name} kullanıyor.",
+                    "source_span": f"Backend {object_name} kullanıyor.",
+                    "supersedes": supersedes,
+                }
+            ],
+        )
+        await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
+        for _ in range(3):
+            result = await process_projection_outbox_once(dao)
+            assert result["completed"] == 1
+        return candidate
+
+    try:
+        old = await commit_fact(1301, "FastAPI")
+        new = await commit_fact(1302, "Spring Boot", supersedes="FastAPI")
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT mutation_id, status FROM v4_assertions "
+                "WHERE predicate = 'FRAMEWORK'"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        assert {str(row[0]): str(row[1]) for row in rows} == {
+            str(old["mutation_id"]): "SUPERSEDED",
+            str(new["mutation_id"]): "ACTIVE",
+        }
+
+        await dao.request_pipeline_rollback(str(new["pipeline_run_id"]))
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT status FROM v4_assertions WHERE mutation_id = ?",
+                (old["mutation_id"],),
+            ) as cursor:
+                old_status = await cursor.fetchone()
+        assert old_status is not None and old_status[0] == "ACTIVE"
+    finally:
+        await engine.close()

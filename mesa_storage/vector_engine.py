@@ -212,14 +212,11 @@ class VectorEngine:
         self._embedding_service = embedding_service
 
         if self._embedding_service is None and allow_model_loading:
-            try:
-                from mesa_memory.embedding.service import get_embedding_service
+            from mesa_memory.embedding.service import get_embedding_service
 
-                self._embedding_service = get_embedding_service(
-                    allow_model_loading=True
-                )
-            except Exception:
-                self._embedding_service = None
+            # Construction failures are policy/availability failures.  They
+            # must not silently expose the legacy provider as another space.
+            self._embedding_service = get_embedding_service(allow_model_loading=True)
 
     # ------------------------------------------------------------------
     # Properties
@@ -239,6 +236,13 @@ class VectorEngine:
         return (
             self._embedding_provider is not None or self._embedding_service is not None
         )
+
+    @property
+    def embedding_identity(self) -> Any | None:
+        """Return the identity of the service that actually produces vectors."""
+        if self._embedding_service is None:
+            return None
+        return self._embedding_service.identity()
 
     @property
     def metrics(self) -> VectorMetrics:

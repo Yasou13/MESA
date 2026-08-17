@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from mesa_memory.embedding.service import EmbeddingIdentity
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -20,13 +21,23 @@ async def test_embedding_contract_and_dimension_validation(tmp_path):
     mock_vec = SimpleNamespace()
     mock_vec.is_initialized = True
     mock_vec.compute_embedding = AsyncMock(return_value=[0.1] * 384)
+    mock_vec.embedding_identity = EmbeddingIdentity(
+        provider="sentence-transformers",
+        model="all-MiniLM-L6-v2",
+        version="1.0",
+        dimension=384,
+        normalized=True,
+        model_revision="revision-a",
+    )
     mock_vec.upsert = AsyncMock()
     mock_vec.soft_delete = AsyncMock()
 
     mock_graph = SimpleNamespace()
     mock_graph.insert_node = AsyncMock()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph)
+    dao = MemoryDAO(
+        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+    )
 
     tenant_id = "tenant_embed"
     agent_id = "agent_embed"
@@ -35,9 +46,18 @@ async def test_embedding_contract_and_dimension_validation(tmp_path):
     doc_id = f"doc_{uuid.uuid4().hex[:8]}"
     rev_id = f"rev_{uuid.uuid4().hex[:8]}"
 
-    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Embed")
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
-    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Embed", document_id=doc_id)
+    await dao.create_v4_workspace(
+        tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Embed"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id
+    )
+    await dao.create_v4_document(
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        title="Doc Embed",
+        document_id=doc_id,
+    )
 
     mut_matching = {
         "tenant_id": tenant_id,
@@ -61,7 +81,9 @@ async def test_embedding_contract_and_dimension_validation(tmp_path):
     await dao.record_mutation(mut_matching, raw_log_id=None)
 
     # 1. Matching dimension projects successfully
-    e_id = await dao.project_v4_vector_entity(mutation=mut_matching, entity_name="Matching Entity")
+    e_id = await dao.project_v4_vector_entity(
+        mutation=mut_matching, entity_name="Matching Entity"
+    )
     assert e_id is not None
 
     # 2. Dimension Mismatch raises ValueError
@@ -74,6 +96,32 @@ async def test_embedding_contract_and_dimension_validation(tmp_path):
     await dao.record_mutation(mut_mismatched, raw_log_id=None)
 
     with pytest.raises(ValueError, match="embedding dimension mismatch"):
-        await dao.project_v4_vector_entity(mutation=mut_mismatched, entity_name="Mismatched Entity")
+        await dao.project_v4_vector_entity(
+            mutation=mut_mismatched, entity_name="Mismatched Entity"
+        )
+
+    # 3. Same dimension is not the same embedding space.
+    mut_wrong_space = {
+        **mut_matching,
+        "mutation_id": "mut_wrong_space",
+        "candidate_id": "cand_wrong_space",
+        "embedding_model": "different-384d-model",
+    }
+    await dao.record_mutation(mut_wrong_space, raw_log_id=None)
+    with pytest.raises(ValueError, match="embedding identity mismatch"):
+        await dao.project_v4_vector_entity(
+            mutation=mut_wrong_space, entity_name="Wrong Space Entity"
+        )
+
+    async with engine.connection() as db:
+        async with db.execute(
+            "SELECT metadata_json FROM memory_artifacts "
+            "WHERE mutation_id = ? AND store_name = 'VECTOR'",
+            (mut_matching["mutation_id"],),
+        ) as cursor:
+            artifact = await cursor.fetchone()
+    assert artifact is not None
+    assert '"embedding_space_id"' in artifact[0]
+    assert '"model_revision": "revision-a"' in artifact[0]
 
     await engine.close()

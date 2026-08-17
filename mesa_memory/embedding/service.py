@@ -125,7 +125,8 @@ class EmbeddingService:
                 ),
                 dimension=getattr(config, "embedding_dimension", 768),
                 version=getattr(config, "embedding_version", "v1"),
-                normalized=True,
+                normalized=getattr(config, "embedding_normalized", True),
+                model_revision=getattr(config, "embedding_model_revision", None),
             )
 
         self._external_enabled = (
@@ -374,6 +375,7 @@ def get_embedding_service(
                 dimension=configured.dimension,
                 version=configured.version,
                 normalized=configured.normalized,
+                model_revision=configured.model_revision,
             )
         _GLOBAL_EMBEDDING_SERVICE = EmbeddingService(
             identity=identity,

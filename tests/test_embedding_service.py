@@ -1,6 +1,8 @@
 """Tests for Canonical EmbeddingService, Truthful Identity, and Egress Fence."""
 
 import math
+import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,6 +10,7 @@ import pytest
 from mesa_memory.embedding.service import (
     EmbeddingIdentity,
     EmbeddingIdentityMismatchError,
+    EmbeddingGenerationError,
     EmbeddingService,
     EmbeddingUnavailableError,
     ExternalProviderForbiddenError,
@@ -150,6 +153,71 @@ def test_custom_provider_dimension_mismatch():
         match="does not match configured identity dimension",
     ):
         service.embed_document("sample text")
+
+
+@pytest.mark.parametrize(
+    "failure", [RuntimeError("HTTP 404"), TimeoutError("provider timeout")]
+)
+def test_provider_failure_never_returns_another_family(failure):
+    identity = EmbeddingIdentity(
+        provider="openai_compatible",
+        model="configured-external-model",
+        dimension=4,
+    )
+
+    def unavailable(_text):
+        raise failure
+
+    service = EmbeddingService(
+        identity=identity,
+        provider_fn=unavailable,
+        external_enabled=True,
+    )
+    with pytest.raises(EmbeddingGenerationError):
+        service.embed_document("must fail closed")
+
+
+def test_local_cache_miss_never_attempts_download(monkeypatch):
+    calls = []
+
+    def missing_model(model, **kwargs):
+        calls.append((model, kwargs))
+        raise OSError("not cached")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=missing_model),
+    )
+    identity = EmbeddingIdentity(
+        provider="local", model="missing-local-model", dimension=4
+    )
+    service = EmbeddingService(identity=identity, allow_model_loading=True)
+
+    with pytest.raises(EmbeddingUnavailableError):
+        service.embed_document("no download")
+    assert calls == [("missing-local-model", {"local_files_only": True})]
+
+
+def test_vector_engine_does_not_fallback_when_service_construction_fails(
+    tmp_path, monkeypatch
+):
+    import mesa_memory.embedding.service as service_module
+
+    legacy_provider = AsyncMock()
+    monkeypatch.setattr(
+        service_module,
+        "get_embedding_service",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("service unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="service unavailable"):
+        VectorEngine(
+            str(tmp_path / "vectors"),
+            allow_model_loading=True,
+            embedding_provider=legacy_provider,
+        )
+    legacy_provider.assert_not_called()
 
 
 def test_l2_normalization_helper():
