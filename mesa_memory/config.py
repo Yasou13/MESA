@@ -586,8 +586,8 @@ class MesaConfig(BaseSettings):
     # When MESA_ZERO_COST_MODE=true, the system reconfigures itself to use
     # exclusively local resources:
     #   - LLM provider  → OllamaAdapter (localhost:11434)
-    #   - Embeddings    → sentence-transformers/all-MiniLM-L6-v2 (local)
-    #   - REBEL         → enabled (local, zero API cost)
+    #   - Embeddings    → configured local EmbeddingService model (no fallback)
+    #   - REBEL         → disabled
     #   - Validation    → preserves the explicitly selected assurance mode;
     #                      Mode 2 still requires two distinct validators.
     # This mode requires Ollama to be running locally with a pulled model.
@@ -703,7 +703,8 @@ class MesaConfig(BaseSettings):
 
             logging.getLogger("MESA_Config").warning(
                 "OPENAI_API_KEY not set for Claude provider. "
-                "Embeddings will use local model '%s' as fallback.",
+                "No external embedding fallback will be selected automatically; "
+                "the configured embedding provider remains authoritative (%s).",
                 self.local_embedding_model,
             )
         return self

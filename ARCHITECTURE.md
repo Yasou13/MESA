@@ -90,7 +90,7 @@ FTS5 provides **zero-VRAM lexical pre-filtering** — enabling fast keyword/pref
 
 ### 3.3 LanceDB — Vector Store
 
-Vector embeddings are stored in LanceDB with **multi-dimensional table routing**. Upon ingestion, the engine detects the embedding dimensionality and routes to a dedicated table (`mesa_vectors_384`, `mesa_vectors_1536`, etc.), preserving full semantic integrity across embedding providers.
+Vector embeddings are stored in LanceDB by the canonical `EmbeddingService`. An active projection generation is fenced to one full embedding-space identity (provider, model, revision, dimension, and normalization); a model change requires an explicit rebuild and atomic generation cutover.
 
 All LanceDB operations are offloaded from the event loop via `ThreadPoolExecutor` + `asyncio.run_in_executor()`. The vector engine supports:
 
@@ -231,9 +231,7 @@ The retriever (`mesa_memory/retriever.py`) implements bi-temporal awareness: mem
 
 ## 6. Multi-Dimensional Vector Routing
 
-MESA natively supports multi-model embedding pipelines (e.g., OpenAI `1536` dimensions, local MiniLM `384` dimensions). The `VectorEngine` utilizes mathematical projections like Procrustes rotation to dynamically align and isolate vector spaces.
-
-Upon ingestion, MESA analyzes the incoming tensor dimension and routes the vector to a dedicated, dimension-specific LanceDB table (e.g., `mesa_vectors_1536` or `mesa_vectors_384`). This ensures absolute semantic integrity while allowing real-time switching between cloud and local SLMs.
+MESA does not align or mix embedding spaces by dimension. `EmbeddingService` owns document/query generation and truthful identity; `VectorEngine` only stores and searches vectors. Changing local Magibu 768D to another 768D model is still an incompatible migration, not a live switch.
 
 ---
 
