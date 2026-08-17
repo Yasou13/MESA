@@ -74,7 +74,7 @@ Do not combine architecture introduction and model migration in one giant change
 Status: BUILT
 Evidence: Implemented FactExtractionService and FactCandidate in mesa_memory/extraction/service.py with strict structured output schema (FactExtractionResponse) returning 0..N FactCandidate objects. Integrated into ConsolidationLoop and extraction pathways.
 Tests: tests/test_fact_extraction_service.py
-Commit: pending
+Commit: c2754fe
 
 ---
 
@@ -112,7 +112,7 @@ correction/supersession
 Status: BUILT
 Evidence: Implemented DeterministicFactValidator in mesa_memory/extraction/service.py performing non-empty schema checks, confidence boundary [0.0, 1.0] checks, source-span verification, deduplication by (subject, predicate, object, valid_from), and normalization without calling validation LLMs. Implemented fact_candidates_to_extracted_triplet to map FactCandidates directly to existing canonical assertion/mutation representations.
 Tests: tests/test_fact_extraction_service.py, tests/test_p0_multi_memory_extraction.py
-Commit: pending
+Commit: c2754fe
 
 ---
 
@@ -145,7 +145,7 @@ No dual extraction based on Tier-3 Mode 2.
 Status: BUILT
 Evidence: FactExtractionService enforces exactly one structured model call on normal extraction. If initial parsing fails, a single bounded schema correction retry is made. If the retry fails, FactExtractionError is raised (no 3rd call, no infinite loop). Removed dual-LLM extraction from TripletExtractor.
 Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
-Commit: pending
+Commit: c2754fe
 
 ---
 
@@ -168,7 +168,7 @@ REBEL may remain experimental/legacy.
 Status: BUILT
 Evidence: With MESA_REBEL_ENABLED=false (default), FactExtractionService and TripletExtractor do not instantiate RebelExtractor (using OptionalRebelExtractorPlaceholder). Verified that patching RebelExtractor to raise an error results in 0 constructor calls during canonical extraction.
 Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
-Commit: pending
+Commit: c2754fe
 
 ---
 
@@ -201,7 +201,7 @@ Only validator count changes.
 Status: BUILT
 Evidence: Validated across Mode 0 (0 validation LLMs, 1 extraction call), Mode 1 (1 validation LLM, 1 extraction call), and Mode 2 (2 validation LLMs + consensus, 1 extraction call). Injected validation policies never serve extraction.
 Tests: tests/test_r4_extraction_validation_independence.py
-Commit: pending
+Commit: c2754fe
 
 ---
 
@@ -224,10 +224,10 @@ identity
 
 Initially existing embedding behavior may sit behind the service.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Implemented canonical EmbeddingService in mesa_memory/embedding/service.py with embed_document, embed_query, embed_batch, aembed_document, aembed_query, aembed_batch, and identity() methods.
+Tests: tests/test_embedding_service.py
+Commit: pending
 
 ---
 
@@ -250,10 +250,10 @@ These may delegate to EmbeddingService during compatibility transition.
 
 VectorEngine becomes storage/search focused.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: VectorEngine in mesa_storage/vector_engine.py no longer instantiates SentenceTransformer directly and delegates embedding computation to canonical EmbeddingService. Server DI in mesa_memory/api/server.py routes get_embedder and get_embedding_service to EmbeddingService.
+Tests: tests/test_embedding_service.py, tests/test_egress_fence.py
+Commit: pending
 
 ---
 
@@ -288,10 +288,10 @@ same-dimension fallback candidate
 
 must not produce a vector under the original identity.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: EmbeddingIdentity exposes truthful embedding_space_id, provider, model, dimension, normalized, version, and model_revision. EmbeddingService enforces fail-closed semantics (EmbeddingUnavailableError) when a model is missing or fails, preventing silent cross-family fallbacks.
+Tests: tests/test_embedding_service.py
+Commit: pending
 
 ---
 
@@ -319,10 +319,10 @@ embedding providers
 
 Test provider construction and actual call paths.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Added external_provider_enabled flag to MesaConfig. AdapterFactory and EmbeddingService strictly block external provider instantiation (OpenAI, Claude, hosted endpoints) with ExternalProviderForbiddenError and ValueError when external_provider_enabled=False. Mode 2 validation fails closed when external validators are disallowed.
+Tests: tests/test_egress_fence.py
+Commit: pending
 
 ---
 
@@ -345,10 +345,10 @@ Use existing projection generation infrastructure.
 
 Do not overwrite the current active generation in place.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Updated MesaConfig defaults to local_embedding_model='magibu/embeddingmagibu-200m', embedding_dimension=768, and normalized=True in configured_embedding_identity.
+Tests: tests/test_embedding_service.py, tests/test_golden_smoke_set.py
+Commit: pending
 
 ---
 
@@ -382,10 +382,10 @@ write/query/rebuild identity parity
 restart-safe active generation
 ```
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Replay, adoption, and cutover contracts in mesa_storage/rebuild_replay.py and mesa_storage/rebuild_cutover.py execute cleanly with canonical EmbeddingService and dimension partitions.
+Tests: tests/test_rebuild_replay_contract.py, tests/test_rebuild_runner_contract.py, tests/test_embedding_identity_adoption.py, tests/test_projection_generation_contract.py
+Commit: pending
 
 ---
 
@@ -406,10 +406,10 @@ fact persists even if graph projection fails/retries
 graph projection consumes canonical state
 ```
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Implemented GraphProjector in mesa_memory/graph/projector.py consuming canonical FactCandidate objects to project subject/object nodes and relation edges. Graph projection failures are logged and handled without raising or destroying canonical SQL mutations.
+Tests: tests/test_graph_projector.py
+Commit: pending
 
 ---
 
@@ -444,10 +444,10 @@ Real local-model smoke is optional if models are already installed.
 
 Do NOT download models automatically.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Implemented tests/test_golden_smoke_set.py containing 35 Turkish fact extraction cases across 8 core categories (0 facts, 1 fact, multiple facts, correction/supersession, temporal, preference, config, negative constraint) and 25 retrieval smoke cases. All 60 cases + 104 regression tests (164 total) pass with zero errors.
+Tests: tests/test_golden_smoke_set.py, tests/test_r4_durable_policy_snapshot.py, tests/test_r4_extraction_validation_independence.py, tests/test_turkish_extraction.py, tests/test_rebuild_replay_contract.py
+Commit: pending
 
 ---
 

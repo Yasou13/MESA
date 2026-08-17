@@ -785,12 +785,24 @@ def get_dao() -> MemoryDAO:
     return state.dao  # type: ignore[no-untyped-def]
 
 
+def get_embedding_service():
+    """Dependency injection for the canonical EmbeddingService."""
+    from mesa_memory.embedding.service import get_embedding_service as _get_svc
+
+    return _get_svc()
+
+
 def get_embedder():
-    """Dependency injection for the embedder function."""
+    """Dependency injection for the embedder function (backward compatibility)."""
     runtime = getattr(state, "runtime_profile", None)
     if runtime is not None and not runtime.model_enabled:
         return lambda _text: [0.0] * 8
-    return AdapterFactory.get_adapter().embed
+    try:
+        from mesa_memory.embedding.service import get_embedding_service as _get_svc
+
+        return _get_svc().embed_document
+    except Exception:
+        return AdapterFactory.get_adapter().embed
 
 
 def get_consolidation_loop() -> ConsolidationLoop | None:

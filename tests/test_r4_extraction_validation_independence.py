@@ -313,4 +313,4 @@ def test_embedding_identity_independence():
     assert identity.provider is not None
     assert identity.model is not None
     assert identity.version is not None
-    assert identity.dimension == 384
+    assert identity.dimension == 768

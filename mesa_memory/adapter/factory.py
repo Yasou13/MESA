@@ -78,6 +78,15 @@ class AdapterFactory:
         provider = provider or config.mesa_llm_provider
         selected_model = model_name or config.llm_model_name
 
+        external_providers = {"openai_compatible", "claude", "openai", "anthropic"}
+        if (
+            not getattr(config, "external_provider_enabled", False)
+            and provider.lower() in external_providers
+        ):
+            raise ValueError(
+                f"External provider '{provider}' is forbidden when MESA_EXTERNAL_PROVIDER_ENABLED=false."
+            )
+
         # ── Explicit provider selection ──────────────────────────────────
         if provider == "openai_compatible":
             from mesa_memory.adapter.live import OpenAICompatibleAdapter
@@ -176,6 +185,12 @@ class AdapterFactory:
                 model=config.llm_model_name or "qwen3:8b",
                 base_url=ollama_url,
             )
+
+        if not getattr(config, "external_provider_enabled", False):
+            logger.info(
+                "External providers disabled; auto-detecting DeterministicMockAdapter."
+            )
+            return DeterministicMockAdapter()
 
         # 2. OpenAI-compatible (Groq, OpenAI, Together, etc.)
         openai_key = os.environ.get("OPENAI_API_KEY") or config.llm_api_key

@@ -387,7 +387,10 @@ class MesaConfig(BaseSettings):
     tier3_llm_model_name_b: str | None = Field(
         None, validation_alias="MESA_TIER3_LLM_MODEL_B"
     )
-    embedding_dimension: int = Field(384, validation_alias="MESA_EMBEDDING_DIMENSION")
+    external_provider_enabled: bool = Field(
+        False, validation_alias="MESA_EXTERNAL_PROVIDER_ENABLED"
+    )
+    embedding_dimension: int = Field(768, validation_alias="MESA_EMBEDDING_DIMENSION")
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )
@@ -520,8 +523,11 @@ class MesaConfig(BaseSettings):
     # -----------------------------------------------------------------------
     legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
 
-    # Local embedding fallback model (used when OpenAI key is absent)
-    local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Default MVP embedding model (Magibu 768d normalized)
+    local_embedding_model: str = Field(
+        "magibu/embeddingmagibu-200m",
+        validation_alias="MESA_LOCAL_EMBEDDING_MODEL",
+    )
 
     # -----------------------------------------------------------------------
     # v0.7.1 DX Patch: Optional REBEL Model
@@ -814,7 +820,7 @@ def configured_embedding_identity(
         default=False,
     )
     return EmbeddingIdentity(
-        provider=config.mesa_llm_provider if external else "sentence-transformers",
+        provider=config.mesa_llm_provider if external else "local",
         model=(
             config.llm_embedding_model_name
             if external
@@ -822,5 +828,5 @@ def configured_embedding_identity(
         ),
         version=config.embedding_version,
         dimension=config.embedding_dimension,
-        normalized=False,
+        normalized=True,
     )
