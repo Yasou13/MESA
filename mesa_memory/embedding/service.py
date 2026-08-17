@@ -18,7 +18,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
-from mesa_memory.config import config
+from mesa_memory.config import config, configured_embedding_identity
 
 logger = logging.getLogger("MESA_EmbeddingService")
 
@@ -64,7 +64,7 @@ class EmbeddingIdentity:
     def __post_init__(self) -> None:
         space_id = (
             f"{self.provider.strip()}:{self.model.strip()}:"
-            f"{self.version.strip()}:{self.dimension}:"
+            f"{(self.model_revision or self.version).strip()}:{self.dimension}:"
             f"norm={str(self.normalized).lower()}"
         )
         object.__setattr__(self, "embedding_space_id", space_id)
@@ -174,18 +174,18 @@ class EmbeddingService:
             try:
                 from sentence_transformers import SentenceTransformer
 
-                # Try local_files_only first to prevent unwanted downloads
+                # Model acquisition is explicit operator work; canonical
+                # runtime loading must never reach out to download a model.
                 try:
                     self._local_model = SentenceTransformer(
                         self._identity.model, local_files_only=True
                     )
-                except (OSError, Exception):
-                    # If not locally cached and model loading is explicitly permitted
+                except Exception as exc:
                     logger.info(
-                        "Local embedding model %s not in cache; attempting load",
+                        "Local embedding model %s is unavailable in the local cache: %s",
                         self._identity.model,
+                        exc,
                     )
-                    self._local_model = SentenceTransformer(self._identity.model)
             except Exception as exc:
                 logger.warning(
                     "EMBEDDING_BACKEND_INIT_FAILED | model=%s provider=%s error=%s",
@@ -353,6 +353,15 @@ def get_embedding_service(
     """Factory and dependency injector for EmbeddingService."""
     global _GLOBAL_EMBEDDING_SERVICE
     if _GLOBAL_EMBEDDING_SERVICE is None or force_refresh:
+        if identity is None:
+            configured = configured_embedding_identity()
+            identity = EmbeddingIdentity(
+                provider=configured.provider,
+                model=configured.model,
+                dimension=configured.dimension,
+                version=configured.version,
+                normalized=configured.normalized,
+            )
         _GLOBAL_EMBEDDING_SERVICE = EmbeddingService(
             identity=identity,
             allow_model_loading=allow_model_loading,

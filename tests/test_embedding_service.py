@@ -1,6 +1,8 @@
 """Tests for Canonical EmbeddingService, Truthful Identity, and Egress Fence."""
 
 import math
+from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.embedding.service import (
@@ -12,6 +14,7 @@ from mesa_memory.embedding.service import (
     ExternalProviderForbiddenError,
     _l2_normalize,
 )
+from mesa_storage.vector_engine import VectorEngine
 
 
 def test_embedding_identity_space_id():
@@ -25,6 +28,16 @@ def test_embedding_identity_space_id():
     assert ident.embedding_space_id == "local:magibu/embeddingmagibu-200m:v1:768:norm=true"
     assert ident.dimension == 768
     assert ident.normalized is True
+
+
+def test_embedding_space_id_changes_with_model_revision():
+    v1 = EmbeddingIdentity(
+        provider="local", model="model", dimension=768, model_revision="rev-1"
+    )
+    v2 = EmbeddingIdentity(
+        provider="local", model="model", dimension=768, model_revision="rev-2"
+    )
+    assert v1.embedding_space_id != v2.embedding_space_id
 
 
 def test_mock_embedding_service_sync_and_async():
@@ -139,3 +152,23 @@ def test_l2_normalization_helper():
     # Zero vector safety
     zeros = [0.0, 0.0, 0.0]
     assert _l2_normalize(zeros) == [0.0, 0.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_vector_engine_prefers_canonical_embedding_service_over_legacy_provider(
+    tmp_path,
+):
+    identity = EmbeddingIdentity(provider="mock", model="canonical", dimension=4)
+    service = EmbeddingService(identity=identity)
+    legacy_provider = AsyncMock(side_effect=AssertionError("legacy provider used"))
+    engine = VectorEngine(
+        str(tmp_path / "vectors"),
+        embedding_service=service,
+        embedding_provider=legacy_provider,
+    )
+    engine._initialized = True
+
+    vector = await engine.compute_embedding("canonical owner")
+
+    assert len(vector) == 4
+    legacy_provider.assert_not_called()

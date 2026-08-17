@@ -514,12 +514,14 @@ class ParityGatedActivator:
 def default_vector_verification_factory(
     *,
     embedding_provider: EmbeddingProvider | None,
+    embedding_service: Any | None = None,
     allow_model_loading: bool,
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
 ) -> Callable[[Path], VectorVerificationTarget]:
     return lambda path: VectorEngine(
         str(path),
         embedding_provider=embedding_provider,
+        embedding_service=embedding_service,
         allow_model_loading=allow_model_loading,
         local_embedding_model=local_embedding_model,
     )

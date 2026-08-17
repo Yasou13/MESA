@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
+from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.embedding_identity import (
     EmbeddingIdentityAdoptionError,
     adopt_legacy_embedding_identity,
@@ -63,6 +63,7 @@ class RebuildProviderRuntime:
     embedding_provider: EmbeddingProvider | None
     allow_model_loading: bool
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_service: EmbeddingService | None = None
 
 
 def _environment_bool(name: str, *, default: bool = False) -> bool:
@@ -80,11 +81,18 @@ def _environment_bool(name: str, *, default: bool = False) -> bool:
 def _provider_runtime() -> RebuildProviderRuntime:
     external = _environment_bool("MESA_EXTERNAL_PROVIDER_ENABLED")
     model_enabled = _environment_bool("MESA_MODEL_ENABLED")
-    embedding_provider: EmbeddingProvider | None = None
-    if external:
-        adapter = AdapterFactory.get_adapter()
-        embedding_provider = adapter.aembed
     identity = configured_embedding_identity()
+    embedding_service = EmbeddingService(
+        identity=EmbeddingIdentity(
+            provider=identity.provider,
+            model=identity.model,
+            dimension=identity.dimension,
+            version=identity.version,
+            normalized=identity.normalized,
+        ),
+        allow_model_loading=model_enabled,
+        external_enabled=external,
+    )
     return RebuildProviderRuntime(
         manifest={
             "embedding_provider": identity.provider,
@@ -93,9 +101,10 @@ def _provider_runtime() -> RebuildProviderRuntime:
             "dimension": identity.dimension,
             "normalized": identity.normalized,
         },
-        embedding_provider=embedding_provider,
+        embedding_provider=None,
         allow_model_loading=model_enabled,
         local_embedding_model=config.local_embedding_model,
+        embedding_service=embedding_service,
     )
 
 
@@ -325,6 +334,7 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 batch_size=args.batch_size,
                 lease_seconds=args.lease_seconds,
                 embedding_provider=providers.embedding_provider,
+                embedding_service=providers.embedding_service,
                 allow_model_loading=providers.allow_model_loading,
                 local_embedding_model=providers.local_embedding_model,
                 should_stop=stop_requested.is_set,
@@ -343,6 +353,7 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             )
         vector_factory = default_vector_verification_factory(
             embedding_provider=providers.embedding_provider,
+            embedding_service=providers.embedding_service,
             allow_model_loading=providers.allow_model_loading,
             local_embedding_model=providers.local_embedding_model,
         )

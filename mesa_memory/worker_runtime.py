@@ -18,7 +18,6 @@ from mesa_memory.observability.logger import setup_logging
 
 setup_logging(role="worker")
 
-from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import (
     RuntimeProfile,
     RuntimeProfileConfig,
@@ -28,6 +27,7 @@ from mesa_memory.config import (
     load_runtime_profile,
     refresh_config_from_environment,
 )
+from mesa_memory.embedding.service import get_embedding_service
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import ProjectionGenerationRepository
@@ -182,15 +182,14 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
             storage_root=runtime.storage_root,
             trusted_root=runtime.storage_root,
         )
-        embedding_provider = None
-        if runtime.external_provider_enabled:
-            embedding_provider = AdapterFactory.get_adapter().aembed
+        embedding_service = get_embedding_service(
+            allow_model_loading=runtime.model_enabled,
+            force_refresh=True,
+        )
         vector_engine = VectorEngine(
             str(projection_paths.vector_path),
             max_workers=config.vector_worker_limit,
-            allow_model_loading=runtime.model_enabled,
-            embedding_provider=embedding_provider,
-            local_embedding_model=config.local_embedding_model,
+            embedding_service=embedding_service,
         )
         await vector_engine.initialize()
         from mesa_storage import kuzu_setup

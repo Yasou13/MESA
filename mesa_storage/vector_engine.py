@@ -320,14 +320,14 @@ class VectorEngine:
         if not self._initialized:
             raise RuntimeError("VectorEngine has not been initialized.")
 
+        if self._embedding_service is not None:
+            return await self._embedding_service.aembed_document(text)
+
         if self._embedding_provider is not None:
             vector = await self._embedding_provider(text)
             if not vector:
                 raise RuntimeError("embedding provider returned an empty vector")
             return [float(value) for value in vector]
-
-        if self._embedding_service is not None:
-            return await self._embedding_service.aembed_document(text)
 
         raise RuntimeError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
@@ -348,13 +348,13 @@ class VectorEngine:
         if not texts:
             return []
 
+        if self._embedding_service is not None:
+            return await self._embedding_service.aembed_batch(texts)
+
         if self._embedding_provider is not None:
             return list(
                 await asyncio.gather(*(self.compute_embedding(text) for text in texts))
             )
-
-        if self._embedding_service is not None:
-            return await self._embedding_service.aembed_batch(texts)
 
         raise RuntimeError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
