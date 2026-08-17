@@ -137,6 +137,7 @@ def test_claude_validator_factory_preserves_configured_model_identity(monkeypatc
             self.kwargs = kwargs
 
     monkeypatch.setattr(claude, "ClaudeAdapter", FakeClaudeAdapter)
+    monkeypatch.setattr(config, "external_provider_enabled", True)
     adapter = AdapterFactory.get_adapter("claude", model_name="claude-validator-b")
 
     assert adapter.kwargs["model_name"] == "claude-validator-b"

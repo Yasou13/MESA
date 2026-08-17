@@ -17,6 +17,7 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.api import server
 from mesa_memory.config import configured_embedding_identity
 from mesa_memory.context_builder import ContextBuilder
+from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.vector_engine import VectorEngine
 
 
@@ -33,12 +34,12 @@ class _DeterministicProvider(BaseUniversalLLMAdapter):
         if schema is not None:
             return schema.model_validate(
                 {
-                    "triplets": [
+                    "facts": [
                         {
-                            "record_index": 0,
-                            "head": "MESA",
-                            "relation": "PRESERVES",
-                            "tail": "durable memory",
+                            "fact_text": "MESA preserves durable memory.",
+                            "subject": "MESA",
+                            "predicate": "PRESERVES",
+                            "object": "durable memory",
                             "confidence": 1.0,
                         }
                     ]
@@ -66,13 +67,33 @@ class _DeterministicProvider(BaseUniversalLLMAdapter):
         return len(text.split())
 
 
+def _embedding_service(provider: _DeterministicProvider) -> EmbeddingService:
+    configured = configured_embedding_identity()
+    return EmbeddingService(
+        identity=EmbeddingIdentity(
+            provider=configured.provider,
+            model=configured.model,
+            dimension=configured.dimension,
+            version=configured.version,
+            normalized=configured.normalized,
+            model_revision=configured.model_revision,
+        ),
+        provider_fn=provider.embed,
+        allow_model_loading=False,
+        external_enabled=True,
+    )
+
+
 async def _wait_for_committed(dao: Any, mutation_id: str) -> dict[str, Any]:
+    summary: dict[str, Any] | None = None
     for _ in range(100):
         summary = await dao.get_mutation_summary(mutation_id)
         if summary and summary["state"] == "COMMITTED":
             return summary
         await asyncio.sleep(0.1)
-    raise AssertionError("combined model-enabled runtime did not commit the mutation")
+    raise AssertionError(
+        f"combined model-enabled runtime did not commit the mutation: {summary!r}"
+    )
 
 
 @pytest.mark.asyncio
@@ -99,7 +120,8 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "d008-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
 
-    def provider_boundary(provider_name=None, *, model_name=None):
+    def provider_boundary(provider_name=None, *, model_name=None, thinking=None):
+        _ = thinking
         if model_name == "terra-validator-a":
             return validator_a
         if model_name == "terra-validator-b":
@@ -108,6 +130,11 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
 
     monkeypatch.setattr(
         server.AdapterFactory, "get_adapter", staticmethod(provider_boundary)
+    )
+    monkeypatch.setattr(
+        server,
+        "_get_embedding_service",
+        lambda **_kwargs: _embedding_service(provider),
     )
 
     # The REBEL provider boundary is deliberately unavailable: real
@@ -216,7 +243,14 @@ async def test_r4_mode_zero_combined_runtime_has_no_validator_dependency(
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "r4-mode-zero-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
     monkeypatch.setattr(
-        server.AdapterFactory, "get_adapter", staticmethod(lambda: provider)
+        server.AdapterFactory,
+        "get_adapter",
+        staticmethod(lambda *args, **kwargs: provider),
+    )
+    monkeypatch.setattr(
+        server,
+        "_get_embedding_service",
+        lambda **_kwargs: _embedding_service(provider),
     )
 
     async with server.lifespan(FastAPI()):
@@ -305,15 +339,22 @@ async def test_r4_mode_one_combined_runtime_uses_only_validator_a(
     monkeypatch.delenv("MESA_TIER3_LLM_PROVIDER_B", raising=False)
     monkeypatch.delenv("MESA_TIER3_LLM_MODEL_B", raising=False)
     monkeypatch.setenv("MESA_REBEL_ENABLED", "false")
+    monkeypatch.setenv("MESA_EMBEDDING_DIMENSION", "384")
     monkeypatch.setenv("MESA_API_KEY", "r4-mode-one-key")
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "r4-mode-one-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
 
-    def provider_boundary(provider_name=None, *, model_name=None):
+    def provider_boundary(provider_name=None, *, model_name=None, thinking=None):
+        _ = thinking
         return validator_a if model_name == "terra-validator-a" else provider
 
     monkeypatch.setattr(
         server.AdapterFactory, "get_adapter", staticmethod(provider_boundary)
+    )
+    monkeypatch.setattr(
+        server,
+        "_get_embedding_service",
+        lambda **_kwargs: _embedding_service(provider),
     )
 
     async with server.lifespan(FastAPI()):

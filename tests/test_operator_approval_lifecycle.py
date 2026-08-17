@@ -15,6 +15,8 @@ from mesa_mcp.gateway.app import create_gateway_app
 from mesa_mcp.gateway.approval import OperationApprovalService
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.api import server
+from mesa_memory.config import configured_embedding_identity
+from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 
 
 class _DeterministicProvider(BaseUniversalLLMAdapter):
@@ -24,12 +26,12 @@ class _DeterministicProvider(BaseUniversalLLMAdapter):
         if schema is not None:
             return schema.model_validate(
                 {
-                    "triplets": [
+                    "facts": [
                         {
-                            "record_index": 0,
-                            "head": "MESA",
-                            "relation": "SUPPORTS",
-                            "tail": "operator approval",
+                            "fact_text": "MESA supports operator approval.",
+                            "subject": "MESA",
+                            "predicate": "SUPPORTS",
+                            "object": "operator approval",
                             "confidence": 1.0,
                         }
                     ]
@@ -54,6 +56,23 @@ class _DeterministicProvider(BaseUniversalLLMAdapter):
 
     def get_token_count(self, text: str) -> int:
         return len(text.split())
+
+
+def _embedding_service(provider: _DeterministicProvider) -> EmbeddingService:
+    configured = configured_embedding_identity()
+    return EmbeddingService(
+        identity=EmbeddingIdentity(
+            provider=configured.provider,
+            model=configured.model,
+            dimension=configured.dimension,
+            version=configured.version,
+            normalized=configured.normalized,
+            model_revision=configured.model_revision,
+        ),
+        provider_fn=provider.embed,
+        allow_model_loading=False,
+        external_enabled=True,
+    )
 
 
 def _tool_result(response: httpx.Response) -> dict[str, Any]:
@@ -110,7 +129,14 @@ async def test_public_remember_approval_recall_survives_restart(
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "api-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")
     monkeypatch.setattr(
-        server.AdapterFactory, "get_adapter", staticmethod(lambda: provider)
+        server.AdapterFactory,
+        "get_adapter",
+        staticmethod(lambda *args, **kwargs: provider),
+    )
+    monkeypatch.setattr(
+        server,
+        "_get_embedding_service",
+        lambda **_kwargs: _embedding_service(provider),
     )
     monkeypatch.setattr(
         server.AdapterFactory,
