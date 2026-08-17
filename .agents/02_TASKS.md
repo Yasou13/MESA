@@ -497,10 +497,18 @@ or:
 NOT_CODE_MVP_READY
 ```
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: CODE_MVP_READY
+Evidence: Sol independently traced the combined API/worker runtime, canonical
+mutation/extraction lane, projection outbox, vector producer identity, rebuild
+composition, and graph failure/rollback paths.  The three-way ownership boundary
+is enforced; all SOL-F01..F04 findings are closed.  Real Qwen/Magibu model-quality
+smoke is BLOCKED_ENV because neither model is locally installed; no model was
+downloaded and this does not block deterministic code-level certification.
+Tests: 153 Round 5 control-ledger tests; 27 V4 lifecycle/fencing tests; 69 bounded
+Round 3/4 aggregate, rollback, purge, tenant, generation, rebuild, and migration
+tests.  Final Ruff, Black, compileall, mypy (129 source files), layer-import, and
+git diff checks pass.
+Commit: 6829f3a, bd302cd, 45ce42b (plus this final evidence ledger commit).
 
 ---
 
@@ -558,3 +566,88 @@ F001–F014 were independently rechecked on the current branch.  Bounded evidenc
 `test_golden_smoke_set`, `test_graph_projector`, `test_rebuild_replay_contract`,
 `test_rebuild_runner_contract`, `test_embedding_identity_adoption`, and
 `test_projection_generation_contract`.
+
+---
+
+## SOL-F01 — Frozen Extraction Profile and Local Egress Boundary
+
+Status: VERIFIED
+
+Root cause: Canonical extraction reused the generic LLM provider/model defaults,
+so it did not provide the frozen local `qwen3:1.7b` profile or explicitly disable
+Ollama thinking.  Ollama URLs were also accepted without proving they were local
+when external provider egress was disabled.
+
+Evidence: `MesaConfig` now owns an independent local extraction profile with
+`qwen3:1.7b` and thinking disabled.  Combined runtime composes that adapter;
+remote Ollama endpoints are rejected when external egress is disabled.
+
+Tests: `tests/test_egress_fence.py`, `tests/test_fact_extraction_service.py`, and
+the 153-test Round 5 bounded control suite.
+
+Commit: 6829f3a
+
+---
+
+## SOL-F02 — Producer-Bound Embedding Identity
+
+Status: VERIFIED
+
+Root cause: V4 vector projection validated only vector dimension and persisted
+provider/model/version copied from mutation admission.  A same-dimension vector
+from another embedding space could therefore be mislabeled, and full service
+identity was not persisted with the vector artifact.
+
+Evidence: Production `VectorEngine` requires explicit service injection and
+exposes the actual producer identity.  V4 vector projection rejects a
+provider/model/version/dimension mismatch before writing and persists
+normalization, model revision, and embedding-space ID with the artifact.
+
+Tests: `tests/test_embedding_service.py`, `tests/test_p0_embedding_contract.py`,
+rebuild/replay/generation contracts, same-dimension mismatch, HTTP 404/timeout,
+cache-miss/no-download, and service-precedence attacks.
+
+Commit: bd302cd, 45ce42b
+
+---
+
+## SOL-F03 — Canonical Fact Semantics and Mixed-Batch Routing
+
+Status: VERIFIED
+
+Root cause: Canonical extraction routing depended on an exact DAO type plus an
+all-or-nothing batch predicate, allowing a mixed V3/V4 batch to route mutations
+through the legacy extractor.  The live projection parser also discarded
+FactCandidate temporal, source, and supersession fields.
+
+Evidence: `ConsolidationLoop` partitions canonical mutations before the legacy
+lane even in mixed batches.  Projection parsing preserves fact text, source span,
+temporal fields, metadata, and supersession.  Fact-level correction changes
+current assertion truth only at commit and restores it on rollback.
+
+Tests: `tests/test_r4_extraction_validation_independence.py`,
+`tests/test_fact_extraction_service.py`, `tests/test_graph_projector.py`,
+`tests/test_p0_multi_memory_extraction.py`, and correction regression tests.
+
+Commit: 6829f3a, bd302cd
+
+---
+
+## SOL-F04 — Canonical Assertion Before Derived Graph Projection
+
+Status: VERIFIED
+
+Root cause: The production graph lane did not compose `GraphProjector` and wrote
+Kuzu before the canonical SQL assertion.  Its compensation path deleted the SQL
+assertion after graph failure, making derived graph success a prerequisite for
+canonical fact survival.
+
+Evidence: The live GRAPH outbox lane now enters `GraphProjector`.  Canonical SQL
+assertions and their full fact semantics are persisted before Kuzu writes;
+ordinary graph failure leaves SQL truth durable and retryable, while terminal
+rollback/purge races still compensate both physical graph and SQL artifacts.
+
+Tests: `tests/test_graph_projector.py`, `tests/test_v4_projection_integration.py`,
+`tests/test_p0_projection_fencing.py`, and the 27-test V4 lifecycle/fencing group.
+
+Commit: bd302cd, 45ce42b
