@@ -504,19 +504,16 @@ class ParityGatedActivator:
             checkpoint["parity"] = parity_report.checkpoint()
         if rollback:
             checkpoint["rollback_count"] = int(checkpoint.get("rollback_count", 0)) + 1
-        return cast(
-            dict[str, Any],
-            await self._operations.transition(
-                str(operation["operation_id"]),
-                to_state="RETRYABLE_FAILED",
-                runner_id=runner_id,
-                claim_token=str(operation["claim_token"]),
-                fencing_token=int(operation["fencing_token"]),
-                progress_completed=int(operation["progress_completed"]),
-                progress_total=int(operation["progress_total"]),
-                checkpoint=checkpoint,
-                error_class=error_class,
-            ),
+        return await self._operations.transition(
+            str(operation["operation_id"]),
+            to_state="RETRYABLE_FAILED",
+            runner_id=runner_id,
+            claim_token=str(operation["claim_token"]),
+            fencing_token=int(operation["fencing_token"]),
+            progress_completed=int(operation["progress_completed"]),
+            progress_total=int(operation["progress_total"]),
+            checkpoint=checkpoint,
+            error_class=error_class,
         )
 
 
