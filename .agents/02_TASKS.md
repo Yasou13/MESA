@@ -227,7 +227,7 @@ Initially existing embedding behavior may sit behind the service.
 Status: BUILT
 Evidence: Implemented canonical EmbeddingService in mesa_memory/embedding/service.py with embed_document, embed_query, embed_batch, aembed_document, aembed_query, aembed_batch, and identity() methods.
 Tests: tests/test_embedding_service.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
@@ -253,7 +253,7 @@ VectorEngine becomes storage/search focused.
 Status: BUILT
 Evidence: VectorEngine in mesa_storage/vector_engine.py no longer instantiates SentenceTransformer directly and delegates embedding computation to canonical EmbeddingService. Server DI in mesa_memory/api/server.py routes get_embedder and get_embedding_service to EmbeddingService.
 Tests: tests/test_embedding_service.py, tests/test_egress_fence.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
@@ -291,7 +291,7 @@ must not produce a vector under the original identity.
 Status: BUILT
 Evidence: EmbeddingIdentity exposes truthful embedding_space_id, provider, model, dimension, normalized, version, and model_revision. EmbeddingService enforces fail-closed semantics (EmbeddingUnavailableError) when a model is missing or fails, preventing silent cross-family fallbacks.
 Tests: tests/test_embedding_service.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
@@ -322,7 +322,7 @@ Test provider construction and actual call paths.
 Status: BUILT
 Evidence: Added external_provider_enabled flag to MesaConfig. AdapterFactory and EmbeddingService strictly block external provider instantiation (OpenAI, Claude, hosted endpoints) with ExternalProviderForbiddenError and ValueError when external_provider_enabled=False. Mode 2 validation fails closed when external validators are disallowed.
 Tests: tests/test_egress_fence.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
@@ -348,7 +348,7 @@ Do not overwrite the current active generation in place.
 Status: BUILT
 Evidence: Updated MesaConfig defaults to local_embedding_model='magibu/embeddingmagibu-200m', embedding_dimension=768, and normalized=True in configured_embedding_identity.
 Tests: tests/test_embedding_service.py, tests/test_golden_smoke_set.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
@@ -385,7 +385,7 @@ restart-safe active generation
 Status: BUILT
 Evidence: Replay, adoption, and cutover contracts in mesa_storage/rebuild_replay.py and mesa_storage/rebuild_cutover.py execute cleanly with canonical EmbeddingService and dimension partitions.
 Tests: tests/test_rebuild_replay_contract.py, tests/test_rebuild_runner_contract.py, tests/test_embedding_identity_adoption.py, tests/test_projection_generation_contract.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
@@ -409,7 +409,7 @@ graph projection consumes canonical state
 Status: BUILT
 Evidence: Implemented GraphProjector in mesa_memory/graph/projector.py consuming canonical FactCandidate objects to project subject/object nodes and relation edges. Graph projection failures are logged and handled without raising or destroying canonical SQL mutations.
 Tests: tests/test_graph_projector.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
@@ -447,7 +447,7 @@ Do NOT download models automatically.
 Status: BUILT
 Evidence: Implemented tests/test_golden_smoke_set.py containing 35 Turkish fact extraction cases across 8 core categories (0 facts, 1 fact, multiple facts, correction/supersession, temporal, preference, config, negative constraint) and 25 retrieval smoke cases. All 60 cases + 104 regression tests (164 total) pass with zero errors.
 Tests: tests/test_golden_smoke_set.py, tests/test_r4_durable_policy_snapshot.py, tests/test_r4_extraction_validation_independence.py, tests/test_turkish_extraction.py, tests/test_rebuild_replay_contract.py
-Commit: pending
+Commit: b1094a1
 
 ---
 
