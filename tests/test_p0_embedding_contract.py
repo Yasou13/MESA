@@ -76,6 +76,7 @@ async def test_embedding_contract_and_dimension_validation(tmp_path):
         "embedding_provider": "sentence-transformers",
         "embedding_model": "all-MiniLM-L6-v2",
         "embedding_version": "1.0",
+        "embedding_model_revision": "revision-a",
         "embedding_dimension": 384,
     }
     await dao.record_mutation(mut_matching, raw_log_id=None)

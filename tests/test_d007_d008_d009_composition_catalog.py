@@ -14,14 +14,11 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 @pytest.mark.asyncio
 async def test_d007_fresh_install_config_coherence():
-    """Verify that .env.example contains MiniLM-L6-v2 dimension 384 and commented Tier-3 examples."""
+    """Verify the default Magibu embedding profile and Tier-3 examples."""
     content = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
 
-    assert "MESA_EMBEDDING_DIMENSION=384" in content
-    assert (
-        "MESA_EMBEDDING_DIMENSION=1536" not in content.split("sentence-transformers")[0]
-    )
-    assert "LLM_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2" in content
+    assert "MESA_EMBEDDING_DIMENSION=768" in content
+    assert "MESA_LOCAL_EMBEDDING_MODEL=magibu/embeddingmagibu-200m" in content
     for setting in (
         "MESA_TIER3_LLM_PROVIDER_A",
         "MESA_TIER3_LLM_MODEL_A",

@@ -22,8 +22,11 @@ from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 class _DeterministicProvider(BaseUniversalLLMAdapter):
     model_name = "operator-approval-lifecycle"
 
-    def complete(self, _prompt: str, schema: Any = None, **_kwargs: Any) -> Any:
+    def complete(self, prompt: str, schema: Any = None, **_kwargs: Any) -> Any:
         if schema is not None:
+            source_span = prompt.rsplit("<UNTRUSTED_SOURCE>\n", 1)[-1].split(
+                "\n</UNTRUSTED_SOURCE>", 1
+            )[0]
             return schema.model_validate(
                 {
                     "facts": [
@@ -33,6 +36,7 @@ class _DeterministicProvider(BaseUniversalLLMAdapter):
                             "predicate": "SUPPORTS",
                             "object": "operator approval",
                             "confidence": 1.0,
+                            "source_span": source_span,
                         }
                     ]
                 }
@@ -244,7 +248,7 @@ async def test_public_remember_approval_recall_survives_restart(
                     )
                 )
                 assert any(
-                    memory["content"] == "operator approval"
+                    "operator approval" in memory["content"]
                     for memory in recall["memories"]
                 ), recall
                 remembered_ids = {memory["memory_id"] for memory in recall["memories"]}

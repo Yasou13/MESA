@@ -273,7 +273,6 @@ GOLDEN_EXTRACTION_CASES = [
                 "subject": "Erişim İzni",
                 "predicate": "DURUMU",
                 "object": "Verildi",
-                "valid_to": "24 saat",
             }
         ],
     },

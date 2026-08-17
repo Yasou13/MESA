@@ -2108,6 +2108,25 @@ class MemoryDAO:
         )
         mutation_id = str(candidate["mutation_id"])
         pipeline_run_id = str(candidate["pipeline_run_id"])
+        metadata = dict(candidate.get("metadata") or {})
+        if "_mesa_embedding_identity" not in metadata:
+            provider = candidate.get("embedding_provider")
+            model = candidate.get("embedding_model")
+            version = candidate.get("embedding_version")
+            dimension = candidate.get("embedding_dimension")
+            if provider and model and version and dimension:
+                normalized = bool(candidate.get("embedding_normalized", True))
+                revision = candidate.get("embedding_model_revision") or version
+                metadata["_mesa_embedding_identity"] = {
+                    "embedding_space_id": candidate.get("embedding_space_id")
+                    or f"{provider}:{model}:{revision}:{dimension}:norm={str(normalized).lower()}",
+                    "provider": provider,
+                    "model": model,
+                    "model_revision": candidate.get("embedding_model_revision"),
+                    "version": version,
+                    "dimension": dimension,
+                    "normalized": normalized,
+                }
         async with self._sql.transaction() as db:
             await db.execute(
                 "INSERT OR IGNORE INTO pipeline_runs "
@@ -2161,7 +2180,7 @@ class MemoryDAO:
                     agent_id,
                     candidate["session_id"],
                     candidate["content_payload"],
-                    json.dumps(candidate.get("metadata", {}), sort_keys=True),
+                    json.dumps(metadata, sort_keys=True),
                     candidate.get("source", "api"),
                     pipeline_run_id,
                     candidate.get("extraction_version", "v4"),
@@ -4370,6 +4389,17 @@ class MemoryDAO:
         }
         snapshot = mutation.get("embedding_identity_snapshot")
         if not isinstance(snapshot, dict):
+            # Projection callers may carry only the admission response rather
+            # than a fully hydrated work record.  The identity authority is
+            # still the durable admission snapshot, never a fresh runtime
+            # configuration or an inferred fallback.
+            persisted = await self.get_projection_mutation(str(mutation["mutation_id"]))
+            snapshot = (
+                persisted.get("embedding_identity_snapshot")
+                if persisted is not None
+                else None
+            )
+        if not isinstance(snapshot, dict):
             raise ValueError("durable embedding identity snapshot is required")
         required_snapshot_fields = {
             "embedding_space_id",
@@ -5047,7 +5077,7 @@ class MemoryDAO:
         allowed_vector_ids = {
             str(row[1]) for row in artifact_rows if row[0] == "ASSERTION_VECTOR"
         }
-        if not allowed_entity_ids or not allowed_vector_ids:
+        if not allowed_entity_ids:
             return []
 
         vector_lane: list[str] = []
@@ -5088,7 +5118,7 @@ class MemoryDAO:
                             and entity_id not in vector_lane
                         ):
                             vector_lane.append(str(entity_id))
-        except RuntimeError:
+        except (AttributeError, RuntimeError):
             vector_lane = []
 
         tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))

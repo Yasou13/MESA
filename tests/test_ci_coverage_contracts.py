@@ -113,13 +113,13 @@ async def test_openai_adapter_async_contract_with_fake_sdk(monkeypatch) -> None:
     assert await adapter.aembed_batch(["one"]) == [[0.6]]
 
 
-def test_openai_adapter_not_found_uses_local_embedding(monkeypatch) -> None:
+def test_openai_adapter_not_found_fails_closed(monkeypatch) -> None:
     live, sdk, sync_client, _ = _install_openai_fake(monkeypatch)
     adapter = live.OpenAICompatibleAdapter(api_key="test-key")
     sync_client.embeddings.create.side_effect = sdk.NotFoundError("missing model")
-    monkeypatch.setattr("mesa_memory.adapter.claude._local_embed", lambda text: [0.9])
 
-    assert adapter.embed("fallback") == [0.9]
+    with pytest.raises(RuntimeError, match="embedding model is unavailable"):
+        adapter.embed("fallback")
 
 
 def test_openai_adapter_sync_error_contract_without_retry_delay(monkeypatch) -> None:

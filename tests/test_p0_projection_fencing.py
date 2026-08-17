@@ -8,6 +8,27 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
 
+def _with_embedding_snapshot(mutation):
+    mutation.update(
+        {
+            "embedding_provider": "test",
+            "embedding_model": "test-model",
+            "embedding_version": "v1",
+            "embedding_dimension": 384,
+            "embedding_identity_snapshot": {
+                "embedding_space_id": "test:test-model:v1:384:norm=true",
+                "provider": "test",
+                "model": "test-model",
+                "model_revision": None,
+                "version": "v1",
+                "dimension": 384,
+                "normalized": True,
+            },
+        }
+    )
+    return mutation
+
+
 @pytest.mark.asyncio
 async def test_projection_fencing_against_rollback(tmp_path):
     """Verify that completing a projection after rollback fails and cannot advance state."""
@@ -360,7 +381,7 @@ async def test_physical_vector_and_graph_side_effect_compensated_on_fencing_loss
     assert claims[0]["projection_name"] == "VECTOR"
 
     # 2. Worker performs physical writes
-    mut = await dao.get_projection_mutation(mutation_id)
+    mut = _with_embedding_snapshot(await dao.get_projection_mutation(mutation_id))
     node_id = await dao.project_v4_vector_entity(mutation=mut, entity_name="A")
     assert node_id in stored_vectors
 
@@ -469,7 +490,7 @@ async def test_post_write_fence_loss_compensates_unowned_physical_state(
             "VALUES ('mutation', 'candidate', 'tenant', 'agent', 'data', 'doc', 'revision', 'chunk', 'session', 'run', 'source', '{}', 'VALIDATED')"
         )
         await db.commit()
-    mutation = await dao.get_projection_mutation("mutation")
+    mutation = _with_embedding_snapshot(await dao.get_projection_mutation("mutation"))
     assert mutation is not None
 
     with pytest.raises(ValueError, match="cannot register artifact"):
@@ -553,7 +574,7 @@ async def test_failed_immediate_vector_compensation_stays_durable_until_deleted(
             "VALUES ('mutation', 'candidate', 'tenant', 'agent', 'data', 'doc', 'revision', 'chunk', 'session', 'run', 'source', '{}', 'VALIDATED')"
         )
         await db.commit()
-    mutation = await dao.get_projection_mutation("mutation")
+    mutation = _with_embedding_snapshot(await dao.get_projection_mutation("mutation"))
     assert mutation is not None
 
     with pytest.raises(ValueError, match="cannot register artifact"):

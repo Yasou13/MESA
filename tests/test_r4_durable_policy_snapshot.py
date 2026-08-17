@@ -317,9 +317,21 @@ async def test_dao_admission_ignores_caller_controlled_validation_metadata(
         )
         assert raw_log is not None
         assert raw_log["payload"]["validation_mode"] == 2
-        assert raw_log["payload"]["metadata"] == {
-            "_mesa_validation_mode": 2,
-            "public": "kept",
+        assert (
+            raw_log["payload"]["metadata"].items()
+            >= {
+                "_mesa_validation_mode": 2,
+                "public": "kept",
+            }.items()
+        )
+        assert raw_log["payload"]["metadata"]["_mesa_embedding_identity"] == {
+            "embedding_space_id": embedding.embedding_space_id,
+            "provider": embedding.provider,
+            "model": embedding.model,
+            "model_revision": embedding.model_revision,
+            "version": embedding.version,
+            "dimension": embedding.dimension,
+            "normalized": embedding.normalized,
         }
 
         model_disabled = await dao.admit_v4_memory(

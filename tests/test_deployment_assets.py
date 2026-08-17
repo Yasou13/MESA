@@ -122,11 +122,13 @@ def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
     )
     environment = compose["services"]["mesa-v4"]["environment"]
     assert {
-        "MESA_LLM_PROVIDER",
         "LLM_BASE_URL",
         "LLM_API_KEY",
         "LLM_MODEL_NAME",
-        "LLM_EMBEDDING_MODEL",
+        "MESA_LOCAL_EMBEDDING_MODEL",
+        "MESA_EMBEDDING_PROVIDER",
+        "MESA_EMBEDDING_DIMENSION",
+        "MESA_EMBEDDING_NORMALIZED",
         "MESA_TIER3_LLM_PROVIDER_A",
         "MESA_TIER3_LLM_MODEL_A",
         "MESA_TIER3_LLM_PROVIDER_B",
