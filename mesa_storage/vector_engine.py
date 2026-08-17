@@ -204,7 +204,7 @@ class VectorEngine:
         metric: str = _DEFAULT_METRIC,
         allow_model_loading: bool = False,
         embedding_provider: EmbeddingProvider | None = None,
-        local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        local_embedding_model: str = "magibu/embeddingmagibu-200m",
         embedding_service: EmbeddingServicePort | None = None,
     ) -> None:
         self._uri = uri

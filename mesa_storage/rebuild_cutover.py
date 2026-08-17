@@ -522,7 +522,7 @@ def default_vector_verification_factory(
     embedding_provider: EmbeddingProvider | None,
     embedding_service: Any | None = None,
     allow_model_loading: bool,
-    local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+    local_embedding_model: str = "magibu/embeddingmagibu-200m",
 ) -> Callable[[Path], VectorVerificationTarget]:
     return lambda path: VectorEngine(
         str(path),
