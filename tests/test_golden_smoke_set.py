@@ -11,9 +11,6 @@ import pytest
 
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_memory.extraction.service import (
-    DeterministicFactValidator,
-    FactCandidate,
-    FactExtractionResponse,
     FactExtractionService,
 )
 
@@ -398,37 +395,47 @@ GOLDEN_EXTRACTION_CASES = [
 ]
 
 
-@pytest.mark.parametrize("case", GOLDEN_EXTRACTION_CASES, ids=[c["id"] for c in GOLDEN_EXTRACTION_CASES])
-def test_golden_smoke_fact_extraction(case):
-    """Validate fact candidate structure, validation, and deduplication for golden cases."""
-    validator = DeterministicFactValidator()
+class GoldenExtractionAdapter:
+    """Deterministic provider-boundary fixture; no model download is involved."""
 
-    if case["expected_facts_count"] == 0:
-        response = FactExtractionResponse(facts=[])
-        validated = validator.deduplicate_and_canonicalize(response.facts, case["text"])
-        assert len(validated) == 0
-    else:
-        raw_facts = [
-            FactCandidate(
-                fact_text=f"{f['subject']} {f['predicate']} {f['object']}",
-                subject=f["subject"],
-                predicate=f["predicate"],
-                object=f["object"],
-                valid_from=f.get("valid_from"),
-                valid_to=f.get("valid_to"),
-                supersedes=f.get("supersedes"),
-                confidence=1.0,
-                source_span=case["text"],
-            )
-            for f in case["facts"]
-        ]
-        validated = validator.deduplicate_and_canonicalize(raw_facts, case["text"])
-        assert len(validated) == case["expected_facts_count"]
-        for fact in validated:
-            assert fact.subject != ""
-            assert fact.predicate != ""
-            assert fact.object != ""
-            assert 0.0 <= fact.confidence <= 1.0
+    def __init__(self, case):
+        self.case = case
+        self.calls = 0
+
+    def complete(self, _prompt, schema=None, **_kwargs):
+        self.calls += 1
+        assert schema.__name__ == "FactExtractionResponse"
+        return {
+            "facts": [
+                {
+                    "fact_text": f"{fact['subject']} {fact['predicate']} {fact['object']}",
+                    "subject": fact["subject"],
+                    "predicate": fact["predicate"],
+                    "object": fact["object"],
+                    "valid_from": fact.get("valid_from"),
+                    "valid_to": fact.get("valid_to"),
+                    "confidence": 1.0,
+                    "source_span": self.case["text"],
+                    "supersedes": fact.get("supersedes"),
+                }
+                for fact in self.case.get("facts", [])
+            ]
+        }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", GOLDEN_EXTRACTION_CASES, ids=[c["id"] for c in GOLDEN_EXTRACTION_CASES])
+async def test_golden_smoke_fact_extraction(case):
+    """Exercise the strict canonical service against every Turkish smoke case."""
+    adapter = GoldenExtractionAdapter(case)
+    facts = await FactExtractionService(llm=adapter).extract_facts(case["text"])
+
+    assert adapter.calls == 1
+    assert len(facts) == case["expected_facts_count"]
+    assert [(fact.subject, fact.predicate, fact.object) for fact in facts] == [
+        (fact["subject"], fact["predicate"], fact["object"])
+        for fact in case.get("facts", [])
+    ]
 
 
 # ===========================================================================
@@ -464,16 +471,37 @@ GOLDEN_RETRIEVAL_QUERIES = [
 
 
 @pytest.mark.parametrize("qid,query,keyword", GOLDEN_RETRIEVAL_QUERIES)
-def test_golden_smoke_retrieval_query_embedding(qid, query, keyword):
-    """Ensure query embeddings are produced deterministically with 768d normalized vectors."""
+def test_golden_smoke_retrieval_ranks_expected_memory_top_three(qid, query, keyword):
+    """Check a deterministic provider's query/document space, not only vector shape."""
+    keyword_folded = keyword.casefold()
+
+    def provider(text):
+        return (
+            [1.0, 0.0, 0.0]
+            if text == query or keyword_folded in text.casefold()
+            else [0.0, 1.0, 0.0]
+        )
+
     ident = EmbeddingIdentity(
         provider="mock",
         model="magibu/embeddingmagibu-200m",
-        dimension=768,
+        dimension=3,
         normalized=True,
     )
-    service = EmbeddingService(identity=ident)
+    service = EmbeddingService(identity=ident, provider_fn=provider)
+    memories = [
+        f"Hedef bellek: {keyword}",
+        "İlgisiz bellek: hava durumu",
+        "İlgisiz bellek: toplantı notları",
+        "İlgisiz bellek: başka bir tercih",
+    ]
 
     q_vec = service.embed_query(query)
-    assert len(q_vec) == 768
-    assert pytest.approx(sum(x * x for x in q_vec), 1e-4) == 1.0
+    ranked = sorted(
+        memories,
+        key=lambda memory: sum(
+            q * d for q, d in zip(q_vec, service.embed_document(memory))
+        ),
+        reverse=True,
+    )
+    assert memories[0] in ranked[:3]
