@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 
 from mesa_memory.api import server
-from mesa_memory.config import configured_embedding_identity
+from mesa_memory.config import config, configured_embedding_identity
 from mesa_workers.projection_worker import process_projection_outbox_once
 
 
@@ -15,6 +15,18 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     storage = tmp_path / "external-runtime"
+    original_config = {
+        field: getattr(config, field)
+        for field in (
+            "external_provider_enabled",
+            "embedding_provider",
+            "external_embedding_model",
+            "embedding_dimension",
+            "embedding_version",
+            "embedding_model_revision",
+            "embedding_normalized",
+        )
+    }
     monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
     monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
     monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
@@ -121,3 +133,5 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
         assert ("construct", "external-test-model") in calls
         assert ("query", "MESA USES external embeddings") in calls
         assert ("query", "external embedding query") in calls
+    for field, value in original_config.items():
+        object.__setattr__(config, field, value)
