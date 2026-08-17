@@ -562,7 +562,7 @@ class MemoryDAO:
                 raise ValueError("document identity collides with another dataset")
             if external_ref and row["external_ref"] not in (None, external_ref):
                 raise ValueError("document external_ref is immutable")
-                await db.commit()
+            await db.commit()
         result = dict(row)
         result["dataset_id"] = external_dataset_id
         result["document_id"] = external_document_id
