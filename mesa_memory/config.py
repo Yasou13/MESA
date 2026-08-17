@@ -745,6 +745,8 @@ class MesaConfig(BaseSettings):
         fully local, zero-API-cost operation.
 
         Overrides:
+          - mesa_llm_provider  → "ollama"
+          - llm_model_name     → "qwen3:8b"
           - extraction_provider → "ollama"
           - extraction_model    → "qwen3:1.7b"
           - extraction_thinking → False
@@ -760,13 +762,13 @@ class MesaConfig(BaseSettings):
         _zcm_logger.info(
             "━━━ ZERO-COST MODE ACTIVE ━━━ "
             "Local Ollama provider selected (%s). "
-            "Embeddings: %s (local). REBEL: enabled.",
+            "Embeddings: %s (local). REBEL: disabled.",
             self.ollama_url,
             self.local_embedding_model,
         )
 
         object.__setattr__(self, "mesa_llm_provider", "ollama")
-        object.__setattr__(self, "llm_model_name", "qwen3:1.7b")
+        object.__setattr__(self, "llm_model_name", "qwen3:8b")
         object.__setattr__(self, "extraction_provider", "ollama")
         object.__setattr__(self, "extraction_model", "qwen3:1.7b")
         object.__setattr__(self, "extraction_thinking", False)
