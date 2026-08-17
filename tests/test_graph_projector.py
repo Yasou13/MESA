@@ -198,3 +198,78 @@ async def test_fact_level_supersession_changes_current_truth_and_rolls_back(tmp_
         assert old_status is not None and old_status[0] == "ACTIVE"
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_supersession_targets_only_the_exact_old_value_and_null_confidence(
+    tmp_path,
+):
+    engine = AsyncEngine(str(tmp_path / "exact-supersession.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    identity = EmbeddingIdentity(
+        provider="mock", model="canonical", version="v1", dimension=4
+    )
+    vector = SimpleNamespace(
+        embedding_identity=identity,
+        compute_embedding=AsyncMock(return_value=[0.5] * 4),
+        upsert=AsyncMock(),
+        hard_delete=AsyncMock(),
+    )
+    graph = SimpleNamespace(
+        insert_node=AsyncMock(),
+        insert_assertion=AsyncMock(),
+        link_assertions=AsyncMock(),
+        delete_assertions=AsyncMock(),
+        delete_nodes=AsyncMock(),
+    )
+    dao = MemoryDAO(engine, vector, graph_provider=graph)
+
+    async def commit(raw_log_id, object_name, supersedes=None, confidence=0.9):
+        candidate = MemoryCandidate.from_raw_log(
+            raw_log_id=raw_log_id,
+            agent_id="tenant-a",
+            session_id="session-a",
+            content_payload=f"Ali knows {object_name}.",
+            embedding_provider=identity.provider,
+            embedding_model=identity.model,
+            embedding_version=identity.version,
+            embedding_dimension=identity.dimension,
+            validation_mode=0,
+        ).as_consolidation_record()
+        await dao.record_mutation(candidate, raw_log_id=raw_log_id)
+        await dao.record_mutation_extraction(
+            "tenant-a",
+            candidate["mutation_id"],
+            [
+                {
+                    "head": "Ali",
+                    "relation": "KNOWS",
+                    "tail": object_name,
+                    "fact_text": f"Ali knows {object_name}.",
+                    "source_span": f"Ali knows {object_name}.",
+                    "supersedes": supersedes,
+                    "confidence": confidence,
+                }
+            ],
+        )
+        await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
+        for _ in range(3):
+            assert (await process_projection_outbox_once(dao))["completed"] == 1
+        return candidate
+
+    try:
+        english = await commit(1401, "English")
+        german = await commit(1402, "German")
+        french = await commit(1403, "French", supersedes="English", confidence=None)
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT mutation_id, status, confidence FROM v4_assertions WHERE predicate = 'KNOWS'"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        observed = {str(row[0]): (str(row[1]), float(row[2])) for row in rows}
+        assert observed[str(english["mutation_id"])] == ("SUPERSEDED", 0.9)
+        assert observed[str(german["mutation_id"])] == ("ACTIVE", 0.9)
+        assert observed[str(french["mutation_id"])] == ("ACTIVE", 1.0)
+    finally:
+        await engine.close()

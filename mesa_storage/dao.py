@@ -4529,7 +4529,6 @@ class MemoryDAO:
         """Apply the Graph V2 Entity + Assertion projection for one triplet."""
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
-        graph = self._require_graph()
         tenant_id = str(mutation["tenant_id"])
         head = str(triplet["head"])
         tail = str(triplet["tail"]) if triplet.get("tail") is not None else None
@@ -4643,15 +4642,21 @@ class MemoryDAO:
                 elif triplet.get("supersedes"):
                     async with db.execute(
                         "SELECT assertion_id FROM v4_assertions "
-                        "WHERE tenant_id = ? AND dataset_id = ? "
-                        "AND subject_id = ? AND predicate = ? "
-                        "AND assertion_id != ? AND status = 'ACTIVE'",
+                        "LEFT JOIN v4_entities object_entity "
+                        "ON object_entity.entity_id = v4_assertions.object_entity_id "
+                        "WHERE v4_assertions.tenant_id = ? AND v4_assertions.dataset_id = ? "
+                        "AND v4_assertions.subject_id = ? AND v4_assertions.predicate = ? "
+                        "AND v4_assertions.assertion_id != ? "
+                        "AND v4_assertions.status = 'ACTIVE' "
+                        "AND lower(trim(COALESCE(object_entity.canonical_name, "
+                        "v4_assertions.literal_value, ''))) = lower(trim(?))",
                         (
                             tenant_id,
                             mutation["dataset_id"],
                             subject_id,
                             relation,
                             assertion_id,
+                            str(triplet["supersedes"]),
                         ),
                     ) as cursor:
                         superseded_assertion_ids = [
@@ -4687,6 +4692,7 @@ class MemoryDAO:
 
             # Everything below is a derived Kuzu projection.  Its failure is
             # compensated/retried independently of the SQL assertion above.
+            graph = self._require_graph()
             for entity_id, entity_name in graph_entities:
                 await graph.insert_node(entity_id, entity_name, agent_id)
             await graph.insert_assertion(
