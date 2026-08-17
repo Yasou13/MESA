@@ -58,7 +58,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 
 import pyarrow as pa
 
@@ -76,6 +76,20 @@ _DEFAULT_TABLE_PREFIX = "mesa_vectors_"
 _MAX_WORKERS = 4
 
 EmbeddingProvider = Callable[[str], Awaitable[list[float]]]
+
+
+class EmbeddingServicePort(Protocol):
+    """Storage-facing structural contract; implementation lives above storage."""
+
+    def identity(self) -> Any: ...
+
+    def embed_document(self, text: str) -> list[float]: ...
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+
+    async def aembed_document(self, text: str) -> list[float]: ...
+
+    async def aembed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
 class VectorSearchError(RuntimeError):
@@ -191,7 +205,7 @@ class VectorEngine:
         allow_model_loading: bool = False,
         embedding_provider: EmbeddingProvider | None = None,
         local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
-        embedding_service: Any | None = None,
+        embedding_service: EmbeddingServicePort | None = None,
     ) -> None:
         self._uri = uri
         self._metric = metric
@@ -210,13 +224,10 @@ class VectorEngine:
         self._embedding_provider = embedding_provider
         self._local_embedding_model = local_embedding_model
         self._embedding_service = embedding_service
-
-        if self._embedding_service is None and allow_model_loading:
-            from mesa_memory.embedding.service import get_embedding_service
-
-            # Construction failures are policy/availability failures.  They
-            # must not silently expose the legacy provider as another space.
-            self._embedding_service = get_embedding_service(allow_model_loading=True)
+        # Retained as a constructor compatibility argument only.  Service
+        # composition belongs to the API/worker/rebuild boundary; storage must
+        # never import or select an embedding implementation.
+        _ = allow_model_loading
 
     # ------------------------------------------------------------------
     # Properties

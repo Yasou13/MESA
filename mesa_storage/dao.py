@@ -3130,7 +3130,7 @@ class MemoryDAO:
         rewrite.  Client supplied metadata cannot overwrite this namespace.
         """
         _assert_valid_agent_id(agent_id)
-        normalized = []
+        normalized: list[dict[str, Any]] = []
         for triplet in triplets:
             tail = triplet.get("tail")
             literal = triplet.get("literal_value")

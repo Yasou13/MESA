@@ -11,7 +11,7 @@ Architectural Invariants:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 
 class GraphProjectionError(RuntimeError):
@@ -34,7 +34,10 @@ class GraphProjector:
             raise GraphProjectionError(
                 "graph projection requires a canonical assertion"
             )
-        return await self.dao.project_v4_graph_triplet(
-            mutation=mutation,
-            triplet=triplet,
+        return cast(
+            str,
+            await self.dao.project_v4_graph_triplet(
+                mutation=mutation,
+                triplet=triplet,
+            ),
         )

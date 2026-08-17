@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mesa_memory.embedding.service import (
+    EmbeddingGenerationError,
     EmbeddingIdentity,
     EmbeddingIdentityMismatchError,
-    EmbeddingGenerationError,
     EmbeddingService,
     EmbeddingUnavailableError,
     ExternalProviderForbiddenError,
@@ -199,25 +199,14 @@ def test_local_cache_miss_never_attempts_download(monkeypatch):
     assert calls == [("missing-local-model", {"local_files_only": True})]
 
 
-def test_vector_engine_does_not_fallback_when_service_construction_fails(
-    tmp_path, monkeypatch
-):
-    import mesa_memory.embedding.service as service_module
+@pytest.mark.asyncio
+async def test_vector_engine_never_self_composes_embedding_service(tmp_path):
+    engine = VectorEngine(str(tmp_path / "vectors"), allow_model_loading=True)
+    engine._initialized = True
 
-    legacy_provider = AsyncMock()
-    monkeypatch.setattr(
-        service_module,
-        "get_embedding_service",
-        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("service unavailable")),
-    )
-
-    with pytest.raises(RuntimeError, match="service unavailable"):
-        VectorEngine(
-            str(tmp_path / "vectors"),
-            allow_model_loading=True,
-            embedding_provider=legacy_provider,
-        )
-    legacy_provider.assert_not_called()
+    assert engine.embedding_identity is None
+    with pytest.raises(RuntimeError, match="no canonical embedding service"):
+        await engine.compute_embedding("must require explicit composition")
 
 
 def test_l2_normalization_helper():

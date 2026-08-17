@@ -1,7 +1,8 @@
 """Tests for Task F010: Hard External Provider Egress Fence."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config

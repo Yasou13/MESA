@@ -35,7 +35,7 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             raise PermanentProjectionError("invalid durable projection extraction")
         try:
-            triplet = {
+            triplet: dict[str, Any] = {
                 "head": str(item["head"]),
                 "relation": str(item["relation"]),
                 "tail": str(item["tail"]) if item.get("tail") else None,

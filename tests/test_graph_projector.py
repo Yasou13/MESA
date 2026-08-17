@@ -1,8 +1,9 @@
 """Tests for the production canonical GraphProjector boundary."""
 
-from unittest.mock import AsyncMock, MagicMock
-from types import SimpleNamespace
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate

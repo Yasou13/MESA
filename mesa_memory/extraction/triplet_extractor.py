@@ -20,9 +20,7 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 from mesa_memory.consolidation.parser import (
     BATCH_PROMPT_A_TEMPLATE,
-    BATCH_PROMPT_B_TEMPLATE,
     PROMPT_A_TEMPLATE,
-    PROMPT_B_TEMPLATE,
     BatchResponseParser,
     _estimate_salience,
 )
