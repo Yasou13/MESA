@@ -9,12 +9,20 @@ from mesa_memory.config import config
 logger = logging.getLogger("MESA_Tokenizer")
 
 
-def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
+def count_tokens(
+    text: str,
+    adapter_type: str,
+    model_id: str = "",
+    *,
+    strict: bool = False,
+) -> int:
     if adapter_type in ("claude", "openai"):
         try:
             enc = tiktoken.get_encoding("cl100k_base")
             return len(enc.encode(text))
         except Exception as exc:
+            if strict:
+                raise RuntimeError("canonical tokenizer is unavailable") from exc
             # tiktoken lazily downloads its encoding table on a cold cache.
             # Token budgeting must remain available in offline CI and local
             # development, so use the same conservative fallback as Ollama.
@@ -29,6 +37,8 @@ def count_tokens(text: str, adapter_type: str, model_id: str = "") -> int:
             tokenizer = AutoTokenizer.from_pretrained(model_id)
             return len(tokenizer.encode(text))
         except (OSError, ValueError, ImportError) as exc:
+            if strict:
+                raise RuntimeError("configured tokenizer is unavailable") from exc
             logger.warning(
                 "AutoTokenizer.from_pretrained(%s) failed, using word-count estimate: %s",
                 model_id,

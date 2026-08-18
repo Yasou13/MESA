@@ -21,15 +21,15 @@ def _count_tokens(text: str) -> int:
     """Canonical tokenizer counting path for ContextBuilder."""
     if not text:
         return 0
-    return count_tokens(text, adapter_type="openai")
+    return count_tokens(text, adapter_type="openai", strict=True)
 
 
-def _escape_delimiters(text: str) -> str:
-    """Neutralize delimiter tags inside untrusted content strings."""
-    if not text:
-        return ""
-    return text.replace(TAG_CLOSE, "<\\/UNTRUSTED_MEMORY_EVIDENCE>").replace(
-        TAG_OPEN, "<\\UNTRUSTED_MEMORY_EVIDENCE>"
+def _render_evidence_record(record: dict[str, Any]) -> str:
+    """Serialize one record without allowing it to form evidence-tag syntax."""
+    return (
+        json.dumps(record, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
     )
 
 
@@ -44,11 +44,11 @@ def _render_context(
     if session_records:
         lines.append("=== Current Session Information ===")
         for rec in session_records:
-            lines.append(json.dumps(rec, ensure_ascii=False))
+            lines.append(_render_evidence_record(rec))
     if memory_records:
         lines.append("=== Long-Term Canonical Truth ===")
         for rec in memory_records:
-            lines.append(json.dumps(rec, ensure_ascii=False))
+            lines.append(_render_evidence_record(rec))
     lines.append(TAG_CLOSE)
     return "\n".join(lines)
 
@@ -107,14 +107,14 @@ class ContextBuilder:
             session_records.append(
                 {
                     "type": "session_log",
-                    "content": _escape_delimiters(str(log.get("content", ""))),
+                    "content": str(log.get("content", "")),
                 }
             )
 
         memory_records: list[dict[str, Any]] = []
         for item in canonical_memories:
             entity = item.get("entity", {})
-            name = _escape_delimiters(str(entity.get("canonical_name", "")))
+            name = str(entity.get("canonical_name", ""))
             provenance = item.get("provenance", [])
             facts: list[dict[str, Any]] = []
             if provenance:
@@ -123,7 +123,7 @@ class ContextBuilder:
                     val = p.get("literal_value")
                     if val is None:
                         val = p.get("object_name") or p.get("object_entity_id") or ""
-                    val_str = _escape_delimiters(str(val))
+                    val_str = str(val)
                     fact_dict: dict[str, Any] = {
                         "predicate": predicate,
                         "value": val_str,
@@ -131,33 +131,27 @@ class ContextBuilder:
                     if include_provenance:
                         source_ref = p.get("source_ref")
                         if source_ref:
-                            fact_dict["source_ref"] = _escape_delimiters(
-                                str(source_ref)
-                            )
+                            fact_dict["source_ref"] = str(source_ref)
                         doc_id = p.get("document_id")
                         if doc_id:
-                            fact_dict["document_id"] = _escape_delimiters(str(doc_id))
+                            fact_dict["document_id"] = str(doc_id)
                         rev_id = p.get("revision_id")
                         if rev_id:
-                            fact_dict["revision_id"] = _escape_delimiters(str(rev_id))
+                            fact_dict["revision_id"] = str(rev_id)
                         chunk_id = p.get("chunk_id")
                         if chunk_id:
-                            fact_dict["chunk_id"] = _escape_delimiters(str(chunk_id))
+                            fact_dict["chunk_id"] = str(chunk_id)
                         evidence_span = p.get("evidence_span")
                         if evidence_span:
-                            fact_dict["evidence_span"] = _escape_delimiters(
-                                str(evidence_span)[:MAX_EVIDENCE_SPAN_CHARS]
-                            )
+                            fact_dict["evidence_span"] = str(evidence_span)[
+                                :MAX_EVIDENCE_SPAN_CHARS
+                            ]
                         jurisdiction = p.get("jurisdiction")
                         if jurisdiction:
-                            fact_dict["jurisdiction"] = _escape_delimiters(
-                                str(jurisdiction)
-                            )
+                            fact_dict["jurisdiction"] = str(jurisdiction)
                         authority = p.get("authority_level")
                         if authority:
-                            fact_dict["authority_level"] = _escape_delimiters(
-                                str(authority)
-                            )
+                            fact_dict["authority_level"] = str(authority)
                     facts.append(fact_dict)
 
             memory_records.append(
