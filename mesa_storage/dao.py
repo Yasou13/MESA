@@ -4367,7 +4367,7 @@ class MemoryDAO:
                     (
                         pipeline_run_id,
                         tenant_id,
-                        dataset_ids[0] if len(dataset_ids) == 1 else None,
+                        resolved_datasets[0] if len(resolved_datasets) == 1 else None,
                         agent_id,
                     ),
                 )
@@ -4387,7 +4387,11 @@ class MemoryDAO:
                             registry_id,
                             tenant_id,
                             "__tenant__" if store == "SQL" else agent_id,
-                            dataset_ids[0] if len(dataset_ids) == 1 else None,
+                            (
+                                resolved_datasets[0]
+                                if len(resolved_datasets) == 1
+                                else None
+                            ),
                             store,
                             kind,
                             physical_id,
