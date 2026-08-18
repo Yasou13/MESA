@@ -1,18 +1,24 @@
-# MESA MVP — Certification Round 7 Agent Contract
+# MESA MVP — Certification Round 8 Agent Contract
 
 ## Active Round
 
-Certification Round 7:
+Certification Round 8:
 
-> Lifecycle + Catalog Identity Correctness
+> Recovery + Durability + V3 Compatibility
 
 Active branch:
 
 ```text
-mvp/certification-round-7-lifecycle-catalog
+mvp/certification-round-8-recovery-durability-compat
 ```
 
-Gemini, Terra and Sol MUST work on the same branch.
+Round 7 certified baseline commit:
+
+```text
+704298257b53b4af4cd1055453599aed58b981e7
+```
+
+Gemini, Terra and Sol MUST work on the same Round 8 branch.
 
 Do not implement production changes directly on `main`.
 
@@ -20,7 +26,7 @@ Do not implement production changes directly on `main`.
 
 # Source of Truth
 
-For Round 7:
+For Round 8:
 
 ```text
 1. Current AGENTS.md + current .agents/*
@@ -39,34 +45,34 @@ For Round 7:
    = evidence pointers, never proof
 
 6. Git history
-   = historical contract and migration evidence
+   = historical implementation/migration evidence
 ```
 
-Every historical finding MUST be reproduced against the current Round 7 branch before repair.
+Do not treat an old audit statement as current fact until reproduced.
 
 ---
 
-# Round 7 Goal
+# Round 8 Goal
 
-Close five bounded MVP correctness areas:
+Close exactly three bounded MVP risk areas:
 
 ```text
-A. Late manifest finalization / revision activation
+A. Backup consistency / quiescence authority
 
-B. Semantic REJECTED replay truthfulness
+B. SQLite durability contract
 
-C. Historical rollback/replay authorization
-
-D. Revision hash semantic separation
-
-E. Public vs physical catalog identity boundary
+C. V3 cold-start compatibility
 ```
 
-Round 7 is NOT a general lifecycle or catalog rewrite.
+Round 8 is NOT a storage rewrite.
+
+Round 8 is NOT a disaster-recovery platform.
+
+Round 8 is NOT a V3 modernization project.
 
 ---
 
-# Frozen Round 4–6 Baseline
+# Frozen Round 4–7 Baseline
 
 Do not redesign previously certified architecture.
 
@@ -83,17 +89,15 @@ Mode 0 → 0 validators
 Mode 1 → 1 validator
 Mode 2 → 2 validators
 
-normal extraction call count = 1
+normal extraction count = 1
 
 REBEL absent from canonical V4
-
-0..N FactCandidate
 
 canonical SQL truth independent from graph
 
 EmbeddingService canonical ownership
 
-full embedding-space identity fencing
+embedding-space identity fencing
 
 generation rebuild/cutover
 
@@ -101,377 +105,510 @@ fact/assertion semantic retrieval
 
 tenant-scoped RBAC
 
-RBAC schema migration authority
+RBAC physical-schema validation
 
 ContextBuilder untrusted evidence boundary
 
-strict canonical token budget
+strict ContextBuilder token budget
 
 bounded provenance rendering
+
+late manifest activation reconciliation
+
+semantic REJECTED is non-replayable
+
+historical rollback/replay authorization
+
+declared revision / manifest / chunk hash separation
+
+opaque new catalog physical IDs
+
+physical IDs are not public aliases
+
+public physical-ID leakage boundary
 ```
 
-Round 7 changes must not weaken these contracts.
+Round 8 changes must not weaken these contracts.
 
 ---
 
-# A — Late Manifest Finalization
+# A — Backup Consistency Authority
 
-## Current Risk
+## Historical Risk
 
-A revision may have all required child mutations committed while its manifest is still unfrozen.
-
-Current commit-time activation barrier correctly refuses activation before:
+The historical backup path could trust a caller-supplied declaration equivalent to:
 
 ```text
-manifest_frozen_at != NULL
+stores_stopped=True
 ```
 
-However, finalizing/freezing the manifest later must itself reconcile revision activation.
+without independently proving that the relevant storage state was actually quiescent/safe.
 
-Hard invariant:
-
-```text
-all manifest chunks have committed canonical children
-+
-manifest is frozen
-↓
-revision activation barrier is re-evaluated
-```
-
-Do not require an unrelated future mutation transition to trigger activation.
+A caller-controlled boolean is NOT sufficient proof of backup consistency.
 
 ---
 
-# Activation Requirements
+# Backup Hard Invariant
 
-Manifest finalization must be:
-
-```text
-atomic
-idempotent
-race-safe
-head-safe
-```
-
-Correct conceptual flow:
+A backup may be reported as:
 
 ```text
-children commit early
-↓
-revision remains PENDING
-↓
-manifest finalized
-↓
-same canonical activation invariant is re-evaluated
-↓
-revision becomes ACTIVE exactly when complete
+consistent / successful
 ```
 
-Do not create a second lifecycle engine.
+only if consistency is established by the backup/storage implementation itself.
 
-Reuse/extract the existing activation barrier.
-
-The same invariant must govern both:
+Valid strategies may include, depending on current architecture:
 
 ```text
-mutation commit
-manifest finalization
+actual verified store lifecycle state
+
+existing write/quiesce lock
+
+existing coordinated store stop/close primitive
+
+SQLite's supported consistent backup/snapshot primitive
+
+another already-present repository primitive with equivalent proof
 ```
+
+Do not invent a distributed snapshot protocol.
 
 ---
 
-# B — REJECTED Replay Truthfulness
+# Caller Declaration Rule
 
-A semantic:
-
-```text
-REJECTED
-```
-
-mutation is terminal under the current MVP state machine.
-
-Round 7 MUST NOT advertise it as replayable simply because its parent pipeline is:
+A value such as:
 
 ```text
-DLQ
+stores_stopped=True
 ```
 
-MVP target:
+may be retained only as:
 
 ```text
-semantic REJECTED
-→ NON_REPLAYABLE
-→ explicit typed conflict / HTTP 409 at public API
+hint
+compatibility input
+precondition request
 ```
 
-Equivalent naming is allowed.
+if required for API compatibility.
 
-Do NOT implement a new revalidation workflow in Round 7.
-
-A future explicit:
-
-```text
-REVALIDATE
-```
-
-operation may be designed post-MVP.
-
-Projection/cleanup failures that are genuinely replayable must continue to replay.
+It MUST NOT be the sole authority that permits an unsafe raw copy.
 
 ---
 
-# C — Historical Rollback / Replay Authorization
+# Canonical vs Derived Data
 
-Historical mutation administration must not require the originating session to remain:
-
-```text
-ACTIVE
-```
-
-A closed historical session is still durable evidence of:
+Respect the already-certified architecture:
 
 ```text
-tenant
-workspace
-dataset
-agent
-principal/session ownership
-```
-
-Required authorization concept:
-
-```text
-authenticated principal
-+
-historical session access/ownership
-+
-correct tenant/dataset scope
-+
-explicit dataset ROLLBACK permission
-```
-
-must authorize supported historical rollback/replay operations.
-
-Do not weaken authorization.
-
-Removing the ACTIVE requirement MUST NOT remove:
-
-```text
-principal identity
-tenant scope
-workspace/dataset scope
-session ownership/access
-ROLLBACK permission
-```
-
-REJECTED replay remains denied regardless of permission.
-
----
-
-# D — Revision Hash Semantics
-
-Three identities must remain conceptually distinct:
-
-```text
-1. declared whole-revision content hash
-
-2. manifest hash over the frozen source-chunk manifest
-
-3. individual source-chunk content hash
-```
-
-A first chunk's SHA-256 MUST NOT silently become the declared whole-revision hash.
-
-Preferred semantic naming:
-
-```text
-declared_content_hash
-manifest_hash
-source_chunk.content_hash
-```
-
-Equivalent implementation is allowed if public/storage semantics are unambiguous.
-
----
-
-# Declared Revision Hash
-
-Explicit revision creation may accept a caller-declared whole-revision SHA-256.
-
-Direct chunk/memory insertion without a declared whole-revision hash must NOT fabricate one from the first chunk.
-
-Use:
-
-```text
-NULL / absent / explicit unknown
-```
-
-or another truthful representation.
-
-Do not calculate a whole-document hash unless the complete declared document bytes are actually available under a defined canonicalization contract.
-
----
-
-# Hash Migration
-
-If schema changes are required:
-
-```text
-migration must preserve existing databases
-```
-
-Do not blindly reinterpret historical values as stronger evidence than they are.
-
-Historical `content_hash` rows may have mixed provenance due to previous direct-insert semantics.
-
-Choose a migration strategy that is explicit and safe.
-
-Do not fabricate certainty.
-
----
-
-# E — Public vs Physical Catalog Identity
-
-Public IDs are tenant-scoped client-facing identifiers.
-
-Physical IDs are storage-private identifiers.
-
-Hard boundary:
-
-```text
-external/public ID
+canonical SQL truth
 ≠
-internal physical ID
+derived vector projection
+≠
+derived graph projection
 ```
 
-for newly created catalog identities.
+If backup semantics intentionally treat derived stores as rebuildable rather than canonical, that must be explicit and tested.
 
-New physical IDs MUST be:
-
-```text
-server-generated
-opaque
-not derived from user authority
-```
-
-UUID/UUID7/ULID or equivalent is sufficient.
-
-Do not build a new identity service.
+Do not promote vector or graph state into a second canonical truth merely to simplify backup.
 
 ---
 
-# Resolver Rule
+# Backup Consistency Scope
 
-The public resolver must resolve:
+The implementation must explicitly answer:
 
 ```text
-tenant + kind + external_id
-→ physical_id
+What is included?
+
+What is authoritative?
+
+What must be quiescent?
+
+What may be rebuilt?
+
+When is a backup declared complete?
 ```
 
-It must NOT accept an internal physical ID merely because the caller supplied it in the external/public ID field.
-
-Internal physical IDs are not public aliases.
+Do not leave these semantics implicit in a caller boolean.
 
 ---
 
-# Legacy Compatibility Rule
+# Backup During Writes
 
-Do NOT perform a broad rewrite of every existing legacy physical ID merely to make historical rows cosmetically opaque.
-
-Existing mappings may remain internally if:
+An active-write backup must either:
 
 ```text
-public lookup is external-ID based
-
-internal IDs are not accepted as public aliases
-
-internal IDs are not exposed in public responses
-
-authorization remains public/tenant scoped
+obtain a safe snapshot/quiescent state
 ```
 
-A destructive global catalog-ID rewrite is out of scope unless current code proves it is strictly necessary for correctness.
+or:
+
+```text
+fail closed / refuse the unsafe backup
+```
+
+It must not silently produce an artifact claimed to be consistent while writes are racing with raw filesystem copies.
 
 ---
 
-# Public Response Boundary
+# Backup Completion
 
-Public API, SDK and MCP surfaces must not leak storage-private:
+If the current backup implementation uses:
 
 ```text
-workspace physical IDs
-dataset physical IDs
-document physical IDs
-revision physical IDs
-chunk physical IDs
+temporary directory
+manifest
+completion marker
+final rename
 ```
 
-where the contract expects public identifiers.
+preserve or improve its completion semantics.
 
-Do not only patch one known endpoint.
+An interrupted/failed backup must not be indistinguishable from a successfully completed backup.
+
+Do not create a new backup format unless necessary.
+
+---
+
+# Restore Proof
+
+Round 8 backup verification must include bounded restore/readback evidence.
+
+At minimum prove that backed-up canonical state can be reopened and yields expected data.
+
+Do not turn Round 8 into a full disaster-recovery product.
+
+---
+
+# B — SQLite Durability Contract
+
+## Historical Risk
+
+The historical SQLite configuration used:
+
+```text
+PRAGMA synchronous=NORMAL
+```
+
+for canonical storage connections without a sufficiently explicit production durability contract.
+
+For MESA canonical SQL truth, production durability behavior must be deliberate rather than an accidental driver default.
+
+---
+
+# Production Durability Target
+
+For canonical production/default SQLite writes:
+
+```text
+synchronous = FULL
+```
+
+or an existing repository setting with equivalent or stronger durability semantics is required.
+
+Do not claim stronger guarantees than SQLite/filesystem/hardware can provide.
+
+The contract is:
+
+```text
+MESA requests SQLite's durable FULL synchronization behavior
+for canonical production writes.
+```
+
+---
+
+# Test / Development Profiles
+
+A bounded test/development profile may use a weaker mode such as:
+
+```text
+NORMAL
+```
+
+only when explicitly selected through the repository's existing environment/profile/config pattern.
+
+Do NOT let test performance configuration silently become production default.
+
+---
+
+# Connection Coverage
+
+Durability policy must apply to every relevant canonical write-capable SQLite connection.
 
 Audit:
 
 ```text
-mutation status
-pipeline-run payloads
-sessions
-documents
-revisions
-chunks
-catalog/list responses
-rollback/replay responses
-SDK DTOs
-MCP results
+main MemoryDAO connection
+
+RBAC database if separately SQLite-backed
+
+catalog/migration connections
+
+worker/background canonical write connections
+
+admin/rebuild paths that write canonical SQL
+
+other production SQLite connection factories
 ```
 
-Use explicit response translation/whitelisting where practical.
+Do not mechanically force unrelated read-only or temporary test databases unless the contract requires it.
 
 ---
 
-# Round 7 Explicit Scope
+# Centralization
+
+If an existing SQLite connection/configuration helper exists:
+
+```text
+reuse it
+```
+
+If current PRAGMA configuration is duplicated, a small shared helper is acceptable.
+
+Do NOT introduce:
+
+```text
+new database abstraction framework
+
+new ORM
+
+new connection pool architecture
+```
+
+solely for Round 8.
+
+---
+
+# Journal Mode
+
+Do not change:
+
+```text
+WAL
+DELETE
+TRUNCATE
+```
+
+journal mode globally merely because Round 8 concerns durability.
+
+Preserve existing journal-mode semantics unless current code proves they violate the required contract.
+
+Round 8's known target is synchronization durability, not a journal-mode redesign.
+
+---
+
+# SQLite Verification
+
+Verify actual effective runtime PRAGMA values on opened production-profile connections.
+
+Configuration source alone is not proof.
+
+Required equivalent:
+
+```text
+PRAGMA synchronous
+→ expected durable mode
+```
+
+after the production connection is initialized.
+
+---
+
+# Commit / Reopen Semantics
+
+Use temporary databases to prove:
+
+```text
+committed canonical data
+→ close/reopen
+→ still present
+```
+
+and:
+
+```text
+uncommitted transaction
+→ rollback/connection loss
+→ not falsely durable
+```
+
+Do not simulate filesystem/hardware failure with unsafe destructive host operations.
+
+---
+
+# C — V3 Cold-Start Compatibility
+
+## Historical Risk
+
+Historical V3/legacy cold-start logic, including HybridRetriever-related startup/counting behavior, could reach V4-specific artifact/catalog assumptions.
+
+A valid legacy/V3 database must not crash at cold start simply because V4-only schema/artifacts do not exist yet.
+
+---
+
+# V3 Compatibility Target
+
+Given an actual supported V3/pre-V4 database:
+
+```text
+cold start
+↓
+legacy/V3 initialization
+↓
+V3 retrieval path
+```
+
+must not require V4-only tables merely to determine startup/retriever state.
+
+---
+
+# No V4 Table Assumption
+
+A V3 compatibility path must not unconditionally query:
+
+```text
+V4 artifact tables
+V4 catalog tables
+V4-only lifecycle tables
+```
+
+before capability/schema presence is established.
+
+Use the smallest truthful capability/schema check or V3-native query.
+
+---
+
+# No Silent V4 Bootstrap Side Effect
+
+Do not "fix" V3 cold start by silently creating unrelated V4 schema during a read/retriever startup path unless that is already the documented migration contract.
+
+Compatibility should not mutate a legacy database merely to satisfy a count operation.
+
+---
+
+# V3 Retrieval Preservation
+
+A supported V3 dataset/database must still retrieve expected legacy data after cold start.
+
+The goal is:
+
+```text
+compatibility
+```
+
+not merely:
+
+```text
+no exception
+```
+
+---
+
+# V4 Regression
+
+Fixing V3 must not weaken or bypass:
+
+```text
+V4 catalog ownership
+
+V4 tenant scope
+
+V4 fact retrieval
+
+V4 embedding-space fencing
+```
+
+---
+
+# No V3 Rewrite
+
+Do not:
+
+```text
+port all V3 code to V4
+
+delete V3 adapters
+
+rewrite HybridRetriever
+
+build a compatibility service
+
+duplicate V4 storage
+```
+
+Apply the smallest compatibility repair.
+
+---
+
+# Round 8 Explicit Scope
 
 In scope:
 
 ```text
-manifest-finalization activation reconciliation
+backup consistency authority
 
-REJECTED non-replayable semantics
+backup quiescence/snapshot verification
 
-historical rollback/replay authorization
+backup unsafe-concurrency failure behavior
 
-revision declared hash semantics
+bounded backup restore/readback proof
 
-source-chunk vs manifest hash separation
+SQLite production durability policy
 
-required schema migration
+SQLite effective PRAGMA verification
 
-new opaque physical ID generation
+coverage of canonical write connections
 
-public resolver authority boundary
+bounded commit/reopen durability tests
 
-public physical-ID leak sweep
+V3/pre-V4 cold-start reproduction
 
-API/SDK/MCP contract updates directly required
+V3-native/capability-aware startup repair
 
-bounded lifecycle/catalog documentation
+V3 retrieval compatibility regression
 
-adversarial regression tests
+fresh/current DB regression
+
+previous-version/V3 fixture regression
+
+directly required docs/tests
 ```
 
 ---
 
-# Explicitly Deferred to Round 8
+# Explicitly Deferred to Final MVP Certification
 
-Do NOT pull these into Round 7:
+Do not pull these into Round 8 unless needed to reproduce a Round 8 defect:
 
 ```text
-backup consistency/quiescence
+full fresh-install certification
 
-SQLite synchronous durability contract
+full previous-release upgrade matrix
 
-V3 cold-start compatibility
+safe-core Docker E2E
+
+model-enabled Docker/provider E2E
+
+real Qwen compatibility smoke
+
+real Magibu compatibility smoke
+
+worker kill/reclaim certification
+
+rollback/purge race certification
+
+cross-tenant full-stack certification
+
+temporal/current-history benchmark
+
+multi-fact benchmark
+
+full restart durability matrix
+
+final GO / NO-GO
 ```
 
 ---
@@ -481,52 +618,28 @@ V3 cold-start compatibility
 Do not start:
 
 ```text
-MemoryDAO full repository split
+MemoryDAO decomposition
+
+new backup service
+
+distributed snapshots
+
+new storage coordinator
+
+new database abstraction
 
 MCP ToolRegistry redesign
 
 SDK V3/V4 architecture rewrite
 
-domain/legal plugin migration
+domain plugin migration
 
-experimental package reorganization
+experimental package restructuring
 
-benchmark package split
+benchmark package cleanup
 
 broad dead-code cleanup
-
-new IAM service
-
-microservices
-
-event bus
 ```
-
----
-
-# Non-Goals
-
-Do not add:
-
-```text
-new lifecycle framework
-
-new workflow engine
-
-REVALIDATE subsystem
-
-new catalog microservice
-
-global historical physical-ID rewrite
-
-hash service
-
-distributed transaction layer
-
-new authorization system
-```
-
-Reuse current MESA primitives.
 
 ---
 
@@ -539,7 +652,7 @@ Primary implementation agent.
 Owns:
 
 ```text
-R701-R711
+R801-R811
 ```
 
 Allowed statuses:
@@ -550,7 +663,7 @@ ALREADY_FIXED_VERIFIED
 BLOCKED_ENV
 ```
 
-Gemini may not issue the final Round 7 verdict.
+Gemini may not issue the final Round 8 verdict.
 
 ---
 
@@ -558,24 +671,22 @@ Gemini may not issue the final Round 7 verdict.
 
 Independent falsifier and repairer.
 
-Must independently reproduce Gemini's claims.
-
 May add:
 
 ```text
-TERRA-R701
-TERRA-R702
+TERRA-R801
+TERRA-R802
 ...
 ```
 
-Allowed final task states:
+Allowed task statuses:
 
 ```text
 VERIFIED
 BLOCKED_ENV
 ```
 
-Terra may not issue the Round 7 code verdict.
+Terra may not issue the Round 8 code verdict.
 
 ---
 
@@ -586,14 +697,14 @@ Final adversarial certifier.
 Owns:
 
 ```text
-R712
+R812
 ```
 
 May add:
 
 ```text
-SOL-R701
-SOL-R702
+SOL-R801
+SOL-R802
 ...
 ```
 
@@ -609,9 +720,9 @@ or:
 NOT_CODE_MVP_READY
 ```
 
-for Round 7.
+for Round 8.
 
-Do not use:
+Never use:
 
 ```text
 MVP_FULLY_VERIFIED
@@ -619,9 +730,9 @@ MVP_FULLY_VERIFIED
 
 ---
 
-# Commit Policy
+# Commit Discipline
 
-Every independent root-cause repair:
+For every independent root-cause repair:
 
 ```text
 reproduce
@@ -632,28 +743,38 @@ mutation-killing regression
 ↓
 focused verification
 ↓
-ledger evidence
+ledger update
 ↓
-commit
+coherent commit
 ```
 
-Good examples:
+Examples:
 
 ```text
-fix(lifecycle): reconcile revision activation on manifest freeze
+fix(backup): verify quiescence before filesystem snapshot
 
-fix(lifecycle): reject semantic replay of rejected mutations
+fix(backup): fail closed on unsafe live-store copy
 
-fix(auth): authorize historical rollback without active session
+fix(sqlite): enforce durable production synchronous mode
 
-fix(catalog): separate declared revision and chunk hashes
+fix(sqlite): apply durability policy to canonical connections
 
-fix(catalog): generate opaque physical identities
+fix(v3): avoid v4 artifact dependency during cold start
 
-fix(api): prevent physical catalog id leakage
+test(round8): cover recovery durability compatibility contracts
 ```
 
-Avoid giant mixed commits and trivial micro-commits.
+Do not create one giant mixed commit.
+
+Do not create trivial micro-commits.
+
+---
+
+# Control-File Tracking
+
+Do not change `.gitignore` or `.agents/` tracking policy as part of Round 8 unless the active repository contract explicitly requires it.
+
+Control-file governance cleanup is not a Round 8 production objective.
 
 ---
 
@@ -663,37 +784,46 @@ Do not automatically:
 
 ```text
 download Qwen
+
 download Magibu
+
 call paid providers
-rewrite real user databases
+
+destroy real databases
+
+run crash tests against user storage
+
+rewrite actual user backups
+
 pytest -n auto
-run destructive migration tests on real storage
 ```
 
-Use temporary databases and deterministic fixtures.
+Use temporary databases/directories and deterministic fixtures.
 
 ---
 
-# Round 7 Completion Meaning
+# Round 8 Completion Meaning
 
-Round 7 succeeds only when:
+Round 8 succeeds only when:
 
 ```text
-late manifest freeze can complete activation correctly
+backup consistency is implementation-proven, not caller-declared
 
-REJECTED cannot masquerade as replayable
+unsafe live-copy behavior is impossible or fails closed
 
-historical authorized rollback/replay works after session closure
+bounded backup restore/readback succeeds
 
-revision/chunk/manifest hash semantics are truthful
+canonical production SQLite uses explicit durable synchronization
 
-new internal catalog IDs are opaque
+effective runtime SQLite configuration is verified
 
-internal physical IDs cannot be used as public aliases
+test/dev weakening cannot silently become production default
 
-public surfaces do not leak physical catalog identities
+V3/pre-V4 cold start no longer assumes V4-only schema
 
-Round 4–6 critical contracts remain green
+V3 retrieval remains functional
+
+Round 4–7 critical contracts remain green
 ```
 
-Round 7 completion does NOT certify recovery, durability or full MVP release readiness.
+Round 8 success does NOT mean final MVP release certification is complete.
