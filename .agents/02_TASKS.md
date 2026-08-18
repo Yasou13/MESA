@@ -49,7 +49,7 @@ Evidence: Traced production ownership across RBAC and ContextBuilder surfaces wi
    - Token budget: Heuristic `char_budget = token_budget * 4` and slicing `line[:available]`; output estimation uses `len(formatted_context) / 4.0` with no real tokenizer measurement.
    - Provenance: Only serializes predicate/value strings, omitting available `source_ref`, `document_id`, `revision_id`, `chunk_id`, `evidence_span`.
 Tests: Codebase inspection, AST/grep analysis, and verification of `tests/test_p0_context_builder.py`, `tests/test_rbac.py`, `tests/test_principal_authorization.py`, `tests/test_v4_catalog_ownership.py`.
-Commit: In progress
+Commit: `37a28ae`, `edc7e72`
 
 ---
 
@@ -73,7 +73,7 @@ new tenant-scoped schema
 Status: VERIFIED
 Evidence: Established explicit RBAC schema authority via `RBAC_SCHEMA_VERSION = 2` and a metadata table `rbac_schema_version (version INTEGER PRIMARY KEY, migrated_at TEXT NOT NULL)`. `AccessControl.initialize()` inspects current version and `PRAGMA table_info` on existing tables to determine whether migration from old unscoped schema (v1) to tenant-scoped schema (v2) is required. Added `get_schema_version()` method.
 Tests: `tests/test_r6_rbac_tenant_isolation.py::test_fresh_database_has_v2_schema_and_version`, `test_historical_unscoped_migration_preserves_recoverable_grants`.
-Commit: In progress
+Commit: `37a28ae`, `c948df4`
 
 ---
 
@@ -97,7 +97,7 @@ different tenants
 Status: VERIFIED
 Evidence: `principal_workspace_roles` primary key updated to `(principal_id, tenant_id, workspace_id)`. `grant_scope_role` now uses `INSERT INTO principal_workspace_roles ... ON CONFLICT(principal_id, tenant_id, workspace_id) DO UPDATE SET role = excluded.role`. Added `revoke_scope_role` with tenant scope filter.
 Tests: `tests/test_r6_rbac_tenant_isolation.py::test_cross_tenant_workspace_roles_coexistence`.
-Commit: In progress
+Commit: `37a28ae`
 
 ---
 
@@ -131,7 +131,7 @@ Evidence:
 - Added CLI commands `revoke-role` and `revoke-dataset-permission` to `admin_cli.py`.
 - Cache isolation: `AccessControl` runs direct queries; MCP session caches in `v4_service.py` are tenant-scoped.
 Tests: `tests/test_r6_rbac_tenant_isolation.py::test_cross_tenant_dataset_roles_coexistence`, `test_cross_tenant_dataset_permissions_coexistence`, `test_cross_tenant_revoke_isolation`, `test_admin_cli_grant_and_revoke_tenant_isolation`.
-Commit: In progress
+Commit: `37a28ae`
 
 ---
 
@@ -159,7 +159,7 @@ grant/revoke isolation
 Status: VERIFIED
 Evidence: `AccessControl.initialize()` creates `_v2_*` tables, copies recoverable rows with conflict-failing `INSERT`, validates source/replacement row counts, then atomically swaps the tables and records `rbac_schema_version = 2`. Injected failure verifies transaction rollback; repeat initialization preserves data without duplication.
 Tests: `tests/test_r6_rbac_tenant_isolation.py` (9 tests passing), `tests/test_rbac.py` (10 tests), `tests/test_v4_admin_cli.py` (3 tests), `tests/test_principal_authorization.py` (9 tests), `tests/test_v4_catalog_ownership.py` (8 tests), `tests/test_rbac_edge_cases.py` (17 tests).
-Commit: In progress
+Commit: `37a28ae`, `c948df4`
 
 ---
 
@@ -178,7 +178,7 @@ Instruction-like memory cannot become surrounding prompt structure.
 Status: VERIFIED
 Evidence: `ContextBuilder` (`mesa_memory/context_builder.py`) wraps formatted context within `TRUST_HEADER` and explicit `<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>` tags. Session logs and canonical memories are serialized as deterministic JSON records with `json.dumps(..., ensure_ascii=False)`.
 Tests: `tests/test_r6_context_security_correctness.py::test_trust_header_and_tags_defined`, `test_instruction_like_memory_remains_data`.
-Commit: In progress
+Commit: `edc7e72`, `623a05c`
 
 ---
 
@@ -202,7 +202,7 @@ Prove it stays data.
 Status: VERIFIED
 Evidence: JSON rendering now encodes every untrusted `<`/`>` at the final record boundary, covering closing/opening delimiter variants as well as nested system instructions, quotes, backslashes, newlines, and control characters.
 Tests: `tests/test_r6_context_security_correctness.py::test_delimiter_breakout_attack_neutralized`, `test_serialization_characters_safety`.
-Commit: In progress
+Commit: `edc7e72`, `623a05c`
 
 ---
 
@@ -236,7 +236,7 @@ tiny budgets
 Status: VERIFIED
 Evidence: Integrated canonical `count_tokens` (`cl100k_base` tokenizer) via `_count_tokens`. `ContextBuilder.build_context` trims candidate canonical memories in reverse rank order and session logs until `_count_tokens(formatted_context) <= token_budget`. Tiny budgets (1, 2, 5, 10, 20) are handled deterministically without exceeding caller budget.
 Tests: `tests/test_r6_context_security_correctness.py::test_token_budget_enforced_across_content_categories`, `test_tiny_token_budget_deterministic_safety`, `test_ranking_aware_budget_trimming`.
-Commit: In progress
+Commit: `edc7e72`, `623a05c`
 
 ---
 
@@ -267,7 +267,7 @@ Provenance must remain untrusted evidence and respect token budget.
 Status: VERIFIED
 Evidence: When `include_provenance=True`, `ContextBuilder` includes available fields (`source_ref`, `document_id`, `revision_id`, `chunk_id`, `evidence_span` bounded to 200 chars, `jurisdiction`, `authority_level`) within the structured fact dict. Missing fields are omitted without fabricating IDs. All provenance strings are escaped and serialized as untrusted evidence before tokenizer budget enforcement.
 Tests: `tests/test_r6_context_security_correctness.py::test_provenance_rendered_when_enabled_and_compact_when_disabled`, `test_missing_provenance_handles_safely`, `test_provenance_injection_attack`, `test_evidence_span_is_bounded`.
-Commit: In progress
+Commit: `edc7e72`
 
 ---
 
@@ -292,7 +292,7 @@ Use deterministic fixtures.
 Status: VERIFIED
 Evidence: End-to-end integration verified: `MemoryDAO.search_v4_memory` -> `ContextBuilder.build_context` -> `formatted_context`. Verified tenant context isolation where querying identical public dataset ID `"main"` in Tenant A does not expose Tenant B's memory.
 Tests: `tests/test_r6_context_security_correctness.py::test_integrated_retrieval_to_context_builder_flow`, `test_tenant_context_isolation_spot_check`.
-Commit: In progress
+Commit: `edc7e72`
 
 ---
 
@@ -320,7 +320,7 @@ Evidence:
 - Round 5 critical architecture baseline: `tests/test_r4_extraction_validation_independence.py` (10 tests passed), `tests/test_fact_extraction_service.py` (14 tests passed), `tests/test_embedding_service.py` (16 tests passed), `tests/test_p0_model_disabled_truth.py` (1 test passed), `tests/test_r4_validation_e2e.py` (3 tests passed), `tests/test_r4_validation_policy.py` (12 tests passed).
 - Quality checks: `ruff check` (passed), `black --check` (passed), `python3 -m compileall` (passed), layer import contract `tests/test_layer_import_contract.py` (passed).
 Tests: 129 passed across all Round 6 regression test suites.
-Commit: In progress
+Commit: `0aec426`
 
 ---
 
@@ -358,7 +358,7 @@ and the full RBAC focused suite: 10 passed; `python -m py_compile` passed.
 
 Commit:
 
-Pending Terra repair commit.
+`c948df4`
 
 ---
 
@@ -393,7 +393,41 @@ passed for touched production modules.
 
 Commit:
 
-Pending combined Terra repair commit after repository quality gates.
+`623a05c`
+
+---
+
+## SOL-R601 — Type Scoped Revoke SQL Parameters
+
+Owner: Sol
+
+Root Cause:
+
+`revoke_scope_role()` assigned two-, three-, and four-element SQL parameter
+tuples through one inferred local variable. Runtime SQL was correct, but mypy
+inferred the first four-element branch and rejected the shorter branches,
+failing the required Round 6 quality gate.
+
+Repair:
+
+Declare the branch-shared parameter value as `tuple[str, ...]` without changing
+the SQL, authorization identity, or runtime behavior.
+
+Status: VERIFIED
+
+Evidence:
+
+The full scoped revoke/regrant matrix passes in both tenant directions, and the
+repository mypy command reports no issues across 129 source files.
+
+Tests:
+
+Native focused Round 6 suite: 38 passed. Targeted RBAC mypy: clean. Full Ruff,
+layer-import, Black ratchet, mypy-override ratchet, and mypy gate: clean.
+
+Commit:
+
+`1c0617d`
 
 ---
 
@@ -433,7 +467,38 @@ or:
 NOT_CODE_MVP_READY
 ```
 
-Status:
+Status: VERIFIED
+
 Evidence:
+
+Sol independently traced the production RBAC and ContextBuilder ownership
+paths, inspected Gemini commits `37a28ae`/`edc7e72` and Terra commits
+`c948df4`/`623a05c`/`0aec426`, and exercised all final gates against current
+production code. Tenant-scoped PKs, conflict targets, mutations, inherited
+lookups, and the tenant-scoped MCP session cache were verified. Catalog
+identity proves one public dataset ID maps to one workspace within a tenant,
+making `(principal_id, tenant_id, dataset_id, permission)` an equivalent
+canonical permission key. Historical migration, row preservation, rollback,
+re-entry, stale-v2 detection, copy-conflict failure, and future-version failure
+were verified with temporary databases. Context evidence records, session
+logs, entity/subject, predicate, object/value, and provenance all remain JSON
+data inside one explicit untrusted boundary. Strict `cl100k_base` accounting,
+tiny budgets, ranking-aware trimming, bounded provenance, and provenance-before-
+fit behavior were verified. Retrieval-to-ContextBuilder, same-public-ID tenant
+isolation, Mode 0/1/2 extraction, canonical extraction/embedding ownership,
+and assertion-vector retrieval regressions passed. No Round 6 code blocker
+remains.
+
 Tests:
+
+- Native focused RBAC + ContextBuilder adversarial suite: 38 passed.
+- Native broader RBAC, catalog, ContextBuilder, Round 5, and assertion-vector
+  suite: 106 passed.
+- Native compile/import + V4 API/SDK/rebuild/coverage contracts: 43 passed.
+- Full Ruff, layer imports, Black ratchet, mypy ratchet, and mypy: passed.
+- Black on all Round 6 production/test files and `git diff --check`: passed.
+
 Commit:
+
+`1c0617d`, `d5680e1`, and the final certification ledger commit containing this
+record.
