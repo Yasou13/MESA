@@ -3852,7 +3852,12 @@ class MemoryDAO:
             ),
         }
 
-    async def replay_pipeline_run(self, pipeline_run_id: str) -> dict[str, Any]:
+    async def replay_pipeline_run(
+        self,
+        pipeline_run_id: str,
+        *,
+        target_mutation_id: str | None = None,
+    ) -> dict[str, Any]:
         """Operator replay for a fenced DLQ/BLOCKED projection or cleanup."""
         async with self._sql.transaction() as db:
             async with db.execute(
@@ -3865,13 +3870,24 @@ class MemoryDAO:
             if row[0] not in {"DLQ", "BLOCKED"}:
                 raise ValueError("pipeline run is not replayable")
             async with db.execute(
-                "SELECT state FROM memory_mutations WHERE pipeline_run_id = ?",
+                "SELECT mutation_id, state FROM memory_mutations "
+                "WHERE pipeline_run_id = ?",
                 (pipeline_run_id,),
             ) as cursor:
-                child_states = [r[0] for r in await cursor.fetchall()]
-            if any(s == "REJECTED" for s in child_states):
+                children = {
+                    str(child[0]): str(child[1])
+                    for child in await cursor.fetchall()
+                }
+            if target_mutation_id is not None and target_mutation_id not in children:
+                raise ValueError("target mutation does not belong to pipeline run")
+            target_is_rejected = (
+                children.get(target_mutation_id) == "REJECTED"
+                if target_mutation_id is not None
+                else any(state == "REJECTED" for state in children.values())
+            )
+            if target_is_rejected:
                 raise NonReplayableMutationConflictError(
-                    "pipeline run contains semantically rejected mutations and is non-replayable"
+                    "semantic rejection is terminal and non-replayable"
                 )
             async with db.execute(
                 "SELECT 1 FROM artifact_cleanup_outbox "
@@ -3906,8 +3922,14 @@ class MemoryDAO:
             await self._transition_pipeline_mutations_in_tx(
                 db, pipeline_run_id, to_state=replay_state
             )
+            async with db.execute(
+                "SELECT state FROM pipeline_runs WHERE pipeline_run_id = ?",
+                (pipeline_run_id,),
+            ) as state_cursor:
+                final_row = await state_cursor.fetchone()
+            final_state = str(final_row[0]) if final_row is not None else replay_state
             await db.commit()
-        return {"pipeline_run_id": pipeline_run_id, "state": replay_state}
+        return {"pipeline_run_id": pipeline_run_id, "state": final_state}
 
     async def claim_artifact_cleanup(
         self, *, worker_id: str, limit: int = 1, lease_seconds: int = 300

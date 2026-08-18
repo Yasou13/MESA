@@ -376,6 +376,27 @@ async def _authorized_v4_session(
     return session
 
 
+def _require_historical_mutation_scope(
+    mutation: dict, session: dict
+) -> None:
+    """Bind historical administration to the mutation's immutable session scope."""
+    mutation_workspace = mutation.get("workspace_id")
+    if (
+        str(mutation.get("tenant_id") or "") != str(session["tenant_id"])
+        or str(mutation.get("agent_id") or "") != str(session["agent_id"])
+        or str(mutation.get("dataset_id") or "")
+        not in {str(item) for item in session["dataset_ids"]}
+        or (
+            mutation_workspace
+            and str(mutation_workspace) != str(session["workspace_id"])
+        )
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Mutation is outside historical session scope",
+        )
+
+
 def create_v4_router(
     get_dao: Callable[[], MemoryDAO],
     *,
@@ -1073,6 +1094,7 @@ def create_v4_router(
             level="WRITE",
             allow_closed=True,
         )
+        _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
@@ -1108,6 +1130,7 @@ def create_v4_router(
             level="WRITE",
             allow_closed=True,
         )
+        _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
@@ -1118,7 +1141,10 @@ def create_v4_router(
             raise HTTPException(status_code=403, detail="ROLLBACK permission required")
         await _require_mutation_admission(dao)
         try:
-            return await dao.replay_pipeline_run(str(mutation["pipeline_run_id"]))
+            return await dao.replay_pipeline_run(
+                str(mutation["pipeline_run_id"]),
+                target_mutation_id=mutation_id,
+            )
         except NonReplayableMutationConflictError as exc:
             raise HTTPException(status_code=409, detail="NON_REPLAYABLE") from exc
         except ValueError as exc:
