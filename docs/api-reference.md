@@ -101,6 +101,21 @@ Catalog hiyerarşisi
 şeklindedir. Revision ve chunk içerikleri immutable’dır; güncelleme yeni
 revision oluşturur.
 
+İstemcinin verdiği catalog kimlikleri tenant-kapsamlı public ID'lerdir. Yeni
+workspace, dataset, document, revision ve chunk kayıtlarının fiziksel storage
+anahtarları sunucu tarafından opaque olarak üretilir. Public resolver yalnız
+`tenant + kind + external_id` eşlemesini kabul eder; bir fiziksel anahtarın
+`external_id` alanına yazılması ona public alias yetkisi vermez. API, Python SDK
+ve MCP yanıtları catalog alanlarını yeniden public ID'lere çevirir.
+
+Revision hash alanları üç ayrı anlam taşır: `declared_content_hash`, açık
+revision oluşturma çağrısında bildirilen bütün-revision SHA-256 değeridir;
+`manifest_hash`, dondurulmuş source-chunk manifestinin hash'idir; her chunk'ın
+`content_hash` alanı yalnız o chunk içeriğine aittir. Doğrudan chunk insertion
+bütün-revision hash'i bildirmez ve revision alanı `null` kalır. Eski
+`content_hash` alanı compatibility için korunur; geçmiş değerlerin provenance'ı
+otomatik olarak caller-declared kabul edilmez.
+
 ## V4 session ve memory
 
 | Method | Path | İşlev |
@@ -125,6 +140,10 @@ Bir revision birden çok chunk içeriyorsa son chunk dışındaki insert'ler
 Finalization source/chunk manifestini dondurur; bundan sonra aynı revision'a
 yeni chunk eklenemez ve revision yalnız manifestteki bütün chunk mutation'ları
 başarıyla tamamlanınca `ACTIVE` olur.
+Chunk mutation'ları manifest dondurulmadan önce tamamlanmışsa finalization aynı
+canonical activation bariyerini transaction içinde yeniden çalıştırır; başka
+bir mutation transition gerekmez. Tek `ACTIVE` document head ve tekrarlanan
+finalization idempotence'i korunur.
 
 Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
 `valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
@@ -156,6 +175,10 @@ QUEUED → RUNNING → EXTRACTED → VALIDATED → PROJECTING → COMMITTED
 Terminal/kurtarma durumları arasında `REJECTED`, `RETRY_PENDING`, `DLQ`,
 `ROLLING_BACK`, `ROLLED_BACK` ve `BLOCKED` bulunur. Seçili validation
 policy’sinin reddi aktif retrieval artifact’ı üretmez.
+Semantic `REJECTED` mutation generic replay ile açılamaz ve yetkili replay
+isteği `409 NON_REPLAYABLE` döndürür. Aynı pipeline'daki gerçek projection veya
+cleanup failure'ları retry edilebilir; rejected child terminal ve parent
+aggregate state'i doğru kalır.
 
 ## V4 Python SDK
 
@@ -203,6 +226,10 @@ principal → tenant → workspace → dataset → agent → session
 `OWNER`, `WRITER` ve `READER` rolleri aşağı doğru miras kalır. Purge ve
 rollback için ayrıca dataset `PURGE` veya `ROLLBACK` izni gerekir. Agent bir
 persona/hesaplama bağlamıdır; tek başına güvenlik sınırı değildir.
+Rollback ve replay tarihsel yönetim işlemleridir; originating session kapalı
+olabilir. Bununla birlikte principal/session ownership, mutation ile session'ın
+tenant/workspace/dataset/agent scope eşleşmesi, dataset rolü ve açık
+`ROLLBACK` izni her çağrıda doğrulanır.
 
 Operator komutları:
 
