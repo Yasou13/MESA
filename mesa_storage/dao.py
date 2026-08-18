@@ -1644,6 +1644,9 @@ class MemoryDAO:
         embedding_dimension: int,
         policy: QueueAdmissionPolicy,
         validation_mode: int,
+        embedding_space_id: str | None = None,
+        embedding_model_revision: str | None = None,
+        embedding_normalized: bool = True,
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
         finalize_revision: bool = True,
@@ -1696,6 +1699,22 @@ class MemoryDAO:
             raise ValueError("validation_mode must be 0, 1, or 2")
         effective_mode = validation_mode
         effective_metadata["_mesa_validation_mode"] = effective_mode
+        revision = embedding_model_revision or embedding_version
+        derived_space_id = (
+            f"{embedding_provider}:{embedding_model}:{revision}:{embedding_dimension}:"
+            f"norm={str(embedding_normalized).lower()}"
+        )
+        if embedding_space_id and embedding_space_id != derived_space_id:
+            raise ValueError("embedding space identity is inconsistent")
+        effective_metadata["_mesa_embedding_identity"] = {
+            "embedding_space_id": embedding_space_id or derived_space_id,
+            "provider": embedding_provider,
+            "model": embedding_model,
+            "model_revision": embedding_model_revision,
+            "version": embedding_version,
+            "dimension": embedding_dimension,
+            "normalized": embedding_normalized,
+        }
 
         raw_payload = {
             "tenant_id": tenant_id,
@@ -2089,6 +2108,25 @@ class MemoryDAO:
         )
         mutation_id = str(candidate["mutation_id"])
         pipeline_run_id = str(candidate["pipeline_run_id"])
+        metadata = dict(candidate.get("metadata") or {})
+        if "_mesa_embedding_identity" not in metadata:
+            provider = candidate.get("embedding_provider")
+            model = candidate.get("embedding_model")
+            version = candidate.get("embedding_version")
+            dimension = candidate.get("embedding_dimension")
+            if provider and model and version and dimension:
+                normalized = bool(candidate.get("embedding_normalized", True))
+                revision = candidate.get("embedding_model_revision") or version
+                metadata["_mesa_embedding_identity"] = {
+                    "embedding_space_id": candidate.get("embedding_space_id")
+                    or f"{provider}:{model}:{revision}:{dimension}:norm={str(normalized).lower()}",
+                    "provider": provider,
+                    "model": model,
+                    "model_revision": candidate.get("embedding_model_revision"),
+                    "version": version,
+                    "dimension": dimension,
+                    "normalized": normalized,
+                }
         async with self._sql.transaction() as db:
             await db.execute(
                 "INSERT OR IGNORE INTO pipeline_runs "
@@ -2142,7 +2180,7 @@ class MemoryDAO:
                     agent_id,
                     candidate["session_id"],
                     candidate["content_payload"],
-                    json.dumps(candidate.get("metadata", {}), sort_keys=True),
+                    json.dumps(metadata, sort_keys=True),
                     candidate.get("source", "api"),
                     pipeline_run_id,
                     candidate.get("extraction_version", "v4"),
@@ -3207,6 +3245,7 @@ class MemoryDAO:
             for key, value in metadata.items()
             if not key.startswith("_mesa_")
         }
+        record["embedding_identity_snapshot"] = metadata.get("_mesa_embedding_identity")
         record["projection_triplets"] = metadata.get("_mesa_v4_projection_triplets", [])
         return record
 
@@ -4192,7 +4231,14 @@ class MemoryDAO:
         physical = {
             *(("SQL", "ENTITY", item) for item in sql_entities),
             *(("SQL", "ASSERTION", item) for item in sql_assertions),
-            *(("VECTOR", "ENTITY_VECTOR", item) for item in vector_entities),
+            *(
+                (
+                    "VECTOR",
+                    "ASSERTION_VECTOR" if item in sql_assertions else "ENTITY_VECTOR",
+                    item,
+                )
+                for item in vector_entities
+            ),
             *(("GRAPH", "ENTITY", item) for item in graph_entities),
             *(("GRAPH", "ASSERTION", item) for item in graph_assertions),
         }
@@ -4284,14 +4330,54 @@ class MemoryDAO:
     async def project_v4_vector_entity(
         self, *, mutation: dict[str, Any], entity_name: str
     ) -> str:
-        """Apply only the LanceDB vector projection for an existing V4 Entity."""
+        """Legacy/auxiliary entity vector projection.
+
+        Canonical V4 memory retrieval projects assertions with
+        :meth:`project_v4_vector_assertion` instead.
+        """
+        node_id = self.v4_entity_id(str(mutation["tenant_id"]), entity_name)
+        return await self._project_v4_vector_payload(
+            mutation=mutation,
+            vector_id=node_id,
+            payload_text=entity_name,
+            artifact_kind="ENTITY_VECTOR",
+        )
+
+    async def project_v4_vector_assertion(
+        self, *, mutation: dict[str, Any], assertion: dict[str, Any]
+    ) -> str:
+        """Embed canonical assertion text for supported V4 memory retrieval."""
+        subject = str(assertion["head"])
+        predicate = str(assertion["predicate"])
+        object_value = (
+            str(assertion["tail"])
+            if assertion.get("tail") is not None
+            else str(assertion["literal_value"])
+        )
+        payload_text = f"{subject} {predicate} {object_value}"
+        return await self._project_v4_vector_payload(
+            mutation=mutation,
+            vector_id=str(assertion["assertion_id"]),
+            payload_text=payload_text,
+            artifact_kind="ASSERTION_VECTOR",
+        )
+
+    async def _project_v4_vector_payload(
+        self,
+        *,
+        mutation: dict[str, Any],
+        vector_id: str,
+        payload_text: str,
+        artifact_kind: str,
+    ) -> str:
+        """Project one explicitly selected semantic payload through EmbeddingService."""
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
         # This is deliberately checked immediately before the non-transactional
         # write.  ``record_mutation_artifact`` below is the post-write receipt
         # fence; if it loses, its caller compensates the physical write.
         await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
-        node_id = self.v4_entity_id(str(mutation["tenant_id"]), entity_name)
+        node_id = vector_id
         producer_identity = getattr(self._vec, "embedding_identity", None)
         if producer_identity is None and isinstance(self._vec, VectorEngine):
             raise ValueError("canonical vector projection requires producer identity")
@@ -4301,6 +4387,31 @@ class MemoryDAO:
             "version": str(mutation.get("embedding_version") or ""),
             "dimension": int(mutation.get("embedding_dimension") or 0),
         }
+        snapshot = mutation.get("embedding_identity_snapshot")
+        if not isinstance(snapshot, dict):
+            # Projection callers may carry only the admission response rather
+            # than a fully hydrated work record.  The identity authority is
+            # still the durable admission snapshot, never a fresh runtime
+            # configuration or an inferred fallback.
+            persisted = await self.get_projection_mutation(str(mutation["mutation_id"]))
+            snapshot = (
+                persisted.get("embedding_identity_snapshot")
+                if persisted is not None
+                else None
+            )
+        if not isinstance(snapshot, dict):
+            raise ValueError("durable embedding identity snapshot is required")
+        required_snapshot_fields = {
+            "embedding_space_id",
+            "provider",
+            "model",
+            "model_revision",
+            "version",
+            "dimension",
+            "normalized",
+        }
+        if not required_snapshot_fields.issubset(snapshot):
+            raise ValueError("durable embedding identity snapshot is incomplete")
         if producer_identity is None:
             # Existing deterministic test doubles predate EmbeddingService.
             # They are not constructible in production composition; bind them
@@ -4335,7 +4446,26 @@ class MemoryDAO:
                 "embedding identity mismatch: mutation identity does not match "
                 "the canonical vector producer"
             )
-        embedding = await self._vec.compute_embedding(entity_name)
+        snapshot_identity = {
+            key: snapshot[key]
+            for key in (
+                "embedding_space_id",
+                "provider",
+                "model",
+                "model_revision",
+                "version",
+                "dimension",
+                "normalized",
+            )
+        }
+        actual_snapshot_identity = {
+            key: producer_identity_metadata[key] for key in snapshot_identity
+        }
+        if snapshot_identity != actual_snapshot_identity:
+            raise ValueError(
+                "embedding space identity mismatch: re-embedding migration is required"
+            )
+        embedding = await self._vec.compute_embedding(payload_text)
         expected_dim = mutation.get("embedding_dimension")
         if expected_dim is not None and int(expected_dim) != len(embedding):
             raise ValueError(
@@ -4345,13 +4475,13 @@ class MemoryDAO:
             node_id=node_id,
             agent_id=agent_id,
             embedding=embedding,
-            content_hash=hashlib.sha256(entity_name.encode("utf-8")).hexdigest(),
+            content_hash=hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
         )
         try:
             await self.record_mutation_artifact(
                 str(mutation["mutation_id"]),
                 store_name="VECTOR",
-                artifact_kind="ENTITY_VECTOR",
+                artifact_kind=artifact_kind,
                 artifact_id=node_id,
                 metadata={
                     **producer_identity_metadata,
@@ -4364,7 +4494,7 @@ class MemoryDAO:
             except Exception:
                 await self._enqueue_unowned_projection_cleanup(
                     str(mutation["mutation_id"]),
-                    [("VECTOR", "ENTITY_VECTOR", node_id)],
+                    [("VECTOR", artifact_kind, node_id)],
                 )
             else:
                 await self._finalize_terminal_projection_compensation(
@@ -4523,13 +4653,17 @@ class MemoryDAO:
                 )
             await db.commit()
 
-    async def project_v4_graph_triplet(
+    async def project_v4_sql_assertion(
         self, *, mutation: dict[str, Any], triplet: dict[str, Any]
     ) -> str:
-        """Apply the Graph V2 Entity + Assertion projection for one triplet."""
+        """Persist one canonical assertion after the SQL entity projection.
+
+        This method intentionally has no graph dependency.  Kuzu is a later,
+        derived projection and must never decide whether canonical fact truth
+        becomes durable.
+        """
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
-        graph = self._require_graph()
         tenant_id = str(mutation["tenant_id"])
         head = str(triplet["head"])
         tail = str(triplet["tail"]) if triplet.get("tail") is not None else None
@@ -4583,110 +4717,166 @@ class MemoryDAO:
             literal_value=literal_value,
             evidence_span=evidence_span,
         )
-        # The canonical assertion is durable SQL truth.  Persist it before any
-        # Kuzu write so graph failure can be retried without erasing the fact.
         await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
-        try:
-            await self.resolve_v4_entity(tenant_id=tenant_id, canonical_name=head)
-            if tail is not None:
-                await self.resolve_v4_entity(tenant_id=tenant_id, canonical_name=tail)
+        await self.resolve_v4_entity(tenant_id=tenant_id, canonical_name=head)
+        if tail is not None:
+            await self.resolve_v4_entity(tenant_id=tenant_id, canonical_name=tail)
 
-            superseded_assertion_ids: list[str] = []
-            async with self._sql.transaction() as db:
-                await db.execute(
-                    "INSERT OR IGNORE INTO v4_assertions "
-                    "(assertion_id, tenant_id, dataset_id, subject_id, predicate, "
-                    "object_entity_id, literal_value, source_ref, document_id, revision_id, chunk_id, "
-                    "evidence_span, jurisdiction, authority_level, valid_from, valid_to, "
-                    "observed_at, confidence, status, mutation_id, pipeline_run_id) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
+        superseded_assertion_ids: list[str] = []
+        async with self._sql.transaction() as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO v4_assertions "
+                "(assertion_id, tenant_id, dataset_id, subject_id, predicate, "
+                "object_entity_id, literal_value, source_ref, document_id, revision_id, chunk_id, "
+                "evidence_span, jurisdiction, authority_level, valid_from, valid_to, "
+                "observed_at, confidence, status, mutation_id, pipeline_run_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
+                (
+                    assertion_id,
+                    tenant_id,
+                    mutation["dataset_id"],
+                    subject_id,
+                    relation,
+                    object_id,
+                    literal_value,
+                    mutation["source_ref"],
+                    mutation["document_id"],
+                    mutation["revision_id"],
+                    mutation["chunk_id"],
+                    evidence_span,
+                    jurisdiction,
+                    authority_level,
+                    valid_from,
+                    valid_to,
+                    observed_at,
+                    float(triplet.get("confidence", 1.0)),
+                    mutation["mutation_id"],
+                    mutation["pipeline_run_id"],
+                ),
+            )
+            async with db.execute(
+                "SELECT supersedes_revision_id FROM document_revisions "
+                "WHERE revision_id = ?",
+                (mutation["revision_id"],),
+            ) as cursor:
+                revision = await cursor.fetchone()
+            if revision and revision[0]:
+                async with db.execute(
+                    "SELECT assertion_id FROM v4_assertions "
+                    "WHERE tenant_id = ? AND revision_id = ? "
+                    "AND subject_id = ? AND predicate = ? "
+                    "AND status IN ('ACTIVE', 'SUPERSEDED')",
+                    (tenant_id, revision[0], subject_id, relation),
+                ) as cursor:
+                    superseded_assertion_ids = [
+                        str(row[0]) for row in await cursor.fetchall()
+                    ]
+            elif triplet.get("supersedes"):
+                async with db.execute(
+                    "SELECT assertion_id FROM v4_assertions "
+                    "LEFT JOIN v4_entities object_entity "
+                    "ON object_entity.entity_id = v4_assertions.object_entity_id "
+                    "WHERE v4_assertions.tenant_id = ? AND v4_assertions.dataset_id = ? "
+                    "AND v4_assertions.subject_id = ? AND v4_assertions.predicate = ? "
+                    "AND v4_assertions.assertion_id != ? "
+                    "AND v4_assertions.status = 'ACTIVE' "
+                    "AND lower(trim(COALESCE(object_entity.canonical_name, "
+                    "v4_assertions.literal_value, ''))) = lower(trim(?))",
                     (
-                        assertion_id,
                         tenant_id,
                         mutation["dataset_id"],
                         subject_id,
                         relation,
-                        object_id,
-                        literal_value,
-                        mutation["source_ref"],
-                        mutation["document_id"],
-                        mutation["revision_id"],
-                        mutation["chunk_id"],
-                        evidence_span,
-                        jurisdiction,
-                        authority_level,
-                        valid_from,
-                        valid_to,
-                        observed_at,
-                        float(triplet.get("confidence", 1.0)),
-                        mutation["mutation_id"],
-                        mutation["pipeline_run_id"],
+                        assertion_id,
+                        str(triplet["supersedes"]),
                     ),
-                )
-                async with db.execute(
-                    "SELECT supersedes_revision_id FROM document_revisions "
-                    "WHERE revision_id = ?",
-                    (mutation["revision_id"],),
                 ) as cursor:
-                    revision = await cursor.fetchone()
-                if revision and revision[0]:
-                    async with db.execute(
-                        "SELECT assertion_id FROM v4_assertions "
-                        "WHERE tenant_id = ? AND revision_id = ? "
-                        "AND subject_id = ? AND predicate = ? "
-                        "AND status IN ('ACTIVE', 'SUPERSEDED')",
-                        (tenant_id, revision[0], subject_id, relation),
-                    ) as cursor:
-                        superseded_assertion_ids = [
-                            str(row[0]) for row in await cursor.fetchall()
-                        ]
-                elif triplet.get("supersedes"):
-                    async with db.execute(
-                        "SELECT assertion_id FROM v4_assertions "
-                        "WHERE tenant_id = ? AND dataset_id = ? "
-                        "AND subject_id = ? AND predicate = ? "
-                        "AND assertion_id != ? AND status = 'ACTIVE'",
+                    superseded_assertion_ids = [
+                        str(row[0]) for row in await cursor.fetchall()
+                    ]
+            if superseded_assertion_ids:
+                for old_assertion_id in superseded_assertion_ids:
+                    await db.execute(
+                        "INSERT OR IGNORE INTO v4_assertion_links "
+                        "(source_assertion_id, target_assertion_id, relation_type, mutation_id) "
+                        "VALUES (?, ?, 'SUPERSEDES', ?)",
                         (
-                            tenant_id,
-                            mutation["dataset_id"],
-                            subject_id,
-                            relation,
                             assertion_id,
+                            old_assertion_id,
+                            mutation["mutation_id"],
                         ),
-                    ) as cursor:
-                        superseded_assertion_ids = [
-                            str(row[0]) for row in await cursor.fetchall()
-                        ]
-                if superseded_assertion_ids:
-                    for old_assertion_id in superseded_assertion_ids:
-                        await db.execute(
-                            "INSERT OR IGNORE INTO v4_assertion_links "
-                            "(source_assertion_id, target_assertion_id, relation_type, mutation_id) "
-                            "VALUES (?, ?, 'SUPERSEDES', ?)",
-                            (
-                                assertion_id,
-                                old_assertion_id,
-                                mutation["mutation_id"],
-                            ),
-                        )
-                await db.commit()
-            await self.record_mutation_artifact(
-                str(mutation["mutation_id"]),
-                store_name="SQL",
-                artifact_kind="ASSERTION",
-                artifact_id=assertion_id,
-                metadata={
-                    "predicate": relation,
-                    "fact_text": str(triplet.get("fact_text") or ""),
-                    "valid_from": valid_from,
-                    "valid_to": valid_to,
-                    "source_span": evidence_span,
-                    "supersedes": triplet.get("supersedes"),
-                },
-            )
+                    )
+            await db.commit()
+        await self.record_mutation_artifact(
+            str(mutation["mutation_id"]),
+            store_name="SQL",
+            artifact_kind="ASSERTION",
+            artifact_id=assertion_id,
+            metadata={
+                "predicate": relation,
+                "fact_text": str(triplet.get("fact_text") or ""),
+                "valid_from": valid_from,
+                "valid_to": valid_to,
+                "source_span": evidence_span,
+                "supersedes": triplet.get("supersedes"),
+            },
+        )
+        return assertion_id
 
-            # Everything below is a derived Kuzu projection.  Its failure is
-            # compensated/retried independently of the SQL assertion above.
+    async def list_v4_assertions_for_mutation(
+        self, mutation_id: str
+    ) -> list[dict[str, Any]]:
+        """Load durable canonical assertions for the derived graph projector."""
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT a.*, subject.canonical_name AS head, "
+                "object_entity.canonical_name AS tail "
+                "FROM v4_assertions a "
+                "JOIN v4_entities subject ON subject.entity_id = a.subject_id "
+                "LEFT JOIN v4_entities object_entity "
+                "ON object_entity.entity_id = a.object_entity_id "
+                "WHERE a.mutation_id = ? AND a.status IN ('ACTIVE', 'SUPERSEDED') "
+                "ORDER BY a.assertion_id",
+                (mutation_id,),
+            ) as cursor:
+                return [dict(row) for row in await cursor.fetchall()]
+
+    async def project_v4_graph_assertion(
+        self, *, mutation: dict[str, Any], assertion: dict[str, Any]
+    ) -> str:
+        """Project an already-persisted canonical SQL assertion into Kuzu."""
+        agent_id = str(mutation["agent_id"])
+        _assert_valid_agent_id(agent_id)
+        assertion_id = str(assertion["assertion_id"])
+        subject_id = str(assertion["subject_id"])
+        object_id = (
+            str(assertion["object_entity_id"])
+            if assertion.get("object_entity_id") is not None
+            else None
+        )
+        head = str(assertion["head"])
+        tail = str(assertion["tail"]) if assertion.get("tail") is not None else None
+        literal_value = (
+            str(assertion["literal_value"])
+            if assertion.get("literal_value") is not None
+            else None
+        )
+        if (object_id is None) == (literal_value is None):
+            raise ValueError("canonical assertion object is invalid")
+        graph_entities = [(subject_id, head)]
+        if object_id is not None and tail is not None:
+            graph_entities.append((object_id, tail))
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT target_assertion_id FROM v4_assertion_links "
+                "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
+                (assertion_id,),
+            ) as cursor:
+                superseded_assertion_ids = [
+                    str(row[0]) for row in await cursor.fetchall()
+                ]
+        graph = self._require_graph()
+        try:
             for entity_id, entity_name in graph_entities:
                 await graph.insert_node(entity_id, entity_name, agent_id)
             await graph.insert_assertion(
@@ -4695,17 +4885,17 @@ class MemoryDAO:
                 object_id=object_id,
                 object_value=literal_value,
                 agent_id=agent_id,
-                predicate=relation,
+                predicate=str(assertion["predicate"]),
                 mutation_id=str(mutation["mutation_id"]),
-                source_ref=str(mutation["source_ref"]),
-                evidence_span=evidence_span,
-                jurisdiction=jurisdiction,
-                authority_level=authority_level,
-                valid_from=valid_from,
-                valid_to=valid_to,
-                observed_at=observed_at,
-                confidence=float(triplet.get("confidence", 1.0)),
-                pipeline_run_id=str(mutation.get("pipeline_run_id") or ""),
+                source_ref=str(assertion["source_ref"]),
+                evidence_span=str(assertion["evidence_span"] or ""),
+                jurisdiction=str(assertion["jurisdiction"] or ""),
+                authority_level=str(assertion["authority_level"] or ""),
+                valid_from=str(assertion["valid_from"] or ""),
+                valid_to=str(assertion["valid_to"] or ""),
+                observed_at=str(assertion["observed_at"] or ""),
+                confidence=float(assertion["confidence"]),
+                pipeline_run_id=str(assertion["pipeline_run_id"] or ""),
             )
             for old_assertion_id in superseded_assertion_ids:
                 await graph.link_assertions(
@@ -4727,16 +4917,33 @@ class MemoryDAO:
                 store_name="GRAPH",
                 artifact_kind="ASSERTION",
                 artifact_id=assertion_id,
-                metadata={"predicate": relation},
+                metadata={"predicate": str(assertion["predicate"])},
             )
-        except Exception as exc:
+        except Exception:
             await self._compensate_v4_graph_projection(
                 mutation=mutation,
                 assertion_id=assertion_id,
                 graph_entities=graph_entities,
             )
-            raise exc
+            raise
         return assertion_id
+
+    async def project_v4_graph_triplet(
+        self, *, mutation: dict[str, Any], triplet: dict[str, Any]
+    ) -> str:
+        """Compatibility helper; supported workers use separate SQL/GRAPH lanes."""
+        assertion_id = await self.project_v4_sql_assertion(
+            mutation=mutation, triplet=triplet
+        )
+        assertions = await self.list_v4_assertions_for_mutation(
+            str(mutation["mutation_id"])
+        )
+        assertion = next(
+            item for item in assertions if item["assertion_id"] == assertion_id
+        )
+        return await self.project_v4_graph_assertion(
+            mutation=mutation, assertion=assertion
+        )
 
     async def _compensate_v4_graph_projection(
         self,
@@ -4854,30 +5061,64 @@ class MemoryDAO:
             )
             placeholders = ",".join("?" for _ in datasets)
             async with db.execute(
-                "SELECT DISTINCT r.physical_artifact_id FROM artifact_registry r "
+                "SELECT DISTINCT r.artifact_kind, r.physical_artifact_id FROM artifact_registry r "
                 "JOIN artifact_sources s ON s.registry_id = r.registry_id "
                 "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
                 f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
                 "AND m.agent_id = ? AND m.state = 'COMMITTED' "
                 "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
-                "AND r.artifact_kind IN ('ENTITY', 'ENTITY_VECTOR')",
+                "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR')",
                 (tenant_id, *datasets, agent_id),
             ) as cursor:
-                allowed_ids = {str(row[0]) for row in await cursor.fetchall()}
-        if not allowed_ids:
+                artifact_rows = await cursor.fetchall()
+        allowed_entity_ids = {
+            str(row[1]) for row in artifact_rows if row[0] == "ENTITY"
+        }
+        allowed_vector_ids = {
+            str(row[1]) for row in artifact_rows if row[0] == "ASSERTION_VECTOR"
+        }
+        if not allowed_entity_ids:
             return []
 
         vector_lane: list[str] = []
         try:
-            query_vector = await self._vec.compute_embedding(query)
+            query_vector = await self._vec.compute_query_embedding(query)
             vector_rows = await self._vec.search(
                 query_vector,
                 agent_id=agent_id,
-                allowed_node_ids=allowed_ids,
+                allowed_node_ids=allowed_vector_ids,
                 limit=min(500, max(limit * 10, 50)),
             )
-            vector_lane = scope_vector_result_ids(vector_rows, allowed_ids=allowed_ids)
-        except RuntimeError:
+            ranked_assertion_ids = scope_vector_result_ids(
+                vector_rows, allowed_ids=allowed_vector_ids
+            )
+            if ranked_assertion_ids:
+                vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT assertion_id, subject_id, object_entity_id FROM v4_assertions "
+                        f"WHERE assertion_id IN ({vector_placeholders})",
+                        ranked_assertion_ids,
+                    ) as cursor:
+                        vector_assertions = {
+                            str(row["assertion_id"]): dict(row)
+                            for row in await cursor.fetchall()
+                        }
+                for assertion_id in ranked_assertion_ids:
+                    assertion = vector_assertions.get(assertion_id)
+                    if assertion is None:
+                        continue
+                    for entity_id in (
+                        assertion["subject_id"],
+                        assertion.get("object_entity_id"),
+                    ):
+                        if (
+                            entity_id
+                            and entity_id in allowed_entity_ids
+                            and entity_id not in vector_lane
+                        ):
+                            vector_lane.append(str(entity_id))
+        except (AttributeError, RuntimeError):
             vector_lane = []
 
         tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))
@@ -4972,7 +5213,7 @@ class MemoryDAO:
             ):
                 if (
                     candidate
-                    and candidate in allowed_ids
+                    and candidate in allowed_entity_ids
                     and candidate not in graph_lane
                 ):
                     graph_lane.append(str(candidate))
@@ -4989,7 +5230,7 @@ class MemoryDAO:
                 ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
         if not ranks:
             return []
-        entity_ids = sorted(set(ranks).intersection(allowed_ids))
+        entity_ids = sorted(set(ranks).intersection(allowed_entity_ids))
         if not entity_ids:
             return []
         entity_placeholders = ",".join("?" for _ in entity_ids)

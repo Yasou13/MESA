@@ -16,6 +16,7 @@ from alembic.config import Config
 from mesa_storage.projection_generations import (
     ProjectionGenerationConflictError,
     ProjectionGenerationFencedError,
+    ProjectionGenerationIdentityMismatchError,
     ProjectionGenerationRepository,
     ProjectionPathError,
 )
@@ -380,3 +381,88 @@ async def test_rolled_back_generation_can_be_restaged_by_same_operation_retry(
 
     assert rolled_back["active_generation_id"] == "legacy"
     assert restaged["lifecycle_state"] == "STAGING"
+
+
+@pytest.mark.asyncio
+async def test_active_generation_fences_same_dimension_different_embedding_space(
+    tmp_path: Path,
+) -> None:
+    generations, _operations, _storage, _database = _repositories(tmp_path)
+    space_a = {
+        "embedding_space_id": "provider-a:model-a:rev-a:768:norm=true",
+        "provider": "provider-a",
+        "model": "model-a",
+        "model_revision": "rev-a",
+        "version": "v1",
+        "dimension": 768,
+        "normalized": True,
+    }
+    space_b = {
+        **space_a,
+        "embedding_space_id": "provider-b:model-b:rev-b:768:norm=true",
+        "provider": "provider-b",
+        "model": "model-b",
+        "model_revision": "rev-b",
+    }
+
+    await generations.assert_active_embedding_identity(space_a)
+    with pytest.raises(
+        ProjectionGenerationIdentityMismatchError, match="rebuild is required"
+    ):
+        await generations.assert_active_embedding_identity(space_b)
+
+
+@pytest.mark.asyncio
+async def test_restart_keeps_old_generation_active_when_new_embedding_rebuild_is_only_staged(
+    tmp_path: Path,
+) -> None:
+    generations, operations, storage, database = _repositories(tmp_path)
+    old_space = {
+        "embedding_space_id": "local:minilm:old:384:norm=true",
+        "provider": "local",
+        "model": "minilm",
+        "model_revision": "old",
+        "version": "v1",
+        "dimension": 384,
+        "normalized": True,
+    }
+    new_space = {
+        "embedding_space_id": "local:magibu:new:768:norm=true",
+        "provider": "local",
+        "model": "magibu",
+        "model_revision": "new",
+        "version": "v1",
+        "dimension": 768,
+        "normalized": True,
+    }
+    await generations.assert_active_embedding_identity(old_space)
+    with pytest.raises(
+        ProjectionGenerationIdentityMismatchError, match="rebuild is required"
+    ):
+        await generations.assert_active_embedding_identity(new_space)
+
+    operation_id, claimed = await _running_operation(operations)
+    await generations.create_staging(
+        operation_id=operation_id,
+        generation_id="magibu-768",
+        runner_id="runner-a",
+        claim_token=claimed["claim_token"],
+        operation_fencing_token=claimed["fencing_token"],
+        provider_manifest=new_space,
+    )
+
+    restarted = ProjectionGenerationRepository(
+        cast(AsyncEngine, _SynchronousSQLiteEngine(database))
+    )
+    active = await restarted.resolve_active(storage_root=storage, trusted_root=tmp_path)
+    assert active.generation_id == "legacy"
+    connection = sqlite3.connect(database)
+    try:
+        states = dict(
+            connection.execute(
+                "SELECT generation_id, lifecycle_state FROM projection_generations"
+            ).fetchall()
+        )
+    finally:
+        connection.close()
+    assert states == {"legacy": "ACTIVE", "magibu-768": "STAGING"}

@@ -86,6 +86,23 @@ def _parser() -> argparse.ArgumentParser:
     dataset_permission.add_argument(
         "--permission", choices=("PURGE", "ROLLBACK"), required=True
     )
+
+    revoke_role = commands.add_parser("revoke-role", help="Revoke OWNER/WRITER/READER")
+    revoke_role.add_argument("--principal", required=True)
+    revoke_role.add_argument("--tenant", required=True)
+    revoke_role.add_argument("--workspace")
+    revoke_role.add_argument("--dataset")
+
+    revoke_dataset_perm = commands.add_parser(
+        "revoke-dataset-permission",
+        help="Revoke an explicit PURGE or ROLLBACK permission",
+    )
+    revoke_dataset_perm.add_argument("--principal", required=True)
+    revoke_dataset_perm.add_argument("--tenant", required=True)
+    revoke_dataset_perm.add_argument("--dataset", required=True)
+    revoke_dataset_perm.add_argument(
+        "--permission", choices=("PURGE", "ROLLBACK"), required=True
+    )
     return parser
 
 
@@ -122,6 +139,17 @@ async def _run(args: argparse.Namespace) -> str:
             )
             scope = args.dataset or args.workspace or args.tenant
             return f"role-granted:{args.principal}:{scope}:{args.role}"
+        if args.command == "revoke-role":
+            if args.dataset and not args.workspace:
+                raise ValueError("--dataset requires --workspace")
+            revoked = await access.revoke_scope_role(
+                args.principal,
+                tenant_id=args.tenant,
+                workspace_id=args.workspace,
+                dataset_id=args.dataset,
+            )
+            scope = args.dataset or args.workspace or args.tenant
+            return f"role-revoked:{args.principal}:{scope}:{revoked}"
         if args.command == "grant-control":
             await access.grant_control_role(args.principal, "ADMIN")
             return f"control-role-granted:{args.principal}:ADMIN"
@@ -143,6 +171,17 @@ async def _run(args: argparse.Namespace) -> str:
             return (
                 f"dataset-permission-granted:{args.principal}:"
                 f"{args.dataset}:{args.permission}"
+            )
+        if args.command == "revoke-dataset-permission":
+            revoked = await access.revoke_dataset_permission(
+                args.principal,
+                tenant_id=args.tenant,
+                dataset_id=args.dataset,
+                permission=args.permission,
+            )
+            return (
+                f"dataset-permission-revoked:{args.principal}:"
+                f"{args.dataset}:{args.permission}:{revoked}"
             )
         raise ValueError("unsupported command")
     finally:

@@ -257,8 +257,8 @@ def test_openai_adapter_embed_methods():
         mock_create.side_effect = openai.NotFoundError(
             "Not found", response=MagicMock(), body={}
         )
-        with patch("mesa_memory.adapter.claude._local_embed", return_value=[0.1]):
-            assert adapter.embed("prompt") == [0.1]
+        with pytest.raises(RuntimeError, match="embedding model is unavailable"):
+            adapter.embed("prompt")
 
         mock_create.side_effect = None
         mock_item = MagicMock()
@@ -270,10 +270,8 @@ def test_openai_adapter_embed_methods():
         mock_create.side_effect = openai.NotFoundError(
             "Not found", response=MagicMock(), body={}
         )
-        with patch(
-            "mesa_memory.adapter.claude._local_embed_batch", return_value=[[0.1]]
-        ):
-            assert adapter.embed_batch(["prompt"]) == [[0.1]]
+        with pytest.raises(RuntimeError, match="embedding model is unavailable"):
+            adapter.embed_batch(["prompt"])
 
 
 @pytest.mark.asyncio
@@ -292,8 +290,8 @@ async def test_openai_adapter_async_embed_methods():
         mock_create.side_effect = openai.NotFoundError(
             "Not found", response=MagicMock(), body={}
         )
-        with patch("mesa_memory.adapter.claude._local_embed", return_value=[0.1]):
-            assert await adapter.aembed("prompt") == [0.1]
+        with pytest.raises(RuntimeError, match="embedding model is unavailable"):
+            await adapter.aembed("prompt")
 
         mock_create.side_effect = None
         mock_item = MagicMock()
@@ -305,10 +303,8 @@ async def test_openai_adapter_async_embed_methods():
         mock_create.side_effect = openai.NotFoundError(
             "Not found", response=MagicMock(), body={}
         )
-        with patch(
-            "mesa_memory.adapter.claude._local_embed_batch", return_value=[[0.1]]
-        ):
-            assert await adapter.aembed_batch(["prompt"]) == [[0.1]]
+        with pytest.raises(RuntimeError, match="embedding model is unavailable"):
+            await adapter.aembed_batch(["prompt"])
 
 
 def test_adapter_factory():

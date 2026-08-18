@@ -117,14 +117,27 @@ async def test_v4_admission_is_atomic_and_idempotent_without_catalog_orphans(
                     assert (await cursor.fetchone())[0] == 1
             async with db.execute(
                 "SELECT embedding_provider, embedding_model, embedding_version, "
-                "embedding_dimension FROM memory_mutations"
+                "embedding_dimension, metadata_json FROM memory_mutations"
             ) as cursor:
-                assert tuple(await cursor.fetchone()) == (
+                row = await cursor.fetchone()
+                assert tuple(row[:4]) == (
                     "local-test",
                     "embed-model",
                     "v1",
                     3,
                 )
+                import json
+
+                snapshot = json.loads(row[4])["_mesa_embedding_identity"]
+                assert snapshot == {
+                    "embedding_space_id": "local-test:embed-model:v1:3:norm=true",
+                    "provider": "local-test",
+                    "model": "embed-model",
+                    "model_revision": None,
+                    "version": "v1",
+                    "dimension": 3,
+                    "normalized": True,
+                }
             await db.execute(
                 "UPDATE memory_mutations SET embedding_provider = NULL, "
                 "embedding_model = NULL, embedding_version = NULL, "
@@ -424,7 +437,24 @@ async def test_outbox_projects_each_lane_then_commits_mutation(tmp_path) -> None
             ),
             patch.object(
                 MemoryDAO,
-                "project_v4_graph_triplet",
+                "project_v4_vector_assertion",
+                new=AsyncMock(return_value="assertion"),
+            ),
+            patch.object(
+                MemoryDAO,
+                "project_v4_sql_assertion",
+                new=AsyncMock(return_value="assertion"),
+            ),
+            patch.object(
+                MemoryDAO,
+                "list_v4_assertions_for_mutation",
+                new=AsyncMock(
+                    return_value=[{"assertion_id": "assertion", "subject_id": "entity"}]
+                ),
+            ),
+            patch.object(
+                MemoryDAO,
+                "project_v4_graph_assertion",
                 new=AsyncMock(return_value="assertion"),
             ),
         ):

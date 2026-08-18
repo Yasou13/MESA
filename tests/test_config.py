@@ -48,5 +48,5 @@ def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode():
     external_identity = configured_embedding_identity(
         {"MESA_EXTERNAL_PROVIDER_ENABLED": "true"}
     )
-    assert external_identity.provider == config.mesa_llm_provider
-    assert external_identity.model == config.llm_embedding_model_name
+    assert external_identity.provider == config.embedding_provider
+    assert external_identity.model == config.external_embedding_model

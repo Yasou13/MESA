@@ -89,6 +89,8 @@ class EmbeddingServicePort(Protocol):
 
     async def aembed_document(self, text: str) -> list[float]: ...
 
+    async def aembed_query(self, text: str) -> list[float]: ...
+
     async def aembed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
@@ -204,7 +206,7 @@ class VectorEngine:
         metric: str = _DEFAULT_METRIC,
         allow_model_loading: bool = False,
         embedding_provider: EmbeddingProvider | None = None,
-        local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        local_embedding_model: str = "magibu/embeddingmagibu-200m",
         embedding_service: EmbeddingServicePort | None = None,
     ) -> None:
         self._uri = uri
@@ -346,6 +348,18 @@ class VectorEngine:
                 raise RuntimeError("embedding provider returned an empty vector")
             return [float(value) for value in vector]
 
+        raise RuntimeError(
+            "semantic embedding runtime is disabled or no canonical embedding service is available"
+        )
+
+    async def compute_query_embedding(self, text: str) -> list[float]:
+        """Compute a query embedding without letting storage choose a model."""
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+        if self._embedding_service is not None:
+            return await self._embedding_service.aembed_query(text)
+        if self._embedding_provider is not None:
+            return await self._embedding_provider(text)
         raise RuntimeError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )

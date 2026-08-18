@@ -71,6 +71,7 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
     engine = SimpleNamespace(initialize=AsyncMock(), close=AsyncMock())
     vector_engine = SimpleNamespace(initialize=AsyncMock(), close=AsyncMock())
     projection_repository = SimpleNamespace(
+        assert_active_embedding_identity=AsyncMock(),
         resolve_active=AsyncMock(
             return_value=ProjectionPaths(
                 generation_id="legacy",
@@ -79,7 +80,7 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
                 runtime_fencing_token=0,
                 previous_generation_id=None,
             )
-        )
+        ),
     )
     dao = SimpleNamespace(initialize=AsyncMock())
     supervisor = SimpleNamespace(
@@ -149,6 +150,7 @@ async def test_worker_runtime_initializes_and_stops_cleanly(
         storage_root=tmp_path,
         trusted_root=tmp_path,
     )
+    projection_repository.assert_active_embedding_identity.assert_awaited_once()
     writer_lock.release.assert_called_once()
     assert [call.args[1]["status"] for call in readiness.call_args_list] == [
         "RUNNING",
@@ -180,6 +182,7 @@ async def test_worker_startup_failure_closes_partial_storage_and_writer_lock(
         close=AsyncMock(),
     )
     projection_repository = SimpleNamespace(
+        assert_active_embedding_identity=AsyncMock(),
         resolve_active=AsyncMock(
             return_value=ProjectionPaths(
                 generation_id="legacy",
@@ -188,7 +191,7 @@ async def test_worker_startup_failure_closes_partial_storage_and_writer_lock(
                 runtime_fencing_token=0,
                 previous_generation_id=None,
             )
-        )
+        ),
     )
 
     monkeypatch.setattr(worker_runtime, "load_runtime_profile", lambda: runtime)

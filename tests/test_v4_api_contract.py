@@ -822,8 +822,9 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
     assert context.status_code == 200
     context_body = context.json()
     assert "=== Current Session Information ===" in context_body["context"]
-    assert "- First" in context_body["context"]
-    assert "- Second" in context_body["context"]
+    assert "First" in context_body["context"]
+    assert "Second" in context_body["context"]
+    assert "<UNTRUSTED_MEMORY_EVIDENCE>" in context_body["context"]
     assert context_body["canonical_memories"] == [
         {"artifact_id": "artifact-a", "content": "Exact content"}
     ]

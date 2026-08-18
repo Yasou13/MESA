@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, cast
 
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import (
@@ -165,7 +165,7 @@ class ProjectionParityVerifier:
             missing_ids = 0
             for lane in ("vector", "graph_entity", "graph_assertion"):
                 identifier_key = (
-                    "assertion_id" if lane == "graph_assertion" else "entity_id"
+                    "entity_id" if lane == "graph_entity" else "assertion_id"
                 )
                 # Exact parity can be bounded in memory without being silently
                 # truncated: iterate every snapshot identity in fixed chunks.
@@ -192,7 +192,7 @@ class ProjectionParityVerifier:
             cross_dataset_checked = 0
             for case in snapshot.vector_smoke_cases(limit=smoke_limit):
                 embeddings = await vector.compute_embedding_batch(
-                    [str(case["canonical_name"])]
+                    [str(case["payload_text"])]
                 )
                 if len(embeddings) != 1:
                     raise RebuildVerificationError("retrieval smoke embedding failed")
@@ -211,8 +211,8 @@ class ProjectionParityVerifier:
                 if not raw_result_ids.issubset(allowed):
                     raise RebuildVerificationError("retrieval scope smoke failed")
                 result_ids = set(scope_vector_result_ids(results, allowed_ids=allowed))
-                entity_id = str(case["entity_id"])
-                if entity_id not in result_ids:
+                vector_id = str(case["assertion_id"])
+                if vector_id not in result_ids:
                     missing_ids += 1
                 smoke_checked += 1
                 for other_tenant, other_dataset in snapshot.retrieval_scopes(
@@ -227,7 +227,7 @@ class ProjectionParityVerifier:
                         agent_id=str(case["agent_id"]),
                         dataset_id=other_dataset,
                     )
-                    if entity_id not in other_allowed:
+                    if vector_id not in other_allowed:
                         other_results = await vector.search(
                             embeddings[0],
                             limit=50,
@@ -241,7 +241,7 @@ class ProjectionParityVerifier:
                             raise RebuildVerificationError(
                                 "retrieval scope smoke failed"
                             )
-                        if entity_id in other_result_ids:
+                        if vector_id in other_result_ids:
                             raise RebuildVerificationError(
                                 "cross-dataset retrieval smoke failed"
                             )
@@ -522,7 +522,7 @@ def default_vector_verification_factory(
     embedding_provider: EmbeddingProvider | None,
     embedding_service: Any | None = None,
     allow_model_loading: bool,
-    local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+    local_embedding_model: str = "magibu/embeddingmagibu-200m",
 ) -> Callable[[Path], VectorVerificationTarget]:
     return lambda path: VectorEngine(
         str(path),
@@ -534,4 +534,4 @@ def default_vector_verification_factory(
 
 
 def default_graph_verification_factory(path: Path) -> GraphVerificationTarget:
-    return KuzuGraphProvider(str(path))
+    return cast(GraphVerificationTarget, KuzuGraphProvider(str(path)))

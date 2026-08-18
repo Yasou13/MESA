@@ -32,6 +32,9 @@ class _DeterministicProvider(BaseUniversalLLMAdapter):
     def complete(self, prompt: str, schema: Any = None, **_: Any) -> Any:
         self.completions += 1
         if schema is not None:
+            source_span = prompt.rsplit("<UNTRUSTED_SOURCE>\n", 1)[-1].split(
+                "\n</UNTRUSTED_SOURCE>", 1
+            )[0]
             return schema.model_validate(
                 {
                     "facts": [
@@ -41,6 +44,7 @@ class _DeterministicProvider(BaseUniversalLLMAdapter):
                             "predicate": "PRESERVES",
                             "object": "durable memory",
                             "confidence": 1.0,
+                            "source_span": source_span,
                         }
                     ]
                 }
@@ -450,6 +454,11 @@ async def test_r4_invalid_validation_composition_fails_server_startup(
         server.AdapterFactory,
         "get_adapter",
         staticmethod(lambda *args, **kwargs: provider),
+    )
+    monkeypatch.setattr(
+        server,
+        "_get_embedding_service",
+        lambda **_kwargs: _embedding_service(provider),
     )
 
     with pytest.raises(ValueError):

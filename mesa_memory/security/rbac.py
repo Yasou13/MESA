@@ -59,6 +59,9 @@ def detect_prompt_injection(content: str) -> bool:
     return any(re.search(p, content) for p in INJECTION_PATTERNS)
 
 
+RBAC_SCHEMA_VERSION = 2
+
+
 class AccessControl:
     """Async RBAC policy engine backed by aiosqlite.
 
@@ -81,8 +84,24 @@ class AccessControl:
         self.policy_path = policy_path
         self._initialized = False
 
+    async def get_schema_version(self) -> int:
+        """Return the current RBAC policy schema version."""
+        async with aiosqlite.connect(self.policy_path) as db:
+            async with db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='rbac_schema_version'"
+            ) as cursor:
+                if await cursor.fetchone() is None:
+                    return 1
+            async with db.execute(
+                "SELECT MAX(version) FROM rbac_schema_version"
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0] is not None:
+                    return int(row[0])
+                return 1
+
     async def initialize(self) -> None:
-        """Create the policy database and seed the system daemon identity.
+        """Create or migrate the policy database and seed the system daemon identity.
 
         This is idempotent — safe to call multiple times.
         """
@@ -126,39 +145,211 @@ class AccessControl:
                 )
             """)
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS principal_workspace_roles (
-                    principal_id TEXT NOT NULL,
-                    tenant_id TEXT NOT NULL,
-                    workspace_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    PRIMARY KEY (principal_id, workspace_id)
-                )
-            """)
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS principal_dataset_roles (
-                    principal_id TEXT NOT NULL,
-                    tenant_id TEXT NOT NULL,
-                    workspace_id TEXT NOT NULL,
-                    dataset_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    PRIMARY KEY (principal_id, dataset_id)
-                )
-            """)
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS principal_dataset_permissions (
-                    principal_id TEXT NOT NULL,
-                    tenant_id TEXT NOT NULL,
-                    dataset_id TEXT NOT NULL,
-                    permission TEXT NOT NULL,
-                    PRIMARY KEY (principal_id, dataset_id, permission)
-                )
-            """)
-            await db.execute("""
                 CREATE TABLE IF NOT EXISTS principal_control_roles (
                     principal_id TEXT PRIMARY KEY,
                     role TEXT NOT NULL
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS rbac_schema_version (
+                    version INTEGER PRIMARY KEY,
+                    migrated_at TEXT NOT NULL
+                )
+            """)
+
+            # The recorded version is only authoritative when the scoped tables
+            # actually have the corresponding shape.  A stale or tampered
+            # marker must not make an old policy schema silently usable.
+            async with db.execute(
+                "SELECT MAX(version) FROM rbac_schema_version"
+            ) as cursor:
+                row = await cursor.fetchone()
+                current_version = int(row[0]) if (row and row[0] is not None) else 0
+
+            if current_version > RBAC_SCHEMA_VERSION:
+                raise RuntimeError(
+                    "RBAC policy schema version is newer than this runtime supports"
+                )
+
+            needs_migration = False
+            for tbl, required_cols in (
+                (
+                    "principal_workspace_roles",
+                    {"principal_id", "tenant_id", "workspace_id", "role"},
+                ),
+                (
+                    "principal_dataset_roles",
+                    {
+                        "principal_id",
+                        "tenant_id",
+                        "workspace_id",
+                        "dataset_id",
+                        "role",
+                    },
+                ),
+                (
+                    "principal_dataset_permissions",
+                    {"principal_id", "tenant_id", "dataset_id", "permission"},
+                ),
+            ):
+                async with db.execute(
+                    f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tbl}'"
+                ) as cursor:
+                    if await cursor.fetchone() is not None:
+                        async with db.execute(
+                            f"PRAGMA table_info({tbl})"
+                        ) as col_cursor:
+                            columns = await col_cursor.fetchall()
+                        names = {str(col[1]) for col in columns}
+                        pk_cols = {str(col[1]) for col in columns if col[5] > 0}
+                        if names != required_cols or pk_cols != required_cols - {
+                            "role"
+                        }:
+                            needs_migration = True
+                            break
+
+            if needs_migration:
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    await db.execute("""
+                        CREATE TABLE IF NOT EXISTS _v2_principal_workspace_roles (
+                            principal_id TEXT NOT NULL,
+                            tenant_id TEXT NOT NULL,
+                            workspace_id TEXT NOT NULL,
+                            role TEXT NOT NULL,
+                            PRIMARY KEY (principal_id, tenant_id, workspace_id)
+                        )
+                    """)
+                    await db.execute("""
+                        CREATE TABLE IF NOT EXISTS _v2_principal_dataset_roles (
+                            principal_id TEXT NOT NULL,
+                            tenant_id TEXT NOT NULL,
+                            workspace_id TEXT NOT NULL,
+                            dataset_id TEXT NOT NULL,
+                            role TEXT NOT NULL,
+                            PRIMARY KEY (principal_id, tenant_id, workspace_id, dataset_id)
+                        )
+                    """)
+                    await db.execute("""
+                        CREATE TABLE IF NOT EXISTS _v2_principal_dataset_permissions (
+                            principal_id TEXT NOT NULL,
+                            tenant_id TEXT NOT NULL,
+                            dataset_id TEXT NOT NULL,
+                            permission TEXT NOT NULL,
+                            PRIMARY KEY (principal_id, tenant_id, dataset_id, permission)
+                        )
+                    """)
+
+                    # Historical primary keys are strict subsets of the v2
+                    # keys, so a conflict here signals malformed input.
+                    # Fail closed rather than silently discard a grant.
+                    await db.execute("""
+                        INSERT INTO _v2_principal_workspace_roles
+                        (principal_id, tenant_id, workspace_id, role)
+                        SELECT principal_id, tenant_id, workspace_id, role
+                        FROM principal_workspace_roles
+                    """)
+                    await db.execute("""
+                        INSERT INTO _v2_principal_dataset_roles
+                        (principal_id, tenant_id, workspace_id, dataset_id, role)
+                        SELECT principal_id, tenant_id, workspace_id, dataset_id, role
+                        FROM principal_dataset_roles
+                    """)
+                    await db.execute("""
+                        INSERT INTO _v2_principal_dataset_permissions
+                        (principal_id, tenant_id, dataset_id, permission)
+                        SELECT principal_id, tenant_id, dataset_id, permission
+                        FROM principal_dataset_permissions
+                    """)
+
+                    for source, replacement in (
+                        ("principal_workspace_roles", "_v2_principal_workspace_roles"),
+                        ("principal_dataset_roles", "_v2_principal_dataset_roles"),
+                        (
+                            "principal_dataset_permissions",
+                            "_v2_principal_dataset_permissions",
+                        ),
+                    ):
+                        async with db.execute(
+                            f"SELECT COUNT(*) FROM {source}"
+                        ) as cursor:
+                            source_row = await cursor.fetchone()
+                        async with db.execute(
+                            f"SELECT COUNT(*) FROM {replacement}"
+                        ) as cursor:
+                            replacement_row = await cursor.fetchone()
+                        if source_row is None or replacement_row is None:
+                            raise RuntimeError(
+                                "RBAC migration validation failed: missing grant count"
+                            )
+                        source_count = int(source_row[0])
+                        replacement_count = int(replacement_row[0])
+                        if source_count != replacement_count:
+                            raise RuntimeError(
+                                "RBAC migration validation failed: grant count mismatch"
+                            )
+
+                    # Atomic drop and replace
+                    await db.execute("DROP TABLE principal_workspace_roles")
+                    await db.execute(
+                        "ALTER TABLE _v2_principal_workspace_roles RENAME TO principal_workspace_roles"
+                    )
+                    await db.execute("DROP TABLE principal_dataset_roles")
+                    await db.execute(
+                        "ALTER TABLE _v2_principal_dataset_roles RENAME TO principal_dataset_roles"
+                    )
+                    await db.execute("DROP TABLE principal_dataset_permissions")
+                    await db.execute(
+                        "ALTER TABLE _v2_principal_dataset_permissions RENAME TO principal_dataset_permissions"
+                    )
+
+                    await db.execute(
+                        "INSERT INTO rbac_schema_version (version, migrated_at) "
+                        "VALUES (?, CURRENT_TIMESTAMP) "
+                        "ON CONFLICT(version) DO NOTHING",
+                        (RBAC_SCHEMA_VERSION,),
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
+            else:
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS principal_workspace_roles (
+                        principal_id TEXT NOT NULL,
+                        tenant_id TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        PRIMARY KEY (principal_id, tenant_id, workspace_id)
+                    )
+                """)
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS principal_dataset_roles (
+                        principal_id TEXT NOT NULL,
+                        tenant_id TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        dataset_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        PRIMARY KEY (principal_id, tenant_id, workspace_id, dataset_id)
+                    )
+                """)
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS principal_dataset_permissions (
+                        principal_id TEXT NOT NULL,
+                        tenant_id TEXT NOT NULL,
+                        dataset_id TEXT NOT NULL,
+                        permission TEXT NOT NULL,
+                        PRIMARY KEY (principal_id, tenant_id, dataset_id, permission)
+                    )
+                """)
+                await db.execute(
+                    "INSERT INTO rbac_schema_version (version, migrated_at) "
+                    "VALUES (?, CURRENT_TIMESTAMP) "
+                    "ON CONFLICT(version) DO NOTHING",
+                    (RBAC_SCHEMA_VERSION,),
+                )
+                await db.commit()
+
             # Seed the reserved system daemon identity with WRITE access
             await db.execute(
                 "INSERT OR IGNORE INTO permissions "
@@ -212,9 +403,11 @@ class AccessControl:
             if not workspace_id:
                 raise ValueError("dataset role requires workspace")
             statement = (
-                "INSERT OR REPLACE INTO principal_dataset_roles "
+                "INSERT INTO principal_dataset_roles "
                 "(principal_id, tenant_id, workspace_id, dataset_id, role) "
-                "VALUES (?, ?, ?, ?, ?)"
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(principal_id, tenant_id, workspace_id, dataset_id) "
+                "DO UPDATE SET role = excluded.role"
             )
             params = (
                 principal_id,
@@ -225,19 +418,59 @@ class AccessControl:
             )
         elif workspace_id:
             statement = (
-                "INSERT OR REPLACE INTO principal_workspace_roles "
-                "(principal_id, tenant_id, workspace_id, role) VALUES (?, ?, ?, ?)"
+                "INSERT INTO principal_workspace_roles "
+                "(principal_id, tenant_id, workspace_id, role) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(principal_id, tenant_id, workspace_id) "
+                "DO UPDATE SET role = excluded.role"
             )
             params = (principal_id, tenant_id, workspace_id, normalized)
         else:
             statement = (
-                "INSERT OR REPLACE INTO principal_tenant_roles "
-                "(principal_id, tenant_id, role) VALUES (?, ?, ?)"
+                "INSERT INTO principal_tenant_roles "
+                "(principal_id, tenant_id, role) VALUES (?, ?, ?) "
+                "ON CONFLICT(principal_id, tenant_id) "
+                "DO UPDATE SET role = excluded.role"
             )
             params = (principal_id, tenant_id, normalized)
         async with aiosqlite.connect(self.policy_path) as db:
             await db.execute(statement, params)
             await db.commit()
+
+    async def revoke_scope_role(
+        self,
+        principal_id: str,
+        *,
+        tenant_id: str,
+        workspace_id: str | None = None,
+        dataset_id: str | None = None,
+    ) -> bool:
+        """Revoke role at specified catalog scope. Returns True if a role was revoked."""
+        params: tuple[str, ...]
+        if dataset_id:
+            if not workspace_id:
+                raise ValueError("dataset role revocation requires workspace")
+            statement = (
+                "DELETE FROM principal_dataset_roles "
+                "WHERE principal_id = ? AND tenant_id = ? "
+                "AND workspace_id = ? AND dataset_id = ?"
+            )
+            params = (principal_id, tenant_id, workspace_id, dataset_id)
+        elif workspace_id:
+            statement = (
+                "DELETE FROM principal_workspace_roles "
+                "WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?"
+            )
+            params = (principal_id, tenant_id, workspace_id)
+        else:
+            statement = (
+                "DELETE FROM principal_tenant_roles "
+                "WHERE principal_id = ? AND tenant_id = ?"
+            )
+            params = (principal_id, tenant_id)
+        async with aiosqlite.connect(self.policy_path) as db:
+            cursor = await db.execute(statement, params)
+            await db.commit()
+            return bool(cursor.rowcount > 0)
 
     async def check_scope_role(
         self,
@@ -293,12 +526,35 @@ class AccessControl:
             raise ValueError("invalid dataset permission")
         async with aiosqlite.connect(self.policy_path) as db:
             await db.execute(
-                "INSERT OR IGNORE INTO principal_dataset_permissions "
+                "INSERT INTO principal_dataset_permissions "
                 "(principal_id, tenant_id, dataset_id, permission) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(principal_id, tenant_id, dataset_id, permission) DO NOTHING",
                 (principal_id, tenant_id, dataset_id, normalized),
             )
             await db.commit()
+
+    async def revoke_dataset_permission(
+        self,
+        principal_id: str,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        permission: str,
+    ) -> bool:
+        """Revoke explicit dataset permission. Returns True if permission was revoked."""
+        normalized = permission.upper()
+        if normalized not in {"PURGE", "ROLLBACK"}:
+            raise ValueError("invalid dataset permission")
+        async with aiosqlite.connect(self.policy_path) as db:
+            cursor = await db.execute(
+                "DELETE FROM principal_dataset_permissions "
+                "WHERE principal_id = ? AND tenant_id = ? "
+                "AND dataset_id = ? AND permission = ?",
+                (principal_id, tenant_id, dataset_id, normalized),
+            )
+            await db.commit()
+            return bool(cursor.rowcount > 0)
 
     async def check_dataset_permission(
         self,

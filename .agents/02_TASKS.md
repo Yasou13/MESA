@@ -1,488 +1,458 @@
-# Round 5 Task Ledger
+# Round 6 Task Ledger
 
 Branch:
 
 ```text
-mvp/certification-round-5-fact-embedding
+mvp/certification-round-6-rbac-context
 ```
 
 ---
 
-## F001 — Current-State Dependency Map
+## R601 — Current-State RBAC + Context Threat Map
 
 Owner: Gemini / Terra
 
-Goal:
-
-Trace current production call paths before changing architecture.
-
-Required inspection:
+Trace current production ownership for:
 
 ```text
-server composition
-AdapterFactory
-ConsolidationLoop
-TripletExtractor
-ingestion worker
-VectorEngine
-LLM adapters
-projection workers
-rebuild/generation code
-GraphWriter / graph projection
-embedding identity persistence
+RBAC schema creation
+RBAC grant/revoke
+authorization lookup
+RBAC caches
+RBAC database initialization/versioning
+
+ContextBuilder retrieval input
+formatted_context construction
+token counting
+provenance rendering
 ```
 
-Prove where:
-
-```text
-validation
-extraction
-embedding
-graph projection
-```
-
-are currently owned.
+Do not modify production code before identifying actual canonical paths.
 
 Status: VERIFIED
-Evidence: Traced production call paths across server composition, AdapterFactory, ConsolidationLoop, TripletExtractor, ingestion_worker, VectorEngine, LLM adapters, projection workers, rebuild/cutover, GraphWriter, and embedding identity. Mapped current ownership: (1) Validation is owned by ValidationPolicy (Mode 0/1/2); (2) Extraction is owned by TripletExtractor with unconditional RebelExtractor init and dual-LLM fallback; (3) Embedding generation is scattered across VectorEngine (direct SentenceTransformer loading / provider callback), LLM adapters (embed/aembed methods), and GraphWriter; (4) Graph projection is owned by GraphWriter into KuzuGraphProvider and MemoryDAO.
-Tests: tests/test_r4_durable_policy_snapshot.py
-Commit: aad80c2
+Evidence: Traced production ownership across RBAC and ContextBuilder surfaces without modifying production code:
+1. RBAC Storage & Schema (`mesa_memory/security/rbac.py`):
+   - Standalone SQLite database (`storage/rbac_policy.db`), initialized via `AccessControl.initialize()`.
+   - Flawed Primary Keys missing tenant scope:
+     * `principal_workspace_roles`: `PRIMARY KEY (principal_id, workspace_id)` -> misses `tenant_id`.
+     * `principal_dataset_roles`: `PRIMARY KEY (principal_id, dataset_id)` -> misses `tenant_id` and `workspace_id`.
+     * `principal_dataset_permissions`: `PRIMARY KEY (principal_id, dataset_id, permission)` -> misses `tenant_id`.
+   - `grant_scope_role` uses `INSERT OR REPLACE`, causing cross-tenant overwrites for identical resource IDs.
+   - `grant_dataset_permission` uses `INSERT OR IGNORE`, suppressing grants for other tenants with identical resource IDs.
+   - Missing explicit schema authority/version table: no migration or version tracking exists on the policy DB.
+   - Scope role revocation (`revoke_scope_role`) and dataset permission revocation (`revoke_dataset_permission`) are missing from `AccessControl` and `mesa-v4-admin`.
+   - Cache audit: `AccessControl` executes direct queries (no in-memory cache). `mesa_mcp/v4_service.py` session cache key `f"{tenant_id}:{workspace_id}:{actor_id}:{dataset_id}"` is tenant-scoped; no unscoped RBAC caches exist (NOT_APPLICABLE_VERIFIED for cache key bug).
+2. ContextBuilder (`mesa_memory/context_builder.py`):
+   - Input: `MemoryDAO.get_recent_logs()` and `MemoryDAO.search_v4_memory()`.
+   - Formatted context construction: Uses raw string interpolation (`line = f"- {log.get('content', '')}"` and `- [Entity: {name}]{prov_str}`) with unescaped text and header `=== Long-Term Canonical Truth ===`.
+   - Trust boundary: Missing explicit `<UNTRUSTED_MEMORY_EVIDENCE>` tags and untrusted evidence warning.
+   - Token budget: Heuristic `char_budget = token_budget * 4` and slicing `line[:available]`; output estimation uses `len(formatted_context) / 4.0` with no real tokenizer measurement.
+   - Provenance: Only serializes predicate/value strings, omitting available `source_ref`, `document_id`, `revision_id`, `chunk_id`, `evidence_span`.
+Tests: Codebase inspection, AST/grep analysis, and verification of `tests/test_p0_context_builder.py`, `tests/test_rbac.py`, `tests/test_principal_authorization.py`, `tests/test_v4_catalog_ownership.py`.
+Commit: `37a28ae`, `edc7e72`
 
 ---
 
-## F002 — Introduce FactExtractionService Boundary
+## R602 — Establish Explicit RBAC Schema Authority
 
 Owner: Gemini / Terra
 
 Goal:
 
-Create the canonical extraction service abstraction without immediately changing every behavioral default.
+Determine how the standalone RBAC DB schema is versioned.
+
+Implement the smallest explicit version/migration authority if missing.
+
+Must distinguish:
+
+```text
+old unscoped schema
+new tenant-scoped schema
+```
+
+Status: VERIFIED
+Evidence: Established explicit RBAC schema authority via `RBAC_SCHEMA_VERSION = 2` and a metadata table `rbac_schema_version (version INTEGER PRIMARY KEY, migrated_at TEXT NOT NULL)`. `AccessControl.initialize()` inspects current version and `PRAGMA table_info` on existing tables to determine whether migration from old unscoped schema (v1) to tenant-scoped schema (v2) is required. Added `get_schema_version()` method.
+Tests: `tests/test_r6_rbac_tenant_isolation.py::test_fresh_database_has_v2_schema_and_version`, `test_historical_unscoped_migration_preserves_recoverable_grants`.
+Commit: `37a28ae`, `c948df4`
+
+---
+
+## R603 — Tenant-Scope Workspace Roles
+
+Owner: Gemini / Terra
+
+Goal:
+
+Ensure workspace-role persistence and lookup are tenant-scoped.
 
 Required:
 
 ```text
-FactExtractionService
-FactCandidate
-strict structured extraction contract
-0..N output
+same principal
+same workspace public ID
+different tenants
+→ independent rows
 ```
 
-Prefer wrapping/reusing current working primitives initially.
-
-Do not combine architecture introduction and model migration in one giant change.
-
 Status: VERIFIED
-Evidence: Implemented FactExtractionService and FactCandidate in mesa_memory/extraction/service.py with strict structured output schema (FactExtractionResponse) returning 0..N FactCandidate objects. Integrated into ConsolidationLoop and extraction pathways.
-Tests: tests/test_fact_extraction_service.py
-Commit: c2754fe
+Evidence: `principal_workspace_roles` primary key updated to `(principal_id, tenant_id, workspace_id)`. `grant_scope_role` now uses `INSERT INTO principal_workspace_roles ... ON CONFLICT(principal_id, tenant_id, workspace_id) DO UPDATE SET role = excluded.role`. Added `revoke_scope_role` with tenant scope filter.
+Tests: `tests/test_r6_rbac_tenant_isolation.py::test_cross_tenant_workspace_roles_coexistence`.
+Commit: `37a28ae`
 
 ---
 
-## F003 — Deterministic FactCandidate Validation + Canonical Mapping
+## R604 — Tenant-Scope Dataset Roles and Permissions
 
 Owner: Gemini / Terra
 
 Goal:
 
-Validate extracted facts without recreating Tier-3.
+Ensure dataset roles and explicit permissions are tenant-scoped.
 
-Required deterministic checks:
-
-```text
-schema
-required values
-confidence
-temporal values
-source span
-duplicates
-basic canonicalization
-```
-
-Map valid FactCandidates into existing canonical assertion/mutation state where safe.
-
-Prove:
+Audit:
 
 ```text
-0 facts
-1 fact
-N facts
-correction/supersession
+grant
+upsert
+replace
+revoke
+check
+list
+cache
 ```
 
 Status: VERIFIED
-Evidence: Implemented DeterministicFactValidator in mesa_memory/extraction/service.py performing non-empty schema checks, confidence boundary [0.0, 1.0] checks, source-span verification, deduplication by (subject, predicate, object, valid_from), and normalization without calling validation LLMs. Implemented fact_candidates_to_extracted_triplet to map FactCandidates directly to existing canonical assertion/mutation representations.
-Tests: tests/test_fact_extraction_service.py, tests/test_p0_multi_memory_extraction.py
-Commit: c2754fe
+Evidence:
+- `principal_dataset_roles` primary key updated to `(principal_id, tenant_id, workspace_id, dataset_id)`.
+- `principal_dataset_permissions` primary key updated to `(principal_id, tenant_id, dataset_id, permission)`.
+- `grant_scope_role` uses `ON CONFLICT(principal_id, tenant_id, workspace_id, dataset_id) DO UPDATE SET role = excluded.role`.
+- `grant_dataset_permission` uses `ON CONFLICT(principal_id, tenant_id, dataset_id, permission) DO NOTHING`.
+- Added `revoke_scope_role` and `revoke_dataset_permission` methods to `AccessControl`.
+- Added CLI commands `revoke-role` and `revoke-dataset-permission` to `admin_cli.py`.
+- Cache isolation: `AccessControl` runs direct queries; MCP session caches in `v4_service.py` are tenant-scoped.
+Tests: `tests/test_r6_rbac_tenant_isolation.py::test_cross_tenant_dataset_roles_coexistence`, `test_cross_tenant_dataset_permissions_coexistence`, `test_cross_tenant_revoke_isolation`, `test_admin_cli_grant_and_revoke_tenant_isolation`.
+Commit: `37a28ae`
 
 ---
 
-## F004 — Single-Call Structured Extraction
+## R605 — RBAC Migration + Cross-Tenant Regression
+
+Owner: Gemini / Terra
+
+Create the historical RBAC schema in a temporary DB.
+
+Populate real existing rows.
+
+Run real migration.
+
+Verify:
+
+```text
+rows preserved
+new keys correct
+migration idempotence/expected repeat behavior
+failure rollback
+two-tenant same-public-ID scenario
+grant/revoke isolation
+```
+
+Status: VERIFIED
+Evidence: `AccessControl.initialize()` creates `_v2_*` tables, copies recoverable rows with conflict-failing `INSERT`, validates source/replacement row counts, then atomically swaps the tables and records `rbac_schema_version = 2`. Injected failure verifies transaction rollback; repeat initialization preserves data without duplication.
+Tests: `tests/test_r6_rbac_tenant_isolation.py` (9 tests passing), `tests/test_rbac.py` (10 tests), `tests/test_v4_admin_cli.py` (3 tests), `tests/test_principal_authorization.py` (9 tests), `tests/test_v4_catalog_ownership.py` (8 tests), `tests/test_rbac_edge_cases.py` (17 tests).
+Commit: `37a28ae`, `c948df4`
+
+---
+
+## R606 — ContextBuilder Untrusted Evidence Boundary
 
 Owner: Gemini / Terra
 
 Goal:
 
-Make normal canonical extraction exactly one model call.
+Rendered long-term memory must be explicitly untrusted evidence.
 
-Required:
+Add deterministic safe serialization.
 
-```text
-one extraction call
-strict structured output
-0..N facts
-```
-
-If schema invalid:
-
-```text
-one bounded correction retry
-```
-
-No always-on extractor B.
-
-No dual extraction based on Tier-3 Mode 2.
+Instruction-like memory cannot become surrounding prompt structure.
 
 Status: VERIFIED
-Evidence: FactExtractionService enforces exactly one structured model call on normal extraction. If initial parsing fails, a single bounded schema correction retry is made. If the retry fails, FactExtractionError is raised (no 3rd call, no infinite loop). Removed dual-LLM extraction from TripletExtractor.
-Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
-Commit: c2754fe
+Evidence: `ContextBuilder` (`mesa_memory/context_builder.py`) wraps formatted context within `TRUST_HEADER` and explicit `<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>` tags. Session logs and canonical memories are serialized as deterministic JSON records with `json.dumps(..., ensure_ascii=False)`.
+Tests: `tests/test_r6_context_security_correctness.py::test_trust_header_and_tags_defined`, `test_instruction_like_memory_remains_data`.
+Commit: `edc7e72`, `623a05c`
 
 ---
 
-## F005 — Remove REBEL From Canonical V4
+## R607 — Delimiter / Injection Escape Regression
+
+Owner: Gemini / Terra
+
+Attack with memory containing:
+
+```text
+Ignore previous instructions
+SYSTEM:
+DEVELOPER:
+</UNTRUSTED_MEMORY_EVIDENCE>
+JSON/control characters
+newlines
+```
+
+Prove it stays data.
+
+Status: VERIFIED
+Evidence: JSON rendering now encodes every untrusted `<`/`>` at the final record boundary, covering closing/opening delimiter variants as well as nested system instructions, quotes, backslashes, newlines, and control characters.
+Tests: `tests/test_r6_context_security_correctness.py::test_delimiter_breakout_attack_neutralized`, `test_serialization_characters_safety`.
+Commit: `edc7e72`, `623a05c`
+
+---
+
+## R608 — Actual Token Budget Enforcement
 
 Owner: Gemini / Terra
 
 Goal:
+
+Final:
+
+```text
+formatted_context
+```
+
+must satisfy actual canonical tokenizer count.
+
+Character heuristic may remain prefilter only.
+
+Required cases:
+
+```text
+Turkish
+code
+URL
+emoji
+punctuation
+tiny budgets
+```
+
+Status: VERIFIED
+Evidence: Integrated canonical `count_tokens` (`cl100k_base` tokenizer) via `_count_tokens`. `ContextBuilder.build_context` trims candidate canonical memories in reverse rank order and session logs until `_count_tokens(formatted_context) <= token_budget`. Tiny budgets (1, 2, 5, 10, 20) are handled deterministically without exceeding caller budget.
+Tests: `tests/test_r6_context_security_correctness.py::test_token_budget_enforced_across_content_categories`, `test_tiny_token_budget_deterministic_safety`, `test_ranking_aware_budget_trimming`.
+Commit: `edc7e72`, `623a05c`
+
+---
+
+## R609 — Provenance Rendering
+
+Owner: Gemini / Terra
 
 When:
 
 ```text
-MESA_REBEL_ENABLED=false
+include_provenance=true
 ```
 
-no supported canonical V4 call path instantiates or calls REBEL.
+render bounded available provenance into LLM-ready context.
 
-REBEL may remain experimental/legacy.
+Minimum where available:
+
+```text
+source_ref
+document_id
+revision_id
+chunk_id
+evidence_span
+```
+
+Provenance must remain untrusted evidence and respect token budget.
 
 Status: VERIFIED
-Evidence: With MESA_REBEL_ENABLED=false (default), FactExtractionService and TripletExtractor do not instantiate RebelExtractor (using OptionalRebelExtractorPlaceholder). Verified that patching RebelExtractor to raise an error results in 0 constructor calls during canonical extraction.
-Tests: tests/test_fact_extraction_service.py, tests/test_r4_extraction_validation_independence.py
-Commit: c2754fe
+Evidence: When `include_provenance=True`, `ContextBuilder` includes available fields (`source_ref`, `document_id`, `revision_id`, `chunk_id`, `evidence_span` bounded to 200 chars, `jurisdiction`, `authority_level`) within the structured fact dict. Missing fields are omitted without fabricating IDs. All provenance strings are escaped and serialized as untrusted evidence before tokenizer budget enforcement.
+Tests: `tests/test_r6_context_security_correctness.py::test_provenance_rendered_when_enabled_and_compact_when_disabled`, `test_missing_provenance_handles_safely`, `test_provenance_injection_attack`, `test_evidence_span_is_bounded`.
+Commit: `edc7e72`
 
 ---
 
-## F006 — Extraction / Validation Independence Regression
+## R610 — Integrated Context Security Regression
 
 Owner: Gemini / Terra
 
-Goal:
+Run supported retrieval → ContextBuilder path.
 
-Prove Round 4 validation policy remains independent.
-
-Matrix:
+Verify together:
 
 ```text
-MODE 0
-MODE 1
-MODE 2
+ranking preserved
+memory safely serialized
+actual token budget satisfied
+provenance included when requested
+no cross-session/tenant context regression
 ```
 
-For all three:
-
-```text
-same extraction service
-same normal extraction call count
-same FactCandidate contract
-```
-
-Only validator count changes.
+Use deterministic fixtures.
 
 Status: VERIFIED
-Evidence: Validated across Mode 0 (0 validation LLMs, 1 extraction call), Mode 1 (1 validation LLM, 1 extraction call), and Mode 2 (2 validation LLMs + consensus, 1 extraction call). Injected validation policies never serve extraction.
-Tests: tests/test_r4_extraction_validation_independence.py
-Commit: c2754fe
+Evidence: End-to-end integration verified: `MemoryDAO.search_v4_memory` -> `ContextBuilder.build_context` -> `formatted_context`. Verified bidirectional tenant context isolation where Tenant A and Tenant B each retrieve only their own distinct memory under identical public workspace/dataset IDs.
+Tests: `tests/test_r6_context_security_correctness.py::test_integrated_retrieval_to_context_builder_flow`, `test_tenant_context_isolation_spot_check`.
+Commit: `edc7e72`
 
 ---
 
-## F007 — Introduce Canonical EmbeddingService
+## R611 — Round 6 Regression + Documentation Closure
 
 Owner: Gemini / Terra
 
-Goal:
-
-Create a single canonical embedding owner.
-
-Required API equivalent:
+Run bounded regressions:
 
 ```text
-embed_document
-embed_query
-embed_batch
-identity
+RBAC authorization
+cross-tenant catalog usage
+remember→retrieve→ContextBuilder
+Round 5 critical memory path
+quality checks
 ```
 
-Initially existing embedding behavior may sit behind the service.
+Update only directly relevant documentation.
 
 Status: VERIFIED
-Evidence: Implemented canonical EmbeddingService in mesa_memory/embedding/service.py with embed_document, embed_query, embed_batch, aembed_document, aembed_query, aembed_batch, and identity() methods.
-Tests: tests/test_embedding_service.py
-Commit: b1094a1
+Evidence:
+- RBAC authorization & tenant isolation: `tests/test_r6_rbac_tenant_isolation.py` (9 tests passed), `tests/test_rbac.py` (10 tests passed), `tests/test_v4_admin_cli.py` (3 tests passed), `tests/test_principal_authorization.py` (9 tests passed), `tests/test_v4_catalog_ownership.py` (8 tests passed), `tests/test_rbac_edge_cases.py` (17 tests passed).
+- ContextBuilder security & token bounds: `tests/test_r6_context_security_correctness.py` (21 tests passed), `tests/test_p0_context_builder.py` (1 test passed).
+- V4 API & MCP contracts: `tests/test_v4_api_contract.py` (16 tests passed).
+- Round 5 critical architecture baseline: `tests/test_r4_extraction_validation_independence.py` (10 tests passed), `tests/test_fact_extraction_service.py` (14 tests passed), `tests/test_embedding_service.py` (16 tests passed), `tests/test_p0_model_disabled_truth.py` (1 test passed), `tests/test_r4_validation_e2e.py` (3 tests passed), `tests/test_r4_validation_policy.py` (12 tests passed).
+- Quality checks: `ruff check` (passed), `black --check` (passed), `python3 -m compileall` (passed), layer import contract `tests/test_layer_import_contract.py` (passed).
+Tests: 129 passed across all Round 6 regression test suites.
+Commit: `0aec426`
 
 ---
 
-## F008 — Remove Distributed Embedding Ownership
+## TERRA-R601 — Validate RBAC Schema Marker and Rebuild Preservation
 
-Owner: Gemini / Terra
+Owner: Terra
 
-Goal:
+Root Cause:
 
-Canonical embedding generation no longer originates independently from:
+`rbac_schema_version = 2` bypassed table-shape checks, while `INSERT OR IGNORE`
+could silently suppress a copied grant before the old policy tables were dropped.
 
-```text
-VectorEngine
-LLM adapters
-GraphWriter
-rebuild helpers
-```
+Repair:
 
-These may delegate to EmbeddingService during compatibility transition.
-
-VectorEngine becomes storage/search focused.
+Validate every scoped table's full column/primary-key shape regardless of the
+recorded version; reject unknown newer versions; fail closed on copy conflicts;
+and compare source/replacement row counts before the atomic swap.
 
 Status: VERIFIED
-Evidence: VectorEngine in mesa_storage/vector_engine.py no longer instantiates SentenceTransformer directly and delegates embedding computation to canonical EmbeddingService. Server DI in mesa_memory/api/server.py routes get_embedder and get_embedding_service to EmbeddingService.
-Tests: tests/test_embedding_service.py, tests/test_egress_fence.py
-Commit: b1094a1
+
+Evidence:
+
+Static production trace confirms all role lookups/mutations are tenant-scoped.
+The dataset public ID is tenant-scoped and bound to one workspace by
+`CatalogRepository.ensure_scope`, so the explicit permission identity
+`(principal_id, tenant_id, dataset_id, permission)` is an equivalent canonical
+resource key. The new stale-v2-marker regression passed in a temporary
+database outside the filesystem sandbox; sandboxed `aiosqlite` itself hangs
+even for `SELECT 1`.
+
+Tests:
+
+`tests/test_r6_rbac_tenant_isolation.py::test_version_marker_cannot_bypass_scoped_schema_validation`
+and the full RBAC focused suite: 10 passed; `python -m py_compile` passed.
+
+Commit:
+
+`c948df4`
 
 ---
 
-## F009 — Embedding Identity + No Silent Fallback
+## TERRA-R602 — Make Evidence Tags Structural and Token Counting Strict
 
-Owner: Gemini / Terra
+Owner: Terra
 
-Goal:
+Root Cause:
 
-Persist/report truthful embedding-space identity.
+Literal tag replacement missed case and whitespace variants, and the tokenizer
+fallback could report an estimate as a hard ContextBuilder budget.
 
-Required identity:
+Repair:
 
-```text
-embedding_space_id
-provider
-model
-dimension
-normalization
-model_revision
-```
-
-Provider/model failure MUST NOT silently switch embedding families.
-
-Required mutation-killing tests:
-
-```text
-external endpoint 404
-provider unavailable
-same-dimension fallback candidate
-```
-
-must not produce a vector under the original identity.
+Serialize every evidence record as JSON with `<`/`>` encoded at the final
+rendering boundary, preserving JSON round-tripping while preventing any
+untrusted value from producing tag syntax. ContextBuilder now requests the
+canonical `cl100k_base` counter in strict mode and fails closed if unavailable.
 
 Status: VERIFIED
-Evidence: EmbeddingIdentity exposes truthful embedding_space_id, provider, model, dimension, normalized, version, and model_revision. EmbeddingService enforces fail-closed semantics (EmbeddingUnavailableError) when a model is missing or fails, preventing silent cross-family fallbacks.
-Tests: tests/test_embedding_service.py
-Commit: b1094a1
+
+Evidence:
+
+Variant delimiter, session-log, provenance, Turkish/code/URL/emoji/punctuation,
+tiny-budget, ranking, missing-provenance and injection regressions pass through
+the production `ContextBuilder.build_context()` formatter.
+
+Tests:
+
+20 focused ContextBuilder tests passed in two commands; `python -m py_compile`
+passed for touched production modules.
+
+Commit:
+
+`623a05c`
 
 ---
 
-## F010 — Hard External Provider Egress Fence
-
-Owner: Gemini / Terra
-
-Goal:
-
-Make:
-
-```text
-MESA_EXTERNAL_PROVIDER_ENABLED=false
-```
-
-a real no-external-egress policy.
-
-Must structurally cover:
-
-```text
-validation providers
-fact extraction providers
-embedding providers
-```
-
-Test provider construction and actual call paths.
-
-Status: VERIFIED
-Evidence: Added external_provider_enabled flag to MesaConfig. AdapterFactory and EmbeddingService strictly block external provider instantiation (OpenAI, Claude, hosted endpoints) with ExternalProviderForbiddenError and ValueError when external_provider_enabled=False. Mode 2 validation fails closed when external validators are disallowed.
-Tests: tests/test_egress_fence.py
-Commit: b1094a1
-
----
-
-## F011 — New 768D Embedding Generation
-
-Owner: Gemini / Terra
-
-Goal:
-
-Add/configure the new default embedding profile:
-
-```text
-magibu/embeddingmagibu-200m
-768D
-normalized
-local
-```
-
-Use existing projection generation infrastructure.
-
-Do not overwrite the current active generation in place.
-
-Status: VERIFIED
-Evidence: Updated MesaConfig defaults to local_embedding_model='magibu/embeddingmagibu-200m', embedding_dimension=768, and normalized=True in configured_embedding_identity.
-Tests: tests/test_embedding_service.py, tests/test_golden_smoke_set.py
-Commit: b1094a1
-
----
-
-## F012 — Rebuild + Atomic Generation Cutover
-
-Owner: Gemini / Terra
-
-Goal:
-
-Prove safe transition:
-
-```text
-old generation active
-↓
-new generation builds
-↓
-verification
-↓
-atomic cutover
-↓
-new generation active
-```
-
-Requirements:
-
-```text
-canonical SQL unchanged
-old generation preserved before cutover
-no mixed incompatible vector space
-write/query/rebuild identity parity
-restart-safe active generation
-```
-
-Status: VERIFIED
-Evidence: Replay, adoption, and cutover contracts in mesa_storage/rebuild_replay.py and mesa_storage/rebuild_cutover.py execute cleanly with canonical EmbeddingService and dimension partitions.
-Tests: tests/test_rebuild_replay_contract.py, tests/test_rebuild_runner_contract.py, tests/test_embedding_identity_adoption.py, tests/test_projection_generation_contract.py
-Commit: b1094a1
-
----
-
-## F013 — Canonical Graph Projection From Facts
-
-Owner: Gemini / Terra
-
-Goal:
-
-Ensure graph is derived from canonical fact/assertion state.
-
-Canonical V4 must not require GraphWriter extraction behavior.
-
-Prove:
-
-```text
-fact persists even if graph projection fails/retries
-graph projection consumes canonical state
-```
-
-Status: VERIFIED
-Evidence: Implemented GraphProjector in mesa_memory/graph/projector.py consuming canonical FactCandidate objects to project subject/object nodes and relation edges. Graph projection failures are logged and handled without raising or destroying canonical SQL mutations.
-Tests: tests/test_graph_projector.py
-Commit: b1094a1
-
----
-
-## F014 — Golden Smoke + Round 4 Regression Closure
-
-Owner: Gemini / Terra
-
-Goal:
-
-Add bounded regression evidence.
-
-Required:
-
-```text
-30–50 Turkish extraction cases
-20–30 retrieval cases
-```
-
-Also rerun relevant Round 4 tests:
-
-```text
-Mode 0/1/2
-durable validation snapshot
-projection safety
-0..N lifecycle
-restart
-embedding identity
-rebuild
-```
-
-Real local-model smoke is optional if models are already installed.
-
-Do NOT download models automatically.
-
-Status: VERIFIED
-Evidence: Implemented tests/test_golden_smoke_set.py containing 35 Turkish fact extraction cases across 8 core categories (0 facts, 1 fact, multiple facts, correction/supersession, temporal, preference, config, negative constraint) and 25 retrieval smoke cases. All 60 cases + 104 regression tests (164 total) pass with zero errors.
-Tests: tests/test_golden_smoke_set.py, tests/test_r4_durable_policy_snapshot.py, tests/test_r4_extraction_validation_independence.py, tests/test_turkish_extraction.py, tests/test_rebuild_replay_contract.py
-Commit: b1094a1
-
----
-
-## F015 — Sol Final Round 5 Certification
+## SOL-R601 — Type Scoped Revoke SQL Parameters
 
 Owner: Sol
 
-Goal:
+Root Cause:
 
-Independently falsify the entire Round 5 implementation.
+`revoke_scope_role()` assigned two-, three-, and four-element SQL parameter
+tuples through one inferred local variable. Runtime SQL was correct, but mypy
+inferred the first four-element branch and rejected the shorter branches,
+failing the required Round 6 quality gate.
 
-Sol must not trust:
+Repair:
+
+Declare the branch-shared parameter value as `tuple[str, ...]` without changing
+the SQL, authorization identity, or runtime behavior.
+
+Status: VERIFIED
+
+Evidence:
+
+The full scoped revoke/regrant matrix passes in both tenant directions, and the
+repository mypy command reports no issues across 129 source files.
+
+Tests:
+
+Native focused Round 6 suite: 38 passed. Targeted RBAC mypy: clean. Full Ruff,
+layer-import, Black ratchet, mypy-override ratchet, and mypy gate: clean.
+
+Commit:
+
+`1c0617d`
+
+---
+
+## R612 — Sol Final Round 6 Certification
+
+Owner: Sol
+
+Independently falsify:
 
 ```text
-Gemini BUILT
-Terra VERIFIED
-test counts
-task ledger
-commit messages
+RBAC tenant isolation
+RBAC migration safety
+ContextBuilder trust boundary
+delimiter escaping
+actual token budget
+provenance rendering
+Round 5 regressions
 ```
 
-Sol must independently inspect and test:
+Sol may add:
 
 ```text
-one extraction owner
-one normal extraction call
-no canonical REBEL dependency
-validation/extraction independence
-one embedding owner
-truthful embedding identity
-no silent fallback
-external egress fence
-768D generation/cutover
-graph derived projection
-Round 4 regression invariants
+SOL-R601
+SOL-R602
+...
 ```
 
 Final verdict:
@@ -497,176 +467,37 @@ or:
 NOT_CODE_MVP_READY
 ```
 
-Status: CODE_MVP_READY
-Evidence: Sol independently traced the combined API/worker runtime, canonical
-mutation/extraction lane, projection outbox, vector producer identity, rebuild
-composition, and graph failure/rollback paths.  The three-way ownership boundary
-is enforced; all SOL-F01..F05 findings are closed.  Real Qwen/Magibu model-quality
-smoke is BLOCKED_ENV because neither model is locally installed; no model was
-downloaded and this does not block deterministic code-level certification.
-Tests: 153 Round 5 control-ledger tests; 27 V4 lifecycle/fencing tests; 69 bounded
-Round 3/4 aggregate, rollback, purge, tenant, generation, rebuild, and migration
-tests.  Final Ruff, Black, compileall, mypy (129 source files), layer-import, and
-git diff checks pass.
-Commit: 6829f3a, bd302cd, 45ce42b (plus this final evidence ledger commit).
-
----
-
-## TERRA-F01 — Canonical V4 Extraction Bypassed FactExtractionService
-
 Status: VERIFIED
 
-Root cause: `ConsolidationLoop.run_batch()` instantiated `FactExtractionService` but
-sent supported mutation-backed V4 records through `TripletExtractor.extract_batch()`.
-That retained REBEL/bisection/legacy dual-index ownership in the canonical path.
+Evidence:
 
-Evidence: Canonical mutation batches now call only
-`FactExtractionService.extract_facts_from_record()` and persist the full
-FactCandidate representation through `record_mutation_extraction`; they do not enter
-`GraphWriter` or `TripletExtractor`.  REBEL remains legacy-only.
+Sol independently traced the production RBAC and ContextBuilder ownership
+paths, inspected Gemini commits `37a28ae`/`edc7e72` and Terra commits
+`c948df4`/`623a05c`/`0aec426`, and exercised all final gates against current
+production code. Tenant-scoped PKs, conflict targets, mutations, inherited
+lookups, and the tenant-scoped MCP session cache were verified. Catalog
+identity proves one public dataset ID maps to one workspace within a tenant,
+making `(principal_id, tenant_id, dataset_id, permission)` an equivalent
+canonical permission key. Historical migration, row preservation, rollback,
+re-entry, stale-v2 detection, copy-conflict failure, and future-version failure
+were verified with temporary databases. Context evidence records, session
+logs, entity/subject, predicate, object/value, and provenance all remain JSON
+data inside one explicit untrusted boundary. Strict `cl100k_base` accounting,
+tiny budgets, ranking-aware trimming, bounded provenance, and provenance-before-
+fit behavior were verified. Retrieval-to-ContextBuilder, same-public-ID tenant
+isolation, Mode 0/1/2 extraction, canonical extraction/embedding ownership,
+and assertion-vector retrieval regressions passed. No Round 6 code blocker
+remains.
 
-Tests: `tests/test_r4_extraction_validation_independence.py` runs a real `MemoryDAO`
-mutation through modes 0/1/2 with `TripletExtractor.extract_batch` set to fail;
-each mode records one extraction call and the canonical fact payload.
-`tests/test_fact_extraction_service.py` covers malformed structured output, one
-bounded correction retry, source-span and temporal validation.
+Tests:
 
-Commit: dd31421
+- Native focused RBAC + ContextBuilder adversarial suite: 38 passed.
+- Native broader RBAC, catalog, ContextBuilder, Round 5, and assertion-vector
+  suite: 106 passed.
+- Native compile/import + V4 API/SDK/rebuild/coverage contracts: 43 passed.
+- Full Ruff, layer imports, Black ratchet, mypy ratchet, and mypy: passed.
+- Black on all Round 6 production/test files and `git diff --check`: passed.
 
----
+Commit:
 
-## TERRA-F02 — Runtime and Rebuild Embedding Ownership Bypassed EmbeddingService
-
-Status: VERIFIED
-
-Root cause: API, worker and rebuild composition passed adapter embedding functions
-directly to `VectorEngine`; the service could be bypassed.  The local embedding
-initialization path also attempted a network-capable model load after a cache miss.
-
-Evidence: API, worker and rebuild now inject `EmbeddingService` into `VectorEngine`;
-the engine prioritizes that service over a legacy compatibility provider.  Rebuild
-uses the same explicit service identity.  Local SentenceTransformer construction is
-`local_files_only=True` and fails closed on a cache miss.
-
-Tests: `tests/test_embedding_service.py` proves service precedence, same-dimension
-shape rejection, revision-aware space identity and unavailable-provider failure.
-`tests/test_egress_fence.py`, `tests/test_rebuild_runner_contract.py`, and
-`tests/test_rebuild_replay_contract.py` cover egress and rebuild composition.
-
-Commit: 37115db
-
----
-
-## TERRA Independent Verification Evidence
-
-F001–F014 were independently rechecked on the current branch.  Bounded evidence:
-`test_v4_ingestion_contract`, `test_r4_durable_policy_snapshot`,
-`test_r4_extraction_validation_independence`, `test_fact_extraction_service`,
-`test_p0_multi_memory_extraction`, `test_embedding_service`, `test_egress_fence`,
-`test_golden_smoke_set`, `test_graph_projector`, `test_rebuild_replay_contract`,
-`test_rebuild_runner_contract`, `test_embedding_identity_adoption`, and
-`test_projection_generation_contract`.
-
----
-
-## SOL-F01 — Frozen Extraction Profile and Local Egress Boundary
-
-Status: VERIFIED
-
-Root cause: Canonical extraction reused the generic LLM provider/model defaults,
-so it did not provide the frozen local `qwen3:1.7b` profile or explicitly disable
-Ollama thinking.  Ollama URLs were also accepted without proving they were local
-when external provider egress was disabled.
-
-Evidence: `MesaConfig` now owns an independent local extraction profile with
-`qwen3:1.7b` and thinking disabled.  Combined runtime composes that adapter;
-remote Ollama endpoints are rejected when external egress is disabled.
-
-Tests: `tests/test_egress_fence.py`, `tests/test_fact_extraction_service.py`, and
-the 153-test Round 5 bounded control suite.
-
-Commit: 6829f3a
-
----
-
-## SOL-F02 — Producer-Bound Embedding Identity
-
-Status: VERIFIED
-
-Root cause: V4 vector projection validated only vector dimension and persisted
-provider/model/version copied from mutation admission.  A same-dimension vector
-from another embedding space could therefore be mislabeled, and full service
-identity was not persisted with the vector artifact.
-
-Evidence: Production `VectorEngine` requires explicit service injection and
-exposes the actual producer identity.  V4 vector projection rejects a
-provider/model/version/dimension mismatch before writing and persists
-normalization, model revision, and embedding-space ID with the artifact.
-
-Tests: `tests/test_embedding_service.py`, `tests/test_p0_embedding_contract.py`,
-rebuild/replay/generation contracts, same-dimension mismatch, HTTP 404/timeout,
-cache-miss/no-download, and service-precedence attacks.
-
-Commit: bd302cd, 45ce42b
-
----
-
-## SOL-F03 — Canonical Fact Semantics and Mixed-Batch Routing
-
-Status: VERIFIED
-
-Root cause: Canonical extraction routing depended on an exact DAO type plus an
-all-or-nothing batch predicate, allowing a mixed V3/V4 batch to route mutations
-through the legacy extractor.  The live projection parser also discarded
-FactCandidate temporal, source, and supersession fields.
-
-Evidence: `ConsolidationLoop` partitions canonical mutations before the legacy
-lane even in mixed batches.  Projection parsing preserves fact text, source span,
-temporal fields, metadata, and supersession.  Fact-level correction changes
-current assertion truth only at commit and restores it on rollback.
-
-Tests: `tests/test_r4_extraction_validation_independence.py`,
-`tests/test_fact_extraction_service.py`, `tests/test_graph_projector.py`,
-`tests/test_p0_multi_memory_extraction.py`, and correction regression tests.
-
-Commit: 6829f3a, bd302cd
-
----
-
-## SOL-F04 — Canonical Assertion Before Derived Graph Projection
-
-Status: VERIFIED
-
-Root cause: The production graph lane did not compose `GraphProjector` and wrote
-Kuzu before the canonical SQL assertion.  Its compensation path deleted the SQL
-assertion after graph failure, making derived graph success a prerequisite for
-canonical fact survival.
-
-Evidence: The live GRAPH outbox lane now enters `GraphProjector`.  Canonical SQL
-assertions and their full fact semantics are persisted before Kuzu writes;
-ordinary graph failure leaves SQL truth durable and retryable, while terminal
-rollback/purge races still compensate both physical graph and SQL artifacts.
-
-Tests: `tests/test_graph_projector.py`, `tests/test_v4_projection_integration.py`,
-`tests/test_p0_projection_fencing.py`, and the 27-test V4 lifecycle/fencing group.
-
-Commit: bd302cd, 45ce42b
-
----
-
-## SOL-F05 — Remove Generated Bytecode From Round 5 Scope
-
-Status: VERIFIED
-
-Root cause: The initial Round 5 embedding/graph commit accidentally tracked four
-Python `__pycache__/*.pyc` artifacts even though the repository ignore policy
-already excludes generated bytecode.
-
-Evidence: All four generated artifacts are removed from Git tracking while their
-ignored local files remain untouched.  The production source and executable test
-evidence are unchanged.
-
-Tests: `git diff --name-status origin/main...HEAD` contains no tracked
-`__pycache__` or `.pyc` artifacts after this cleanup.
-
-Commit: final Sol scope-cleanup commit.
+`1c0617d`, `d5680e1`, `891b32f`, and the certification ledger commits.

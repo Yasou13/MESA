@@ -953,6 +953,9 @@ def create_v4_router(
                 embedding_model=embedding_identity.model,
                 embedding_version=embedding_identity.version,
                 embedding_dimension=embedding_identity.dimension,
+                embedding_space_id=embedding_identity.embedding_space_id,
+                embedding_model_revision=embedding_identity.model_revision,
+                embedding_normalized=embedding_identity.normalized,
                 policy=config.queue_admission_policy,
                 validation_mode=(
                     validation_policy.mode

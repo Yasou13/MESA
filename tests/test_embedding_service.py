@@ -15,6 +15,8 @@ from mesa_memory.embedding.service import (
     EmbeddingUnavailableError,
     ExternalProviderForbiddenError,
     _l2_normalize,
+    get_embedding_service,
+    set_global_embedding_service,
 )
 from mesa_storage.vector_engine import VectorEngine
 
@@ -197,6 +199,82 @@ def test_local_cache_miss_never_attempts_download(monkeypatch):
     with pytest.raises(EmbeddingUnavailableError):
         service.embed_document("no download")
     assert calls == [("missing-local-model", {"local_files_only": True})]
+
+
+def test_local_loader_pins_the_configured_model_revision(monkeypatch):
+    calls = []
+
+    def missing_model(model, **kwargs):
+        calls.append((model, kwargs))
+        raise OSError("not cached")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=missing_model),
+    )
+    identity = EmbeddingIdentity(
+        provider="local", model="cached-model", dimension=4, model_revision="commit-abc"
+    )
+    EmbeddingService(identity=identity, allow_model_loading=True)
+
+    assert calls == [
+        ("cached-model", {"local_files_only": True, "revision": "commit-abc"})
+    ]
+
+
+def test_external_embedding_factory_composes_real_service_at_the_provider_boundary():
+    identity = EmbeddingIdentity(
+        provider="openai_compatible", model="text-embedding-3-small", dimension=4
+    )
+    calls = []
+
+    def factory(composed_identity):
+        calls.append(composed_identity)
+        return (lambda _text: [0.25] * 4, lambda _text: [0.25] * 4)
+
+    try:
+        service = get_embedding_service(
+            identity=identity,
+            external_enabled=True,
+            external_backend_factory=factory,
+            force_refresh=True,
+        )
+        assert service.embed_document("composition") == [0.5] * 4
+        assert calls == [identity]
+    finally:
+        set_global_embedding_service(None)
+
+
+def test_configured_external_embedding_uses_the_production_factory(monkeypatch):
+    from mesa_memory.config import config
+
+    monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
+    monkeypatch.setattr(config, "embedding_provider", "openai_compatible")
+    monkeypatch.setattr(config, "external_embedding_model", "configured-model")
+    monkeypatch.setattr(config, "embedding_dimension", 4)
+    constructed = []
+
+    class FakeNetworkBoundary:
+        def __init__(self, identity):
+            constructed.append(identity)
+
+        def embed(self, _text):
+            return [0.25] * 4
+
+        async def aembed(self, _text):
+            return [0.25] * 4
+
+    monkeypatch.setattr(
+        "mesa_memory.embedding.service._OpenAICompatibleEmbeddingBackend",
+        FakeNetworkBoundary,
+    )
+    try:
+        service = get_embedding_service(force_refresh=True, external_enabled=True)
+        assert service.embed_document("configured composition") == [0.5] * 4
+        assert constructed[0].model == "configured-model"
+    finally:
+        set_global_embedding_service(None)
 
 
 @pytest.mark.asyncio

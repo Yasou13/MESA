@@ -331,6 +331,9 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         allow_model_loading=runtime.model_enabled,
         force_refresh=True,
     )
+    await generation_repository.assert_active_embedding_identity(
+        embedding_service.identity().as_dict()
+    )
     state.vector_engine = VectorEngine(
         uri=str(_VECTOR_PATH),
         max_workers=config.vector_worker_limit,

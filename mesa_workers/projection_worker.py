@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from typing import Any
 
 from mesa_memory.graph.projector import GraphProjector
@@ -24,6 +25,19 @@ class PermanentProjectionError(ValueError):
 
 class ProjectionLeaseLostError(RuntimeError):
     """The projector no longer owns its fenced outbox claim."""
+
+
+def _normalized_confidence(value: Any) -> float:
+    """Normalize the optional extraction confidence at the projection boundary."""
+    if value is None:
+        return 1.0
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError) as exc:
+        raise PermanentProjectionError("projection confidence is not numeric") from exc
+    if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+        raise PermanentProjectionError("projection confidence is outside [0, 1]")
+    return confidence
 
 
 def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -44,7 +58,7 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
                     if item.get("literal_value") is not None
                     else None
                 ),
-                "confidence": float(item.get("confidence", 1.0)),
+                "confidence": _normalized_confidence(item.get("confidence", 1.0)),
                 "fact_text": str(item.get("fact_text") or ""),
                 "valid_from": item.get("valid_from"),
                 "valid_to": item.get("valid_to"),
@@ -97,13 +111,27 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
     if lane == "SQL":
         for entity in entities:
             await dao.project_v4_sql_entity(mutation=mutation, entity_name=entity)
+        for triplet in triplets:
+            await dao.project_v4_sql_assertion(mutation=mutation, triplet=triplet)
     elif lane == "VECTOR":
-        for entity in entities:
-            await dao.project_v4_vector_entity(mutation=mutation, entity_name=entity)
+        assertions = await dao.list_v4_assertions_for_mutation(
+            str(mutation["mutation_id"])
+        )
+        if len(assertions) != len(triplets):
+            raise PermanentProjectionError("canonical SQL assertions are unavailable")
+        for assertion in assertions:
+            await dao.project_v4_vector_assertion(
+                mutation=mutation, assertion=assertion
+            )
     elif lane == "GRAPH":
         projector = GraphProjector(dao)
-        for triplet in triplets:
-            await projector.project_triplet(mutation=mutation, triplet=triplet)
+        assertions = await dao.list_v4_assertions_for_mutation(
+            str(mutation["mutation_id"])
+        )
+        if len(assertions) != len(triplets):
+            raise PermanentProjectionError("canonical SQL assertions are unavailable")
+        for assertion in assertions:
+            await projector.project_assertion(mutation=mutation, assertion=assertion)
     else:
         raise PermanentProjectionError(f"unknown projection lane: {lane}")
 

@@ -443,6 +443,7 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
     await initialize_schema(engine)
     vector = SimpleNamespace(
         compute_embedding=AsyncMock(return_value=[1.0, 0.0]),
+        compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
         upsert=AsyncMock(),
         search=AsyncMock(),
     )
@@ -464,6 +465,12 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         agent_id="agent-a",
         session_id="session-a",
         content_payload="Allowed Court",
+        embedding_provider="test",
+        embedding_model="catalog-contract",
+        embedding_version="v1",
+        embedding_dimension=2,
+        embedding_space_id="test:catalog-contract:v1:2:norm=true",
+        embedding_normalized=True,
     ).as_consolidation_record()
     denied = MemoryCandidate.from_raw_log(
         raw_log_id=12,
@@ -477,20 +484,22 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         agent_id="agent-a",
         session_id="session-a",
         content_payload="Denied Court",
+        embedding_provider="test",
+        embedding_model="catalog-contract",
+        embedding_version="v1",
+        embedding_dimension=2,
+        embedding_space_id="test:catalog-contract:v1:2:norm=true",
+        embedding_normalized=True,
     ).as_consolidation_record()
     try:
         await dao.record_mutation(allowed, raw_log_id=11)
         await dao.record_mutation(denied, raw_log_id=12)
+        allowed = await dao.get_projection_mutation(str(allowed["mutation_id"]))
+        denied = await dao.get_projection_mutation(str(denied["mutation_id"]))
+        assert allowed is not None and denied is not None
         allowed_id = await dao.project_v4_sql_entity(
             mutation=allowed, entity_name="Allowed Court"
         )
-        denied_id = await dao.project_v4_sql_entity(
-            mutation=denied, entity_name="Denied Court"
-        )
-        await dao.project_v4_vector_entity(
-            mutation=allowed, entity_name="Allowed Court"
-        )
-        await dao.project_v4_vector_entity(mutation=denied, entity_name="Denied Court")
         await dao.project_v4_graph_triplet(
             mutation=allowed,
             triplet={
@@ -507,6 +516,18 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
                 "literal_value": "denied",
             },
         )
+        allowed_assertion = (
+            await dao.list_v4_assertions_for_mutation(str(allowed["mutation_id"]))
+        )[0]
+        denied_assertion = (
+            await dao.list_v4_assertions_for_mutation(str(denied["mutation_id"]))
+        )[0]
+        await dao.project_v4_vector_assertion(
+            mutation=allowed, assertion=allowed_assertion
+        )
+        await dao.project_v4_vector_assertion(
+            mutation=denied, assertion=denied_assertion
+        )
         async with engine.transaction() as db:
             await db.execute(
                 "UPDATE memory_mutations SET state = 'COMMITTED' "
@@ -515,8 +536,8 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
             )
             await db.commit()
         vector.search.return_value = [
-            {"node_id": denied_id, "_distance": 0.01},
-            {"node_id": allowed_id, "_distance": 0.02},
+            {"node_id": denied_assertion["assertion_id"], "_distance": 0.01},
+            {"node_id": allowed_assertion["assertion_id"], "_distance": 0.02},
         ]
 
         results = await dao.search_v4_memory(
@@ -529,7 +550,7 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         vector.search.assert_awaited_once_with(
             [1.0, 0.0],
             agent_id="agent-a",
-            allowed_node_ids={allowed_id},
+            allowed_node_ids={str(allowed_assertion["assertion_id"])},
             limit=100,
         )
     finally:
