@@ -273,11 +273,17 @@ class AccessControl:
                         async with db.execute(
                             f"SELECT COUNT(*) FROM {source}"
                         ) as cursor:
-                            source_count = int((await cursor.fetchone())[0])
+                            source_row = await cursor.fetchone()
                         async with db.execute(
                             f"SELECT COUNT(*) FROM {replacement}"
                         ) as cursor:
-                            replacement_count = int((await cursor.fetchone())[0])
+                            replacement_row = await cursor.fetchone()
+                        if source_row is None or replacement_row is None:
+                            raise RuntimeError(
+                                "RBAC migration validation failed: missing grant count"
+                            )
+                        source_count = int(source_row[0])
+                        replacement_count = int(replacement_row[0])
                         if source_count != replacement_count:
                             raise RuntimeError(
                                 "RBAC migration validation failed: grant count mismatch"
