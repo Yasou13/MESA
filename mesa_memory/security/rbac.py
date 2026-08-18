@@ -439,6 +439,7 @@ class AccessControl:
         dataset_id: str | None = None,
     ) -> bool:
         """Revoke role at specified catalog scope. Returns True if a role was revoked."""
+        params: tuple[str, ...]
         if dataset_id:
             if not workspace_id:
                 raise ValueError("dataset role revocation requires workspace")
