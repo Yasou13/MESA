@@ -233,6 +233,92 @@ async def test_version_marker_cannot_bypass_scoped_schema_validation(tmp_path) -
 
 
 @pytest.mark.asyncio
+async def test_unknown_future_schema_version_fails_closed(tmp_path) -> None:
+    """A runtime must never guess how to use a newer authorization schema."""
+    policy_path = str(tmp_path / "future_version_rbac.db")
+    _create_historical_unscoped_db(policy_path)
+    with sqlite3.connect(policy_path) as conn:
+        conn.execute(
+            "CREATE TABLE rbac_schema_version ("
+            "version INTEGER PRIMARY KEY, migrated_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO rbac_schema_version (version, migrated_at) VALUES (?, ?)",
+            (999, "2026-08-18T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO principal_workspace_roles "
+            "(principal_id, tenant_id, workspace_id, role) VALUES (?, ?, ?, ?)",
+            ("future-user", "tenant-a", "default", "READER"),
+        )
+        conn.commit()
+
+    with pytest.raises(
+        RuntimeError, match="schema version is newer than this runtime supports"
+    ):
+        await AccessControl(policy_path=policy_path).initialize()
+
+    with sqlite3.connect(policy_path) as conn:
+        row = conn.execute(
+            "SELECT principal_id, tenant_id, workspace_id, role "
+            "FROM principal_workspace_roles"
+        ).fetchone()
+        version = conn.execute(
+            "SELECT MAX(version) FROM rbac_schema_version"
+        ).fetchone()
+    assert row == ("future-user", "tenant-a", "default", "READER")
+    assert version == (999,)
+
+
+@pytest.mark.asyncio
+async def test_migration_copy_conflict_fails_instead_of_ignoring_a_grant(
+    tmp_path,
+) -> None:
+    """A stale replacement row must not silently replace historical authority."""
+    policy_path = str(tmp_path / "copy_conflict_rbac.db")
+    _create_historical_unscoped_db(policy_path)
+    with sqlite3.connect(policy_path) as conn:
+        conn.execute(
+            "INSERT INTO principal_workspace_roles "
+            "(principal_id, tenant_id, workspace_id, role) VALUES (?, ?, ?, ?)",
+            ("alice", "tenant-a", "default", "READER"),
+        )
+        conn.execute("""
+            CREATE TABLE _v2_principal_workspace_roles (
+                principal_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                PRIMARY KEY (principal_id, tenant_id, workspace_id)
+            )
+        """)
+        conn.execute(
+            "INSERT INTO _v2_principal_workspace_roles "
+            "(principal_id, tenant_id, workspace_id, role) VALUES (?, ?, ?, ?)",
+            ("alice", "tenant-a", "default", "OWNER"),
+        )
+        conn.commit()
+
+    with pytest.raises(sqlite3.IntegrityError):
+        await AccessControl(policy_path=policy_path).initialize()
+
+    with sqlite3.connect(policy_path) as conn:
+        authoritative = conn.execute(
+            "SELECT principal_id, tenant_id, workspace_id, role "
+            "FROM principal_workspace_roles"
+        ).fetchone()
+        pk_columns = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(principal_workspace_roles)"
+            ).fetchall()
+            if row[5] > 0
+        }
+    assert authoritative == ("alice", "tenant-a", "default", "READER")
+    assert pk_columns == {"principal_id", "workspace_id"}
+
+
+@pytest.mark.asyncio
 async def test_migration_idempotence_and_repeat_initialization(tmp_path) -> None:
     """Repeated initialization must not corrupt, duplicate, or alter migrated data."""
     policy_path = str(tmp_path / "repeat_rbac.db")
@@ -396,13 +482,13 @@ async def test_cross_tenant_dataset_roles_coexistence(tmp_path) -> None:
         role="READER",
     )
 
-    # Principal P in Tenant B -> WRITER on dataset "main" in workspace "default"
+    # Principal P in Tenant B -> OWNER on dataset "main" in workspace "default"
     await ac.grant_scope_role(
         "principal_p",
         tenant_id="tenant_b",
         workspace_id="default",
         dataset_id="main",
-        role="WRITER",
+        role="OWNER",
     )
 
     # Verify both exist and are distinct
@@ -426,7 +512,30 @@ async def test_cross_tenant_dataset_roles_coexistence(tmp_path) -> None:
         tenant_id="tenant_b",
         workspace_id="default",
         dataset_id="main",
+        required_role="OWNER",
+    )
+
+    # Regrant/update Tenant A without mutating Tenant B's independent role.
+    await ac.grant_scope_role(
+        "principal_p",
+        tenant_id="tenant_a",
+        workspace_id="default",
+        dataset_id="main",
+        role="WRITER",
+    )
+    assert await ac.check_scope_role(
+        "principal_p",
+        tenant_id="tenant_a",
+        workspace_id="default",
+        dataset_id="main",
         required_role="WRITER",
+    )
+    assert await ac.check_scope_role(
+        "principal_p",
+        tenant_id="tenant_b",
+        workspace_id="default",
+        dataset_id="main",
+        required_role="OWNER",
     )
 
 
@@ -565,6 +674,34 @@ async def test_cross_tenant_revoke_isolation(tmp_path) -> None:
     assert await ac.check_dataset_permission(
         "alice",
         tenant_id="tenant_b",
+        dataset_id="main",
+        permission="PURGE",
+    )
+
+    # Reverse direction: revoking Tenant B must not resurrect or otherwise
+    # modify Tenant A, which was already revoked above.
+    assert await ac.revoke_scope_role(
+        "alice",
+        tenant_id="tenant_b",
+        workspace_id="default",
+        dataset_id="main",
+    )
+    assert await ac.revoke_dataset_permission(
+        "alice",
+        tenant_id="tenant_b",
+        dataset_id="main",
+        permission="PURGE",
+    )
+    assert not await ac.check_scope_role(
+        "alice",
+        tenant_id="tenant_a",
+        workspace_id="default",
+        dataset_id="main",
+        required_role="READER",
+    )
+    assert not await ac.check_dataset_permission(
+        "alice",
+        tenant_id="tenant_a",
         dataset_id="main",
         permission="PURGE",
     )
