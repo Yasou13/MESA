@@ -1,14 +1,14 @@
-import asyncio
 import sqlite3
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.dao import MemoryDAO
-from mesa_memory.retrieval.hybrid import HybridRetriever
+import pytest
+
 from mesa_memory.retrieval.core import QueryAnalyzer
+from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.sqlite_engine import AsyncEngine
 
 
 def _create_v3_schema_database(db_path: Path) -> list[str]:
@@ -64,7 +64,12 @@ def _create_v3_schema_database(db_path: Path) -> list[str]:
     );
     """)
     conn.commit()
-    tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+    tables = [
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    ]
     conn.close()
     return tables
 
@@ -90,21 +95,30 @@ async def test_empty_v3_cold_start_no_v4_exception(tmp_path: Path):
     retriever = HybridRetriever(dao=dao, analyzer=QueryAnalyzer(), access_control=rbac)
 
     # Cold start count
-    count = await dao.count_active_memories(tenant_id="agent-empty", agent_id="agent-empty")
+    count = await dao.count_active_memories(
+        tenant_id="agent-empty", agent_id="agent-empty"
+    )
     assert count == 0
 
     has_mem = await dao.has_active_memories(tenant_id="agent-empty")
     assert has_mem is False
 
     # Retrieval on empty V3 DB must succeed without missing table exception
-    results = await retriever.retrieve("NonExistent", agent_id="agent-empty", session_id="session-empty")
+    results = await retriever.retrieve(
+        "NonExistent", agent_id="agent-empty", session_id="session-empty"
+    )
     assert results == []
 
     await engine.close()
 
     # Verify no silent V4 schema was created during retrieval
     conn = sqlite3.connect(db_path)
-    after_tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+    after_tables = [
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    ]
     conn.close()
     assert set(after_tables) == set(initial_tables)
     assert "artifact_registry" not in after_tables
@@ -121,7 +135,9 @@ async def test_non_empty_v3_cold_start_and_retrieval(tmp_path: Path):
     INSERT INTO nodes (id, entity_name, type, content_payload, created_at, agent_id, session_id, confidence, is_quarantined)
     VALUES ('node-v3-alice', 'Alice', 'ENTITY', 'Alice is an AI researcher at MESA', '2026-01-01T00:00:00Z', 'agent-v3', 'session-v3', 1.0, 0);
     """)
-    conn.execute("INSERT INTO nodes_fts (rowid, entity_name, type) VALUES (1, 'Alice', 'ENTITY');")
+    conn.execute(
+        "INSERT INTO nodes_fts (rowid, entity_name, type) VALUES (1, 'Alice', 'ENTITY');"
+    )
     conn.commit()
     conn.close()
 
@@ -146,7 +162,9 @@ async def test_non_empty_v3_cold_start_and_retrieval(tmp_path: Path):
     assert has_mem is True
 
     # Retrieve known record
-    results = await retriever.retrieve("Alice", agent_id="agent-v3", session_id="session-v3")
+    results = await retriever.retrieve(
+        "Alice", agent_id="agent-v3", session_id="session-v3"
+    )
     assert results == ["node-v3-alice"]
 
     await engine.close()
@@ -155,13 +173,22 @@ async def test_non_empty_v3_cold_start_and_retrieval(tmp_path: Path):
     engine2 = AsyncEngine(str(db_path))
     await engine2.initialize()
     dao2 = MemoryDAO(sqlite_engine=engine2, vector_engine=vec_mock)
-    retriever2 = HybridRetriever(dao=dao2, analyzer=QueryAnalyzer(), access_control=rbac)
-    results2 = await retriever2.retrieve("Alice", agent_id="agent-v3", session_id="session-v3")
+    retriever2 = HybridRetriever(
+        dao=dao2, analyzer=QueryAnalyzer(), access_control=rbac
+    )
+    results2 = await retriever2.retrieve(
+        "Alice", agent_id="agent-v3", session_id="session-v3"
+    )
     assert results2 == ["node-v3-alice"]
     await engine2.close()
 
     # Verify schema before and after remain identical
     conn = sqlite3.connect(db_path)
-    after_tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+    after_tables = [
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    ]
     conn.close()
     assert set(after_tables) == set(initial_tables)

@@ -129,7 +129,10 @@ def _copy_snapshot(source: Path, staging: Path) -> list[str]:
     sqlite_files: list[str] = []
     for source_file in _iter_files(source):
         relative = source_file.relative_to(source)
-        if source_file.name.endswith(("-wal", "-shm")) or source_file.name == ".mesa-single-writer.lock":
+        if (
+            source_file.name.endswith(("-wal", "-shm"))
+            or source_file.name == ".mesa-single-writer.lock"
+        ):
             continue
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -351,7 +354,9 @@ def create_backup(
     acquired_lock: StorageWriterLock | None = None
     if writer_lock is not None:
         if writer_lock.released or writer_lock.storage_root != source:
-            raise RecoveryError("storage writer lock is not held for source storage root")
+            raise RecoveryError(
+                "storage writer lock is not held for source storage root"
+            )
     else:
         try:
             acquired_lock = StorageWriterLock.acquire(source, owner="mesa-backup")
@@ -370,7 +375,9 @@ def create_backup(
         try:
             sqlite_files = _copy_snapshot(source, staging)
             if not sqlite_files:
-                raise RecoveryError("storage root contains no canonical SQLite database")
+                raise RecoveryError(
+                    "storage root contains no canonical SQLite database"
+                )
             _write_manifest(staging, source=source, sqlite_files=sqlite_files)
             validate_snapshot(staging)
             os.replace(staging, destination)

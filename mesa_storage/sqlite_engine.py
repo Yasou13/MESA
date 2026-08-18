@@ -46,6 +46,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sqlite3
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -53,8 +55,6 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 import aiosqlite
-
-import os
 
 logger = logging.getLogger("MESA_Storage")
 
@@ -244,9 +244,7 @@ class AsyncEngine:
         await self.initialize()
         return self
 
-    async def __aexit__(
-        self, exc_type: Any, exc_val: Any, exc_tb: Any
-    ) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         await self.close()
 
     # ------------------------------------------------------------------

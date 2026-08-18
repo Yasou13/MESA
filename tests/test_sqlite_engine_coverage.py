@@ -105,7 +105,9 @@ async def test_production_default_synchronous_is_full(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_explicit_env_override_synchronous_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_explicit_env_override_synchronous_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     monkeypatch.setenv("MESA_SQLITE_SYNCHRONOUS", "NORMAL")
     db_file = tmp_path / "dev.db"
     engine = AsyncEngine(str(db_file))
@@ -133,8 +135,8 @@ async def test_explicit_env_override_synchronous_mode(tmp_path: Path, monkeypatc
 
 @pytest.mark.asyncio
 async def test_rbac_and_api_keys_connection_durability(tmp_path: Path):
-    from mesa_memory.security.rbac import AccessControl
     from mesa_memory.security.api_keys import APIKeyStore
+    from mesa_memory.security.rbac import AccessControl
 
     rbac_path = str(tmp_path / "rbac.db")
     ac = AccessControl(policy_path=rbac_path)
@@ -169,7 +171,9 @@ async def test_commit_reopen_and_uncommitted_rollback_semantics(tmp_path: Path):
     engine2 = AsyncEngine(str(db_file))
     await engine2.initialize()
     async with engine2.connection() as db:
-        async with db.execute("SELECT val FROM records WHERE id = 'committed-1';") as cursor:
+        async with db.execute(
+            "SELECT val FROM records WHERE id = 'committed-1';"
+        ) as cursor:
             row = await cursor.fetchone()
             assert row[0] == "durable"
 
@@ -183,8 +187,9 @@ async def test_commit_reopen_and_uncommitted_rollback_semantics(tmp_path: Path):
 
     # Verify uncommitted write is absent
     async with engine2.connection() as db:
-        async with db.execute("SELECT val FROM records WHERE id = 'uncommitted-1';") as cursor:
+        async with db.execute(
+            "SELECT val FROM records WHERE id = 'uncommitted-1';"
+        ) as cursor:
             row = await cursor.fetchone()
             assert row is None
     await engine2.close()
-

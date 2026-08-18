@@ -19,7 +19,9 @@ from mesa_storage.writer_lock import StorageWriterLock
 
 
 @pytest.mark.asyncio
-async def test_integrated_backup_quiescence_and_canonical_readback(tmp_path: Path) -> None:
+async def test_integrated_backup_quiescence_and_canonical_readback(
+    tmp_path: Path,
+) -> None:
     """Track A: Supported production backup entrypoint -> restore -> canonical readback."""
     storage_root = tmp_path / "live_storage"
     storage_root.mkdir()
@@ -75,7 +77,9 @@ async def test_integrated_backup_quiescence_and_canonical_readback(tmp_path: Pat
             create_backup(storage_root, backup_root, tmp_path, stores_stopped=True)
 
     # Perform supported production backup when quiescent
-    backup_result = create_backup(storage_root, backup_root, tmp_path, stores_stopped=True)
+    backup_result = create_backup(
+        storage_root, backup_root, tmp_path, stores_stopped=True
+    )
     assert backup_result["valid"] is True
     assert "mesa.db" in backup_result["sqlite"]
 
@@ -96,12 +100,17 @@ async def test_integrated_backup_quiescence_and_canonical_readback(tmp_path: Pat
     vec_mock.search = AsyncMock(return_value=[])
     dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec_mock)
 
-    nodes = await dao.get_nodes_by_ids_batch("r8-agent-primary", ["r8-canonical-node-1"])
+    nodes = await dao.get_nodes_by_ids_batch(
+        "r8-agent-primary", ["r8-canonical-node-1"]
+    )
     assert "r8-canonical-node-1" in nodes
     node = nodes["r8-canonical-node-1"]
     assert node["entity_name"] == "Quantum Computing Overview"
     assert node["type"] == "ENTITY"
-    assert node["content_payload"] == "Canonical state preserved across backup snapshot and restore"
+    assert (
+        node["content_payload"]
+        == "Canonical state preserved across backup snapshot and restore"
+    )
 
     await engine.close()
 
@@ -188,7 +197,12 @@ async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
     INSERT INTO nodes_fts (rowid, entity_name, type) VALUES (1, 'European Union AI Act', 'ENTITY');
     """)
     conn.commit()
-    tables_before = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+    tables_before = [
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    ]
     conn.close()
 
     assert "artifact_registry" not in tables_before
@@ -207,7 +221,9 @@ async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
     retriever = HybridRetriever(dao=dao, analyzer=QueryAnalyzer(), access_control=rbac)
 
     # Cold start count
-    count = await dao.count_active_memories(tenant_id="legal-agent-1", agent_id="legal-agent-1")
+    count = await dao.count_active_memories(
+        tenant_id="legal-agent-1", agent_id="legal-agent-1"
+    )
     assert count == 1
 
     # Perform retrieval on legacy database
@@ -224,7 +240,9 @@ async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
     engine2 = AsyncEngine(str(v3_db))
     await engine2.initialize()
     dao2 = MemoryDAO(sqlite_engine=engine2, vector_engine=vec_mock)
-    retriever2 = HybridRetriever(dao=dao2, analyzer=QueryAnalyzer(), access_control=rbac)
+    retriever2 = HybridRetriever(
+        dao=dao2, analyzer=QueryAnalyzer(), access_control=rbac
+    )
     results2 = await retriever2.retrieve(
         "European Union AI Act",
         agent_id="legal-agent-1",
@@ -235,6 +253,11 @@ async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
 
     # Verify no silent V4 schema mutation occurred
     conn = sqlite3.connect(v3_db)
-    tables_after = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+    tables_after = [
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    ]
     conn.close()
     assert set(tables_after) == set(tables_before)

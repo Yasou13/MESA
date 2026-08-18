@@ -186,7 +186,9 @@ def test_backup_fails_closed_when_active_writer_holds_lock(tmp_path: Path) -> No
     assert not backup.exists()
 
 
-def test_backup_accepts_valid_held_writer_lock_and_rejects_invalid(tmp_path: Path) -> None:
+def test_backup_accepts_valid_held_writer_lock_and_rejects_invalid(
+    tmp_path: Path,
+) -> None:
     from mesa_storage.writer_lock import StorageWriterLock
 
     source = _synthetic_storage(tmp_path)
@@ -196,20 +198,36 @@ def test_backup_accepts_valid_held_writer_lock_and_rejects_invalid(tmp_path: Pat
     # Pass valid held writer lock
     with StorageWriterLock.acquire(source, owner="rebuild-runner") as writer_lock:
         backup = tmp_path / "valid-backup"
-        res = create_backup(source, backup, tmp_path, stores_stopped=True, writer_lock=writer_lock)
+        res = create_backup(
+            source, backup, tmp_path, stores_stopped=True, writer_lock=writer_lock
+        )
         assert res["valid"] is True
 
     # Pass released writer lock
     with pytest.raises(RecoveryError, match="storage writer lock is not held"):
-        create_backup(source, tmp_path / "b2", tmp_path, stores_stopped=True, writer_lock=writer_lock)
+        create_backup(
+            source,
+            tmp_path / "b2",
+            tmp_path,
+            stores_stopped=True,
+            writer_lock=writer_lock,
+        )
 
     # Pass writer lock for different root
     with StorageWriterLock.acquire(other_source, owner="other-runner") as other_lock:
         with pytest.raises(RecoveryError, match="storage writer lock is not held"):
-            create_backup(source, tmp_path / "b3", tmp_path, stores_stopped=True, writer_lock=other_lock)
+            create_backup(
+                source,
+                tmp_path / "b3",
+                tmp_path,
+                stores_stopped=True,
+                writer_lock=other_lock,
+            )
 
 
-def test_interrupted_backup_does_not_publish_complete_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_interrupted_backup_does_not_publish_complete_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import mesa_storage.recovery as recovery_mod
 
     source = _synthetic_storage(tmp_path)
@@ -225,7 +243,11 @@ def test_interrupted_backup_does_not_publish_complete_destination(tmp_path: Path
 
     assert not backup.exists()
     # Ensure incomplete staging dirs were cleaned up
-    leftover = [p for p in tmp_path.iterdir() if p.name.startswith(".interrupted-backup.incomplete-")]
+    leftover = [
+        p
+        for p in tmp_path.iterdir()
+        if p.name.startswith(".interrupted-backup.incomplete-")
+    ]
     assert len(leftover) == 0
 
 
@@ -233,7 +255,9 @@ def test_restore_readback_canonical_verification(tmp_path: Path) -> None:
     source = _synthetic_storage(tmp_path)
     db = source / "mesa.db"
     conn = sqlite3.connect(db)
-    conn.execute("INSERT INTO nodes VALUES ('r8-test-node', 'agent-r8', NULL, NULL, NULL);")
+    conn.execute(
+        "INSERT INTO nodes VALUES ('r8-test-node', 'agent-r8', NULL, NULL, NULL);"
+    )
     conn.commit()
     conn.close()
 
@@ -245,7 +269,8 @@ def test_restore_readback_canonical_verification(tmp_path: Path) -> None:
 
     restored_db = restore / "mesa.db"
     conn2 = sqlite3.connect(restored_db)
-    row = conn2.execute("SELECT id, agent_id FROM nodes WHERE id = 'r8-test-node'").fetchone()
+    row = conn2.execute(
+        "SELECT id, agent_id FROM nodes WHERE id = 'r8-test-node'"
+    ).fetchone()
     assert row == ("r8-test-node", "agent-r8")
     conn2.close()
-
