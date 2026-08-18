@@ -2370,7 +2370,7 @@ class MemoryDAO:
                 if str(mutation.get("state", "")).upper() == "REJECTED":
                     mutation["rejection_reason"] = tier3_audit["reason"]
             async with db.execute(
-                "SELECT store_name, artifact_kind, artifact_id, state, metadata_json "
+                "SELECT store_name, artifact_kind, artifact_id, state "
                 "FROM memory_artifacts WHERE mutation_id = ? ORDER BY store_name, artifact_kind, artifact_id",
                 (mutation_id,),
             ) as cursor:
@@ -5459,6 +5459,20 @@ class MemoryDAO:
                 metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
                 if metadata:
                     assertion["metadata"] = metadata
+                for field, kind in (
+                    ("dataset_id", "dataset"),
+                    ("document_id", "document"),
+                    ("revision_id", "revision"),
+                    ("chunk_id", "chunk"),
+                ):
+                    physical_id = assertion.get(field)
+                    if physical_id:
+                        assertion[field] = await self._catalog.external_id_in_tx(
+                            db,
+                            tenant_id=tenant_id,
+                            kind=kind,
+                            physical_id=str(physical_id),
+                        )
         by_entity: dict[str, list[dict[str, Any]]] = {
             item: [] for item in entity_ids if item in entities
         }
