@@ -175,10 +175,10 @@ Add deterministic safe serialization.
 
 Instruction-like memory cannot become surrounding prompt structure.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: `ContextBuilder` (`mesa_memory/context_builder.py`) wraps formatted context within `TRUST_HEADER` and explicit `<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>` tags. Session logs and canonical memories are serialized as deterministic JSON records with `json.dumps(..., ensure_ascii=False)`.
+Tests: `tests/test_r6_context_security_correctness.py::test_trust_header_and_tags_defined`, `test_instruction_like_memory_remains_data`.
+Commit: In progress
 
 ---
 
@@ -199,10 +199,10 @@ newlines
 
 Prove it stays data.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Added `_escape_delimiters` to sanitize literal closing tags within untrusted memory fields (`<\/UNTRUSTED_MEMORY_EVIDENCE>`). Tested against closing delimiter breakout attacks, nested system instructions, quotes, backslashes, newlines, and control characters.
+Tests: `tests/test_r6_context_security_correctness.py::test_delimiter_breakout_attack_neutralized`, `test_serialization_characters_safety`.
+Commit: In progress
 
 ---
 
@@ -233,10 +233,10 @@ punctuation
 tiny budgets
 ```
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: Integrated canonical `count_tokens` (`cl100k_base` tokenizer) via `_count_tokens`. `ContextBuilder.build_context` trims candidate canonical memories in reverse rank order and session logs until `_count_tokens(formatted_context) <= token_budget`. Tiny budgets (1, 2, 5, 10, 20) are handled deterministically without exceeding caller budget.
+Tests: `tests/test_r6_context_security_correctness.py::test_token_budget_enforced_across_content_categories`, `test_tiny_token_budget_deterministic_safety`, `test_ranking_aware_budget_trimming`.
+Commit: In progress
 
 ---
 
@@ -264,10 +264,10 @@ evidence_span
 
 Provenance must remain untrusted evidence and respect token budget.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: When `include_provenance=True`, `ContextBuilder` includes available fields (`source_ref`, `document_id`, `revision_id`, `chunk_id`, `evidence_span` bounded to 200 chars, `jurisdiction`, `authority_level`) within the structured fact dict. Missing fields are omitted without fabricating IDs. All provenance strings are escaped and serialized as untrusted evidence before tokenizer budget enforcement.
+Tests: `tests/test_r6_context_security_correctness.py::test_provenance_rendered_when_enabled_and_compact_when_disabled`, `test_missing_provenance_handles_safely`, `test_provenance_injection_attack`, `test_evidence_span_is_bounded`.
+Commit: In progress
 
 ---
 
@@ -289,10 +289,10 @@ no cross-session/tenant context regression
 
 Use deterministic fixtures.
 
-Status:
-Evidence:
-Tests:
-Commit:
+Status: BUILT
+Evidence: End-to-end integration verified: `MemoryDAO.search_v4_memory` -> `ContextBuilder.build_context` -> `formatted_context`. Verified tenant context isolation where querying identical public dataset ID `"main"` in Tenant A does not expose Tenant B's memory.
+Tests: `tests/test_r6_context_security_correctness.py::test_integrated_retrieval_to_context_builder_flow`, `test_tenant_context_isolation_spot_check`.
+Commit: In progress
 
 ---
 
@@ -312,10 +312,15 @@ quality checks
 
 Update only directly relevant documentation.
 
-Status:
+Status: BUILT
 Evidence:
-Tests:
-Commit:
+- RBAC authorization & tenant isolation: `tests/test_r6_rbac_tenant_isolation.py` (9 tests passed), `tests/test_rbac.py` (10 tests passed), `tests/test_v4_admin_cli.py` (3 tests passed), `tests/test_principal_authorization.py` (9 tests passed), `tests/test_v4_catalog_ownership.py` (8 tests passed), `tests/test_rbac_edge_cases.py` (17 tests passed).
+- ContextBuilder security & token bounds: `tests/test_r6_context_security_correctness.py` (21 tests passed), `tests/test_p0_context_builder.py` (1 test passed).
+- V4 API & MCP contracts: `tests/test_v4_api_contract.py` (16 tests passed).
+- Round 5 critical architecture baseline: `tests/test_r4_extraction_validation_independence.py` (10 tests passed), `tests/test_fact_extraction_service.py` (14 tests passed), `tests/test_embedding_service.py` (16 tests passed), `tests/test_p0_model_disabled_truth.py` (1 test passed), `tests/test_r4_validation_e2e.py` (3 tests passed), `tests/test_r4_validation_policy.py` (12 tests passed).
+- Quality checks: `ruff check` (passed), `black --check` (passed), `python3 -m compileall` (passed), layer import contract `tests/test_layer_import_contract.py` (passed).
+Tests: 129 passed across all Round 6 regression test suites.
+Commit: In progress
 
 ---
 

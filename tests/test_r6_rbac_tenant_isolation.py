@@ -109,7 +109,9 @@ async def test_fresh_database_has_v2_schema_and_version(tmp_path) -> None:
     # Verify primary key constraints on fresh tables
     with sqlite3.connect(policy_path) as conn:
         # workspace roles PK
-        ws_info = conn.execute("PRAGMA table_info(principal_workspace_roles)").fetchall()
+        ws_info = conn.execute(
+            "PRAGMA table_info(principal_workspace_roles)"
+        ).fetchall()
         ws_pks = {row[1] for row in ws_info if row[5] > 0}
         assert ws_pks == {"principal_id", "tenant_id", "workspace_id"}
 
@@ -119,13 +121,17 @@ async def test_fresh_database_has_v2_schema_and_version(tmp_path) -> None:
         assert ds_pks == {"principal_id", "tenant_id", "workspace_id", "dataset_id"}
 
         # dataset permissions PK
-        perm_info = conn.execute("PRAGMA table_info(principal_dataset_permissions)").fetchall()
+        perm_info = conn.execute(
+            "PRAGMA table_info(principal_dataset_permissions)"
+        ).fetchall()
         perm_pks = {row[1] for row in perm_info if row[5] > 0}
         assert perm_pks == {"principal_id", "tenant_id", "dataset_id", "permission"}
 
 
 @pytest.mark.asyncio
-async def test_historical_unscoped_migration_preserves_recoverable_grants(tmp_path) -> None:
+async def test_historical_unscoped_migration_preserves_recoverable_grants(
+    tmp_path,
+) -> None:
     """Migrating an existing unscoped database upgrades PKs and preserves rows."""
     policy_path = str(tmp_path / "historical_rbac.db")
     _create_historical_unscoped_db(policy_path)
@@ -248,7 +254,9 @@ async def test_migration_injected_failure_rolls_back(tmp_path) -> None:
 
     # Verify old database remains usable with original data intact
     with sqlite3.connect(policy_path) as conn:
-        ws_info = conn.execute("PRAGMA table_info(principal_workspace_roles)").fetchall()
+        ws_info = conn.execute(
+            "PRAGMA table_info(principal_workspace_roles)"
+        ).fetchall()
         ws_pks = {row[1] for row in ws_info if row[5] > 0}
         # Still old PK
         assert ws_pks == {"principal_id", "workspace_id"}
@@ -609,7 +617,10 @@ def test_admin_cli_grant_and_revoke_tenant_isolation(tmp_path, capsys) -> None:
         )
         == 0
     )
-    assert "dataset-permission-granted:principal-x:ds-1:ROLLBACK" in capsys.readouterr().out
+    assert (
+        "dataset-permission-granted:principal-x:ds-1:ROLLBACK"
+        in capsys.readouterr().out
+    )
 
     assert (
         main(
@@ -629,4 +640,7 @@ def test_admin_cli_grant_and_revoke_tenant_isolation(tmp_path, capsys) -> None:
         )
         == 0
     )
-    assert "dataset-permission-revoked:principal-x:ds-1:ROLLBACK:True" in capsys.readouterr().out
+    assert (
+        "dataset-permission-revoked:principal-x:ds-1:ROLLBACK:True"
+        in capsys.readouterr().out
+    )
