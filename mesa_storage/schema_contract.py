@@ -424,9 +424,18 @@ def validate_postflight(
         }
         _require_members(
             revision_columns,
-            {"manifest_hash", "manifest_frozen_at"},
+            {"manifest_hash", "manifest_frozen_at", "declared_content_hash"},
             label="revision manifest columns",
         )
+        content_hash = next(
+            row
+            for row in _rows(connection, "PRAGMA table_info(document_revisions)")
+            if str(row[1]) == "content_hash"
+        )
+        if content_hash[3] != 0:
+            raise SchemaContractError(
+                "document_revisions.content_hash must allow unknown NULL values"
+            )
         _require_members(
             snapshot.indexes,
             {"uq_active_document_revision"},

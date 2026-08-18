@@ -292,9 +292,14 @@ async def test_concurrent_corrections_from_same_predecessor_enforce_single_activ
         revision_number=1,
         content_hash="0" * 64,
     )
+    async with engine.connection() as db:
+        p_rev0 = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="revision", external_id="rev_0"
+        )
     async with engine.transaction() as db:
         await db.execute(
-            "UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = 'rev_0'"
+            "UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = ?",
+            (p_rev0,),
         )
         await db.commit()
 
@@ -385,13 +390,19 @@ async def test_concurrent_corrections_from_same_predecessor_enforce_single_activ
 
     # Verify document has exactly ONE active revision (R1)
     async with engine.connection() as db:
+        p_doc = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="document", external_id=doc_id
+        )
+        p_rev1 = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="revision", external_id="rev_1"
+        )
         async with db.execute(
             "SELECT revision_id FROM document_revisions WHERE document_id = ? AND status = 'ACTIVE'",
-            (doc_id,),
+            (p_doc,),
         ) as cur:
             rows = await cur.fetchall()
             assert len(rows) == 1
-            assert rows[0][0] == "rev_1"
+            assert rows[0][0] == p_rev1
 
     await engine.close()
 
@@ -440,9 +451,12 @@ async def test_cannot_append_chunks_to_finalized_revision(tmp_path):
 
     # Manually activate revision to simulate pipeline run finalization
     async with engine.connection() as db:
+        p_rev = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="revision", external_id=rev_id
+        )
         await db.execute(
             "UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = ?",
-            (rev_id,),
+            (p_rev,),
         )
         await db.commit()
 

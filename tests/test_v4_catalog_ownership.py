@@ -1,6 +1,9 @@
 """V4 canonical catalog, shared ownership and dataset ACL contracts."""
 
+from __future__ import annotations
+
 import hashlib
+import json
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -178,13 +181,29 @@ async def test_source_chunk_id_cannot_be_reused_for_different_content(tmp_path) 
             content_payload="ikinci içerik",
             **{**common, "chunk_id": "chunk-b", "chunk_ordinal": 1},
         )
-        expected_manifest = hashlib.sha256(
-            b'[{"chunk_id":"chunk-a","content_hash":"'
-            + hashlib.sha256("ilk içerik".encode()).hexdigest().encode()
-            + b'","ordinal":0,"source_ref":"source-a"},{"chunk_id":"chunk-b","content_hash":"'
-            + hashlib.sha256("ikinci içerik".encode()).hexdigest().encode()
-            + b'","ordinal":1,"source_ref":"source-a"}]'
-        ).hexdigest()
+        async with engine.connection() as db:
+            phys_a = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="tenant-a", kind="chunk", external_id="chunk-a"
+            )
+            phys_b = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="tenant-a", kind="chunk", external_id="chunk-b"
+            )
+        chunks_manifest = [
+            {
+                "chunk_id": phys_a,
+                "content_hash": hashlib.sha256("ilk içerik".encode()).hexdigest(),
+                "ordinal": 0,
+                "source_ref": "source-a",
+            },
+            {
+                "chunk_id": phys_b,
+                "content_hash": hashlib.sha256("ikinci içerik".encode()).hexdigest(),
+                "ordinal": 1,
+                "source_ref": "source-a",
+            },
+        ]
+        manifest_json = json.dumps(chunks_manifest, sort_keys=True, separators=(",", ":"))
+        expected_manifest = hashlib.sha256(manifest_json.encode("utf-8")).hexdigest()
         assert second["manifest_hash"] == expected_manifest
         revisions = await dao.list_v4_revisions(
             tenant_id="tenant-a", dataset_id="dataset-a", document_id="document-a"

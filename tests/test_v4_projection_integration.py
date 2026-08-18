@@ -38,6 +38,16 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
     graph = KuzuGraphProvider(str(graph_path), max_workers=1)
     await graph.initialize()
     dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+    await dao.create_v4_workspace(
+        tenant_id="tenant-a",
+        workspace_id="__legacy__",
+        workspace_name="Legacy integration scope",
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="tenant-a",
+        workspace_id="__legacy__",
+        dataset_id="__legacy__",
+    )
     candidate = MemoryCandidate.from_raw_log(
         raw_log_id=101,
         agent_id="tenant-a",

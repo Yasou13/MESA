@@ -480,14 +480,26 @@ async def test_post_write_fence_loss_compensates_unowned_physical_state(
     await dao.create_v4_document(
         tenant_id="tenant", dataset_id="data", document_id="doc", title="Doc"
     )
+    async with engine.connection() as db:
+        p_ws = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="workspace", external_id="ws"
+        )
+        p_ds = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="dataset", external_id="data"
+        )
+        p_doc = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="document", external_id="doc"
+        )
     async with engine.transaction() as db:
         await db.execute(
             "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
-            "VALUES ('run', 'tenant', 'agent', 'ws', 'data', 'session', 'PROJECTING')"
+            "VALUES ('run', 'tenant', 'agent', ?, ?, 'session', 'PROJECTING')",
+            (p_ws, p_ds),
         )
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, revision_id, chunk_id, session_id, pipeline_run_id, source_ref, content_payload, state) "
-            "VALUES ('mutation', 'candidate', 'tenant', 'agent', 'data', 'doc', 'revision', 'chunk', 'session', 'run', 'source', '{}', 'VALIDATED')"
+            "VALUES ('mutation', 'candidate', 'tenant', 'agent', ?, ?, 'revision', 'chunk', 'session', 'run', 'source', '{}', 'VALIDATED')",
+            (p_ds, p_doc),
         )
         await db.commit()
     mutation = _with_embedding_snapshot(await dao.get_projection_mutation("mutation"))
@@ -564,14 +576,26 @@ async def test_failed_immediate_vector_compensation_stays_durable_until_deleted(
     await dao.create_v4_document(
         tenant_id="tenant", dataset_id="data", document_id="doc", title="Doc"
     )
+    async with engine.connection() as db:
+        p_ws = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="workspace", external_id="ws"
+        )
+        p_ds = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="dataset", external_id="data"
+        )
+        p_doc = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="document", external_id="doc"
+        )
     async with engine.transaction() as db:
         await db.execute(
             "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
-            "VALUES ('run', 'tenant', 'agent', 'ws', 'data', 'session', 'PROJECTING')"
+            "VALUES ('run', 'tenant', 'agent', ?, ?, 'session', 'PROJECTING')",
+            (p_ws, p_ds),
         )
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, revision_id, chunk_id, session_id, pipeline_run_id, source_ref, content_payload, state) "
-            "VALUES ('mutation', 'candidate', 'tenant', 'agent', 'data', 'doc', 'revision', 'chunk', 'session', 'run', 'source', '{}', 'VALIDATED')"
+            "VALUES ('mutation', 'candidate', 'tenant', 'agent', ?, ?, 'revision', 'chunk', 'session', 'run', 'source', '{}', 'VALIDATED')",
+            (p_ds, p_doc),
         )
         await db.commit()
     mutation = _with_embedding_snapshot(await dao.get_projection_mutation("mutation"))

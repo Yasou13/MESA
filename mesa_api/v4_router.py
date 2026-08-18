@@ -25,6 +25,7 @@ from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
     MemoryDAO,
     NonHeadRollbackConflictError,
+    NonReplayableMutationConflictError,
     PurgeRetryPendingError,
     QueueOverCapacityError,
     QueueRecordTooLargeError,
@@ -303,13 +304,16 @@ async def _require_session_access(
     agent_id: str,
     session_id: str,
     level: str,
+    allow_closed: bool = False,
 ) -> None:
     principal = _active_principal(request)
     if not await access_control.check_principal_session_access(
         principal.principal_id, agent_id, session_id, level
     ):
         raise HTTPException(status_code=403, detail="Principal/session access denied")
-    if not await access_control.check_access(agent_id, session_id, level):
+    if not allow_closed and not await access_control.check_access(
+        agent_id, session_id, level
+    ):
         raise HTTPException(
             status_code=403, detail="Session is not active for requested operation"
         )
@@ -346,11 +350,12 @@ async def _authorized_v4_session(
     session_id: str,
     *,
     level: str,
+    allow_closed: bool = False,
 ) -> dict:
     session = await dao.get_v4_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session")
-    if session["status"] != "ACTIVE" and level == "WRITE":
+    if not allow_closed and session["status"] != "ACTIVE" and level == "WRITE":
         raise HTTPException(status_code=409, detail="Session is not active")
     await _require_session_access(
         request,
@@ -358,6 +363,7 @@ async def _authorized_v4_session(
         agent_id=str(session["agent_id"]),
         session_id=session_id,
         level=level,
+        allow_closed=allow_closed,
     )
     await _require_dataset_roles(
         request,
@@ -368,6 +374,25 @@ async def _authorized_v4_session(
         required_role="WRITER" if level == "WRITE" else "READER",
     )
     return session
+
+
+def _require_historical_mutation_scope(mutation: dict, session: dict) -> None:
+    """Bind historical administration to the mutation's immutable session scope."""
+    mutation_workspace = mutation.get("workspace_id")
+    if (
+        str(mutation.get("tenant_id") or "") != str(session["tenant_id"])
+        or str(mutation.get("agent_id") or "") != str(session["agent_id"])
+        or str(mutation.get("dataset_id") or "")
+        not in {str(item) for item in session["dataset_ids"]}
+        or (
+            mutation_workspace
+            and str(mutation_workspace) != str(session["workspace_id"])
+        )
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Mutation is outside historical session scope",
+        )
 
 
 def create_v4_router(
@@ -1065,7 +1090,9 @@ def create_v4_router(
             access_control,
             str(mutation["session_id"]),
             level="WRITE",
+            allow_closed=True,
         )
+        _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
@@ -1099,7 +1126,9 @@ def create_v4_router(
             access_control,
             str(mutation["session_id"]),
             level="WRITE",
+            allow_closed=True,
         )
+        _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
@@ -1109,7 +1138,15 @@ def create_v4_router(
         ):
             raise HTTPException(status_code=403, detail="ROLLBACK permission required")
         await _require_mutation_admission(dao)
-        return await dao.replay_pipeline_run(str(mutation["pipeline_run_id"]))
+        try:
+            return await dao.replay_pipeline_run(
+                str(mutation["pipeline_run_id"]),
+                target_mutation_id=mutation_id,
+            )
+        except NonReplayableMutationConflictError as exc:
+            raise HTTPException(status_code=409, detail="NON_REPLAYABLE") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.get("/sessions/{session_id}/context")
     async def get_context(

@@ -642,6 +642,7 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
     mutation = {
         "mutation_id": "mutation-a",
         "candidate_id": "candidate-a",
+        "tenant_id": "tenant-a",
         "agent_id": "agent-a",
         "dataset_id": "dataset-a",
         "session_id": "session-a",
@@ -926,6 +927,8 @@ async def test_v4_session_scope_and_mutation_control_fail_closed(
     mutation = {
         "mutation_id": "mutation-a",
         "candidate_id": "candidate-a",
+        "tenant_id": "tenant-a",
+        "agent_id": "agent-a",
         "dataset_id": "dataset-a",
         "session_id": "session-a",
         "pipeline_run_id": "pipeline-a",
@@ -936,11 +939,12 @@ async def test_v4_session_scope_and_mutation_control_fail_closed(
     }
     dao.get_mutation_summary = AsyncMock(return_value=mutation)
     dao.get_v4_session = AsyncMock(return_value={**session, "status": "ENDED"})
+    dao.request_pipeline_rollback = AsyncMock(return_value={"state": "ROLLED_BACK"})
     closed = await asgi_client(_app(dao, _access())).post(
         "/v4/mutations/mutation-a/rollback"
     )
-    assert closed.status_code == 409
-    assert closed.json() == {"detail": "Session is not active"}
+    assert closed.status_code == 202
+    assert closed.json() == {"state": "ROLLED_BACK"}
 
     dao.get_v4_session = AsyncMock(return_value=session)
     denied = _access()
@@ -969,6 +973,8 @@ async def test_v4_non_head_rollback_returns_typed_conflict(
     mutation = {
         "mutation_id": "mutation-a",
         "candidate_id": "candidate-a",
+        "tenant_id": "tenant-a",
+        "agent_id": "agent-a",
         "dataset_id": "dataset-a",
         "session_id": "session-a",
         "pipeline_run_id": "pipeline-a",

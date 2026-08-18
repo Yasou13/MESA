@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 
 from mesa_storage import schema_contract
 from mesa_storage.schemas import initialize_schema
@@ -17,8 +18,9 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "0a7b8c9d0e1f"
+HEAD = "b3c4d5e6f7a8"
 PREVIOUS_HEAD = "fd4e5f6a7b8c"
+ROUND7_PREDECESSOR = "0a7b8c9d0e1f"
 
 # Explicitly anchor the pre-remediation (v0.2.x) state to prevent
 # regressions in legacy cluster schema adoption.
@@ -268,10 +270,164 @@ def test_active_head_forward_migration_repairs_previous_release_duplicates(
     assert frozen["r1"] is not None
     assert frozen["r2"] is not None
     assert frozen["r3"] is None
+    # Pre-Round-7 content hashes have mixed provenance.  Migration must not
+    # relabel them as caller-declared whole-revision hashes.
+    assert connection.execute(
+        "SELECT revision_id, declared_content_hash FROM document_revisions "
+        "ORDER BY revision_number"
+    ).fetchall() == [("r1", None), ("r2", None), ("r3", None)]
     assert connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'index' "
         "AND name = 'uq_active_document_revision'"
     ).fetchone() == (1,)
+    connection.close()
+
+
+def test_round7_predecessor_preserves_hash_manifest_chunk_and_catalog_data(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "round7-predecessor.db"
+    config = _config(database)
+    command.upgrade(config, ROUND7_PREDECESSOR)
+    connection = sqlite3.connect(database)
+    connection.executescript("""
+        INSERT INTO tenants (tenant_id, display_name)
+        VALUES ('tenant-r7', 'Tenant R7');
+        INSERT INTO v4_catalog_identities
+            (tenant_id, kind, external_id, physical_id)
+        VALUES
+            ('tenant-r7', 'workspace', 'workspace-public', 'workspace-physical'),
+            ('tenant-r7', 'dataset', 'dataset-public', 'dataset-physical'),
+            ('tenant-r7', 'document', 'document-public', 'document-physical'),
+            ('tenant-r7', 'revision', 'revision-public', 'revision-physical'),
+            ('tenant-r7', 'chunk', 'chunk-public', 'chunk-physical');
+        INSERT INTO workspaces (workspace_id, tenant_id, name)
+        VALUES ('workspace-physical', 'tenant-r7', 'Workspace');
+        INSERT INTO datasets (dataset_id, tenant_id, workspace_id, name)
+        VALUES ('dataset-physical', 'tenant-r7', 'workspace-physical', 'Dataset');
+        INSERT INTO documents (document_id, tenant_id, dataset_id, title)
+        VALUES ('document-physical', 'tenant-r7', 'dataset-physical', 'Document');
+        INSERT INTO document_revisions
+            (revision_id, tenant_id, document_id, revision_number, content_hash,
+             manifest_hash, manifest_frozen_at, status)
+        VALUES
+            ('revision-physical', 'tenant-r7', 'document-physical', 1,
+             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+             'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+             CURRENT_TIMESTAMP, 'ACTIVE');
+        INSERT INTO source_chunks
+            (chunk_id, tenant_id, dataset_id, revision_id, ordinal,
+             content_payload, content_hash, source_ref)
+        VALUES
+            ('chunk-physical', 'tenant-r7', 'dataset-physical',
+             'revision-physical', 0, 'payload',
+             'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+             'source');
+        """)
+    connection.commit()
+    connection.close()
+
+    command.upgrade(config, "head")
+    command.upgrade(config, "head")
+
+    connection = sqlite3.connect(database)
+    assert connection.execute(
+        "SELECT content_hash, declared_content_hash, manifest_hash, status "
+        "FROM document_revisions WHERE revision_id = 'revision-physical'"
+    ).fetchone() == (
+        "a" * 64,
+        None,
+        "b" * 64,
+        "ACTIVE",
+    )
+    assert connection.execute(
+        "SELECT content_payload, content_hash, source_ref FROM source_chunks "
+        "WHERE chunk_id = 'chunk-physical'"
+    ).fetchone() == ("payload", "c" * 64, "source")
+    assert connection.execute(
+        "SELECT external_id, physical_id FROM v4_catalog_identities "
+        "WHERE tenant_id = 'tenant-r7' AND kind = 'dataset'"
+    ).fetchone() == ("dataset-public", "dataset-physical")
+    content_hash_column = next(
+        row
+        for row in connection.execute(
+            "PRAGMA table_info(document_revisions)"
+        ).fetchall()
+        if row[1] == "content_hash"
+    )
+    assert content_hash_column[3] == 0
+    assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    connection.close()
+
+
+def test_round7_nullable_hash_migration_failure_is_reentrant(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "round7-failure.db"
+    config = _config(database)
+    command.upgrade(config, "a2b3c4d5e6f7")
+    connection = sqlite3.connect(database)
+    connection.executescript("""
+        INSERT INTO tenants (tenant_id, display_name) VALUES ('tenant', 'Tenant');
+        INSERT INTO workspaces (workspace_id, tenant_id, name)
+        VALUES ('workspace', 'tenant', 'Workspace');
+        INSERT INTO datasets (dataset_id, tenant_id, workspace_id, name)
+        VALUES ('dataset', 'tenant', 'workspace', 'Dataset');
+        INSERT INTO documents (document_id, tenant_id, dataset_id, title)
+        VALUES ('document', 'tenant', 'dataset', 'Document');
+        INSERT INTO document_revisions
+            (revision_id, tenant_id, document_id, revision_number, content_hash,
+             status, declared_content_hash)
+        VALUES ('revision', 'tenant', 'document', 1,
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                'PENDING', NULL);
+        """)
+    connection.commit()
+    connection.close()
+
+    def fail_batch_copy(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if "INSERT INTO _alembic_tmp_document_revisions" in statement:
+            raise RuntimeError("injected Round 7 migration failure")
+
+    event.listen(Engine, "before_cursor_execute", fail_batch_copy)
+    try:
+        with pytest.raises(RuntimeError, match="injected Round 7 migration failure"):
+            command.upgrade(config, "head")
+    finally:
+        event.remove(Engine, "before_cursor_execute", fail_batch_copy)
+
+    connection = sqlite3.connect(database)
+    assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+        "a2b3c4d5e6f7",
+    )
+    assert connection.execute(
+        "SELECT content_hash FROM document_revisions WHERE revision_id = 'revision'"
+    ).fetchone() == ("a" * 64,)
+    assert (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = '_alembic_tmp_document_revisions'"
+        ).fetchone()
+        is None
+    )
+    connection.close()
+
+    command.upgrade(config, "head")
+    command.upgrade(config, "head")
+    connection = sqlite3.connect(database)
+    assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+        HEAD,
+    )
+    assert connection.execute(
+        "SELECT content_hash FROM document_revisions WHERE revision_id = 'revision'"
+    ).fetchone() == ("a" * 64,)
     connection.close()
 
 

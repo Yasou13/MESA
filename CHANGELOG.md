@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Round-7 lifecycle and hash truth:** Late manifest finalization now reuses
+  the canonical revision activation barrier. Declared whole-revision,
+  manifest and chunk hashes remain separate; direct insertion records an
+  unknown revision hash as `NULL`, including for multiple revisions of one
+  document.
+- **Opaque catalog storage identity:** New physical catalog keys are
+  server-generated and public resolution is external-ID-only. API, SDK and MCP
+  provenance/status surfaces translate catalog scope back to public IDs.
+- **Historical mutation administration:** Closed sessions remain valid
+  historical evidence, but rollback/replay now bind the mutation to the exact
+  principal/session tenant, workspace, dataset and agent scope plus explicit
+  `ROLLBACK` permission.
+
 - **Round-3 aggregate lifecycle:** Revision manifests freeze explicitly,
   revision and pipeline terminal success is derived from all required child
   work, and non-head historical rollback returns a typed conflict.
@@ -62,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the explicit, writer-locked `mesa-v4-rebuild adopt-provider` command.
 
 ### Security
+
+- **Truthful replay boundary:** Semantic `REJECTED` mutations return
+  `409 NON_REPLAYABLE` and remain terminal, while target-aware technical
+  projection/cleanup retry preserves a truthful aggregate pipeline state.
 
 - **Runtime-owned validation assurance:** Reserved `_mesa_*` metadata can no
   longer be supplied by API writers or used to downgrade a mutation's

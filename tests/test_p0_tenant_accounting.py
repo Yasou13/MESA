@@ -41,11 +41,11 @@ async def test_tenant_workspace_dataset_boundary_isolation(tmp_path):
     assert len(physical_datasets) == 2
     assert physical_datasets[0][1] != physical_datasets[1][1]
 
-    # 3. The opaque collision-safe physical ID from Tenant B still cannot be
-    # smuggled into Tenant A.  (Tenant A's legacy-compatible physical key is
-    # also the shared external ID, so resolving it in Tenant B correctly maps
-    # to Tenant B's own scoped dataset rather than crossing the boundary.)
-    with pytest.raises(ValueError, match="dataset does not belong to tenant"):
+    # 3. The opaque collision-safe physical ID from Tenant B is not accepted
+    # as a public alias in Tenant A.
+    with pytest.raises(
+        ValueError, match="unknown dataset external identifier in tenant scope"
+    ):
         await dao.create_v4_document(
             tenant_id="tenant_A",
             dataset_id=str(physical_datasets[1][1]),
