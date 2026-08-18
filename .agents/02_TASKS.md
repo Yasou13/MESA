@@ -29,7 +29,7 @@ provenance rendering
 
 Do not modify production code before identifying actual canonical paths.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Traced production ownership across RBAC and ContextBuilder surfaces without modifying production code:
 1. RBAC Storage & Schema (`mesa_memory/security/rbac.py`):
    - Standalone SQLite database (`storage/rbac_policy.db`), initialized via `AccessControl.initialize()`.
@@ -70,7 +70,7 @@ old unscoped schema
 new tenant-scoped schema
 ```
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Established explicit RBAC schema authority via `RBAC_SCHEMA_VERSION = 2` and a metadata table `rbac_schema_version (version INTEGER PRIMARY KEY, migrated_at TEXT NOT NULL)`. `AccessControl.initialize()` inspects current version and `PRAGMA table_info` on existing tables to determine whether migration from old unscoped schema (v1) to tenant-scoped schema (v2) is required. Added `get_schema_version()` method.
 Tests: `tests/test_r6_rbac_tenant_isolation.py::test_fresh_database_has_v2_schema_and_version`, `test_historical_unscoped_migration_preserves_recoverable_grants`.
 Commit: In progress
@@ -94,7 +94,7 @@ different tenants
 → independent rows
 ```
 
-Status: BUILT
+Status: VERIFIED
 Evidence: `principal_workspace_roles` primary key updated to `(principal_id, tenant_id, workspace_id)`. `grant_scope_role` now uses `INSERT INTO principal_workspace_roles ... ON CONFLICT(principal_id, tenant_id, workspace_id) DO UPDATE SET role = excluded.role`. Added `revoke_scope_role` with tenant scope filter.
 Tests: `tests/test_r6_rbac_tenant_isolation.py::test_cross_tenant_workspace_roles_coexistence`.
 Commit: In progress
@@ -121,7 +121,7 @@ list
 cache
 ```
 
-Status: BUILT
+Status: VERIFIED
 Evidence:
 - `principal_dataset_roles` primary key updated to `(principal_id, tenant_id, workspace_id, dataset_id)`.
 - `principal_dataset_permissions` primary key updated to `(principal_id, tenant_id, dataset_id, permission)`.
@@ -156,8 +156,8 @@ two-tenant same-public-ID scenario
 grant/revoke isolation
 ```
 
-Status: BUILT
-Evidence: Built full migration workflow inside `AccessControl.initialize()`: creates `_v2_*` tables, copies recoverable rows with `INSERT OR IGNORE`, atomically drops and renames tables, sets `rbac_schema_version = 2`. Injected failure verifies atomic transaction rollback preserving historical database. Repeat initialization verified for idempotence and no data duplication/corruption.
+Status: VERIFIED
+Evidence: `AccessControl.initialize()` creates `_v2_*` tables, copies recoverable rows with conflict-failing `INSERT`, validates source/replacement row counts, then atomically swaps the tables and records `rbac_schema_version = 2`. Injected failure verifies transaction rollback; repeat initialization preserves data without duplication.
 Tests: `tests/test_r6_rbac_tenant_isolation.py` (9 tests passing), `tests/test_rbac.py` (10 tests), `tests/test_v4_admin_cli.py` (3 tests), `tests/test_principal_authorization.py` (9 tests), `tests/test_v4_catalog_ownership.py` (8 tests), `tests/test_rbac_edge_cases.py` (17 tests).
 Commit: In progress
 
@@ -175,7 +175,7 @@ Add deterministic safe serialization.
 
 Instruction-like memory cannot become surrounding prompt structure.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: `ContextBuilder` (`mesa_memory/context_builder.py`) wraps formatted context within `TRUST_HEADER` and explicit `<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>` tags. Session logs and canonical memories are serialized as deterministic JSON records with `json.dumps(..., ensure_ascii=False)`.
 Tests: `tests/test_r6_context_security_correctness.py::test_trust_header_and_tags_defined`, `test_instruction_like_memory_remains_data`.
 Commit: In progress
@@ -199,8 +199,8 @@ newlines
 
 Prove it stays data.
 
-Status: BUILT
-Evidence: Added `_escape_delimiters` to sanitize literal closing tags within untrusted memory fields (`<\/UNTRUSTED_MEMORY_EVIDENCE>`). Tested against closing delimiter breakout attacks, nested system instructions, quotes, backslashes, newlines, and control characters.
+Status: VERIFIED
+Evidence: JSON rendering now encodes every untrusted `<`/`>` at the final record boundary, covering closing/opening delimiter variants as well as nested system instructions, quotes, backslashes, newlines, and control characters.
 Tests: `tests/test_r6_context_security_correctness.py::test_delimiter_breakout_attack_neutralized`, `test_serialization_characters_safety`.
 Commit: In progress
 
@@ -233,7 +233,7 @@ punctuation
 tiny budgets
 ```
 
-Status: BUILT
+Status: VERIFIED
 Evidence: Integrated canonical `count_tokens` (`cl100k_base` tokenizer) via `_count_tokens`. `ContextBuilder.build_context` trims candidate canonical memories in reverse rank order and session logs until `_count_tokens(formatted_context) <= token_budget`. Tiny budgets (1, 2, 5, 10, 20) are handled deterministically without exceeding caller budget.
 Tests: `tests/test_r6_context_security_correctness.py::test_token_budget_enforced_across_content_categories`, `test_tiny_token_budget_deterministic_safety`, `test_ranking_aware_budget_trimming`.
 Commit: In progress
@@ -264,7 +264,7 @@ evidence_span
 
 Provenance must remain untrusted evidence and respect token budget.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: When `include_provenance=True`, `ContextBuilder` includes available fields (`source_ref`, `document_id`, `revision_id`, `chunk_id`, `evidence_span` bounded to 200 chars, `jurisdiction`, `authority_level`) within the structured fact dict. Missing fields are omitted without fabricating IDs. All provenance strings are escaped and serialized as untrusted evidence before tokenizer budget enforcement.
 Tests: `tests/test_r6_context_security_correctness.py::test_provenance_rendered_when_enabled_and_compact_when_disabled`, `test_missing_provenance_handles_safely`, `test_provenance_injection_attack`, `test_evidence_span_is_bounded`.
 Commit: In progress
@@ -289,7 +289,7 @@ no cross-session/tenant context regression
 
 Use deterministic fixtures.
 
-Status: BUILT
+Status: VERIFIED
 Evidence: End-to-end integration verified: `MemoryDAO.search_v4_memory` -> `ContextBuilder.build_context` -> `formatted_context`. Verified tenant context isolation where querying identical public dataset ID `"main"` in Tenant A does not expose Tenant B's memory.
 Tests: `tests/test_r6_context_security_correctness.py::test_integrated_retrieval_to_context_builder_flow`, `test_tenant_context_isolation_spot_check`.
 Commit: In progress
@@ -312,7 +312,7 @@ quality checks
 
 Update only directly relevant documentation.
 
-Status: BUILT
+Status: VERIFIED
 Evidence:
 - RBAC authorization & tenant isolation: `tests/test_r6_rbac_tenant_isolation.py` (9 tests passed), `tests/test_rbac.py` (10 tests passed), `tests/test_v4_admin_cli.py` (3 tests passed), `tests/test_principal_authorization.py` (9 tests passed), `tests/test_v4_catalog_ownership.py` (8 tests passed), `tests/test_rbac_edge_cases.py` (17 tests passed).
 - ContextBuilder security & token bounds: `tests/test_r6_context_security_correctness.py` (21 tests passed), `tests/test_p0_context_builder.py` (1 test passed).
@@ -321,6 +321,79 @@ Evidence:
 - Quality checks: `ruff check` (passed), `black --check` (passed), `python3 -m compileall` (passed), layer import contract `tests/test_layer_import_contract.py` (passed).
 Tests: 129 passed across all Round 6 regression test suites.
 Commit: In progress
+
+---
+
+## TERRA-R601 — Validate RBAC Schema Marker and Rebuild Preservation
+
+Owner: Terra
+
+Root Cause:
+
+`rbac_schema_version = 2` bypassed table-shape checks, while `INSERT OR IGNORE`
+could silently suppress a copied grant before the old policy tables were dropped.
+
+Repair:
+
+Validate every scoped table's full column/primary-key shape regardless of the
+recorded version; reject unknown newer versions; fail closed on copy conflicts;
+and compare source/replacement row counts before the atomic swap.
+
+Status: VERIFIED
+
+Evidence:
+
+Static production trace confirms all role lookups/mutations are tenant-scoped.
+The dataset public ID is tenant-scoped and bound to one workspace by
+`CatalogRepository.ensure_scope`, so the explicit permission identity
+`(principal_id, tenant_id, dataset_id, permission)` is an equivalent canonical
+resource key. The new stale-v2-marker regression passed in a temporary
+database outside the filesystem sandbox; sandboxed `aiosqlite` itself hangs
+even for `SELECT 1`.
+
+Tests:
+
+`tests/test_r6_rbac_tenant_isolation.py::test_version_marker_cannot_bypass_scoped_schema_validation`
+and the full RBAC focused suite: 10 passed; `python -m py_compile` passed.
+
+Commit:
+
+Pending Terra repair commit.
+
+---
+
+## TERRA-R602 — Make Evidence Tags Structural and Token Counting Strict
+
+Owner: Terra
+
+Root Cause:
+
+Literal tag replacement missed case and whitespace variants, and the tokenizer
+fallback could report an estimate as a hard ContextBuilder budget.
+
+Repair:
+
+Serialize every evidence record as JSON with `<`/`>` encoded at the final
+rendering boundary, preserving JSON round-tripping while preventing any
+untrusted value from producing tag syntax. ContextBuilder now requests the
+canonical `cl100k_base` counter in strict mode and fails closed if unavailable.
+
+Status: VERIFIED
+
+Evidence:
+
+Variant delimiter, session-log, provenance, Turkish/code/URL/emoji/punctuation,
+tiny-budget, ranking, missing-provenance and injection regressions pass through
+the production `ContextBuilder.build_context()` formatter.
+
+Tests:
+
+20 focused ContextBuilder tests passed in two commands; `python -m py_compile`
+passed for touched production modules.
+
+Commit:
+
+Pending combined Terra repair commit after repository quality gates.
 
 ---
 

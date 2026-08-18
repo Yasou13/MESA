@@ -131,6 +131,15 @@ Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
 yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. Search sonucu `score`
 alanı fused relevance skorudur; daha yüksek değer daha iyi eşleşmedir.
 
+Context çıktısındaki retrieved session logları ve canonical memory, açıkça
+`UNTRUSTED_MEMORY_EVIDENCE` içinde JSON evidence kayıtları olarak render edilir;
+içerikler komut değil veridir. `token_budget`, yalnız bu LLM-ready formatted
+context için `cl100k_base` tokenizer ile ölçülen sert üst sınırdır. Canonical
+tokenizer kullanılamazsa endpoint tahmini bir sayaçla devam etmek yerine hata
+verir. `include_provenance` destekleyen doğrudan ContextBuilder çağrılarında
+`source_ref`, document/revision/chunk kimlikleri ve bounded evidence span ancak
+mevcutsa evidence kaydına eklenir.
+
 Başarılı mutation yolu:
 
 ```text
@@ -204,7 +213,16 @@ mesa-v4-admin grant-agent --principal service-a --agent agent-a \
   --permission SESSION_CREATE
 mesa-v4-admin grant-dataset-permission --principal service-a \
   --tenant tenant-a --dataset dataset-a --permission ROLLBACK
+mesa-v4-admin revoke-role --principal service-a --tenant tenant-a --role OWNER
+mesa-v4-admin revoke-dataset-permission --principal service-a \
+  --tenant tenant-a --dataset dataset-a --permission ROLLBACK
 ```
+
+RBAC policy DB, Alembic yerine kendi `rbac_schema_version` metadata tablosuyla
+v2’ye yükseltilir. Yükseltme aynı SQLite transaction içinde table-rebuild ve
+row-count doğrulaması yapar; başarısız olursa eski policy tabloları korunur.
+Tarihsel unscoped primary key daha önce iki tenant grant’ini çarpıştırdıysa,
+kaybedilen grant geri üretilemez.
 
 ## `MemoryDAO` v4 sınırı
 
