@@ -847,7 +847,7 @@ class MemoryDAO:
             await db.execute(
                 "INSERT OR IGNORE INTO document_revisions "
                 "(revision_id, tenant_id, document_id, revision_number, content_hash, "
-                "status, supersedes_revision_id, declared_content_hash) VALUES (?, ?, ?, ?, '', 'PENDING', ?, NULL)",
+                "status, supersedes_revision_id, declared_content_hash) VALUES (?, ?, ?, ?, NULL, 'PENDING', ?, NULL)",
                 (
                     revision_id,
                     tenant_id,
@@ -1846,7 +1846,7 @@ class MemoryDAO:
                 await db.execute(
                     "INSERT OR IGNORE INTO document_revisions "
                     "(revision_id, tenant_id, document_id, revision_number, content_hash, "
-                    "status, supersedes_revision_id, declared_content_hash) VALUES (?, ?, ?, ?, '', 'PENDING', ?, NULL)",
+                    "status, supersedes_revision_id, declared_content_hash) VALUES (?, ?, ?, ?, NULL, 'PENDING', ?, NULL)",
                     (
                         revision_id,
                         tenant_id,
