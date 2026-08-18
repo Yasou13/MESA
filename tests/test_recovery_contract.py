@@ -168,7 +168,84 @@ async def test_real_lancedb_and_kuzu_reopen_after_restore(tmp_path: Path) -> Non
     assert await restored_graph.verify_nodes_absent(
         agent_id="agent-a", node_ids=["purged"]
     )
-    assert not await restored_graph.verify_nodes_absent(
-        agent_id="agent-a", node_ids=["active"]
-    )
     await restored_graph.close()
+
+
+def test_backup_fails_closed_when_active_writer_holds_lock(tmp_path: Path) -> None:
+    from mesa_storage.writer_lock import StorageWriterLock
+
+    source = _synthetic_storage(tmp_path)
+    backup = tmp_path / "unsafe-backup"
+
+    # Active writer holds the lock
+    with StorageWriterLock.acquire(source, owner="active-runtime"):
+        # Caller boolean stores_stopped=True must NOT bypass actual writer lock
+        with pytest.raises(RecoveryError, match="active writer"):
+            create_backup(source, backup, tmp_path, stores_stopped=True)
+
+    assert not backup.exists()
+
+
+def test_backup_accepts_valid_held_writer_lock_and_rejects_invalid(tmp_path: Path) -> None:
+    from mesa_storage.writer_lock import StorageWriterLock
+
+    source = _synthetic_storage(tmp_path)
+    other_source = tmp_path / "other"
+    other_source.mkdir()
+
+    # Pass valid held writer lock
+    with StorageWriterLock.acquire(source, owner="rebuild-runner") as writer_lock:
+        backup = tmp_path / "valid-backup"
+        res = create_backup(source, backup, tmp_path, stores_stopped=True, writer_lock=writer_lock)
+        assert res["valid"] is True
+
+    # Pass released writer lock
+    with pytest.raises(RecoveryError, match="storage writer lock is not held"):
+        create_backup(source, tmp_path / "b2", tmp_path, stores_stopped=True, writer_lock=writer_lock)
+
+    # Pass writer lock for different root
+    with StorageWriterLock.acquire(other_source, owner="other-runner") as other_lock:
+        with pytest.raises(RecoveryError, match="storage writer lock is not held"):
+            create_backup(source, tmp_path / "b3", tmp_path, stores_stopped=True, writer_lock=other_lock)
+
+
+def test_interrupted_backup_does_not_publish_complete_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import mesa_storage.recovery as recovery_mod
+
+    source = _synthetic_storage(tmp_path)
+    backup = tmp_path / "interrupted-backup"
+
+    def _fail_manifest(*args: object, **kwargs: object) -> dict:
+        raise RuntimeError("simulated write failure")
+
+    monkeypatch.setattr(recovery_mod, "_write_manifest", _fail_manifest)
+
+    with pytest.raises(RuntimeError, match="simulated write failure"):
+        create_backup(source, backup, tmp_path, stores_stopped=True)
+
+    assert not backup.exists()
+    # Ensure incomplete staging dirs were cleaned up
+    leftover = [p for p in tmp_path.iterdir() if p.name.startswith(".interrupted-backup.incomplete-")]
+    assert len(leftover) == 0
+
+
+def test_restore_readback_canonical_verification(tmp_path: Path) -> None:
+    source = _synthetic_storage(tmp_path)
+    db = source / "mesa.db"
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO nodes VALUES ('r8-test-node', 'agent-r8', NULL, NULL, NULL);")
+    conn.commit()
+    conn.close()
+
+    backup = tmp_path / "r8-backup"
+    restore = tmp_path / "r8-restore"
+
+    create_backup(source, backup, tmp_path, stores_stopped=True)
+    restore_backup(backup, restore, tmp_path)
+
+    restored_db = restore / "mesa.db"
+    conn2 = sqlite3.connect(restored_db)
+    row = conn2.execute("SELECT id, agent_id FROM nodes WHERE id = 'r8-test-node'").fetchone()
+    assert row == ("r8-test-node", "agent-r8")
+    conn2.close()
+

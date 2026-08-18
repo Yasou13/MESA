@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
+
 MANIFEST_NAME = "mesa-backup-manifest.json"
 MANIFEST_VERSION = 1
 _SQLITE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
@@ -127,7 +129,7 @@ def _copy_snapshot(source: Path, staging: Path) -> list[str]:
     sqlite_files: list[str] = []
     for source_file in _iter_files(source):
         relative = source_file.relative_to(source)
-        if source_file.name.endswith(("-wal", "-shm")):
+        if source_file.name.endswith(("-wal", "-shm")) or source_file.name == ".mesa-single-writer.lock":
             continue
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -328,7 +330,12 @@ def validate_snapshot(snapshot: Path) -> dict[str, Any]:
 
 
 def create_backup(
-    source: Path, destination: Path, trusted_root: Path, *, stores_stopped: bool
+    source: Path,
+    destination: Path,
+    trusted_root: Path,
+    *,
+    stores_stopped: bool = True,
+    writer_lock: StorageWriterLock | None = None,
 ) -> dict[str, Any]:
     if not stores_stopped:
         raise RecoveryError(
@@ -340,24 +347,41 @@ def create_backup(
         raise RecoveryError("source storage root must be a directory")
     if destination.exists():
         raise RecoveryError("backup destination already exists")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(
-        tempfile.mkdtemp(
-            prefix=f".{destination.name}.incomplete-", dir=destination.parent
-        )
-    )
+
+    acquired_lock: StorageWriterLock | None = None
+    if writer_lock is not None:
+        if writer_lock.released or writer_lock.storage_root != source:
+            raise RecoveryError("storage writer lock is not held for source storage root")
+    else:
+        try:
+            acquired_lock = StorageWriterLock.acquire(source, owner="mesa-backup")
+        except StorageWriterLockError as exc:
+            raise RecoveryError(
+                f"storage root is not quiescent or has an active writer: {exc}"
+            ) from exc
+
     try:
-        sqlite_files = _copy_snapshot(source, staging)
-        if not sqlite_files:
-            raise RecoveryError("storage root contains no canonical SQLite database")
-        _write_manifest(staging, source=source, sqlite_files=sqlite_files)
-        validate_snapshot(staging)
-        os.replace(staging, destination)
-        _fsync_dir(destination.parent)
-        return validate_snapshot(destination)
-    except Exception:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(
+            tempfile.mkdtemp(
+                prefix=f".{destination.name}.incomplete-", dir=destination.parent
+            )
+        )
+        try:
+            sqlite_files = _copy_snapshot(source, staging)
+            if not sqlite_files:
+                raise RecoveryError("storage root contains no canonical SQLite database")
+            _write_manifest(staging, source=source, sqlite_files=sqlite_files)
+            validate_snapshot(staging)
+            os.replace(staging, destination)
+            _fsync_dir(destination.parent)
+            return validate_snapshot(destination)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+    finally:
+        if acquired_lock is not None:
+            acquired_lock.release()
 
 
 def restore_backup(

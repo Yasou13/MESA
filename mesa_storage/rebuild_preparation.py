@@ -388,6 +388,7 @@ class OfflineRebuildPreparer:
                 backup_root,
                 trusted_root,
                 stores_stopped=True,
+                writer_lock=writer_lock,
             )
         backup_manifest_hash = hashlib.sha256(
             (backup_root / MANIFEST_NAME).read_bytes()
