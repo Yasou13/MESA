@@ -290,7 +290,7 @@ no cross-session/tenant context regression
 Use deterministic fixtures.
 
 Status: VERIFIED
-Evidence: End-to-end integration verified: `MemoryDAO.search_v4_memory` -> `ContextBuilder.build_context` -> `formatted_context`. Verified tenant context isolation where querying identical public dataset ID `"main"` in Tenant A does not expose Tenant B's memory.
+Evidence: End-to-end integration verified: `MemoryDAO.search_v4_memory` -> `ContextBuilder.build_context` -> `formatted_context`. Verified bidirectional tenant context isolation where Tenant A and Tenant B each retrieve only their own distinct memory under identical public workspace/dataset IDs.
 Tests: `tests/test_r6_context_security_correctness.py::test_integrated_retrieval_to_context_builder_flow`, `test_tenant_context_isolation_spot_check`.
 Commit: `edc7e72`
 
@@ -500,5 +500,4 @@ Tests:
 
 Commit:
 
-`1c0617d`, `d5680e1`, and the final certification ledger commit containing this
-record.
+`1c0617d`, `d5680e1`, `891b32f`, and the certification ledger commits.
