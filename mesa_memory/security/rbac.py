@@ -157,129 +157,62 @@ class AccessControl:
                 )
             """)
 
-            # Check if migration is needed for scoped tables
+            # The recorded version is only authoritative when the scoped tables
+            # actually have the corresponding shape.  A stale or tampered
+            # marker must not make an old policy schema silently usable.
             async with db.execute(
                 "SELECT MAX(version) FROM rbac_schema_version"
             ) as cursor:
                 row = await cursor.fetchone()
                 current_version = int(row[0]) if (row and row[0] is not None) else 0
 
-            if current_version < RBAC_SCHEMA_VERSION:
-                needs_migration = False
-                for tbl, required_cols in (
-                    (
-                        "principal_workspace_roles",
-                        {"principal_id", "tenant_id", "workspace_id"},
-                    ),
-                    (
-                        "principal_dataset_roles",
-                        {
-                            "principal_id",
-                            "tenant_id",
-                            "workspace_id",
-                            "dataset_id",
-                        },
-                    ),
-                    (
-                        "principal_dataset_permissions",
-                        {"principal_id", "tenant_id", "dataset_id", "permission"},
-                    ),
-                ):
-                    async with db.execute(
-                        f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tbl}'"
-                    ) as cursor:
-                        if await cursor.fetchone() is not None:
-                            async with db.execute(
-                                f"PRAGMA table_info({tbl})"
-                            ) as col_cursor:
-                                pk_cols = {
-                                    str(col[1])
-                                    for col in await col_cursor.fetchall()
-                                    if col[5] > 0
-                                }
-                            if pk_cols != required_cols:
-                                needs_migration = True
-                                break
+            if current_version > RBAC_SCHEMA_VERSION:
+                raise RuntimeError(
+                    "RBAC policy schema version is newer than this runtime supports"
+                )
 
-                if needs_migration:
-                    await db.execute("BEGIN IMMEDIATE")
-                    try:
-                        await db.execute("""
-                            CREATE TABLE IF NOT EXISTS _v2_principal_workspace_roles (
-                                principal_id TEXT NOT NULL,
-                                tenant_id TEXT NOT NULL,
-                                workspace_id TEXT NOT NULL,
-                                role TEXT NOT NULL,
-                                PRIMARY KEY (principal_id, tenant_id, workspace_id)
-                            )
-                        """)
-                        await db.execute("""
-                            CREATE TABLE IF NOT EXISTS _v2_principal_dataset_roles (
-                                principal_id TEXT NOT NULL,
-                                tenant_id TEXT NOT NULL,
-                                workspace_id TEXT NOT NULL,
-                                dataset_id TEXT NOT NULL,
-                                role TEXT NOT NULL,
-                                PRIMARY KEY (principal_id, tenant_id, workspace_id, dataset_id)
-                            )
-                        """)
-                        await db.execute("""
-                            CREATE TABLE IF NOT EXISTS _v2_principal_dataset_permissions (
-                                principal_id TEXT NOT NULL,
-                                tenant_id TEXT NOT NULL,
-                                dataset_id TEXT NOT NULL,
-                                permission TEXT NOT NULL,
-                                PRIMARY KEY (principal_id, tenant_id, dataset_id, permission)
-                            )
-                        """)
+            needs_migration = False
+            for tbl, required_cols in (
+                (
+                    "principal_workspace_roles",
+                    {"principal_id", "tenant_id", "workspace_id", "role"},
+                ),
+                (
+                    "principal_dataset_roles",
+                    {
+                        "principal_id",
+                        "tenant_id",
+                        "workspace_id",
+                        "dataset_id",
+                        "role",
+                    },
+                ),
+                (
+                    "principal_dataset_permissions",
+                    {"principal_id", "tenant_id", "dataset_id", "permission"},
+                ),
+            ):
+                async with db.execute(
+                    f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tbl}'"
+                ) as cursor:
+                    if await cursor.fetchone() is not None:
+                        async with db.execute(
+                            f"PRAGMA table_info({tbl})"
+                        ) as col_cursor:
+                            columns = await col_cursor.fetchall()
+                        names = {str(col[1]) for col in columns}
+                        pk_cols = {str(col[1]) for col in columns if col[5] > 0}
+                        if names != required_cols or pk_cols != required_cols - {
+                            "role"
+                        }:
+                            needs_migration = True
+                            break
 
-                        # Copy recoverable existing rows
-                        await db.execute("""
-                            INSERT OR IGNORE INTO _v2_principal_workspace_roles
-                            (principal_id, tenant_id, workspace_id, role)
-                            SELECT principal_id, tenant_id, workspace_id, role
-                            FROM principal_workspace_roles
-                        """)
-                        await db.execute("""
-                            INSERT OR IGNORE INTO _v2_principal_dataset_roles
-                            (principal_id, tenant_id, workspace_id, dataset_id, role)
-                            SELECT principal_id, tenant_id, workspace_id, dataset_id, role
-                            FROM principal_dataset_roles
-                        """)
-                        await db.execute("""
-                            INSERT OR IGNORE INTO _v2_principal_dataset_permissions
-                            (principal_id, tenant_id, dataset_id, permission)
-                            SELECT principal_id, tenant_id, dataset_id, permission
-                            FROM principal_dataset_permissions
-                        """)
-
-                        # Atomic drop and replace
-                        await db.execute("DROP TABLE principal_workspace_roles")
-                        await db.execute(
-                            "ALTER TABLE _v2_principal_workspace_roles RENAME TO principal_workspace_roles"
-                        )
-                        await db.execute("DROP TABLE principal_dataset_roles")
-                        await db.execute(
-                            "ALTER TABLE _v2_principal_dataset_roles RENAME TO principal_dataset_roles"
-                        )
-                        await db.execute("DROP TABLE principal_dataset_permissions")
-                        await db.execute(
-                            "ALTER TABLE _v2_principal_dataset_permissions RENAME TO principal_dataset_permissions"
-                        )
-
-                        await db.execute(
-                            "INSERT INTO rbac_schema_version (version, migrated_at) "
-                            "VALUES (?, CURRENT_TIMESTAMP) "
-                            "ON CONFLICT(version) DO NOTHING",
-                            (RBAC_SCHEMA_VERSION,),
-                        )
-                        await db.commit()
-                    except Exception:
-                        await db.rollback()
-                        raise
-                else:
+            if needs_migration:
+                await db.execute("BEGIN IMMEDIATE")
+                try:
                     await db.execute("""
-                        CREATE TABLE IF NOT EXISTS principal_workspace_roles (
+                        CREATE TABLE IF NOT EXISTS _v2_principal_workspace_roles (
                             principal_id TEXT NOT NULL,
                             tenant_id TEXT NOT NULL,
                             workspace_id TEXT NOT NULL,
@@ -288,7 +221,7 @@ class AccessControl:
                         )
                     """)
                     await db.execute("""
-                        CREATE TABLE IF NOT EXISTS principal_dataset_roles (
+                        CREATE TABLE IF NOT EXISTS _v2_principal_dataset_roles (
                             principal_id TEXT NOT NULL,
                             tenant_id TEXT NOT NULL,
                             workspace_id TEXT NOT NULL,
@@ -298,7 +231,7 @@ class AccessControl:
                         )
                     """)
                     await db.execute("""
-                        CREATE TABLE IF NOT EXISTS principal_dataset_permissions (
+                        CREATE TABLE IF NOT EXISTS _v2_principal_dataset_permissions (
                             principal_id TEXT NOT NULL,
                             tenant_id TEXT NOT NULL,
                             dataset_id TEXT NOT NULL,
@@ -306,6 +239,64 @@ class AccessControl:
                             PRIMARY KEY (principal_id, tenant_id, dataset_id, permission)
                         )
                     """)
+
+                    # Historical primary keys are strict subsets of the v2
+                    # keys, so a conflict here signals malformed input.
+                    # Fail closed rather than silently discard a grant.
+                    await db.execute("""
+                        INSERT INTO _v2_principal_workspace_roles
+                        (principal_id, tenant_id, workspace_id, role)
+                        SELECT principal_id, tenant_id, workspace_id, role
+                        FROM principal_workspace_roles
+                    """)
+                    await db.execute("""
+                        INSERT INTO _v2_principal_dataset_roles
+                        (principal_id, tenant_id, workspace_id, dataset_id, role)
+                        SELECT principal_id, tenant_id, workspace_id, dataset_id, role
+                        FROM principal_dataset_roles
+                    """)
+                    await db.execute("""
+                        INSERT INTO _v2_principal_dataset_permissions
+                        (principal_id, tenant_id, dataset_id, permission)
+                        SELECT principal_id, tenant_id, dataset_id, permission
+                        FROM principal_dataset_permissions
+                    """)
+
+                    for source, replacement in (
+                        ("principal_workspace_roles", "_v2_principal_workspace_roles"),
+                        ("principal_dataset_roles", "_v2_principal_dataset_roles"),
+                        (
+                            "principal_dataset_permissions",
+                            "_v2_principal_dataset_permissions",
+                        ),
+                    ):
+                        async with db.execute(
+                            f"SELECT COUNT(*) FROM {source}"
+                        ) as cursor:
+                            source_count = int((await cursor.fetchone())[0])
+                        async with db.execute(
+                            f"SELECT COUNT(*) FROM {replacement}"
+                        ) as cursor:
+                            replacement_count = int((await cursor.fetchone())[0])
+                        if source_count != replacement_count:
+                            raise RuntimeError(
+                                "RBAC migration validation failed: grant count mismatch"
+                            )
+
+                    # Atomic drop and replace
+                    await db.execute("DROP TABLE principal_workspace_roles")
+                    await db.execute(
+                        "ALTER TABLE _v2_principal_workspace_roles RENAME TO principal_workspace_roles"
+                    )
+                    await db.execute("DROP TABLE principal_dataset_roles")
+                    await db.execute(
+                        "ALTER TABLE _v2_principal_dataset_roles RENAME TO principal_dataset_roles"
+                    )
+                    await db.execute("DROP TABLE principal_dataset_permissions")
+                    await db.execute(
+                        "ALTER TABLE _v2_principal_dataset_permissions RENAME TO principal_dataset_permissions"
+                    )
+
                     await db.execute(
                         "INSERT INTO rbac_schema_version (version, migrated_at) "
                         "VALUES (?, CURRENT_TIMESTAMP) "
@@ -313,6 +304,45 @@ class AccessControl:
                         (RBAC_SCHEMA_VERSION,),
                     )
                     await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
+            else:
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS principal_workspace_roles (
+                        principal_id TEXT NOT NULL,
+                        tenant_id TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        PRIMARY KEY (principal_id, tenant_id, workspace_id)
+                    )
+                """)
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS principal_dataset_roles (
+                        principal_id TEXT NOT NULL,
+                        tenant_id TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        dataset_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        PRIMARY KEY (principal_id, tenant_id, workspace_id, dataset_id)
+                    )
+                """)
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS principal_dataset_permissions (
+                        principal_id TEXT NOT NULL,
+                        tenant_id TEXT NOT NULL,
+                        dataset_id TEXT NOT NULL,
+                        permission TEXT NOT NULL,
+                        PRIMARY KEY (principal_id, tenant_id, dataset_id, permission)
+                    )
+                """)
+                await db.execute(
+                    "INSERT INTO rbac_schema_version (version, migrated_at) "
+                    "VALUES (?, CURRENT_TIMESTAMP) "
+                    "ON CONFLICT(version) DO NOTHING",
+                    (RBAC_SCHEMA_VERSION,),
+                )
+                await db.commit()
 
             # Seed the reserved system daemon identity with WRITE access
             await db.execute(

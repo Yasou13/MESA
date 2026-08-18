@@ -190,6 +190,49 @@ async def test_historical_unscoped_migration_preserves_recoverable_grants(
 
 
 @pytest.mark.asyncio
+async def test_version_marker_cannot_bypass_scoped_schema_validation(tmp_path) -> None:
+    """A v2 marker on historical tables must trigger the safe table rebuild."""
+    policy_path = str(tmp_path / "stale_version_rbac.db")
+    _create_historical_unscoped_db(policy_path)
+    with sqlite3.connect(policy_path) as conn:
+        conn.execute(
+            "CREATE TABLE rbac_schema_version ("
+            "version INTEGER PRIMARY KEY, migrated_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO rbac_schema_version (version, migrated_at) VALUES (?, ?)",
+            (RBAC_SCHEMA_VERSION, "2026-08-18T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO principal_dataset_roles "
+            "(principal_id, tenant_id, workspace_id, dataset_id, role) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("alice", "tenant-a", "default", "main", "OWNER"),
+        )
+        conn.commit()
+
+    ac = AccessControl(policy_path=policy_path)
+    await ac.initialize()
+
+    assert await ac.get_schema_version() == RBAC_SCHEMA_VERSION
+    assert await ac.check_scope_role(
+        "alice",
+        tenant_id="tenant-a",
+        workspace_id="default",
+        dataset_id="main",
+        required_role="OWNER",
+    )
+    with sqlite3.connect(policy_path) as conn:
+        info = conn.execute("PRAGMA table_info(principal_dataset_roles)").fetchall()
+    assert {row[1] for row in info if row[5] > 0} == {
+        "principal_id",
+        "tenant_id",
+        "workspace_id",
+        "dataset_id",
+    }
+
+
+@pytest.mark.asyncio
 async def test_migration_idempotence_and_repeat_initialization(tmp_path) -> None:
     """Repeated initialization must not corrupt, duplicate, or alter migrated data."""
     policy_path = str(tmp_path / "repeat_rbac.db")
