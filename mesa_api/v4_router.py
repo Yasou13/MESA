@@ -1100,8 +1100,6 @@ def create_v4_router(
         mutation = await dao.get_mutation_summary(mutation_id)
         if mutation is None:
             raise HTTPException(status_code=404, detail="Unknown mutation")
-        if mutation.get("state") == "REJECTED":
-            raise HTTPException(status_code=409, detail="NON_REPLAYABLE")
         session = await _authorized_v4_session(
             request,
             dao,

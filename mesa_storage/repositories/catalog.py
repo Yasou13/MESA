@@ -7,7 +7,9 @@ from typing import Any, Protocol
 
 from mesa_storage.sqlite_engine import AsyncEngine
 
-_CATALOG_ID_NAMESPACE = uuid.UUID("5a227c0d-26ee-47db-98f8-48545636143f")
+
+class CatalogIdentityNotFoundError(ValueError):
+    """A public catalog identifier has no mapping in its tenant scope."""
 
 
 class CatalogRepositoryPort(Protocol):
@@ -47,7 +49,7 @@ class CatalogRepositoryPort(Protocol):
 
     async def external_id_in_tx(
         self, db: Any, *, tenant_id: str, kind: str, physical_id: str
-    ) -> str: ...
+    ) -> str | None: ...
 
 
 class CatalogRepository:
@@ -77,7 +79,9 @@ class CatalogRepository:
         if row is not None:
             return str(row[0])
         if not create:
-            return external_id
+            raise CatalogIdentityNotFoundError(
+                f"unknown {kind} external identifier in tenant scope"
+            )
         physical_id = f"mesa-{kind}-{uuid.uuid4().hex}"
         await db.execute(
             "INSERT INTO v4_catalog_identities "
@@ -88,14 +92,16 @@ class CatalogRepository:
 
     async def external_id_in_tx(
         self, db: Any, *, tenant_id: str, kind: str, physical_id: str
-    ) -> str:
+    ) -> str | None:
         async with db.execute(
             "SELECT external_id FROM v4_catalog_identities "
             "WHERE tenant_id = ? AND kind = ? AND physical_id = ?",
             (tenant_id, kind, physical_id),
         ) as cursor:
             row = await cursor.fetchone()
-        return str(row[0]) if row is not None else physical_id
+        # A missing mapping is an inconsistent internal row, never authority to
+        # return its storage-private physical identifier on a public surface.
+        return str(row[0]) if row is not None else None
 
     async def create_workspace(
         self,

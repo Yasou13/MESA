@@ -26,7 +26,10 @@ from mesa_storage.dao import (
     MemoryDAO,
     NonReplayableMutationConflictError,
 )
-from mesa_storage.repositories.catalog import CatalogRepository
+from mesa_storage.repositories.catalog import (
+    CatalogIdentityNotFoundError,
+    CatalogRepository,
+)
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -153,24 +156,6 @@ async def test_r7_late_manifest_finalization_reconciles_activation(
     async with engine.transaction() as db:
         await dao._update_revision_manifest(db, physical_rev, finalize_revision=True)
         await db.commit()
-
-    async with engine.connection() as db:
-        async with db.execute(
-            "SELECT revision_id, status, manifest_hash, manifest_frozen_at FROM document_revisions WHERE revision_id = ?",
-            (physical_rev,),
-        ) as cur:
-            row = await cur.fetchone()
-            print("DEBUG REV ROW:", tuple(row))
-        async with db.execute(
-            "SELECT state, revision_id, chunk_id FROM memory_mutations WHERE revision_id = ?",
-            (physical_rev,),
-        ) as cur:
-            print("DEBUG MUTS:", [tuple(r) for r in await cur.fetchall()])
-        async with db.execute(
-            "SELECT chunk_id, revision_id FROM source_chunks WHERE revision_id = ?",
-            (physical_rev,),
-        ) as cur:
-            print("DEBUG CHUNKS:", [tuple(r) for r in await cur.fetchall()])
 
     # Invariant: revision MUST now be ACTIVE without any additional mutation event!
     revisions = await dao.list_v4_revisions(
@@ -412,6 +397,10 @@ async def test_r7_semantic_rejected_replay_fails_closed_and_terminal(
         dataset_id=dataset_id,
         permission="ROLLBACK",
     )
+    async with engine.connection() as db:
+        physical_dataset_id = await dao.catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
 
     # Insert a rejected mutation
     mutation_id = "mut_rejected_1"
@@ -431,7 +420,7 @@ async def test_r7_semantic_rejected_replay_fails_closed_and_terminal(
                 tenant_id,
                 agent_id,
                 session_id,
-                dataset_id,
+                physical_dataset_id,
                 pipeline_id,
             ),
         )
@@ -448,6 +437,13 @@ async def test_r7_semantic_rejected_replay_fails_closed_and_terminal(
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "NON_REPLAYABLE"
+
+    # Semantic terminal status must not bypass historical-session authorization.
+    unauthorized = client.post(
+        f"/v4/mutations/{mutation_id}/replay",
+        headers={"X-MESA-Principal": "unbound_principal"},
+    )
+    assert unauthorized.status_code == 403
 
     # State must remain REJECTED and DLQ
     async with engine.connection() as db:
@@ -577,6 +573,10 @@ async def test_r7_closed_session_historical_rollback_and_replay_positive(
         dataset_id=dataset_id,
         permission="ROLLBACK",
     )
+    async with engine.connection() as db:
+        physical_dataset_id = await dao.catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
 
     # Insert committed mutation
     mutation_id = "mut_hist_1"
@@ -596,7 +596,7 @@ async def test_r7_closed_session_historical_rollback_and_replay_positive(
                 tenant_id,
                 agent_id,
                 session_id,
-                dataset_id,
+                physical_dataset_id,
                 pipeline_id,
             ),
         )
@@ -697,6 +697,10 @@ async def test_r7_historical_auth_negative_matrix(
 
     # Close session
     await dao.end_v4_session(session_id)
+    async with engine.connection() as db:
+        physical_dataset_id = await dao.catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
 
     mutation_id = "mut_neg_1"
     pipeline_id = "pipe_neg_1"
@@ -715,7 +719,7 @@ async def test_r7_historical_auth_negative_matrix(
                 tenant_id,
                 agent_id,
                 session_id,
-                dataset_id,
+                physical_dataset_id,
                 pipeline_id,
             ),
         )
@@ -872,23 +876,34 @@ async def test_r7_opaque_catalog_ids_and_alias_rejection(tmp_path: Any) -> None:
     assert phys_b != physical_id
     assert phys_b != "my_workspace"
 
-    # 3. Physical ID alias attack: attempting to resolve unknown external_id that happens to be an internal physical ID
+    # 3. Physical ID alias attack: an internal physical ID is not an external
+    # authority, including when it reaches a supported public DAO entrypoint.
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="tenant_a", workspace_id="my_workspace", dataset_id="dataset_a"
+    )
+    await dao.create_v4_document(
+        tenant_id="tenant_a",
+        dataset_id="dataset_a",
+        document_id="document_a",
+        title="Document A",
+    )
     async with engine.connection() as db:
-        resolved = await repo.resolve_id_in_tx(
-            db,
-            tenant_id="tenant_a",
-            kind="workspace",
-            external_id=physical_id,
-            create=False,
+        physical_dataset_id = await repo.resolve_id_in_tx(
+            db, tenant_id="tenant_a", kind="dataset", external_id="dataset_a"
         )
-        # Must NOT treat physical_id as an alias; returns the unmatched external input string
-        assert resolved == physical_id
-        # Confirm that no mapping exists for external_id == physical_id
-        async with db.execute(
-            "SELECT 1 FROM v4_catalog_identities WHERE tenant_id = 'tenant_a' AND kind = 'workspace' AND external_id = ?",
-            (physical_id,),
-        ) as check_cur:
-            assert await check_cur.fetchone() is None
+        with pytest.raises(CatalogIdentityNotFoundError):
+            await repo.resolve_id_in_tx(
+                db,
+                tenant_id="tenant_a",
+                kind="workspace",
+                external_id=physical_id,
+                create=False,
+            )
+
+    with pytest.raises(CatalogIdentityNotFoundError):
+        await dao.list_v4_documents(
+            tenant_id="tenant_a", dataset_id=physical_dataset_id
+        )
 
     # 4. Legacy mapping compatibility: historical mapping where external_id == physical_id works
     async with engine.transaction() as db:
