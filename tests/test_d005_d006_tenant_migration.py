@@ -146,17 +146,24 @@ async def test_d006_postflight_and_alembic_upgrade_closure(tmp_path):
         tenant_id="t6", dataset_id="ds6", document_id="doc6", title="Doc6"
     )
 
+    async with engine.connection() as db:
+        p_doc = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="t6", kind="document", external_id="doc6"
+        )
+
     # Verify that partial unique index uq_active_document_revision prevents duplicate ACTIVE heads
     with pytest.raises(Exception, match="UNIQUE constraint failed"):
         async with engine.transaction() as db:
             await db.execute(
                 "INSERT INTO document_revisions (revision_id, tenant_id, document_id, revision_number, content_hash, status) "
-                "VALUES ('r6_1', 't6', 'doc6', 1, '1'*64, 'ACTIVE')"
+                "VALUES ('r6_1', 't6', ?, 1, '1'*64, 'ACTIVE')",
+                (p_doc,),
             )
             # Force a second ACTIVE revision for doc6 -> MUST fail unique constraint
             await db.execute(
                 "INSERT INTO document_revisions (revision_id, tenant_id, document_id, revision_number, content_hash, status) "
-                "VALUES ('r6_2', 't6', 'doc6', 2, '2'*64, 'ACTIVE')"
+                "VALUES ('r6_2', 't6', ?, 2, '2'*64, 'ACTIVE')",
+                (p_doc,),
             )
             await db.commit()
 

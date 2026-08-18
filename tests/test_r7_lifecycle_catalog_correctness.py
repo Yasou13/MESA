@@ -12,8 +12,6 @@ Validates R701-R711:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -26,7 +24,6 @@ from mesa_api.v4_router import create_v4_router
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
     MemoryDAO,
-    NonHeadRollbackConflictError,
     NonReplayableMutationConflictError,
 )
 from mesa_storage.repositories.catalog import CatalogRepository
@@ -49,7 +46,9 @@ def test_app_factory():
                 )
             return await call_next(request)
 
-        router = create_v4_router(lambda: dao, get_access_control=lambda: access_control)
+        router = create_v4_router(
+            lambda: dao, get_access_control=lambda: access_control
+        )
         app.include_router(router)
         return TestClient(app, raise_server_exceptions=False)
 
@@ -62,7 +61,9 @@ def test_app_factory():
 
 
 @pytest.mark.asyncio
-async def test_r7_late_manifest_finalization_reconciles_activation(tmp_path: Any) -> None:
+async def test_r7_late_manifest_finalization_reconciles_activation(
+    tmp_path: Any,
+) -> None:
     """When child mutations commit before manifest freeze, later freeze must activate the revision."""
     db_path = str(tmp_path / "late_manifest.db")
     engine = AsyncEngine(db_path)
@@ -83,7 +84,7 @@ async def test_r7_late_manifest_finalization_reconciles_activation(tmp_path: Any
     )
 
     # 1. Create source chunk without freezing manifest (finalize_revision=False)
-    chunk = await dao.create_v4_source_chunk(
+    await dao.create_v4_source_chunk(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
         document_id=doc_id,
@@ -131,7 +132,14 @@ async def test_r7_late_manifest_finalization_reconciles_activation(tmp_path: Any
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, session_id, content_payload, pipeline_run_id, revision_id, chunk_id, state) "
             "VALUES (?, ?, ?, 'agent_1', 'sess_1', 'payload', ?, ?, ?, 'COMMITTED')",
-            (mutation_id, f"cand_{mutation_id}", tenant_id, pipeline_id, physical_rev, physical_chunk),
+            (
+                mutation_id,
+                f"cand_{mutation_id}",
+                tenant_id,
+                pipeline_id,
+                physical_rev,
+                physical_chunk,
+            ),
         )
         await db.commit()
 
@@ -174,7 +182,9 @@ async def test_r7_late_manifest_finalization_reconciles_activation(tmp_path: Any
 
 
 @pytest.mark.asyncio
-async def test_r7_incomplete_manifest_remains_pending_after_freeze(tmp_path: Any) -> None:
+async def test_r7_incomplete_manifest_remains_pending_after_freeze(
+    tmp_path: Any,
+) -> None:
     """If any chunk lacks a committed mutation, manifest freeze must leave revision PENDING."""
     db_path = str(tmp_path / "incomplete_manifest.db")
     engine = AsyncEngine(db_path)
@@ -277,7 +287,10 @@ async def test_r7_repeated_finalization_is_idempotent(tmp_path: Any) -> None:
         tenant_id=tenant_id, workspace_id="ws_idemp", dataset_id=dataset_id
     )
     await dao.create_v4_document(
-        tenant_id=tenant_id, dataset_id=dataset_id, document_id=doc_id, title="Doc Idemp"
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        document_id=doc_id,
+        title="Doc Idemp",
     )
 
     await dao.create_v4_source_chunk(
@@ -318,9 +331,13 @@ async def test_r7_repeated_finalization_is_idempotent(tmp_path: Any) -> None:
             (tenant_id, physical_rev, physical_chunk),
         )
         # Freeze manifest once
-        m_hash1 = await dao._update_revision_manifest(db, physical_rev, finalize_revision=True)
+        m_hash1 = await dao._update_revision_manifest(
+            db, physical_rev, finalize_revision=True
+        )
         # Freeze manifest second time
-        m_hash2 = await dao._update_revision_manifest(db, physical_rev, finalize_revision=True)
+        m_hash2 = await dao._update_revision_manifest(
+            db, physical_rev, finalize_revision=True
+        )
         await db.commit()
 
     assert m_hash1 == m_hash2
@@ -374,9 +391,14 @@ async def test_r7_semantic_rejected_replay_fails_closed_and_terminal(
     session_id = session["session_id"]
 
     await access_control.grant_principal_session_access(
-        principal_id=principal_id, agent_id=agent_id, session_id=session_id, level="ADMIN"
+        principal_id=principal_id,
+        agent_id=agent_id,
+        session_id=session_id,
+        level="ADMIN",
     )
-    await access_control.grant_access(agent_id=agent_id, session_id=session_id, level="ADMIN")
+    await access_control.grant_access(
+        agent_id=agent_id, session_id=session_id, level="ADMIN"
+    )
     await access_control.grant_scope_role(
         principal_id,
         tenant_id=tenant_id,
@@ -403,7 +425,15 @@ async def test_r7_semantic_rejected_replay_fails_closed_and_terminal(
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, session_id, content_payload, dataset_id, pipeline_run_id, state, failure_class) "
             "VALUES (?, ?, ?, ?, ?, 'payload', ?, ?, 'REJECTED', 'COGNITIVE_REJECTION')",
-            (mutation_id, f"cand_{mutation_id}", tenant_id, agent_id, session_id, dataset_id, pipeline_id),
+            (
+                mutation_id,
+                f"cand_{mutation_id}",
+                tenant_id,
+                agent_id,
+                session_id,
+                dataset_id,
+                pipeline_id,
+            ),
         )
         await db.commit()
 
@@ -526,9 +556,14 @@ async def test_r7_closed_session_historical_rollback_and_replay_positive(
     session_id = session["session_id"]
 
     await access_control.grant_principal_session_access(
-        principal_id=principal_id, agent_id=agent_id, session_id=session_id, level="ADMIN"
+        principal_id=principal_id,
+        agent_id=agent_id,
+        session_id=session_id,
+        level="ADMIN",
     )
-    await access_control.grant_access(agent_id=agent_id, session_id=session_id, level="ADMIN")
+    await access_control.grant_access(
+        agent_id=agent_id, session_id=session_id, level="ADMIN"
+    )
     await access_control.grant_scope_role(
         principal_id,
         tenant_id=tenant_id,
@@ -555,7 +590,15 @@ async def test_r7_closed_session_historical_rollback_and_replay_positive(
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, session_id, content_payload, dataset_id, pipeline_run_id, state) "
             "VALUES (?, ?, ?, ?, ?, 'payload', ?, ?, 'COMMITTED')",
-            (mutation_id, f"cand_{mutation_id}", tenant_id, agent_id, session_id, dataset_id, pipeline_id),
+            (
+                mutation_id,
+                f"cand_{mutation_id}",
+                tenant_id,
+                agent_id,
+                session_id,
+                dataset_id,
+                pipeline_id,
+            ),
         )
         await db.commit()
 
@@ -615,9 +658,14 @@ async def test_r7_historical_auth_negative_matrix(
     session_id = session["session_id"]
 
     await access_control.grant_principal_session_access(
-        principal_id=legit_principal, agent_id=agent_id, session_id=session_id, level="ADMIN"
+        principal_id=legit_principal,
+        agent_id=agent_id,
+        session_id=session_id,
+        level="ADMIN",
     )
-    await access_control.grant_access(agent_id=agent_id, session_id=session_id, level="ADMIN")
+    await access_control.grant_access(
+        agent_id=agent_id, session_id=session_id, level="ADMIN"
+    )
     await access_control.grant_scope_role(
         legit_principal,
         tenant_id=tenant_id,
@@ -634,7 +682,10 @@ async def test_r7_historical_auth_negative_matrix(
 
     # Setup no_rollback_principal: has session access and WRITER role, but NO dataset ROLLBACK permission
     await access_control.grant_principal_session_access(
-        principal_id=no_rollback_principal, agent_id=agent_id, session_id=session_id, level="ADMIN"
+        principal_id=no_rollback_principal,
+        agent_id=agent_id,
+        session_id=session_id,
+        level="ADMIN",
     )
     await access_control.grant_scope_role(
         no_rollback_principal,
@@ -658,7 +709,15 @@ async def test_r7_historical_auth_negative_matrix(
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, session_id, content_payload, dataset_id, pipeline_run_id, state) "
             "VALUES (?, ?, ?, ?, ?, 'payload', ?, ?, 'COMMITTED')",
-            (mutation_id, f"cand_{mutation_id}", tenant_id, agent_id, session_id, dataset_id, pipeline_id),
+            (
+                mutation_id,
+                f"cand_{mutation_id}",
+                tenant_id,
+                agent_id,
+                session_id,
+                dataset_id,
+                pipeline_id,
+            ),
         )
         await db.commit()
 
@@ -736,7 +795,7 @@ async def test_r7_revision_hash_semantic_separation(tmp_path: Any) -> None:
     assert chunk_a["content_hash"] != declared_hash
 
     # 2. Direct insert without explicit revision creation
-    chunk_b = await dao.create_v4_source_chunk(
+    await dao.create_v4_source_chunk(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
         document_id=doc_id,
@@ -786,6 +845,7 @@ async def test_r7_opaque_catalog_ids_and_alias_rejection(tmp_path: Any) -> None:
         workspace_id="my_workspace",
         workspace_name="Workspace A",
     )
+    assert ws_created["workspace_id"] == "my_workspace"
     async with engine.connection() as db:
         async with db.execute(
             "SELECT physical_id FROM v4_catalog_identities WHERE tenant_id = 'tenant_a' AND external_id = 'my_workspace'"
@@ -815,7 +875,11 @@ async def test_r7_opaque_catalog_ids_and_alias_rejection(tmp_path: Any) -> None:
     # 3. Physical ID alias attack: attempting to resolve unknown external_id that happens to be an internal physical ID
     async with engine.connection() as db:
         resolved = await repo.resolve_id_in_tx(
-            db, tenant_id="tenant_a", kind="workspace", external_id=physical_id, create=False
+            db,
+            tenant_id="tenant_a",
+            kind="workspace",
+            external_id=physical_id,
+            create=False,
         )
         # Must NOT treat physical_id as an alias; returns the unmatched external input string
         assert resolved == physical_id
@@ -839,7 +903,11 @@ async def test_r7_opaque_catalog_ids_and_alias_rejection(tmp_path: Any) -> None:
 
     async with engine.connection() as db:
         resolved_legacy = await repo.resolve_id_in_tx(
-            db, tenant_id="tenant_legacy", kind="workspace", external_id="legacy_ws", create=False
+            db,
+            tenant_id="tenant_legacy",
+            kind="workspace",
+            external_id="legacy_ws",
+            create=False,
         )
         assert resolved_legacy == "legacy_ws"
 
@@ -852,7 +920,9 @@ async def test_r7_opaque_catalog_ids_and_alias_rejection(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_r7_public_physical_id_leak_sweep(tmp_path: Any, test_app_factory: Any) -> None:
+async def test_r7_public_physical_id_leak_sweep(
+    tmp_path: Any, test_app_factory: Any
+) -> None:
     """Mutation status and pipeline_run endpoints must return external public IDs, never internal physical IDs."""
     db_path = str(tmp_path / "leak_sweep.db")
     engine = AsyncEngine(db_path)
@@ -885,9 +955,14 @@ async def test_r7_public_physical_id_leak_sweep(tmp_path: Any, test_app_factory:
     session_id = session["session_id"]
 
     await access_control.grant_principal_session_access(
-        principal_id=principal_id, agent_id=agent_id, session_id=session_id, level="READ"
+        principal_id=principal_id,
+        agent_id=agent_id,
+        session_id=session_id,
+        level="READ",
     )
-    await access_control.grant_access(agent_id=agent_id, session_id=session_id, level="READ")
+    await access_control.grant_access(
+        agent_id=agent_id, session_id=session_id, level="READ"
+    )
     await access_control.grant_scope_role(
         principal_id,
         tenant_id=tenant_id,
@@ -920,7 +995,15 @@ async def test_r7_public_physical_id_leak_sweep(tmp_path: Any, test_app_factory:
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, session_id, content_payload, dataset_id, pipeline_run_id, state) "
             "VALUES (?, ?, ?, ?, ?, 'payload', ?, ?, 'COMMITTED')",
-            (mutation_id, f"cand_{mutation_id}", tenant_id, agent_id, session_id, dataset_id, pipeline_id),
+            (
+                mutation_id,
+                f"cand_{mutation_id}",
+                tenant_id,
+                agent_id,
+                session_id,
+                dataset_id,
+                pipeline_id,
+            ),
         )
         await db.commit()
 
@@ -959,7 +1042,9 @@ async def test_r7_migration_and_schema_contract_closure(tmp_path: Any) -> None:
     """Fresh install and upgrade migrations converge on the identical required schema contract."""
     import sqlite3
     from pathlib import Path
+
     from alembic.config import Config
+
     from mesa_storage import schema_contract
 
     db_path = str(tmp_path / "fresh_migration.db")
@@ -968,7 +1053,9 @@ async def test_r7_migration_and_schema_contract_closure(tmp_path: Any) -> None:
     await initialize_schema(engine)
 
     # Verify postflight schema contract
-    alembic_cfg = Config(str(Path(__file__).parents[1] / "mesa_storage" / "alembic.ini"))
+    alembic_cfg = Config(
+        str(Path(__file__).parents[1] / "mesa_storage" / "alembic.ini")
+    )
     alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{db_path}")
 
     sync_conn = sqlite3.connect(db_path)

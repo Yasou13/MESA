@@ -874,6 +874,8 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
         ds_b_physical = await dao._catalog.resolve_id_in_tx(
             conn, tenant_id="tenant_B", kind="dataset", external_id="main"
         )
+        assert ws_a_physical != ws_b_physical
+        assert ds_a_physical != ds_b_physical
 
     # Add distinct memories under identical public workspace/dataset IDs.
     mut_a = {

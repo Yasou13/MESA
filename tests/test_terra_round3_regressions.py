@@ -50,10 +50,27 @@ async def test_revision_waits_for_each_manifest_chunk_not_duplicate_children(tmp
             chunk_ordinal=ordinal,
             finalize_revision=ordinal == 1,
         )
+    async with engine.connection() as db:
+        p_ws = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant, kind="workspace", external_id=workspace
+        )
+        p_ds = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant, kind="dataset", external_id=dataset
+        )
+        p_doc = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant, kind="document", external_id=document
+        )
+        p_rev = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant, kind="revision", external_id=revision
+        )
+        p_chunk = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant, kind="chunk", external_id="chunk-0"
+        )
+
     async with engine.transaction() as db:
         await db.execute(
             "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, workspace_id, dataset_id, session_id, agent_id, state) VALUES ('pipeline', ?, ?, ?, 'session', 'agent', 'RUNNING')",
-            (tenant, workspace, dataset),
+            (tenant, p_ws, p_ds),
         )
         for raw_log_id, mutation_id in enumerate(("a", "b"), start=1):
             await db.execute(
@@ -63,11 +80,11 @@ async def test_revision_waits_for_each_manifest_chunk_not_duplicate_children(tmp
                     f"candidate-{mutation_id}",
                     raw_log_id,
                     tenant,
-                    workspace,
-                    dataset,
-                    document,
-                    revision,
-                    "chunk-0",
+                    p_ws,
+                    p_ds,
+                    p_doc,
+                    p_rev,
+                    p_chunk,
                 ),
             )
             for projection in ("SQL", "VECTOR", "GRAPH"):
@@ -88,7 +105,7 @@ async def test_revision_waits_for_each_manifest_chunk_not_duplicate_children(tmp
         row = await (
             await db.execute(
                 "SELECT status FROM document_revisions WHERE revision_id = ?",
-                (revision,),
+                (p_rev,),
             )
         ).fetchone()
     assert row[0] == "PENDING"

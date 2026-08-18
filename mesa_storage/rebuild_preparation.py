@@ -22,7 +22,7 @@ from mesa_storage.recovery import (
 from mesa_storage.repositories.operations import OperationRepositoryPort
 from mesa_storage.writer_lock import StorageWriterLock
 
-REBUILD_ALEMBIC_HEAD = "0a7b8c9d0e1f"
+REBUILD_ALEMBIC_HEAD = "a2b3c4d5e6f7"
 _ADMIN_TABLES = frozenset(
     {
         "system_operations",

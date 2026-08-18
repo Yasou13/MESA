@@ -46,16 +46,36 @@ async def test_purge_before_projection_prevents_resurrection(tmp_path):
     candidate_id = f"cand_{uuid.uuid4().hex[:8]}"
 
     # 1. Create a pending mutation before projection completes
+    async with engine.connection() as db:
+        p_ws = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="workspace", external_id=workspace_id
+        )
+        p_ds = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+        )
+        p_doc = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id=tenant_id, kind="document", external_id=document_id
+        )
+
     async with engine.transaction() as db:
         await db.execute(
             "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
             "VALUES (?, ?, ?, ?, ?, ?, 'PROJECTING')",
-            (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id),
+            (pipeline_run_id, tenant_id, agent_id, p_ws, p_ds, session_id),
         )
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, session_id, pipeline_run_id, content_payload, state) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', 'PENDING')",
-            (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, session_id, pipeline_run_id),
+            (
+                mutation_id,
+                candidate_id,
+                tenant_id,
+                agent_id,
+                p_ds,
+                p_doc,
+                session_id,
+                pipeline_run_id,
+            ),
         )
         await db.execute(
             "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
@@ -97,11 +117,15 @@ async def test_purge_before_projection_prevents_resurrection(tmp_path):
 
     # 6. Verify document is PURGED and mutation is fenced in terminal state
     async with engine.transaction() as db:
-        async with db.execute("SELECT status FROM documents WHERE document_id = ?", (document_id,)) as cursor:
+        async with db.execute(
+            "SELECT status FROM documents WHERE document_id = ?", (p_doc,)
+        ) as cursor:
             row = await cursor.fetchone()
             assert row["status"] == "PURGED"
 
-        async with db.execute("SELECT state FROM memory_mutations WHERE mutation_id = ?", (mutation_id,)) as cursor:
+        async with db.execute(
+            "SELECT state FROM memory_mutations WHERE mutation_id = ?", (mutation_id,)
+        ) as cursor:
             row = await cursor.fetchone()
             assert row["state"] in ("PURGED", "ROLLED_BACK")
 
@@ -109,7 +133,9 @@ async def test_purge_before_projection_prevents_resurrection(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_document_purge_reports_cleanup_pending_instead_of_false_success(tmp_path):
+async def test_document_purge_reports_cleanup_pending_instead_of_false_success(
+    tmp_path,
+):
     engine = AsyncEngine(str(tmp_path / "mesa_purge_failure.db"))
     await engine.initialize()
     await initialize_schema(engine)
@@ -126,22 +152,36 @@ async def test_document_purge_reports_cleanup_pending_instead_of_false_success(t
         title="Document",
         document_id="document",
     )
+    async with engine.connection() as db:
+        p_ws = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="workspace", external_id="workspace"
+        )
+        p_ds = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="dataset", external_id="dataset"
+        )
+        p_doc = await dao._catalog.resolve_id_in_tx(
+            db, tenant_id="tenant", kind="document", external_id="document"
+        )
     async with engine.transaction() as db:
         await db.execute(
             "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, agent_id, workspace_id, dataset_id, session_id, state) "
-            "VALUES ('run', 'tenant', 'agent', 'workspace', 'dataset', 'session', 'CANCELLED')"
+            "VALUES ('run', 'tenant', 'agent', ?, ?, 'session', 'CANCELLED')",
+            (p_ws, p_ds),
         )
         await db.execute(
             "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, document_id, session_id, pipeline_run_id, content_payload, state) "
-            "VALUES ('mutation', 'candidate', 'tenant', 'agent', 'dataset', 'document', 'session', 'run', '{}', 'CANCELLED')"
+            "VALUES ('mutation', 'candidate', 'tenant', 'agent', ?, ?, 'session', 'run', '{}', 'CANCELLED')",
+            (p_ds, p_doc),
         )
         await db.execute(
             "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, dataset_id, store_name, artifact_kind, physical_artifact_id) "
-            "VALUES ('registry', 'tenant', 'agent', 'dataset', 'SQL', 'ENTITY', 'entity')"
+            "VALUES ('registry', 'tenant', 'agent', ?, 'SQL', 'ENTITY', 'entity')",
+            (p_ds,),
         )
         await db.execute(
             "INSERT INTO artifact_sources (source_ownership_id, registry_id, mutation_id, pipeline_run_id, dataset_id, document_id) "
-            "VALUES ('ownership', 'registry', 'mutation', 'run', 'dataset', 'document')"
+            "VALUES ('ownership', 'registry', 'mutation', 'run', ?, ?)",
+            (p_ds, p_doc),
         )
         await db.commit()
 
@@ -152,7 +192,8 @@ async def test_document_purge_reports_cleanup_pending_instead_of_false_success(t
     async with engine.connection() as db:
         document = await (
             await db.execute(
-                "SELECT status FROM documents WHERE document_id = 'document'"
+                "SELECT status FROM documents WHERE document_id = ?",
+                (p_doc,),
             )
         ).fetchone()
     assert document[0] == "PURGED"
