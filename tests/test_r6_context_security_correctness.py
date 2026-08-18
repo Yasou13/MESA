@@ -830,10 +830,10 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
     await dao.ensure_v4_catalog_scope(
         tenant_id="tenant_A", workspace_id="default", dataset_id="main"
     )
-    await dao.create_v4_document(
+    doc_a = await dao.create_v4_document(
         tenant_id="tenant_A", dataset_id="main", title="Doc A", document_id="doc_a"
     )
-    await dao.create_v4_revision(
+    rev_a = await dao.create_v4_revision(
         tenant_id="tenant_A",
         dataset_id="main",
         document_id="doc_a",
@@ -862,6 +862,12 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
     )
 
     async with engine.connection() as conn:
+        ws_a_physical = await dao._catalog.resolve_id_in_tx(
+            conn, tenant_id="tenant_A", kind="workspace", external_id="default"
+        )
+        ds_a_physical = await dao._catalog.resolve_id_in_tx(
+            conn, tenant_id="tenant_A", kind="dataset", external_id="main"
+        )
         ws_b_physical = await dao._catalog.resolve_id_in_tx(
             conn, tenant_id="tenant_B", kind="workspace", external_id="default"
         )
@@ -869,7 +875,40 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
             conn, tenant_id="tenant_B", kind="dataset", external_id="main"
         )
 
-    # Add memory for Tenant B only (Secret Project X)
+    # Add distinct memories under identical public workspace/dataset IDs.
+    mut_a = {
+        "tenant_id": "tenant_A",
+        "workspace_id": ws_a_physical,
+        "dataset_id": ds_a_physical,
+        "document_id": doc_a["document_id"],
+        "revision_id": rev_a["revision_id"],
+        "chunk_id": "c_a",
+        "agent_id": "agent_common",
+        "session_id": "sess_a",
+        "pipeline_run_id": "run_a",
+        "source_ref": "top_secret_a.pdf",
+        "mutation_id": "mut_a",
+        "candidate_id": "cand_a",
+        "content_payload": "Secret Project X belongs to Tenant A",
+        "embedding_provider": "st",
+        "embedding_model": "model",
+        "embedding_version": "1.0",
+        "embedding_dimension": 384,
+    }
+    await dao.record_mutation(mut_a, raw_log_id=None)
+    await dao.project_v4_sql_entity(mutation=mut_a, entity_name="Project X")
+    t_a = {
+        "head": "Project X",
+        "relation": "OWNER",
+        "literal_value": "Tenant A Confidentials",
+        "confidence": 1.0,
+    }
+    await dao.project_v4_graph_triplet(mutation=mut_a, triplet=t_a)
+    await dao.record_mutation_extraction("agent_common", mut_a["mutation_id"], [t_a])
+    assert await dao.set_mutation_state(
+        "agent_common", mut_a["mutation_id"], "VALIDATED"
+    )
+
     mut_b = {
         "tenant_id": "tenant_B",
         "workspace_id": ws_b_physical,
@@ -904,13 +943,16 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
     )
 
     async with engine.transaction() as db:
-        for lane in ("SQL", "VECTOR", "GRAPH"):
-            await db.execute(
-                "UPDATE projection_outbox SET state = 'COMPLETED' "
-                "WHERE mutation_id = ? AND projection_name = ?",
-                (mut_b["mutation_id"], lane),
-            )
-            await MemoryDAO._advance_mutation_projection_state(db, mut_b["mutation_id"])
+        for mutation in (mut_a, mut_b):
+            for lane in ("SQL", "VECTOR", "GRAPH"):
+                await db.execute(
+                    "UPDATE projection_outbox SET state = 'COMPLETED' "
+                    "WHERE mutation_id = ? AND projection_name = ?",
+                    (mutation["mutation_id"], lane),
+                )
+                await MemoryDAO._advance_mutation_projection_state(
+                    db, mutation["mutation_id"]
+                )
         await db.commit()
 
     builder = ContextBuilder(dao)
@@ -923,9 +965,10 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
         query="Project X",
         token_budget=500,
     )
-    # Tenant A must NOT receive Tenant B's memory
-    assert "Project X" not in ctx_a["formatted_context"]
-    assert len(ctx_a["canonical_memories"]) == 0
+    assert "Project X" in ctx_a["formatted_context"]
+    assert "Tenant A Confidentials" in ctx_a["formatted_context"]
+    assert "Tenant B Confidentials" not in ctx_a["formatted_context"]
+    assert len(ctx_a["canonical_memories"]) == 1
 
     # Query from Tenant B on dataset "main"
     ctx_b = await builder.build_context(
@@ -935,8 +978,9 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
         query="Project X",
         token_budget=500,
     )
-    # Tenant B receives its memory
     assert "Project X" in ctx_b["formatted_context"]
+    assert "Tenant B Confidentials" in ctx_b["formatted_context"]
+    assert "Tenant A Confidentials" not in ctx_b["formatted_context"]
     assert len(ctx_b["canonical_memories"]) == 1
 
     await engine.close()
