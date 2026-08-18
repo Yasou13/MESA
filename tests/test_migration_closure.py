@@ -268,6 +268,12 @@ def test_active_head_forward_migration_repairs_previous_release_duplicates(
     assert frozen["r1"] is not None
     assert frozen["r2"] is not None
     assert frozen["r3"] is None
+    # Pre-Round-7 content hashes have mixed provenance.  Migration must not
+    # relabel them as caller-declared whole-revision hashes.
+    assert connection.execute(
+        "SELECT revision_id, declared_content_hash FROM document_revisions "
+        "ORDER BY revision_number"
+    ).fetchall() == [("r1", None), ("r2", None), ("r3", None)]
     assert connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'index' "
         "AND name = 'uq_active_document_revision'"

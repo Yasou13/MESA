@@ -13,13 +13,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE document_revisions ADD COLUMN declared_content_hash TEXT"
-    )
-    op.execute(
-        "UPDATE document_revisions SET declared_content_hash = content_hash "
-        "WHERE content_hash != '' AND content_hash IS NOT NULL"
-    )
+    # `content_hash` predates declared whole-revision hashes.  In particular,
+    # direct chunk insertion historically populated it from a chunk payload,
+    # so its provenance is not uniformly a caller declaration.  Preserve the
+    # column for compatibility but leave the new semantic field unknown.
+    op.execute("ALTER TABLE document_revisions ADD COLUMN declared_content_hash TEXT")
 
 
 def downgrade() -> None:
