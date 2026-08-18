@@ -878,8 +878,8 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
     # Add distinct memories under identical public workspace/dataset IDs.
     mut_a = {
         "tenant_id": "tenant_A",
-        "workspace_id": ws_a_physical,
-        "dataset_id": ds_a_physical,
+        "workspace_id": "default",
+        "dataset_id": "main",
         "document_id": doc_a["document_id"],
         "revision_id": rev_a["revision_id"],
         "chunk_id": "c_a",
@@ -911,8 +911,8 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
 
     mut_b = {
         "tenant_id": "tenant_B",
-        "workspace_id": ws_b_physical,
-        "dataset_id": ds_b_physical,
+        "workspace_id": "default",
+        "dataset_id": "main",
         "document_id": doc_b["document_id"],
         "revision_id": rev_b["revision_id"],
         "chunk_id": "c_b",

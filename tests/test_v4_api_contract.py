@@ -936,11 +936,12 @@ async def test_v4_session_scope_and_mutation_control_fail_closed(
     }
     dao.get_mutation_summary = AsyncMock(return_value=mutation)
     dao.get_v4_session = AsyncMock(return_value={**session, "status": "ENDED"})
+    dao.request_pipeline_rollback = AsyncMock(return_value={"state": "ROLLED_BACK"})
     closed = await asgi_client(_app(dao, _access())).post(
         "/v4/mutations/mutation-a/rollback"
     )
-    assert closed.status_code == 409
-    assert closed.json() == {"detail": "Session is not active"}
+    assert closed.status_code == 202
+    assert closed.json() == {"state": "ROLLED_BACK"}
 
     dao.get_v4_session = AsyncMock(return_value=session)
     denied = _access()

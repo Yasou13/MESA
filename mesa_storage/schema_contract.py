@@ -424,7 +424,7 @@ def validate_postflight(
         }
         _require_members(
             revision_columns,
-            {"manifest_hash", "manifest_frozen_at"},
+            {"manifest_hash", "manifest_frozen_at", "declared_content_hash"},
             label="revision manifest columns",
         )
         _require_members(

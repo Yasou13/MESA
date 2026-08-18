@@ -76,33 +76,9 @@ class CatalogRepository:
             row = await cursor.fetchone()
         if row is not None:
             return str(row[0])
-        async with db.execute(
-            "SELECT physical_id FROM v4_catalog_identities "
-            "WHERE tenant_id = ? AND kind = ? AND physical_id = ?",
-            (tenant_id, kind, external_id),
-        ) as cursor:
-            physical = await cursor.fetchone()
-        if physical is not None:
-            return str(physical[0])
         if not create:
             return external_id
-        async with db.execute(
-            "SELECT tenant_id FROM v4_catalog_identities "
-            "WHERE kind = ? AND physical_id = ?",
-            (kind, external_id),
-        ) as cursor:
-            claimed = await cursor.fetchone()
-        physical_id = external_id
-        if claimed is not None:
-            physical_id = (
-                "mesa-"
-                + kind
-                + "-"
-                + uuid.uuid5(
-                    _CATALOG_ID_NAMESPACE,
-                    f"{kind}\x1f{tenant_id}\x1f{external_id}",
-                ).hex
-            )
+        physical_id = f"mesa-{kind}-{uuid.uuid4().hex}"
         await db.execute(
             "INSERT INTO v4_catalog_identities "
             "(tenant_id, kind, external_id, physical_id) VALUES (?, ?, ?, ?)",
