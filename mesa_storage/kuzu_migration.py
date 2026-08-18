@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterator, cast
 
+from mesa_storage.sqlite_engine import configure_sqlite_connection
+
 
 class KuzuMigrationError(RuntimeError):
     """Base error for a Kùzu migration coordinator failure."""
@@ -278,6 +280,7 @@ class KuzuMigrationCoordinator:
     def _open_journal(self) -> sqlite3.Connection:
         self.journal_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.journal_path)
+        configure_sqlite_connection(connection)
         connection.row_factory = sqlite3.Row
         connection.execute(
             "CREATE TABLE IF NOT EXISTS kuzu_migration_journal ("

@@ -54,15 +54,52 @@ from typing import Any, AsyncIterator
 
 import aiosqlite
 
+import os
+
 logger = logging.getLogger("MESA_Storage")
 
 # ---------------------------------------------------------------------------
 # PRAGMA constants — enforced on EVERY connection open
 # ---------------------------------------------------------------------------
 
+
+def get_default_synchronous_mode() -> str:
+    """Return the configured SQLite synchronous mode.
+
+    Defaults to 'FULL' for production durability.
+    Weaker modes such as 'NORMAL' require explicit environment/profile selection.
+    """
+    raw = os.environ.get("MESA_SQLITE_SYNCHRONOUS")
+    if raw is not None:
+        normalized = raw.strip().upper()
+        if normalized in {"FULL", "NORMAL", "EXTRA", "OFF"}:
+            return normalized
+    return "FULL"
+
+
+def configure_sqlite_connection(
+    connection: sqlite3.Connection,
+    *,
+    synchronous_mode: str | None = None,
+    journal_mode: str = "WAL",
+    busy_timeout_ms: int = 5000,
+) -> None:
+    """Configure synchronous SQLite connection with durable production PRAGMAs."""
+    sync_mode = (
+        synchronous_mode.strip().upper()
+        if synchronous_mode is not None
+        else get_default_synchronous_mode()
+    )
+    if journal_mode:
+        connection.execute(f"PRAGMA journal_mode={journal_mode};")
+    connection.execute(f"PRAGMA synchronous={sync_mode};")
+    if busy_timeout_ms:
+        connection.execute(f"PRAGMA busy_timeout={busy_timeout_ms};")
+    connection.execute("PRAGMA foreign_keys=ON;")
+
+
 _PRAGMA_INIT: list[str] = [
     "PRAGMA journal_mode=WAL;",
-    "PRAGMA synchronous=NORMAL;",
     "PRAGMA cache_size=-64000;",
     "PRAGMA foreign_keys=ON;",
     "PRAGMA busy_timeout=5000;",
@@ -154,9 +191,22 @@ class AsyncEngine:
                 ...
     """
 
-    def __init__(self, db_path: str, *, max_connections: int = 8) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        max_connections: int = 8,
+        synchronous_mode: str | None = None,
+    ) -> None:
         self._db_path = db_path
         self._max_connections = max_connections
+        self._synchronous_mode = (
+            synchronous_mode.strip().upper()
+            if synchronous_mode is not None
+            else get_default_synchronous_mode()
+        )
+        if self._synchronous_mode not in {"FULL", "NORMAL", "EXTRA", "OFF"}:
+            raise ValueError(f"Invalid synchronous mode: {self._synchronous_mode}")
         self._semaphore = asyncio.Semaphore(max_connections)
         self._initialized = False
         self._lock = asyncio.Lock()
@@ -170,6 +220,11 @@ class AsyncEngine:
     def db_path(self) -> str:
         """Return the filesystem path to the managed database."""
         return self._db_path
+
+    @property
+    def synchronous_mode(self) -> str:
+        """Return the effective SQLite synchronous mode."""
+        return self._synchronous_mode
 
     @property
     def metrics(self) -> ConnectionMetrics:
@@ -232,9 +287,10 @@ class AsyncEngine:
                     else:
                         logger.info(
                             "PRAGMA_INIT | db=%s journal_mode=WAL "
-                            "synchronous=NORMAL cache_size=64MB "
+                            "synchronous=%s cache_size=64MB "
                             "max_connections=%d",
                             self._db_path,
+                            self._synchronous_mode,
                             self._max_connections,
                         )
 
@@ -420,8 +476,8 @@ class AsyncEngine:
     # Internal
     # ------------------------------------------------------------------
 
-    @staticmethod
-    async def _apply_pragmas(db: aiosqlite.Connection) -> None:
+    async def _apply_pragmas(self, db: aiosqlite.Connection) -> None:
         """Execute all production PRAGMAs on the given connection."""
         for pragma in _PRAGMA_INIT:
             await db.execute(pragma)
+        await db.execute(f"PRAGMA synchronous={self._synchronous_mode};")

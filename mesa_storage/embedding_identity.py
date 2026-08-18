@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from mesa_storage.sqlite_engine import configure_sqlite_connection
 from mesa_storage.writer_lock import StorageWriterLock
 
 _ACTIVE_VECTOR_SOURCE = """
@@ -87,6 +88,7 @@ def adopt_legacy_embedding_identity(
     )
     expected = (provider, model, version, dimension)
     connection = sqlite3.connect(database)
+    configure_sqlite_connection(connection)
     try:
         connection.execute("BEGIN IMMEDIATE")
         operations = connection.execute(

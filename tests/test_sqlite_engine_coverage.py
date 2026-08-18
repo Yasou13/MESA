@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -86,3 +87,104 @@ async def test_health_check_exception():
         res = await engine.health_check()
         assert res["status"] == "unhealthy"
         assert res["error"] == "Health check failed"
+
+
+@pytest.mark.asyncio
+async def test_production_default_synchronous_is_full(tmp_path: Path):
+    db_file = tmp_path / "prod.db"
+    engine = AsyncEngine(str(db_file))
+    await engine.initialize()
+    assert engine.synchronous_mode == "FULL"
+
+    async with engine.connection() as db:
+        async with db.execute("PRAGMA synchronous;") as cursor:
+            row = await cursor.fetchone()
+            # 2 = FULL in SQLite PRAGMA synchronous
+            assert row[0] == 2
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_env_override_synchronous_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESA_SQLITE_SYNCHRONOUS", "NORMAL")
+    db_file = tmp_path / "dev.db"
+    engine = AsyncEngine(str(db_file))
+    await engine.initialize()
+    assert engine.synchronous_mode == "NORMAL"
+
+    async with engine.connection() as db:
+        async with db.execute("PRAGMA synchronous;") as cursor:
+            row = await cursor.fetchone()
+            # 1 = NORMAL
+            assert row[0] == 1
+    await engine.close()
+
+    # Once env var is removed, defaults to FULL
+    monkeypatch.delenv("MESA_SQLITE_SYNCHRONOUS", raising=False)
+    prod_engine = AsyncEngine(str(tmp_path / "prod2.db"))
+    await prod_engine.initialize()
+    assert prod_engine.synchronous_mode == "FULL"
+    async with prod_engine.connection() as db:
+        async with db.execute("PRAGMA synchronous;") as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == 2
+    await prod_engine.close()
+
+
+@pytest.mark.asyncio
+async def test_rbac_and_api_keys_connection_durability(tmp_path: Path):
+    from mesa_memory.security.rbac import AccessControl
+    from mesa_memory.security.api_keys import APIKeyStore
+
+    rbac_path = str(tmp_path / "rbac.db")
+    ac = AccessControl(policy_path=rbac_path)
+    await ac.initialize()
+
+    async with ac._connect() as db:
+        async with db.execute("PRAGMA synchronous;") as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == 2  # FULL
+
+    store = APIKeyStore(policy_path=rbac_path)
+    await store.initialize()
+    async with store._connect() as db:
+        async with db.execute("PRAGMA synchronous;") as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == 2  # FULL
+
+
+@pytest.mark.asyncio
+async def test_commit_reopen_and_uncommitted_rollback_semantics(tmp_path: Path):
+    db_file = tmp_path / "durability_test.db"
+    engine = AsyncEngine(str(db_file))
+    await engine.initialize()
+
+    async with engine.connection() as db:
+        await db.execute("CREATE TABLE records (id TEXT PRIMARY KEY, val TEXT);")
+        await db.execute("INSERT INTO records VALUES ('committed-1', 'durable');")
+        await db.commit()
+    await engine.close()
+
+    # Reopen and verify committed data persists
+    engine2 = AsyncEngine(str(db_file))
+    await engine2.initialize()
+    async with engine2.connection() as db:
+        async with db.execute("SELECT val FROM records WHERE id = 'committed-1';") as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == "durable"
+
+    # Transaction with uncommitted write / rollback
+    try:
+        async with engine2.transaction() as db:
+            await db.execute("INSERT INTO records VALUES ('uncommitted-1', 'phantom');")
+            raise RuntimeError("simulated crash before commit")
+    except RuntimeError:
+        pass
+
+    # Verify uncommitted write is absent
+    async with engine2.connection() as db:
+        async with db.execute("SELECT val FROM records WHERE id = 'uncommitted-1';") as cursor:
+            row = await cursor.fetchone()
+            assert row is None
+    await engine2.close()
+
