@@ -432,7 +432,7 @@ def validate_postflight(
             for row in _rows(connection, "PRAGMA table_info(document_revisions)")
             if str(row[1]) == "content_hash"
         )
-        if int(content_hash[3]) != 0:
+        if content_hash[3] != 0:
             raise SchemaContractError(
                 "document_revisions.content_hash must allow unknown NULL values"
             )

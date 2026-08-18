@@ -2820,9 +2820,7 @@ class MemoryDAO:
             )
 
     @staticmethod
-    async def _reconcile_revision_activation_in_tx(
-        db: Any, revision_id: str
-    ) -> None:
+    async def _reconcile_revision_activation_in_tx(db: Any, revision_id: str) -> None:
         """Evaluate canonical completeness and head invariant for a revision."""
         if not revision_id:
             return
@@ -3875,8 +3873,7 @@ class MemoryDAO:
                 (pipeline_run_id,),
             ) as cursor:
                 children = {
-                    str(child[0]): str(child[1])
-                    for child in await cursor.fetchall()
+                    str(child[0]): str(child[1]) for child in await cursor.fetchall()
                 }
             if target_mutation_id is not None and target_mutation_id not in children:
                 raise ValueError("target mutation does not belong to pipeline run")

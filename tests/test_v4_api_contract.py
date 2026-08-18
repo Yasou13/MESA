@@ -642,6 +642,7 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
     mutation = {
         "mutation_id": "mutation-a",
         "candidate_id": "candidate-a",
+        "tenant_id": "tenant-a",
         "agent_id": "agent-a",
         "dataset_id": "dataset-a",
         "session_id": "session-a",
@@ -926,6 +927,8 @@ async def test_v4_session_scope_and_mutation_control_fail_closed(
     mutation = {
         "mutation_id": "mutation-a",
         "candidate_id": "candidate-a",
+        "tenant_id": "tenant-a",
+        "agent_id": "agent-a",
         "dataset_id": "dataset-a",
         "session_id": "session-a",
         "pipeline_run_id": "pipeline-a",
@@ -970,6 +973,8 @@ async def test_v4_non_head_rollback_returns_typed_conflict(
     mutation = {
         "mutation_id": "mutation-a",
         "candidate_id": "candidate-a",
+        "tenant_id": "tenant-a",
+        "agent_id": "agent-a",
         "dataset_id": "dataset-a",
         "session_id": "session-a",
         "pipeline_run_id": "pipeline-a",

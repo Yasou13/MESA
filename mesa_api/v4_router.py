@@ -376,9 +376,7 @@ async def _authorized_v4_session(
     return session
 
 
-def _require_historical_mutation_scope(
-    mutation: dict, session: dict
-) -> None:
+def _require_historical_mutation_scope(mutation: dict, session: dict) -> None:
     """Bind historical administration to the mutation's immutable session scope."""
     mutation_workspace = mutation.get("workspace_id")
     if (

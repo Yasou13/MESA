@@ -296,12 +296,6 @@ async def test_concurrent_corrections_from_same_predecessor_enforce_single_activ
         p_rev0 = await dao._catalog.resolve_id_in_tx(
             db, tenant_id=tenant_id, kind="revision", external_id="rev_0"
         )
-        p_rev1 = await dao._catalog.resolve_id_in_tx(
-            db, tenant_id=tenant_id, kind="revision", external_id="rev_1"
-        )
-        p_doc = await dao._catalog.resolve_id_in_tx(
-            db, tenant_id=tenant_id, kind="document", external_id=doc_id
-        )
     async with engine.transaction() as db:
         await db.execute(
             "UPDATE document_revisions SET status = 'ACTIVE' WHERE revision_id = ?",

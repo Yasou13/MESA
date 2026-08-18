@@ -108,6 +108,7 @@ def _legacy_schema(database: Path, family: str) -> None:
     connection.commit()
     connection.close()
 
+
 def _adoption_config(database: Path) -> Config:
     config = _config(database)
     config.cmd_opts = Namespace(x=["mesa_legacy=adopt"])
@@ -255,8 +256,7 @@ def test_active_head_forward_migration_repairs_previous_release_duplicates(
 
     connection = sqlite3.connect(database)
     assert connection.execute(
-        "SELECT revision_id, status FROM document_revisions "
-        "ORDER BY revision_number"
+        "SELECT revision_id, status FROM document_revisions " "ORDER BY revision_number"
     ).fetchall() == [
         ("r1", "SUPERSEDED"),
         ("r2", "ACTIVE"),
@@ -404,28 +404,32 @@ def test_round7_nullable_hash_migration_failure_is_reentrant(
         event.remove(Engine, "before_cursor_execute", fail_batch_copy)
 
     connection = sqlite3.connect(database)
-    assert connection.execute(
-        "SELECT version_num FROM alembic_version"
-    ).fetchone() == ("a2b3c4d5e6f7",)
+    assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+        "a2b3c4d5e6f7",
+    )
     assert connection.execute(
         "SELECT content_hash FROM document_revisions WHERE revision_id = 'revision'"
     ).fetchone() == ("a" * 64,)
-    assert connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
-        "AND name = '_alembic_tmp_document_revisions'"
-    ).fetchone() is None
+    assert (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = '_alembic_tmp_document_revisions'"
+        ).fetchone()
+        is None
+    )
     connection.close()
 
     command.upgrade(config, "head")
     command.upgrade(config, "head")
     connection = sqlite3.connect(database)
-    assert connection.execute(
-        "SELECT version_num FROM alembic_version"
-    ).fetchone() == (HEAD,)
+    assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+        HEAD,
+    )
     assert connection.execute(
         "SELECT content_hash FROM document_revisions WHERE revision_id = 'revision'"
     ).fetchone() == ("a" * 64,)
     connection.close()
+
 
 def test_operation_schema_enforces_single_active_rebuild_and_append_only_events(
     tmp_path: Path,
