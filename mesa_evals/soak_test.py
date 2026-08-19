@@ -1,12 +1,12 @@
 """MESA v0.7.1 — Phase 4B: Soak Test — Memory Leak & Queue Stability Monitor.
 
 Sends a constant, moderate load to ``POST /v3/memory/insert`` over a
-configurable duration (default: 12 hours) and monitors system health via
+configurable duration (default: 24 hours) and monitors system health via
 periodic telemetry snapshots.
 
 .. warning::
 
-    Soak tests under 12 hours (43,200 seconds) are **invalid** for
+    Soak tests under 24 hours (86,400 seconds) are **invalid** for
     production certification.  Memory leaks and queue drift often
     manifest only after 4–8 hours of sustained load.  Short runs
     provide false confidence.
@@ -67,7 +67,7 @@ logger = logging.getLogger("MESA_SoakTest")
 # ---------------------------------------------------------------------------
 
 DEFAULT_BASE_URL = "http://localhost:8000"
-DEFAULT_DURATION = 43_200  # 12 hours
+DEFAULT_DURATION = 86_400  # 24 hours
 DEFAULT_RPS = 20  # requests per second
 DEFAULT_TELEMETRY_INTERVAL = 60  # seconds
 DEFAULT_CONCURRENCY = 30
@@ -80,7 +80,12 @@ DEFAULT_MEMORY_PROFILE_INTERVAL = 1800  # 30 minutes — detailed psutil snapsho
 # Production certification threshold
 # ---------------------------------------------------------------------------
 
-_MIN_PRODUCTION_DURATION = 43_200  # 12 hours — minimum for valid certification
+_MIN_PRODUCTION_DURATION = 86_400  # 24 hours — minimum for valid certification
+
+
+def is_production_certification_duration(duration: float) -> bool:
+    """Return whether a requested soak duration meets the release contract."""
+    return duration >= _MIN_PRODUCTION_DURATION
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +403,7 @@ def _get_memory_profile() -> dict[str, Any]:
 
     Captures current (not peak) RSS, VMS, USS, shared memory, open
     file descriptors, and thread count.  Essential for detecting slow
-    memory leaks over 12-hour soak runs that ``resource.getrusage()``
+    memory leaks over 24-hour soak runs that ``resource.getrusage()``
     (peak RSS only) would miss.
 
     Returns:
@@ -435,7 +440,7 @@ async def memory_profiler(
     """Emit a detailed psutil memory snapshot at fixed intervals.
 
     Runs independently of the telemetry collector to provide coarse-
-    grained but deep memory visibility over the full 12-hour window.
+    grained but deep memory visibility over the full 24-hour window.
     """
     tick = 0
     t_start = time.monotonic()
@@ -584,6 +589,9 @@ async def run_soak(
     final_snap["log_file"] = str(log_file)
     final_snap["duration_requested_s"] = duration
     final_snap["rps_target"] = rps
+    final_snap["production_certification_duration_valid"] = (
+        is_production_certification_duration(duration)
+    )
 
     return final_snap
 
@@ -593,8 +601,7 @@ async def run_soak(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """CLI entrypoint for the MESA Soak Test."""
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="MESA v0.7.1 — Phase 4B: Soak Test (Memory Leak & Queue Stability)",
     )
@@ -614,7 +621,7 @@ def main() -> None:
         "--duration",
         type=int,
         default=DEFAULT_DURATION,
-        help=f"Test duration in seconds (default: {DEFAULT_DURATION} = 12 hours)",
+        help=f"Test duration in seconds (default: {DEFAULT_DURATION} = 24 hours)",
     )
     parser.add_argument(
         "--rps",
@@ -640,7 +647,12 @@ def main() -> None:
         default=".",
         help="Directory for telemetry log files (default: current directory)",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    """CLI entrypoint for the MESA Soak Test."""
+    args = _build_parser().parse_args()
 
     # Setup logging
     logging.basicConfig(
@@ -668,11 +680,11 @@ def main() -> None:
     )
 
     # Production certification gate
-    if args.duration < _MIN_PRODUCTION_DURATION:
+    if not is_production_certification_duration(args.duration):
         logger.warning(
-            "⚠ DURATION_WARNING | %ds < %ds (12h minimum). "
+            "⚠ DURATION_WARNING | %ds < %ds (24h minimum). "
             "This run is INVALID for production certification. "
-            "Memory leaks and queue drift manifest after 4-8 hours.",
+            "Release evidence requires a complete 24-hour window.",
             args.duration,
             _MIN_PRODUCTION_DURATION,
         )
