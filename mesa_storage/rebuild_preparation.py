@@ -20,6 +20,7 @@ from mesa_storage.recovery import (
     validate_snapshot,
 )
 from mesa_storage.repositories.operations import OperationRepositoryPort
+from mesa_storage.sqlite_engine import configure_sqlite_connection
 from mesa_storage.writer_lock import StorageWriterLock
 
 REBUILD_ALEMBIC_HEAD = "b3c4d5e6f7a8"
@@ -116,6 +117,7 @@ def canonical_sqlite_manifest(database: Path) -> tuple[dict[str, Any], str]:
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(database)
+        configure_sqlite_connection(connection, journal_mode="")
         try:
             connection.execute(
                 "INSERT INTO v4_entities_fts(v4_entities_fts, rank) "

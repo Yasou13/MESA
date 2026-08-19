@@ -5552,19 +5552,13 @@ class MemoryDAO:
                     has_nodes = await cursor.fetchone() is not None
                 if not has_nodes:
                     return 0
-                if agent_id:
-                    async with db.execute(
-                        "SELECT COUNT(*) FROM nodes WHERE agent_id = ? AND invalid_at IS NULL AND deleted_at IS NULL",
-                        (agent_id,),
-                    ) as cursor:
-                        row = await cursor.fetchone()
-                        return int(row[0]) if row else 0
-                else:
-                    async with db.execute(
-                        "SELECT COUNT(*) FROM nodes WHERE invalid_at IS NULL AND deleted_at IS NULL"
-                    ) as cursor:
-                        row = await cursor.fetchone()
-                        return int(row[0]) if row else 0
+                legacy_agent_id = agent_id or tenant_id
+                async with db.execute(
+                    "SELECT COUNT(*) FROM nodes WHERE agent_id = ? AND invalid_at IS NULL AND deleted_at IS NULL",
+                    (legacy_agent_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return int(row[0]) if row else 0
 
             datasets = [
                 await self._catalog.resolve_id_in_tx(
@@ -5618,7 +5612,8 @@ class MemoryDAO:
                 if not has_nodes:
                     return False
                 async with db.execute(
-                    "SELECT 1 FROM nodes WHERE invalid_at IS NULL AND deleted_at IS NULL LIMIT 1"
+                    "SELECT 1 FROM nodes WHERE agent_id = ? AND invalid_at IS NULL AND deleted_at IS NULL LIMIT 1",
+                    (tenant_id,),
                 ) as cursor:
                     return await cursor.fetchone() is not None
 

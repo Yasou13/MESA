@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -109,6 +110,7 @@ async def test_explicit_env_override_synchronous_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setenv("MESA_SQLITE_SYNCHRONOUS", "NORMAL")
+    monkeypatch.setenv("MESA_RUNTIME_PROFILE", "test-isolated")
     db_file = tmp_path / "dev.db"
     engine = AsyncEngine(str(db_file))
     await engine.initialize()
@@ -121,8 +123,8 @@ async def test_explicit_env_override_synchronous_mode(
             assert row[0] == 1
     await engine.close()
 
-    # Once env var is removed, defaults to FULL
-    monkeypatch.delenv("MESA_SQLITE_SYNCHRONOUS", raising=False)
+    # A weak setting cannot leak into a production profile.
+    monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
     prod_engine = AsyncEngine(str(tmp_path / "prod2.db"))
     await prod_engine.initialize()
     assert prod_engine.synchronous_mode == "FULL"
@@ -131,6 +133,14 @@ async def test_explicit_env_override_synchronous_mode(
             row = await cursor.fetchone()
             assert row[0] == 2
     await prod_engine.close()
+
+
+def test_weak_explicit_mode_requires_test_isolated_profile(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
+    with pytest.raises(ValueError, match="test-isolated"):
+        AsyncEngine(":memory:", synchronous_mode="NORMAL")
 
 
 @pytest.mark.asyncio
@@ -193,3 +203,31 @@ async def test_commit_reopen_and_uncommitted_rollback_semantics(tmp_path: Path):
             row = await cursor.fetchone()
             assert row is None
     await engine2.close()
+
+
+def test_maintenance_vacuum_connection_applies_durability_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The maintenance worker's independent canonical writer cannot bypass FULL."""
+    import mesa_workers.maintenance as maintenance
+
+    db_path = tmp_path / "maintenance.db"
+    with sqlite3.connect(db_path) as db:
+        db.execute("CREATE TABLE records (id INTEGER PRIMARY KEY)")
+        db.execute("INSERT INTO records VALUES (1)")
+
+    configured: list[dict[str, object]] = []
+    original = maintenance.configure_sqlite_connection
+
+    def track_configuration(connection: sqlite3.Connection, **kwargs: object) -> None:
+        configured.append(kwargs)
+        original(connection, **kwargs)
+
+    monkeypatch.setattr(maintenance, "configure_sqlite_connection", track_configuration)
+    maintenance.MaintenanceWorker._sync_vacuum(str(db_path))
+
+    assert configured == [
+        {"journal_mode": "", "busy_timeout_ms": maintenance._VACUUM_BUSY_TIMEOUT_MS}
+    ]
+    with sqlite3.connect(db_path) as db:
+        assert db.execute("PRAGMA synchronous").fetchone()[0] == 2

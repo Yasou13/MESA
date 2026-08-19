@@ -168,6 +168,9 @@ async def test_real_lancedb_and_kuzu_reopen_after_restore(tmp_path: Path) -> Non
     assert await restored_graph.verify_nodes_absent(
         agent_id="agent-a", node_ids=["purged"]
     )
+    assert not await restored_graph.verify_nodes_absent(
+        agent_id="agent-a", node_ids=["active"]
+    )
     await restored_graph.close()
 
 
@@ -274,3 +277,37 @@ def test_restore_readback_canonical_verification(tmp_path: Path) -> None:
     ).fetchone()
     assert row == ("r8-test-node", "agent-r8")
     conn2.close()
+
+
+def test_backup_sqlite_snapshot_preserves_transaction_atomicity(tmp_path: Path) -> None:
+    """SQLite backup snapshots never publish a mixed multi-row transaction."""
+    source = tmp_path / "source"
+    source.mkdir()
+    database = source / "mesa.db"
+    with sqlite3.connect(database) as conn:
+        conn.executescript("""
+            CREATE TABLE alembic_version (version_num TEXT NOT NULL);
+            INSERT INTO alembic_version VALUES ('b2e3f4a5c6d7');
+            CREATE TABLE related_records (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO related_records VALUES (1, 'before'), (2, 'before');
+        """)
+
+    writer = sqlite3.connect(database)
+    writer.execute("BEGIN IMMEDIATE")
+    writer.execute("UPDATE related_records SET value = 'after' WHERE id = 1")
+    writer.execute("UPDATE related_records SET value = 'after' WHERE id = 2")
+    try:
+        backup = tmp_path / "transaction-backup"
+        create_backup(source, backup, tmp_path, stores_stopped=True)
+    finally:
+        writer.rollback()
+        writer.close()
+
+    with sqlite3.connect(backup / "mesa.db") as restored:
+        values = [
+            row[0]
+            for row in restored.execute(
+                "SELECT value FROM related_records ORDER BY id"
+            ).fetchall()
+        ]
+    assert values in (["before", "before"], ["after", "after"])

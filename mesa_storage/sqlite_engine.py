@@ -1,5 +1,5 @@
 # MESA v0.3.0 — Phase 3: Non-blocking SQLite Connection Manager
-# Enforces WAL journal mode, NORMAL synchronous, and 64MB cache on every
+# Enforces WAL journal mode, FULL synchronous, and 64MB cache on every
 # connection to prevent concurrency locks under async workloads.
 #
 # Architecture:
@@ -17,7 +17,7 @@ Enforces production-grade PRAGMA configurations on every connection to
 eliminate WAL contention under concurrent async readers/writers:
 
     PRAGMA journal_mode=WAL;      — write-ahead logging for lock-free reads
-    PRAGMA synchronous=NORMAL;    — balanced durability vs. throughput
+    PRAGMA synchronous=FULL;      — durable synchronization for canonical writes
     PRAGMA cache_size=-64000;     — 64 MB page cache (negative = KiB)
     PRAGMA foreign_keys=ON;       — referential integrity enforcement
     PRAGMA busy_timeout=5000;     — 5s busy retry for transient WAL locks
@@ -67,14 +67,31 @@ def get_default_synchronous_mode() -> str:
     """Return the configured SQLite synchronous mode.
 
     Defaults to 'FULL' for production durability.
-    Weaker modes such as 'NORMAL' require explicit environment/profile selection.
+    Weaker modes require the explicit ``test-isolated`` runtime profile.
     """
-    raw = os.environ.get("MESA_SQLITE_SYNCHRONOUS")
-    if raw is not None:
-        normalized = raw.strip().upper()
-        if normalized in {"FULL", "NORMAL", "EXTRA", "OFF"}:
-            return normalized
+    normalized = os.environ.get("MESA_SQLITE_SYNCHRONOUS", "").strip().upper()
+    if normalized in {"FULL", "EXTRA"}:
+        return normalized
+    if (
+        normalized in {"NORMAL", "OFF"}
+        and os.environ.get("MESA_RUNTIME_PROFILE") == "test-isolated"
+    ):
+        return normalized
     return "FULL"
+
+
+def _validate_synchronous_mode(mode: str) -> str:
+    normalized = mode.strip().upper()
+    if normalized not in {"FULL", "NORMAL", "EXTRA", "OFF"}:
+        raise ValueError(f"Invalid synchronous mode: {normalized}")
+    if (
+        normalized in {"NORMAL", "OFF"}
+        and os.environ.get("MESA_RUNTIME_PROFILE") != "test-isolated"
+    ):
+        raise ValueError(
+            "weaker SQLite synchronization requires MESA_RUNTIME_PROFILE=test-isolated"
+        )
+    return normalized
 
 
 def configure_sqlite_connection(
@@ -85,8 +102,8 @@ def configure_sqlite_connection(
     busy_timeout_ms: int = 5000,
 ) -> None:
     """Configure synchronous SQLite connection with durable production PRAGMAs."""
-    sync_mode = (
-        synchronous_mode.strip().upper()
+    sync_mode = _validate_synchronous_mode(
+        synchronous_mode
         if synchronous_mode is not None
         else get_default_synchronous_mode()
     )
@@ -167,7 +184,7 @@ class AsyncEngine:
     """Non-blocking SQLite connection manager using aiosqlite.
 
     Guarantees:
-        1. WAL mode + NORMAL sync on every connection (not just first).
+        1. WAL mode + FULL synchronization on every production connection.
         2. 64 MB page cache to minimise disk I/O on hot paths.
         3. 5-second busy timeout to handle transient WAL locks.
         4. Foreign key enforcement.
@@ -200,13 +217,11 @@ class AsyncEngine:
     ) -> None:
         self._db_path = db_path
         self._max_connections = max_connections
-        self._synchronous_mode = (
-            synchronous_mode.strip().upper()
+        self._synchronous_mode = _validate_synchronous_mode(
+            synchronous_mode
             if synchronous_mode is not None
             else get_default_synchronous_mode()
         )
-        if self._synchronous_mode not in {"FULL", "NORMAL", "EXTRA", "OFF"}:
-            raise ValueError(f"Invalid synchronous mode: {self._synchronous_mode}")
         self._semaphore = asyncio.Semaphore(max_connections)
         self._initialized = False
         self._lock = asyncio.Lock()

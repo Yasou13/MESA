@@ -125,6 +125,29 @@ async def test_empty_v3_cold_start_no_v4_exception(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_v3_cold_start_counts_remain_tenant_scoped(tmp_path: Path):
+    db_path = tmp_path / "tenant_scoped_v3.db"
+    _create_v3_schema_database(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO nodes (id, entity_name, type, content_payload, created_at, agent_id, session_id) "
+            "VALUES ('tenant-b-node', 'Tenant B', 'ENTITY', 'other tenant data', "
+            "'2026-01-01T00:00:00Z', 'tenant-b', 'session-b')"
+        )
+
+    engine = AsyncEngine(str(db_path))
+    await engine.initialize()
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=MagicMock())
+
+    assert await dao.count_active_memories(tenant_id="tenant-a") == 0
+    assert not await dao.has_active_memories(tenant_id="tenant-a")
+    assert await dao.count_active_memories(tenant_id="tenant-b") == 1
+    assert await dao.has_active_memories(tenant_id="tenant-b")
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_non_empty_v3_cold_start_and_retrieval(tmp_path: Path):
     db_path = tmp_path / "populated_v3.db"
     initial_tables = _create_v3_schema_database(db_path)
