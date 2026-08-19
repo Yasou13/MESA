@@ -98,10 +98,10 @@ def configure_sqlite_connection(
     connection: sqlite3.Connection,
     *,
     synchronous_mode: str | None = None,
-    journal_mode: str = "WAL",
+    journal_mode: str = "",
     busy_timeout_ms: int = 5000,
 ) -> None:
-    """Configure synchronous SQLite connection with durable production PRAGMAs."""
+    """Apply durability without changing an existing journal mode by default."""
     sync_mode = _validate_synchronous_mode(
         synchronous_mode
         if synchronous_mode is not None

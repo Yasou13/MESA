@@ -44,7 +44,6 @@ class APIKeyStore:
     @asynccontextmanager
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         async with aiosqlite.connect(self.policy_path) as db:
-            await db.execute("PRAGMA journal_mode=WAL;")
             await db.execute(f"PRAGMA synchronous={get_default_synchronous_mode()};")
             await db.execute("PRAGMA busy_timeout=5000;")
             await db.execute("PRAGMA foreign_keys=ON;")
