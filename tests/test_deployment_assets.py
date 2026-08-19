@@ -313,6 +313,7 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_shipped_images() -> 
     assert "npm audit --omit=dev --audit-level=high" in supply_chain
     assert "docker build --pull=false --tag mesa-benchmark:security" in supply_chain
     assert "docker build --pull=false --tag mesa-memory:security" in supply_chain
+    assert 'TRIVY_TIMEOUT: "10m"' in supply_chain
     assert (
         supply_chain.count(
             "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
