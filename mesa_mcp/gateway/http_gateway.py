@@ -1,4 +1,10 @@
-"""HTTP Gateway for Model Context Protocol."""
+"""Legacy internal HTTP router retained for compatibility tests.
+
+The production ``mesa-mcp-gateway`` entrypoint is ``gateway.app`` and does not
+register this router.  New transports must use the principal-bound operation
+service in that application; this module is deprecated and not production
+reachable.
+"""
 
 import datetime
 import json

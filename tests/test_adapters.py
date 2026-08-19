@@ -1,5 +1,4 @@
 import asyncio
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -126,9 +125,6 @@ def test_ollama_base_url_init():
     assert adapter._ollama_client is not None
 
 
-@pytest.mark.skipif(
-    os.getenv("GITHUB_ACTIONS") == "true", reason="CI ortamında Ollama yok"
-)
 def test_ollama_complete_schema():
 
     adapter = OllamaAdapter()
