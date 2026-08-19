@@ -359,3 +359,43 @@ def test_backup_sqlite_snapshot_preserves_transaction_atomicity(tmp_path: Path) 
             ).fetchall()
         ]
     assert values in (["before", "before"], ["after", "after"])
+
+
+def test_backup_sqlite_primitive_includes_committed_wal_state(tmp_path: Path) -> None:
+    """Copying only the main file would lose this committed WAL-only record."""
+    source = tmp_path / "source"
+    source.mkdir()
+    database = source / "mesa.db"
+    writer = sqlite3.connect(database)
+    try:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.executescript("""
+            CREATE TABLE alembic_version (version_num TEXT NOT NULL);
+            INSERT INTO alembic_version VALUES ('b2e3f4a5c6d7');
+            CREATE TABLE wal_records (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+        """)
+        writer.commit()
+        writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        writer.execute("INSERT INTO wal_records VALUES ('wal-only', 'committed')")
+        writer.commit()
+
+        assert (source / "mesa.db-wal").stat().st_size > 0
+        with sqlite3.connect(
+            f"file:{database}?immutable=1", uri=True
+        ) as main_file_only:
+            assert (
+                main_file_only.execute("SELECT COUNT(*) FROM wal_records").fetchone()[0]
+                == 0
+            )
+
+        backup = tmp_path / "wal-backup"
+        create_backup(source, backup, tmp_path, stores_stopped=True)
+    finally:
+        writer.close()
+
+    with sqlite3.connect(backup / "mesa.db") as restored:
+        assert restored.execute("SELECT id, value FROM wal_records").fetchone() == (
+            "wal-only",
+            "committed",
+        )
