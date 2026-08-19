@@ -33,7 +33,8 @@ def _project_version() -> str | None:
     return match.group("version") if match else None
 
 
-def validate(tag: str) -> list[str]:
+def validate_metadata(tag: str) -> list[str]:
+    """Validate release metadata available in an untrusted CI tag checkout."""
     tag_match = TAG_PATTERN.fullmatch(tag)
     if tag_match is None:
         return ["tag must use the vMAJOR.MINOR.PATCH format"]
@@ -46,6 +47,15 @@ def validate(tag: str) -> list[str]:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     if f"## [{version}]" not in changelog:
         errors.append("CHANGELOG.md has no matching release heading")
+
+    return errors
+
+
+def validate(tag: str) -> list[str]:
+    """Run metadata plus operator-local signed annotated tag checks."""
+    errors = validate_metadata(tag)
+    if TAG_PATTERN.fullmatch(tag) is None:
+        return errors
 
     if _run("git", "status", "--porcelain").stdout.strip():
         errors.append("working tree is not clean")
@@ -62,8 +72,13 @@ def validate(tag: str) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tag", help="release tag, for example v0.7.1")
+    parser.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="run CI-verifiable SemVer, package-version, and CHANGELOG checks only",
+    )
     args = parser.parse_args()
-    errors = validate(args.tag)
+    errors = validate_metadata(args.tag) if args.metadata_only else validate(args.tag)
     if errors:
         for error in errors:
             print(f"release preflight failed: {error}", file=sys.stderr)
