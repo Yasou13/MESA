@@ -11,10 +11,14 @@ import base64
 import hashlib
 import os
 import secrets
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import AsyncIterator
 
 import aiosqlite
+
+from mesa_storage.sqlite_engine import get_default_synchronous_mode
 
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
@@ -37,8 +41,16 @@ class APIKeyStore:
     def __init__(self, policy_path: str) -> None:
         self.policy_path = policy_path
 
-    async def initialize(self) -> None:
+    @asynccontextmanager
+    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute(f"PRAGMA synchronous={get_default_synchronous_mode()};")
+            await db.execute("PRAGMA busy_timeout=5000;")
+            await db.execute("PRAGMA foreign_keys=ON;")
+            yield db
+
+    async def initialize(self) -> None:
+        async with self._connect() as db:
             await db.execute(
                 "CREATE TABLE IF NOT EXISTS api_keys ("
                 "key_id TEXT PRIMARY KEY, salt_b64 TEXT NOT NULL, digest_b64 TEXT NOT NULL, "
@@ -99,7 +111,7 @@ class APIKeyStore:
         """
         if not secret or not principal_id:
             return
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT 1 FROM api_keys WHERE key_id = 'bootstrap'"
             ) as cursor:
@@ -129,7 +141,7 @@ class APIKeyStore:
         salt = os.urandom(16)
         digest = self._digest(secret, salt)
         statement = "INSERT OR REPLACE" if replace else "INSERT"
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 f"{statement} INTO api_keys "
                 "(key_id, salt_b64, digest_b64, principal_id, principal_type, status, revoked_at, expires_at) "
@@ -154,7 +166,7 @@ class APIKeyStore:
             key_id, secret = "bootstrap", credential
         if not key_id or not secret:
             return None
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM api_keys WHERE key_id = ?", (key_id,)
@@ -179,7 +191,7 @@ class APIKeyStore:
 
     async def has_active_key(self) -> bool:
         """Return whether an already-provisioned deployment key can boot."""
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT 1 FROM api_keys WHERE status = 'active' "
                 "AND (expires_at IS NULL OR expires_at > ?) LIMIT 1",
@@ -188,7 +200,7 @@ class APIKeyStore:
                 return await cursor.fetchone() is not None
 
     async def revoke_key(self, key_id: str) -> bool:
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "UPDATE api_keys SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP "
                 "WHERE key_id = ? AND status = 'active'",
@@ -204,7 +216,7 @@ class APIKeyStore:
         replacement_expiry = _expiry_timestamp(DEFAULT_API_KEY_TTL_SECONDS)
         salt = os.urandom(16)
         digest = self._digest(replacement_secret, salt)
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             async with db.execute(

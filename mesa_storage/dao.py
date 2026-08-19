@@ -5540,6 +5540,26 @@ class MemoryDAO:
         if agent_id:
             _assert_valid_agent_id(agent_id)
         async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_registry'"
+            ) as cursor:
+                has_v4_catalog = await cursor.fetchone() is not None
+
+            if not has_v4_catalog:
+                async with db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes'"
+                ) as cursor:
+                    has_nodes = await cursor.fetchone() is not None
+                if not has_nodes:
+                    return 0
+                legacy_agent_id = agent_id or tenant_id
+                async with db.execute(
+                    "SELECT COUNT(*) FROM nodes WHERE agent_id = ? AND invalid_at IS NULL AND deleted_at IS NULL",
+                    (legacy_agent_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return int(row[0]) if row else 0
+
             datasets = [
                 await self._catalog.resolve_id_in_tx(
                     db,
@@ -5579,6 +5599,24 @@ class MemoryDAO:
     ) -> bool:
         """Fast bounded existence query (EXISTS/LIMIT 1) for active memories."""
         async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_registry'"
+            ) as cursor:
+                has_v4_catalog = await cursor.fetchone() is not None
+
+            if not has_v4_catalog:
+                async with db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes'"
+                ) as cursor:
+                    has_nodes = await cursor.fetchone() is not None
+                if not has_nodes:
+                    return False
+                async with db.execute(
+                    "SELECT 1 FROM nodes WHERE agent_id = ? AND invalid_at IS NULL AND deleted_at IS NULL LIMIT 1",
+                    (tenant_id,),
+                ) as cursor:
+                    return await cursor.fetchone() is not None
+
             datasets = [
                 await self._catalog.resolve_id_in_tx(
                     db,

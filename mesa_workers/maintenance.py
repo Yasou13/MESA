@@ -58,6 +58,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from mesa_storage.sqlite_engine import configure_sqlite_connection
+
 logger = logging.getLogger("MESA_Maintenance")
 
 # ---------------------------------------------------------------------------
@@ -495,7 +497,11 @@ class MaintenanceWorker:
         """
         conn = sqlite3.connect(db_path, isolation_level=None)
         try:
-            conn.execute(f"PRAGMA busy_timeout={_VACUUM_BUSY_TIMEOUT_MS};")
+            configure_sqlite_connection(
+                conn,
+                journal_mode="",
+                busy_timeout_ms=_VACUUM_BUSY_TIMEOUT_MS,
+            )
             conn.execute("VACUUM;")
         finally:
             conn.close()

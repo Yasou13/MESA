@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Round-8 SQLite durability:** Canonical production SQLite connections now
+  explicitly request `synchronous=FULL`. Weaker `NORMAL`/`OFF` synchronization
+  is accepted only in the explicit `test-isolated` runtime profile. Auxiliary
+  connections preserve their established journal mode.
+- **Round-8 backup authority:** Backup now verifies that a supplied writer-lock
+  handle owns the real storage lock file. Manifests explicitly record SQLite as
+  canonical per-database snapshots and vector/graph stores as rebuildable
+  projections copied under the exclusive writer boundary.
+
 - **Round-7 lifecycle and hash truth:** Late manifest finalization now reuses
   the canonical revision activation barrier. Declared whole-revision,
   manifest and chunk hashes remain separate; direct insertion records an

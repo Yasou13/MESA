@@ -1,10 +1,13 @@
 import logging
 import os
 import re
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import aiosqlite
 
 from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
+from mesa_storage.sqlite_engine import get_default_synchronous_mode
 
 logger = logging.getLogger("MESA_Security")
 
@@ -84,9 +87,18 @@ class AccessControl:
         self.policy_path = policy_path
         self._initialized = False
 
+    @asynccontextmanager
+    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
+        async with aiosqlite.connect(self.policy_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL;")
+            await db.execute(f"PRAGMA synchronous={get_default_synchronous_mode()};")
+            await db.execute("PRAGMA busy_timeout=5000;")
+            await db.execute("PRAGMA foreign_keys=ON;")
+            yield db
+
     async def get_schema_version(self) -> int:
         """Return the current RBAC policy schema version."""
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='rbac_schema_version'"
             ) as cursor:
@@ -109,8 +121,7 @@ class AccessControl:
             return
 
         os.makedirs(os.path.dirname(os.path.abspath(self.policy_path)), exist_ok=True)
-        async with aiosqlite.connect(self.policy_path) as db:
-            await db.execute("PRAGMA journal_mode=WAL;")
+        async with self._connect() as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS permissions (
                     agent_id TEXT,
@@ -365,7 +376,7 @@ class AccessControl:
         normalized = role.upper()
         if normalized != "ADMIN":
             raise ValueError("invalid control role")
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO principal_control_roles (principal_id, role) VALUES (?, ?) "
                 "ON CONFLICT(principal_id) DO UPDATE SET role = excluded.role",
@@ -377,7 +388,7 @@ class AccessControl:
         """Return whether a principal has the requested control-plane role."""
         if required_role.upper() != "ADMIN":
             return False
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT role FROM principal_control_roles WHERE principal_id = ?",
                 (principal_id,),
@@ -432,7 +443,7 @@ class AccessControl:
                 "DO UPDATE SET role = excluded.role"
             )
             params = (principal_id, tenant_id, normalized)
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(statement, params)
             await db.commit()
 
@@ -467,7 +478,7 @@ class AccessControl:
                 "WHERE principal_id = ? AND tenant_id = ?"
             )
             params = (principal_id, tenant_id)
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(statement, params)
             await db.commit()
             return bool(cursor.rowcount > 0)
@@ -486,7 +497,7 @@ class AccessControl:
         required = levels.get(required_role.upper())
         if required is None:
             raise ValueError("invalid required catalog role")
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             queries = (
                 (
                     "SELECT role FROM principal_tenant_roles "
@@ -524,7 +535,7 @@ class AccessControl:
         normalized = permission.upper()
         if normalized not in {"PURGE", "ROLLBACK"}:
             raise ValueError("invalid dataset permission")
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO principal_dataset_permissions "
                 "(principal_id, tenant_id, dataset_id, permission) "
@@ -546,7 +557,7 @@ class AccessControl:
         normalized = permission.upper()
         if normalized not in {"PURGE", "ROLLBACK"}:
             raise ValueError("invalid dataset permission")
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "DELETE FROM principal_dataset_permissions "
                 "WHERE principal_id = ? AND tenant_id = ? "
@@ -564,7 +575,7 @@ class AccessControl:
         dataset_id: str,
         permission: str,
     ) -> bool:
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT 1 FROM principal_dataset_permissions "
                 "WHERE principal_id = ? AND tenant_id = ? "
@@ -598,7 +609,7 @@ class AccessControl:
             "ADMIN",
         }:
             raise ValueError(f"Invalid principal permission: {permission}")
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT OR IGNORE INTO principal_agent_permissions "
                 "(principal_id, agent_id, permission) VALUES (?, ?, ?)",
@@ -610,7 +621,7 @@ class AccessControl:
         self, principal_id: str, agent_id: str, permission: str
     ) -> bool:
         """Return whether an explicit server-side principal mapping permits action."""
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             if permission in _ACCESS_LEVELS:
                 async with db.execute(
                     "SELECT permission FROM principal_agent_permissions "
@@ -632,7 +643,7 @@ class AccessControl:
     ) -> None:
         """Persist a server-side principal ownership/access binding for a session."""
         _validate_access_level(level, field_name="session access level")
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO principal_session_permissions "
                 "(principal_id, agent_id, session_id, access_level) VALUES (?, ?, ?, ?) "
@@ -655,7 +666,7 @@ class AccessControl:
         _validate_access_level(
             required_level, field_name="required session access level"
         )
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT access_level FROM principal_session_permissions "
                 "WHERE principal_id = ? AND agent_id = ? AND session_id = ?",
@@ -673,7 +684,7 @@ class AccessControl:
         The upsert preserves the higher of the existing and requested levels.
         """
         _validate_access_level(level, field_name="Invalid access level")
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO permissions (agent_id, session_id, access_level) "
                 "VALUES (?, ?, ?) "
@@ -690,7 +701,7 @@ class AccessControl:
 
     async def revoke_access(self, agent_id: str, session_id: str) -> None:
         """Revoke all access for an agent/session pair."""
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "DELETE FROM permissions WHERE agent_id = ? AND session_id = ?",
                 (agent_id, session_id),
@@ -709,7 +720,7 @@ class AccessControl:
         """
         if required_level not in _ACCESS_LEVELS:
             return False
-        async with aiosqlite.connect(self.policy_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT access_level FROM permissions "
                 "WHERE agent_id = ? AND session_id = ?",

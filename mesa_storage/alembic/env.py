@@ -6,6 +6,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.engine.url import make_url
 
 from mesa_storage.schema_contract import preflight_schema, validate_postflight
+from mesa_storage.sqlite_engine import get_default_synchronous_mode
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -94,6 +95,10 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    if connection.dialect.name == "sqlite":
+        connection.exec_driver_sql(
+            f"PRAGMA synchronous={get_default_synchronous_mode()};"
+        )
     preflight_schema(connection, config)
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():

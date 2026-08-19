@@ -1,5 +1,5 @@
 # MESA v0.3.0 — Phase 3: Non-blocking SQLite Connection Manager
-# Enforces WAL journal mode, NORMAL synchronous, and 64MB cache on every
+# Enforces WAL journal mode, FULL synchronous, and 64MB cache on every
 # connection to prevent concurrency locks under async workloads.
 #
 # Architecture:
@@ -17,7 +17,7 @@ Enforces production-grade PRAGMA configurations on every connection to
 eliminate WAL contention under concurrent async readers/writers:
 
     PRAGMA journal_mode=WAL;      — write-ahead logging for lock-free reads
-    PRAGMA synchronous=NORMAL;    — balanced durability vs. throughput
+    PRAGMA synchronous=FULL;      — durable synchronization for canonical writes
     PRAGMA cache_size=-64000;     — 64 MB page cache (negative = KiB)
     PRAGMA foreign_keys=ON;       — referential integrity enforcement
     PRAGMA busy_timeout=5000;     — 5s busy retry for transient WAL locks
@@ -46,6 +46,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sqlite3
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -60,9 +62,61 @@ logger = logging.getLogger("MESA_Storage")
 # PRAGMA constants — enforced on EVERY connection open
 # ---------------------------------------------------------------------------
 
+
+def get_default_synchronous_mode() -> str:
+    """Return the configured SQLite synchronous mode.
+
+    Defaults to 'FULL' for production durability.
+    Weaker modes require the explicit ``test-isolated`` runtime profile.
+    """
+    normalized = os.environ.get("MESA_SQLITE_SYNCHRONOUS", "").strip().upper()
+    if normalized in {"FULL", "EXTRA"}:
+        return normalized
+    if (
+        normalized in {"NORMAL", "OFF"}
+        and os.environ.get("MESA_RUNTIME_PROFILE") == "test-isolated"
+    ):
+        return normalized
+    return "FULL"
+
+
+def _validate_synchronous_mode(mode: str) -> str:
+    normalized = mode.strip().upper()
+    if normalized not in {"FULL", "NORMAL", "EXTRA", "OFF"}:
+        raise ValueError(f"Invalid synchronous mode: {normalized}")
+    if (
+        normalized in {"NORMAL", "OFF"}
+        and os.environ.get("MESA_RUNTIME_PROFILE") != "test-isolated"
+    ):
+        raise ValueError(
+            "weaker SQLite synchronization requires MESA_RUNTIME_PROFILE=test-isolated"
+        )
+    return normalized
+
+
+def configure_sqlite_connection(
+    connection: sqlite3.Connection,
+    *,
+    synchronous_mode: str | None = None,
+    journal_mode: str = "",
+    busy_timeout_ms: int = 5000,
+) -> None:
+    """Apply durability without changing an existing journal mode by default."""
+    sync_mode = _validate_synchronous_mode(
+        synchronous_mode
+        if synchronous_mode is not None
+        else get_default_synchronous_mode()
+    )
+    if journal_mode:
+        connection.execute(f"PRAGMA journal_mode={journal_mode};")
+    connection.execute(f"PRAGMA synchronous={sync_mode};")
+    if busy_timeout_ms:
+        connection.execute(f"PRAGMA busy_timeout={busy_timeout_ms};")
+    connection.execute("PRAGMA foreign_keys=ON;")
+
+
 _PRAGMA_INIT: list[str] = [
     "PRAGMA journal_mode=WAL;",
-    "PRAGMA synchronous=NORMAL;",
     "PRAGMA cache_size=-64000;",
     "PRAGMA foreign_keys=ON;",
     "PRAGMA busy_timeout=5000;",
@@ -130,7 +184,7 @@ class AsyncEngine:
     """Non-blocking SQLite connection manager using aiosqlite.
 
     Guarantees:
-        1. WAL mode + NORMAL sync on every connection (not just first).
+        1. WAL mode + FULL synchronization on every production connection.
         2. 64 MB page cache to minimise disk I/O on hot paths.
         3. 5-second busy timeout to handle transient WAL locks.
         4. Foreign key enforcement.
@@ -154,9 +208,20 @@ class AsyncEngine:
                 ...
     """
 
-    def __init__(self, db_path: str, *, max_connections: int = 8) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        max_connections: int = 8,
+        synchronous_mode: str | None = None,
+    ) -> None:
         self._db_path = db_path
         self._max_connections = max_connections
+        self._synchronous_mode = _validate_synchronous_mode(
+            synchronous_mode
+            if synchronous_mode is not None
+            else get_default_synchronous_mode()
+        )
         self._semaphore = asyncio.Semaphore(max_connections)
         self._initialized = False
         self._lock = asyncio.Lock()
@@ -170,6 +235,11 @@ class AsyncEngine:
     def db_path(self) -> str:
         """Return the filesystem path to the managed database."""
         return self._db_path
+
+    @property
+    def synchronous_mode(self) -> str:
+        """Return the effective SQLite synchronous mode."""
+        return self._synchronous_mode
 
     @property
     def metrics(self) -> ConnectionMetrics:
@@ -189,9 +259,7 @@ class AsyncEngine:
         await self.initialize()
         return self
 
-    async def __aexit__(
-        self, exc_type: Any, exc_val: Any, exc_tb: Any
-    ) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         await self.close()
 
     # ------------------------------------------------------------------
@@ -232,9 +300,10 @@ class AsyncEngine:
                     else:
                         logger.info(
                             "PRAGMA_INIT | db=%s journal_mode=WAL "
-                            "synchronous=NORMAL cache_size=64MB "
+                            "synchronous=%s cache_size=64MB "
                             "max_connections=%d",
                             self._db_path,
+                            self._synchronous_mode,
                             self._max_connections,
                         )
 
@@ -420,8 +489,8 @@ class AsyncEngine:
     # Internal
     # ------------------------------------------------------------------
 
-    @staticmethod
-    async def _apply_pragmas(db: aiosqlite.Connection) -> None:
+    async def _apply_pragmas(self, db: aiosqlite.Connection) -> None:
         """Execute all production PRAGMAs on the given connection."""
         for pragma in _PRAGMA_INIT:
             await db.execute(pragma)
+        await db.execute(f"PRAGMA synchronous={self._synchronous_mode};")

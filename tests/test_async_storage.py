@@ -98,14 +98,15 @@ class TestAsyncEngine:
                     assert row[0] == "wal"
 
     @pytest.mark.asyncio
-    async def test_pragma_synchronous_normal(self):
+    async def test_pragma_synchronous_full_by_default(self):
         db_path = os.path.join(TEST_DIR, "sync.db")
         async with AsyncEngine(db_path) as eng:
             async with eng.connection() as db:
                 async with db.execute("PRAGMA synchronous;") as cur:
                     row = await cur.fetchone()
-                    # 1 = NORMAL
-                    assert row[0] == 1
+                    # 2 = FULL. Weaker modes require an explicit
+                    # test-isolated profile configuration.
+                    assert row[0] == 2
 
     @pytest.mark.asyncio
     async def test_pragma_cache_size(self):

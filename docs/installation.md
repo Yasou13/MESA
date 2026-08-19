@@ -160,6 +160,13 @@ mesa-recovery --trusted-root /srv/mesa restore \
   --restore-root /srv/mesa/restore-v4-test
 ```
 
+`--stores-stopped` yalnız compatibility/precondition input'udur; backup safety
+authority'si değildir. Recovery implementation'ı storage writer lock'ını
+bağımsız doğrular, canonical SQLite dosyalarını SQLite backup primitive'iyle
+snapshot eder ve tamamlanmış staging'i atomik publish eder. SQL canonical
+truth'tür; LanceDB/Kùzu projection'ları rebuildable derived state olarak
+exclusive writer-lock boundary altında kopyalanır.
+
 Restore her zaman yeni boş hedefe yapılır. V3 storage yerinde migrate edilmez;
 backup sonrası ayrı v4 root'ta offline rebuild ve parity kontrolü yapılır.
 Migration'lar forward-only'dir; başarısız release için `alembic downgrade`
