@@ -79,6 +79,24 @@ def test_mcp_exposes_only_the_v1_tool_set() -> None:
     assert all("rebuild" not in tool.name for tool in _tools())
 
 
+def test_mcp_v4_tool_identifier_schemas_match_api_bounds() -> None:
+    tools = {tool.name: tool.inputSchema for tool in _tools()}
+
+    dataset = tools["mesa_remember"]["properties"]["dataset_id"]
+    document = tools["mesa_improve"]["properties"]["document_id"]
+    assert dataset == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[a-zA-Z0-9._-]+$",
+    }
+    assert document == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+    }
+
+
 @pytest.mark.asyncio
 async def test_mcp_health_exposes_truthful_v4_capability_without_rebuild_tool(
     tmp_path: Path,

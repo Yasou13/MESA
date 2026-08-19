@@ -131,6 +131,131 @@ def _operation(*, state: str = "PENDING") -> dict:
     }
 
 
+@pytest.mark.parametrize(
+    "invalid_identifier",
+    [
+        "",
+        "a" * 129,
+        "line\nbreak",
+        "tab\tvalue",
+        "nul\x00value",
+        "__unset__",
+        "__system__",
+        "contains space",
+    ],
+)
+def test_v4_standard_public_identifiers_reject_malformed_values(
+    invalid_identifier: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        v4_api.V4DatasetRequest(
+            tenant_id=invalid_identifier,
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+        )
+
+
+def test_v4_public_identifier_boundaries_preserve_supported_lengths() -> None:
+    minimum = v4_api.V4DatasetRequest(tenant_id="a", workspace_id="b", dataset_id="c")
+    maximum = v4_api.V4DatasetRequest(
+        tenant_id="t" * 128,
+        workspace_id="w" * 128,
+        dataset_id="d" * 128,
+    )
+    source_maximum = v4_api.V4DocumentRequest(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_id="dataset-a",
+        document_id="d" * 256,
+        title="Document",
+    )
+    punctuated_source = v4_api.V4DocumentRequest(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_id="dataset-a",
+        document_id="statute:section/12",
+        title="Document",
+    )
+
+    assert minimum.dataset_id == "c"
+    assert len(maximum.dataset_id) == 128
+    assert len(source_maximum.document_id) == 256
+    assert punctuated_source.document_id == "statute:section/12"
+    with pytest.raises(ValidationError):
+        v4_api.V4DocumentRequest(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+            document_id="d" * 257,
+            title="Document",
+        )
+    with pytest.raises(ValidationError):
+        v4_api.V4DocumentRequest(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+            document_id="document\nspoofed",
+            title="Document",
+        )
+
+
+@pytest.mark.parametrize(
+    "dataset_ids",
+    [
+        [],
+        ["dataset-a"] * 65,
+        ["dataset-a", "bad\nitem"],
+        ["dataset-a", "x" * 129],
+        ["dataset-a", "__unset__"],
+    ],
+)
+def test_v4_dataset_id_lists_validate_size_and_every_item(
+    dataset_ids: list[str],
+) -> None:
+    with pytest.raises(ValidationError):
+        v4_api.V4SessionStartRequest(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_ids=dataset_ids,
+            agent_id="agent-a",
+        )
+
+
+def test_v4_dataset_id_list_duplicate_behavior_remains_dao_deduplicated() -> None:
+    request = v4_api.V4SessionStartRequest(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_ids=["dataset-a", "dataset-a"],
+        agent_id="agent-a",
+    )
+
+    assert request.dataset_ids == ["dataset-a", "dataset-a"]
+
+
+@pytest.mark.asyncio
+async def test_v4_malformed_identifier_returns_422_before_authorization_or_dao(
+    asgi_client: ClientFactory,
+) -> None:
+    dao = MagicMock()
+    dao.create_v4_session = AsyncMock()
+    access = _access()
+
+    response = await asgi_client(_app(dao, access)).post(
+        "/v4/sessions/start",
+        json={
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "dataset_ids": ["dataset-a", "bad\nitem"],
+            "agent_id": "agent-a",
+        },
+    )
+
+    assert response.status_code == 422
+    access.check_principal_permission.assert_not_awaited()
+    access.check_scope_role.assert_not_awaited()
+    dao.create_v4_session.assert_not_awaited()
+
+
 def test_v4_insert_schema_rejects_secret_and_excessive_metadata() -> None:
     payload = {
         "session_id": "session-a",

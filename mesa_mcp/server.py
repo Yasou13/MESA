@@ -223,7 +223,12 @@ def _tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "dataset_id": {"type": "string"},
+                    "dataset_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9._-]+$",
+                    },
                     "content": {"type": "string", "maxLength": 20000},
                     "title": {"type": "string"},
                     "metadata": {"type": "object"},
@@ -240,7 +245,12 @@ def _tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "dataset_id": {"type": "string"},
+                    "dataset_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9._-]+$",
+                    },
                     "query": {"type": "string", "maxLength": 2000},
                     "limit": {"type": "integer"},
                     "valid_at": {"type": "string"},
@@ -256,8 +266,17 @@ def _tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "dataset_id": {"type": "string"},
-                    "document_id": {"type": "string"},
+                    "dataset_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9._-]+$",
+                    },
+                    "document_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                    },
                     "content": {"type": "string", "maxLength": 20000},
                     "metadata": {"type": "object"},
                     "supersedes_revision_id": {"type": "string", "maxLength": 256},
@@ -272,8 +291,17 @@ def _tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "dataset_id": {"type": "string"},
-                    "document_id": {"type": "string"},
+                    "dataset_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9._-]+$",
+                    },
+                    "document_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                    },
                 },
                 "required": ["document_id"],
             },
