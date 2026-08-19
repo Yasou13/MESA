@@ -76,6 +76,32 @@ class StorageWriterLock:
     def released(self) -> bool:
         return self._handle.closed
 
+    def is_held_for(self, storage_root: Path) -> bool:
+        """Return whether this handle owns the real lock file for ``storage_root``.
+
+        Root metadata alone is not a capability: callers can construct an object
+        around any open file.  Verify the descriptor identity and (re)acquire the
+        non-blocking OS lock so consumers can rely on implementation-owned proof.
+        """
+        if self._handle.closed:
+            return False
+        try:
+            resolved_root = storage_root.resolve(strict=True)
+            expected = os.stat(resolved_root / _LOCK_NAME, follow_symlinks=False)
+            actual = os.fstat(self._handle.fileno())
+        except (OSError, ValueError):
+            return False
+        if self._storage_root != resolved_root or (
+            actual.st_dev,
+            actual.st_ino,
+        ) != (expected.st_dev, expected.st_ino):
+            return False
+        try:
+            fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, OSError):
+            return False
+        return True
+
     def release(self) -> None:
         """Release ownership. Calling this method more than once is safe."""
         if self._handle.closed:

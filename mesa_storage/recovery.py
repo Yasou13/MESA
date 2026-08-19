@@ -18,6 +18,8 @@ from mesa_storage.writer_lock import StorageWriterLock, StorageWriterLockError
 
 MANIFEST_NAME = "mesa-backup-manifest.json"
 MANIFEST_VERSION = 1
+CONSISTENCY_BOUNDARY = "sqlite-snapshot-plus-exclusive-derived-writer-lock"
+_LEGACY_CONSISTENCY_BOUNDARY = "offline-stores-stopped"
 _SQLITE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 _FORBIDDEN_NAMES = {".env", "id_rsa", "id_ed25519"}
 _FORBIDDEN_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
@@ -178,7 +180,15 @@ def _write_manifest(
         "format": "mesa-storage-backup",
         "manifest_version": MANIFEST_VERSION,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "consistency_boundary": "offline-stores-stopped",
+        "consistency_boundary": CONSISTENCY_BOUNDARY,
+        "canonical_truth": "sqlite",
+        "sqlite_snapshot_atomicity": "per-database",
+        "derived_projections": {
+            "graph": "rebuildable",
+            "vector": "rebuildable",
+            "copy_boundary": "exclusive-storage-writer-lock",
+        },
+        "stores_stopped_input": "compatibility-precondition-not-authority",
         "source_basename": source.name,
         "files": files,
         "sqlite": sqlite,
@@ -204,8 +214,22 @@ def _load_manifest(snapshot: Path) -> dict[str, Any]:
         or manifest.get("manifest_version") != MANIFEST_VERSION
     ):
         raise RecoveryError("unsupported backup manifest")
-    if manifest.get("consistency_boundary") != "offline-stores-stopped":
-        raise RecoveryError("backup does not attest an offline consistency boundary")
+    boundary = manifest.get("consistency_boundary")
+    if boundary not in {CONSISTENCY_BOUNDARY, _LEGACY_CONSISTENCY_BOUNDARY}:
+        raise RecoveryError("backup does not attest a supported consistency boundary")
+    if boundary == CONSISTENCY_BOUNDARY and (
+        manifest.get("canonical_truth") != "sqlite"
+        or manifest.get("sqlite_snapshot_atomicity") != "per-database"
+        or manifest.get("derived_projections")
+        != {
+            "graph": "rebuildable",
+            "vector": "rebuildable",
+            "copy_boundary": "exclusive-storage-writer-lock",
+        }
+        or manifest.get("stores_stopped_input")
+        != "compatibility-precondition-not-authority"
+    ):
+        raise RecoveryError("backup consistency semantics are missing or invalid")
     from typing import cast
 
     return cast(dict[str, Any], manifest)
@@ -353,7 +377,7 @@ def create_backup(
 
     acquired_lock: StorageWriterLock | None = None
     if writer_lock is not None:
-        if writer_lock.released or writer_lock.storage_root != source:
+        if not writer_lock.is_held_for(source):
             raise RecoveryError(
                 "storage writer lock is not held for source storage root"
             )

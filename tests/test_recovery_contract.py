@@ -228,6 +228,54 @@ def test_backup_accepts_valid_held_writer_lock_and_rejects_invalid(
             )
 
 
+def test_backup_rejects_forged_writer_lock_capability(tmp_path: Path) -> None:
+    """An unrelated open handle cannot be presented as storage quiescence proof."""
+    from mesa_storage.writer_lock import StorageWriterLock
+
+    source = _synthetic_storage(tmp_path)
+    fake_handle = (tmp_path / "not-the-storage-lock").open("w+", encoding="utf-8")
+    forged = StorageWriterLock(fake_handle, source.resolve())
+    try:
+        with pytest.raises(RecoveryError, match="writer lock is not held"):
+            create_backup(
+                source,
+                tmp_path / "forged-lock-backup",
+                tmp_path,
+                stores_stopped=True,
+                writer_lock=forged,
+            )
+    finally:
+        forged.release()
+
+    assert not (tmp_path / "forged-lock-backup").exists()
+
+
+def test_backup_manifest_declares_canonical_and_derived_semantics(
+    tmp_path: Path,
+) -> None:
+    source = _synthetic_storage(tmp_path)
+    backup = tmp_path / "semantic-backup"
+
+    create_backup(source, backup, tmp_path, stores_stopped=True)
+
+    manifest = json.loads(
+        (backup / "mesa-backup-manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["consistency_boundary"] == (
+        "sqlite-snapshot-plus-exclusive-derived-writer-lock"
+    )
+    assert manifest["canonical_truth"] == "sqlite"
+    assert manifest["sqlite_snapshot_atomicity"] == "per-database"
+    assert manifest["derived_projections"] == {
+        "graph": "rebuildable",
+        "vector": "rebuildable",
+        "copy_boundary": "exclusive-storage-writer-lock",
+    }
+    assert (
+        manifest["stores_stopped_input"] == "compatibility-precondition-not-authority"
+    )
+
+
 def test_interrupted_backup_does_not_publish_complete_destination(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
