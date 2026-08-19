@@ -5894,7 +5894,7 @@ class MemoryDAO:
                         "AND agent_id > ? ORDER BY agent_id LIMIT 100",
                         (agent_cursor,),
                     ) as cursor:
-                        agent_rows = await cursor.fetchall()
+                        agent_rows = list(await cursor.fetchall())
 
                 if not agent_rows:
                     break
