@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
+from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
@@ -129,9 +130,9 @@ class V4OperationResponse(BaseModel):
 class V4DatasetRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    tenant_id: str = Field(min_length=1, max_length=128)
-    workspace_id: str = Field(min_length=1, max_length=128)
-    dataset_id: str = Field(min_length=1, max_length=128)
+    tenant_id: PublicIdentifier
+    workspace_id: PublicIdentifier
+    dataset_id: PublicIdentifier
     tenant_name: str | None = Field(default=None, max_length=256)
     workspace_name: str | None = Field(default=None, max_length=256)
     dataset_name: str | None = Field(default=None, max_length=256)
@@ -140,8 +141,8 @@ class V4DatasetRequest(BaseModel):
 class V4WorkspaceRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    tenant_id: str = Field(min_length=1, max_length=128)
-    workspace_id: str = Field(min_length=1, max_length=128)
+    tenant_id: PublicIdentifier
+    workspace_id: PublicIdentifier
     tenant_name: str | None = Field(default=None, max_length=256)
     workspace_name: str | None = Field(default=None, max_length=256)
 
@@ -149,10 +150,10 @@ class V4WorkspaceRequest(BaseModel):
 class V4DocumentRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    tenant_id: str = Field(min_length=1, max_length=128)
-    workspace_id: str = Field(min_length=1, max_length=128)
-    dataset_id: str = Field(min_length=1, max_length=128)
-    document_id: str = Field(min_length=1, max_length=256)
+    tenant_id: PublicIdentifier
+    workspace_id: PublicIdentifier
+    dataset_id: PublicIdentifier
+    document_id: SourceIdentifier
     title: str = Field(min_length=1, max_length=512)
     external_ref: str | None = Field(default=None, max_length=2048)
 
@@ -160,25 +161,25 @@ class V4DocumentRequest(BaseModel):
 class V4RevisionRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    tenant_id: str = Field(min_length=1, max_length=128)
-    workspace_id: str = Field(min_length=1, max_length=128)
-    dataset_id: str = Field(min_length=1, max_length=128)
-    document_id: str = Field(min_length=1, max_length=256)
-    revision_id: str = Field(min_length=1, max_length=256)
+    tenant_id: PublicIdentifier
+    workspace_id: PublicIdentifier
+    dataset_id: PublicIdentifier
+    document_id: SourceIdentifier
+    revision_id: SourceIdentifier
     revision_number: int = Field(ge=1)
     content_sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
-    supersedes_revision_id: str | None = Field(default=None, max_length=256)
+    supersedes_revision_id: SourceIdentifier | None = None
 
 
 class V4SourceChunkRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    tenant_id: str = Field(min_length=1, max_length=128)
-    workspace_id: str = Field(min_length=1, max_length=128)
-    dataset_id: str = Field(min_length=1, max_length=128)
-    document_id: str = Field(min_length=1, max_length=256)
-    revision_id: str = Field(min_length=1, max_length=256)
-    chunk_id: str = Field(min_length=1, max_length=256)
+    tenant_id: PublicIdentifier
+    workspace_id: PublicIdentifier
+    dataset_id: PublicIdentifier
+    document_id: SourceIdentifier
+    revision_id: SourceIdentifier
+    chunk_id: SourceIdentifier
     title: str = Field(min_length=1, max_length=512)
     content: str = Field(min_length=1, max_length=32768)
     source_ref: str = Field(min_length=1, max_length=2048)
@@ -186,26 +187,26 @@ class V4SourceChunkRequest(BaseModel):
     chunk_ordinal: int = Field(default=0, ge=0)
     finalize_revision: bool = True
     external_ref: str | None = Field(default=None, max_length=2048)
-    supersedes_revision_id: str | None = Field(default=None, max_length=256)
+    supersedes_revision_id: SourceIdentifier | None = None
 
 
 class V4SessionStartRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    tenant_id: str = Field(min_length=1, max_length=128)
-    workspace_id: str = Field(min_length=1, max_length=128)
-    dataset_ids: list[str] = Field(min_length=1, max_length=64)
-    agent_id: str = Field(min_length=1, max_length=128)
+    tenant_id: PublicIdentifier
+    workspace_id: PublicIdentifier
+    dataset_ids: list[PublicIdentifier] = Field(min_length=1, max_length=64)
+    agent_id: PublicIdentifier
 
 
 class V4MemoryInsertRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    session_id: str = Field(min_length=1, max_length=128)
-    dataset_id: str = Field(min_length=1, max_length=128)
-    document_id: str = Field(min_length=1, max_length=256)
-    revision_id: str = Field(min_length=1, max_length=256)
-    chunk_id: str = Field(min_length=1, max_length=256)
+    session_id: PublicIdentifier
+    dataset_id: PublicIdentifier
+    document_id: SourceIdentifier
+    revision_id: SourceIdentifier
+    chunk_id: SourceIdentifier
     title: str = Field(min_length=1, max_length=512)
     source_ref: str = Field(min_length=1, max_length=2048)
     content: str = Field(min_length=1, max_length=32768)
@@ -213,7 +214,7 @@ class V4MemoryInsertRequest(BaseModel):
     revision_number: int = Field(default=1, ge=1)
     chunk_ordinal: int = Field(default=0, ge=0)
     finalize_revision: bool = True
-    supersedes_revision_id: str | None = Field(default=None, max_length=256)
+    supersedes_revision_id: SourceIdentifier | None = None
     metadata: dict = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, max_length=128)
 
@@ -226,8 +227,10 @@ class V4MemoryInsertRequest(BaseModel):
 class V4SearchRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    session_id: str = Field(min_length=1, max_length=128)
-    dataset_ids: list[str] | None = Field(default=None, max_length=64)
+    session_id: PublicIdentifier
+    dataset_ids: list[PublicIdentifier] | None = Field(
+        default=None, min_length=1, max_length=64
+    )
     query: str = Field(min_length=1, max_length=4096)
     limit: int = Field(default=10, ge=1, le=50)
     jurisdiction: str | None = Field(default=None, max_length=256)
@@ -438,7 +441,7 @@ def create_v4_router(
 
     @router.get("/catalog/workspaces")
     async def list_workspaces(
-        tenant_id: str,
+        tenant_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -491,8 +494,8 @@ def create_v4_router(
 
     @router.get("/catalog/datasets")
     async def list_datasets(
-        tenant_id: str,
-        workspace_id: str,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -545,9 +548,9 @@ def create_v4_router(
 
     @router.get("/catalog/documents")
     async def list_documents(
-        tenant_id: str,
-        workspace_id: str,
-        dataset_id: str,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
+        dataset_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -597,10 +600,10 @@ def create_v4_router(
 
     @router.get("/catalog/revisions")
     async def list_revisions(
-        tenant_id: str,
-        workspace_id: str,
-        dataset_id: str,
-        document_id: str,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
+        dataset_id: PublicIdentifier,
+        document_id: SourceIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -655,10 +658,10 @@ def create_v4_router(
 
     @router.delete("/catalog/documents/{document_id}", status_code=202)
     async def purge_document(
-        document_id: str,
-        tenant_id: str,
-        workspace_id: str,
-        dataset_id: str,
+        document_id: SourceIdentifier,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
+        dataset_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -845,7 +848,7 @@ def create_v4_router(
         status_code=200,
     )
     async def get_rebuild_operation(
-        operation_id: str,
+        operation_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -862,7 +865,7 @@ def create_v4_router(
         status_code=200,
     )
     async def cancel_rebuild_operation(
-        operation_id: str,
+        operation_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -884,7 +887,7 @@ def create_v4_router(
         status_code=202,
     )
     async def retry_rebuild_operation(
-        operation_id: str,
+        operation_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -910,9 +913,9 @@ def create_v4_router(
     )
     async def rebuild_index(
         request: Request,
-        tenant_id: str | None = None,
-        workspace_id: str | None = None,
-        dataset_id: str | None = None,
+        tenant_id: PublicIdentifier | None = None,
+        workspace_id: PublicIdentifier | None = None,
+        dataset_id: PublicIdentifier | None = None,
         idempotency_key: str = Header(
             ...,
             alias="Idempotency-Key",
@@ -1042,7 +1045,7 @@ def create_v4_router(
 
     @router.get("/mutations/{mutation_id}", response_model=V4MutationStatusResponse)
     async def mutation_status(
-        mutation_id: str,
+        mutation_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -1076,7 +1079,7 @@ def create_v4_router(
 
     @router.post("/mutations/{mutation_id}/rollback", status_code=202)
     async def rollback_mutation(
-        mutation_id: str,
+        mutation_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -1112,7 +1115,7 @@ def create_v4_router(
 
     @router.post("/mutations/{mutation_id}/replay", status_code=202)
     async def replay_mutation(
-        mutation_id: str,
+        mutation_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
@@ -1150,7 +1153,7 @@ def create_v4_router(
 
     @router.get("/sessions/{session_id}/context")
     async def get_context(
-        session_id: str,
+        session_id: PublicIdentifier,
         request: Request,
         query: str = "",
         token_budget: int = 2048,
@@ -1197,7 +1200,7 @@ def create_v4_router(
 
     @router.post("/sessions/{session_id}/end")
     async def end_session(
-        session_id: str,
+        session_id: PublicIdentifier,
         request: Request,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),

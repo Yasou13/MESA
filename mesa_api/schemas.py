@@ -33,10 +33,11 @@ Usage::
 
 from __future__ import annotations
 
-import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from mesa_api.identifier_validation import validate_public_identifier
 
 # ---------------------------------------------------------------------------
 # Version helper — reads from installed package metadata
@@ -66,16 +67,6 @@ _MAX_METADATA_KEYS = 64
 # Maximum metadata value length (individual string values)
 _MAX_METADATA_VALUE_LENGTH = 4_096
 
-# Reserved sentinel values that must never be accepted from external input
-_RESERVED_SENTINELS = frozenset({"__unset__", "__system__", ""})
-
-# Agent/session ID format: alphanumeric, hyphens, underscores, dots, 1-128 chars
-_ID_PATTERN = re.compile(r"^[a-zA-Z0-9._-]{1,128}$")
-
-# ASCII control characters (C0: 0x00-0x1f, DEL: 0x7f) — must be rejected
-# BEFORE stripping, since strip() silently removes some of these
-_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
-
 # Maximum query string length
 _MAX_QUERY_LENGTH = 4_096
 
@@ -98,30 +89,7 @@ def _validate_identifier(value: str, field_name: str) -> str:
         - IDs exceeding 128 characters
         - IDs containing disallowed characters
     """
-    # Check for control characters BEFORE stripping — strip() silently
-    # removes some control chars (e.g., \x1f) which masks injection
-    if _CONTROL_CHAR_PATTERN.search(value):
-        raise ValueError(
-            f"{field_name} contains illegal control characters. "
-            f"Only printable ASCII characters are allowed."
-        )
-
-    stripped = value.strip()
-
-    if stripped in _RESERVED_SENTINELS:
-        raise ValueError(
-            f"{field_name} cannot be empty or a reserved value "
-            f"('{stripped}'). Provide a valid tenant identifier."
-        )
-
-    if not _ID_PATTERN.match(stripped):
-        raise ValueError(
-            f"{field_name} must be 1-128 characters, containing only "
-            f"alphanumeric characters, hyphens, underscores, or dots. "
-            f"Got: '{stripped[:32]}{'...' if len(stripped) > 32 else ''}'"
-        )
-
-    return stripped
+    return validate_public_identifier(value, field_name)
 
 
 def _validate_metadata(metadata: dict[str, Any]) -> dict[str, Any]:

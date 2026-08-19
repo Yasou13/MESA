@@ -9,10 +9,10 @@
 ![Version](https://img.shields.io/badge/Version-0.7.1-green.svg)
 
 **A durable, tenant- and dataset-isolated memory engine for autonomous AI agents.**
-The v3 compatibility runtime remains a model-disabled lexical core. The
-unreleased v4 runtime adds canonical source provenance, selectable validation,
+The v3 compatibility runtime remains a model-disabled lexical core. The v4
+release candidate adds canonical source provenance, selectable validation,
 idempotent SQL/vector/graph projection and Graph V2 in one storage-owner
-process. V4 remains `NO-GO` until its external release and soak gates pass.
+process. Production remains `NO-GO` pending Final MVP Certification.
 
 </div>
 
@@ -332,7 +332,8 @@ validation and ordered structured projections before retrieval.
 |---|---|---|
 | Model/provider access | Disabled | Explicitly enabled and reviewed |
 | Cold-path result | Durable raw memory | Validated mutation plus ordered projections |
-| REBEL / LLM extraction | Not invoked | Opt-in |
+| Fact extraction | Not invoked | `FactExtractionService` is the canonical owner |
+| REBEL | Legacy/V3 opt-in only | Not part of canonical v4 extraction |
 | Dual-LLM consensus | Not invoked | Opt-in |
 
 ### Full cognitive runtime
@@ -434,7 +435,7 @@ python3 -m venv venv && source venv/bin/activate
 python -m pip install -e .
 ```
 
-**Optional Heavy ML Models:** If you need the local REBEL transformer model for English-only offline triplet extraction, install the optional package:
+**Optional Legacy/V3 ML Models:** If you need the local REBEL transformer model for legacy English-only offline triplet extraction, install the optional package:
 ```bash
 python -m pip install -e ".[ml]"
 ```
@@ -555,22 +556,24 @@ When using Groq's free tier as the LLM backend, you may hit **30 requests/minute
 - Use the `mock` provider for local development and testing.
 - Deploy with a paid plan or switch to a self-hosted Ollama instance.
 
-### CPU-Only REBEL Extraction
+### Legacy/V3 CPU-Only REBEL Extraction
 
-The REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per record on CPU**. For high-throughput workloads:
+The legacy/V3 REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per record on CPU**. It is not part of canonical v4 extraction; v4 uses `FactExtractionService`. For legacy deployments:
 - Set `MESA_REBEL_DEVICE=cuda` if a GPU is available.
 - REBEL is English-only. Set `MESA_REBEL_ENABLED=false` to use the configured
   LLM extraction prompts, which support Turkish (`tr`) and English (`en`).
-- The system automatically falls back to LLM-based extraction when REBEL fails, so extraction never blocks the pipeline.
+- The legacy/V3 path falls back to its configured LLM extraction when REBEL fails. This is not a v4 fallback contract.
 
 ### Current status
 
-V0.7.1 is the current v4 full-cognitive release. V0.6.1 remains the
+V0.7.1 is the package version of the v4 full-cognitive release candidate.
+V0.6.1 remains the
 preserved v3 lexical-core compatibility release; its queue and
 compensating-write behavior must not be read as a v4 guarantee. V4 uses a
 mutation/pipeline ledger, ordered outbox, artifact ownership and reconciliation.
-Production status remains `NO-GO` until real-provider, production-like
-crash/concurrency, migration/restore and 24-hour soak evidence is complete.
+Production status remains `NO-GO` pending Final MVP Certification, including
+real-provider, production-like crash/concurrency, migration/restore and
+24-hour soak evidence.
 
 ---
 
@@ -586,7 +589,7 @@ MESA/
 │   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
 │   ├── api/              # FastAPI server entrypoint + auth middleware
 │   ├── consolidation/    # Batch orchestration + graph writing
-│   ├── extraction/       # REBEL triplet extraction pipeline
+│   ├── extraction/       # FactExtractionService plus legacy/V3 REBEL adapter
 │   ├── observability/    # Prometheus metrics + structured logging
 │   ├── retrieval/        # Hybrid vector + graph retrieval
 │   ├── schema/           # Pydantic CMB schema

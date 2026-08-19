@@ -1,8 +1,9 @@
 # Release procedure
 
-V4 paket sürümü `0.7.1`dir. Sürüm numarası veya tag’in atanması tek başına
-production GO anlamına gelmez. Mevcut `v0.6.1` tag/release tarihsel v3
-kaydıdır.
+V4 paket sürümü `0.7.1` olan bir release candidate’dır. Production kararı
+Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
+tag’in atanması tek başına production GO anlamına gelmez. Mevcut `v0.6.1`
+tag/release tarihsel v3 kaydıdır.
 
 ## Zorunlu v4 kapıları
 
@@ -86,6 +87,11 @@ git push origin vX.Y.Z
 Tag workflow’u reproducible wheel, CycloneDX SBOM ve GitHub OIDC attestation
 üretir. Repository workflow’ları GitHub Release veya production deployment’ı
 otomatik oluşturmaz.
+
+CI tag checkout’unda yalnız SemVer, `pyproject.toml` sürümü ve CHANGELOG
+başlığı doğrulanır. Annotated tag ve imza doğrulaması trusted operator
+keyring’ine sahip temiz checkout’ta yukarıdaki tam preflight komutuyla yapılır;
+CI bu imza kontrolünü taklit etmez veya zayıflatmaz.
 
 Release operator, wheel ve SBOM için üretilen **OIDC build attestations**
 kayıtlarını indirmeli ve artifact digest’leriyle birlikte doğrulamalıdır.

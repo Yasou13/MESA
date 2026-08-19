@@ -1,7 +1,8 @@
 # MESA operations runbook
 
-Bu runbook yayınlanmamış v4 full-cognitive runtime için kanonik operasyon
-rehberidir. V3 lexical-core uyumluluk işlemleri ayrıca belirtilir.
+Bu runbook v4 full-cognitive release candidate için kanonik operasyon
+rehberidir. Production kararı Final MVP Certification tamamlanana kadar
+`NO-GO`dur. V3 lexical-core uyumluluk işlemleri ayrıca belirtilir.
 
 ## 1. Desteklenen v4 topology
 

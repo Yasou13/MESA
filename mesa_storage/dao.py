@@ -5813,73 +5813,99 @@ class MemoryDAO:
         ``invalid_at`` removes them from active queries while preserving
         them for audit recovery.
 
-        Bounded to 500 recent nodes to keep startup latency acceptable.
+        Scans in bounded 100-agent / 500-node batches so older or high-cardinality
+        tenants cannot fall permanently outside reconciliation coverage.
         """
-        try:
-            # Fetch all distinct agent_ids with active nodes
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT DISTINCT agent_id FROM nodes "
-                    "WHERE invalid_at IS NULL AND deleted_at IS NULL "
-                    "LIMIT 100"
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                    agent_ids = [row[0] for row in rows]
 
-            if not agent_ids:
-                return
-
-            orphan_count = 0
-            for agent_id in agent_ids:
-                if agent_id in _FORBIDDEN_AGENT_IDS:
-                    continue
-
-                # Fetch recent active nodes for this agent
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT id FROM nodes "
+        async def reconcile_agent(db: Any, agent_id: str) -> int:
+            agent_orphans = 0
+            node_cursor: tuple[str, str] | None = None
+            while True:
+                params: tuple[str, ...]
+                if node_cursor is None:
+                    statement = (
+                        "SELECT id, created_at FROM nodes "
                         "WHERE agent_id = ? AND invalid_at IS NULL "
                         "AND deleted_at IS NULL "
-                        "ORDER BY created_at DESC LIMIT 500",
-                        (agent_id,),
-                    ) as cursor:
-                        node_rows = await cursor.fetchall()
-
+                        "ORDER BY created_at DESC, id DESC LIMIT 500"
+                    )
+                    params = (agent_id,)
+                else:
+                    statement = (
+                        "SELECT id, created_at FROM nodes "
+                        "WHERE agent_id = ? AND invalid_at IS NULL "
+                        "AND deleted_at IS NULL "
+                        "AND (created_at < ? OR (created_at = ? AND id < ?)) "
+                        "ORDER BY created_at DESC, id DESC LIMIT 500"
+                    )
+                    params = (
+                        agent_id,
+                        node_cursor[0],
+                        node_cursor[0],
+                        node_cursor[1],
+                    )
+                async with db.execute(statement, params) as cursor:
+                    node_rows = await cursor.fetchall()
                 if not node_rows:
-                    continue
+                    break
 
-                node_ids = [r[0] for r in node_rows]
-
-                # Check which node_ids have vector entries
+                node_ids = [str(row[0]) for row in node_rows]
                 try:
                     existing_vector_ids = await self._vec.get_existing_node_ids(
                         agent_id, node_ids
                     )
                 except Exception:
-                    # Vector engine may not have this method or table yet
-                    # — skip reconciliation for this agent but log the reason
+                    # Vector availability remains fail-open for startup.  A later
+                    # healthy restart retries the complete scan.
                     logger.warning(
                         "ORPHAN_RECONCILIATION_SKIP | agent_id=%s "
                         "vector engine check failed",
                         agent_id,
                         exc_info=True,
                     )
-                    continue
+                    break
 
-                orphans = [nid for nid in node_ids if nid not in existing_vector_ids]
-
+                orphans = [
+                    node_id
+                    for node_id in node_ids
+                    if node_id not in existing_vector_ids
+                ]
                 if orphans:
                     now = datetime.now(timezone.utc).isoformat()
-                    async with self._sql.connection() as db:
-                        for orphan_id in orphans:
-                            await db.execute(
-                                "UPDATE nodes SET invalid_at = ? "
-                                "WHERE id = ? AND agent_id = ? "
-                                "AND invalid_at IS NULL",
-                                (now, orphan_id, agent_id),
-                            )
-                        await db.commit()
-                    orphan_count += len(orphans)
+                    await db.executemany(
+                        "UPDATE nodes SET invalid_at = ? "
+                        "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
+                        [(now, orphan_id, agent_id) for orphan_id in orphans],
+                    )
+                    await db.commit()
+                    agent_orphans += len(orphans)
+
+                node_cursor = (str(node_rows[-1][1]), str(node_rows[-1][0]))
+            return agent_orphans
+
+        try:
+            orphan_count = 0
+            agent_cursor = ""
+            while True:
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT DISTINCT agent_id FROM nodes "
+                        "WHERE invalid_at IS NULL AND deleted_at IS NULL "
+                        "AND agent_id > ? ORDER BY agent_id LIMIT 100",
+                        (agent_cursor,),
+                    ) as cursor:
+                        agent_rows = list(await cursor.fetchall())
+
+                if not agent_rows:
+                    break
+
+                async with self._sql.connection() as db:
+                    for agent_row in agent_rows:
+                        agent_id = str(agent_row[0])
+                        if agent_id not in _FORBIDDEN_AGENT_IDS:
+                            orphan_count += await reconcile_agent(db, agent_id)
+
+                agent_cursor = str(agent_rows[-1][0])
 
             if orphan_count:
                 logger.warning(
