@@ -2,7 +2,8 @@
 
 > **Version:** 0.7.1
 
-This document is the canonical architecture for the unreleased v4 API.
+This document is the canonical architecture for the v4 release candidate.
+Production remains `NO-GO` pending Final MVP Certification.
 `ARCHITECTURE.md` and v3 ADRs remain historical compatibility records.
 
 ## Runtime boundary
@@ -14,6 +15,10 @@ process. A second writer must never mount the same storage root.
 V3 remains available as the lexical-core compatibility surface and keeps its
 existing API/worker topology. V3 and v4 must not write the same physical
 storage directories concurrently.
+
+Canonical v4 fact extraction is owned by `FactExtractionService`. REBEL is not
+part of the canonical v4 extraction path; references to REBEL in historical
+architecture or V3 compatibility material describe legacy behavior only.
 
 ## Security and catalog hierarchy
 

@@ -1,7 +1,8 @@
 # Installation and deployment
 
-Bu rehber v3 lexical-core uyumluluk topology’si ile yayınlanmamış v4
-full-cognitive topology’sini ayrı tutar. Repository `.env` dosyasını
+Bu rehber v3 lexical-core uyumluluk topology’si ile v4 full-cognitive release
+candidate topology’sini ayrı tutar. Production kararı Final MVP Certification
+tamamlanana kadar `NO-GO`dur. Repository `.env` dosyasını
 kendiliğinden yüklemez. Gerçek secret’ları bir secret manager’da saklayın.
 
 ## Gereksinimler
