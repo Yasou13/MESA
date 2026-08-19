@@ -1,4 +1,6 @@
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,58 +14,31 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 
 def _create_v3_schema_database(db_path: Path) -> list[str]:
-    """Create a truthful pre-V4 / V3 SQLite schema matching early MESA baseline."""
+    """Create the supported predecessor at the repository's real Alembic revision."""
+    project_root = Path(__file__).resolve().parents[1]
+    migration_script = (
+        "from alembic import command; from alembic.config import Config; "
+        "import sys; "
+        "config = Config(sys.argv[1]); "
+        "config.set_main_option('sqlalchemy.url', f'sqlite+pysqlite:///{sys.argv[2]}'); "
+        "command.upgrade(config, 'bb2355d0cdd4')"
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            migration_script,
+            str(project_root / "mesa_storage" / "alembic.ini"),
+            db_path.as_posix(),
+        ],
+        cwd=project_root,
+        check=True,
+    )
+
     conn = sqlite3.connect(db_path)
-    conn.executescript("""
-    CREATE TABLE alembic_version (
-        version_num VARCHAR(32) NOT NULL,
-        CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
-    );
-    INSERT INTO alembic_version (version_num) VALUES ('bb2355d0cdd4');
-
-    CREATE TABLE nodes (
-        id TEXT PRIMARY KEY,
-        entity_name TEXT NOT NULL,
-        type TEXT NOT NULL DEFAULT 'ENTITY',
-        content_payload TEXT NOT NULL DEFAULT '',
-        is_consolidated INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        invalid_at TEXT DEFAULT NULL,
-        deleted_at TEXT DEFAULT NULL,
-        agent_id TEXT NOT NULL DEFAULT '__unset__',
-        session_id TEXT NOT NULL DEFAULT '__unset__',
-        confidence REAL DEFAULT 1.0,
-        is_quarantined INTEGER DEFAULT 0
-    );
-
-    CREATE VIRTUAL TABLE nodes_fts USING fts5(
-        entity_name,
-        type,
-        content='nodes',
-        content_rowid='rowid'
-    );
-
-    CREATE TABLE routing_telemetry (
-        id TEXT PRIMARY KEY,
-        agent_id TEXT NOT NULL,
-        record_id TEXT NOT NULL,
-        small_model_decision INTEGER NOT NULL,
-        small_model_confidence REAL NOT NULL,
-        dual_llm_decision INTEGER NOT NULL,
-        is_hallucination INTEGER NOT NULL,
-        created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE raw_logs (
-        id TEXT PRIMARY KEY,
-        agent_id TEXT NOT NULL DEFAULT '__unset__',
-        session_id TEXT NOT NULL DEFAULT '__unset__',
-        payload TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'queued',
-        created_at TEXT NOT NULL
-    );
-    """)
-    conn.commit()
+    assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == (
+        "bb2355d0cdd4",
+    )
     tables = [
         row[0]
         for row in conn.execute(
@@ -129,20 +104,57 @@ async def test_v3_cold_start_counts_remain_tenant_scoped(tmp_path: Path):
     db_path = tmp_path / "tenant_scoped_v3.db"
     _create_v3_schema_database(db_path)
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
+        conn.executemany(
             "INSERT INTO nodes (id, entity_name, type, content_payload, created_at, agent_id, session_id) "
-            "VALUES ('tenant-b-node', 'Tenant B', 'ENTITY', 'other tenant data', "
-            "'2026-01-01T00:00:00Z', 'tenant-b', 'session-b')"
+            "VALUES (?, ?, 'ENTITY', ?, '2026-01-01T00:00:00Z', ?, ?)",
+            [
+                (
+                    "tenant-a-node",
+                    "AlphaUnique",
+                    "tenant A known memory",
+                    "tenant-a",
+                    "session-a",
+                ),
+                (
+                    "tenant-b-node-1",
+                    "BetaUnique",
+                    "tenant B first memory",
+                    "tenant-b",
+                    "session-b",
+                ),
+                (
+                    "tenant-b-node-2",
+                    "BetaSecond",
+                    "tenant B second memory",
+                    "tenant-b",
+                    "session-b",
+                ),
+            ],
         )
 
     engine = AsyncEngine(str(db_path))
     await engine.initialize()
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=MagicMock())
+    vec_mock = MagicMock()
+    vec_mock.compute_embedding = AsyncMock(return_value=[0.1] * 384)
+    vec_mock.search = AsyncMock(return_value=[])
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec_mock)
 
-    assert await dao.count_active_memories(tenant_id="tenant-a") == 0
-    assert not await dao.has_active_memories(tenant_id="tenant-a")
-    assert await dao.count_active_memories(tenant_id="tenant-b") == 1
+    rbac = AccessControl(policy_path=str(tmp_path / "rbac_tenant_v3.db"))
+    await rbac.initialize()
+    await rbac.grant_access("tenant-a", "session-a", "READ")
+    await rbac.grant_access("tenant-b", "session-b", "READ")
+    retriever = HybridRetriever(dao=dao, analyzer=QueryAnalyzer(), access_control=rbac)
+
+    assert await dao.count_active_memories(tenant_id="tenant-a") == 1
+    assert await dao.has_active_memories(tenant_id="tenant-a")
+    assert await dao.count_active_memories(tenant_id="tenant-b") == 2
     assert await dao.has_active_memories(tenant_id="tenant-b")
+    assert await retriever.retrieve(
+        "AlphaUnique", agent_id="tenant-a", session_id="session-a"
+    ) == ["tenant-a-node"]
+    assert await retriever.retrieve(
+        "BetaUnique", agent_id="tenant-b", session_id="session-b"
+    ) == ["tenant-b-node-1"]
 
     await engine.close()
 
@@ -158,9 +170,6 @@ async def test_non_empty_v3_cold_start_and_retrieval(tmp_path: Path):
     INSERT INTO nodes (id, entity_name, type, content_payload, created_at, agent_id, session_id, confidence, is_quarantined)
     VALUES ('node-v3-alice', 'Alice', 'ENTITY', 'Alice is an AI researcher at MESA', '2026-01-01T00:00:00Z', 'agent-v3', 'session-v3', 1.0, 0);
     """)
-    conn.execute(
-        "INSERT INTO nodes_fts (rowid, entity_name, type) VALUES (1, 'Alice', 'ENTITY');"
-    )
     conn.commit()
     conn.close()
 
