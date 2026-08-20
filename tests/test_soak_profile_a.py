@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,6 @@ from mesa_evals.soak_test import (
 )
 from mesa_memory.extraction.service import (
     DeterministicFactValidator,
-    FactCandidate,
     FactExtractionResponse,
 )
 
