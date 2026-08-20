@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_mcp.gateway.operations import GatewayOperationService
+from mesa_memory.security.untrusted_memory import TAG_CLOSE, TAG_OPEN, TRUST_HEADER
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -120,7 +121,9 @@ async def test_write_is_durable_pending_approval_and_idempotent(gateway) -> None
 
 
 @pytest.mark.asyncio
-async def test_approved_operation_fails_closed_when_approval_hash_differs(gateway) -> None:
+async def test_approved_operation_fails_closed_when_approval_hash_differs(
+    gateway,
+) -> None:
     service, fake, connection_id, middleware = gateway
     pending = await service.call_tool(
         client_id="antigravity",
@@ -159,9 +162,9 @@ async def test_operation_status_tracks_final_v4_mutation_state(gateway) -> None:
         rejected["approval_id"], "APPROVED", "dashboard"
     )
     await service.process_approved_operations()
-    assert (
-        await service.operation_status("antigravity", rejected["operation_id"])
-    )["status"] == "PROCESSING"
+    assert (await service.operation_status("antigravity", rejected["operation_id"]))[
+        "status"
+    ] == "PROCESSING"
 
     fake.mutation_states["mut_gateway_1"] = "REJECTED"
     rejected_status = await service.operation_status(
@@ -181,9 +184,9 @@ async def test_operation_status_tracks_final_v4_mutation_state(gateway) -> None:
     )
     await service.process_approved_operations()
     fake.mutation_states["mut_gateway_2"] = "COMMITTED"
-    assert (
-        await service.operation_status("antigravity", committed["operation_id"])
-    )["status"] == "COMMITTED"
+    assert (await service.operation_status("antigravity", committed["operation_id"]))[
+        "status"
+    ] == "COMMITTED"
 
 
 @pytest.mark.asyncio
@@ -236,5 +239,8 @@ async def test_recall_uses_typed_context_and_singleflight(gateway) -> None:
             arguments={"query": "ownership", "mode": "context"},
         ),
     )
-    assert first["context_text"].startswith("[decision:mem_1]")
+    assert first["context_text"].startswith(TRUST_HEADER)
+    assert first["context_text"].count(TAG_OPEN) == 1
+    assert first["context_text"].count(TAG_CLOSE) == 1
+    assert "The gateway owns durable operation state." in first["context_text"]
     assert {first["cache_status"], second["cache_status"]} <= {"MISS", "HIT"}

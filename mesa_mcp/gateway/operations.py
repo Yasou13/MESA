@@ -13,6 +13,7 @@ from typing import Any, TypeVar
 from cryptography.fernet import Fernet
 
 from mesa_memory.security.input_validation import validate_write_payload
+from mesa_memory.security.untrusted_memory import render_untrusted_memory
 from mesa_storage.sqlite_engine import AsyncEngine
 
 from ..bounded_cache import BoundedLRUCache
@@ -529,10 +530,7 @@ class GatewayOperationService:
             seen.add(digest)
             packed.append(memory)
             remaining -= len(content)
-        context_text = "\n\n".join(
-            f"[{memory.get('memory_type', 'unknown')}:{memory.get('memory_id', 'unknown')}]\n{memory.get('content', '')}"
-            for memory in packed
-        )
+        context_text = render_untrusted_memory([("Retrieved Project Memories", packed)])
         return {
             "status": "SUCCESS",
             "context_text": context_text,

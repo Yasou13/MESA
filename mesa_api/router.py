@@ -66,6 +66,7 @@ from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.retrieval.core import QueryAnalyzer
 from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.rbac import AccessControl
+from mesa_memory.security.untrusted_memory import render_untrusted_memory
 from mesa_storage.dao import (
     MemoryDAO,
     PurgeAlreadyFinalizedError,
@@ -795,7 +796,17 @@ def create_memory_router(
                 payload["content"] for payload in raw_logs_data if "content" in payload
             ]
 
-            context = "\n".join(nodes_content)
+            context = render_untrusted_memory(
+                [
+                    (
+                        "Legacy Session Information",
+                        [
+                            {"type": "session_log", "content": content}
+                            for content in nodes_content
+                        ],
+                    )
+                ]
+            )
 
             return SessionContextResponse(
                 session_id=session_id,
