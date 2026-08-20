@@ -289,9 +289,7 @@ class SoakMetrics:
                 self.successful_operations += 1
             else:
                 self.failed_operations += 1
-                self.http_errors[status_code] = (
-                    self.http_errors.get(status_code, 0) + 1
-                )
+                self.http_errors[status_code] = self.http_errors.get(status_code, 0) + 1
 
             if op_type == "insert":
                 self.insert_count += 1
@@ -446,9 +444,7 @@ def evaluate_resource_trends(samples: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     valid_samples = [
-        s
-        for s in samples
-        if s.get("status") in {"available", "partial_psutil_missing"}
+        s for s in samples if s.get("status") in {"available", "partial_psutil_missing"}
     ]
     if len(valid_samples) < 3:
         return {
@@ -468,8 +464,7 @@ def evaluate_resource_trends(samples: list[dict[str, Any]]) -> dict[str, Any]:
         growth = final_rss - start_rss
         recent_rss = rss_values[-4:]
         is_monotonic = all(
-            recent_rss[i] <= recent_rss[i + 1]
-            for i in range(len(recent_rss) - 1)
+            recent_rss[i] <= recent_rss[i + 1] for i in range(len(recent_rss) - 1)
         )
         if growth > 50.0 and final_rss > start_rss * 1.5 and is_monotonic:
             possible_memory_leak = True
@@ -507,20 +502,28 @@ async def setup_soak_runtime(
 ) -> AsyncIterator[tuple[httpx.AsyncClient, Any]]:
     """Initialize and run the full combined MESA V4 runtime in-process."""
     from mesa_memory.api import server
+    from mesa_memory.config import refresh_config_from_environment
+    from mesa_memory.embedding.service import set_global_embedding_service
+
+    env_overrides = {
+        "MESA_RUNTIME_PROFILE": "combined",
+        "MESA_STORAGE_ROOT": str(storage_root),
+        "MESA_LOAD_DOTENV": "false",
+        "MESA_MODEL_ENABLED": "true",
+        "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
+        "MESA_TIER3_MODE": "0",
+        "MESA_REBEL_ENABLED": "false",
+        "MESA_EMBEDDING_DIMENSION": "384",
+        "MESA_LLM_PROVIDER": "mock",
+        "MESA_API_KEY": api_key,
+        "MESA_PRINCIPAL_ID": principal_id,
+        "MESA_PRINCIPAL_STATUS": "active",
+    }
+    orig_env = {k: os.environ.get(k) for k in env_overrides}
 
     storage_root.mkdir(parents=True, exist_ok=True)
-    os.environ["MESA_RUNTIME_PROFILE"] = "combined"
-    os.environ["MESA_STORAGE_ROOT"] = str(storage_root)
-    os.environ["MESA_LOAD_DOTENV"] = "false"
-    os.environ["MESA_MODEL_ENABLED"] = "true"
-    os.environ["MESA_EXTERNAL_PROVIDER_ENABLED"] = "true"
-    os.environ["MESA_TIER3_MODE"] = "0"
-    os.environ["MESA_REBEL_ENABLED"] = "false"
-    os.environ["MESA_EMBEDDING_DIMENSION"] = "384"
-    os.environ["MESA_LLM_PROVIDER"] = "mock"
-    os.environ["MESA_API_KEY"] = api_key
-    os.environ["MESA_PRINCIPAL_ID"] = principal_id
-    os.environ["MESA_PRINCIPAL_STATUS"] = "active"
+    os.environ.update(env_overrides)
+    refresh_config_from_environment()
 
     provider = DeterministicSoakProvider()
     orig_get_adapter = server.AdapterFactory.get_adapter
@@ -581,10 +584,18 @@ async def setup_soak_runtime(
             ) as client:
                 yield client, server.state
     finally:
+        for k, v in orig_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        refresh_config_from_environment()
+        set_global_embedding_service(None)
         server.AdapterFactory.get_adapter = orig_get_adapter
         server._get_embedding_service = orig_embedding_service
         if orig_pipeline is not None:
             rebel_pipeline.pipeline = orig_pipeline
+        rebel_pipeline._model_holder.reset()
 
 
 # ---------------------------------------------------------------------------
@@ -618,7 +629,9 @@ async def _poll_mutation_committed(
     return False, (time.monotonic() - t0) * 1000, {"state": "TIMEOUT"}
 
 
-def _is_subject_in_search_results(expected_subj: str, results: list[dict[str, Any]]) -> bool:
+def _is_subject_in_search_results(
+    expected_subj: str, results: list[dict[str, Any]]
+) -> bool:
     """Check if expected subject entity or assertion is present in V4 search results."""
     for r in results:
         entity = r.get("entity", {})
@@ -629,9 +642,8 @@ def _is_subject_in_search_results(expected_subj: str, results: list[dict[str, An
         ):
             return True
         for prov in r.get("provenance", []):
-            if (
-                expected_subj in str(prov.get("fact_text", ""))
-                or expected_subj in str(prov.get("predicate", ""))
+            if expected_subj in str(prov.get("fact_text", "")) or expected_subj in str(
+                prov.get("predicate", "")
             ):
                 return True
     return False
@@ -691,9 +703,7 @@ async def _op_insert(
             await metrics.record_correctness_violation("consistency_failures")
             return
 
-        committed, commit_lat, _ = await _poll_mutation_committed(
-            client, mutation_id
-        )
+        committed, commit_lat, _ = await _poll_mutation_committed(client, mutation_id)
         if not committed:
             await metrics.record_correctness_violation("missing_committed_memory")
             return
@@ -828,7 +838,10 @@ async def _op_revision(
         lat_ms = (time.monotonic() - t0) * 1000
         if resp.status_code != 202:
             await metrics.record_op(
-                "revision", success=False, latency_ms=lat_ms, status_code=resp.status_code
+                "revision",
+                success=False,
+                latency_ms=lat_ms,
+                status_code=resp.status_code,
             )
             return
 
@@ -1010,9 +1023,7 @@ async def _op_purge(
                     if r.get("status") == "ACTIVE"
                 )
                 if found_active:
-                    await metrics.record_correctness_violation(
-                        "deleted_memory_visible"
-                    )
+                    await metrics.record_correctness_violation("deleted_memory_visible")
         else:
             await metrics.record_op(
                 "purge",
@@ -1269,9 +1280,7 @@ def format_final_report(
         result = "PROFILE A FAIL" if is_cert_duration else "SMOKE FAIL"
     else:
         result = (
-            "PROFILE A PASS"
-            if is_cert_duration
-            else "SMOKE PASS — NOT CERTIFICATION"
+            "PROFILE A PASS" if is_cert_duration else "SMOKE PASS — NOT CERTIFICATION"
         )
 
     start_rss = start_resources.get("rss_mb", -1)
@@ -1345,7 +1354,9 @@ async def _run_soak_on_client(
     try:
         resp = await client.get("/health")
         if resp.status_code != 200:
-            logger.error("PRE-FLIGHT FAILED | Health check returned %d", resp.status_code)
+            logger.error(
+                "PRE-FLIGHT FAILED | Health check returned %d", resp.status_code
+            )
             return {"status": "pre_flight_failed", "http_status": resp.status_code}
     except Exception as exc:
         logger.error("PRE-FLIGHT FAILED | Cannot reach server: %s", exc)
@@ -1368,7 +1379,9 @@ async def _run_soak_on_client(
         },
     )
     if s_resp.status_code != 201:
-        logger.error("SESSION_INIT FAILED | Returned %d: %s", s_resp.status_code, s_resp.text)
+        logger.error(
+            "SESSION_INIT FAILED | Returned %d: %s", s_resp.status_code, s_resp.text
+        )
         return {"status": "session_start_failed", "http_status": s_resp.status_code}
 
     session_id = s_resp.json()["session_id"]
