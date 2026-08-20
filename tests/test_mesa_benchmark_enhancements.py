@@ -42,42 +42,48 @@ class TestMesaClientAdapterDefaults:
 
     def test_config_override(self):
         adapter = MesaClientAdapter()
-        # Patch all heavy I/O that initialize() triggers
-        with (
-            patch("mesa_benchmark.clients.mesa_client.AsyncEngine") as m_sql,
-            patch("mesa_benchmark.clients.mesa_client.VectorEngine") as m_vec,
-            patch("mesa_benchmark.clients.mesa_client.KuzuGraphProvider") as m_graph,
-            patch(
-                "mesa_benchmark.clients.mesa_client.initialize_schema",
-                new_callable=AsyncMock,
-            ),
-            patch("mesa_benchmark.clients.mesa_client.kuzu_initialize_schema"),
-            patch("mesa_benchmark.clients.mesa_client.AdapterFactory"),
-            patch("mesa_benchmark.clients.mesa_client.QueryAnalyzer"),
-            patch("mesa_benchmark.clients.mesa_client.HybridRetriever"),
-        ):
-            # Make the awaitable mocks return coroutines
-            m_sql.return_value.initialize = AsyncMock()
-            m_vec.return_value.initialize = AsyncMock()
-            m_graph.return_value.initialize = AsyncMock()
-            mock_dao = MagicMock()
-            mock_dao.initialize = AsyncMock()
-            with patch(
-                "mesa_benchmark.clients.mesa_client.MemoryDAO", return_value=mock_dao
+        try:
+            # Patch all heavy I/O that initialize() triggers
+            with (
+                patch("mesa_benchmark.clients.mesa_client.AsyncEngine") as m_sql,
+                patch("mesa_benchmark.clients.mesa_client.VectorEngine") as m_vec,
+                patch(
+                    "mesa_benchmark.clients.mesa_client.KuzuGraphProvider"
+                ) as m_graph,
+                patch(
+                    "mesa_benchmark.clients.mesa_client.initialize_schema",
+                    new_callable=AsyncMock,
+                ),
+                patch("mesa_benchmark.clients.mesa_client.kuzu_initialize_schema"),
+                patch("mesa_benchmark.clients.mesa_client.AdapterFactory"),
+                patch("mesa_benchmark.clients.mesa_client.QueryAnalyzer"),
+                patch("mesa_benchmark.clients.mesa_client.HybridRetriever"),
             ):
-                adapter.initialize(
-                    {
-                        "enable_multi_hop": False,
-                        "top_n": 20,
-                        "enable_rerank": True,
-                        "timeout_s": 60.0,
-                    }
-                )
+                # Make the awaitable mocks return coroutines
+                m_sql.return_value.initialize = AsyncMock()
+                m_vec.return_value.initialize = AsyncMock()
+                m_graph.return_value.initialize = AsyncMock()
+                mock_dao = MagicMock()
+                mock_dao.initialize = AsyncMock()
+                with patch(
+                    "mesa_benchmark.clients.mesa_client.MemoryDAO",
+                    return_value=mock_dao,
+                ):
+                    adapter.initialize(
+                        {
+                            "enable_multi_hop": False,
+                            "top_n": 20,
+                            "enable_rerank": True,
+                            "timeout_s": 60.0,
+                        }
+                    )
 
-        assert adapter.enable_multi_hop is False
-        assert adapter.top_n == 20
-        assert adapter.enable_rerank is True
-        assert adapter.timeout_s == 60.0
+            assert adapter.enable_multi_hop is False
+            assert adapter.top_n == 20
+            assert adapter.enable_rerank is True
+            assert adapter.timeout_s == 60.0
+        finally:
+            adapter.close()
 
 
 class TestMesaClientAdapterClose:
