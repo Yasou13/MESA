@@ -26,9 +26,16 @@ uv sync --locked --extra dev
 uv run ruff check .
 uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
   --ignore-missing-imports --explicit-package-bases --follow-imports=skip
-uv run pytest -q
+make test-local
 uv run pytest -q mesa-benchmark/tests
 uv run mypy mesa-benchmark/mesa_benchmark
+```
+
+The complete adapter-inclusive suite is a separate installed contract:
+
+```bash
+uv sync --locked --extra dev --extra adapters
+make test-all
 ```
 
 V4 API/storage/retrieval changes must also run the relevant

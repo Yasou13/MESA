@@ -1,9 +1,12 @@
-.PHONY: install dev v4-dev test check bench docker-up v4-docker-up health zero-cost-dev
+.PHONY: install install-all dev v4-dev test test-local test-all test-adapters check bench docker-up v4-docker-up health zero-cost-dev
 
 UV ?= uv
 
 install:
 	$(UV) sync --locked --extra dev
+
+install-all:
+	$(UV) sync --locked --extra dev --extra adapters
 
 dev:
 	MESA_RUNTIME_PROFILE=api-only $(UV) run python -m mesa_memory.runtime_entrypoint
@@ -14,8 +17,16 @@ v4-dev:
 zero-cost-dev:
 	MESA_ZERO_COST_MODE=true MESA_RUNTIME_PROFILE=combined $(UV) run python -m mesa_memory.runtime_entrypoint
 
-test:
+test: test-local
+
+test-local:
+	$(UV) run pytest -q -m "not optional_provider and not optional_mcp and not live_external"
+
+test-all:
 	$(UV) run pytest -q
+
+test-adapters:
+	$(UV) run pytest -q -m "optional_provider or optional_mcp"
 
 check:
 	$(UV) run ruff check .
