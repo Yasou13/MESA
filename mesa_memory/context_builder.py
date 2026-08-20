@@ -151,14 +151,16 @@ class ContextBuilder:
         formatted_context = _render_context(cur_sessions, cur_memories)
         actual_tokens = _count_tokens(formatted_context)
 
-        # Trim lowest-ranked canonical memories first, then session logs
-        while actual_tokens > token_budget and cur_memories:
-            cur_memories.pop()
+        # Current-session chatter yields budget first so it cannot evict all
+        # ranked long-term evidence. Records are always removed from the end,
+        # preserving retrieval order within each source.
+        while actual_tokens > token_budget and cur_sessions:
+            cur_sessions.pop()
             formatted_context = _render_context(cur_sessions, cur_memories)
             actual_tokens = _count_tokens(formatted_context)
 
-        while actual_tokens > token_budget and cur_sessions:
-            cur_sessions.pop()
+        while actual_tokens > token_budget and cur_memories:
+            cur_memories.pop()
             formatted_context = _render_context(cur_sessions, cur_memories)
             actual_tokens = _count_tokens(formatted_context)
 
