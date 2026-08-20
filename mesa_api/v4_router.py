@@ -38,6 +38,10 @@ from mesa_storage.repositories.operations import (
     OperationNotFoundError,
     OperationStateError,
 )
+from mesa_storage.vector_engine import (
+    EmbeddingMigrationRequiredError,
+    VectorSearchError,
+)
 
 logger = logging.getLogger("MESA_V4_API")
 
@@ -1026,17 +1030,30 @@ def create_v4_router(
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
             )
-        results = await dao.search_v4_memory(
-            tenant_id=str(session["tenant_id"]),
-            agent_id=str(session["agent_id"]),
-            dataset_ids=datasets,
-            query=payload.query,
-            limit=payload.limit,
-            jurisdiction=payload.jurisdiction,
-            valid_at=payload.valid_at.isoformat() if payload.valid_at else None,
-            valid_from=payload.valid_from.isoformat() if payload.valid_from else None,
-            valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
-        )
+        try:
+            results = await dao.search_v4_memory(
+                tenant_id=str(session["tenant_id"]),
+                agent_id=str(session["agent_id"]),
+                dataset_ids=datasets,
+                query=payload.query,
+                limit=payload.limit,
+                jurisdiction=payload.jurisdiction,
+                valid_at=payload.valid_at.isoformat() if payload.valid_at else None,
+                valid_from=(
+                    payload.valid_from.isoformat() if payload.valid_from else None
+                ),
+                valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
+            )
+        except EmbeddingMigrationRequiredError:
+            raise HTTPException(
+                status_code=409,
+                detail="embedding_migration_required",
+            )
+        except VectorSearchError:
+            raise HTTPException(
+                status_code=503,
+                detail="vector_backend_unavailable",
+            )
         return {
             "session_id": payload.session_id,
             "dataset_ids": datasets,
