@@ -282,6 +282,28 @@ def test_evaluate_profile_a_result_failed_mutations_fails_certification() -> Non
     assert any("failed_mutations=2" in r for r in res.reasons)
 
 
+def test_evaluate_profile_a_result_pending_mutations_greater_than_zero_fails() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    kwargs["runtime"]["pending_mutations"] = 1
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A FAIL"
+    assert res.exit_code == 1
+    assert any("pending_mutations=1" in r for r in res.reasons)
+
+
+def test_evaluate_profile_a_result_projection_backlog_greater_than_zero_fails() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    kwargs["runtime"]["projection_backlog"] = 1
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A FAIL"
+    assert res.exit_code == 1
+    assert any("projection_backlog=1" in r for r in res.reasons)
+
+
 def test_format_final_report_handles_unavailable_metrics_cleanly() -> None:
     snap: dict[str, Any] = {
         "total_operations": 50,
@@ -499,18 +521,13 @@ async def test_rollback_candidate_selection_and_state_transition() -> None:
 
 
 @pytest.mark.asyncio
-async def test_purge_retries_and_verifies_absence() -> None:
+async def test_purge_case_a_verified_absent() -> None:
+    """Case A: DELETE 202, search 200 without subject -> item.state = PURGED."""
     mock_client = AsyncMock()
-    del_resp = MagicMock(status_code=202)
-    mock_client.delete.return_value = del_resp
-
-    # First search returns active item, second search returns empty (purged)
-    search_resp_present = MagicMock(
-        status_code=200,
-        json=lambda: {"results": [{"entity": {"canonical_name": "SOAK-1"}}]},
+    mock_client.delete.return_value = MagicMock(status_code=202)
+    mock_client.post.return_value = MagicMock(
+        status_code=200, json=lambda: {"results": []}
     )
-    search_resp_empty = MagicMock(status_code=200, json=lambda: {"results": []})
-    mock_client.post.side_effect = [search_resp_present, search_resp_empty]
 
     metrics = SoakMetrics()
     items = [
@@ -530,6 +547,7 @@ async def test_purge_retries_and_verifies_absence() -> None:
         )
         for i in range(5)
     ]
+    target_item = items[0]
 
     await _op_purge(
         mock_client,
@@ -541,8 +559,101 @@ async def test_purge_retries_and_verifies_absence() -> None:
         active_items=items,
     )
 
+    assert target_item.state == "PURGED"
     assert metrics.purge_count == 1
     assert metrics.deleted_memory_visible_count == 0
+    assert metrics.consistency_failure_count == 0
+
+
+@pytest.mark.asyncio
+async def test_purge_case_b_still_visible_after_retries() -> None:
+    """Case B: DELETE 202, search 200 with subject on all retries -> PURGED_BUT_VISIBLE & violation."""
+    mock_client = AsyncMock()
+    mock_client.delete.return_value = MagicMock(status_code=202)
+    mock_client.post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"results": [{"entity": {"canonical_name": "SOAK-0"}}]},
+    )
+
+    metrics = SoakMetrics()
+    items = [
+        SoakItem(
+            seq=i,
+            doc_id=f"doc-{i}",
+            rev_id="rev-1",
+            chunk_id="chk-1",
+            subj=f"SOAK-{i}",
+            obj="OBJ",
+            content="...",
+            mutation_id=f"mut-{i}",
+            idempotency_key="idemp",
+            dataset_id="ds",
+            session_id="sess",
+            state="COMMITTED",
+        )
+        for i in range(5)
+    ]
+    target_item = items[0]
+
+    await _op_purge(
+        mock_client,
+        session_id="sess",
+        tenant_id="t",
+        workspace_id="w",
+        dataset_id="ds",
+        metrics=metrics,
+        active_items=items,
+    )
+
+    assert target_item.state == "PURGED_BUT_VISIBLE"
+    assert metrics.purge_count == 1
+    assert metrics.deleted_memory_visible_count == 1
+    assert metrics.consistency_failure_count == 0
+
+
+@pytest.mark.asyncio
+async def test_purge_case_c_all_searches_fail_unconfirmed() -> None:
+    """Case C: DELETE 202, all verification searches return 503/timeout -> PURGE_UNCONFIRMED & failure."""
+    mock_client = AsyncMock()
+    mock_client.delete.return_value = MagicMock(status_code=202)
+    mock_client.post.return_value = MagicMock(
+        status_code=503, text="Service Unavailable"
+    )
+
+    metrics = SoakMetrics()
+    items = [
+        SoakItem(
+            seq=i,
+            doc_id=f"doc-{i}",
+            rev_id="rev-1",
+            chunk_id="chk-1",
+            subj=f"SOAK-{i}",
+            obj="OBJ",
+            content="...",
+            mutation_id=f"mut-{i}",
+            idempotency_key="idemp",
+            dataset_id="ds",
+            session_id="sess",
+            state="COMMITTED",
+        )
+        for i in range(5)
+    ]
+    target_item = items[0]
+
+    await _op_purge(
+        mock_client,
+        session_id="sess",
+        tenant_id="t",
+        workspace_id="w",
+        dataset_id="ds",
+        metrics=metrics,
+        active_items=items,
+    )
+
+    assert target_item.state == "PURGE_UNCONFIRMED"
+    assert metrics.purge_count == 1
+    assert metrics.deleted_memory_visible_count == 0
+    assert metrics.consistency_failure_count == 1  # blocks certification!
 
 
 @pytest.mark.asyncio

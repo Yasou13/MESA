@@ -1342,30 +1342,41 @@ async def _op_purge(
                 "purge", success=True, latency_ms=lat_ms, status_code=202
             )
             # Verify purged item is no longer returned as active search result with bounded retry
+            verified_absent = False
+            successful_verification_query = False
             found_active = False
+
             for _ in range(5):
-                s_resp = await client.post(
-                    "/v4/memory/search",
-                    json={
-                        "session_id": session_id,
-                        "dataset_ids": [dataset_id],
-                        "query": item.subj,
-                        "limit": 5,
-                    },
-                )
-                if s_resp.status_code == 200:
-                    results = s_resp.json().get("results", [])
-                    if not _is_subject_in_search_results(item.subj, results):
-                        found_active = False
-                        break
-                    found_active = True
+                try:
+                    s_resp = await client.post(
+                        "/v4/memory/search",
+                        json={
+                            "session_id": session_id,
+                            "dataset_ids": [dataset_id],
+                            "query": item.subj,
+                            "limit": 5,
+                        },
+                    )
+                    if s_resp.status_code == 200:
+                        successful_verification_query = True
+                        results = s_resp.json().get("results", [])
+                        if not _is_subject_in_search_results(item.subj, results):
+                            verified_absent = True
+                            found_active = False
+                            break
+                        found_active = True
+                except Exception:
+                    pass
                 await asyncio.sleep(0.2)
 
-            if found_active:
+            if verified_absent:
+                item.state = "PURGED"
+            elif successful_verification_query and found_active:
                 item.state = "PURGED_BUT_VISIBLE"
                 await metrics.record_correctness_violation("deleted_memory_visible")
             else:
-                item.state = "PURGED"
+                item.state = "PURGE_UNCONFIRMED"
+                await metrics.record_correctness_violation("consistency_failures")
         else:
             item.state = "COMMITTED"
             active_items.append(item)
@@ -1868,6 +1879,14 @@ def evaluate_profile_a_result(
     if failed_mutations is not None and failed_mutations > 0:
         crit_failures["failed_mutations"] = failed_mutations
 
+    pending_mutations = runtime.get("pending_mutations")
+    if pending_mutations is not None and pending_mutations > 0:
+        crit_failures["pending_mutations"] = pending_mutations
+
+    projection_backlog = runtime.get("projection_backlog")
+    if projection_backlog is not None and projection_backlog > 0:
+        crit_failures["projection_backlog"] = projection_backlog
+
     for k, v in crit_failures.items():
         if v > 0:
             reasons.append(f"Critical correctness violation: {k}={v} (tolerance: 0)")
@@ -1916,6 +1935,14 @@ def evaluate_profile_a_result(
         if not runtime_state_measurable:
             reasons.append(
                 "Runtime state queue/backlog metrics could not be verified from canonical storage"
+            )
+        if pending_mutations is None:
+            reasons.append(
+                "Final pending mutations metric is unavailable (tolerance: 0)"
+            )
+        if projection_backlog is None:
+            reasons.append(
+                "Final projection backlog metric is unavailable (tolerance: 0)"
             )
         if not resource_eval.get("evaluated", False):
             reasons.append(
@@ -2249,7 +2276,19 @@ async def _run_soak_on_client(
 
     actual_elapsed_s = time.monotonic() - t_start
 
-    # Drain phase: Wait for in-flight mutations/projections to settle
+    # Post-workload final cross-scope isolation check (creates mutation, MUST run BEFORE drain)
+    await _op_cross_scope_check(
+        client,
+        session_a_id=session_id_a,
+        dataset_a_id=dataset_id,
+        session_b_id=session_id_b,
+        dataset_b_id=dataset_b_id,
+        seq=999_999,
+        metrics=metrics,
+    )
+    # NO FURTHER WORKLOAD MUTATIONS AFTER THIS POINT
+
+    # Drain phase: Wait for ALL in-flight mutations and projection backlogs to settle to 0
     drain_completed, remaining_backlog, runtime_state_measurable = await _drain_runtime(
         client, dao, timeout=drain_timeout
     )
@@ -2269,22 +2308,11 @@ async def _run_soak_on_client(
         final_health = f"error:{exc.__class__.__name__}"
     metrics.final_health = final_health
 
-    # 2. Final cross-scope isolation check to ensure at least one was performed
-    await _op_cross_scope_check(
-        client,
-        session_a_id=session_id_a,
-        dataset_a_id=dataset_id,
-        session_b_id=session_id_b,
-        dataset_b_id=dataset_b_id,
-        seq=999_999,
-        metrics=metrics,
-    )
-
-    # 3. Final runtime queue state
+    # 2. Final runtime queue state (queried strictly AFTER drain)
     final_runtime_state = await query_runtime_state(client, dao)
     await metrics.update_runtime_state(final_runtime_state)
 
-    # 4. Final resource snapshot and trend evaluation
+    # 3. Final resource snapshot and trend evaluation
     final_res = get_process_resources(target_pid, is_embedded=is_embedded)
     final_rss = final_res.get("rss_mb")
     if final_rss is not None:
