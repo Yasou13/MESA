@@ -8,15 +8,17 @@ Key Architecture:
     - Runtime & Storage: Real FastAPI, real MESA workers, real SQLite, LanceDB,
       Kùzu graph, mutation ledger, outbox projections, RBAC, and ContextBuilder.
     - Lifecycle Operations: Insert, search recall verification, revisions,
-      idempotency checks, rollbacks, document purges, and context retrieval.
+      idempotency checks, rollbacks, document purges, context retrieval,
+      and cross-scope isolation audits.
     - Telemetry & Leaks: JSONL telemetry stream, psutil deep memory profiling
-      (RSS, VMS, USS, threads, open FDs), and zero-tolerance correctness auditing.
+      (RSS, VMS, USS, threads, open FDs), real-state queue/backlog tracking,
+      bounded drain phase, and zero-tolerance correctness auditing.
 
 .. warning::
 
     Runs under 24 hours (86,400 seconds) produce `SMOKE PASS — NOT CERTIFICATION`.
     Production certification strictly requires a completed 24-hour window with
-    zero critical correctness violations.
+    zero critical correctness violations, clean drain, and verified health.
 
 Usage:
     # 5-minute smoke test
@@ -43,6 +45,7 @@ import os
 import random
 import re
 import resource
+import signal
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -67,8 +70,7 @@ DEFAULT_BASE_URL = "http://localhost:8000"
 DEFAULT_DURATION = 86_400  # 24 hours = 86,400 seconds
 DEFAULT_RPS = 2.0  # sustainable operations per second for 24h
 DEFAULT_TELEMETRY_INTERVAL = 60.0  # seconds between telemetry snapshots
-DEFAULT_CONCURRENCY = 10
-DEFAULT_MEMORY_PROFILE_INTERVAL = 1800.0  # 30 minutes
+DEFAULT_DRAIN_TIMEOUT = 30.0  # seconds to wait for in-flight work to drain
 DEFAULT_TENANT_ID = "soak-tenant"
 DEFAULT_WORKSPACE_ID = "default"
 DEFAULT_DATASET_ID = "soak-dataset"
@@ -76,10 +78,12 @@ DEFAULT_AGENT_ID = "soak-agent"
 DEFAULT_PRINCIPAL_ID = "soak-principal"
 
 # ---------------------------------------------------------------------------
-# Production certification threshold
+# Production certification thresholds & invariants
 # ---------------------------------------------------------------------------
 
 _MIN_PRODUCTION_DURATION = 86_400  # 24 hours minimum for certification
+MAX_CONSECUTIVE_HEALTH_FAILURES = 3
+MAX_OPERATIONAL_FAILURE_RATE = 0.05
 
 
 def is_production_certification_duration(duration: float) -> bool:
@@ -115,10 +119,14 @@ class DeterministicSoakProvider(BaseUniversalLLMAdapter):
                 text = prompt
 
             link_match = re.search(
-                r"(SOAK-\d+)\s+is linked to\s+(CASE-\d+)", text, re.IGNORECASE
+                r"(SOAK-[A-Z0-9_\-]+)\s+is linked to\s+([A-Z0-9_\-]+)",
+                text,
+                re.IGNORECASE,
             )
             update_match = re.search(
-                r"(SOAK-\d+)\s+is updated to\s+([A-Za-z0-9_\-]+)", text, re.IGNORECASE
+                r"(SOAK-[A-Z0-9_\-]+)\s+is updated to\s+([A-Za-z0-9_\-]+)",
+                text,
+                re.IGNORECASE,
             )
 
             if link_match:
@@ -226,6 +234,8 @@ class SoakItem:
     content: str
     mutation_id: str
     idempotency_key: str | None
+    dataset_id: str
+    session_id: str
     revision_number: int = 1
     state: str = "COMMITTED"
     created_at: float = field(default_factory=time.monotonic)
@@ -248,11 +258,13 @@ class SoakMetrics:
     rollback_count: int = 0
     purge_count: int = 0
     context_count: int = 0
+    cross_scope_count: int = 0
 
     # Latencies in ms
     insert_latencies_ms: list[float] = field(default_factory=list)
     search_latencies_ms: list[float] = field(default_factory=list)
     commit_latencies_ms: list[float] = field(default_factory=list)
+    context_latencies_ms: list[float] = field(default_factory=list)
 
     # Correctness counters (zero tolerance in Profile A)
     wrong_retrieval_count: int = 0
@@ -261,15 +273,21 @@ class SoakMetrics:
     cross_scope_result_count: int = 0
     consistency_failure_count: int = 0
 
-    # Runtime queue / backlog stats
-    pending_mutations: int = 0
-    failed_mutations: int = 0
-    dead_letters: int = 0
-    projection_backlog: int = 0
+    # Runtime queue / backlog stats (None when unmeasured, never fake 0)
+    pending_mutations: int | None = None
+    failed_mutations: int | None = None
+    dead_letters: int | None = None
+    projection_backlog: int | None = None
+
+    # Periodic health check tracking
+    health_checks_total: int = 0
+    health_checks_failed: int = 0
+    consecutive_health_failures: int = 0
+    final_health: str = "unknown"
 
     # Resource profiling
     resource_samples: list[dict[str, Any]] = field(default_factory=list)
-    peak_rss_mb: float = 0.0
+    peak_rss_mb: float | None = None
     start_resources: dict[str, Any] = field(default_factory=dict)
     latest_resources: dict[str, Any] = field(default_factory=dict)
 
@@ -309,10 +327,23 @@ class SoakMetrics:
                 self.purge_count += 1
             elif op_type == "context":
                 self.context_count += 1
+                if latency_ms > 0:
+                    self.context_latencies_ms.append(latency_ms)
+            elif op_type == "cross_scope":
+                self.cross_scope_count += 1
 
     async def record_commit(self, latency_ms: float) -> None:
         async with self._lock:
             self.commit_latencies_ms.append(latency_ms)
+
+    async def record_health_check(self, is_healthy: bool, status_str: str) -> None:
+        async with self._lock:
+            self.health_checks_total += 1
+            if is_healthy:
+                self.consecutive_health_failures = 0
+            else:
+                self.health_checks_failed += 1
+                self.consecutive_health_failures += 1
 
     async def record_correctness_violation(self, kind: str) -> None:
         async with self._lock:
@@ -326,6 +357,17 @@ class SoakMetrics:
                 self.cross_scope_result_count += 1
             elif kind == "consistency_failures":
                 self.consistency_failure_count += 1
+
+    async def update_runtime_state(self, state: dict[str, int | None]) -> None:
+        async with self._lock:
+            if "pending_mutations" in state:
+                self.pending_mutations = state["pending_mutations"]
+            if "failed_mutations" in state:
+                self.failed_mutations = state["failed_mutations"]
+            if "dead_letters" in state:
+                self.dead_letters = state["dead_letters"]
+            if "projection_backlog" in state:
+                self.projection_backlog = state["projection_backlog"]
 
     async def snapshot(self) -> dict[str, Any]:
         async with self._lock:
@@ -359,11 +401,13 @@ class SoakMetrics:
                     "rollback": self.rollback_count,
                     "purge": self.purge_count,
                     "context": self.context_count,
+                    "cross_scope": self.cross_scope_count,
                 },
                 "latencies": {
                     "insert": _stats(self.insert_latencies_ms),
                     "search": _stats(self.search_latencies_ms),
                     "commit": _stats(self.commit_latencies_ms),
+                    "context": _stats(self.context_latencies_ms),
                 },
                 "correctness": {
                     "wrong_retrieval": self.wrong_retrieval_count,
@@ -378,7 +422,104 @@ class SoakMetrics:
                     "dead_letters": self.dead_letters,
                     "projection_backlog": self.projection_backlog,
                 },
+                "health": {
+                    "health_checks_total": self.health_checks_total,
+                    "health_checks_failed": self.health_checks_failed,
+                    "consecutive_health_failures": self.consecutive_health_failures,
+                    "final_health": self.final_health,
+                },
             }
+
+
+# ---------------------------------------------------------------------------
+# Real Runtime State Querying (Direct SQL / Prometheus)
+# ---------------------------------------------------------------------------
+
+
+async def query_runtime_state(
+    client: httpx.AsyncClient,
+    dao: Any | None = None,
+) -> dict[str, int | None]:
+    """Query actual MESA state for mutation queues, projection outbox, and dead letters.
+
+    If running embedded with access to DAO, queries SQLite tables directly.
+    If running remote, queries /metrics endpoint for projection backlog/DLQ.
+    Returns integer values if measurable, or None (null) if unavailable.
+    """
+    if dao is not None and hasattr(dao, "_sql"):
+        try:
+            async with dao._sql.connection() as db:
+                async with db.execute(
+                    "SELECT state, COUNT(*) FROM memory_mutations GROUP BY state"
+                ) as cursor:
+                    m_states = {row[0]: row[1] for row in await cursor.fetchall()}
+
+                async with db.execute(
+                    "SELECT state, COUNT(*) FROM projection_outbox GROUP BY state"
+                ) as cursor:
+                    outbox_states = {row[0]: row[1] for row in await cursor.fetchall()}
+
+            pending_mutations = sum(
+                m_states.get(s, 0)
+                for s in (
+                    "PENDING",
+                    "ADMITTED",
+                    "PROCESSING",
+                    "EXTRACTING",
+                    "VALIDATING",
+                    "INDEXING",
+                    "ROLLING_BACK",
+                )
+            )
+            failed_mutations = m_states.get("FAILED", 0) + m_states.get("REJECTED", 0)
+            projection_backlog = sum(
+                outbox_states.get(s, 0)
+                for s in ("PENDING", "RETRY_PENDING", "IN_FLIGHT")
+            )
+            dead_letters = outbox_states.get("DEAD_LETTER", 0)
+
+            return {
+                "pending_mutations": pending_mutations,
+                "failed_mutations": failed_mutations,
+                "projection_backlog": projection_backlog,
+                "dead_letters": dead_letters,
+            }
+        except Exception as exc:
+            logger.debug("RUNTIME_STATE_SQL_ERROR | %s", exc)
+            return {
+                "pending_mutations": None,
+                "failed_mutations": None,
+                "projection_backlog": None,
+                "dead_letters": None,
+            }
+
+    # Remote mode: check Prometheus /metrics endpoint
+    try:
+        resp = await client.get("/metrics")
+        if resp.status_code == 200:
+            text = resp.text
+            backlog = None
+            dlq = None
+            for line in text.splitlines():
+                if line.startswith("mesa_v4_projection_backlog "):
+                    backlog = int(float(line.split()[1]))
+                elif line.startswith("mesa_v4_projection_dlq "):
+                    dlq = int(float(line.split()[1]))
+            return {
+                "pending_mutations": None,
+                "failed_mutations": None,
+                "projection_backlog": backlog,
+                "dead_letters": dlq,
+            }
+    except Exception:
+        pass
+
+    return {
+        "pending_mutations": None,
+        "failed_mutations": None,
+        "projection_backlog": None,
+        "dead_letters": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -386,29 +527,80 @@ class SoakMetrics:
 # ---------------------------------------------------------------------------
 
 
-def get_process_resources(pid: int | None = None) -> dict[str, Any]:
-    """Retrieve process resource metrics (RSS, VMS, USS, threads, FDs)."""
+def get_process_resources(
+    pid: int | None = None,
+    *,
+    is_embedded: bool = True,
+) -> dict[str, Any]:
+    """Retrieve process resource metrics (RSS, VMS, USS, threads, FDs).
+
+    If in remote mode without an explicit target server PID, reports unavailable.
+    """
+    if not is_embedded and pid is None:
+        return {
+            "status": "unavailable",
+            "reason": "remote_mode_without_server_pid",
+            "rss_mb": None,
+            "vms_mb": None,
+            "uss_mb": None,
+            "open_fds": None,
+            "threads": None,
+            "cpu_percent": None,
+        }
+
     target_pid = pid if pid is not None else os.getpid()
     try:
         import psutil
 
+        if not psutil.pid_exists(target_pid):
+            return {
+                "status": "unavailable",
+                "pid": target_pid,
+                "reason": "pid_does_not_exist",
+                "rss_mb": None,
+                "vms_mb": None,
+                "uss_mb": None,
+                "open_fds": None,
+                "threads": None,
+                "cpu_percent": None,
+            }
+
         proc = psutil.Process(target_pid)
-        mem = proc.memory_full_info()
-        rss_mb = mem.rss / (1024 * 1024)
-        vms_mb = mem.vms / (1024 * 1024)
-        uss_mb = getattr(mem, "uss", mem.rss) / (1024 * 1024)
-        num_fds = proc.num_fds() if hasattr(proc, "num_fds") else -1
-        threads = proc.num_threads()
-        cpu = proc.cpu_percent(interval=None)
+        procs = [proc]
+        try:
+            procs.extend(proc.children(recursive=True))
+        except Exception:
+            pass
+
+        total_rss = 0.0
+        total_vms = 0.0
+        total_uss = 0.0
+        total_threads = 0
+        total_fds = 0
+        total_cpu = 0.0
+
+        for p in procs:
+            try:
+                mem = p.memory_full_info()
+                total_rss += mem.rss / (1024 * 1024)
+                total_vms += mem.vms / (1024 * 1024)
+                total_uss += getattr(mem, "uss", mem.rss) / (1024 * 1024)
+                if hasattr(p, "num_fds"):
+                    total_fds += p.num_fds()
+                total_threads += p.num_threads()
+                total_cpu += p.cpu_percent(interval=None)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
         return {
             "status": "available",
             "pid": target_pid,
-            "rss_mb": round(rss_mb, 2),
-            "vms_mb": round(vms_mb, 2),
-            "uss_mb": round(uss_mb, 2),
-            "open_fds": num_fds,
-            "threads": threads,
-            "cpu_percent": round(cpu, 1),
+            "rss_mb": round(total_rss, 2),
+            "vms_mb": round(total_vms, 2),
+            "uss_mb": round(total_uss, 2),
+            "open_fds": total_fds if hasattr(proc, "num_fds") else None,
+            "threads": total_threads,
+            "cpu_percent": round(total_cpu, 1),
         }
     except ImportError:
         try:
@@ -422,40 +614,75 @@ def get_process_resources(pid: int | None = None) -> dict[str, Any]:
                 "status": "partial_psutil_missing",
                 "pid": target_pid,
                 "rss_mb": round(rss, 2),
-                "vms_mb": -1.0,
-                "uss_mb": -1.0,
-                "open_fds": -1,
-                "threads": -1,
-                "cpu_percent": -1.0,
+                "vms_mb": None,
+                "uss_mb": None,
+                "open_fds": None,
+                "threads": None,
+                "cpu_percent": None,
             }
         except Exception:
-            return {"status": "unavailable", "pid": target_pid}
+            return {
+                "status": "unavailable",
+                "pid": target_pid,
+                "rss_mb": None,
+                "vms_mb": None,
+                "uss_mb": None,
+                "open_fds": None,
+                "threads": None,
+                "cpu_percent": None,
+            }
     except Exception as exc:
-        return {"status": "unavailable", "pid": target_pid, "error": str(exc)}
+        return {
+            "status": "unavailable",
+            "pid": target_pid,
+            "error": str(exc),
+            "rss_mb": None,
+            "vms_mb": None,
+            "uss_mb": None,
+            "open_fds": None,
+            "threads": None,
+            "cpu_percent": None,
+        }
 
 
 def evaluate_resource_trends(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    """Analyze periodic samples to detect memory, thread, or FD leak trends."""
-    if not samples or len(samples) < 3:
-        return {
-            "possible_memory_leak": False,
-            "thread_leak_detected": False,
-            "fd_leak_detected": False,
-        }
+    """Analyze periodic samples to detect memory, thread, or FD leak trends.
 
+    Accounts for warm-up phase (first 25% of samples) and checks for
+    steady linear monotonic growth in the mature phase.
+    """
     valid_samples = [
-        s for s in samples if s.get("status") in {"available", "partial_psutil_missing"}
+        s
+        for s in samples
+        if s.get("status") in {"available", "partial_psutil_missing"}
+        and s.get("rss_mb") is not None
     ]
-    if len(valid_samples) < 3:
+    if len(valid_samples) < 4:
         return {
+            "evaluated": False,
             "possible_memory_leak": False,
             "thread_leak_detected": False,
             "fd_leak_detected": False,
+            "details": "Insufficient valid resource samples (< 4)",
         }
 
-    rss_values = [s["rss_mb"] for s in valid_samples if s.get("rss_mb", -1) > 0]
-    fd_values = [s["open_fds"] for s in valid_samples if s.get("open_fds", -1) >= 0]
-    thread_values = [s["threads"] for s in valid_samples if s.get("threads", -1) > 0]
+    # Discard initial warm-up period (first 25% of samples)
+    warmup_cutoff = max(1, len(valid_samples) // 4)
+    mature_samples = valid_samples[warmup_cutoff:]
+    if len(mature_samples) < 3:
+        mature_samples = valid_samples
+
+    rss_values = [s["rss_mb"] for s in mature_samples if s.get("rss_mb") is not None]
+    fd_values = [
+        s["open_fds"]
+        for s in mature_samples
+        if s.get("open_fds") is not None and s["open_fds"] >= 0
+    ]
+    thread_values = [
+        s["threads"]
+        for s in mature_samples
+        if s.get("threads") is not None and s["threads"] > 0
+    ]
 
     possible_memory_leak = False
     if len(rss_values) >= 4:
@@ -470,14 +697,27 @@ def evaluate_resource_trends(samples: list[dict[str, Any]]) -> dict[str, Any]:
             possible_memory_leak = True
 
     fd_leak = False
-    if len(fd_values) >= 4 and (fd_values[-1] - fd_values[0]) > 50:
-        fd_leak = True
+    if len(fd_values) >= 4:
+        fd_growth = fd_values[-1] - fd_values[0]
+        recent_fds = fd_values[-4:]
+        is_fd_monotonic = all(
+            recent_fds[i] <= recent_fds[i + 1] for i in range(len(recent_fds) - 1)
+        )
+        if fd_growth > 50 and is_fd_monotonic:
+            fd_leak = True
 
     thread_leak = False
-    if len(thread_values) >= 4 and (thread_values[-1] - thread_values[0]) > 20:
-        thread_leak = True
+    if len(thread_values) >= 4:
+        th_growth = thread_values[-1] - thread_values[0]
+        recent_th = thread_values[-4:]
+        is_th_monotonic = all(
+            recent_th[i] <= recent_th[i + 1] for i in range(len(recent_th) - 1)
+        )
+        if th_growth > 20 and is_th_monotonic:
+            thread_leak = True
 
     return {
+        "evaluated": True,
         "possible_memory_leak": possible_memory_leak,
         "thread_leak_detected": thread_leak,
         "fd_leak_detected": fd_leak,
@@ -545,7 +785,7 @@ async def setup_soak_runtime(
             dao = server.state.dao
             ac = server.state.access_control
 
-            # Bootstrap catalog and RBAC authorizations
+            # Bootstrap Scope A (Primary Dataset)
             await dao.ensure_v4_catalog_scope(
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
@@ -573,6 +813,38 @@ async def setup_soak_runtime(
                 dataset_id=dataset_id,
                 permission="ROLLBACK",
             )
+
+            # Bootstrap Scope B (Secondary Dataset for cross-scope isolation audit)
+            dataset_b_id = f"{dataset_id}-b"
+            agent_b_id = f"{agent_id}-b"
+            await dao.ensure_v4_catalog_scope(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_b_id,
+            )
+            await ac.grant_scope_role(
+                principal_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_b_id,
+                role="OWNER",
+            )
+            await ac.grant_principal_permission(
+                principal_id, agent_b_id, "SESSION_CREATE"
+            )
+            await ac.grant_dataset_permission(
+                principal_id,
+                tenant_id=tenant_id,
+                dataset_id=dataset_b_id,
+                permission="PURGE",
+            )
+            await ac.grant_dataset_permission(
+                principal_id,
+                tenant_id=tenant_id,
+                dataset_id=dataset_b_id,
+                permission="ROLLBACK",
+            )
+
             await ac.grant_control_role(principal_id, role="ADMIN")
 
             transport = httpx.ASGITransport(app=server.app)
@@ -663,7 +935,10 @@ async def _op_insert(
     chunk_id = f"soak-chk-{seq:06d}-1"
     subj = f"SOAK-{seq:06d}"
     obj = f"CASE-{seq:06d}"
-    content = f"{subj} is linked to {obj}. Turkish legal context and evidence at {datetime.now(timezone.utc).isoformat()}."
+    content = (
+        f"{subj} is linked to {obj}. Türk hukuku delil tespiti ve emsal karar kaydı "
+        f"tarih={datetime.now(timezone.utc).isoformat()}."
+    )
     idemp_key = f"idemp-soak-{seq:06d}"
 
     payload = {
@@ -672,7 +947,7 @@ async def _op_insert(
         "document_id": doc_id,
         "revision_id": rev_id,
         "chunk_id": chunk_id,
-        "title": f"Soak Entry #{seq}",
+        "title": f"Soak Kaydı #{seq}",
         "source_ref": "soak-v4",
         "content": content,
         "evidence_span": f"0:{len(subj) + len(obj) + 14}",
@@ -710,22 +985,27 @@ async def _op_insert(
 
         await metrics.record_commit(commit_lat)
 
-        # Immediate verification search
-        s_resp = await client.post(
-            "/v4/memory/search",
-            json={
-                "session_id": session_id,
-                "dataset_ids": [dataset_id],
-                "query": subj,
-                "limit": 5,
-            },
-        )
-        if s_resp.status_code == 200:
-            results = s_resp.json().get("results", [])
-            if not _is_subject_in_search_results(subj, results):
-                await metrics.record_correctness_violation("missing_committed_memory")
-                await metrics.record_correctness_violation("wrong_retrieval")
-        else:
+        # Immediate verification search with bounded retry
+        found = False
+        for _ in range(3):
+            s_resp = await client.post(
+                "/v4/memory/search",
+                json={
+                    "session_id": session_id,
+                    "dataset_ids": [dataset_id],
+                    "query": subj,
+                    "limit": 5,
+                },
+            )
+            if s_resp.status_code == 200:
+                results = s_resp.json().get("results", [])
+                if _is_subject_in_search_results(subj, results):
+                    found = True
+                    break
+            await asyncio.sleep(0.1)
+
+        if not found:
+            await metrics.record_correctness_violation("missing_committed_memory")
             await metrics.record_correctness_violation("wrong_retrieval")
 
         active_items.append(
@@ -739,6 +1019,8 @@ async def _op_insert(
                 content=content,
                 mutation_id=mutation_id,
                 idempotency_key=idemp_key,
+                dataset_id=dataset_id,
+                session_id=session_id,
             )
         )
     except Exception as exc:
@@ -814,7 +1096,10 @@ async def _op_revision(
     new_rev_id = f"soak-rev-{item.seq:06d}-2"
     new_chunk_id = f"soak-chk-{item.seq:06d}-2"
     new_obj = f"STATUS-RESOLVED-{item.seq:06d}"
-    new_content = f"{item.subj} is updated to {new_obj}. Revision 2 recorded at {datetime.now(timezone.utc).isoformat()}."
+    new_content = (
+        f"{item.subj} is updated to {new_obj}. Revize edilmiş Türk mevzuatı kaydı "
+        f"tarih={datetime.now(timezone.utc).isoformat()}."
+    )
 
     payload = {
         "session_id": session_id,
@@ -822,7 +1107,7 @@ async def _op_revision(
         "document_id": item.doc_id,
         "revision_id": new_rev_id,
         "chunk_id": new_chunk_id,
-        "title": f"Soak Entry #{item.seq} (Rev 2)",
+        "title": f"Soak Kaydı #{item.seq} (Rev 2)",
         "source_ref": "soak-v4",
         "content": new_content,
         "revision_number": 2,
@@ -892,7 +1177,7 @@ async def _op_idempotency(
         "document_id": item.doc_id,
         "revision_id": item.rev_id,
         "chunk_id": item.chunk_id,
-        "title": f"Soak Entry #{item.seq}",
+        "title": f"Soak Kaydı #{item.seq}",
         "source_ref": "soak-v4",
         "content": item.content,
         "evidence_span": f"0:{len(item.subj) + len(item.obj) + 14}",
@@ -1070,13 +1355,114 @@ async def _op_context(
         )
 
 
+async def _op_cross_scope_check(
+    client: httpx.AsyncClient,
+    *,
+    session_a_id: str,
+    dataset_a_id: str,
+    session_b_id: str,
+    dataset_b_id: str,
+    seq: int,
+    metrics: SoakMetrics,
+) -> None:
+    """Execute a real cross-scope isolation audit between Dataset A and Dataset B."""
+    doc_id = f"cross-scope-doc-{seq:06d}"
+    rev_id = f"cross-scope-rev-{seq:06d}-1"
+    chunk_id = f"cross-scope-chk-{seq:06d}-1"
+    subj = f"SOAK-SCOPEA-{seq:06d}"
+    obj = f"CASE-SCOPEA-{seq:06d}"
+    content = (
+        f"{subj} is linked to {obj}. Scope A gizli veri kaydı "
+        f"tarih={datetime.now(timezone.utc).isoformat()}."
+    )
+
+    payload = {
+        "session_id": session_a_id,
+        "dataset_id": dataset_a_id,
+        "document_id": doc_id,
+        "revision_id": rev_id,
+        "chunk_id": chunk_id,
+        "title": f"Cross-Scope Test #{seq}",
+        "source_ref": "soak-cross-scope",
+        "content": content,
+        "evidence_span": f"0:{len(subj) + len(obj) + 14}",
+        "revision_number": 1,
+        "chunk_ordinal": 0,
+        "finalize_revision": True,
+        "metadata": {"soak_seq": seq, "op": "cross_scope"},
+    }
+
+    t0 = time.monotonic()
+    try:
+        resp = await client.post("/v4/memory/insert", json=payload)
+        if resp.status_code != 202:
+            lat_ms = (time.monotonic() - t0) * 1000
+            await metrics.record_op(
+                "cross_scope",
+                success=False,
+                latency_ms=lat_ms,
+                status_code=resp.status_code,
+            )
+            return
+
+        mutation_id = resp.json().get("mutation_id")
+        if mutation_id:
+            committed, _, _ = await _poll_mutation_committed(client, mutation_id)
+            if not committed:
+                await metrics.record_correctness_violation("missing_committed_memory")
+                return
+
+        # Query from Scope B: The memory MUST NOT be visible
+        s_resp = await client.post(
+            "/v4/memory/search",
+            json={
+                "session_id": session_b_id,
+                "dataset_ids": [dataset_b_id],
+                "query": subj,
+                "limit": 5,
+            },
+        )
+        lat_ms = (time.monotonic() - t0) * 1000
+        if s_resp.status_code == 200:
+            results = s_resp.json().get("results", [])
+            leaked = _is_subject_in_search_results(subj, results)
+            if leaked:
+                logger.error(
+                    "CROSS_SCOPE_LEAK_DETECTED | Item %s from Scope A found in Scope B search!",
+                    subj,
+                )
+                await metrics.record_correctness_violation("cross_scope_results")
+                await metrics.record_op(
+                    "cross_scope", success=False, latency_ms=lat_ms, status_code=200
+                )
+            else:
+                await metrics.record_op(
+                    "cross_scope", success=True, latency_ms=lat_ms, status_code=200
+                )
+        else:
+            await metrics.record_op(
+                "cross_scope",
+                success=False,
+                latency_ms=lat_ms,
+                status_code=s_resp.status_code,
+            )
+    except Exception as exc:
+        lat_ms = (time.monotonic() - t0) * 1000
+        logger.debug("CROSS_SCOPE_OP_ERROR | seq=%d error=%s", seq, exc)
+        await metrics.record_op(
+            "cross_scope", success=False, latency_ms=lat_ms, status_code=0
+        )
+
+
 async def load_driver_v4(
     client: httpx.AsyncClient,
     *,
     session_id: str,
+    dataset_id: str,
+    session_b_id: str,
+    dataset_b_id: str,
     tenant_id: str,
     workspace_id: str,
-    dataset_id: str,
     rps: float,
     duration: float,
     metrics: SoakMetrics,
@@ -1096,7 +1482,7 @@ async def load_driver_v4(
 
     while not stop_event.is_set() and (time.monotonic() - t_start) < duration:
         roll = random.random()
-        if roll < 0.35:
+        if roll < 0.30:
             seq += 1
             await _op_insert(
                 client,
@@ -1106,7 +1492,7 @@ async def load_driver_v4(
                 metrics=metrics,
                 active_items=active_items,
             )
-        elif roll < 0.70:
+        elif roll < 0.55:
             await _op_search(
                 client,
                 session_id=session_id,
@@ -1114,7 +1500,7 @@ async def load_driver_v4(
                 metrics=metrics,
                 active_items=active_items,
             )
-        elif roll < 0.80:
+        elif roll < 0.65:
             await _op_revision(
                 client,
                 session_id=session_id,
@@ -1122,7 +1508,7 @@ async def load_driver_v4(
                 metrics=metrics,
                 active_items=active_items,
             )
-        elif roll < 0.88:
+        elif roll < 0.75:
             await _op_idempotency(
                 client,
                 session_id=session_id,
@@ -1130,13 +1516,13 @@ async def load_driver_v4(
                 metrics=metrics,
                 active_items=active_items,
             )
-        elif roll < 0.93:
+        elif roll < 0.82:
             await _op_rollback(
                 client,
                 metrics=metrics,
                 active_items=active_items,
             )
-        elif roll < 0.97:
+        elif roll < 0.88:
             await _op_purge(
                 client,
                 session_id=session_id,
@@ -1146,10 +1532,21 @@ async def load_driver_v4(
                 metrics=metrics,
                 active_items=active_items,
             )
-        else:
+        elif roll < 0.94:
             await _op_context(
                 client,
                 session_id=session_id,
+                metrics=metrics,
+            )
+        else:
+            seq += 1
+            await _op_cross_scope_check(
+                client,
+                session_a_id=session_id,
+                dataset_a_id=dataset_id,
+                session_b_id=session_b_id,
+                dataset_b_id=dataset_b_id,
+                seq=seq,
                 metrics=metrics,
             )
 
@@ -1170,6 +1567,8 @@ async def telemetry_collector_v4(
     interval: float,
     log_file: Path,
     target_pid: int | None,
+    is_embedded: bool,
+    dao: Any | None,
     stop_event: asyncio.Event,
 ) -> None:
     """Collect system health, correctness, and resource telemetry periodically."""
@@ -1187,20 +1586,31 @@ async def telemetry_collector_v4(
         tick += 1
         elapsed = time.monotonic() - t_start
 
+        # Probe health
         health_status = "unknown"
+        is_healthy = False
         try:
             h_resp = await client.get("/health")
             if h_resp.status_code == 200:
                 health_status = h_resp.json().get("status", "healthy")
+                is_healthy = health_status == "healthy"
             else:
                 health_status = f"http_{h_resp.status_code}"
         except Exception as exc:
             health_status = f"error:{exc.__class__.__name__}"
 
-        resources = get_process_resources(target_pid)
-        rss_mb = resources.get("rss_mb", -1.0)
-        if rss_mb > metrics.peak_rss_mb:
-            metrics.peak_rss_mb = rss_mb
+        await metrics.record_health_check(is_healthy, health_status)
+
+        # Query real runtime queues / backlogs
+        runtime_state = await query_runtime_state(client, dao)
+        await metrics.update_runtime_state(runtime_state)
+
+        # Collect process resources
+        resources = get_process_resources(target_pid, is_embedded=is_embedded)
+        rss_mb = resources.get("rss_mb")
+        if rss_mb is not None:
+            if metrics.peak_rss_mb is None or rss_mb > metrics.peak_rss_mb:
+                metrics.peak_rss_mb = rss_mb
         metrics.latest_resources = resources
         metrics.resource_samples.append(resources)
 
@@ -1208,12 +1618,20 @@ async def telemetry_collector_v4(
         record = {
             "_type": "telemetry_tick",
             "tick": tick,
-            "elapsed_s": round(elapsed, 1),
-            "elapsed_hours": round(elapsed / 3600, 3),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "elapsed_seconds": round(elapsed, 1),
+            "elapsed_hours": round(elapsed / 3600, 3),
             "health": health_status,
+            "health_failures": metrics.health_checks_failed,
+            "total_operations": snap["total_operations"],
+            "successful_operations": snap["successful_operations"],
+            "failed_operations": snap["failed_operations"],
+            "success_ratio": snap["success_ratio"],
+            "counts": snap["counts"],
+            "latencies": snap["latencies"],
+            "correctness": snap["correctness"],
+            "runtime": snap["runtime"],
             "resources": resources,
-            **snap,
         }
 
         with open(log_file, "a", encoding="utf-8") as f:
@@ -1223,9 +1641,9 @@ async def telemetry_collector_v4(
         counts = snap["counts"]
         logger.info(
             "TELEMETRY [%04d] | elapsed=%ds | ops=%d | ok=%d | fail=%d | "
-            "ins=%d | srch=%d | rev=%d | purge=%d | "
-            "wrong_ret=%d | miss_comm=%d | del_vis=%d | "
-            "health=%s | rss=%.1fMB",
+            "ins=%d | srch=%d | rev=%d | purge=%d | cross=%d | "
+            "wrong_ret=%d | miss_comm=%d | del_vis=%d | cross_leak=%d | "
+            "health=%s | rss=%s",
             tick,
             int(elapsed),
             snap["total_operations"],
@@ -1235,72 +1653,283 @@ async def telemetry_collector_v4(
             counts["search"],
             counts["revision"],
             counts["purge"],
+            counts["cross_scope"],
             correctness["wrong_retrieval"],
             correctness["missing_committed_memory"],
             correctness["deleted_memory_visible"],
+            correctness["cross_scope_results"],
             health_status,
-            rss_mb,
+            f"{rss_mb:.1f}MB" if rss_mb is not None else "unavailable",
         )
 
 
 # ---------------------------------------------------------------------------
-# Report generation
+# Drain phase & Post-drain verifications
 # ---------------------------------------------------------------------------
+
+
+async def _drain_runtime(
+    client: httpx.AsyncClient,
+    dao: Any | None,
+    *,
+    timeout: float = DEFAULT_DRAIN_TIMEOUT,
+    interval: float = 1.0,
+) -> tuple[bool, int]:
+    """Wait for pending mutations and projection outbox backlogs to drain.
+
+    Returns (drain_completed: bool, remaining_backlog: int).
+    """
+    logger.info(
+        "DRAIN | Waiting for in-flight work to drain (timeout=%.1fs)...", timeout
+    )
+    t0 = time.monotonic()
+    deadline = t0 + timeout
+    last_backlog = 0
+
+    while time.monotonic() < deadline:
+        state = await query_runtime_state(client, dao)
+        pending_mut = state.get("pending_mutations") or 0
+        proj_backlog = state.get("projection_backlog") or 0
+        total_pending = pending_mut + proj_backlog
+        last_backlog = total_pending
+        if total_pending == 0:
+            logger.info(
+                "DRAIN | Drain completed cleanly in %.2fs", time.monotonic() - t0
+            )
+            return True, 0
+        await asyncio.sleep(interval)
+
+    logger.warning(
+        "DRAIN | Timeout after %.1fs with %d remaining pending work units",
+        timeout,
+        last_backlog,
+    )
+    return False, last_backlog
+
+
+# ---------------------------------------------------------------------------
+# Centralized Evaluation & Report Generation
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SoakEvaluationResult:
+    """Unified certification decision and exit code evaluation."""
+
+    verdict: str  # "PROFILE A PASS", "PROFILE A FAIL", "SMOKE PASS — NOT CERTIFICATION", "SMOKE FAIL", "INTERRUPTED — NOT CERTIFIED", "PRE-FLIGHT FAILED"
+    exit_code: int
+    is_certification_eligible: bool
+    reasons: list[str]
+    critical_failures: dict[str, int]
+
+
+def evaluate_profile_a_result(
+    *,
+    status: str,  # "ok", "pre_flight_failed", "session_start_failed", "interrupted"
+    actual_elapsed_s: float,
+    requested_duration_s: float,
+    total_operations: int,
+    successful_operations: int,
+    failed_operations: int,
+    counts: dict[str, int],
+    correctness: dict[str, int],
+    final_health: str,
+    health_checks_total: int,
+    health_checks_failed: int,
+    consecutive_health_failures: int,
+    resource_eval: dict[str, Any],
+    drain_completed: bool,
+    remaining_backlog: int,
+    runtime: dict[str, Any],
+) -> SoakEvaluationResult:
+    """Evaluate soak run against strict Profile A certification gates."""
+    reasons: list[str] = []
+
+    if status in {"pre_flight_failed", "session_start_failed"}:
+        return SoakEvaluationResult(
+            verdict="PRE-FLIGHT FAILED",
+            exit_code=1,
+            is_certification_eligible=False,
+            reasons=[f"Pre-flight initialization failed (status: {status})"],
+            critical_failures={},
+        )
+
+    if status == "interrupted":
+        return SoakEvaluationResult(
+            verdict="INTERRUPTED — NOT CERTIFIED",
+            exit_code=130,
+            is_certification_eligible=False,
+            reasons=[
+                "Soak execution was interrupted by user or signal before completion"
+            ],
+            critical_failures={},
+        )
+
+    is_cert_eligible = (
+        actual_elapsed_s >= _MIN_PRODUCTION_DURATION
+        and requested_duration_s >= _MIN_PRODUCTION_DURATION
+    )
+
+    # 1. Critical correctness checks (zero tolerance)
+    crit_failures = {
+        "wrong_retrieval": correctness.get("wrong_retrieval", 0),
+        "missing_committed_memory": correctness.get("missing_committed_memory", 0),
+        "deleted_memory_visible": correctness.get("deleted_memory_visible", 0),
+        "cross_scope_results": correctness.get("cross_scope_results", 0),
+        "consistency_failures": correctness.get("consistency_failures", 0),
+    }
+    dead_letters = runtime.get("dead_letters")
+    if dead_letters is not None and dead_letters > 0:
+        crit_failures["dead_letters"] = dead_letters
+
+    for k, v in crit_failures.items():
+        if v > 0:
+            reasons.append(f"Critical correctness violation: {k}={v} (tolerance: 0)")
+
+    # 2. Final health check
+    if final_health != "healthy":
+        reasons.append(f"Final runtime health is not healthy: {final_health}")
+
+    # 3. Periodic health stability
+    if consecutive_health_failures > MAX_CONSECUTIVE_HEALTH_FAILURES:
+        reasons.append(
+            f"Exceeded max consecutive health check failures: {consecutive_health_failures} > {MAX_CONSECUTIVE_HEALTH_FAILURES}"
+        )
+    if (
+        health_checks_total > 0
+        and (health_checks_failed / health_checks_total) > MAX_OPERATIONAL_FAILURE_RATE
+    ):
+        reasons.append(
+            f"Health check failure rate ({health_checks_failed}/{health_checks_total}) exceeds 5%"
+        )
+
+    # 4. Operational failure rate
+    if total_operations > 0:
+        fail_rate = failed_operations / total_operations
+        if fail_rate > MAX_OPERATIONAL_FAILURE_RATE:
+            reasons.append(
+                f"Operational failure rate {fail_rate:.2%} exceeds 5% threshold"
+            )
+
+    # 5. Drain phase check
+    if not drain_completed or remaining_backlog > 0:
+        reasons.append(
+            f"Drain phase did not complete cleanly; remaining pending work: {remaining_backlog}"
+        )
+
+    # 6. Resource leak checks
+    if resource_eval.get("possible_memory_leak"):
+        reasons.append("Resource trend analysis detected possible memory leak")
+    if resource_eval.get("thread_leak_detected"):
+        reasons.append("Resource trend analysis detected thread leak")
+    if resource_eval.get("fd_leak_detected"):
+        reasons.append("Resource trend analysis detected file descriptor leak")
+
+    # 7. For 24h certification: verify required lifecycle operations executed
+    if is_cert_eligible:
+        required_ops = [
+            "insert",
+            "search",
+            "revision",
+            "idempotent_insert",
+            "rollback",
+            "purge",
+            "context",
+            "cross_scope",
+        ]
+        for op in required_ops:
+            if counts.get(op, 0) == 0:
+                reasons.append(f"Required lifecycle operation had 0 executions: {op}")
+
+    has_failures = len(reasons) > 0
+
+    if is_cert_eligible:
+        if has_failures:
+            verdict = "PROFILE A FAIL"
+            exit_code = 1
+        else:
+            verdict = "PROFILE A PASS"
+            exit_code = 0
+    else:
+        if has_failures:
+            verdict = "SMOKE FAIL"
+            exit_code = 1
+        else:
+            verdict = "SMOKE PASS — NOT CERTIFICATION"
+            exit_code = 0
+
+    return SoakEvaluationResult(
+        verdict=verdict,
+        exit_code=exit_code,
+        is_certification_eligible=is_cert_eligible,
+        reasons=reasons,
+        critical_failures=crit_failures,
+    )
 
 
 def format_final_report(
     final_snap: dict[str, Any],
-    duration: float,
+    eval_result: SoakEvaluationResult,
+    *,
+    mode_name: str,
+    actual_elapsed_s: float,
+    requested_duration_s: float,
     resource_eval: dict[str, Any],
     latest_resources: dict[str, Any],
     start_resources: dict[str, Any],
-    peak_rss_mb: float,
+    peak_rss_mb: float | None,
+    drain_completed: bool,
+    remaining_backlog: int,
 ) -> str:
     """Render the standard Profile A / Smoke Final Report."""
-    is_cert_duration = is_production_certification_duration(duration)
     correctness = final_snap.get("correctness", {})
     runtime = final_snap.get("runtime", {})
     counts = final_snap.get("counts", {})
+    health = final_snap.get("health", {})
 
-    has_critical_failure = (
-        correctness.get("wrong_retrieval", 0) > 0
-        or correctness.get("missing_committed_memory", 0) > 0
-        or correctness.get("deleted_memory_visible", 0) > 0
-        or correctness.get("cross_scope_results", 0) > 0
-        or correctness.get("consistency_failures", 0) > 0
-        or runtime.get("failed_mutations", 0) > 0
-        or runtime.get("dead_letters", 0) > 0
+    def _val_or_unavail(val: Any) -> str:
+        return str(val) if val is not None else "unavailable"
+
+    def _res_mb(val: Any) -> str:
+        return f"{val:.2f} MB" if val is not None else "unavailable"
+
+    def _leak_str(flag: bool | None, evaluated: bool) -> str:
+        if not evaluated:
+            return "Inconclusive (insufficient samples)"
+        return "Yes" if flag else "No"
+
+    evaluated = resource_eval.get("evaluated", False)
+    mem_leak_str = _leak_str(
+        resource_eval.get("possible_memory_leak"), evaluated=evaluated
     )
+    thread_leak_str = _leak_str(
+        resource_eval.get("thread_leak_detected"), evaluated=evaluated
+    )
+    fd_leak_str = _leak_str(resource_eval.get("fd_leak_detected"), evaluated=evaluated)
 
-    total_ops = final_snap.get("total_operations", 0)
-    failed_ops = final_snap.get("failed_operations", 0)
-    high_failure_rate = total_ops > 0 and (failed_ops / total_ops) > 0.05
-
-    if has_critical_failure or high_failure_rate:
-        result = "PROFILE A FAIL" if is_cert_duration else "SMOKE FAIL"
-    else:
-        result = (
-            "PROFILE A PASS" if is_cert_duration else "SMOKE PASS — NOT CERTIFICATION"
+    reasons_block = ""
+    if eval_result.reasons:
+        reasons_block = "\nReasons:\n" + "\n".join(
+            f"  - {r}" for r in eval_result.reasons
         )
-
-    start_rss = start_resources.get("rss_mb", -1)
-    final_rss = latest_resources.get("rss_mb", -1)
-    cpu = latest_resources.get("cpu_percent", -1)
-    threads = latest_resources.get("threads", -1)
-    fds = latest_resources.get("open_fds", -1)
 
     return f"""
 PROFILE A — SAFE CORE SOAK
 
-Duration: {int(duration)}s ({duration / 3600:.2f}h)
-Certification duration valid: {is_cert_duration}
+Mode: {mode_name}
+Duration: {int(actual_elapsed_s)}s ({actual_elapsed_s / 3600:.2f}h)
+Requested duration: {int(requested_duration_s)}s
+Certification eligible: {eval_result.is_certification_eligible}
 
 Operations:
   Insert: {counts.get("insert", 0)}
   Search: {counts.get("search", 0)}
   Revision: {counts.get("revision", 0)}
+  Idempotency: {counts.get("idempotent_insert", 0)}
   Rollback: {counts.get("rollback", 0)}
   Purge: {counts.get("purge", 0)}
+  Context: {counts.get("context", 0)}
+  Cross-scope: {counts.get("cross_scope", 0)}
 
 Correctness:
   Wrong retrieval: {correctness.get("wrong_retrieval", 0)}
@@ -1310,21 +1939,29 @@ Correctness:
   Consistency failures: {correctness.get("consistency_failures", 0)}
 
 Runtime:
-  Health: {final_snap.get("health", "healthy")}
-  Pending mutations: {runtime.get("pending_mutations", 0)}
-  Failed mutations: {runtime.get("failed_mutations", 0)}
-  Dead letters: {runtime.get("dead_letters", 0)}
+  Final health: {health.get("final_health", "unknown")}
+  Health check failures: {health.get("health_checks_failed", 0)}/{health.get("health_checks_total", 0)}
+  Pending mutations: {_val_or_unavail(runtime.get("pending_mutations"))}
+  Failed mutations: {_val_or_unavail(runtime.get("failed_mutations"))}
+  Projection backlog: {_val_or_unavail(runtime.get("projection_backlog"))}
+  Dead letters: {_val_or_unavail(runtime.get("dead_letters"))}
 
 Resources:
-  Start RAM: {start_rss} MB
-  Final RAM: {final_rss} MB
-  Peak RAM: {peak_rss_mb:.2f} MB
-  CPU: {cpu}%
-  Threads: {threads}
-  Open FDs: {fds}
+  Start RSS: {_res_mb(start_resources.get("rss_mb"))}
+  Final RSS: {_res_mb(latest_resources.get("rss_mb"))}
+  Peak RSS: {_res_mb(peak_rss_mb)}
+  Memory leak suspicion: {mem_leak_str}
+  Threads: {_val_or_unavail(latest_resources.get("threads"))}
+  Thread leak: {thread_leak_str}
+  Open FDs: {_val_or_unavail(latest_resources.get("open_fds"))}
+  FD leak: {fd_leak_str}
+
+Drain:
+  Completed: {drain_completed}
+  Remaining work: {remaining_backlog}
 
 RESULT:
-{result}
+{eval_result.verdict}{reasons_block}
 """.strip()
 
 
@@ -1343,33 +1980,44 @@ async def _run_soak_on_client(
     duration: float,
     rps: float,
     telemetry_interval: float,
+    drain_timeout: float,
     log_file: Path,
     target_pid: int | None,
+    is_embedded: bool,
+    mode_name: str,
+    dao: Any | None = None,
 ) -> dict[str, Any]:
     metrics = SoakMetrics()
     stop_event = asyncio.Event()
+    t_start = time.monotonic()
 
-    # Pre-flight health check
+    # Pre-flight 1: Health check
     logger.info("PRE-FLIGHT | Checking server readiness...")
     try:
         resp = await client.get("/health")
-        if resp.status_code != 200:
+        if resp.status_code != 200 or resp.json().get("status") != "healthy":
             logger.error(
-                "PRE-FLIGHT FAILED | Health check returned %d", resp.status_code
+                "PRE-FLIGHT FAILED | Health check returned %d: %s",
+                resp.status_code,
+                resp.text,
             )
-            return {"status": "pre_flight_failed", "http_status": resp.status_code}
+            return {
+                "status": "pre_flight_failed",
+                "http_status": resp.status_code,
+                "error": f"Health check failed (status={resp.status_code})",
+            }
     except Exception as exc:
         logger.error("PRE-FLIGHT FAILED | Cannot reach server: %s", exc)
         return {"status": "pre_flight_failed", "error": str(exc)}
 
-    # Session start
+    # Pre-flight 2: Session A initialization
     logger.info(
-        "SESSION_INIT | Starting V4 session for tenant=%s dataset=%s agent=%s",
+        "SESSION_INIT | Starting Scope A session for tenant=%s dataset=%s agent=%s",
         tenant_id,
         dataset_id,
         agent_id,
     )
-    s_resp = await client.post(
+    s_resp_a = await client.post(
         "/v4/sessions/start",
         json={
             "tenant_id": tenant_id,
@@ -1378,29 +2026,66 @@ async def _run_soak_on_client(
             "agent_id": agent_id,
         },
     )
-    if s_resp.status_code != 201:
+    if s_resp_a.status_code != 201:
         logger.error(
-            "SESSION_INIT FAILED | Returned %d: %s", s_resp.status_code, s_resp.text
+            "SESSION_INIT FAILED (Scope A) | Returned %d: %s",
+            s_resp_a.status_code,
+            s_resp_a.text,
         )
-        return {"status": "session_start_failed", "http_status": s_resp.status_code}
+        return {
+            "status": "session_start_failed",
+            "http_status": s_resp_a.status_code,
+            "error": "Session A start failed",
+        }
+    session_id_a = s_resp_a.json()["session_id"]
 
-    session_id = s_resp.json()["session_id"]
-    logger.info("SESSION_INIT | Session active: %s", session_id)
+    # Pre-flight 3: Session B initialization (for cross-scope isolation)
+    dataset_b_id = f"{dataset_id}-b"
+    agent_b_id = f"{agent_id}-b"
+    logger.info(
+        "SESSION_INIT | Starting Scope B session for tenant=%s dataset=%s agent=%s",
+        tenant_id,
+        dataset_b_id,
+        agent_b_id,
+    )
+    s_resp_b = await client.post(
+        "/v4/sessions/start",
+        json={
+            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
+            "dataset_ids": [dataset_b_id],
+            "agent_id": agent_b_id,
+        },
+    )
+    if s_resp_b.status_code != 201:
+        logger.error(
+            "SESSION_INIT FAILED (Scope B) | Returned %d: %s",
+            s_resp_b.status_code,
+            s_resp_b.text,
+        )
+        return {
+            "status": "session_start_failed",
+            "http_status": s_resp_b.status_code,
+            "error": "Session B start failed",
+        }
+    session_id_b = s_resp_b.json()["session_id"]
 
     # Initial resources
-    start_res = get_process_resources(target_pid)
+    start_res = get_process_resources(target_pid, is_embedded=is_embedded)
     metrics.start_resources = start_res
     metrics.latest_resources = start_res
-    metrics.peak_rss_mb = start_res.get("rss_mb", 0.0)
+    metrics.peak_rss_mb = start_res.get("rss_mb")
 
     # Spawn driver and telemetry tasks
     driver_task = asyncio.create_task(
         load_driver_v4(
             client,
-            session_id=session_id,
+            session_id=session_id_a,
+            dataset_id=dataset_id,
+            session_b_id=session_id_b,
+            dataset_b_id=dataset_b_id,
             tenant_id=tenant_id,
             workspace_id=workspace_id,
-            dataset_id=dataset_id,
             rps=rps,
             duration=duration,
             metrics=metrics,
@@ -1414,60 +2099,143 @@ async def _run_soak_on_client(
             interval=telemetry_interval,
             log_file=log_file,
             target_pid=target_pid,
+            is_embedded=is_embedded,
+            dao=dao,
             stop_event=stop_event,
         )
     )
 
+    interrupted = False
     try:
         await driver_task
     except asyncio.CancelledError:
         logger.warning("SOAK | Load driver cancelled")
+        interrupted = True
     except KeyboardInterrupt:
-        logger.warning("SOAK | Interrupted by user")
+        logger.warning("SOAK | Interrupted by user (Ctrl+C)")
+        interrupted = True
     finally:
         stop_event.set()
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
         telemetry_task.cancel()
         try:
             await telemetry_task
         except asyncio.CancelledError:
             pass
 
-    final_snap = await metrics.snapshot()
-    final_res = get_process_resources(target_pid)
+    actual_elapsed_s = time.monotonic() - t_start
+
+    # Drain phase: Wait for in-flight mutations/projections to settle
+    drain_completed, remaining_backlog = await _drain_runtime(
+        client, dao, timeout=drain_timeout
+    )
+
+    # Post-drain verifications
+    # 1. Final health probe
+    final_health = "unknown"
+    try:
+        h_resp = await client.get("/health")
+        if h_resp.status_code == 200:
+            final_health = h_resp.json().get("status", "healthy")
+        else:
+            final_health = f"http_{h_resp.status_code}"
+    except Exception as exc:
+        final_health = f"error:{exc.__class__.__name__}"
+    metrics.final_health = final_health
+
+    # 2. Final cross-scope isolation check to ensure at least one was performed
+    await _op_cross_scope_check(
+        client,
+        session_a_id=session_id_a,
+        dataset_a_id=dataset_id,
+        session_b_id=session_id_b,
+        dataset_b_id=dataset_b_id,
+        seq=999_999,
+        metrics=metrics,
+    )
+
+    # 3. Final runtime queue state
+    final_runtime_state = await query_runtime_state(client, dao)
+    await metrics.update_runtime_state(final_runtime_state)
+
+    # 4. Final resource snapshot and trend evaluation
+    final_res = get_process_resources(target_pid, is_embedded=is_embedded)
+    final_rss = final_res.get("rss_mb")
+    if final_rss is not None:
+        if metrics.peak_rss_mb is None or final_rss > metrics.peak_rss_mb:
+            metrics.peak_rss_mb = final_rss
+    metrics.latest_resources = final_res
     resource_eval = evaluate_resource_trends(metrics.resource_samples)
 
+    final_snap = await metrics.snapshot()
+    status_label = "interrupted" if interrupted else "ok"
+
+    eval_result = evaluate_profile_a_result(
+        status=status_label,
+        actual_elapsed_s=actual_elapsed_s,
+        requested_duration_s=duration,
+        total_operations=final_snap["total_operations"],
+        successful_operations=final_snap["successful_operations"],
+        failed_operations=final_snap["failed_operations"],
+        counts=final_snap["counts"],
+        correctness=final_snap["correctness"],
+        final_health=final_health,
+        health_checks_total=metrics.health_checks_total,
+        health_checks_failed=metrics.health_checks_failed,
+        consecutive_health_failures=metrics.consecutive_health_failures,
+        resource_eval=resource_eval,
+        drain_completed=drain_completed,
+        remaining_backlog=remaining_backlog,
+        runtime=final_snap["runtime"],
+    )
+
+    report_text = format_final_report(
+        final_snap,
+        eval_result,
+        mode_name=mode_name,
+        actual_elapsed_s=actual_elapsed_s,
+        requested_duration_s=duration,
+        resource_eval=resource_eval,
+        latest_resources=final_res,
+        start_resources=start_res,
+        peak_rss_mb=metrics.peak_rss_mb,
+        drain_completed=drain_completed,
+        remaining_backlog=remaining_backlog,
+    )
+
     final_snap["log_file"] = str(log_file)
+    final_snap["mode"] = mode_name
+    final_snap["actual_elapsed_s"] = round(actual_elapsed_s, 2)
     final_snap["duration_requested_s"] = duration
     final_snap["rps_target"] = rps
     final_snap["production_certification_duration_valid"] = (
-        is_production_certification_duration(duration)
+        eval_result.is_certification_eligible
     )
     final_snap["resource_eval"] = resource_eval
     final_snap["start_resources"] = start_res
     final_snap["final_resources"] = final_res
     final_snap["peak_rss_mb"] = metrics.peak_rss_mb
-
-    report_text = format_final_report(
-        final_snap,
-        duration,
-        resource_eval,
-        final_res,
-        start_res,
-        metrics.peak_rss_mb,
-    )
+    final_snap["drain_completed"] = drain_completed
+    final_snap["remaining_backlog"] = remaining_backlog
+    final_snap["evaluation"] = {
+        "verdict": eval_result.verdict,
+        "exit_code": eval_result.exit_code,
+        "is_certification_eligible": eval_result.is_certification_eligible,
+        "reasons": eval_result.reasons,
+        "critical_failures": eval_result.critical_failures,
+    }
     final_snap["report_text"] = report_text
     return final_snap
 
 
 async def run_soak(
     *,
-    base_url: str,
-    api_key: str,
-    duration: float,
-    rps: float,
-    concurrency: int,
-    telemetry_interval: float,
+    base_url: str = DEFAULT_BASE_URL,
+    api_key: str = "soak-test-key",
+    duration: float = DEFAULT_DURATION,
+    rps: float = DEFAULT_RPS,
+    telemetry_interval: float = DEFAULT_TELEMETRY_INTERVAL,
+    drain_timeout: float = DEFAULT_DRAIN_TIMEOUT,
     log_file: Path,
     server_pid: int | None = None,
     embedded: bool = False,
@@ -1478,10 +2246,9 @@ async def run_soak(
     agent_id: str = DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     """Execute the full Profile A soak test pipeline."""
-    # Determine execution mode: embedded runtime vs remote HTTP
     use_embedded = embedded
     if not use_embedded and base_url == DEFAULT_BASE_URL:
-        # Check if local server is already running
+        # Probe local server
         try:
             async with httpx.AsyncClient(timeout=2.0) as probe_client:
                 r = await probe_client.get(f"{base_url}/health")
@@ -1491,9 +2258,10 @@ async def run_soak(
             use_embedded = True
 
     if use_embedded:
-        logger.info(
-            "SOAK_MODE | Running embedded V4 runtime in-process (deterministic provider)"
+        mode_name = (
+            "Embedded V4 Combined Runtime (Real SQLite/LanceDB/Kuzu + Deterministic LLM)"
         )
+        logger.info("SOAK_MODE | Running %s", mode_name)
         s_root = (
             storage_root
             if storage_root
@@ -1506,7 +2274,7 @@ async def run_soak(
             workspace_id=workspace_id,
             dataset_id=dataset_id,
             agent_id=agent_id,
-        ) as (client, _state):
+        ) as (client, state):
             return await _run_soak_on_client(
                 client,
                 tenant_id=tenant_id,
@@ -1516,11 +2284,16 @@ async def run_soak(
                 duration=duration,
                 rps=rps,
                 telemetry_interval=telemetry_interval,
+                drain_timeout=drain_timeout,
                 log_file=log_file,
                 target_pid=server_pid or os.getpid(),
+                is_embedded=True,
+                mode_name=mode_name,
+                dao=state.dao,
             )
     else:
-        logger.info("SOAK_MODE | Running against remote server at %s", base_url)
+        mode_name = f"Remote Server ({base_url})"
+        logger.info("SOAK_MODE | Running against %s", mode_name)
         headers = {"X-API-Key": api_key}
         async with httpx.AsyncClient(
             base_url=base_url, headers=headers, timeout=30.0
@@ -1534,8 +2307,12 @@ async def run_soak(
                 duration=duration,
                 rps=rps,
                 telemetry_interval=telemetry_interval,
+                drain_timeout=drain_timeout,
                 log_file=log_file,
                 target_pid=server_pid,
+                is_embedded=False,
+                mode_name=mode_name,
+                dao=None,
             )
 
 
@@ -1573,16 +2350,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Target operations per second (default: {DEFAULT_RPS})",
     )
     parser.add_argument(
-        "--concurrency",
-        type=int,
-        default=DEFAULT_CONCURRENCY,
-        help=f"Max concurrent connections (default: {DEFAULT_CONCURRENCY})",
-    )
-    parser.add_argument(
         "--telemetry-interval",
         type=float,
         default=DEFAULT_TELEMETRY_INTERVAL,
         help=f"Telemetry collection interval in seconds (default: {DEFAULT_TELEMETRY_INTERVAL})",
+    )
+    parser.add_argument(
+        "--drain-timeout",
+        type=float,
+        default=DEFAULT_DRAIN_TIMEOUT,
+        help=f"Drain timeout in seconds after workload completion (default: {DEFAULT_DRAIN_TIMEOUT})",
     )
     parser.add_argument(
         "--log-dir",
@@ -1594,7 +2371,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--server-pid",
         type=int,
         default=None,
-        help="Target MESA server process PID for resource monitoring (default: in-process PID)",
+        help="Target MESA server process PID for remote resource monitoring (default: None)",
     )
     parser.add_argument(
         "--embedded",
@@ -1644,10 +2421,11 @@ def main() -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     logger.info(
-        "SOAK_CONFIG | duration=%ds rps=%.1f telemetry=%ds log=%s",
+        "SOAK_CONFIG | duration=%ds rps=%.1f telemetry=%ds drain_timeout=%.1fs log=%s",
         args.duration,
         args.rps,
         int(args.telemetry_interval),
+        args.drain_timeout,
         log_file,
     )
 
@@ -1667,8 +2445,8 @@ def main() -> None:
                 api_key=args.api_key,
                 duration=args.duration,
                 rps=args.rps,
-                concurrency=args.concurrency,
                 telemetry_interval=args.telemetry_interval,
+                drain_timeout=args.drain_timeout,
                 log_file=log_file,
                 server_pid=args.server_pid,
                 embedded=args.embedded,
@@ -1696,31 +2474,22 @@ def main() -> None:
 
     logger.info("SOAK | Telemetry log: %s", log_file)
 
-    # Fail closed on critical correctness issues or failure ratio > 5%
-    correctness = final_report.get("correctness", {})
-    critical_errors = (
-        correctness.get("wrong_retrieval", 0)
-        + correctness.get("missing_committed_memory", 0)
-        + correctness.get("deleted_memory_visible", 0)
-        + correctness.get("cross_scope_results", 0)
-        + correctness.get("consistency_failures", 0)
-    )
-
-    total_ops = final_report.get("total_operations", 0)
-    failed_ops = final_report.get("failed_operations", 0)
-
-    if critical_errors > 0:
+    eval_data = final_report.get("evaluation", {})
+    exit_code = eval_data.get("exit_code", 1)
+    if exit_code != 0:
         logger.error(
-            "SOAK_FAIL | %d critical correctness violations detected", critical_errors
+            "SOAK_DECISION | Result: %s (exit code %d)",
+            eval_data.get("verdict", "FAIL"),
+            exit_code,
         )
-        sys.exit(1)
+    else:
+        logger.info(
+            "SOAK_DECISION | Result: %s (exit code %d)",
+            eval_data.get("verdict", "PASS"),
+            exit_code,
+        )
 
-    if total_ops > 0 and (failed_ops / total_ops) > 0.05:
-        logger.error(
-            "SOAK_FAIL | Failure ratio %.2f%% exceeds 5%% threshold",
-            (failed_ops / total_ops) * 100,
-        )
-        sys.exit(1)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

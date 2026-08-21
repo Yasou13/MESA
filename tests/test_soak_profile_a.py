@@ -5,17 +5,21 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from mesa_evals import soak_test
 from mesa_evals.soak_test import (
     DeterministicSoakProvider,
+    SoakEvaluationResult,
     SoakMetrics,
+    evaluate_profile_a_result,
     evaluate_resource_trends,
     format_final_report,
     get_process_resources,
     is_production_certification_duration,
+    query_runtime_state,
 )
 from mesa_memory.extraction.service import (
     DeterministicFactValidator,
@@ -76,13 +80,26 @@ def test_certification_duration_boundaries() -> None:
     assert is_production_certification_duration(100_000) is True
 
 
-def test_final_report_smoke_vs_certification_verdict() -> None:
-    # 5 min run (300s) with 0 errors -> SMOKE PASS — NOT CERTIFICATION
-    snap_ok: dict[str, Any] = {
+def _make_clean_eval_kwargs(
+    actual_elapsed: float = 300.0, requested_duration: float = 300.0
+) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "actual_elapsed_s": actual_elapsed,
+        "requested_duration_s": requested_duration,
         "total_operations": 50,
         "successful_operations": 50,
         "failed_operations": 0,
-        "counts": {"insert": 20, "search": 20, "revision": 5, "rollback": 2, "purge": 3},
+        "counts": {
+            "insert": 15,
+            "search": 15,
+            "revision": 5,
+            "idempotent_insert": 4,
+            "rollback": 3,
+            "purge": 3,
+            "context": 3,
+            "cross_scope": 2,
+        },
         "correctness": {
             "wrong_retrieval": 0,
             "missing_committed_memory": 0,
@@ -90,45 +107,214 @@ def test_final_report_smoke_vs_certification_verdict() -> None:
             "cross_scope_results": 0,
             "consistency_failures": 0,
         },
-        "runtime": {"pending_mutations": 0, "failed_mutations": 0, "dead_letters": 0},
+        "final_health": "healthy",
+        "health_checks_total": 10,
+        "health_checks_failed": 0,
+        "consecutive_health_failures": 0,
+        "resource_eval": {
+            "evaluated": True,
+            "possible_memory_leak": False,
+            "thread_leak_detected": False,
+            "fd_leak_detected": False,
+        },
+        "drain_completed": True,
+        "remaining_backlog": 0,
+        "runtime": {
+            "pending_mutations": 0,
+            "failed_mutations": 0,
+            "projection_backlog": 0,
+            "dead_letters": 0,
+        },
     }
-    eval_ok = {"possible_memory_leak": False, "thread_leak_detected": False, "fd_leak_detected": False}
-    res = {"rss_mb": 150.0, "cpu_percent": 1.0, "threads": 8, "open_fds": 30}
-
-    smoke_report = format_final_report(snap_ok, 300, eval_ok, res, res, 160.0)
-    assert "RESULT:\nSMOKE PASS — NOT CERTIFICATION" in smoke_report
-    assert "Certification duration valid: False" in smoke_report
-
-    # 24 hour run (86400s) with 0 errors -> PROFILE A PASS
-    cert_report = format_final_report(snap_ok, 86_400, eval_ok, res, res, 180.0)
-    assert "RESULT:\nPROFILE A PASS" in cert_report
-    assert "Certification duration valid: True" in cert_report
 
 
-def test_final_report_critical_correctness_failure_fails_test() -> None:
-    # Any wrong retrieval fails both smoke and certification
-    snap_fail: dict[str, Any] = {
+def test_evaluate_profile_a_result_smoke_pass() -> None:
+    kwargs = _make_clean_eval_kwargs(actual_elapsed=300.0, requested_duration=300.0)
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "SMOKE PASS — NOT CERTIFICATION"
+    assert res.exit_code == 0
+    assert res.is_certification_eligible is False
+    assert len(res.reasons) == 0
+
+
+def test_evaluate_profile_a_result_certification_pass() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A PASS"
+    assert res.exit_code == 0
+    assert res.is_certification_eligible is True
+    assert len(res.reasons) == 0
+
+
+def test_evaluate_profile_a_result_short_elapsed_cannot_certify() -> None:
+    # User requested 86400 but only ran for 100s
+    kwargs = _make_clean_eval_kwargs(actual_elapsed=100.0, requested_duration=86_400.0)
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.is_certification_eligible is False
+    assert res.verdict == "SMOKE PASS — NOT CERTIFICATION"
+
+
+def test_evaluate_profile_a_result_preflight_fail_exit_code() -> None:
+    kwargs = _make_clean_eval_kwargs()
+    kwargs["status"] = "pre_flight_failed"
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PRE-FLIGHT FAILED"
+    assert res.exit_code == 1
+
+
+def test_evaluate_profile_a_result_interrupted_exit_code() -> None:
+    kwargs = _make_clean_eval_kwargs()
+    kwargs["status"] = "interrupted"
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "INTERRUPTED — NOT CERTIFIED"
+    assert res.exit_code == 130
+
+
+def test_evaluate_profile_a_result_final_health_unhealthy_fails() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    kwargs["final_health"] = "degraded"
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A FAIL"
+    assert res.exit_code == 1
+    assert any("Final runtime health is not healthy" in r for r in res.reasons)
+
+
+def test_evaluate_profile_a_result_consecutive_health_failures_fails() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    kwargs["consecutive_health_failures"] = 4
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A FAIL"
+    assert res.exit_code == 1
+    assert any(
+        "Exceeded max consecutive health check failures" in r for r in res.reasons
+    )
+
+
+def test_evaluate_profile_a_result_cross_scope_leak_fails() -> None:
+    kwargs = _make_clean_eval_kwargs()
+    kwargs["correctness"]["cross_scope_results"] = 1
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "SMOKE FAIL"
+    assert res.exit_code == 1
+    assert any("cross_scope_results=1" in r for r in res.reasons)
+
+
+def test_evaluate_profile_a_result_missing_lifecycle_op_fails_certification() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    # purge had 0 executions
+    kwargs["counts"]["purge"] = 0
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A FAIL"
+    assert res.exit_code == 1
+    assert any(
+        "Required lifecycle operation had 0 executions: purge" in r for r in res.reasons
+    )
+
+
+def test_evaluate_profile_a_result_drain_incomplete_fails() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    kwargs["drain_completed"] = False
+    kwargs["remaining_backlog"] = 5
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A FAIL"
+    assert res.exit_code == 1
+    assert any("Drain phase did not complete cleanly" in r for r in res.reasons)
+
+
+def test_evaluate_profile_a_result_resource_leaks_fail() -> None:
+    kwargs = _make_clean_eval_kwargs(
+        actual_elapsed=86_400.0, requested_duration=86_400.0
+    )
+    kwargs["resource_eval"]["possible_memory_leak"] = True
+    res = evaluate_profile_a_result(**kwargs)
+    assert res.verdict == "PROFILE A FAIL"
+    assert res.exit_code == 1
+    assert any("possible memory leak" in r for r in res.reasons)
+
+
+def test_format_final_report_handles_unavailable_metrics_cleanly() -> None:
+    snap: dict[str, Any] = {
         "total_operations": 50,
-        "successful_operations": 49,
-        "failed_operations": 1,
-        "counts": {"insert": 20, "search": 20, "revision": 5, "rollback": 2, "purge": 3},
+        "successful_operations": 50,
+        "failed_operations": 0,
+        "counts": {
+            "insert": 20,
+            "search": 20,
+            "revision": 5,
+            "idempotent_insert": 2,
+            "rollback": 1,
+            "purge": 1,
+            "context": 1,
+            "cross_scope": 1,
+        },
         "correctness": {
-            "wrong_retrieval": 1,
+            "wrong_retrieval": 0,
             "missing_committed_memory": 0,
             "deleted_memory_visible": 0,
             "cross_scope_results": 0,
             "consistency_failures": 0,
         },
-        "runtime": {"pending_mutations": 0, "failed_mutations": 0, "dead_letters": 0},
+        "runtime": {
+            "pending_mutations": None,
+            "failed_mutations": None,
+            "projection_backlog": None,
+            "dead_letters": None,
+        },
+        "health": {
+            "health_checks_total": 5,
+            "health_checks_failed": 0,
+            "consecutive_health_failures": 0,
+            "final_health": "healthy",
+        },
     }
-    eval_ok = {"possible_memory_leak": False, "thread_leak_detected": False, "fd_leak_detected": False}
-    res = {"rss_mb": 150.0, "cpu_percent": 1.0, "threads": 8, "open_fds": 30}
+    eval_res = SoakEvaluationResult(
+        verdict="SMOKE PASS — NOT CERTIFICATION",
+        exit_code=0,
+        is_certification_eligible=False,
+        reasons=[],
+        critical_failures={},
+    )
+    res_unavail = {
+        "status": "unavailable",
+        "rss_mb": None,
+        "threads": None,
+        "open_fds": None,
+    }
+    eval_unavail = {"evaluated": False}
 
-    smoke_fail = format_final_report(snap_fail, 300, eval_ok, res, res, 160.0)
-    assert "RESULT:\nSMOKE FAIL" in smoke_fail
+    report = format_final_report(
+        snap,
+        eval_res,
+        mode_name="Remote Server (http://prod:8000)",
+        actual_elapsed_s=300.0,
+        requested_duration_s=300.0,
+        resource_eval=eval_unavail,
+        latest_resources=res_unavail,
+        start_resources=res_unavail,
+        peak_rss_mb=None,
+        drain_completed=True,
+        remaining_backlog=0,
+    )
 
-    cert_fail = format_final_report(snap_fail, 86_400, eval_ok, res, res, 180.0)
-    assert "RESULT:\nPROFILE A FAIL" in cert_fail
+    assert "Pending mutations: unavailable" in report
+    assert "Failed mutations: unavailable" in report
+    assert "Projection backlog: unavailable" in report
+    assert "Dead letters: unavailable" in report
+    assert "Start RSS: unavailable" in report
+    assert "Final RSS: unavailable" in report
+    assert "Peak RSS: unavailable" in report
+    assert "Memory leak suspicion: Inconclusive" in report
+    assert "SMOKE PASS — NOT CERTIFICATION" in report
 
 
 @pytest.mark.asyncio
@@ -136,34 +322,74 @@ async def test_metrics_accumulator_and_snapshot_serialization() -> None:
     metrics = SoakMetrics()
     await metrics.record_op("insert", success=True, latency_ms=15.0, status_code=202)
     await metrics.record_op("search", success=True, latency_ms=5.0, status_code=200)
+    await metrics.record_op("cross_scope", success=True, latency_ms=8.0, status_code=200)
     await metrics.record_commit(120.0)
+    await metrics.record_health_check(True, "healthy")
     await metrics.record_correctness_violation("wrong_retrieval")
 
     snap = await metrics.snapshot()
     serialized = json.dumps(snap, ensure_ascii=False)
     deserialized = json.loads(serialized)
 
-    assert deserialized["total_operations"] == 2
+    assert deserialized["total_operations"] == 3
     assert deserialized["counts"]["insert"] == 1
     assert deserialized["counts"]["search"] == 1
+    assert deserialized["counts"]["cross_scope"] == 1
     assert deserialized["latencies"]["insert"]["p50_ms"] == 15.0
     assert deserialized["latencies"]["commit"]["p50_ms"] == 120.0
     assert deserialized["correctness"]["wrong_retrieval"] == 1
+    # Unmeasured runtime fields serialize as null
+    assert deserialized["runtime"]["pending_mutations"] is None
+    assert deserialized["runtime"]["projection_backlog"] is None
+
+
+@pytest.mark.asyncio
+async def test_query_runtime_state_from_mocked_dao() -> None:
+    mock_dao = MagicMock()
+    mock_cursor_mut = AsyncMock()
+    mock_cursor_mut.fetchall.return_value = [("COMMITTED", 10), ("PENDING", 2), ("FAILED", 1)]
+    mock_cursor_outbox = AsyncMock()
+    mock_cursor_outbox.fetchall.return_value = [("PENDING", 3), ("IN_FLIGHT", 1), ("DEAD_LETTER", 0)]
+
+    mock_conn = MagicMock()
+    mock_conn.execute.side_effect = [
+        AsyncMock(__aenter__=AsyncMock(return_value=mock_cursor_mut), __aexit__=AsyncMock(return_value=None)),
+        AsyncMock(__aenter__=AsyncMock(return_value=mock_cursor_outbox), __aexit__=AsyncMock(return_value=None)),
+    ]
+
+    mock_sql = MagicMock()
+    mock_sql.connection.return_value = AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=None))
+    mock_dao._sql = mock_sql
+
+    mock_client = AsyncMock()
+    state = await query_runtime_state(mock_client, mock_dao)
+
+    assert state["pending_mutations"] == 2
+    assert state["failed_mutations"] == 1
+    assert state["projection_backlog"] == 4
+    assert state["dead_letters"] == 0
 
 
 def test_process_resource_monitoring_and_leak_eval() -> None:
-    resources = get_process_resources()
+    resources = get_process_resources(is_embedded=True)
     assert resources["status"] in {"available", "partial_psutil_missing"}
-    assert resources["rss_mb"] > 0
+    assert resources["rss_mb"] is not None and resources["rss_mb"] > 0
 
-    # Test leak evaluator with steady monotonic growth
+    # Remote mode without server PID returns unavailable
+    remote_res = get_process_resources(pid=None, is_embedded=False)
+    assert remote_res["status"] == "unavailable"
+    assert remote_res["rss_mb"] is None
+
+    # Test leak evaluator with monotonic growth in mature phase
     leak_samples = [
         {"status": "available", "rss_mb": 100.0, "open_fds": 20, "threads": 5},
         {"status": "available", "rss_mb": 130.0, "open_fds": 22, "threads": 5},
         {"status": "available", "rss_mb": 170.0, "open_fds": 24, "threads": 6},
         {"status": "available", "rss_mb": 220.0, "open_fds": 25, "threads": 6},
+        {"status": "available", "rss_mb": 280.0, "open_fds": 25, "threads": 6},
     ]
     eval_leak = evaluate_resource_trends(leak_samples)
+    assert eval_leak["evaluated"] is True
     assert eval_leak["possible_memory_leak"] is True
 
 
@@ -178,8 +404,8 @@ async def test_embedded_soak_run_integration(tmp_path: Path) -> None:
         api_key="fast-test-key",
         duration=5.0,
         rps=2.0,
-        concurrency=5,
         telemetry_interval=1.0,
+        drain_timeout=5.0,
         log_file=log_file,
         embedded=True,
         storage_root=storage_root,
@@ -189,6 +415,20 @@ async def test_embedded_soak_run_integration(tmp_path: Path) -> None:
     assert report["successful_operations"] > 0
     assert report["correctness"]["missing_committed_memory"] == 0
     assert report["correctness"]["wrong_retrieval"] == 0
+    assert report["correctness"]["cross_scope_results"] == 0
     assert report["production_certification_duration_valid"] is False
+    assert report["evaluation"]["verdict"] == "SMOKE PASS — NOT CERTIFICATION"
+    assert report["evaluation"]["exit_code"] == 0
+    assert report["drain_completed"] is True
     assert "SMOKE PASS — NOT CERTIFICATION" in report["report_text"]
     assert log_file.exists()
+
+    # Validate that JSONL telemetry contains valid records
+    with open(log_file, "r", encoding="utf-8") as f:
+        lines = [json.loads(line) for line in f if line.strip()]
+    assert len(lines) >= 1
+    assert any(line.get("_type") == "telemetry_tick" for line in lines)
+    tick_sample = next(line for line in lines if line.get("_type") == "telemetry_tick")
+    assert "health" in tick_sample
+    assert "runtime" in tick_sample
+    assert "resources" in tick_sample
