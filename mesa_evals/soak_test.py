@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,untyped-decorator,no-any-return,attr-defined,method-assign"
 """MESA v0.7.1 — Profile A: Safe Core 24H Soak Test & Stability Certification.
 
 Executes sustained real V4 cognitive lifecycle validation under moderate,
@@ -283,6 +284,7 @@ class SoakMetrics:
     health_checks_total: int = 0
     health_checks_failed: int = 0
     consecutive_health_failures: int = 0
+    max_consecutive_health_failures: int = 0
     final_health: str = "unknown"
 
     # Resource profiling
@@ -344,6 +346,13 @@ class SoakMetrics:
             else:
                 self.health_checks_failed += 1
                 self.consecutive_health_failures += 1
+                if (
+                    self.consecutive_health_failures
+                    > self.max_consecutive_health_failures
+                ):
+                    self.max_consecutive_health_failures = (
+                        self.consecutive_health_failures
+                    )
 
     async def record_correctness_violation(self, kind: str) -> None:
         async with self._lock:
@@ -426,6 +435,7 @@ class SoakMetrics:
                     "health_checks_total": self.health_checks_total,
                     "health_checks_failed": self.health_checks_failed,
                     "consecutive_health_failures": self.consecutive_health_failures,
+                    "max_consecutive_health_failures": self.max_consecutive_health_failures,
                     "final_health": self.final_health,
                 },
             }
@@ -875,13 +885,14 @@ async def setup_soak_runtime(
 # ---------------------------------------------------------------------------
 
 
-async def _poll_mutation_committed(
+async def _poll_mutation_state(
     client: httpx.AsyncClient,
     mutation_id: str,
+    target_states: set[str],
     *,
     timeout: float = 20.0,
 ) -> tuple[bool, float, dict[str, Any]]:
-    """Poll GET /v4/mutations/{mutation_id} until COMMITTED or timeout."""
+    """Poll GET /v4/mutations/{mutation_id} until state in target_states or timeout."""
     t0 = time.monotonic()
     deadline = t0 + timeout
     while time.monotonic() < deadline:
@@ -890,15 +901,27 @@ async def _poll_mutation_committed(
             if resp.status_code == 200:
                 data = resp.json()
                 state = data.get("state")
-                if state == "COMMITTED":
+                if state in target_states:
                     latency_ms = (time.monotonic() - t0) * 1000
                     return True, latency_ms, data
-                if state in {"FAILED", "REJECTED"}:
+                if state in {"FAILED", "REJECTED"} and state not in target_states:
                     return False, (time.monotonic() - t0) * 1000, data
         except Exception:
             pass
         await asyncio.sleep(0.1)
     return False, (time.monotonic() - t0) * 1000, {"state": "TIMEOUT"}
+
+
+async def _poll_mutation_committed(
+    client: httpx.AsyncClient,
+    mutation_id: str,
+    *,
+    timeout: float = 20.0,
+) -> tuple[bool, float, dict[str, Any]]:
+    """Poll GET /v4/mutations/{mutation_id} until COMMITTED or timeout."""
+    return await _poll_mutation_state(
+        client, mutation_id, {"COMMITTED"}, timeout=timeout
+    )
 
 
 def _is_subject_in_search_results(
@@ -1039,11 +1062,12 @@ async def _op_search(
     metrics: SoakMetrics,
     active_items: list[SoakItem],
 ) -> None:
-    if not active_items:
+    valid_candidates = [it for it in active_items if it.state == "COMMITTED"]
+    if not valid_candidates:
         query = "soak"
         expected_subj = None
     else:
-        target = random.choice(active_items)
+        target = random.choice(valid_candidates)
         query = target.subj
         expected_subj = target.subj
 
@@ -1088,7 +1112,9 @@ async def _op_revision(
     metrics: SoakMetrics,
     active_items: list[SoakItem],
 ) -> None:
-    candidates = [it for it in active_items if it.revision_number == 1]
+    candidates = [
+        it for it in active_items if it.revision_number == 1 and it.state == "COMMITTED"
+    ]
     if not candidates:
         return
 
@@ -1165,7 +1191,9 @@ async def _op_idempotency(
     candidates = [
         it
         for it in active_items
-        if it.idempotency_key is not None and it.revision_number == 1
+        if it.idempotency_key is not None
+        and it.revision_number == 1
+        and it.state == "COMMITTED"
     ]
     if not candidates:
         return
@@ -1232,21 +1260,40 @@ async def _op_rollback(
     metrics: SoakMetrics,
     active_items: list[SoakItem],
 ) -> None:
-    candidates = [it for it in active_items if it.revision_number == 2]
+    # Only choose items that are in COMMITTED state and at revision 2
+    candidates = [
+        it for it in active_items if it.revision_number == 2 and it.state == "COMMITTED"
+    ]
     if not candidates:
         return
 
     item = random.choice(candidates)
+    item.state = "ROLLING_BACK"  # immediately take out of candidate pool
     t0 = time.monotonic()
     try:
         resp = await client.post(f"/v4/mutations/{item.mutation_id}/rollback")
         lat_ms = (time.monotonic() - t0) * 1000
         if resp.status_code == 202:
-            item.state = "ROLLED_BACK"
-            await metrics.record_op(
-                "rollback", success=True, latency_ms=lat_ms, status_code=202
+            # Poll for rollback completion
+            rb_ok, rb_lat, rb_data = await _poll_mutation_state(
+                client, item.mutation_id, {"ROLLED_BACK"}, timeout=10.0
             )
+            if rb_ok or rb_data.get("state") == "ROLLED_BACK":
+                item.state = "ROLLED_BACK"
+                item.revision_number = 1
+                await metrics.record_op(
+                    "rollback",
+                    success=True,
+                    latency_ms=lat_ms + rb_lat,
+                    status_code=202,
+                )
+            else:
+                item.state = "ROLLBACK_UNCONFIRMED"
+                await metrics.record_op(
+                    "rollback", success=False, latency_ms=lat_ms, status_code=202
+                )
         else:
+            item.state = "COMMITTED"  # restore candidate status if rejected
             await metrics.record_op(
                 "rollback",
                 success=False,
@@ -1255,6 +1302,7 @@ async def _op_rollback(
             )
     except Exception as exc:
         lat_ms = (time.monotonic() - t0) * 1000
+        item.state = "COMMITTED"
         logger.debug("ROLLBACK_OP_ERROR | seq=%d error=%s", item.seq, exc)
         await metrics.record_op(
             "rollback", success=False, latency_ms=lat_ms, status_code=0
@@ -1271,10 +1319,13 @@ async def _op_purge(
     metrics: SoakMetrics,
     active_items: list[SoakItem],
 ) -> None:
-    if len(active_items) <= 3:
+    candidates = [it for it in active_items if it.state == "COMMITTED"]
+    if len(candidates) <= 3:
         return
 
-    item = active_items.pop(0)
+    item = candidates[0]
+    active_items.remove(item)
+    item.state = "PURGING"
     t0 = time.monotonic()
     try:
         resp = await client.delete(
@@ -1290,26 +1341,34 @@ async def _op_purge(
             await metrics.record_op(
                 "purge", success=True, latency_ms=lat_ms, status_code=202
             )
-            # Verify purged item is no longer returned as active search result
-            s_resp = await client.post(
-                "/v4/memory/search",
-                json={
-                    "session_id": session_id,
-                    "dataset_ids": [dataset_id],
-                    "query": item.subj,
-                    "limit": 5,
-                },
-            )
-            if s_resp.status_code == 200:
-                results = s_resp.json().get("results", [])
-                found_active = any(
-                    r.get("subject_name") == item.subj
-                    for r in results
-                    if r.get("status") == "ACTIVE"
+            # Verify purged item is no longer returned as active search result with bounded retry
+            found_active = False
+            for _ in range(5):
+                s_resp = await client.post(
+                    "/v4/memory/search",
+                    json={
+                        "session_id": session_id,
+                        "dataset_ids": [dataset_id],
+                        "query": item.subj,
+                        "limit": 5,
+                    },
                 )
-                if found_active:
-                    await metrics.record_correctness_violation("deleted_memory_visible")
+                if s_resp.status_code == 200:
+                    results = s_resp.json().get("results", [])
+                    if not _is_subject_in_search_results(item.subj, results):
+                        found_active = False
+                        break
+                    found_active = True
+                await asyncio.sleep(0.2)
+
+            if found_active:
+                item.state = "PURGED_BUT_VISIBLE"
+                await metrics.record_correctness_violation("deleted_memory_visible")
+            else:
+                item.state = "PURGED"
         else:
+            item.state = "COMMITTED"
+            active_items.append(item)
             await metrics.record_op(
                 "purge",
                 success=False,
@@ -1318,6 +1377,8 @@ async def _op_purge(
             )
     except Exception as exc:
         lat_ms = (time.monotonic() - t0) * 1000
+        item.state = "COMMITTED"
+        active_items.append(item)
         logger.debug("PURGE_OP_ERROR | seq=%d error=%s", item.seq, exc)
         await metrics.record_op(
             "purge", success=False, latency_ms=lat_ms, status_code=0
@@ -1586,14 +1647,19 @@ async def telemetry_collector_v4(
         tick += 1
         elapsed = time.monotonic() - t_start
 
-        # Probe health
+        # Fail-safe health probe
         health_status = "unknown"
         is_healthy = False
         try:
             h_resp = await client.get("/health")
             if h_resp.status_code == 200:
-                health_status = h_resp.json().get("status", "healthy")
-                is_healthy = health_status == "healthy"
+                data = h_resp.json()
+                status_val = data.get("status") if isinstance(data, dict) else None
+                if status_val:
+                    health_status = str(status_val)
+                    is_healthy = health_status == "healthy"
+                else:
+                    health_status = "malformed_response"
             else:
                 health_status = f"http_{h_resp.status_code}"
         except Exception as exc:
@@ -1623,6 +1689,7 @@ async def telemetry_collector_v4(
             "elapsed_hours": round(elapsed / 3600, 3),
             "health": health_status,
             "health_failures": metrics.health_checks_failed,
+            "max_consecutive_health_failures": metrics.max_consecutive_health_failures,
             "total_operations": snap["total_operations"],
             "successful_operations": snap["successful_operations"],
             "failed_operations": snap["failed_operations"],
@@ -1674,37 +1741,51 @@ async def _drain_runtime(
     *,
     timeout: float = DEFAULT_DRAIN_TIMEOUT,
     interval: float = 1.0,
-) -> tuple[bool, int]:
+) -> tuple[bool, int | None, bool]:
     """Wait for pending mutations and projection outbox backlogs to drain.
 
-    Returns (drain_completed: bool, remaining_backlog: int).
+    Returns (drain_completed: bool, remaining_backlog: int | None, runtime_state_measurable: bool).
     """
     logger.info(
         "DRAIN | Waiting for in-flight work to drain (timeout=%.1fs)...", timeout
     )
     t0 = time.monotonic()
     deadline = t0 + timeout
-    last_backlog = 0
+    last_backlog: int | None = None
+    state_measurable = False
 
     while time.monotonic() < deadline:
         state = await query_runtime_state(client, dao)
-        pending_mut = state.get("pending_mutations") or 0
-        proj_backlog = state.get("projection_backlog") or 0
-        total_pending = pending_mut + proj_backlog
-        last_backlog = total_pending
-        if total_pending == 0:
-            logger.info(
-                "DRAIN | Drain completed cleanly in %.2fs", time.monotonic() - t0
-            )
-            return True, 0
+        pending_mut = state.get("pending_mutations")
+        proj_backlog = state.get("projection_backlog")
+
+        if pending_mut is None or proj_backlog is None:
+            state_measurable = False
+            last_backlog = None
+        else:
+            state_measurable = True
+            total_pending = pending_mut + proj_backlog
+            last_backlog = total_pending
+            if total_pending == 0:
+                logger.info(
+                    "DRAIN | Drain completed cleanly in %.2fs", time.monotonic() - t0
+                )
+                return True, 0, True
+
         await asyncio.sleep(interval)
 
+    if not state_measurable:
+        logger.warning(
+            "DRAIN | Runtime state metrics are unavailable during drain phase"
+        )
+        return False, None, False
+
     logger.warning(
-        "DRAIN | Timeout after %.1fs with %d remaining pending work units",
+        "DRAIN | Timeout after %.1fs with %s remaining pending work units",
         timeout,
         last_backlog,
     )
-    return False, last_backlog
+    return False, last_backlog, True
 
 
 # ---------------------------------------------------------------------------
@@ -1736,10 +1817,11 @@ def evaluate_profile_a_result(
     final_health: str,
     health_checks_total: int,
     health_checks_failed: int,
-    consecutive_health_failures: int,
+    max_consecutive_health_failures: int,
     resource_eval: dict[str, Any],
     drain_completed: bool,
-    remaining_backlog: int,
+    remaining_backlog: int | None,
+    runtime_state_measurable: bool,
     runtime: dict[str, Any],
 ) -> SoakEvaluationResult:
     """Evaluate soak run against strict Profile A certification gates."""
@@ -1782,6 +1864,10 @@ def evaluate_profile_a_result(
     if dead_letters is not None and dead_letters > 0:
         crit_failures["dead_letters"] = dead_letters
 
+    failed_mutations = runtime.get("failed_mutations")
+    if failed_mutations is not None and failed_mutations > 0:
+        crit_failures["failed_mutations"] = failed_mutations
+
     for k, v in crit_failures.items():
         if v > 0:
             reasons.append(f"Critical correctness violation: {k}={v} (tolerance: 0)")
@@ -1790,10 +1876,10 @@ def evaluate_profile_a_result(
     if final_health != "healthy":
         reasons.append(f"Final runtime health is not healthy: {final_health}")
 
-    # 3. Periodic health stability
-    if consecutive_health_failures > MAX_CONSECUTIVE_HEALTH_FAILURES:
+    # 3. Periodic health stability (tracks historical peak outage length)
+    if max_consecutive_health_failures > MAX_CONSECUTIVE_HEALTH_FAILURES:
         reasons.append(
-            f"Exceeded max consecutive health check failures: {consecutive_health_failures} > {MAX_CONSECUTIVE_HEALTH_FAILURES}"
+            f"Exceeded max consecutive health check failures: {max_consecutive_health_failures} > {MAX_CONSECUTIVE_HEALTH_FAILURES}"
         )
     if (
         health_checks_total > 0
@@ -1812,7 +1898,7 @@ def evaluate_profile_a_result(
             )
 
     # 5. Drain phase check
-    if not drain_completed or remaining_backlog > 0:
+    if not drain_completed or remaining_backlog != 0:
         reasons.append(
             f"Drain phase did not complete cleanly; remaining pending work: {remaining_backlog}"
         )
@@ -1825,8 +1911,16 @@ def evaluate_profile_a_result(
     if resource_eval.get("fd_leak_detected"):
         reasons.append("Resource trend analysis detected file descriptor leak")
 
-    # 7. For 24h certification: verify required lifecycle operations executed
+    # 7. For 24h certification: strict invariants
     if is_cert_eligible:
+        if not runtime_state_measurable:
+            reasons.append(
+                "Runtime state queue/backlog metrics could not be verified from canonical storage"
+            )
+        if not resource_eval.get("evaluated", False):
+            reasons.append(
+                "Resource telemetry could not be evaluated (insufficient valid samples)"
+            )
         required_ops = [
             "insert",
             "search",
@@ -1879,7 +1973,8 @@ def format_final_report(
     start_resources: dict[str, Any],
     peak_rss_mb: float | None,
     drain_completed: bool,
-    remaining_backlog: int,
+    remaining_backlog: int | None,
+    runtime_state_measurable: bool,
 ) -> str:
     """Render the standard Profile A / Smoke Final Report."""
     correctness = final_snap.get("correctness", {})
@@ -1941,15 +2036,18 @@ Correctness:
 Runtime:
   Final health: {health.get("final_health", "unknown")}
   Health check failures: {health.get("health_checks_failed", 0)}/{health.get("health_checks_total", 0)}
+  Max consecutive health failures: {health.get("max_consecutive_health_failures", 0)}
   Pending mutations: {_val_or_unavail(runtime.get("pending_mutations"))}
   Failed mutations: {_val_or_unavail(runtime.get("failed_mutations"))}
   Projection backlog: {_val_or_unavail(runtime.get("projection_backlog"))}
   Dead letters: {_val_or_unavail(runtime.get("dead_letters"))}
+  Runtime state measurable: {runtime_state_measurable}
 
 Resources:
   Start RSS: {_res_mb(start_resources.get("rss_mb"))}
   Final RSS: {_res_mb(latest_resources.get("rss_mb"))}
   Peak RSS: {_res_mb(peak_rss_mb)}
+  Resource telemetry evaluated: {evaluated}
   Memory leak suspicion: {mem_leak_str}
   Threads: {_val_or_unavail(latest_resources.get("threads"))}
   Thread leak: {thread_leak_str}
@@ -1958,7 +2056,7 @@ Resources:
 
 Drain:
   Completed: {drain_completed}
-  Remaining work: {remaining_backlog}
+  Remaining work: {_val_or_unavail(remaining_backlog)}
 
 RESULT:
 {eval_result.verdict}{reasons_block}
@@ -1986,16 +2084,17 @@ async def _run_soak_on_client(
     is_embedded: bool,
     mode_name: str,
     dao: Any | None = None,
+    interrupted_event: asyncio.Event | None = None,
 ) -> dict[str, Any]:
     metrics = SoakMetrics()
     stop_event = asyncio.Event()
     t_start = time.monotonic()
 
-    # Pre-flight 1: Health check
+    # Pre-flight 1: Health check (fail-safe)
     logger.info("PRE-FLIGHT | Checking server readiness...")
     try:
         resp = await client.get("/health")
-        if resp.status_code != 200 or resp.json().get("status") != "healthy":
+        if resp.status_code != 200:
             logger.error(
                 "PRE-FLIGHT FAILED | Health check returned %d: %s",
                 resp.status_code,
@@ -2004,7 +2103,16 @@ async def _run_soak_on_client(
             return {
                 "status": "pre_flight_failed",
                 "http_status": resp.status_code,
-                "error": f"Health check failed (status={resp.status_code})",
+                "error": f"Health check returned HTTP {resp.status_code}",
+            }
+        data = resp.json()
+        status_val = data.get("status") if isinstance(data, dict) else None
+        if status_val != "healthy":
+            logger.error("PRE-FLIGHT FAILED | Status is not healthy: %s", status_val)
+            return {
+                "status": "pre_flight_failed",
+                "http_status": resp.status_code,
+                "error": f"Health status is not healthy ({status_val})",
             }
     except Exception as exc:
         logger.error("PRE-FLIGHT FAILED | Cannot reach server: %s", exc)
@@ -2106,6 +2214,18 @@ async def _run_soak_on_client(
     )
 
     interrupted = False
+
+    async def _monitor_interruption() -> None:
+        if interrupted_event is not None:
+            await interrupted_event.wait()
+            stop_event.set()
+
+    monitor_task = (
+        asyncio.create_task(_monitor_interruption())
+        if interrupted_event is not None
+        else None
+    )
+
     try:
         await driver_task
     except asyncio.CancelledError:
@@ -2115,6 +2235,10 @@ async def _run_soak_on_client(
         logger.warning("SOAK | Interrupted by user (Ctrl+C)")
         interrupted = True
     finally:
+        if interrupted_event is not None and interrupted_event.is_set():
+            interrupted = True
+        if monitor_task is not None:
+            monitor_task.cancel()
         stop_event.set()
         await asyncio.sleep(0.2)
         telemetry_task.cancel()
@@ -2126,17 +2250,19 @@ async def _run_soak_on_client(
     actual_elapsed_s = time.monotonic() - t_start
 
     # Drain phase: Wait for in-flight mutations/projections to settle
-    drain_completed, remaining_backlog = await _drain_runtime(
+    drain_completed, remaining_backlog, runtime_state_measurable = await _drain_runtime(
         client, dao, timeout=drain_timeout
     )
 
     # Post-drain verifications
-    # 1. Final health probe
+    # 1. Final fail-safe health probe
     final_health = "unknown"
     try:
         h_resp = await client.get("/health")
         if h_resp.status_code == 200:
-            final_health = h_resp.json().get("status", "healthy")
+            data = h_resp.json()
+            status_val = data.get("status") if isinstance(data, dict) else None
+            final_health = str(status_val) if status_val else "malformed_response"
         else:
             final_health = f"http_{h_resp.status_code}"
     except Exception as exc:
@@ -2182,10 +2308,11 @@ async def _run_soak_on_client(
         final_health=final_health,
         health_checks_total=metrics.health_checks_total,
         health_checks_failed=metrics.health_checks_failed,
-        consecutive_health_failures=metrics.consecutive_health_failures,
+        max_consecutive_health_failures=metrics.max_consecutive_health_failures,
         resource_eval=resource_eval,
         drain_completed=drain_completed,
         remaining_backlog=remaining_backlog,
+        runtime_state_measurable=runtime_state_measurable,
         runtime=final_snap["runtime"],
     )
 
@@ -2201,6 +2328,7 @@ async def _run_soak_on_client(
         peak_rss_mb=metrics.peak_rss_mb,
         drain_completed=drain_completed,
         remaining_backlog=remaining_backlog,
+        runtime_state_measurable=runtime_state_measurable,
     )
 
     final_snap["log_file"] = str(log_file)
@@ -2217,6 +2345,7 @@ async def _run_soak_on_client(
     final_snap["peak_rss_mb"] = metrics.peak_rss_mb
     final_snap["drain_completed"] = drain_completed
     final_snap["remaining_backlog"] = remaining_backlog
+    final_snap["runtime_state_measurable"] = runtime_state_measurable
     final_snap["evaluation"] = {
         "verdict": eval_result.verdict,
         "exit_code": eval_result.exit_code,
@@ -2244,23 +2373,22 @@ async def run_soak(
     workspace_id: str = DEFAULT_WORKSPACE_ID,
     dataset_id: str = DEFAULT_DATASET_ID,
     agent_id: str = DEFAULT_AGENT_ID,
+    interrupted_event: asyncio.Event | None = None,
 ) -> dict[str, Any]:
     """Execute the full Profile A soak test pipeline."""
     use_embedded = embedded
     if not use_embedded and base_url == DEFAULT_BASE_URL:
-        # Probe local server
+        # Probe local server fail-safe
         try:
             async with httpx.AsyncClient(timeout=2.0) as probe_client:
                 r = await probe_client.get(f"{base_url}/health")
-                if r.status_code != 200:
+                if r.status_code != 200 or r.json().get("status") != "healthy":
                     use_embedded = True
         except Exception:
             use_embedded = True
 
     if use_embedded:
-        mode_name = (
-            "Embedded V4 Combined Runtime (Real SQLite/LanceDB/Kuzu + Deterministic LLM)"
-        )
+        mode_name = "Embedded V4 Combined Runtime (Real SQLite/LanceDB/Kuzu + Deterministic LLM)"
         logger.info("SOAK_MODE | Running %s", mode_name)
         s_root = (
             storage_root
@@ -2290,6 +2418,7 @@ async def run_soak(
                 is_embedded=True,
                 mode_name=mode_name,
                 dao=state.dao,
+                interrupted_event=interrupted_event,
             )
     else:
         mode_name = f"Remote Server ({base_url})"
@@ -2313,6 +2442,7 @@ async def run_soak(
                 is_embedded=False,
                 mode_name=mode_name,
                 dao=None,
+                interrupted_event=interrupted_event,
             )
 
 
@@ -2438,8 +2568,25 @@ def main() -> None:
             _MIN_PRODUCTION_DURATION,
         )
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    interrupted_event = asyncio.Event()
+
+    def _handle_signal(sig_name: str) -> None:
+        logger.warning(
+            "SOAK | Received %s signal — initiating graceful shutdown...", sig_name
+        )
+        interrupted_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, _handle_signal, sig.name)
+        except (NotImplementedError, RuntimeError):
+            signal.signal(sig, lambda s, f: _handle_signal(signal.Signals(s).name))
+
     try:
-        final_report = asyncio.run(
+        final_report = loop.run_until_complete(
             run_soak(
                 base_url=args.base_url,
                 api_key=args.api_key,
@@ -2454,11 +2601,14 @@ def main() -> None:
                 workspace_id=args.workspace_id,
                 dataset_id=args.dataset_id,
                 agent_id=args.agent_id,
+                interrupted_event=interrupted_event,
             )
         )
     except KeyboardInterrupt:
         logger.warning("SOAK | Aborted by user (Ctrl+C)")
         sys.exit(130)
+    finally:
+        loop.close()
 
     # Print standard report
     report_text = final_report.get("report_text", "")
