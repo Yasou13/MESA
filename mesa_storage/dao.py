@@ -77,7 +77,7 @@ from mesa_storage.retrieval_scope import (
     scope_vector_result_ids,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.vector_engine import VectorEngine
+from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
 
 logger = logging.getLogger("MESA_DAO")
 
@@ -5278,7 +5278,7 @@ class MemoryDAO:
                             and entity_id not in vector_lane
                         ):
                             vector_lane.append(str(entity_id))
-        except (AttributeError, RuntimeError):
+        except SemanticRuntimeDisabledError:
             vector_lane = []
 
         tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))

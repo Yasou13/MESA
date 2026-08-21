@@ -424,25 +424,24 @@ flowchart LR
 ### 1. Install
 
 `pyproject.toml` defines supported dependency ranges; `uv.lock` is the
-reproducible deployment graph consumed by Docker and CI. Prefer `uv sync
---locked` for development and operator environments. The core package avoids
-heavy ML dependencies unless explicitly requested.
+reproducible deployment graph consumed by Docker and CI. The standard local
+development environment installs the locked `dev` extra and intentionally
+omits optional provider SDKs.
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-python3 -m venv venv && source venv/bin/activate
-python -m pip install -e .
+uv sync --locked --extra dev
 ```
 
 **Optional Legacy/V3 ML Models:** If you need the local REBEL transformer model for legacy English-only offline triplet extraction, install the optional package:
 ```bash
-python -m pip install -e ".[ml]"
+uv sync --locked --extra dev --extra ml
 ```
 
 **Optional LLM Adapters:** The core package avoids installing third-party LLM SDKs to keep the footprint small. If you intend to use cloud providers (OpenAI, Anthropic, Groq, LiteLLM) or Ollama instead of pure local logic, install the adapters group:
 ```bash
-python -m pip install -e ".[adapters]"
+uv sync --locked --extra dev --extra adapters
 ```
 
 ### 2. Configure
@@ -509,18 +508,26 @@ uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
 ## Running Tests
 
 ```bash
-# Full test suite
-pytest tests/ -q
+# Core local suite (works with `uv sync --locked --extra dev`)
+make test-local
 
-# With coverage
-pytest tests/ --cov=mesa_memory --cov=mesa_api --cov=mesa_storage --cov-report=term-missing --ignore=tests/bench
+# Complete installed suite (install `dev` + `adapters` first)
+make test-all
+
+# Optional provider/MCP contracts only
+make test-adapters
+
+# Core local suite with coverage
+uv run pytest tests/ -m "not optional_provider and not optional_mcp and not live_external" \
+  --cov=mesa_memory --cov=mesa_api --cov=mesa_storage \
+  --cov-report=term-missing --ignore=tests/bench
 
 # Type checking
-mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases
+uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases
 
 # Formatting
-black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
-ruff check .
+uv run black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
+uv run ruff check .
 
 # Historical synthetic diagnostics (not a release gate)
 python -m mesa_evals.evals        # Run 30-entry synthetic benchmark

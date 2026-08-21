@@ -21,6 +21,7 @@ async def test_context_builder_integration(tmp_path):
     mock_vec = SimpleNamespace()
     mock_vec.is_initialized = True
     mock_vec.compute_embedding = AsyncMock(return_value=[0.1] * 384)
+    mock_vec.compute_query_embedding = AsyncMock(return_value=[0.1] * 384)
     mock_vec.search = AsyncMock(return_value=[])
 
     mock_graph = SimpleNamespace()

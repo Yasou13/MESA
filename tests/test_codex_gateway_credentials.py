@@ -10,6 +10,7 @@ from cryptography.fernet import Fernet
 from mesa_mcp.gateway.auth import GatewayPrincipal
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_mcp.gateway.operations import GatewayOperationService
+from mesa_memory.security.untrusted_memory import TAG_CLOSE, TAG_OPEN, TRUST_HEADER
 from mesa_storage.sqlite_engine import AsyncEngine
 
 
@@ -139,7 +140,10 @@ async def test_direct_principal_filters_recall_and_never_uses_caller_scope(contr
                 "project_id": "attacker-controlled",
             },
         )
-        assert result["context_text"] == "[decision:m1]\nUse V4."
+        assert result["context_text"].startswith(TRUST_HEADER)
+        assert result["context_text"].count(TAG_OPEN) == 1
+        assert result["context_text"].count(TAG_CLOSE) == 1
+        assert "Use V4." in result["context_text"]
         assert result["memories"][0]["provenance"]["mutation_id"] == "mut1"
     finally:
         await middleware.close()

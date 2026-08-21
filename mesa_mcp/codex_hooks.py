@@ -14,6 +14,8 @@ import httpx
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from mesa_memory.security.untrusted_memory import render_untrusted_memory
+
 from .workspace import workspace_fingerprint
 
 _UNAVAILABLE = "MESA memory is temporarily unavailable. Continue using repository context; do not assume prior decisions were loaded."
@@ -62,7 +64,19 @@ async def _context(payload: dict[str, Any]) -> str:
         if event == "PostCompact" and not profile.get("post_compact_enabled", True):
             return ""
         result = await _recall(profile)
-        text = str(result.get("context_text") or "")[:9600]
+        memories = result.get("memories")
+        if isinstance(memories, list):
+            records = [item for item in memories if isinstance(item, dict)]
+        else:
+            records = []
+        if not records:
+            raw_context = str(result.get("context_text") or "")[:9600]
+            records = (
+                [{"type": "retrieved_memory_context", "content": raw_context}]
+                if raw_context
+                else []
+            )
+        text = render_untrusted_memory([("MESA Project Memory", records)])
         if text:
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_text(text, encoding="utf-8")
@@ -70,9 +84,14 @@ async def _context(payload: dict[str, Any]) -> str:
     except Exception:
         if cache.exists():
             try:
-                return (
-                    "MESA project memory (cached):\n"
-                    + cache.read_text(encoding="utf-8")[:9600]
+                cached = cache.read_text(encoding="utf-8")[:9600]
+                return "MESA project memory (cached):\n" + render_untrusted_memory(
+                    [
+                        (
+                            "Cached MESA Project Memory",
+                            [{"type": "cached_memory_context", "content": cached}],
+                        )
+                    ]
                 )
             except OSError:
                 pass

@@ -27,6 +27,10 @@ from mesa_storage.repositories.operations import (
     OperationNotFoundError,
     OperationStateError,
 )
+from mesa_storage.vector_engine import (
+    EmbeddingMigrationRequiredError,
+    VectorSearchError,
+)
 
 
 def _app(
@@ -83,6 +87,52 @@ async def asgi_client() -> AsyncIterator[ClientFactory]:
 
     for client in clients:
         await client.aclose()
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_status", "expected_detail"),
+    [
+        (
+            EmbeddingMigrationRequiredError("re-embedding required"),
+            409,
+            "embedding_migration_required",
+        ),
+        (
+            VectorSearchError("vector backend unavailable"),
+            503,
+            "vector_backend_unavailable",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_v4_search_maps_vector_failures_explicitly(
+    asgi_client: ClientFactory,
+    failure: Exception,
+    expected_status: int,
+    expected_detail: str,
+) -> None:
+    dao = MagicMock()
+    dao.get_v4_session = AsyncMock(
+        return_value={
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "dataset_ids": ["dataset-a"],
+            "agent_id": "agent-a",
+            "session_id": "session-a",
+            "status": "ACTIVE",
+        }
+    )
+    dao.search_v4_memory = AsyncMock(side_effect=failure)
+    response = await asgi_client(_app(dao, _access())).post(
+        "/v4/memory/search",
+        json={
+            "session_id": "session-a",
+            "dataset_ids": ["dataset-a"],
+            "query": "Exact",
+        },
+    )
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == expected_detail
 
 
 def _access(*, allowed: bool = True) -> MagicMock:

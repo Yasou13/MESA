@@ -31,6 +31,12 @@ limiter.enabled = False
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_STORAGE_BASE = REPO_ROOT / ".test_storage_tmp"
+_FORCE_EXIT_COMPAT_ENV = "MESA_PYTEST_FORCE_EXIT_COMPAT"
+
+
+def _force_exit_compat_enabled() -> bool:
+    """Return whether the legacy CPython/C-extension exit workaround is enabled."""
+    return os.environ.get(_FORCE_EXIT_COMPAT_ENV, "").strip() == "1"
 
 
 def make_test_storage_dir(name: str) -> str:
@@ -139,7 +145,7 @@ def pytest_unconfigure(config):
     except Exception:
         pass
 
-    # 3. Inspect and handle lingering non-daemon threads that block Python 3.13 _thread_shutdown()
+    # 3. Inspect and handle lingering non-daemon threads that block interpreter exit.
     try:
         main_t = threading.main_thread()
         alive_threads = [
@@ -155,30 +161,48 @@ def pytest_unconfigure(config):
                     # Give it up to 1 second to finish after signals
                     t.join(timeout=1.0)
                     if t.is_alive():
-                        # In Python < 3.13, discarding from _shutdown_locks prevents hang
-                        if hasattr(threading, "_shutdown_locks"):
+                        # The compatibility mode may retain the historical
+                        # CPython workaround. Normal execution must expose the
+                        # leaked thread instead of hiding it.
+                        if _force_exit_compat_enabled() and hasattr(
+                            threading, "_shutdown_locks"
+                        ):
                             tstate_lock = getattr(t, "_tstate_lock", None)
                             if tstate_lock and tstate_lock in threading._shutdown_locks:
                                 threading._shutdown_locks.discard(tstate_lock)
-                        # In Python 3.13, _thread_shutdown() checks C-level handle or thread state.
-                        # If thread is still alive and non-daemon, attempt to signal its stop event if it has one.
+                        # If the thread exposes a stop event, request a graceful
+                        # shutdown before reporting the lifecycle leak.
                         stop_event = getattr(t, "_stop_event", None) or getattr(
                             t, "stop_event", None
                         )
                         if stop_event and hasattr(stop_event, "set"):
                             stop_event.set()
                         t.join(timeout=0.5)
+
+            remaining = [
+                t
+                for t in threading.enumerate()
+                if t is not main_t and t.is_alive() and not t.daemon
+            ]
+            if remaining:
+                print(
+                    "\n[pytest_unconfigure] ERROR: non-daemon thread leak: "
+                    f"{[t.name for t in remaining]}",
+                    file=sys.stderr,
+                )
+                if hasattr(config, "session"):
+                    config.session.exitstatus = pytest.ExitCode.TESTS_FAILED
     except Exception as e:
         print(
             f"[pytest_unconfigure] Error handling lingering threads: {e}",
             file=sys.stderr,
         )
 
-    # 4. Teardown Watchdog: Guarantee clean exit if CPython 3.13 _PyThread_Shutdown / atexit hangs
-    # After pytest_unconfigure runs, all 918 tests and coverage reports (XML/JSON/HTML) are 100% written on disk.
-    # If Python's normal interpreter shutdown blocks for >2 seconds due to C-extensions, force exit cleanly.
+    # 4. Legacy compatibility watchdog. This is deliberately opt-in because
+    # os._exit can hide leaked threads and other lifecycle defects.
+    if not _force_exit_compat_enabled():
+        return
     try:
-        import os
         import time
 
         exit_code = (

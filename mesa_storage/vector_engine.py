@@ -94,6 +94,10 @@ class EmbeddingServicePort(Protocol):
     async def aembed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
+class SemanticRuntimeDisabledError(RuntimeError):
+    """Semantic retrieval is intentionally unavailable in this runtime."""
+
+
 class VectorSearchError(RuntimeError):
     """A vector lookup could not produce a trustworthy result."""
 
@@ -348,7 +352,7 @@ class VectorEngine:
                 raise RuntimeError("embedding provider returned an empty vector")
             return [float(value) for value in vector]
 
-        raise RuntimeError(
+        raise SemanticRuntimeDisabledError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
@@ -360,14 +364,14 @@ class VectorEngine:
             return await self._embedding_service.aembed_query(text)
         if self._embedding_provider is not None:
             return await self._embedding_provider(text)
-        raise RuntimeError(
+        raise SemanticRuntimeDisabledError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
     def _sync_compute_embedding(self, text: str) -> list[float]:
         if self._embedding_service is not None:
             return self._embedding_service.embed_document(text)
-        raise RuntimeError(
+        raise SemanticRuntimeDisabledError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
@@ -387,7 +391,7 @@ class VectorEngine:
                 await asyncio.gather(*(self.compute_embedding(text) for text in texts))
             )
 
-        raise RuntimeError(
+        raise SemanticRuntimeDisabledError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
@@ -396,7 +400,7 @@ class VectorEngine:
             return []
         if self._embedding_service is not None:
             return self._embedding_service.embed_batch(texts)
-        raise RuntimeError(
+        raise SemanticRuntimeDisabledError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 

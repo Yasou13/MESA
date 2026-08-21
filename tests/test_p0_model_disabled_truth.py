@@ -7,7 +7,7 @@ import pytest
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.vector_engine import VectorEngine
+from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
 
 
 @pytest.mark.asyncio
@@ -21,12 +21,17 @@ async def test_model_disabled_runtime_degradation(tmp_path):
     await initialize_schema(engine)
 
     # VectorEngine created with allow_model_loading=False and embedding_provider=None
-    vec = VectorEngine(uri=str(lance_path), allow_model_loading=False, embedding_provider=None)
+    vec = VectorEngine(
+        uri=str(lance_path), allow_model_loading=False, embedding_provider=None
+    )
     await vec.initialize()
     assert vec.semantic_runtime_available is False
 
-    # Calling compute_embedding directly must raise RuntimeError
-    with pytest.raises(RuntimeError, match="semantic embedding runtime is disabled"):
+    # Calling compute_embedding directly must expose the intentional degradation type.
+    with pytest.raises(
+        SemanticRuntimeDisabledError,
+        match="semantic embedding runtime is disabled",
+    ):
         await vec.compute_embedding("test query")
 
     mock_graph = SimpleNamespace()
@@ -42,9 +47,15 @@ async def test_model_disabled_runtime_degradation(tmp_path):
     doc_id = f"doc_{uuid.uuid4().hex[:8]}"
     rev_id = f"rev_{uuid.uuid4().hex[:8]}"
 
-    await dao.create_v4_workspace(tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Dis")
-    await dao.ensure_v4_catalog_scope(tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id)
-    await dao.create_v4_document(tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Dis", document_id=doc_id)
+    await dao.create_v4_workspace(
+        tenant_id=tenant_id, workspace_id=workspace_id, workspace_name="WS Dis"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=tenant_id, workspace_id=workspace_id, dataset_id=dataset_id
+    )
+    await dao.create_v4_document(
+        tenant_id=tenant_id, dataset_id=dataset_id, title="Doc Dis", document_id=doc_id
+    )
     await dao.create_v4_revision(
         tenant_id=tenant_id,
         dataset_id=dataset_id,
@@ -76,7 +87,12 @@ async def test_model_disabled_runtime_degradation(tmp_path):
     await dao.record_mutation(mut, raw_log_id=None)
     await dao.project_v4_sql_entity(mutation=mut, entity_name="Model Disabled Entity")
 
-    t = {"head": "Model Disabled Entity", "relation": "STATUS", "literal_value": "DISABLED_TEST", "confidence": 1.0}
+    t = {
+        "head": "Model Disabled Entity",
+        "relation": "STATUS",
+        "literal_value": "DISABLED_TEST",
+        "confidence": 1.0,
+    }
     await dao.project_v4_graph_triplet(mutation=mut, triplet=t)
     await dao.record_mutation_extraction(agent_id, mut["mutation_id"], [t])
     assert await dao.set_mutation_state(agent_id, mut["mutation_id"], "VALIDATED")

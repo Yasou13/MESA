@@ -404,6 +404,45 @@ async def test_ranking_aware_budget_trimming() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chatty_session_cannot_evict_top_ranked_canonical_memory() -> None:
+    """Session logs yield budget before the best long-term canonical evidence."""
+    memories = [
+        {
+            "entity": {"canonical_name": f"Priority_Entity_{rank}"},
+            "provenance": [
+                {
+                    "predicate": "FACT",
+                    "literal_value": f"Ranked canonical fact {rank}",
+                }
+            ],
+        }
+        for rank in range(1, 4)
+    ]
+    session_logs = [
+        {"content": f"chatty session entry {index} " + "noise " * 40}
+        for index in range(20)
+    ]
+    dao = SimpleNamespace(
+        get_recent_logs=AsyncMock(return_value=session_logs),
+        search_v4_memory=AsyncMock(return_value=memories),
+    )
+
+    ctx = await ContextBuilder(dao).build_context(  # type: ignore[arg-type]
+        tenant_id="t1",
+        agent_id="a1",
+        dataset_ids=["ds1"],
+        query="priority",
+        session_id="s1",
+        token_budget=100,
+    )
+
+    formatted = ctx["formatted_context"]
+    assert _count_tokens(formatted) <= 100
+    assert "Priority_Entity_1" in formatted
+    assert "Priority_Entity_3" not in formatted
+
+
+@pytest.mark.asyncio
 async def test_provenance_rendered_when_enabled_and_compact_when_disabled() -> None:
     """include_provenance=True includes bounded provenance fields; False produces compact facts."""
     memory_with_prov = [
