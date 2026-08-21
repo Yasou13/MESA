@@ -352,3 +352,31 @@ class TestConcurrency:
         )
         # First result is search output
         assert len(results[0]) >= 1
+
+
+# ===================================================================
+# Memory Lifecycle — Table handle non-retention invariant
+# ===================================================================
+
+
+class TestMemoryLifecycle:
+    @pytest.mark.asyncio
+    async def test_upsert_does_not_cache_mutated_table_handles(self, engine):
+        """Mutations must not retain long-lived Lance Table objects in memory."""
+        for i in range(20):
+            nid = uuid.uuid4().hex
+            await engine.upsert(nid, "leak_test_agent", VEC_A)
+
+        # After multiple upserts, ensure table handles are not accumulated in _tables
+        assert len(engine._tables) == 0
+
+    @pytest.mark.asyncio
+    async def test_bulk_upsert_does_not_cache_mutated_table_handles(self, engine):
+        """Bulk mutations must not retain long-lived Lance Table objects in memory."""
+        records = [
+            {"node_id": uuid.uuid4().hex, "agent_id": "bulk_agent", "embedding": VEC_A}
+            for _ in range(20)
+        ]
+        await engine.bulk_upsert(records)
+        assert len(engine._tables) == 0
+

@@ -313,26 +313,13 @@ class VectorEngine:
     def _sync_get_or_create_table(self, dimension: int) -> Any:
         """Get or create a dimension-partitioned table (thread-safe)."""
         table_name = f"{_DEFAULT_TABLE_PREFIX}{dimension}"
-
-        with self._table_lock:
-            if table_name in self._tables:
-                return self._tables[table_name]
-
         schema = _build_schema(dimension)
         assert self._db is not None
 
-        with self._table_lock:
-            # Double-check after acquiring lock
-            if table_name in self._tables:
-                return self._tables[table_name]
-
-            try:
-                table = self._db.open_table(table_name)
-            except (FileNotFoundError, ValueError):
-                table = self._db.create_table(table_name, schema=schema)
-
-            self._tables[table_name] = table
-            return table
+        try:
+            return self._db.open_table(table_name)
+        except (FileNotFoundError, ValueError):
+            return self._db.create_table(table_name, schema=schema)
 
     # ------------------------------------------------------------------
     # Embedding generation
@@ -714,14 +701,10 @@ class VectorEngine:
                 f"{dimension}-dimension queries"
             )
 
-        with self._table_lock:
-            table = self._tables.get(table_name)
-
-        if table is None:
-            try:
-                table = self._sync_get_or_create_table(dimension)
-            except (FileNotFoundError, ValueError):
-                return []
+        try:
+            table = self._sync_get_or_create_table(dimension)
+        except (FileNotFoundError, ValueError):
+            return []
 
         try:
             query = table.search(query_vector).metric(self._metric)
