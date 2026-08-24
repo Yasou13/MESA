@@ -6,7 +6,7 @@ import asyncio
 import time
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -43,6 +43,83 @@ def _install_fake_executor(monkeypatch, *, pause: bool = False) -> dict[str, int
     loop = SimpleNamespace(run_in_executor=run_in_executor)
     monkeypatch.setattr(vector_engine_module.asyncio, "get_running_loop", lambda: loop)
     return state
+
+
+def test_maintenance_configuration_rejects_invalid_values() -> None:
+    """Maintenance limits must fail before an engine allocates resources."""
+    for options in (
+        {"maintenance_mutation_threshold": 0},
+        {"maintenance_min_interval_seconds": -1},
+        {"maintenance_failure_retry_seconds": -1},
+    ):
+        with pytest.raises(ValueError):
+            VectorEngine("unused", **options)
+
+
+def test_metrics_snapshot_includes_maintenance_average() -> None:
+    engine = VectorEngine("unused")
+    engine.metrics.searches = 2
+    engine.metrics.total_search_time_ms = 5.0
+    engine.metrics.maintenance_runs = 2
+    engine.metrics.maintenance_failures = 1
+    engine.metrics.total_maintenance_time_ms = 7.0
+
+    assert engine.metrics.snapshot() == {
+        "upserts": 0,
+        "searches": 2,
+        "soft_deletes": 0,
+        "errors": 0,
+        "avg_search_time_ms": 2.5,
+        "maintenance_runs": 2,
+        "maintenance_failures": 1,
+        "avg_maintenance_time_ms": 3.5,
+    }
+    engine._executor.shutdown(wait=True, cancel_futures=True)
+
+
+@pytest.mark.asyncio
+async def test_public_writes_report_mutations_after_success(monkeypatch) -> None:
+    engine = VectorEngine("unused")
+    engine._initialized = True
+    engine._sync_upsert = MagicMock()  # type: ignore[method-assign]
+    engine._sync_bulk_upsert = MagicMock(return_value=3)  # type: ignore[method-assign]
+    record_mutations = AsyncMock()
+    engine._record_mutations_and_maybe_maintain = record_mutations  # type: ignore[method-assign]
+    _install_fake_executor(monkeypatch)
+
+    await engine.upsert("node-1", "agent-1", [1.0, 2.0])
+    assert record_mutations.await_args_list[0].args == ({"mesa_vectors_2": 1},)
+
+    result = await engine.bulk_upsert(
+        [
+            {"node_id": "node-1", "agent_id": "agent-1", "embedding": [1.0, 2.0]},
+            {"node_id": "node-2", "agent_id": "agent-1", "embedding": [3.0, 4.0]},
+            {"node_id": "node-3", "agent_id": "agent-1", "embedding": [5.0, 6.0, 7.0]},
+        ]
+    )
+
+    assert result == 3
+    assert record_mutations.await_args_list[1].args == (
+        {"mesa_vectors_2": 2, "mesa_vectors_3": 1},
+    )
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_close_clears_pending_maintenance_state() -> None:
+    engine = VectorEngine("unused")
+    engine._initialized = True
+    engine._mutations_since_maintenance["mesa_vectors_8"] = 3
+    engine._maintenance_last_attempt["mesa_vectors_8"] = 1.0
+    engine._maintenance_last_failure["mesa_vectors_8"] = 2.0
+
+    await engine.close()
+
+    assert not engine._initialized
+    assert engine._db is None
+    assert engine._mutations_since_maintenance == {}
+    assert engine._maintenance_last_attempt == {}
+    assert engine._maintenance_last_failure == {}
 
 
 @pytest.mark.asyncio
