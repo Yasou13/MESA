@@ -227,6 +227,15 @@ class EmbeddingService:
     def dimension(self) -> int:
         return self._identity.dimension
 
+    @property
+    def is_operational(self) -> bool:
+        """Return whether this service is operationally ready to generate embeddings."""
+        if self._is_mock or self._provider_fn is not None or self._async_provider_fn is not None:
+            return True
+        if self._local_model is not None:
+            return True
+        return False
+
     def _validate_vector_shape(self, vec: Sequence[float]) -> list[float]:
         """Ensure vector conforms to identity dimension and normalization."""
         if len(vec) != self._identity.dimension:

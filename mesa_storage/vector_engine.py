@@ -295,11 +295,25 @@ class VectorEngine:
         return self._initialized
 
     @property
-    def semantic_runtime_available(self) -> bool:
-        """Whether this process can create query embeddings."""
+    def semantic_configured(self) -> bool:
+        """Whether semantic embedding service/provider has been configured."""
         return (
             self._embedding_provider is not None or self._embedding_service is not None
         )
+
+    @property
+    def semantic_operational(self) -> bool:
+        """Whether this process can operationally create query embeddings."""
+        if self._embedding_provider is not None:
+            return True
+        if self._embedding_service is not None:
+            return getattr(self._embedding_service, "is_operational", True)
+        return False
+
+    @property
+    def semantic_runtime_available(self) -> bool:
+        """Whether this process can create query embeddings."""
+        return self.semantic_operational
 
     @property
     def embedding_identity(self) -> Any | None:

@@ -38,6 +38,12 @@ from mesa_storage.repositories.operations import (
     OperationNotFoundError,
     OperationStateError,
 )
+from mesa_memory.embedding.service import (
+    EmbeddingGenerationError,
+    EmbeddingIdentityMismatchError,
+    EmbeddingUnavailableError,
+    ExternalProviderForbiddenError,
+)
 from mesa_storage.vector_engine import (
     EmbeddingMigrationRequiredError,
     VectorSearchError,
@@ -748,7 +754,13 @@ def create_v4_router(
     ) -> V4CapabilityResponse:
         """Return bounded capability truth without implying planned behaviour."""
         vector_available = getattr(
-            getattr(dao, "_vec", None), "semantic_runtime_available", False
+            getattr(dao, "_vec", None),
+            "semantic_operational",
+            getattr(getattr(dao, "_vec", None), "semantic_runtime_available", False),
+        )
+        graph_available = getattr(dao, "graph_operational", False) or (
+            getattr(dao, "_graph", None) is not None
+            and getattr(dao._graph, "is_initialized", False)
         )
         canonical_writes_available = dao.canonical_v4_writes_enabled is not False
         capabilities = V4CapabilityFlags(
@@ -759,6 +771,9 @@ def create_v4_router(
                 vector_available if isinstance(vector_available, bool) else False
             ),
             graph_projection=canonical_writes_available,
+            graph_neighbor_retrieval=(
+                graph_available if isinstance(graph_available, bool) else False
+            ),
         )
         policy = current_validation_policy()
         if policy is not None:
@@ -1049,7 +1064,13 @@ def create_v4_router(
                 status_code=409,
                 detail="embedding_migration_required",
             )
-        except VectorSearchError:
+        except (
+            VectorSearchError,
+            EmbeddingUnavailableError,
+            EmbeddingGenerationError,
+            ExternalProviderForbiddenError,
+            EmbeddingIdentityMismatchError,
+        ):
             raise HTTPException(
                 status_code=503,
                 detail="vector_backend_unavailable",
