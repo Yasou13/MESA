@@ -30,7 +30,7 @@ def test_lancedb_search_failure_is_not_reported_as_an_empty_result(tmp_path) -> 
             def search(self, *_args, **_kwargs):
                 raise OSError("storage unavailable")
 
-        engine._tables["mesa_vectors_8"] = BrokenTable()
+        engine._sync_get_or_create_table = lambda _dimension: BrokenTable()  # type: ignore[method-assign]
         with pytest.raises(VectorSearchError, match="vector search failed"):
             engine._sync_search([1.0] * 8, 10, "agent-1", None, False)
     finally:

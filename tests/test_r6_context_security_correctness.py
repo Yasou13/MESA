@@ -349,7 +349,7 @@ def test_context_builder_fails_closed_without_its_canonical_tokenizer() -> None:
 def test_context_builder_requests_strict_canonical_token_counting() -> None:
     """Removing strict mode must expose the adapter's forbidden estimate fallback."""
     with patch(
-        "mesa_memory.adapter.tokenizer.tiktoken.get_encoding",
+        "mesa_memory.adapter.tokenizer._get_cl100k_encoding",
         side_effect=RuntimeError("encoding cache unavailable"),
     ):
         with pytest.raises(RuntimeError, match="canonical tokenizer is unavailable"):
@@ -394,7 +394,10 @@ async def test_ranking_aware_budget_trimming() -> None:
         agent_id="a1",
         dataset_ids=["ds1"],
         query="test",
-        token_budget=150,
+        # Make the constraint independent of tokenization-table revisions:
+        # any positive reduction from the all-record rendering must evict the
+        # last-ranked record first.
+        token_budget=_count_tokens(full_ctx["formatted_context"]) - 1,
     )
     formatted_tight = tight_ctx["formatted_context"]
     assert _count_tokens(formatted_tight) <= 150
@@ -427,13 +430,22 @@ async def test_chatty_session_cannot_evict_top_ranked_canonical_memory() -> None
         search_v4_memory=AsyncMock(return_value=memories),
     )
 
+    canonical_only = await ContextBuilder(dao).build_context(  # type: ignore[arg-type]
+        tenant_id="t1",
+        agent_id="a1",
+        dataset_ids=["ds1"],
+        query="priority",
+        token_budget=1000,
+    )
     ctx = await ContextBuilder(dao).build_context(  # type: ignore[arg-type]
         tenant_id="t1",
         agent_id="a1",
         dataset_ids=["ds1"],
         query="priority",
         session_id="s1",
-        token_budget=100,
+        # Session records yield first; then a one-token reduction from the
+        # canonical-only rendering must evict the lowest-ranked canonical item.
+        token_budget=_count_tokens(canonical_only["formatted_context"]) - 1,
     )
 
     formatted = ctx["formatted_context"]

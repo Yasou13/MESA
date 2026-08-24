@@ -124,7 +124,7 @@ async def test_vector_candidates_are_filtered_before_ranking_limit() -> None:
     query = _RecordingQuery()
     engine = VectorEngine("unused")
     engine._initialized = True
-    engine._tables["mesa_vectors_2"] = _RecordingTable(query)
+    engine._sync_get_or_create_table = lambda _dimension: _RecordingTable(query)  # type: ignore[method-assign]
     engine._list_table_names = lambda: ["mesa_vectors_2"]  # type: ignore[method-assign]
 
     try:
@@ -150,7 +150,7 @@ async def test_empty_vector_candidate_scope_fails_closed_without_searching() -> 
     query = _RecordingQuery()
     engine = VectorEngine("unused")
     engine._initialized = True
-    engine._tables["mesa_vectors_2"] = _RecordingTable(query)
+    engine._sync_get_or_create_table = lambda _dimension: _RecordingTable(query)  # type: ignore[method-assign]
     engine._list_table_names = lambda: ["mesa_vectors_2"]  # type: ignore[method-assign]
 
     try:
