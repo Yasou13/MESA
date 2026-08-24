@@ -37,6 +37,23 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
 
+def _monotonic_test_token_count(
+    text: str,
+    adapter_type: str,
+    model_id: str = "",
+    *,
+    strict: bool = False,
+) -> int:
+    """Deterministic budget meter for pruning-order tests only.
+
+    The production tokenizer contract is covered separately.  These tests need
+    a count that strictly shrinks whenever a rendered record is removed, so
+    they can isolate the ContextBuilder's ranking and eviction policy.
+    """
+    del adapter_type, model_id, strict
+    return len(text)
+
+
 def test_trust_header_and_tags_defined() -> None:
     """ContextBuilder must define explicit untrusted evidence trust markers."""
     assert "untrusted evidence" in TRUST_HEADER.lower()
@@ -349,7 +366,7 @@ def test_context_builder_fails_closed_without_its_canonical_tokenizer() -> None:
 def test_context_builder_requests_strict_canonical_token_counting() -> None:
     """Removing strict mode must expose the adapter's forbidden estimate fallback."""
     with patch(
-        "mesa_memory.adapter.tokenizer.tiktoken.get_encoding",
+        "mesa_memory.adapter.tokenizer._get_cl100k_encoding",
         side_effect=RuntimeError("encoding cache unavailable"),
     ):
         with pytest.raises(RuntimeError, match="canonical tokenizer is unavailable"):
@@ -377,30 +394,34 @@ async def test_ranking_aware_budget_trimming() -> None:
     )
     builder = ContextBuilder(dao)  # type: ignore[arg-type]
 
-    # Full budget -> all 5 entities present
-    full_ctx = await builder.build_context(
-        tenant_id="t1",
-        agent_id="a1",
-        dataset_ids=["ds1"],
-        query="test",
-        token_budget=1000,
-    )
-    for i in range(1, 6):
-        assert f"Ranked_Entity_{i}" in full_ctx["formatted_context"]
+    with patch(
+        "mesa_memory.context_builder.count_tokens",
+        side_effect=_monotonic_test_token_count,
+    ):
+        # Full budget -> all 5 entities present
+        full_ctx = await builder.build_context(
+            tenant_id="t1",
+            agent_id="a1",
+            dataset_ids=["ds1"],
+            query="test",
+            token_budget=10000,
+        )
+        for i in range(1, 6):
+            assert f"Ranked_Entity_{i}" in full_ctx["formatted_context"]
 
-    # Tight budget -> Ranked_Entity_1 and Ranked_Entity_2 present, lower ranked dropped
-    tight_ctx = await builder.build_context(
-        tenant_id="t1",
-        agent_id="a1",
-        dataset_ids=["ds1"],
-        query="test",
-        token_budget=150,
-    )
-    formatted_tight = tight_ctx["formatted_context"]
-    assert _count_tokens(formatted_tight) <= 150
-    assert "Ranked_Entity_1" in formatted_tight
-    # Lowest-ranked entity (5) must have been trimmed
-    assert "Ranked_Entity_5" not in formatted_tight
+        # A one-unit reduction must evict the last-ranked record first.
+        tight_budget = _count_tokens(full_ctx["formatted_context"]) - 1
+        tight_ctx = await builder.build_context(
+            tenant_id="t1",
+            agent_id="a1",
+            dataset_ids=["ds1"],
+            query="test",
+            token_budget=tight_budget,
+        )
+        formatted_tight = tight_ctx["formatted_context"]
+        assert _count_tokens(formatted_tight) <= tight_budget
+        assert "Ranked_Entity_1" in formatted_tight
+        assert "Ranked_Entity_5" not in formatted_tight
 
 
 @pytest.mark.asyncio
@@ -427,19 +448,32 @@ async def test_chatty_session_cannot_evict_top_ranked_canonical_memory() -> None
         search_v4_memory=AsyncMock(return_value=memories),
     )
 
-    ctx = await ContextBuilder(dao).build_context(  # type: ignore[arg-type]
-        tenant_id="t1",
-        agent_id="a1",
-        dataset_ids=["ds1"],
-        query="priority",
-        session_id="s1",
-        token_budget=100,
-    )
+    with patch(
+        "mesa_memory.context_builder.count_tokens",
+        side_effect=_monotonic_test_token_count,
+    ):
+        canonical_only = await ContextBuilder(dao).build_context(  # type: ignore[arg-type]
+            tenant_id="t1",
+            agent_id="a1",
+            dataset_ids=["ds1"],
+            query="priority",
+            token_budget=10000,
+        )
+        tight_budget = _count_tokens(canonical_only["formatted_context"]) - 1
+        ctx = await ContextBuilder(dao).build_context(  # type: ignore[arg-type]
+            tenant_id="t1",
+            agent_id="a1",
+            dataset_ids=["ds1"],
+            query="priority",
+            session_id="s1",
+            # Session records yield before the lowest-ranked canonical item.
+            token_budget=tight_budget,
+        )
 
-    formatted = ctx["formatted_context"]
-    assert _count_tokens(formatted) <= 100
-    assert "Priority_Entity_1" in formatted
-    assert "Priority_Entity_3" not in formatted
+        formatted = ctx["formatted_context"]
+        assert _count_tokens(formatted) <= tight_budget
+        assert "Priority_Entity_1" in formatted
+        assert "Priority_Entity_3" not in formatted
 
 
 @pytest.mark.asyncio

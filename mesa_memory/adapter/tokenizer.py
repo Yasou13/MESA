@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import tiktoken
 
@@ -7,6 +7,17 @@ from mesa_memory.adapter.base import TokenBudgetExceededError
 from mesa_memory.config import config
 
 logger = logging.getLogger("MESA_Tokenizer")
+
+
+_CL100K_ENCODING: tiktoken.Encoding | None = None
+_TRANS_TOKENIZERS: dict[str, Any] = {}
+
+
+def _get_cl100k_encoding() -> tiktoken.Encoding:
+    global _CL100K_ENCODING
+    if _CL100K_ENCODING is None:
+        _CL100K_ENCODING = tiktoken.get_encoding("cl100k_base")
+    return _CL100K_ENCODING
 
 
 def count_tokens(
@@ -18,7 +29,7 @@ def count_tokens(
 ) -> int:
     if adapter_type in ("claude", "openai"):
         try:
-            enc = tiktoken.get_encoding("cl100k_base")
+            enc = _get_cl100k_encoding()
             return len(enc.encode(text))
         except Exception as exc:
             if strict:
@@ -32,9 +43,11 @@ def count_tokens(
             return int(len(text.split()) * 1.3)
     if adapter_type == "ollama":
         try:
-            from transformers import AutoTokenizer
+            if model_id not in _TRANS_TOKENIZERS:
+                from transformers import AutoTokenizer
 
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
+                _TRANS_TOKENIZERS[model_id] = AutoTokenizer.from_pretrained(model_id)
+            tokenizer = _TRANS_TOKENIZERS[model_id]
             return len(tokenizer.encode(text))
         except (OSError, ValueError, ImportError) as exc:
             if strict:
