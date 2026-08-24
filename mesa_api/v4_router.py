@@ -21,6 +21,12 @@ from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
+from mesa_memory.embedding.service import (
+    EmbeddingGenerationError,
+    EmbeddingIdentityMismatchError,
+    EmbeddingUnavailableError,
+    ExternalProviderForbiddenError,
+)
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
@@ -37,12 +43,6 @@ from mesa_storage.repositories.operations import (
     OperationIdempotencyConflictError,
     OperationNotFoundError,
     OperationStateError,
-)
-from mesa_memory.embedding.service import (
-    EmbeddingGenerationError,
-    EmbeddingIdentityMismatchError,
-    EmbeddingUnavailableError,
-    ExternalProviderForbiddenError,
 )
 from mesa_storage.vector_engine import (
     EmbeddingMigrationRequiredError,

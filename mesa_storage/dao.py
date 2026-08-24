@@ -72,7 +72,6 @@ from mesa_storage.repositories.operations import (
     RebuildAdmissionReader,
 )
 from mesa_storage.retrieval_scope import (
-    V4_RRF_LANE_ORDER,
     build_v4_lexical_query,
     scope_vector_result_ids,
 )
@@ -5252,45 +5251,46 @@ class MemoryDAO:
             return []
 
         vector_lane: list[str] = []
-        try:
-            query_vector = await self._vec.compute_query_embedding(query)
-            vector_rows = await self._vec.search(
-                query_vector,
-                agent_id=agent_id,
-                allowed_node_ids=allowed_vector_ids,
-                limit=min(500, max(limit * 10, 50)),
-            )
-            ranked_assertion_ids = scope_vector_result_ids(
-                vector_rows, allowed_ids=allowed_vector_ids
-            )
-            if ranked_assertion_ids:
-                vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT assertion_id, subject_id, object_entity_id FROM v4_assertions "
-                        f"WHERE assertion_id IN ({vector_placeholders})",
-                        ranked_assertion_ids,
-                    ) as cursor:
-                        vector_assertions = {
-                            str(row["assertion_id"]): dict(row)
-                            for row in await cursor.fetchall()
-                        }
-                for assertion_id in ranked_assertion_ids:
-                    assertion = vector_assertions.get(assertion_id)
-                    if assertion is None:
-                        continue
-                    for entity_id in (
-                        assertion["subject_id"],
-                        assertion.get("object_entity_id"),
-                    ):
-                        if (
-                            entity_id
-                            and entity_id in allowed_entity_ids
-                            and entity_id not in vector_lane
+        if self._vec is not None:
+            try:
+                query_vector = await self._vec.compute_query_embedding(query)
+                vector_rows = await self._vec.search(
+                    query_vector,
+                    agent_id=agent_id,
+                    allowed_node_ids=allowed_vector_ids,
+                    limit=min(500, max(limit * 10, 50)),
+                )
+                ranked_assertion_ids = scope_vector_result_ids(
+                    vector_rows, allowed_ids=allowed_vector_ids
+                )
+                if ranked_assertion_ids:
+                    vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
+                    async with self._sql.connection() as db:
+                        async with db.execute(
+                            "SELECT assertion_id, subject_id, object_entity_id FROM v4_assertions "
+                            f"WHERE assertion_id IN ({vector_placeholders})",
+                            ranked_assertion_ids,
+                        ) as cursor:
+                            vector_assertions = {
+                                str(row["assertion_id"]): dict(row)
+                                for row in await cursor.fetchall()
+                            }
+                    for assertion_id in ranked_assertion_ids:
+                        assertion = vector_assertions.get(assertion_id)
+                        if assertion is None:
+                            continue
+                        for entity_id in (
+                            assertion["subject_id"],
+                            assertion.get("object_entity_id"),
                         ):
-                            vector_lane.append(str(entity_id))
-        except SemanticRuntimeDisabledError:
-            vector_lane = []
+                            if (
+                                entity_id
+                                and entity_id in allowed_entity_ids
+                                and entity_id not in vector_lane
+                            ):
+                                vector_lane.append(str(entity_id))
+            except SemanticRuntimeDisabledError:
+                vector_lane = []
 
         tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))
         lexical_lane: list[str] = []
