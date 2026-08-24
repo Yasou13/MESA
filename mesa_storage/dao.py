@@ -379,6 +379,17 @@ class MemoryDAO:
         """Whether this runtime owns an executable V4 validation/projection path."""
         return self._canonical_v4_writes_enabled
 
+    @property
+    def graph_operational(self) -> bool:
+        """Return whether the graph provider is operational."""
+        if self._graph is None:
+            return False
+        return getattr(
+            self._graph,
+            "is_operational",
+            getattr(self._graph, "is_initialized", False),
+        )
+
     async def submit_system_operation(
         self,
         *,
@@ -5365,7 +5376,7 @@ class MemoryDAO:
                 (*assertion_params, min(500, max(limit * 10, 50))),
             ) as cursor:
                 assertion_rows = [dict(row) for row in await cursor.fetchall()]
-        graph_lane: list[str] = []
+        assertion_lane: list[str] = []
         for assertion in assertion_rows:
             for candidate in (
                 assertion["subject_id"],
@@ -5374,18 +5385,77 @@ class MemoryDAO:
                 if (
                     candidate
                     and candidate in allowed_entity_ids
-                    and candidate not in graph_lane
+                    and candidate not in assertion_lane
                 ):
-                    graph_lane.append(str(candidate))
+                    assertion_lane.append(str(candidate))
+
+        # Real Kùzu Graph V2 Traversal Lane
+        direct_seeds: list[str] = []
+        if tokens:
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT entity_id FROM v4_entities "
+                    "WHERE tenant_id = ? AND status = 'ACTIVE' "
+                    "AND (canonical_name LIKE ? OR normalized_name LIKE ?) "
+                    "ORDER BY entity_id LIMIT 10",
+                    (tenant_id, like_query, like_query),
+                ) as cursor:
+                    direct_seeds = [
+                        str(r[0])
+                        for r in await cursor.fetchall()
+                        if str(r[0]) in allowed_entity_ids
+                    ]
+
+        graph_seed_ids: list[str] = []
+        for seed_cand in (
+            *direct_seeds,
+            *vector_lane[:10],
+            *lexical_lane[:10],
+            *assertion_lane[:10],
+        ):
+            if seed_cand in allowed_entity_ids and seed_cand not in graph_seed_ids:
+                graph_seed_ids.append(seed_cand)
+
+        graph_lane: list[str] = []
+        graph_path_assertion_ids: set[str] = set()
+        if (
+            self._graph is not None
+            and getattr(self._graph, "is_initialized", False)
+            and graph_seed_ids
+        ):
+            try:
+                graph_hits = await self._graph.search_v4_graph(
+                    agent_id=agent_id,
+                    seed_entity_ids=graph_seed_ids[:20],
+                    max_hops=3,
+                    limit=min(500, max(limit * 10, 50)),
+                )
+                for hit in graph_hits:
+                    cand_id = str(hit.get("entity_id") or "")
+                    if cand_id and cand_id in allowed_entity_ids:
+                        if cand_id not in graph_lane:
+                            graph_lane.append(cand_id)
+                        for p_aid in hit.get("path_assertion_ids", []):
+                            if p_aid:
+                                graph_path_assertion_ids.add(str(p_aid))
+            except Exception as exc:
+                logger.warning(
+                    "V4_GRAPH_RETRIEVAL_DEGRADED | agent_id=%s seeds=%s error=%s",
+                    agent_id,
+                    graph_seed_ids[:20],
+                    exc,
+                )
+                graph_lane = []
 
         ranks: dict[str, float] = {}
         lanes = {
             "vector": vector_lane,
             "bm25": lexical_lane,
+            "assertion": assertion_lane,
             "graph": graph_lane,
         }
-        for lane_name in V4_RRF_LANE_ORDER:
-            lane = lanes[lane_name]
+        for lane_name in ("vector", "bm25", "assertion", "graph"):
+            lane = lanes.get(lane_name, [])
             for rank, entity_id in enumerate(lane, start=1):
                 ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
         if not ranks:
@@ -5394,11 +5464,19 @@ class MemoryDAO:
         if not entity_ids:
             return []
         entity_placeholders = ",".join("?" for _ in entity_ids)
+
+        graph_assertion_filter = ""
+        graph_assertion_params: list[Any] = []
+        if graph_path_assertion_ids:
+            graph_placeholders = ",".join("?" for _ in graph_path_assertion_ids)
+            graph_assertion_filter = f"OR a.assertion_id IN ({graph_placeholders}) "
+            graph_assertion_params = list(graph_path_assertion_ids)
+
         provenance_query = (
             "SELECT a.* FROM v4_assertions a "
             f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
             f"AND {assertion_status_sql} AND (a.subject_id IN ({entity_placeholders}) "
-            f"OR a.object_entity_id IN ({entity_placeholders})) "
+            f"OR a.object_entity_id IN ({entity_placeholders}) {graph_assertion_filter}) "
             "AND EXISTS (SELECT 1 FROM memory_mutations m "
             "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
             "AND m.state = 'COMMITTED') "
@@ -5425,6 +5503,7 @@ class MemoryDAO:
                     *datasets,
                     *entity_ids,
                     *entity_ids,
+                    *graph_assertion_params,
                     agent_id,
                     *provenance_params,
                 ),

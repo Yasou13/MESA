@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 V4_RRF_LANE_ORDER = ("vector", "bm25", "graph")
+V4_RETRIEVAL_LANES = ("vector", "bm25", "assertion", "graph")
 
 
 def build_v4_lexical_query(*, dataset_count: int) -> str:
