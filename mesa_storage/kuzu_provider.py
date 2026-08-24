@@ -152,6 +152,17 @@ class BaseGraphProvider(abc.ABC):
     ) -> list[dict[str, Any]]:
         """Compute cognitive salience via spreading activation from a seed node."""
 
+    @abc.abstractmethod
+    async def search_v4_graph(
+        self,
+        *,
+        agent_id: str,
+        seed_entity_ids: list[str],
+        max_hops: int = 2,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Multi-hop Graph V2 traversal from seed entities with tenant isolation."""
+
 
 # ---------------------------------------------------------------------------
 # KùzuDB implementation
@@ -213,6 +224,11 @@ class KuzuGraphProvider(BaseGraphProvider):
     @property
     def is_initialized(self) -> bool:
         return self._initialized
+
+    @property
+    def is_operational(self) -> bool:
+        """Return whether the provider is initialized and connected."""
+        return self._initialized and self._conn is not None
 
     # ------------------------------------------------------------------
     # Async context manager
@@ -859,6 +875,124 @@ class KuzuGraphProvider(BaseGraphProvider):
             }
             for row in rows
         ]
+
+    # ------------------------------------------------------------------
+    # Phase 4.3 — V4 Multi-Hop Graph Traversal
+    # ------------------------------------------------------------------
+
+    async def search_v4_graph(
+        self,
+        *,
+        agent_id: str,
+        seed_entity_ids: list[str],
+        max_hops: int = 2,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Multi-hop Graph V2 traversal from seed entities with strict tenant isolation.
+
+        Traverses up to max_hops (1, 2, or 3) across Entity and Assertion nodes
+        using Cypher parameter binding for Zero-Trust tenant isolation.
+
+        Returns candidate hits ordered by hop distance and score:
+            [
+                {
+                    "entity_id": str,
+                    "entity_name": str,
+                    "hops": int,
+                    "score": float,
+                    "seed_id": str,
+                    "path_assertion_ids": list[str],
+                },
+                ...
+            ]
+        """
+        if not seed_entity_ids or limit < 1:
+            return []
+        if max_hops not in self._ALLOWED_MAX_HOPS:
+            raise ValueError(
+                f"max_hops must be one of {sorted(self._ALLOWED_MAX_HOPS)}, "
+                f"got {max_hops}"
+            )
+        self._ensure_initialized()
+
+        comp_seed_ids = [
+            self._composite_id(agent_id, sid)
+            for sid in seed_entity_ids
+            if sid and sid.strip()
+        ]
+        if not comp_seed_ids:
+            return []
+
+        hits: dict[str, dict[str, Any]] = {}
+        params = {"seed_ids": comp_seed_ids, "agent_id": agent_id}
+
+        q1 = (
+            "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
+            "WHERE seed.id IN $seed_ids AND seed.agent_id = $agent_id "
+            "  AND a1.agent_id = $agent_id AND target.agent_id = $agent_id "
+            "  AND target.id <> seed.id "
+            "RETURN seed.id, target.id, target.name, a1.id"
+        )
+        q2 = (
+            "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
+            "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
+            "WHERE seed.id IN $seed_ids AND seed.agent_id = $agent_id "
+            "  AND a1.agent_id = $agent_id AND e1.agent_id = $agent_id "
+            "  AND a2.agent_id = $agent_id AND target.agent_id = $agent_id "
+            "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id"
+        )
+        q3 = (
+            "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
+            "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(e2:Entity)"
+            "     -[:AssertionSubject|AssertionObject]-(a3:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
+            "WHERE seed.id IN $seed_ids AND seed.agent_id = $agent_id "
+            "  AND a1.agent_id = $agent_id AND e1.agent_id = $agent_id "
+            "  AND a2.agent_id = $agent_id AND e2.agent_id = $agent_id "
+            "  AND a3.agent_id = $agent_id AND target.agent_id = $agent_id "
+            "  AND e1.id <> seed.id AND e2.id <> e1.id AND e2.id <> seed.id "
+            "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id"
+        )
+
+        queries = [(1, q1), (2, q2), (3, q3)][:max_hops]
+
+        try:
+            for hop, query_str in queries:
+                rows = await self.execute_query(query_str, params)
+                for row in rows:
+                    if len(row) < 4:
+                        continue
+                    s_id = str(row[0])
+                    t_id = str(row[1])
+                    t_name = str(row[2]) if row[2] is not None else ""
+                    path_assertions = [
+                        str(item) for item in row[3:] if item is not None
+                    ]
+                    score = 1.0 / hop
+                    if t_id not in hits or hits[t_id]["hops"] > hop:
+                        hits[t_id] = {
+                            "entity_id": t_id,
+                            "entity_name": t_name,
+                            "hops": hop,
+                            "score": score,
+                            "seed_id": s_id,
+                            "path_assertion_ids": path_assertions,
+                        }
+        except RuntimeError as exc:
+            logger.error(
+                "SEARCH_V4_GRAPH_FAILED | agent_id=%s seeds=%s error=%s",
+                agent_id,
+                seed_entity_ids,
+                exc,
+            )
+            return []
+
+        sorted_hits = sorted(
+            hits.values(),
+            key=lambda h: (h["hops"], -h["score"], h["entity_id"]),
+        )
+        return sorted_hits[:limit]
 
     # ------------------------------------------------------------------
     # Synchronous internals (run inside executor threads)
