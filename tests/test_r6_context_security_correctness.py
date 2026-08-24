@@ -389,6 +389,7 @@ async def test_ranking_aware_budget_trimming() -> None:
         assert f"Ranked_Entity_{i}" in full_ctx["formatted_context"]
 
     # Tight budget -> Ranked_Entity_1 and Ranked_Entity_2 present, lower ranked dropped
+    tight_budget = _count_tokens(full_ctx["formatted_context"]) - 1
     tight_ctx = await builder.build_context(
         tenant_id="t1",
         agent_id="a1",
@@ -397,10 +398,10 @@ async def test_ranking_aware_budget_trimming() -> None:
         # Make the constraint independent of tokenization-table revisions:
         # any positive reduction from the all-record rendering must evict the
         # last-ranked record first.
-        token_budget=_count_tokens(full_ctx["formatted_context"]) - 1,
+        token_budget=tight_budget,
     )
     formatted_tight = tight_ctx["formatted_context"]
-    assert _count_tokens(formatted_tight) <= 150
+    assert _count_tokens(formatted_tight) <= tight_budget
     assert "Ranked_Entity_1" in formatted_tight
     # Lowest-ranked entity (5) must have been trimmed
     assert "Ranked_Entity_5" not in formatted_tight
@@ -437,6 +438,7 @@ async def test_chatty_session_cannot_evict_top_ranked_canonical_memory() -> None
         query="priority",
         token_budget=1000,
     )
+    tight_budget = _count_tokens(canonical_only["formatted_context"]) - 1
     ctx = await ContextBuilder(dao).build_context(  # type: ignore[arg-type]
         tenant_id="t1",
         agent_id="a1",
@@ -445,11 +447,11 @@ async def test_chatty_session_cannot_evict_top_ranked_canonical_memory() -> None
         session_id="s1",
         # Session records yield first; then a one-token reduction from the
         # canonical-only rendering must evict the lowest-ranked canonical item.
-        token_budget=_count_tokens(canonical_only["formatted_context"]) - 1,
+        token_budget=tight_budget,
     )
 
     formatted = ctx["formatted_context"]
-    assert _count_tokens(formatted) <= 100
+    assert _count_tokens(formatted) <= tight_budget
     assert "Priority_Entity_1" in formatted
     assert "Priority_Entity_3" not in formatted
 
