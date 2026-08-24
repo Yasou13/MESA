@@ -368,8 +368,6 @@ async def _authorized_v4_session(
     session = await dao.get_v4_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session")
-    if not allow_closed and session["status"] != "ACTIVE" and level == "WRITE":
-        raise HTTPException(status_code=409, detail="Session is not active")
     await _require_session_access(
         request,
         access_control,
@@ -386,6 +384,8 @@ async def _authorized_v4_session(
         dataset_ids=list(session["dataset_ids"]),
         required_role="WRITER" if level == "WRITE" else "READER",
     )
+    if not allow_closed and session["status"] != "ACTIVE" and level == "WRITE":
+        raise HTTPException(status_code=409, detail="Session is not active")
     return session
 
 
