@@ -645,17 +645,18 @@ class MaintenanceWorker:
             try:
                 table = db.open_table(table_name)
 
-                # Modern LanceDB optimize API (v0.21+):
-                #   1. compact_files() — merge small data fragments
-                #   2. cleanup_old_versions() — remove stale manifest files
-                if hasattr(table, "optimize"):
-                    table.optimize.compact_files()
-                    table.optimize.cleanup_old_versions(
-                        older_than=timedelta(hours=1),
-                        delete_unverified=True,
+                # LanceDB 0.34 exposes optimize as a callable Table method,
+                # not an ``optimize.compact_files`` namespace. Its normal
+                # retention window keeps old versions available to readers;
+                # never delete unverified files while another process may use
+                # this dataset.
+                if callable(getattr(table, "optimize", None)):
+                    table.optimize(
+                        cleanup_older_than=timedelta(days=7),
+                        delete_unverified=False,
                     )
                     logger.info(
-                        "VECTOR_COMPACTED | table=%s method=optimize.compact_files+cleanup",
+                        "VECTOR_COMPACTED | table=%s method=optimize",
                         table_name,
                     )
                 else:

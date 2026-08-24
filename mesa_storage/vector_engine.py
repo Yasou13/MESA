@@ -56,7 +56,7 @@ import time
 import typing
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
 
@@ -74,6 +74,18 @@ logger = logging.getLogger("MESA_Storage")
 _DEFAULT_METRIC = "cosine"
 _DEFAULT_TABLE_PREFIX = "mesa_vectors_"
 _MAX_WORKERS = 4
+# A single-row merge_insert creates a new Lance dataset version. The real
+# soak showed that allowing hundreds of those versions to accumulate makes
+# both metadata memory and query latency grow rapidly. 128 gave the best
+# measured tradeoff: bounded active fragments without the maintenance-induced
+# write-latency spikes observed at 32 and 64.
+_DEFAULT_MAINTENANCE_MUTATION_THRESHOLD = 128
+# The mutation threshold itself is the default rate limiter. Deployments that
+# need a wider interval can opt in, accepting that a later mutation triggers
+# deferred maintenance.
+_DEFAULT_MAINTENANCE_MIN_INTERVAL_SECONDS = 0.0
+_DEFAULT_MAINTENANCE_CLEANUP_OLDER_THAN = timedelta(days=7)
+_DEFAULT_MAINTENANCE_FAILURE_RETRY_SECONDS = 60.0
 
 EmbeddingProvider = Callable[[str], Awaitable[list[float]]]
 
@@ -138,7 +150,10 @@ class VectorMetrics:
     searches: int = 0
     soft_deletes: int = 0
     errors: int = 0
+    maintenance_runs: int = 0
+    maintenance_failures: int = 0
     total_search_time_ms: float = 0.0
+    total_maintenance_time_ms: float = 0.0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
@@ -154,6 +169,13 @@ class VectorMetrics:
             "soft_deletes": self.soft_deletes,
             "errors": self.errors,
             "avg_search_time_ms": round(self.avg_search_time_ms, 2),
+            "maintenance_runs": self.maintenance_runs,
+            "maintenance_failures": self.maintenance_failures,
+            "avg_maintenance_time_ms": (
+                round(self.total_maintenance_time_ms / self.maintenance_runs, 2)
+                if self.maintenance_runs
+                else 0.0
+            ),
         }
 
 
@@ -212,7 +234,20 @@ class VectorEngine:
         embedding_provider: EmbeddingProvider | None = None,
         local_embedding_model: str = "magibu/embeddingmagibu-200m",
         embedding_service: EmbeddingServicePort | None = None,
+        maintenance_enabled: bool = True,
+        maintenance_mutation_threshold: int = _DEFAULT_MAINTENANCE_MUTATION_THRESHOLD,
+        maintenance_min_interval_seconds: float = _DEFAULT_MAINTENANCE_MIN_INTERVAL_SECONDS,
+        maintenance_cleanup_older_than: (
+            timedelta | None
+        ) = _DEFAULT_MAINTENANCE_CLEANUP_OLDER_THAN,
+        maintenance_failure_retry_seconds: float = _DEFAULT_MAINTENANCE_FAILURE_RETRY_SECONDS,
     ) -> None:
+        if maintenance_mutation_threshold < 1:
+            raise ValueError("maintenance_mutation_threshold must be at least 1")
+        if maintenance_min_interval_seconds < 0:
+            raise ValueError("maintenance_min_interval_seconds cannot be negative")
+        if maintenance_failure_retry_seconds < 0:
+            raise ValueError("maintenance_failure_retry_seconds cannot be negative")
         self._uri = uri
         self._metric = metric
         self._max_workers = max_workers
@@ -224,6 +259,18 @@ class VectorEngine:
         self._tables: dict[str, Any] = {}
         self._table_lock = threading.Lock()
         self._mutation_lock = asyncio.Lock()
+        # Public write paths hold _mutation_lock for the whole optimize, so
+        # optimization cannot overlap a mutation in this engine. This separate
+        # lock makes the accounting safe if a future path uses this seam too.
+        self._maintenance_lock = asyncio.Lock()
+        self._maintenance_enabled = maintenance_enabled
+        self._maintenance_mutation_threshold = maintenance_mutation_threshold
+        self._maintenance_min_interval_seconds = maintenance_min_interval_seconds
+        self._maintenance_cleanup_older_than = maintenance_cleanup_older_than
+        self._maintenance_failure_retry_seconds = maintenance_failure_retry_seconds
+        self._mutations_since_maintenance: dict[str, int] = {}
+        self._maintenance_last_attempt: dict[str, float] = {}
+        self._maintenance_last_failure: dict[str, float] = {}
         self._initialized = False
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
@@ -429,6 +476,9 @@ class VectorEngine:
                 embedding,
                 content_hash,
             )
+            await self._record_mutations_and_maybe_maintain(
+                {f"{_DEFAULT_TABLE_PREFIX}{len(embedding)}": 1}
+            )
 
     def _sync_upsert(
         self,
@@ -485,9 +535,17 @@ class VectorEngine:
 
         loop = asyncio.get_running_loop()
         async with self._mutation_lock:
-            return await loop.run_in_executor(
+            total = await loop.run_in_executor(
                 self._executor, self._sync_bulk_upsert, records
             )
+            mutations_by_table: dict[str, int] = {}
+            for record in records:
+                table_name = f"{_DEFAULT_TABLE_PREFIX}{len(record['embedding'])}"
+                mutations_by_table[table_name] = (
+                    mutations_by_table.get(table_name, 0) + 1
+                )
+            await self._record_mutations_and_maybe_maintain(mutations_by_table)
+            return total
 
     def _sync_bulk_upsert(self, records: list[dict]) -> int:
         """Synchronous bulk upsert (runs in executor thread)."""
@@ -530,6 +588,90 @@ class VectorEngine:
             self._metrics.upserts += total
 
         return total
+
+    # ------------------------------------------------------------------
+    # LanceDB maintenance
+    # ------------------------------------------------------------------
+
+    async def _record_mutations_and_maybe_maintain(
+        self, mutations_by_table: dict[str, int]
+    ) -> None:
+        """Coalesce successful writes and optimize a table only when due.
+
+        ``merge_insert`` commits a new Lance dataset version for each call.
+        We retain the normal version-safety window (and never set
+        ``delete_unverified``) but periodically compact the current dataset so
+        current readers do not carry an unbounded fragment set.
+
+        Failures are best-effort: the successful vector write remains durable
+        and the accumulated count is retained for a rate-limited retry.
+        """
+        if not self._maintenance_enabled:
+            return
+
+        async with self._maintenance_lock:
+            for table_name, mutation_count in mutations_by_table.items():
+                self._mutations_since_maintenance[table_name] = (
+                    self._mutations_since_maintenance.get(table_name, 0)
+                    + mutation_count
+                )
+
+            now = time.monotonic()
+            due_tables = [
+                table_name
+                for table_name in sorted(self._mutations_since_maintenance)
+                if self._mutations_since_maintenance.get(table_name, 0)
+                >= self._maintenance_mutation_threshold
+                and now - self._maintenance_last_attempt.get(table_name, float("-inf"))
+                >= self._maintenance_min_interval_seconds
+                and now - self._maintenance_last_failure.get(table_name, float("-inf"))
+                >= self._maintenance_failure_retry_seconds
+            ]
+            if not due_tables:
+                return
+
+            loop = asyncio.get_running_loop()
+            for table_name in due_tables:
+                self._maintenance_last_attempt[table_name] = time.monotonic()
+                started = time.monotonic()
+                try:
+                    await loop.run_in_executor(
+                        self._executor, self._sync_optimize_table, table_name
+                    )
+                except Exception:
+                    self._maintenance_last_failure[table_name] = time.monotonic()
+                    with self._metrics._lock:
+                        self._metrics.maintenance_failures += 1
+                    logger.warning(
+                        "VECTOR_MAINTENANCE_FAILED | table=%s pending_mutations=%d",
+                        table_name,
+                        self._mutations_since_maintenance.get(table_name, 0),
+                        exc_info=True,
+                    )
+                    continue
+
+                elapsed_ms = (time.monotonic() - started) * 1000.0
+                self._mutations_since_maintenance[table_name] = 0
+                self._maintenance_last_failure.pop(table_name, None)
+                with self._metrics._lock:
+                    self._metrics.maintenance_runs += 1
+                    self._metrics.total_maintenance_time_ms += elapsed_ms
+                logger.info(
+                    "VECTOR_MAINTENANCE_COMPLETE | table=%s elapsed_ms=%.1f",
+                    table_name,
+                    elapsed_ms,
+                )
+
+    def _sync_optimize_table(self, table_name: str) -> None:
+        """Compact one table with LanceDB 0.34's safe optimize API."""
+        assert self._db is not None
+        table = self._db.open_table(table_name)
+        table.optimize(
+            cleanup_older_than=self._maintenance_cleanup_older_than,
+            # Never delete unverified files: another process may have an
+            # in-progress transaction or an active older-version reader.
+            delete_unverified=False,
+        )
 
     # ------------------------------------------------------------------
     # E1 FIX: Orphan reconciliation support
@@ -679,7 +821,6 @@ class VectorEngine:
         t_start = time.monotonic()
 
         dimension = len(query_vector)
-        table_name = f"{_DEFAULT_TABLE_PREFIX}{dimension}"
 
         try:
             dimensions = {
@@ -1061,21 +1202,28 @@ class VectorEngine:
 
     async def close(self) -> None:
         """Shut down the executor and reset state."""
-        if self._initialized:
-            logger.info(
-                "VECTOR_ENGINE_CLOSED | uri=%s metrics=%s",
-                self._uri,
-                self._metrics.snapshot(),
-            )
-        import sys
+        # Wait for the serialized mutation/maintenance path before releasing
+        # engine state.  This does not make a cross-process lock, but it keeps
+        # shutdown from racing an in-flight local optimize call.
+        async with self._mutation_lock:
+            if self._initialized:
+                logger.info(
+                    "VECTOR_ENGINE_CLOSED | uri=%s metrics=%s",
+                    self._uri,
+                    self._metrics.snapshot(),
+                )
+            import sys
 
-        if sys.version_info >= (3, 9):
-            self._executor.shutdown(wait=False, cancel_futures=True)
-        else:
-            self._executor.shutdown(wait=False)
-        self._tables.clear()
-        self._db = None
-        self._initialized = False
+            if sys.version_info >= (3, 9):
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            else:
+                self._executor.shutdown(wait=False)
+            self._tables.clear()
+            self._mutations_since_maintenance.clear()
+            self._maintenance_last_attempt.clear()
+            self._maintenance_last_failure.clear()
+            self._db = None
+            self._initialized = False
 
     # ------------------------------------------------------------------
     # Phase 4.3 — Blue/Green Vector Space Alignment
