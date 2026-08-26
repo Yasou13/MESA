@@ -420,7 +420,8 @@ async def test_sol_historical_replay_binds_mutation_to_session_scope(
         "/v4/mutations/mutation-workspace-attack/replay",
         headers={"X-MESA-Principal": "unbound-principal"},
     )
-    assert wrong_principal.status_code == 403
+    assert wrong_principal.status_code == 404
+    assert wrong_principal.json()["detail"] == "Unknown session"
     await access.close()
     await engine.close()
 

@@ -22,6 +22,7 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
+from mesa_storage.kuzu_provider import GraphSearchError
 from mesa_storage.repositories.operations import (
     OperationIdempotencyConflictError,
     OperationNotFoundError,
@@ -102,10 +103,15 @@ async def asgi_client() -> AsyncIterator[ClientFactory]:
             503,
             "vector_backend_unavailable",
         ),
+        (
+            GraphSearchError("graph backend unavailable"),
+            503,
+            "graph_backend_unavailable",
+        ),
     ],
 )
 @pytest.mark.asyncio
-async def test_v4_search_maps_vector_failures_explicitly(
+async def test_v4_search_maps_retrieval_failures_explicitly(
     asgi_client: ClientFactory,
     failure: Exception,
     expected_status: int,
@@ -379,6 +385,63 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     }
     assert "graph_retrieval" not in disabled["features"]
     assert "temporal_filtering" not in disabled["features"]
+
+    initialized_but_unavailable_dao = MagicMock()
+    initialized_but_unavailable_dao.canonical_v4_writes_enabled = True
+    initialized_but_unavailable_dao.graph_operational = False
+    initialized_but_unavailable_dao._graph = SimpleNamespace(is_initialized=True)
+    initialized_but_unavailable = (
+        await asgi_client(
+            _app(initialized_but_unavailable_dao, _access())
+        ).get("/v4/capability")
+    ).json()
+    assert (
+        initialized_but_unavailable["capabilities"]["graph_neighbor_retrieval"]
+        is False
+    )
+
+    operational_dao = MagicMock()
+    operational_dao.canonical_v4_writes_enabled = True
+    operational_dao.graph_operational = True
+    operational = (
+        await asgi_client(_app(operational_dao, _access())).get("/v4/capability")
+    ).json()
+    assert operational["capabilities"]["graph_neighbor_retrieval"] is True
+
+    projection_only_dao = MagicMock()
+    projection_only_dao.canonical_v4_writes_enabled = True
+    projection_only_dao.graph_operational = False
+    projection_only_dao.graph_configured = True
+    projection_only_dao.graph_implementation_available = False
+    projection_only = (
+        await asgi_client(_app(projection_only_dao, _access())).get(
+            "/v4/capability"
+        )
+    ).json()
+    assert projection_only["capabilities"]["graph_projection"] is True
+    assert projection_only["capabilities"]["graph_neighbor_retrieval"] is False
+
+    configured_semantic_dao = MagicMock()
+    configured_semantic_dao.canonical_v4_writes_enabled = True
+    configured_semantic_dao.graph_operational = False
+    configured_semantic_dao._vec = SimpleNamespace(
+        semantic_configured=True,
+        semantic_operational=False,
+    )
+    configured_semantic = (
+        await asgi_client(_app(configured_semantic_dao, _access())).get(
+            "/v4/capability"
+        )
+    ).json()
+    assert configured_semantic["capabilities"]["vector_retrieval"] is False
+
+    configured_semantic_dao._vec.semantic_operational = True
+    operational_semantic = (
+        await asgi_client(_app(configured_semantic_dao, _access())).get(
+            "/v4/capability"
+        )
+    ).json()
+    assert operational_semantic["capabilities"]["vector_retrieval"] is True
 
     monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
     enabled = (await client.get("/v4/capability")).json()

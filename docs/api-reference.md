@@ -58,6 +58,19 @@ ayrıca rebuild sınırını içerik veya fiziksel path taşımadan bildirir:
 `validity_interval_filtering`, tek bir geçerlilik aralığı filtresidir;
 bitemporal query değildir. Eski `graph_retrieval`, `temporal_filtering` ve
 `vector_search` geniş adları bu nedenle sözleşmeden kaldırılmıştır.
+`graph_neighbor_retrieval` yalnız Graph V2 provider startup sorgusunu geçmiş
+ve son retrieval sorgusunda operational kalmışsa `true` olur. Yapılandırılmış
+backend sorgu sırasında kullanılamaz hale gelirse search
+`503 graph_backend_unavailable` döndürür; programming hataları bu sınıfla
+maskelenmez.
+Yalnız projection yazma interface'ini sağlayan adapter'lar graph configured
+olabilir fakat neighbor-retrieval implementation'ı bulunmadığı için bu flag'i
+`false` bırakır; bu durumda vector/BM25/assertion lane'leri çalışmaya devam eder.
+`vector_retrieval`, embedding configuration nesnesinin varlığını değil,
+runtime'ın gerçekten embedding üretebildiğini bildirir. Custom provider'lar
+ilk başarılı embedding çağrısına kadar configured fakat non-operational kabul
+edilir; beklenen provider hataları `503 vector_backend_unavailable` olur ve
+başka bir modele sessiz fallback yapılmaz.
 
 ## V4 administrative rebuild operations
 
@@ -149,6 +162,10 @@ Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
 `valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
 yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. Search sonucu `score`
 alanı fused relevance skorudur; daha yüksek değer daha iyi eşleşmedir.
+Her sonuçtaki `retrieval_provenance.origins`, sonuca katkı veren
+`vector`, `bm25`, `assertion` ve `graph` lane'lerini bildirir. Graph katkısı
+varsa aynı nesne bounded `graph_hop_count`, canonical seed entity kimliği ve
+SQLite ile uzlaştırılmış `graph_path_assertion_ids` alanlarını da taşır.
 
 Context çıktısındaki retrieved session logları ve canonical memory, açıkça
 `UNTRUSTED_MEMORY_EVIDENCE` içinde JSON evidence kayıtları olarak render edilir;

@@ -21,6 +21,12 @@ from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
+from mesa_memory.embedding.service import (
+    EmbeddingGenerationError,
+    EmbeddingIdentityMismatchError,
+    EmbeddingUnavailableError,
+    ExternalProviderForbiddenError,
+)
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import (
@@ -32,6 +38,7 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
+from mesa_storage.kuzu_provider import GraphSearchError
 from mesa_storage.repositories.operations import (
     OperationActiveConflictError,
     OperationIdempotencyConflictError,
@@ -359,11 +366,13 @@ async def _authorized_v4_session(
     level: str,
     allow_closed: bool = False,
 ) -> dict:
-    session = await dao.get_v4_session(session_id)
+    principal = _active_principal(request)
+    session = await dao.get_v4_session(
+        session_id,
+        principal_id=str(principal.principal_id),
+    )
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session")
-    if not allow_closed and session["status"] != "ACTIVE" and level == "WRITE":
-        raise HTTPException(status_code=409, detail="Session is not active")
     await _require_session_access(
         request,
         access_control,
@@ -380,6 +389,8 @@ async def _authorized_v4_session(
         dataset_ids=list(session["dataset_ids"]),
         required_role="WRITER" if level == "WRITE" else "READER",
     )
+    if not allow_closed and session["status"] != "ACTIVE" and level == "WRITE":
+        raise HTTPException(status_code=409, detail="Session is not active")
     return session
 
 
@@ -748,8 +759,11 @@ def create_v4_router(
     ) -> V4CapabilityResponse:
         """Return bounded capability truth without implying planned behaviour."""
         vector_available = getattr(
-            getattr(dao, "_vec", None), "semantic_runtime_available", False
+            getattr(dao, "_vec", None),
+            "semantic_operational",
+            getattr(getattr(dao, "_vec", None), "semantic_runtime_available", False),
         )
+        graph_available = getattr(dao, "graph_operational", False)
         canonical_writes_available = dao.canonical_v4_writes_enabled is not False
         capabilities = V4CapabilityFlags(
             projection_outbox=canonical_writes_available,
@@ -759,6 +773,9 @@ def create_v4_router(
                 vector_available if isinstance(vector_available, bool) else False
             ),
             graph_projection=canonical_writes_available,
+            graph_neighbor_retrieval=(
+                graph_available if isinstance(graph_available, bool) else False
+            ),
         )
         policy = current_validation_policy()
         if policy is not None:
@@ -1049,10 +1066,21 @@ def create_v4_router(
                 status_code=409,
                 detail="embedding_migration_required",
             )
-        except VectorSearchError:
+        except (
+            VectorSearchError,
+            EmbeddingUnavailableError,
+            EmbeddingGenerationError,
+            ExternalProviderForbiddenError,
+            EmbeddingIdentityMismatchError,
+        ):
             raise HTTPException(
                 status_code=503,
                 detail="vector_backend_unavailable",
+            )
+        except GraphSearchError:
+            raise HTTPException(
+                status_code=503,
+                detail="graph_backend_unavailable",
             )
         return {
             "session_id": payload.session_id,

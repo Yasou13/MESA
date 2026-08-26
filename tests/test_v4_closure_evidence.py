@@ -49,7 +49,7 @@ def test_evidence_manifest_is_deterministic_bounded_and_content_free(
     assert manifest["rrf_ablation"] == {
         "sha256": "b17232b14a65571428664b8aa0d3b80b442a4bac0d9fa47b750ee176f80b0b97",
         "metric": "MRR",
-        "lane_order": ["vector", "bm25", "graph"],
+        "lane_order": ["vector", "bm25", "assertion", "graph"],
         "query_count": 2,
         "lane_set_count": 4,
         "scores": {
