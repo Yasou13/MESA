@@ -1064,12 +1064,22 @@ class MemoryDAO:
             "status": "ACTIVE",
         }
 
-    async def get_v4_session(self, session_id: str) -> dict[str, Any] | None:
+    async def get_v4_session(
+        self,
+        session_id: str,
+        *,
+        principal_id: str | None = None,
+    ) -> dict[str, Any] | None:
         if not session_id:
             return None
         async with self._sql.connection() as db:
+            principal_filter = " AND principal_id = ?" if principal_id else ""
+            parameters = (
+                (session_id, principal_id) if principal_id else (session_id,)
+            )
             async with db.execute(
-                "SELECT * FROM v4_sessions WHERE session_id = ?", (session_id,)
+                "SELECT * FROM v4_sessions WHERE session_id = ?" + principal_filter,
+                parameters,
             ) as cursor:
                 row = await cursor.fetchone()
             if row is None:

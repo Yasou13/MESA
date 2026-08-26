@@ -668,8 +668,23 @@ async def test_j_semantic_capability_and_failure_handling(tmp_path):
 
 @pytest.mark.asyncio
 async def test_k_session_oracle_elimination(tmp_path):
-    """Test K: Verify foreign principal probing nonexistent, active, and ended sessions receives uniform 404/403 and NEVER 409."""
-    sql, vector, graph, dao = await _create_test_env(tmp_path)
+    """Test K: inaccessible sessions have one externally observable error class."""
+    sql = AsyncEngine(str(tmp_path / "session_oracle.db"))
+    await sql.initialize()
+    await initialize_schema(sql)
+    vector = None
+    graph = None
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=None, graph_provider=None)
+    await dao.create_v4_workspace(
+        tenant_id="test-tenant",
+        workspace_id="default-ws",
+        workspace_name="Default Workspace",
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="test-tenant",
+        workspace_id="default-ws",
+        dataset_id="default-ds",
+    )
     try:
         access_control = AccessControl(policy_path=str(tmp_path / "rbac.db"))
         await access_control.initialize()
@@ -710,40 +725,27 @@ async def test_k_session_oracle_elimination(tmp_path):
             )
             return req
 
-        # 1. Nonexistent session:
-        with pytest.raises(HTTPException) as exc:
-            await _authorized_v4_session(
-                make_request("foreign-principal"),
-                dao,
-                access_control,
-                "nonexistent-session",
-                level="WRITE",
-            )
-        assert exc.value.status_code == 404
+        inaccessible_errors = []
+        for probed_session_id in (
+            "nonexistent-session",
+            active_session_id,
+            ended_session_id,
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await _authorized_v4_session(
+                    make_request("foreign-principal"),
+                    dao,
+                    access_control,
+                    probed_session_id,
+                    level="WRITE",
+                )
+            inaccessible_errors.append((exc.value.status_code, exc.value.detail))
 
-        # 2. Foreign principal probing ACTIVE session:
-        with pytest.raises(HTTPException) as exc:
-            await _authorized_v4_session(
-                make_request("foreign-principal"),
-                dao,
-                access_control,
-                active_session_id,
-                level="WRITE",
-            )
-        assert exc.value.status_code == 403
-
-        # 3. Foreign principal probing ENDED session:
-        # CRITICAL: Must return 403 (access denied), NOT 409 (Session is not active)!
-        with pytest.raises(HTTPException) as exc:
-            await _authorized_v4_session(
-                make_request("foreign-principal"),
-                dao,
-                access_control,
-                ended_session_id,
-                level="WRITE",
-            )
-        assert exc.value.status_code == 403
-        assert exc.value.detail != "Session is not active"
+        assert inaccessible_errors == [
+            (404, "Unknown session"),
+            (404, "Unknown session"),
+            (404, "Unknown session"),
+        ]
 
         # 4. Authorized owner writing to ENDED session: gets 409
         with pytest.raises(HTTPException) as exc:

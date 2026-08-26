@@ -365,7 +365,11 @@ async def _authorized_v4_session(
     level: str,
     allow_closed: bool = False,
 ) -> dict:
-    session = await dao.get_v4_session(session_id)
+    principal = _active_principal(request)
+    session = await dao.get_v4_session(
+        session_id,
+        principal_id=str(principal.principal_id),
+    )
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session")
     await _require_session_access(
