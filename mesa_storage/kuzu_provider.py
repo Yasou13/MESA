@@ -946,9 +946,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 f"got {max_hops}"
             )
         if limit > _MAX_V4_GRAPH_RESULTS:
-            raise ValueError(
-                f"limit must be <= {_MAX_V4_GRAPH_RESULTS}, got {limit}"
-            )
+            raise ValueError(f"limit must be <= {_MAX_V4_GRAPH_RESULTS}, got {limit}")
         self._ensure_initialized()
 
         comp_seed_ids = [

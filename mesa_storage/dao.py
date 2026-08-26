@@ -1083,9 +1083,7 @@ class MemoryDAO:
             return None
         async with self._sql.connection() as db:
             principal_filter = " AND principal_id = ?" if principal_id else ""
-            parameters = (
-                (session_id, principal_id) if principal_id else (session_id,)
-            )
+            parameters = (session_id, principal_id) if principal_id else (session_id,)
             async with db.execute(
                 "SELECT * FROM v4_sessions WHERE session_id = ?" + principal_filter,
                 parameters,
@@ -5459,15 +5457,17 @@ class MemoryDAO:
                 allowed_graph_assertion_ids = {
                     str(row[0]) for row in await cursor.fetchall()
                 }
+        graph_provider = self._graph
         if (
-            self.graph_implementation_available
+            graph_provider is not None
+            and self.graph_implementation_available
             and graph_seed_ids
             and allowed_graph_assertion_ids
         ):
             if not self.graph_operational:
                 raise GraphSearchError("configured graph backend is unavailable")
             try:
-                graph_hits = await self._graph.search_v4_graph(
+                graph_hits = await graph_provider.search_v4_graph(
                     agent_id=agent_id,
                     seed_entity_ids=graph_seed_ids[:20],
                     allowed_entity_ids=allowed_entity_ids,
