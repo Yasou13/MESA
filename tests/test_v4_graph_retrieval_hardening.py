@@ -542,7 +542,7 @@ async def test_f_provider_scopes_paths_before_dataset_traversal(tmp_path):
 
 @pytest.mark.asyncio
 async def test_g_stale_deleted_projection_filtering(tmp_path):
-    """Test G: Node in Kùzu but deleted in SQLite is filtered out by canonical reconciliation."""
+    """A stale deleted intermediate cannot bridge to an active graph result."""
     sql, vector, graph, dao = await _create_test_env(tmp_path)
     try:
         # Ingest Alice -> Aurora -> GhostNode
@@ -568,14 +568,23 @@ async def test_g_stale_deleted_projection_filtering(tmp_path):
             predicate="contacts",
             object_name="GhostNode",
         )
+        await _ingest_entity_and_assertion(
+            dao,
+            graph,
+            tenant_id="test-tenant",
+            agent_id="test-agent",
+            dataset_id="default-ds",
+            mutation_id="m3",
+            subject_name="GhostNode",
+            predicate="reveals",
+            object_name="SecretBeyondGhost",
+        )
 
-        # Mark GhostNode DELETED in SQLite
+        # Canonical deletion happens before asynchronous registry/graph cleanup.
         async with dao._sql.transaction() as db:
             await db.execute("UPDATE v4_entities SET status = 'DELETED' WHERE entity_id = ?", (o_id,))
-            await db.execute("UPDATE artifact_registry SET state = 'DELETED' WHERE physical_artifact_id = ?", (o_id,))
             await db.commit()
 
-        # Query Alice: GhostNode was traversed in Kùzu but must be discarded during canonical SQLite reconciliation
         results = await dao.search_v4_memory(
             tenant_id="test-tenant",
             agent_id="test-agent",
@@ -585,6 +594,7 @@ async def test_g_stale_deleted_projection_filtering(tmp_path):
         )
         names = {r["entity"]["canonical_name"] for r in results}
         assert "GhostNode" not in names
+        assert "SecretBeyondGhost" not in names
         assert "Aurora" in names
     finally:
         await _close_test_env(sql, vector, graph)
@@ -1026,6 +1036,48 @@ async def test_k_session_oracle_elimination(tmp_path):
                 roles={"admin": False},
             )
             return req
+
+        async def attach_foreign_principal(request: Request) -> None:
+            request.state.principal = SimpleNamespace(
+                principal_id="foreign-principal",
+                principal_type="USER",
+                status="active",
+                roles={"admin": False},
+            )
+
+        app = FastAPI(dependencies=[Depends(attach_foreign_principal)])
+        app.include_router(
+            create_v4_router(
+                get_dao=lambda: dao,
+                get_access_control=lambda: access_control,
+            )
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            probe_responses = [
+                await client.post(
+                    "/v4/memory/search",
+                    json={"session_id": probed_session_id, "query": "Alice"},
+                )
+                for probed_session_id in (
+                    "nonexistent-session",
+                    active_session_id,
+                    ended_session_id,
+                )
+            ]
+        assert [
+            (
+                response.status_code,
+                response.json(),
+                response.headers["content-type"],
+            )
+            for response in probe_responses
+        ] == [
+            (404, {"detail": "Unknown session"}, "application/json"),
+            (404, {"detail": "Unknown session"}, "application/json"),
+            (404, {"detail": "Unknown session"}, "application/json"),
+        ]
 
         inaccessible_errors = []
         for probed_session_id in (

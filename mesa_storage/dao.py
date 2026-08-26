@@ -5246,10 +5246,14 @@ class MemoryDAO:
                 "SELECT DISTINCT r.artifact_kind, r.physical_artifact_id FROM artifact_registry r "
                 "JOIN artifact_sources s ON s.registry_id = r.registry_id "
                 "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
+                "LEFT JOIN v4_entities e ON r.artifact_kind = 'ENTITY' "
+                "AND e.entity_id = r.physical_artifact_id "
                 f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
                 "AND m.agent_id = ? AND m.state = 'COMMITTED' "
                 "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
-                "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR')",
+                "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR') "
+                "AND (r.artifact_kind = 'ASSERTION_VECTOR' OR "
+                "(e.tenant_id = r.tenant_id AND e.status = 'ACTIVE'))",
                 (tenant_id, *datasets, agent_id),
             ) as cursor:
                 artifact_rows = await cursor.fetchall()
