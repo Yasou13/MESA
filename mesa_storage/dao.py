@@ -382,7 +382,7 @@ class MemoryDAO:
     @property
     def graph_operational(self) -> bool:
         """Return whether the graph provider is operational."""
-        if self._graph is None:
+        if not self.graph_implementation_available:
             return False
         return getattr(self._graph, "is_operational", False) is True
 
@@ -390,6 +390,13 @@ class MemoryDAO:
     def graph_configured(self) -> bool:
         """Return whether a graph provider was composed for this runtime."""
         return self._graph is not None
+
+    @property
+    def graph_implementation_available(self) -> bool:
+        """Return whether the composed provider implements Graph V2 retrieval."""
+        return self._graph is not None and callable(
+            getattr(self._graph, "search_v4_graph", None)
+        )
 
     async def submit_system_operation(
         self,
@@ -5452,7 +5459,11 @@ class MemoryDAO:
                 allowed_graph_assertion_ids = {
                     str(row[0]) for row in await cursor.fetchall()
                 }
-        if self._graph is not None and graph_seed_ids and allowed_graph_assertion_ids:
+        if (
+            self.graph_implementation_available
+            and graph_seed_ids
+            and allowed_graph_assertion_ids
+        ):
             if not self.graph_operational:
                 raise GraphSearchError("configured graph backend is unavailable")
             try:

@@ -63,6 +63,9 @@ ve son retrieval sorgusunda operational kalmışsa `true` olur. Yapılandırılm
 backend sorgu sırasında kullanılamaz hale gelirse search
 `503 graph_backend_unavailable` döndürür; programming hataları bu sınıfla
 maskelenmez.
+Yalnız projection yazma interface'ini sağlayan adapter'lar graph configured
+olabilir fakat neighbor-retrieval implementation'ı bulunmadığı için bu flag'i
+`false` bırakır; bu durumda vector/BM25/assertion lane'leri çalışmaya devam eder.
 `vector_retrieval`, embedding configuration nesnesinin varlığını değil,
 runtime'ın gerçekten embedding üretebildiğini bildirir. Custom provider'lar
 ilk başarılı embedding çağrısına kadar configured fakat non-operational kabul

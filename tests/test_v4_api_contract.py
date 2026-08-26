@@ -408,6 +408,19 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     ).json()
     assert operational["capabilities"]["graph_neighbor_retrieval"] is True
 
+    projection_only_dao = MagicMock()
+    projection_only_dao.canonical_v4_writes_enabled = True
+    projection_only_dao.graph_operational = False
+    projection_only_dao.graph_configured = True
+    projection_only_dao.graph_implementation_available = False
+    projection_only = (
+        await asgi_client(_app(projection_only_dao, _access())).get(
+            "/v4/capability"
+        )
+    ).json()
+    assert projection_only["capabilities"]["graph_projection"] is True
+    assert projection_only["capabilities"]["graph_neighbor_retrieval"] is False
+
     configured_semantic_dao = MagicMock()
     configured_semantic_dao.canonical_v4_writes_enabled = True
     configured_semantic_dao.graph_operational = False
