@@ -408,6 +408,28 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     ).json()
     assert operational["capabilities"]["graph_neighbor_retrieval"] is True
 
+    configured_semantic_dao = MagicMock()
+    configured_semantic_dao.canonical_v4_writes_enabled = True
+    configured_semantic_dao.graph_operational = False
+    configured_semantic_dao._vec = SimpleNamespace(
+        semantic_configured=True,
+        semantic_operational=False,
+    )
+    configured_semantic = (
+        await asgi_client(_app(configured_semantic_dao, _access())).get(
+            "/v4/capability"
+        )
+    ).json()
+    assert configured_semantic["capabilities"]["vector_retrieval"] is False
+
+    configured_semantic_dao._vec.semantic_operational = True
+    operational_semantic = (
+        await asgi_client(_app(configured_semantic_dao, _access())).get(
+            "/v4/capability"
+        )
+    ).json()
+    assert operational_semantic["capabilities"]["vector_retrieval"] is True
+
     monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", True)
     enabled = (await client.get("/v4/capability")).json()
 

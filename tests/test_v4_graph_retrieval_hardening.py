@@ -16,6 +16,7 @@ from starlette.requests import Request
 from mesa_api.v4_router import _authorized_v4_session, create_v4_router
 from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.embedding.service import (
+    EmbeddingGenerationError,
     EmbeddingIdentity,
     EmbeddingService,
     EmbeddingUnavailableError,
@@ -842,6 +843,57 @@ async def test_j_semantic_capability_and_failure_handling(tmp_path):
         await access_control.close()
     finally:
         await _close_test_env(sql, vector, graph)
+
+
+@pytest.mark.asyncio
+async def test_j_custom_semantic_provider_requires_operational_evidence(tmp_path):
+    """Configured custom providers are not operational until a query succeeds."""
+
+    async def unavailable_provider(text: str) -> list[float]:
+        raise ConnectionError("embedding provider unavailable")
+
+    identity = EmbeddingIdentity(
+        provider="custom", model="provider-test", version="v1", dimension=2
+    )
+    unavailable_service = EmbeddingService(
+        identity=identity,
+        async_provider_fn=unavailable_provider,
+    )
+    unavailable_vector = VectorEngine(
+        str(tmp_path / "unavailable_semantic.lance"),
+        embedding_service=unavailable_service,
+    )
+    await unavailable_vector.initialize()
+    try:
+        assert unavailable_service.is_configured is True
+        assert unavailable_service.is_operational is False
+        assert unavailable_vector.semantic_configured is True
+        assert unavailable_vector.semantic_operational is False
+        with pytest.raises(EmbeddingGenerationError):
+            await unavailable_vector.compute_query_embedding("Alice")
+        assert unavailable_vector.semantic_operational is False
+    finally:
+        await unavailable_vector.close()
+
+    async def available_provider(text: str) -> list[float]:
+        return [1.0, 0.0]
+
+    available_service = EmbeddingService(
+        identity=identity,
+        async_provider_fn=available_provider,
+    )
+    available_vector = VectorEngine(
+        str(tmp_path / "available_semantic.lance"),
+        embedding_service=available_service,
+    )
+    await available_vector.initialize()
+    try:
+        assert available_vector.semantic_configured is True
+        assert available_vector.semantic_operational is False
+        assert await available_vector.compute_query_embedding("Alice") == [1.0, 0.0]
+        assert available_vector.semantic_operational is True
+    finally:
+        await available_vector.close()
 
 
 @pytest.mark.asyncio

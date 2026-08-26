@@ -63,6 +63,11 @@ ve son retrieval sorgusunda operational kalmışsa `true` olur. Yapılandırılm
 backend sorgu sırasında kullanılamaz hale gelirse search
 `503 graph_backend_unavailable` döndürür; programming hataları bu sınıfla
 maskelenmez.
+`vector_retrieval`, embedding configuration nesnesinin varlığını değil,
+runtime'ın gerçekten embedding üretebildiğini bildirir. Custom provider'lar
+ilk başarılı embedding çağrısına kadar configured fakat non-operational kabul
+edilir; beklenen provider hataları `503 vector_backend_unavailable` olur ve
+başka bir modele sessiz fallback yapılmaz.
 
 ## V4 administrative rebuild operations
 

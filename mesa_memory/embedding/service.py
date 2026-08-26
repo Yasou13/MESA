@@ -144,6 +144,7 @@ class EmbeddingService:
 
         self._local_model: Any = None
         self._is_mock = False
+        self._operational = False
 
         # Validate external provider egress fence
         self._validate_egress_fence()
@@ -178,6 +179,7 @@ class EmbeddingService:
 
         if provider in ("mock", "deterministic", "test"):
             self._is_mock = True
+            self._operational = True
             return
 
         if provider in ("local", "sentence-transformers", "sentence_transformers"):
@@ -199,6 +201,7 @@ class EmbeddingService:
                     self._local_model = SentenceTransformer(
                         self._identity.model, **options
                     )
+                    self._operational = True
                 except Exception as exc:
                     logger.info(
                         "Local embedding model %s is unavailable in the local cache: %s",
@@ -214,6 +217,7 @@ class EmbeddingService:
                 )
                 # Do NOT silently switch to another model!
                 self._local_model = None
+                self._operational = False
 
     def identity(self) -> EmbeddingIdentity:
         """Return the truthful identity of this embedding service."""
@@ -228,13 +232,14 @@ class EmbeddingService:
         return self._identity.dimension
 
     @property
+    def is_configured(self) -> bool:
+        """Return whether an embedding identity/backend was configured."""
+        return bool(self._identity.provider.strip())
+
+    @property
     def is_operational(self) -> bool:
         """Return whether this service is operationally ready to generate embeddings."""
-        if self._is_mock or self._provider_fn is not None or self._async_provider_fn is not None:
-            return True
-        if self._local_model is not None:
-            return True
-        return False
+        return self._operational
 
     def _validate_vector_shape(self, vec: Sequence[float]) -> list[float]:
         """Ensure vector conforms to identity dimension and normalization."""
@@ -265,6 +270,7 @@ class EmbeddingService:
             return []
 
         if self._is_mock:
+            self._operational = True
             return [
                 _deterministic_mock_vector(
                     t, self._identity.dimension, self._identity.normalized
@@ -273,7 +279,20 @@ class EmbeddingService:
             ]
 
         if self._provider_fn is not None:
-            return [self._validate_vector_shape(self._provider_fn(t)) for t in texts]
+            try:
+                result = [
+                    self._validate_vector_shape(self._provider_fn(t)) for t in texts
+                ]
+            except EmbeddingError:
+                self._operational = False
+                raise
+            except Exception as exc:
+                self._operational = False
+                raise EmbeddingGenerationError(
+                    f"Custom provider batch failed: {exc}"
+                ) from exc
+            self._operational = True
+            return result
 
         if self._local_model is not None:
             try:
@@ -282,17 +301,21 @@ class EmbeddingService:
                     normalize_embeddings=self._identity.normalized,
                     show_progress_bar=False,
                 )
-                return [
+                result = [
                     self._validate_vector_shape(
                         e.tolist() if hasattr(e, "tolist") else e
                     )
                     for e in embeddings
                 ]
+                self._operational = True
+                return result
             except Exception as exc:
+                self._operational = False
                 raise EmbeddingGenerationError(
                     f"Batch embedding generation failed on local model '{self._identity.model}': {exc}"
                 ) from exc
 
+        self._operational = False
         raise EmbeddingUnavailableError(
             f"Embedding model '{self._identity.model}' ({self._identity.provider}) "
             "is unavailable and no silent fallback is permitted (fail-closed)."
@@ -301,6 +324,7 @@ class EmbeddingService:
     def _embed_single_sync(self, text: str) -> list[float]:
         """Compute single text embedding synchronously."""
         if self._is_mock:
+            self._operational = True
             return _deterministic_mock_vector(
                 text, self._identity.dimension, self._identity.normalized
             )
@@ -309,12 +333,16 @@ class EmbeddingService:
             try:
                 raw = self._provider_fn(text)
             except EmbeddingError:
+                self._operational = False
                 raise
             except Exception as exc:
+                self._operational = False
                 raise EmbeddingGenerationError(
                     f"Custom provider function failed: {exc}"
                 ) from exc
-            return self._validate_vector_shape(raw)
+            result = self._validate_vector_shape(raw)
+            self._operational = True
+            return result
 
         if self._local_model is not None:
             try:
@@ -324,12 +352,16 @@ class EmbeddingService:
                     show_progress_bar=False,
                 )
                 raw_list = vec.tolist() if hasattr(vec, "tolist") else list(vec)
-                return self._validate_vector_shape(raw_list)
+                result = self._validate_vector_shape(raw_list)
+                self._operational = True
+                return result
             except Exception as exc:
+                self._operational = False
                 raise EmbeddingGenerationError(
                     f"Embedding generation failed on local model '{self._identity.model}': {exc}"
                 ) from exc
 
+        self._operational = False
         raise EmbeddingUnavailableError(
             f"Embedding model '{self._identity.model}' ({self._identity.provider}) "
             "is unavailable and no silent fallback is permitted (fail-closed)."
@@ -341,8 +373,19 @@ class EmbeddingService:
     async def aembed_document(self, text: str) -> list[float]:
         """Embed a document asynchronously."""
         if self._async_provider_fn is not None:
-            raw = await self._async_provider_fn(text)
-            return self._validate_vector_shape(raw)
+            try:
+                raw = await self._async_provider_fn(text)
+                result = self._validate_vector_shape(raw)
+            except EmbeddingError:
+                self._operational = False
+                raise
+            except Exception as exc:
+                self._operational = False
+                raise EmbeddingGenerationError(
+                    f"Custom async provider function failed: {exc}"
+                ) from exc
+            self._operational = True
+            return result
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -359,10 +402,21 @@ class EmbeddingService:
             return []
 
         if self._async_provider_fn is not None:
-            raw_list = await asyncio.gather(
-                *(self._async_provider_fn(t) for t in texts)
-            )
-            return [self._validate_vector_shape(r) for r in raw_list]
+            try:
+                raw_list = await asyncio.gather(
+                    *(self._async_provider_fn(t) for t in texts)
+                )
+                result = [self._validate_vector_shape(r) for r in raw_list]
+            except EmbeddingError:
+                self._operational = False
+                raise
+            except Exception as exc:
+                self._operational = False
+                raise EmbeddingGenerationError(
+                    f"Custom async provider batch failed: {exc}"
+                ) from exc
+            self._operational = True
+            return result
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(

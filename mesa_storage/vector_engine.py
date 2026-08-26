@@ -95,6 +95,9 @@ class EmbeddingServicePort(Protocol):
 
     def identity(self) -> Any: ...
 
+    @property
+    def is_operational(self) -> bool: ...
+
     def embed_document(self, text: str) -> list[float]: ...
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
@@ -275,6 +278,7 @@ class VectorEngine:
         self._init_lock = asyncio.Lock()
         self._metrics = VectorMetrics()
         self._embedding_provider = embedding_provider
+        self._embedding_provider_operational = False
         self._local_embedding_model = local_embedding_model
         self._embedding_service = embedding_service
         # Retained as a constructor compatibility argument only.  Service
@@ -305,7 +309,7 @@ class VectorEngine:
     def semantic_operational(self) -> bool:
         """Whether this process can operationally create query embeddings."""
         if self._embedding_provider is not None:
-            return True
+            return self._embedding_provider_operational
         if self._embedding_service is not None:
             return getattr(self._embedding_service, "is_operational", True)
         return False
@@ -395,9 +399,15 @@ class VectorEngine:
             return await self._embedding_service.aembed_document(text)
 
         if self._embedding_provider is not None:
-            vector = await self._embedding_provider(text)
+            try:
+                vector = await self._embedding_provider(text)
+            except Exception as exc:
+                self._embedding_provider_operational = False
+                raise VectorSearchError("embedding provider failed") from exc
             if not vector:
-                raise RuntimeError("embedding provider returned an empty vector")
+                self._embedding_provider_operational = False
+                raise VectorSearchError("embedding provider returned an empty vector")
+            self._embedding_provider_operational = True
             return [float(value) for value in vector]
 
         raise SemanticRuntimeDisabledError(
@@ -411,7 +421,18 @@ class VectorEngine:
         if self._embedding_service is not None:
             return await self._embedding_service.aembed_query(text)
         if self._embedding_provider is not None:
-            return await self._embedding_provider(text)
+            try:
+                vector = await self._embedding_provider(text)
+            except Exception as exc:
+                self._embedding_provider_operational = False
+                raise VectorSearchError("query embedding provider failed") from exc
+            if not vector:
+                self._embedding_provider_operational = False
+                raise VectorSearchError(
+                    "query embedding provider returned an empty vector"
+                )
+            self._embedding_provider_operational = True
+            return [float(value) for value in vector]
         raise SemanticRuntimeDisabledError(
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
