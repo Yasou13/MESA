@@ -72,6 +72,7 @@ from mesa_storage.repositories.operations import (
     RebuildAdmissionReader,
 )
 from mesa_storage.retrieval_scope import (
+    V4_RRF_LANE_ORDER,
     build_v4_lexical_query,
     scope_vector_result_ids,
 )
@@ -5428,15 +5429,36 @@ class MemoryDAO:
 
         graph_lane: list[str] = []
         graph_path_assertion_ids: set[str] = set()
+        graph_evidence_by_entity: dict[str, dict[str, Any]] = {}
+        graph_scope_query = (
+            "SELECT a.assertion_id FROM v4_assertions a "
+            f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
+            f"AND {assertion_status_sql} "
+            "AND EXISTS (SELECT 1 FROM memory_mutations m "
+            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
+            "AND m.state = 'COMMITTED') "
+            + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "")
+        )
+        async with self._sql.connection() as db:
+            async with db.execute(
+                graph_scope_query,
+                (tenant_id, *datasets, agent_id, *provenance_params),
+            ) as cursor:
+                allowed_graph_assertion_ids = {
+                    str(row[0]) for row in await cursor.fetchall()
+                }
         if (
             self._graph is not None
             and getattr(self._graph, "is_initialized", False)
             and graph_seed_ids
+            and allowed_graph_assertion_ids
         ):
             try:
                 graph_hits = await self._graph.search_v4_graph(
                     agent_id=agent_id,
                     seed_entity_ids=graph_seed_ids[:20],
+                    allowed_entity_ids=allowed_entity_ids,
+                    allowed_assertion_ids=allowed_graph_assertion_ids,
                     max_hops=3,
                     limit=min(500, max(limit * 10, 50)),
                 )
@@ -5445,9 +5467,22 @@ class MemoryDAO:
                     if cand_id and cand_id in allowed_entity_ids:
                         if cand_id not in graph_lane:
                             graph_lane.append(cand_id)
-                        for p_aid in hit.get("path_assertion_ids", []):
+                        path_assertion_ids = [
+                            str(item)
+                            for item in hit.get("path_assertion_ids", [])
+                            if item
+                        ]
+                        graph_evidence_by_entity.setdefault(
+                            cand_id,
+                            {
+                                "graph_hop_count": int(hit.get("hops") or 0),
+                                "graph_seed_entity_id": str(hit.get("seed_id") or ""),
+                                "graph_path_assertion_ids": path_assertion_ids,
+                            },
+                        )
+                        for p_aid in path_assertion_ids:
                             if p_aid:
-                                graph_path_assertion_ids.add(str(p_aid))
+                                graph_path_assertion_ids.add(p_aid)
             except Exception as exc:
                 logger.warning(
                     "V4_GRAPH_RETRIEVAL_DEGRADED | agent_id=%s seeds=%s error=%s",
@@ -5464,7 +5499,7 @@ class MemoryDAO:
             "assertion": assertion_lane,
             "graph": graph_lane,
         }
-        for lane_name in ("vector", "bm25", "assertion", "graph"):
+        for lane_name in V4_RRF_LANE_ORDER:
             lane = lanes.get(lane_name, [])
             for rank, entity_id in enumerate(lane, start=1):
                 ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
@@ -5607,16 +5642,28 @@ class MemoryDAO:
                 key=lambda item: (-(ranks[item] * legal_factor[item]), item),
             )
         ][:limit]
-        return [
-            {
-                "entity": entities[entity_id],
-                "rrf_score": ranks[entity_id],
-                "legal_factor": legal_factor[entity_id],
-                "final_score": ranks[entity_id] * legal_factor[entity_id],
-                "provenance": by_entity[entity_id],
+        results: list[dict[str, Any]] = []
+        for entity_id in ordered:
+            retrieval_provenance: dict[str, Any] = {
+                "origins": [
+                    lane_name
+                    for lane_name in V4_RRF_LANE_ORDER
+                    if entity_id in lanes[lane_name]
+                ]
             }
-            for entity_id in ordered
-        ]
+            if entity_id in graph_evidence_by_entity:
+                retrieval_provenance.update(graph_evidence_by_entity[entity_id])
+            results.append(
+                {
+                    "entity": entities[entity_id],
+                    "rrf_score": ranks[entity_id],
+                    "legal_factor": legal_factor[entity_id],
+                    "final_score": ranks[entity_id] * legal_factor[entity_id],
+                    "provenance": by_entity[entity_id],
+                    "retrieval_provenance": retrieval_provenance,
+                }
+            )
+        return results
 
     async def count_active_memories(
         self,

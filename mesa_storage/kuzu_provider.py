@@ -158,10 +158,12 @@ class BaseGraphProvider(abc.ABC):
         *,
         agent_id: str,
         seed_entity_ids: list[str],
+        allowed_entity_ids: set[str],
+        allowed_assertion_ids: set[str],
         max_hops: int = 2,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """Multi-hop Graph V2 traversal from seed entities with tenant isolation."""
+        """Traverse only the caller's canonical entity/assertion universe."""
 
 
 # ---------------------------------------------------------------------------
@@ -885,6 +887,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         *,
         agent_id: str,
         seed_entity_ids: list[str],
+        allowed_entity_ids: set[str],
+        allowed_assertion_ids: set[str],
         max_hops: int = 2,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
@@ -906,7 +910,12 @@ class KuzuGraphProvider(BaseGraphProvider):
                 ...
             ]
         """
-        if not seed_entity_ids or limit < 1:
+        if (
+            not seed_entity_ids
+            or not allowed_entity_ids
+            or not allowed_assertion_ids
+            or limit < 1
+        ):
             return []
         if max_hops not in self._ALLOWED_MAX_HOPS:
             raise ValueError(
@@ -918,41 +927,62 @@ class KuzuGraphProvider(BaseGraphProvider):
         comp_seed_ids = [
             self._composite_id(agent_id, sid)
             for sid in seed_entity_ids
-            if sid and sid.strip()
+            if sid and sid.strip() and sid in allowed_entity_ids
         ]
         if not comp_seed_ids:
             return []
 
         hits: dict[str, dict[str, Any]] = {}
-        params = {"seed_ids": comp_seed_ids, "agent_id": agent_id}
+        params = {
+            "seed_ids": comp_seed_ids,
+            "agent_id": agent_id,
+            "allowed_entity_ids": [
+                self._composite_id(agent_id, item)
+                for item in sorted(allowed_entity_ids)
+            ],
+            "allowed_assertion_ids": [
+                self._composite_id(agent_id, item)
+                for item in sorted(allowed_assertion_ids)
+            ],
+            "limit": limit,
+        }
 
         q1 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND target.agent_id = $agent_id "
+            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "  AND seed.agent_id = $agent_id "
+            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
+            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
             "  AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id"
+            "RETURN seed.id, target.id, target.name, a1.id LIMIT $limit"
         )
         q2 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND e1.agent_id = $agent_id "
-            "  AND a2.agent_id = $agent_id AND target.agent_id = $agent_id "
+            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "  AND seed.agent_id = $agent_id "
+            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
+            "  AND e1.agent_id = $agent_id AND e1.id IN $allowed_entity_ids "
+            "  AND a2.agent_id = $agent_id AND a2.id IN $allowed_assertion_ids "
+            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
             "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a2.id"
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id LIMIT $limit"
         )
         q3 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(e2:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a3:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND e1.agent_id = $agent_id "
-            "  AND a2.agent_id = $agent_id AND e2.agent_id = $agent_id "
-            "  AND a3.agent_id = $agent_id AND target.agent_id = $agent_id "
+            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "  AND seed.agent_id = $agent_id "
+            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
+            "  AND e1.agent_id = $agent_id AND e1.id IN $allowed_entity_ids "
+            "  AND a2.agent_id = $agent_id AND a2.id IN $allowed_assertion_ids "
+            "  AND e2.agent_id = $agent_id AND e2.id IN $allowed_entity_ids "
+            "  AND a3.agent_id = $agent_id AND a3.id IN $allowed_assertion_ids "
+            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
             "  AND e1.id <> seed.id AND e2.id <> e1.id AND e2.id <> seed.id "
             "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id"
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id LIMIT $limit"
         )
 
         queries = [(1, q1), (2, q2), (3, q3)][:max_hops]
@@ -963,11 +993,16 @@ class KuzuGraphProvider(BaseGraphProvider):
                 for row in rows:
                     if len(row) < 4:
                         continue
-                    s_id = str(row[0])
-                    t_id = str(row[1])
+                    prefix = f"{agent_id}::"
+                    raw_seed_id = str(row[0])
+                    raw_target_id = str(row[1])
+                    s_id = raw_seed_id.removeprefix(prefix)
+                    t_id = raw_target_id.removeprefix(prefix)
                     t_name = str(row[2]) if row[2] is not None else ""
                     path_assertions = [
-                        str(item) for item in row[3:] if item is not None
+                        str(item).removeprefix(prefix)
+                        for item in row[3:]
+                        if item is not None
                     ]
                     score = 1.0 / hop
                     if t_id not in hits or hits[t_id]["hops"] > hop:

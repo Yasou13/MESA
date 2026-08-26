@@ -149,6 +149,10 @@ Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
 `valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
 yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. Search sonucu `score`
 alanı fused relevance skorudur; daha yüksek değer daha iyi eşleşmedir.
+Her sonuçtaki `retrieval_provenance.origins`, sonuca katkı veren
+`vector`, `bm25`, `assertion` ve `graph` lane'lerini bildirir. Graph katkısı
+varsa aynı nesne bounded `graph_hop_count`, canonical seed entity kimliği ve
+SQLite ile uzlaştırılmış `graph_path_assertion_ids` alanlarını da taşır.
 
 Context çıktısındaki retrieved session logları ve canonical memory, açıkça
 `UNTRUSTED_MEMORY_EVIDENCE` içinde JSON evidence kayıtları olarak render edilir;

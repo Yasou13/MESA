@@ -328,6 +328,20 @@ async def test_d_graph_ablation(tmp_path):
         )
         names_with = {r["entity"]["canonical_name"] for r in results_with_graph}
         assert "HeliosDB" in names_with
+        helios = next(
+            item
+            for item in results_with_graph
+            if item["entity"]["canonical_name"] == "HeliosDB"
+        )
+        retrieval_provenance = helios["retrieval_provenance"]
+        assert retrieval_provenance["origins"] == ["graph"]
+        assert retrieval_provenance["graph_hop_count"] > 0
+        assert retrieval_provenance["graph_seed_entity_id"] in {
+            item["entity"]["entity_id"] for item in results_with_graph
+        }
+        assert set(retrieval_provenance["graph_path_assertion_ids"]) <= {
+            provenance["assertion_id"] for provenance in helios["provenance"]
+        }
 
         # 2. With graph disabled
         dao_no_graph = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=None)
@@ -463,6 +477,68 @@ async def test_f_dataset_isolation_in_graph_retrieval(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_f_provider_scopes_paths_before_dataset_traversal(tmp_path):
+    """An allowed endpoint is unreachable through foreign-dataset bridges."""
+    graph_path = tmp_path / "dataset_scoped_graph"
+    initialize_schema_artifact(str(graph_path))
+    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
+    await graph.initialize()
+    try:
+        for entity_id, name in (
+            ("alice", "Alice"),
+            ("aurora", "Aurora"),
+            ("borealis", "Borealis"),
+            ("secret-b", "SecretDB-B"),
+        ):
+            await graph.insert_node(entity_id, name, agent_id="shared-agent")
+
+        await graph.insert_assertion(
+            assertion_id="dataset-a-1",
+            agent_id="shared-agent",
+            subject_id="alice",
+            predicate="leads",
+            object_id="aurora",
+            confidence=1.0,
+            status="ACTIVE",
+            mutation_id="mutation-a-1",
+        )
+        await graph.insert_assertion(
+            assertion_id="dataset-b-1",
+            agent_id="shared-agent",
+            subject_id="alice",
+            predicate="leads",
+            object_id="borealis",
+            confidence=1.0,
+            status="ACTIVE",
+            mutation_id="mutation-b-1",
+        )
+        await graph.insert_assertion(
+            assertion_id="dataset-b-2",
+            agent_id="shared-agent",
+            subject_id="borealis",
+            predicate="reveals",
+            object_id="secret-b",
+            confidence=1.0,
+            status="ACTIVE",
+            mutation_id="mutation-b-2",
+        )
+
+        hits = await graph.search_v4_graph(
+            agent_id="shared-agent",
+            seed_entity_ids=["alice"],
+            allowed_entity_ids={"alice", "aurora", "secret-b"},
+            allowed_assertion_ids={"dataset-a-1"},
+            max_hops=3,
+            limit=10,
+        )
+
+        assert [hit["entity_id"] for hit in hits] == ["aurora"]
+        assert all(set(hit["path_assertion_ids"]) <= {"dataset-a-1"} for hit in hits)
+    finally:
+        await graph.close()
+
+
+@pytest.mark.asyncio
 async def test_g_stale_deleted_projection_filtering(tmp_path):
     """Test G: Node in Kùzu but deleted in SQLite is filtered out by canonical reconciliation."""
     sql, vector, graph, dao = await _create_test_env(tmp_path)
@@ -513,6 +589,63 @@ async def test_g_stale_deleted_projection_filtering(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_g_superseded_graph_bridge_cannot_drive_current_traversal(tmp_path):
+    """A stale Graph V2 assertion cannot bridge otherwise active entities."""
+    sql, vector, graph, dao = await _create_test_env(tmp_path)
+    try:
+        await _ingest_entity_and_assertion(
+            dao,
+            graph,
+            tenant_id="test-tenant",
+            agent_id="test-agent",
+            dataset_id="default-ds",
+            mutation_id="m1",
+            subject_name="Alice",
+            predicate="leads",
+            object_name="Aurora",
+        )
+        _, _, stale_assertion_id = await _ingest_entity_and_assertion(
+            dao,
+            graph,
+            tenant_id="test-tenant",
+            agent_id="test-agent",
+            dataset_id="default-ds",
+            mutation_id="m2",
+            subject_name="Aurora",
+            predicate="used",
+            object_name="OldDB",
+        )
+        async with dao._sql.transaction() as db:
+            await db.execute(
+                "UPDATE v4_assertions SET status = 'SUPERSEDED' "
+                "WHERE assertion_id = ?",
+                (stale_assertion_id,),
+            )
+            await db.commit()
+
+        results = await dao.search_v4_memory(
+            tenant_id="test-tenant",
+            agent_id="test-agent",
+            dataset_ids=["default-ds"],
+            query="Alice",
+            limit=10,
+        )
+
+        assert "OldDB" not in {
+            item["entity"]["canonical_name"] for item in results
+        }
+        assert all(
+            stale_assertion_id
+            not in item["retrieval_provenance"].get(
+                "graph_path_assertion_ids", []
+            )
+            for item in results
+        )
+    finally:
+        await _close_test_env(sql, vector, graph)
+
+
+@pytest.mark.asyncio
 async def test_h_multi_lane_deduplication(tmp_path):
     """Test H: Candidate matched across multiple lanes is deduplicated with combined RRF rank."""
     sql, vector, graph, dao = await _create_test_env(tmp_path)
@@ -538,6 +671,50 @@ async def test_h_multi_lane_deduplication(tmp_path):
         )
         entity_ids = [r["entity"]["entity_id"] for r in results]
         assert len(entity_ids) == len(set(entity_ids)), "Every entity in results must be deduplicated"
+    finally:
+        await _close_test_env(sql, vector, graph)
+
+
+@pytest.mark.asyncio
+async def test_h_duplicate_graph_paths_do_not_amplify_rrf(tmp_path):
+    """Two graph paths contribute at most one rank from the graph lane."""
+    sql, vector, graph, dao = await _create_test_env(tmp_path)
+    try:
+        for mutation_id, subject_name, object_name in (
+            ("m1", "Alice", "Bridge-A"),
+            ("m2", "Alice", "Bridge-B"),
+            ("m3", "Bridge-A", "TargetDB"),
+            ("m4", "Bridge-B", "TargetDB"),
+        ):
+            await _ingest_entity_and_assertion(
+                dao,
+                graph,
+                tenant_id="test-tenant",
+                agent_id="test-agent",
+                dataset_id="default-ds",
+                mutation_id=mutation_id,
+                subject_name=subject_name,
+                predicate="connects",
+                object_name=object_name,
+            )
+
+        results = await dao.search_v4_memory(
+            tenant_id="test-tenant",
+            agent_id="test-agent",
+            dataset_ids=["default-ds"],
+            query="Alice",
+            limit=10,
+        )
+        target_results = [
+            item
+            for item in results
+            if item["entity"]["canonical_name"] == "TargetDB"
+        ]
+
+        assert len(target_results) == 1
+        target = target_results[0]
+        assert target["retrieval_provenance"]["origins"] == ["graph"]
+        assert target["rrf_score"] <= 1.0 / 61.0
     finally:
         await _close_test_env(sql, vector, graph)
 
