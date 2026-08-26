@@ -443,7 +443,8 @@ async def test_r7_semantic_rejected_replay_fails_closed_and_terminal(
         f"/v4/mutations/{mutation_id}/replay",
         headers={"X-MESA-Principal": "unbound_principal"},
     )
-    assert unauthorized.status_code == 403
+    assert unauthorized.status_code == 404
+    assert unauthorized.json()["detail"] == "Unknown session"
 
     # State must remain REJECTED and DLQ
     async with engine.connection() as db:
@@ -725,20 +726,35 @@ async def test_r7_historical_auth_negative_matrix(
         )
         await db.commit()
 
-    # 1. Attacker (unbound principal) -> 403
+    # 1. Attacker (unbound principal) receives the generic inaccessible class.
     resp_atk = client.post(
         f"/v4/mutations/{mutation_id}/rollback",
         headers={"X-MESA-Principal": attacker_principal},
     )
-    assert resp_atk.status_code == 403
+    assert resp_atk.status_code == 404
+    assert resp_atk.json()["detail"] == "Unknown session"
 
-    # 2. Principal lacking ROLLBACK permission -> 403
+    # 2. A foreign principal cannot borrow a session grant to inspect permissions.
     resp_no_rb = client.post(
         f"/v4/mutations/{mutation_id}/rollback",
         headers={"X-MESA-Principal": no_rollback_principal},
     )
-    assert resp_no_rb.status_code == 403
-    assert "ROLLBACK permission required" in resp_no_rb.json()["detail"]
+    assert resp_no_rb.status_code == 404
+    assert resp_no_rb.json()["detail"] == "Unknown session"
+
+    # 3. The owning principal still receives legitimate permission semantics.
+    assert await access_control.revoke_dataset_permission(
+        legit_principal,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        permission="ROLLBACK",
+    )
+    resp_owner_no_rb = client.post(
+        f"/v4/mutations/{mutation_id}/rollback",
+        headers={"X-MESA-Principal": legit_principal},
+    )
+    assert resp_owner_no_rb.status_code == 403
+    assert "ROLLBACK permission required" in resp_owner_no_rb.json()["detail"]
 
     await access_control.close()
     await engine.close()
