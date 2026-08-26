@@ -51,11 +51,19 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger("MESA_Storage")
 
+
+class GraphSearchError(RuntimeError):
+    """Expected operational failure while executing Graph V2 retrieval."""
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 _MAX_WORKERS = min(4, os.cpu_count() or 2)  # Cap to prevent over-subscription
+_MAX_V4_GRAPH_SEEDS = 20
+_MAX_V4_GRAPH_RESULTS = 500
+_DEFAULT_V4_GRAPH_TIMEOUT_SECONDS = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -202,9 +210,13 @@ class KuzuGraphProvider(BaseGraphProvider):
         db_path: str,
         *,
         max_workers: int = _MAX_WORKERS,
+        search_timeout_seconds: float = _DEFAULT_V4_GRAPH_TIMEOUT_SECONDS,
     ) -> None:
+        if search_timeout_seconds <= 0:
+            raise ValueError("search_timeout_seconds must be positive")
         self._db_path = db_path
         self._max_workers = max_workers
+        self._search_timeout_seconds = search_timeout_seconds
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="mesa_kuzu",
@@ -213,6 +225,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         self._conn: kuzu.Connection | None = None
         self._conn_lock = threading.Lock()
         self._initialized = False
+        self._operational = False
         self._init_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
@@ -230,7 +243,7 @@ class KuzuGraphProvider(BaseGraphProvider):
     @property
     def is_operational(self) -> bool:
         """Return whether the provider is initialized and connected."""
-        return self._initialized and self._conn is not None
+        return self._initialized and self._conn is not None and self._operational
 
     # ------------------------------------------------------------------
     # Async context manager
@@ -295,17 +308,16 @@ class KuzuGraphProvider(BaseGraphProvider):
                 result = result[0]  # pragma: no cover
             if hasattr(result, "has_next") and result.has_next():
                 row = result.get_next()
+                self._operational = True
                 logger.debug(
                     "KUZU_HEALTH_PROBE | db_path=%s probe=%s — connection verified",
                     self._db_path,
                     row,
                 )
             else:
-                logger.warning(
-                    "KUZU_HEALTH_PROBE | db_path=%s — probe returned no rows",
-                    self._db_path,
-                )
+                raise RuntimeError("Kùzu health probe returned no rows")
         except Exception as probe_exc:
+            self._operational = False
             logger.error(
                 "KUZU_HEALTH_PROBE_FAILED | db_path=%s error=%s — "
                 "connection established but query failed",
@@ -313,6 +325,13 @@ class KuzuGraphProvider(BaseGraphProvider):
                 probe_exc,
                 exc_info=True,
             )
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
+            if self._db is not None:
+                self._db.close()
+                self._db = None
+            raise RuntimeError("Kùzu startup health probe failed") from probe_exc
 
     async def health_check(self) -> dict:
         """Perform a lightweight health check on the KùzuDB connection.
@@ -335,11 +354,14 @@ class KuzuGraphProvider(BaseGraphProvider):
             rows = await self.execute_query("RETURN 1 AS probe")
             if rows:
                 result["status"] = "healthy"
+                self._operational = True
             else:
                 result["status"] = "degraded"
+                self._operational = False
         except Exception as exc:
             result["status"] = "unhealthy"
             result["error"] = str(exc)
+            self._operational = False
 
         return result
 
@@ -352,6 +374,7 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         self._executor.shutdown(wait=False)
         self._initialized = False
+        self._operational = False
 
     def _sync_close(self) -> None:
         """Synchronous cleanup (runs in executor thread)."""
@@ -922,11 +945,15 @@ class KuzuGraphProvider(BaseGraphProvider):
                 f"max_hops must be one of {sorted(self._ALLOWED_MAX_HOPS)}, "
                 f"got {max_hops}"
             )
+        if limit > _MAX_V4_GRAPH_RESULTS:
+            raise ValueError(
+                f"limit must be <= {_MAX_V4_GRAPH_RESULTS}, got {limit}"
+            )
         self._ensure_initialized()
 
         comp_seed_ids = [
             self._composite_id(agent_id, sid)
-            for sid in seed_entity_ids
+            for sid in seed_entity_ids[:_MAX_V4_GRAPH_SEEDS]
             if sid and sid.strip() and sid in allowed_entity_ids
         ]
         if not comp_seed_ids:
@@ -989,7 +1016,10 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         try:
             for hop, query_str in queries:
-                rows = await self.execute_query(query_str, params)
+                rows = await asyncio.wait_for(
+                    self.execute_query(query_str, params),
+                    timeout=self._search_timeout_seconds,
+                )
                 for row in rows:
                     if len(row) < 4:
                         continue
@@ -1014,14 +1044,16 @@ class KuzuGraphProvider(BaseGraphProvider):
                             "seed_id": s_id,
                             "path_assertion_ids": path_assertions,
                         }
-        except RuntimeError as exc:
+            self._operational = True
+        except (RuntimeError, asyncio.TimeoutError) as exc:
+            self._operational = False
             logger.error(
                 "SEARCH_V4_GRAPH_FAILED | agent_id=%s seeds=%s error=%s",
                 agent_id,
                 seed_entity_ids,
                 exc,
             )
-            return []
+            raise GraphSearchError("Kùzu graph retrieval is unavailable") from exc
 
         sorted_hits = sorted(
             hits.values(),

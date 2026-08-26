@@ -4,6 +4,7 @@
 - P2: Session existence and status oracle elimination in _authorized_v4_session.
 """
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -21,7 +22,7 @@ from mesa_memory.embedding.service import (
 )
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -841,6 +842,78 @@ async def test_j_semantic_capability_and_failure_handling(tmp_path):
         await access_control.close()
     finally:
         await _close_test_env(sql, vector, graph)
+
+
+@pytest.mark.asyncio
+async def test_j_graph_outage_is_typed_and_updates_readiness(tmp_path):
+    """An expected Kùzu query failure is typed and marks readiness false."""
+    graph_path = tmp_path / "unavailable_graph"
+    initialize_schema_artifact(str(graph_path))
+    graph = KuzuGraphProvider(
+        str(graph_path), max_workers=1, search_timeout_seconds=0.01
+    )
+    await graph.initialize()
+    try:
+        assert graph.is_operational is True
+        with patch.object(
+            graph,
+            "execute_query",
+            side_effect=RuntimeError("Kùzu backend unavailable"),
+        ):
+            with pytest.raises(GraphSearchError):
+                await graph.search_v4_graph(
+                    agent_id="test-agent",
+                    seed_entity_ids=["alice"],
+                    allowed_entity_ids={"alice", "aurora"},
+                    allowed_assertion_ids={"assertion-1"},
+                    max_hops=1,
+                    limit=10,
+                )
+        assert graph.is_operational is False
+
+        assert (await graph.health_check())["status"] == "healthy"
+        with patch.object(
+            graph,
+            "execute_query",
+            side_effect=ValueError("programming defect"),
+        ):
+            with pytest.raises(ValueError, match="programming defect"):
+                await graph.search_v4_graph(
+                    agent_id="test-agent",
+                    seed_entity_ids=["alice"],
+                    allowed_entity_ids={"alice", "aurora"},
+                    allowed_assertion_ids={"assertion-1"},
+                    max_hops=1,
+                    limit=10,
+                )
+
+        async def blocked_query(*args, **kwargs):
+            await asyncio.sleep(1)
+            return []
+
+        with patch.object(graph, "execute_query", side_effect=blocked_query):
+            with pytest.raises(GraphSearchError):
+                await graph.search_v4_graph(
+                    agent_id="test-agent",
+                    seed_entity_ids=["alice"],
+                    allowed_entity_ids={"alice", "aurora"},
+                    allowed_assertion_ids={"assertion-1"},
+                    max_hops=1,
+                    limit=10,
+                )
+        assert graph.is_operational is False
+
+        with pytest.raises(ValueError, match="limit must be <= 500"):
+            await graph.search_v4_graph(
+                agent_id="test-agent",
+                seed_entity_ids=["alice"],
+                allowed_entity_ids={"alice", "aurora"},
+                allowed_assertion_ids={"assertion-1"},
+                max_hops=1,
+                limit=501,
+            )
+    finally:
+        await graph.close()
 
 
 @pytest.mark.asyncio

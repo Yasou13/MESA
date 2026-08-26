@@ -61,7 +61,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import aiosqlite
 
-from mesa_storage.kuzu_provider import KuzuGraphProvider
+from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
 from mesa_storage.repositories.operations import (
@@ -384,11 +384,12 @@ class MemoryDAO:
         """Return whether the graph provider is operational."""
         if self._graph is None:
             return False
-        return getattr(
-            self._graph,
-            "is_operational",
-            getattr(self._graph, "is_initialized", False),
-        )
+        return getattr(self._graph, "is_operational", False) is True
+
+    @property
+    def graph_configured(self) -> bool:
+        """Return whether a graph provider was composed for this runtime."""
+        return self._graph is not None
 
     async def submit_system_operation(
         self,
@@ -5447,12 +5448,9 @@ class MemoryDAO:
                 allowed_graph_assertion_ids = {
                     str(row[0]) for row in await cursor.fetchall()
                 }
-        if (
-            self._graph is not None
-            and getattr(self._graph, "is_initialized", False)
-            and graph_seed_ids
-            and allowed_graph_assertion_ids
-        ):
+        if self._graph is not None and graph_seed_ids and allowed_graph_assertion_ids:
+            if not self.graph_operational:
+                raise GraphSearchError("configured graph backend is unavailable")
             try:
                 graph_hits = await self._graph.search_v4_graph(
                     agent_id=agent_id,
@@ -5483,14 +5481,14 @@ class MemoryDAO:
                         for p_aid in path_assertion_ids:
                             if p_aid:
                                 graph_path_assertion_ids.add(p_aid)
-            except Exception as exc:
+            except GraphSearchError as exc:
                 logger.warning(
                     "V4_GRAPH_RETRIEVAL_DEGRADED | agent_id=%s seeds=%s error=%s",
                     agent_id,
                     graph_seed_ids[:20],
                     exc,
                 )
-                graph_lane = []
+                raise
 
         ranks: dict[str, float] = {}
         lanes = {

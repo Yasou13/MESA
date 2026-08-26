@@ -38,6 +38,7 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
+from mesa_storage.kuzu_provider import GraphSearchError
 from mesa_storage.repositories.operations import (
     OperationActiveConflictError,
     OperationIdempotencyConflictError,
@@ -762,10 +763,7 @@ def create_v4_router(
             "semantic_operational",
             getattr(getattr(dao, "_vec", None), "semantic_runtime_available", False),
         )
-        graph_available = getattr(dao, "graph_operational", False) or (
-            getattr(dao, "_graph", None) is not None
-            and getattr(dao._graph, "is_initialized", False)
-        )
+        graph_available = getattr(dao, "graph_operational", False)
         canonical_writes_available = dao.canonical_v4_writes_enabled is not False
         capabilities = V4CapabilityFlags(
             projection_outbox=canonical_writes_available,
@@ -1078,6 +1076,11 @@ def create_v4_router(
             raise HTTPException(
                 status_code=503,
                 detail="vector_backend_unavailable",
+            )
+        except GraphSearchError:
+            raise HTTPException(
+                status_code=503,
+                detail="graph_backend_unavailable",
             )
         return {
             "session_id": payload.session_id,

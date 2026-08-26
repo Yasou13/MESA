@@ -58,6 +58,11 @@ ayrıca rebuild sınırını içerik veya fiziksel path taşımadan bildirir:
 `validity_interval_filtering`, tek bir geçerlilik aralığı filtresidir;
 bitemporal query değildir. Eski `graph_retrieval`, `temporal_filtering` ve
 `vector_search` geniş adları bu nedenle sözleşmeden kaldırılmıştır.
+`graph_neighbor_retrieval` yalnız Graph V2 provider startup sorgusunu geçmiş
+ve son retrieval sorgusunda operational kalmışsa `true` olur. Yapılandırılmış
+backend sorgu sırasında kullanılamaz hale gelirse search
+`503 graph_backend_unavailable` döndürür; programming hataları bu sınıfla
+maskelenmez.
 
 ## V4 administrative rebuild operations
 
