@@ -15,9 +15,16 @@ import hashlib
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Literal, Sequence
 
-from mesa_memory.config import config, configured_embedding_identity
+from mesa_memory.config import (
+    NEMOTRON_EMBEDDING_DIMENSION,
+    NEMOTRON_EMBEDDING_MODEL,
+    NEMOTRON_EMBEDDING_VERSION,
+    config,
+    configured_embedding_identity,
+    uses_nemotron_asymmetric_profile,
+)
 
 logger = logging.getLogger("MESA_EmbeddingService")
 
@@ -115,6 +122,8 @@ class EmbeddingService:
         identity: EmbeddingIdentity | None = None,
         provider_fn: Callable[[str], list[float]] | None = None,
         async_provider_fn: Callable[[str], Any] | None = None,
+        query_provider_fn: Callable[[str], list[float]] | None = None,
+        async_query_provider_fn: Callable[[str], Any] | None = None,
         allow_model_loading: bool = True,
         external_enabled: bool | None = None,
     ) -> None:
@@ -141,6 +150,8 @@ class EmbeddingService:
         self._allow_model_loading = allow_model_loading
         self._provider_fn = provider_fn
         self._async_provider_fn = async_provider_fn
+        self._query_provider_fn = query_provider_fn
+        self._async_query_provider_fn = async_query_provider_fn
 
         self._local_model: Any = None
         self._is_mock = False
@@ -148,6 +159,7 @@ class EmbeddingService:
 
         # Validate external provider egress fence
         self._validate_egress_fence()
+        self._validate_known_identity_contract()
 
         # Initialize backend if needed
         self._init_backend()
@@ -170,9 +182,35 @@ class EmbeddingService:
                 "when MESA_EXTERNAL_PROVIDER_ENABLED=false."
             )
 
+    def _validate_known_identity_contract(self) -> None:
+        """Fail closed on known asymmetric model identity misconfiguration."""
+        if not uses_nemotron_asymmetric_profile(
+            self._identity.provider, self._identity.model
+        ):
+            return
+        if self._identity.dimension != NEMOTRON_EMBEDDING_DIMENSION:
+            raise EmbeddingIdentityMismatchError(
+                f"{NEMOTRON_EMBEDDING_MODEL} requires configured identity dimension "
+                f"{NEMOTRON_EMBEDDING_DIMENSION}; got {self._identity.dimension}"
+            )
+        if self._identity.version != NEMOTRON_EMBEDDING_VERSION:
+            raise EmbeddingIdentityMismatchError(
+                f"{NEMOTRON_EMBEDDING_MODEL} requires embedding version "
+                f"{NEMOTRON_EMBEDDING_VERSION!r} to fence corrected query/passage "
+                "vectors from the legacy embedding space"
+            )
+
     def _init_backend(self) -> None:
         """Initialize the local or mock model backend."""
-        if self._provider_fn is not None or self._async_provider_fn is not None:
+        if any(
+            provider is not None
+            for provider in (
+                self._provider_fn,
+                self._async_provider_fn,
+                self._query_provider_fn,
+                self._async_query_provider_fn,
+            )
+        ):
             return
 
         provider = self._identity.provider.lower()
@@ -258,11 +296,14 @@ class EmbeddingService:
     # -----------------------------------------------------------------------
     def embed_document(self, text: str) -> list[float]:
         """Embed a document synchronously."""
-        return self._embed_single_sync(text)
+        return self._embed_single_sync(text, self._provider_fn)
 
     def embed_query(self, text: str) -> list[float]:
         """Embed a search query synchronously."""
-        return self._embed_single_sync(text)
+        provider_fn = self._query_provider_fn
+        if provider_fn is None:
+            provider_fn = self._provider_fn
+        return self._embed_single_sync(text, provider_fn)
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts synchronously."""
@@ -321,7 +362,11 @@ class EmbeddingService:
             "is unavailable and no silent fallback is permitted (fail-closed)."
         )
 
-    def _embed_single_sync(self, text: str) -> list[float]:
+    def _embed_single_sync(
+        self,
+        text: str,
+        provider_fn: Callable[[str], list[float]] | None,
+    ) -> list[float]:
         """Compute single text embedding synchronously."""
         if self._is_mock:
             self._operational = True
@@ -329,9 +374,9 @@ class EmbeddingService:
                 text, self._identity.dimension, self._identity.normalized
             )
 
-        if self._provider_fn is not None:
+        if provider_fn is not None:
             try:
-                raw = self._provider_fn(text)
+                raw = provider_fn(text)
             except EmbeddingError:
                 self._operational = False
                 raise
@@ -372,9 +417,33 @@ class EmbeddingService:
     # -----------------------------------------------------------------------
     async def aembed_document(self, text: str) -> list[float]:
         """Embed a document asynchronously."""
-        if self._async_provider_fn is not None:
+        return await self._embed_single_async(
+            text, self._async_provider_fn, self._provider_fn
+        )
+
+    async def aembed_query(self, text: str) -> list[float]:
+        """Embed a search query asynchronously."""
+        async_provider_fn = self._async_query_provider_fn
+        if async_provider_fn is None:
+            async_provider_fn = self._async_provider_fn
+        sync_provider_fn = self._query_provider_fn
+        if sync_provider_fn is None:
+            sync_provider_fn = self._provider_fn
+        return await self._embed_single_async(
+            text,
+            async_provider_fn,
+            sync_provider_fn,
+        )
+
+    async def _embed_single_async(
+        self,
+        text: str,
+        async_provider_fn: Callable[[str], Any] | None,
+        sync_provider_fn: Callable[[str], list[float]] | None,
+    ) -> list[float]:
+        if async_provider_fn is not None:
             try:
-                raw = await self._async_provider_fn(text)
+                raw = await async_provider_fn(text)
                 result = self._validate_vector_shape(raw)
             except EmbeddingError:
                 self._operational = False
@@ -389,12 +458,8 @@ class EmbeddingService:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, functools.partial(self._embed_single_sync, text)
+            None, functools.partial(self._embed_single_sync, text, sync_provider_fn)
         )
-
-    async def aembed_query(self, text: str) -> list[float]:
-        """Embed a search query asynchronously."""
-        return await self.aembed_document(text)
 
     async def aembed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts asynchronously."""
@@ -434,16 +499,20 @@ class _OpenAICompatibleEmbeddingBackend:
             raise EmbeddingCompositionError(
                 "OpenAI-compatible embedding support is not installed"
             ) from exc
-        api_key = getattr(config, "llm_api_key", None) or getattr(
-            config, "openai_api_key", None
+        api_key = (
+            getattr(config, "embedding_api_key", None)
+            or getattr(config, "llm_api_key", None)
+            or getattr(config, "openai_api_key", None)
         )
         if not api_key:
             raise EmbeddingCompositionError(
-                "OpenAI-compatible embedding configuration requires LLM_API_KEY"
+                "OpenAI-compatible embedding configuration requires "
+                "MESA_EMBEDDING_API_KEY or LLM_API_KEY"
             )
         options = {
             "api_key": api_key,
-            "base_url": getattr(config, "llm_base_url", None),
+            "base_url": getattr(config, "embedding_base_url", None)
+            or getattr(config, "llm_base_url", None),
             "timeout": float(getattr(config, "llm_timeout_seconds", 20.0)),
             "max_retries": 0,
         }
@@ -451,10 +520,25 @@ class _OpenAICompatibleEmbeddingBackend:
         self._sync = openai.OpenAI(**options)
         self._async = openai.AsyncOpenAI(**options)
 
-    def embed(self, text: str) -> list[float]:
+    def _request_kwargs(
+        self, text: str, input_type: Literal["passage", "query"]
+    ) -> dict[str, Any]:
+        request: dict[str, Any] = {"model": self._identity.model, "input": text}
+        if uses_nemotron_asymmetric_profile(
+            self._identity.provider, self._identity.model
+        ):
+            request["extra_body"] = {
+                "input_type": input_type,
+                "truncate": "END",
+            }
+        return request
+
+    def _request_sync(
+        self, text: str, input_type: Literal["passage", "query"]
+    ) -> list[float]:
         try:
             response = self._sync.embeddings.create(
-                model=self._identity.model, input=text
+                **self._request_kwargs(text, input_type)
             )
             return list(response.data[0].embedding)
         except Exception as exc:
@@ -462,28 +546,60 @@ class _OpenAICompatibleEmbeddingBackend:
                 f"OpenAI-compatible embedding request failed: {exc}"
             ) from exc
 
-    async def aembed(self, text: str) -> list[float]:
+    async def _request_async(
+        self, text: str, input_type: Literal["passage", "query"]
+    ) -> list[float]:
         try:
             response = await self._async.embeddings.create(
-                model=self._identity.model, input=text
+                **self._request_kwargs(text, input_type)
             )
             return list(response.data[0].embedding)
         except Exception as exc:
             raise EmbeddingGenerationError(
                 f"OpenAI-compatible embedding request failed: {exc}"
             ) from exc
+
+    def embed_document(self, text: str) -> list[float]:
+        return self._request_sync(text, "passage")
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._request_sync(text, "query")
+
+    async def aembed_document(self, text: str) -> list[float]:
+        return await self._request_async(text, "passage")
+
+    async def aembed_query(self, text: str) -> list[float]:
+        return await self._request_async(text, "query")
+
+    # Private transport compatibility for tests and integrations that used the
+    # original document-oriented backend methods directly.
+    def embed(self, text: str) -> list[float]:
+        return self.embed_document(text)
+
+    async def aembed(self, text: str) -> list[float]:
+        return await self.aembed_document(text)
 
 
 def _compose_external_backend(
     identity: EmbeddingIdentity,
-) -> tuple[Callable[[str], list[float]], Callable[[str], Any]]:
+) -> tuple[
+    Callable[[str], list[float]],
+    Callable[[str], Any],
+    Callable[[str], list[float]],
+    Callable[[str], Any],
+]:
     """Compose a real, explicit external embedding transport at startup."""
     if identity.provider.lower() not in {"openai", "openai_compatible"}:
         raise EmbeddingCompositionError(
             f"External embedding provider '{identity.provider}' is unsupported"
         )
     backend = _OpenAICompatibleEmbeddingBackend(identity)
-    return backend.embed, backend.aembed
+    return (
+        backend.embed_document,
+        backend.aembed_document,
+        backend.embed_query,
+        backend.aembed_query,
+    )
 
 
 # Global singleton holder
@@ -524,19 +640,30 @@ def get_embedding_service(
         )
         provider_fn: Callable[[str], list[float]] | None = None
         async_provider_fn: Callable[[str], Any] | None = None
+        query_provider_fn: Callable[[str], list[float]] | None = None
+        async_query_provider_fn: Callable[[str], Any] | None = None
         if identity.provider.lower() in {"openai", "openai_compatible"}:
             if not effective_external_enabled:
                 raise ExternalProviderForbiddenError(
                     "External embedding provider is forbidden when "
                     "MESA_EXTERNAL_PROVIDER_ENABLED=false."
                 )
-            provider_fn, async_provider_fn = (
-                external_backend_factory or _compose_external_backend
-            )(identity)
+            if external_backend_factory is not None:
+                # Preserve the legacy two-callable custom factory contract.
+                provider_fn, async_provider_fn = external_backend_factory(identity)
+            else:
+                (
+                    provider_fn,
+                    async_provider_fn,
+                    query_provider_fn,
+                    async_query_provider_fn,
+                ) = _compose_external_backend(identity)
         _GLOBAL_EMBEDDING_SERVICE = EmbeddingService(
             identity=identity,
             provider_fn=provider_fn,
             async_provider_fn=async_provider_fn,
+            query_provider_fn=query_provider_fn,
+            async_query_provider_fn=async_query_provider_fn,
             allow_model_loading=allow_model_loading,
             external_enabled=effective_external_enabled,
         )

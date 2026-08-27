@@ -73,6 +73,19 @@ class RuntimeProfileConfig:
     require_worker_readiness: bool
 
 
+NEMOTRON_EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b"
+NEMOTRON_EMBEDDING_DIMENSION = 2048
+NEMOTRON_EMBEDDING_VERSION = "nemotron-qpass-v1"
+
+
+def uses_nemotron_asymmetric_profile(provider: str, model: str) -> bool:
+    """Return whether an embedding identity uses MESA's Nemotron role profile."""
+    return (
+        provider.strip().lower() in {"openai", "openai_compatible"}
+        and model.strip().lower() == NEMOTRON_EMBEDDING_MODEL
+    )
+
+
 @dataclass(frozen=True)
 class EmbeddingIdentity:
     provider: str
@@ -375,6 +388,12 @@ class MesaConfig(BaseSettings):
     )
     llm_base_url: str | None = Field(None, validation_alias="LLM_BASE_URL")
     llm_api_key: str | None = Field(None, validation_alias="LLM_API_KEY")
+    embedding_base_url: str | None = Field(
+        None, validation_alias="MESA_EMBEDDING_BASE_URL"
+    )
+    embedding_api_key: str | None = Field(
+        None, validation_alias="MESA_EMBEDDING_API_KEY"
+    )
     llm_model_name: str | None = Field(
         "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
     )
@@ -695,6 +714,25 @@ class MesaConfig(BaseSettings):
                 for field in QueueAdmissionPolicy.model_fields
             }
         )
+
+    @model_validator(mode="after")
+    def validate_nemotron_embedding_contract(self) -> "MesaConfig":
+        if not self.external_provider_enabled or not uses_nemotron_asymmetric_profile(
+            self.embedding_provider, self.external_embedding_model
+        ):
+            return self
+        if self.embedding_dimension != NEMOTRON_EMBEDDING_DIMENSION:
+            raise ValueError(
+                f"{NEMOTRON_EMBEDDING_MODEL} requires "
+                f"MESA_EMBEDDING_DIMENSION={NEMOTRON_EMBEDDING_DIMENSION}"
+            )
+        if self.embedding_version != NEMOTRON_EMBEDDING_VERSION:
+            raise ValueError(
+                f"{NEMOTRON_EMBEDDING_MODEL} requires "
+                f"MESA_EMBEDDING_VERSION={NEMOTRON_EMBEDDING_VERSION} so corrected "
+                "query/passage vectors cannot reuse the legacy embedding space"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_embedding_fallback(self) -> "MesaConfig":
