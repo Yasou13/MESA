@@ -51,6 +51,9 @@ def _make_mock_storage_facade(
     storage = MagicMock()
     storage.vector_engine = MagicMock()
     storage.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+    storage.vector_engine.compute_query_embedding = AsyncMock(
+        return_value=[0.1] * 768
+    )
 
     # Graph mock
     storage.find_nodes_by_name = AsyncMock(return_value=graph_nodes or [])

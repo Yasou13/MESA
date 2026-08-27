@@ -356,8 +356,8 @@ class HybridRetriever:
         self, agent_id: str, query_text: str, k: int = 10, temporal_filter: dict | None = None
     ) -> list[dict]:
         """Search via MemoryDAO vector search (LanceDB + RLS)."""
-        # Use the VectorEngine to compute the embedding instead of the LLM adapter
-        embedding = await self.dao.vector_engine.compute_embedding(query_text)
+        # Preserve query intent through the canonical embedding boundary.
+        embedding = await self.dao.vector_engine.compute_query_embedding(query_text)
 
         raw_results = await self.dao.search_memory(
             agent_id, query_vector=embedding, limit=k, temporal_filter=temporal_filter

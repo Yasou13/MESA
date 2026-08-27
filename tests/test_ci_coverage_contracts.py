@@ -351,6 +351,7 @@ def test_ollama_and_tokenizer_contracts_with_fake_sdk(monkeypatch) -> None:
     assert adapter.get_token_count("one two") == 3
 
     encoding = SimpleNamespace(encode=lambda text: [1, 2, 3])
+    monkeypatch.setattr(tokenizer, "_CL100K_ENCODING", None)
     monkeypatch.setattr(tokenizer.tiktoken, "get_encoding", lambda name: encoding)
     assert tokenizer.count_tokens("text", "openai") == 3
     with pytest.raises(ValueError, match="Unknown adapter_type"):

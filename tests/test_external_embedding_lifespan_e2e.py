@@ -51,11 +51,19 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
             self.identity = identity
             calls.append(("construct", identity.model))
 
-        def embed(self, text: str) -> list[float]:
+        def embed_document(self, text: str) -> list[float]:
             calls.append(("document", text))
             return [1.0, 0.0, 0.0, 0.0]
 
-        async def aembed(self, text: str) -> list[float]:
+        async def aembed_document(self, text: str) -> list[float]:
+            calls.append(("document", text))
+            return [1.0, 0.0, 0.0, 0.0]
+
+        def embed_query(self, text: str) -> list[float]:
+            calls.append(("query", text))
+            return [1.0, 0.0, 0.0, 0.0]
+
+        async def aembed_query(self, text: str) -> list[float]:
             calls.append(("query", text))
             return [1.0, 0.0, 0.0, 0.0]
 
@@ -131,7 +139,7 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
         )
         assert results
         assert ("construct", "external-test-model") in calls
-        assert ("query", "MESA USES external embeddings") in calls
+        assert ("document", "MESA USES external embeddings") in calls
         assert ("query", "external embedding query") in calls
     for field, value in original_config.items():
         object.__setattr__(config, field, value)
