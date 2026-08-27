@@ -61,6 +61,9 @@ async def test_hybrid_retrieval_cold_start():
     storage = MagicMock()
     storage.vector_engine = MagicMock()
     storage.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
+    storage.vector_engine.compute_query_embedding = AsyncMock(
+        return_value=[0.1] * 768
+    )
 
     storage.count_active_memories = AsyncMock(return_value=0)
     storage.find_nodes_by_name = AsyncMock(return_value=[])
