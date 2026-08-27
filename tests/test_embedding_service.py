@@ -499,14 +499,18 @@ def test_embedding_endpoint_preserves_llm_endpoint_fallback(
     captured_options = [
         options for _client, options in fake_openai_embedding_sdk["client_options"]
     ]
-    assert captured_options == [
-        {
-            "api_key": "legacy-llm-key",
-            "base_url": "https://legacy-llm.test/v1",
-            "timeout": 20.0,
-            "max_retries": 0,
-        }
-    ] * 2
+    assert (
+        captured_options
+        == [
+            {
+                "api_key": "legacy-llm-key",
+                "base_url": "https://legacy-llm.test/v1",
+                "timeout": 20.0,
+                "max_retries": 0,
+            }
+        ]
+        * 2
+    )
 
 
 def test_nemotron_provider_failure_preserves_fail_closed_error(
