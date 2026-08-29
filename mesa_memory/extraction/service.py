@@ -24,6 +24,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
+from mesa_memory.config import config
 from mesa_memory.consolidation.schemas import ExtractedTriplet
 
 logger = logging.getLogger("MESA_FactExtraction")
@@ -292,7 +293,13 @@ Her olgu için şu alanları sağla:
 - source_span: Metindeki ilgili kaynak ifade/cümle
 - supersedes: Bu olgu önceki bir durumu/tercihi geçersiz kılıyorsa (düzeltme/güncelleme) neyi geçersiz kıldığı, yoksa null
 
-Eğer metinde hiçbir somut olgu/tercih/durum yoksa (örneğin sadece selamlaşma, teşekkür, havadan sudan konuşma), facts listesini boş bırak: []
+Çıktıyı yalnızca ve kesinlikle şu JSON object formatında döndür:
+{{"facts": [{{"fact_text": "...", "subject": "...", "predicate": "...", "object": "...", "valid_from": null, "valid_to": null, "confidence": 1.0, "source_span": "...", "supersedes": null}}]}}
+
+Eğer metinde hiçbir somut olgu/tercih/durum yoksa (örneğin sadece selamlaşma, teşekkür, havadan sudan konuşma), facts alanını boş bir dizi olarak döndür:
+{{"facts": []}}
+
+Yalnızca bu JSON nesnesini döndür, başka hiçbir metin veya açıklama ekleme.
 
 <UNTRUSTED_SOURCE>
 {text}
@@ -312,7 +319,13 @@ For each fact, provide:
 - source_span: Exact or approximate source phrase from text
 - supersedes: What previous fact/preference this updates or supersedes, else null
 
-If the text contains no factual statements or preferences (e.g. greetings, pleasantries, filler), return an empty facts list: []
+Return ONLY a valid JSON object strictly matching this schema:
+{{"facts": [{{"fact_text": "...", "subject": "...", "predicate": "...", "object": "...", "valid_from": null, "valid_to": null, "confidence": 1.0, "source_span": "...", "supersedes": null}}]}}
+
+If the text contains no factual statements or preferences (e.g. greetings, pleasantries, filler), return an empty facts array inside the object:
+{{"facts": []}}
+
+Return only this JSON object and nothing else.
 
 <UNTRUSTED_SOURCE>
 {text}
@@ -362,12 +375,18 @@ class FactExtractionService:
         *,
         rebel_enabled: bool | None = None,
         extraction_lang: str = "tr",
+        max_tokens: int | None = None,
     ):
         # Retained only for call-site compatibility.  Canonical fact
         # extraction never constructs or invokes REBEL.
         _ = rebel_enabled
         self.llm = llm
         self.extraction_lang = extraction_lang
+        self.max_tokens = (
+            max_tokens
+            if max_tokens is not None
+            else getattr(config, "extraction_max_tokens", 4096)
+        )
         self.validator = DeterministicFactValidator()
 
     def _get_prompt(self, text: str) -> str:
@@ -421,6 +440,7 @@ class FactExtractionService:
                     self.llm.complete,
                     prompt,
                     FactExtractionResponse,
+                    max_tokens=self.max_tokens,
                 ),
             )
 
@@ -449,8 +469,9 @@ class FactExtractionService:
             raw_response = await self._complete_structured(prompt)
         except Exception as first_exc:
             if self._is_provider_failure(first_exc):
+                unwrapped = self._unwrap_exception(first_exc)
                 raise FactExtractionUnavailableError(
-                    f"Fact extraction provider is unavailable: {first_exc}"
+                    f"Fact extraction provider is unavailable: {unwrapped}"
                 ) from first_exc
             schema_error: Exception | None = first_exc
         else:
@@ -472,8 +493,9 @@ class FactExtractionService:
                 parsed_response = self._parse_response(raw_retry)
             except Exception as second_exc:
                 if self._is_provider_failure(second_exc):
+                    unwrapped = self._unwrap_exception(second_exc)
                     raise FactExtractionUnavailableError(
-                        f"Fact extraction provider is unavailable: {second_exc}"
+                        f"Fact extraction provider is unavailable: {unwrapped}"
                     ) from second_exc
                 logger.error(
                     "Structured extraction correction retry failed: %s", second_exc
@@ -489,18 +511,59 @@ class FactExtractionService:
         return valid_facts
 
     @staticmethod
-    def _is_provider_failure(exc: Exception) -> bool:
+    def _unwrap_exception(exc: BaseException) -> BaseException:
+        """Unwrap wrapped exceptions like tenacity.RetryError, chained exceptions, etc."""
+        current = exc
+        visited: set[int] = set()
+        while current is not None and id(current) not in visited:
+            visited.add(id(current))
+            last_attempt = getattr(current, "last_attempt", None)
+            if last_attempt is not None and hasattr(last_attempt, "exception"):
+                try:
+                    attempt_exc = last_attempt.exception()
+                    if attempt_exc is not None:
+                        current = attempt_exc
+                        continue
+                except Exception:
+                    pass
+            if getattr(current, "__cause__", None) is not None:
+                current = current.__cause__
+                continue
+            if getattr(current, "__context__", None) is not None and not getattr(
+                current, "__suppress_context__", False
+            ):
+                current = current.__context__
+                continue
+            break
+        return current
+
+    @classmethod
+    def _is_provider_failure(cls, exc: Exception) -> bool:
         """Keep provider failures out of the schema-correction retry path."""
-        if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        unwrapped = cls._unwrap_exception(exc)
+        if isinstance(unwrapped, (ConnectionError, TimeoutError, OSError)):
             return True
-        return exc.__class__.__name__ in {
+        class_names = {c.__name__ for c in unwrapped.__class__.__mro__}
+        provider_error_names = {
             "APIConnectionError",
             "APITimeoutError",
+            "APIStatusError",
+            "RateLimitError",
+            "InternalServerError",
             "ConnectError",
             "ConnectTimeout",
             "ReadTimeout",
+            "WriteTimeout",
+            "PoolTimeout",
             "TimeoutException",
+            "NetworkError",
+            "TransportError",
+            "RetryError",
         }
+        if bool(class_names & provider_error_names):
+            return True
+        name = unwrapped.__class__.__name__
+        return "Timeout" in name or "Connection" in name
 
     async def extract_facts_from_record(
         self, record: dict[str, Any]

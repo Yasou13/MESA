@@ -20,10 +20,12 @@ class MockExtractionAdapter(BaseUniversalLLMAdapter):
         self.responses = list(responses or [])
         self.complete_count = 0
         self.prompts: list[str] = []
+        self.kwargs_history: list[dict[str, Any]] = []
 
     def complete(self, prompt: str, schema=None, **kwargs):
         self.complete_count += 1
         self.prompts.append(prompt)
+        self.kwargs_history.append(kwargs)
         if self.responses:
             resp = self.responses.pop(0)
             if isinstance(resp, Exception):
@@ -417,3 +419,81 @@ async def test_rebel_not_instantiated_when_disabled():
         facts = await service.extract_facts("Normal metin")
         assert len(facts) == 0
         mock_rebel.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fact_extraction_passes_max_tokens_to_adapter():
+    adapter = MockExtractionAdapter(responses=[FactExtractionResponse(facts=[])])
+    service = FactExtractionService(llm=adapter, max_tokens=4096)
+    await service.extract_facts("Deneme metni")
+
+    assert adapter.complete_count == 1
+    assert adapter.kwargs_history[0].get("max_tokens") == 4096
+
+
+def test_initial_extraction_prompts_contain_facts_root_format():
+    adapter = MockExtractionAdapter()
+    service_tr = FactExtractionService(llm=adapter, extraction_lang="tr")
+    prompt_tr = service_tr._get_prompt("Örnek metin")
+    assert '{"facts": [' in prompt_tr
+    assert '{"facts": []}' in prompt_tr
+    assert "Yalnızca bu JSON nesnesini döndür" in prompt_tr
+
+    service_en = FactExtractionService(llm=adapter, extraction_lang="en")
+    prompt_en = service_en._get_prompt("Sample text")
+    assert '{"facts": [' in prompt_en
+    assert '{"facts": []}' in prompt_en
+    assert "Return ONLY a valid JSON object strictly matching this schema" in prompt_en
+
+
+def test_adapter_bare_list_behavior_safe_for_results_and_strict_for_facts():
+    from unittest.mock import MagicMock
+
+    from pydantic import BaseModel, ValidationError
+
+    from mesa_memory.adapter.live import OpenAICompatibleAdapter
+
+    class SchemaWithResults(BaseModel):
+        results: list[str]
+
+    adapter = OpenAICompatibleAdapter(api_key="test-key")
+    mock_choice = MagicMock()
+    mock_choice.message.content = '["val1", "val2"]'
+    adapter._sync_client.chat.completions.create = MagicMock(
+        return_value=MagicMock(choices=[mock_choice])
+    )
+
+    # Schema with `results` field should safely wrap list -> {"results": list}
+    wrapped_res = adapter.complete("prompt", schema=SchemaWithResults)
+    assert isinstance(wrapped_res, SchemaWithResults)
+    assert wrapped_res.results == ["val1", "val2"]
+
+    # FactExtractionResponse has no `results` field; bare list must raise ValidationError (not silently become facts=[])
+    with pytest.raises(ValidationError):
+        adapter.complete("prompt", schema=FactExtractionResponse)
+
+
+@pytest.mark.asyncio
+async def test_retry_error_wrapping_api_timeout_error_unwraps_as_unavailable():
+    from tenacity import Future, RetryError
+
+    class APITimeoutError(Exception):
+        pass
+
+    fut = Future(1)
+    fut.set_exception(
+        APITimeoutError("The read operation timed out after 20.0 seconds")
+    )
+    retry_err = RetryError(fut)
+
+    adapter = MockExtractionAdapter(responses=[retry_err])
+    service = FactExtractionService(llm=adapter)
+
+    with pytest.raises(FactExtractionUnavailableError) as exc_info:
+        await service.extract_facts("Kaynak metin")
+
+    assert "APITimeoutError" in str(exc_info.value) or "timed out" in str(
+        exc_info.value
+    )
+    # Crucially, must NOT attempt schema correction retry: exactly 1 call
+    assert adapter.complete_count == 1

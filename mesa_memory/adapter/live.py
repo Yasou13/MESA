@@ -114,7 +114,9 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 text = self._sanitize_json(text)
                 try:
                     parsed_data = json.loads(text)
-                    if isinstance(parsed_data, list):
+                    if isinstance(parsed_data, list) and "results" in getattr(
+                        schema, "model_fields", {}
+                    ):
                         parsed_data = {"results": parsed_data}
                     return schema.model_validate(parsed_data)
                 except json.JSONDecodeError:
@@ -153,7 +155,9 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
                 text = self._sanitize_json(text)
                 try:
                     parsed_data = json.loads(text)
-                    if isinstance(parsed_data, list):
+                    if isinstance(parsed_data, list) and "results" in getattr(
+                        schema, "model_fields", {}
+                    ):
                         parsed_data = {"results": parsed_data}
                     return schema.model_validate(parsed_data)
                 except json.JSONDecodeError:

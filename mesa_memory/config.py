@@ -406,6 +406,9 @@ class MesaConfig(BaseSettings):
     extraction_thinking: bool = Field(
         False, validation_alias="MESA_EXTRACTION_THINKING"
     )
+    extraction_max_tokens: int = Field(
+        4096, validation_alias="MESA_EXTRACTION_MAX_TOKENS"
+    )
     llm_embedding_model_name: str = Field(
         "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
