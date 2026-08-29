@@ -513,29 +513,30 @@ class FactExtractionService:
     @staticmethod
     def _unwrap_exception(exc: BaseException) -> BaseException:
         """Unwrap wrapped exceptions like tenacity.RetryError, chained exceptions, etc."""
-        current = exc
+        current: Optional[BaseException] = exc
         visited: set[int] = set()
         while current is not None and id(current) not in visited:
             visited.add(id(current))
             last_attempt = getattr(current, "last_attempt", None)
             if last_attempt is not None and hasattr(last_attempt, "exception"):
                 try:
-                    attempt_exc = last_attempt.exception()
+                    attempt_exc: Optional[BaseException] = last_attempt.exception()
                     if attempt_exc is not None:
                         current = attempt_exc
                         continue
                 except Exception:
                     pass
-            if getattr(current, "__cause__", None) is not None:
-                current = current.__cause__
+            cause = getattr(current, "__cause__", None)
+            if cause is not None:
+                current = cause
                 continue
-            if getattr(current, "__context__", None) is not None and not getattr(
-                current, "__suppress_context__", False
-            ):
-                current = current.__context__
-                continue
+            if not getattr(current, "__suppress_context__", False):
+                context = getattr(current, "__context__", None)
+                if context is not None:
+                    current = context
+                    continue
             break
-        return current
+        return current if current is not None else exc
 
     @classmethod
     def _is_provider_failure(cls, exc: Exception) -> bool:
