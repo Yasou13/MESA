@@ -446,12 +446,31 @@ def test_initial_extraction_prompts_contain_facts_root_format():
     assert "Return ONLY a valid JSON object strictly matching this schema" in prompt_en
 
 
-def test_adapter_bare_list_behavior_safe_for_results_and_strict_for_facts():
-    from unittest.mock import MagicMock
+def test_adapter_bare_list_behavior_safe_for_results_and_strict_for_facts(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, Mock
 
     from pydantic import BaseModel, ValidationError
 
+    from mesa_memory.adapter import live
     from mesa_memory.adapter.live import OpenAICompatibleAdapter
+
+    sync_client = MagicMock()
+    async_client = MagicMock()
+    fake_sdk = SimpleNamespace(
+        OpenAI=Mock(return_value=sync_client),
+        AsyncOpenAI=Mock(return_value=async_client),
+        RateLimitError=type("RateLimitError", (Exception,), {}),
+        APIConnectionError=type("APIConnectionError", (Exception,), {}),
+        NotFoundError=type("NotFoundError", (Exception,), {}),
+    )
+    monkeypatch.setattr(live, "openai", fake_sdk)
+    monkeypatch.setattr(live, "_OPENAI_RATE_LIMIT_ERRORS", (fake_sdk.RateLimitError,))
+    monkeypatch.setattr(
+        live, "_OPENAI_CONNECTION_ERRORS", (fake_sdk.APIConnectionError,)
+    )
 
     class SchemaWithResults(BaseModel):
         results: list[str]
@@ -459,7 +478,7 @@ def test_adapter_bare_list_behavior_safe_for_results_and_strict_for_facts():
     adapter = OpenAICompatibleAdapter(api_key="test-key")
     mock_choice = MagicMock()
     mock_choice.message.content = '["val1", "val2"]'
-    adapter._sync_client.chat.completions.create = MagicMock(
+    sync_client.chat.completions.create = MagicMock(
         return_value=MagicMock(choices=[mock_choice])
     )
 
