@@ -122,13 +122,26 @@ def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
     )
     environment = compose["services"]["mesa-v4"]["environment"]
     assert {
+        "MESA_LLM_PROVIDER",
         "LLM_BASE_URL",
         "LLM_API_KEY",
         "LLM_MODEL_NAME",
+        "LLM_TIMEOUT_SECONDS",
+        "MESA_EXTERNAL_PROVIDER_ENABLED",
         "MESA_LOCAL_EMBEDDING_MODEL",
         "MESA_EMBEDDING_PROVIDER",
+        "MESA_EXTERNAL_EMBEDDING_MODEL",
+        "MESA_EMBEDDING_BASE_URL",
+        "MESA_EMBEDDING_API_KEY",
         "MESA_EMBEDDING_DIMENSION",
+        "MESA_EMBEDDING_VERSION",
+        "MESA_EMBEDDING_MODEL_REVISION",
         "MESA_EMBEDDING_NORMALIZED",
+        "MESA_EXTRACTION_PROVIDER",
+        "MESA_EXTRACTION_MODEL",
+        "MESA_EXTRACTION_THINKING",
+        "MESA_EXTRACTION_MAX_TOKENS",
+        "MESA_EXTRACTION_LANG",
         "MESA_TIER3_LLM_PROVIDER_A",
         "MESA_TIER3_LLM_MODEL_A",
         "MESA_TIER3_LLM_PROVIDER_B",
@@ -139,6 +152,109 @@ def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
     assert "--extra ml --extra adapters" in dockerfile
     assert "find /wheels -maxdepth 1 -name 'mesa_memory-*.whl'" in dockerfile
     assert '"${wheel}[ml,adapters]"' in dockerfile
+
+
+def test_profile_b_rendered_compose_environment_parity() -> None:
+    import os
+    import shutil
+    import subprocess
+
+    import pytest
+
+    from mesa_memory.config import MesaConfig
+
+    if not shutil.which("docker"):
+        pytest.skip("docker binary unavailable in this environment")
+
+    env_overrides = {
+        "MESA_API_KEY": "test-mesa-api-key",
+        "MESA_PRINCIPAL_ID": "test-principal",
+        "MESA_MODEL_ENABLED": "true",
+        "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
+        "MESA_LLM_PROVIDER": "openai_compatible",
+        "LLM_BASE_URL": "https://integrate.api.nvidia.com/v1",
+        "LLM_MODEL_NAME": "openai/gpt-oss-20b",
+        "LLM_TIMEOUT_SECONDS": "35",
+        "LLM_API_KEY": "test-llm-secret-sentinel",
+        "MESA_EMBEDDING_PROVIDER": "openai_compatible",
+        "MESA_EXTERNAL_EMBEDDING_MODEL": "nvidia/nemotron-3-embed-1b",
+        "MESA_EMBEDDING_DIMENSION": "2048",
+        "MESA_EMBEDDING_VERSION": "nemotron-qpass-v1",
+        "MESA_EMBEDDING_NORMALIZED": "true",
+        "MESA_EMBEDDING_BASE_URL": "https://integrate.api.nvidia.com/v1",
+        "MESA_EMBEDDING_API_KEY": "test-embed-secret-sentinel",
+        "MESA_EMBEDDING_MODEL_REVISION": "nemotron-rev-1",
+        "MESA_EXTRACTION_PROVIDER": "openai_compatible",
+        "MESA_EXTRACTION_MODEL": "openai/gpt-oss-20b",
+        "MESA_EXTRACTION_LANG": "tr",
+        "MESA_EXTRACTION_THINKING": "false",
+        "MESA_EXTRACTION_MAX_TOKENS": "4096",
+    }
+
+    cmd = ["docker", "compose", "-f", str(ROOT / "docker-compose.v4.yml"), "config"]
+    res = subprocess.run(
+        cmd,
+        cwd=str(ROOT),
+        env={**os.environ, **env_overrides},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    rendered = yaml.safe_load(res.stdout)
+    container_env = rendered["services"]["mesa-v4"]["environment"]
+
+    assert container_env["MESA_LLM_PROVIDER"] == "openai_compatible"
+    assert container_env["LLM_BASE_URL"] == "https://integrate.api.nvidia.com/v1"
+    assert container_env["LLM_MODEL_NAME"] == "openai/gpt-oss-20b"
+    assert container_env["LLM_TIMEOUT_SECONDS"] == "35"
+    assert container_env["LLM_API_KEY"] == "test-llm-secret-sentinel"
+
+    assert container_env["MESA_EMBEDDING_PROVIDER"] == "openai_compatible"
+    assert (
+        container_env["MESA_EXTERNAL_EMBEDDING_MODEL"]
+        == "nvidia/nemotron-3-embed-1b"
+    )
+    assert container_env["MESA_EMBEDDING_DIMENSION"] == "2048"
+    assert container_env["MESA_EMBEDDING_VERSION"] == "nemotron-qpass-v1"
+    assert container_env["MESA_EMBEDDING_NORMALIZED"] == "true"
+    assert (
+        container_env["MESA_EMBEDDING_BASE_URL"]
+        == "https://integrate.api.nvidia.com/v1"
+    )
+    assert container_env["MESA_EMBEDDING_API_KEY"] == "test-embed-secret-sentinel"
+    assert container_env["MESA_EMBEDDING_MODEL_REVISION"] == "nemotron-rev-1"
+
+    assert container_env["MESA_EXTRACTION_PROVIDER"] == "openai_compatible"
+    assert container_env["MESA_EXTRACTION_MODEL"] == "openai/gpt-oss-20b"
+    assert container_env["MESA_EXTRACTION_LANG"] == "tr"
+    assert container_env["MESA_EXTRACTION_THINKING"] == "false"
+    assert container_env["MESA_EXTRACTION_MAX_TOKENS"] == "4096"
+
+    # Container-inside config validation smoke
+    parsed_config = MesaConfig(**container_env)
+    assert parsed_config.mesa_llm_provider == "openai_compatible"
+    assert parsed_config.llm_base_url == "https://integrate.api.nvidia.com/v1"
+    assert parsed_config.llm_model_name == "openai/gpt-oss-20b"
+    assert parsed_config.llm_timeout_seconds == 35.0
+    assert parsed_config.llm_api_key == "test-llm-secret-sentinel"
+    assert parsed_config.embedding_provider == "openai_compatible"
+    assert (
+        parsed_config.external_embedding_model == "nvidia/nemotron-3-embed-1b"
+    )
+    assert parsed_config.embedding_dimension == 2048
+    assert parsed_config.embedding_version == "nemotron-qpass-v1"
+    assert parsed_config.embedding_normalized is True
+    assert (
+        parsed_config.embedding_base_url
+        == "https://integrate.api.nvidia.com/v1"
+    )
+    assert parsed_config.embedding_api_key == "test-embed-secret-sentinel"
+    assert parsed_config.embedding_model_revision == "nemotron-rev-1"
+    assert parsed_config.extraction_provider == "openai_compatible"
+    assert parsed_config.extraction_model == "openai/gpt-oss-20b"
+    assert parsed_config.extraction_lang == "tr"
+    assert parsed_config.extraction_thinking is False
+    assert parsed_config.extraction_max_tokens == 4096
 
 
 def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> None:
