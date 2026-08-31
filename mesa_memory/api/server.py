@@ -225,32 +225,15 @@ async def _consume_combined_durable_work_once(
     async def _handle_one_dispatch(dispatch: dict[str, Any]) -> None:
         log_id = int(dispatch["payload_reference"])
         agent_id = str(dispatch["agent_id"])
-        processing = asyncio.create_task(
-            process_cold_path(
-                log_id,
-                agent_id,
-                dao,
-                consolidation_loop=consolidation_loop,
-                model_processing_enabled=model_processing_enabled,
-                require_tier3_validation=model_processing_enabled,
-                retry_on_failure=True,
-            )
+        await process_cold_path(
+            log_id,
+            agent_id,
+            dao,
+            consolidation_loop=consolidation_loop,
+            model_processing_enabled=model_processing_enabled,
+            require_tier3_validation=model_processing_enabled,
+            retry_on_failure=True,
         )
-        while not processing.done():
-            try:
-                await asyncio.wait_for(asyncio.shield(processing), timeout=60)
-            except TimeoutError:
-                renewed = await dao.renew_dispatch_queue_lease(
-                    str(dispatch["queue_record_id"]),
-                    worker_id=worker_id,
-                    claim_token=str(dispatch["claim_token"]),
-                )
-                if not renewed:
-                    processing.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await processing
-                    raise RuntimeError("combined dispatch lease ownership was lost")
-        await processing
         raw_log = await dao.get_raw_log(agent_id, log_id)
         status = str(raw_log.get("status", "DEFERRED") if raw_log else "DEFERRED")
         await dao.complete_dispatch_queue(
