@@ -293,12 +293,17 @@ async def _run_combined_durable_consumer(
 ) -> None:
     """Poll the durable journal without introducing a second storage writer."""
     while True:
-        await _consume_combined_durable_work_once(
-            dao,
-            consolidation_loop=consolidation_loop,
-            model_processing_enabled=model_processing_enabled,
-        )
-        await asyncio.sleep(0.25)
+        try:
+            await _consume_combined_durable_work_once(
+                dao,
+                consolidation_loop=consolidation_loop,
+                model_processing_enabled=model_processing_enabled,
+            )
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.exception("Combined durable consumer iteration failed: %s", exc)
+        await asyncio.sleep(0.05)
 
 
 @asynccontextmanager
