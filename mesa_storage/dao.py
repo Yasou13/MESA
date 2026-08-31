@@ -8344,7 +8344,7 @@ class MemoryDAO:
         )
 
     async def claim_raw_log(
-        self, agent_id: str, log_id: int, *, worker_id: str, lease_seconds: int = 300
+        self, agent_id: str, log_id: int, *, worker_id: str, lease_seconds: int = 1800
     ) -> dict[str, Any] | None:
         """Atomically claim a deferred or expired cold-path job."""
         _assert_valid_agent_id(agent_id)
