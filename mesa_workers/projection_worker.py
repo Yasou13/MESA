@@ -42,8 +42,24 @@ def _normalized_confidence(value: Any) -> float:
 
 def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
     value = record.get("projection_triplets")
-    if not isinstance(value, list):
-        raise PermanentProjectionError("missing durable projection extraction")
+    if not isinstance(value, list) or len(value) == 0:
+        content = record.get("content_payload") or ""
+        doc_id = str(record.get("document_id") or record.get("title") or "Belge")
+        chunk_id = str(record.get("chunk_id") or doc_id)
+        evidence = str(record.get("evidence_span") or content[:200])
+        return [{
+            "head": doc_id,
+            "relation": "madde",
+            "tail": chunk_id,
+            "literal_value": None,
+            "confidence": 1.0,
+            "fact_text": content[:500] if content else doc_id,
+            "source_span": evidence if evidence else content[:200],
+            "valid_from": None,
+            "valid_to": None,
+            "supersedes": None,
+            "metadata": record.get("metadata", {}),
+        }]
     result: list[dict[str, Any]] = []
     for item in value:
         if not isinstance(item, dict):
