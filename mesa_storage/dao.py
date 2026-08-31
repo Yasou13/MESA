@@ -2100,6 +2100,7 @@ class MemoryDAO:
                     )
                 await db.commit()
         except (aiosqlite.Error, OSError) as exc:
+            logger.exception("admit_v4_memory failed with SQLite/OS error: %s", exc)
             raise QueueUnavailableError("durable admission is unavailable") from exc
         return {"outcome": "ADMITTED", "response": response}
 
