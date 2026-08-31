@@ -155,31 +155,12 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
 async def _apply_with_lease_heartbeat(
     dao: MemoryDAO, projection: dict[str, Any], worker_id: str
 ) -> None:
-    """Keep ownership alive while a model/vector/graph call is in progress."""
-    task = asyncio.create_task(_apply_projection(dao, projection))
-    while not task.done():
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=60)
-        except TimeoutError:
-            renewed = await dao.renew_projection_outbox_lease(
-                str(projection["projection_id"]),
-                worker_id=worker_id,
-                claim_token=str(projection["claim_token"]),
-            )
-            if not renewed:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                raise ProjectionLeaseLostError(
-                    "projection outbox lease ownership was lost"
-                )
-    await task
+    """Apply the projection directly."""
+    await _apply_projection(dao, projection)
 
 
 async def process_projection_outbox_once(
-    dao: MemoryDAO, *, worker_id: str = "combined-runtime", limit: int = 1
+    dao: MemoryDAO, *, worker_id: str = "combined-runtime", limit: int = 50
 ) -> dict[str, int]:
     """Claim and apply a bounded set of fenced V4 projection lanes."""
     claimed = await dao.claim_projection_outbox(worker_id=worker_id, limit=limit)
@@ -189,9 +170,8 @@ async def process_projection_outbox_once(
         "retry_pending": 0,
         "dead_letter": 0,
     }
-    for projection in sorted(
-        claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
-    ):
+    
+    async def _handle_one(projection: dict[str, Any]) -> None:
         projection_id = str(projection["projection_id"])
         try:
             await _apply_with_lease_heartbeat(dao, projection, worker_id)
@@ -201,7 +181,8 @@ async def process_projection_outbox_once(
                 claim_token=str(projection["claim_token"]),
                 outcome="APPLIED",
             )
-            result["completed"] += int(completed)
+            if completed:
+                result["completed"] += 1
         except PermanentProjectionError as exc:
             changed = await dao.fail_projection_outbox(
                 projection_id,
@@ -210,7 +191,8 @@ async def process_projection_outbox_once(
                 error_class=type(exc).__name__,
                 retryable=False,
             )
-            result["dead_letter"] += int(changed)
+            if changed:
+                result["dead_letter"] += 1
             logger.warning(
                 "V4_PROJECTION_PERMANENT_FAILURE | projection_id=%s error=%s",
                 projection_id,
@@ -237,6 +219,12 @@ async def process_projection_outbox_once(
                 projection_id,
                 exc,
             )
+
+    sorted_projections = sorted(
+        claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
+    )
+    if sorted_projections:
+        await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
     return result
 
 
