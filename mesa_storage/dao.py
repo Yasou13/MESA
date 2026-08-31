@@ -8938,7 +8938,7 @@ class MemoryDAO:
                 )
                 await db.commit()
                 return False
-            cursor = await db.execute(
+            await db.execute(
                 "INSERT OR IGNORE INTO dispatch_completion_receipts (receipt_id, queue_record_id, dispatch_id, tenant_id, agent_id, "
                 "worker_id, claim_token, outcome, side_effect_verified, attempt_count, idempotency_key) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
@@ -8955,9 +8955,6 @@ class MemoryDAO:
                     f"completion:{row['idempotency_key']}",
                 ),
             )
-            if cursor.rowcount != 1:
-                await db.commit()
-                return False
             cursor = await db.execute(
                 "UPDATE dispatch_queue SET state = 'FINALIZED', claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL "
                 "WHERE queue_record_id = ? AND state = 'IN_FLIGHT' AND claim_token = ?",
