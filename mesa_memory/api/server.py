@@ -298,6 +298,7 @@ async def _run_combined_durable_consumer(
 
 @asynccontextmanager
 async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
+    refresh_config_from_environment()
     state.is_ready = False
 
     state.obs_layer = ObservabilityLayer()
