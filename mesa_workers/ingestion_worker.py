@@ -68,7 +68,7 @@ logger = structlog.get_logger("MESA_ColdPath")
 # ---------------------------------------------------------------------------
 
 _rebel_extractor: RebelExtractor | None = None
-MAX_CONCURRENT_WORKERS = asyncio.Semaphore(10)
+MAX_CONCURRENT_WORKERS = asyncio.Semaphore(100)
 MAX_TIER3_CONCURRENT = 3
 _tier3_semaphore = asyncio.Semaphore(MAX_TIER3_CONCURRENT)
 _TRACE_ROOT = Path("/storage/mesa-lab").resolve()
@@ -398,9 +398,10 @@ async def _process_cold_path_impl(
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;
                 # lightweight legacy mocks intentionally remain supported.
-                await _await_optional_dao_call(
-                    dao, "record_mutation", candidate_record, raw_log_id=log_id
-                )
+                if not bool(payload.get("chunk_id")):
+                    await _await_optional_dao_call(
+                        dao, "record_mutation", candidate_record, raw_log_id=log_id
+                    )
 
                 if consolidation_loop is not None and effective_validation_mode > 0:
                     async with _tier3_semaphore:
