@@ -413,7 +413,7 @@ async def _process_cold_path_impl(
                     dao, "record_mutation", candidate_record, raw_log_id=log_id
                 )
 
-                if consolidation_loop is not None:
+                if consolidation_loop is not None and effective_validation_mode > 0:
                     async with _tier3_semaphore:
                         outcome = await consolidation_loop.run_batch([candidate_record])
                 else:

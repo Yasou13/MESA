@@ -220,7 +220,7 @@ async def _consume_combined_durable_work_once(
 ) -> dict[str, int]:
     """Consume bounded durable work in the single storage-owner runtime."""
     worker_id = "combined-runtime"
-    claimed = await dao.claim_dispatch_queue(worker_id=worker_id, limit=1)
+    claimed = await dao.claim_dispatch_queue(worker_id=worker_id, limit=20)
     for dispatch in claimed:
         log_id = int(dispatch["payload_reference"])
         agent_id = str(dispatch["agent_id"])
@@ -259,7 +259,7 @@ async def _consume_combined_durable_work_once(
             outcome=status[:120],
             side_effect_verified=status.split(":", 1)[0] in {"processed", "rejected"},
         )
-    finalizations = await dao.list_pending_session_finalizations(limit=1)
+    finalizations = await dao.list_pending_session_finalizations(limit=5)
     for finalization in finalizations:
         await process_session_finalization(
             str(finalization["agent_id"]),
@@ -270,8 +270,8 @@ async def _consume_combined_durable_work_once(
     projections = {"completed": 0}
     cleanup = {"completed": 0}
     if type(dao) is MemoryDAO:
-        projections = await process_projection_outbox_once(dao, worker_id=worker_id)
-        cleanup = await process_artifact_cleanup_once(dao, worker_id=worker_id)
+        projections = await process_projection_outbox_once(dao, worker_id=worker_id, limit=50)
+        cleanup = await process_artifact_cleanup_once(dao, worker_id=worker_id, limit=50)
     return {
         "dispatches": len(claimed),
         "finalizations": len(finalizations),
