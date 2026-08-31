@@ -316,30 +316,19 @@ async def _process_cold_path_impl(
             # ==============================================================
             # 3. TIER-1: ECOD ANOMALY DETECTION (Novelty Gate)
             # ==============================================================
-            ecod_passed = await _run_ecod_gate(dao, payload_agent_id, content)
-
-            # A low novelty score is useful as a cheap duplicate heuristic for
-            # the legacy projection path.  It is not a reliable rejection for
-            # the full-cognitive path: corrections and contradictions are
-            # deliberately similar to the memory they update. Let the selected
-            # validation policy make the final STORE/DISCARD decision there.
-            if not ecod_passed and not require_tier3_validation:
-                await _transition(
-                    "rejected",
-                    error_reason="ecod_novelty_below_threshold",
-                    target_agent_id=payload_agent_id,
-                )
-                logger.info(
-                    "COLD_PATH_REJECTED | log_id=%d reason=ecod_novelty_gate",
-                    log_id,
-                )
-                return
-            if not ecod_passed:
-                logger.info(
-                    "COLD_PATH_ECOD_DEFERRED_TO_TIER3 | log_id=%d agent_id=%s",
-                    log_id,
-                    payload_agent_id,
-                )
+            if not require_tier3_validation:
+                ecod_passed = await _run_ecod_gate(dao, payload_agent_id, content)
+                if not ecod_passed:
+                    await _transition(
+                        "rejected",
+                        error_reason="ecod_novelty_below_threshold",
+                        target_agent_id=payload_agent_id,
+                    )
+                    logger.info(
+                        "COLD_PATH_REJECTED | log_id=%d reason=ecod_novelty_gate",
+                        log_id,
+                    )
+                    return
 
             _write_cold_path_trace(f"BEFORE REBEL {log_id}")
             # ==============================================================
