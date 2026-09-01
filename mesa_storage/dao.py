@@ -5058,7 +5058,15 @@ class MemoryDAO:
                 "ORDER BY a.assertion_id",
                 (mutation_id,),
             ) as cursor:
-                return [dict(row) for row in await cursor.fetchall()]
+                assertions = [dict(row) for row in await cursor.fetchall()]
+            for a_item in assertions:
+                async with db.execute(
+                    "SELECT target_assertion_id FROM v4_assertion_links "
+                    "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
+                    (str(a_item["assertion_id"]),),
+                ) as l_cur:
+                    a_item["superseded_ids"] = [str(r[0]) for r in await l_cur.fetchall()]
+            return assertions
 
     async def project_v4_graph_assertion(
         self, *, mutation: dict[str, Any], assertion: dict[str, Any]
@@ -5085,15 +5093,17 @@ class MemoryDAO:
         graph_entities = [(subject_id, head)]
         if object_id is not None:
             graph_entities.append((object_id, tail or object_id))
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT target_assertion_id FROM v4_assertion_links "
-                "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
-                (assertion_id,),
-            ) as cursor:
-                superseded_assertion_ids = [
-                    str(row[0]) for row in await cursor.fetchall()
-                ]
+        superseded_assertion_ids = assertion.get("superseded_ids")
+        if superseded_assertion_ids is None:
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT target_assertion_id FROM v4_assertion_links "
+                    "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
+                    (assertion_id,),
+                ) as cursor:
+                    superseded_assertion_ids = [
+                        str(row[0]) for row in await cursor.fetchall()
+                    ]
         graph = self._require_graph()
         try:
             for entity_id, entity_name in graph_entities:
