@@ -656,7 +656,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         object_match = (
             ", (o:Entity {id: $object_id}) " if object_key else " "
         )
-        object_link = " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
+        object_link = " CREATE (a)-[:AssertionObject]->(o)" if object_key else ""
         query = (
             "MATCH (s:Entity {id: $subject_id})"
             + object_match
@@ -669,7 +669,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "a.observed_at = $observed_at, a.confidence = $confidence, "
             "a.status = $status, a.mutation_id = $mutation_id, "
             "a.pipeline_run_id = $pipeline_run_id "
-            "MERGE (a)-[:AssertionSubject]->(s)" + object_link
+            "CREATE (a)-[:AssertionSubject]->(s)" + object_link
         )
         parameters = {
             "assertion_id": assertion_key,
