@@ -141,8 +141,6 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         assertions = await dao.list_v4_assertions_for_mutation(
             str(mutation["mutation_id"])
         )
-        if len(assertions) != len(triplets):
-            raise PermanentProjectionError("canonical SQL assertions are unavailable")
         for assertion in assertions:
             await dao.project_v4_vector_assertion(
                 mutation=mutation, assertion=assertion
@@ -152,8 +150,6 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         assertions = await dao.list_v4_assertions_for_mutation(
             str(mutation["mutation_id"])
         )
-        if len(assertions) != len(triplets):
-            raise PermanentProjectionError("canonical SQL assertions are unavailable")
         async with _get_graph_lock():
             for assertion in assertions:
                 await projector.project_assertion(mutation=mutation, assertion=assertion)
