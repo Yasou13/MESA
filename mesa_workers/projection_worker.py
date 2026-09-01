@@ -117,6 +117,7 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         "VECTOR_APPLIED",
         "GRAPH_APPLIED",
         "RETRY_PENDING",
+        "COMMITTED",
     }:
         raise PermanentProjectionError(
             f"mutation is not projectable: {mutation['state']}"
