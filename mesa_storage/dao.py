@@ -3652,6 +3652,35 @@ class MemoryDAO:
             await db.commit()
         return cursor.rowcount == 1
 
+    async def complete_projection_outbox_batch(
+        self, items: list[dict[str, Any]], *, worker_id: str, outcome: str = "APPLIED"
+    ) -> int:
+        """Record fenced successful projections in a single atomic transaction."""
+        if not items:
+            return 0
+        completed_count = 0
+        async with self._sql.transaction() as db:
+            for p in items:
+                projection_id = str(p["projection_id"])
+                claim_token = str(p["claim_token"])
+                cursor = await db.execute(
+                    "UPDATE projection_outbox SET state = 'COMPLETED', claim_token = NULL, claimed_by = NULL, "
+                    "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ? AND claim_token = ? AND state = 'IN_FLIGHT'",
+                    (projection_id, claim_token),
+                )
+                if cursor.rowcount == 1:
+                    completed_count += 1
+                    await db.execute(
+                        "INSERT OR IGNORE INTO projection_attempts "
+                        "(attempt_id, projection_id, attempt_number, outcome, finished_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                        (str(uuid.uuid4()), projection_id, p.get("attempt_count", 1), outcome[:120]),
+                    )
+                    await self._advance_mutation_projection_state(
+                        db, str(p["mutation_id"])
+                    )
+            await db.commit()
+        return completed_count
+
     async def fail_projection_outbox(
         self,
         projection_id: str,

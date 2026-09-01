@@ -179,18 +179,13 @@ async def process_projection_outbox_once(
         "dead_letter": 0,
     }
     
+    successful_projections: list[dict[str, Any]] = []
+
     async def _handle_one(projection: dict[str, Any]) -> None:
         projection_id = str(projection["projection_id"])
         try:
             await _apply_with_lease_heartbeat(dao, projection, worker_id)
-            completed = await dao.complete_projection_outbox(
-                projection_id,
-                worker_id=worker_id,
-                claim_token=str(projection["claim_token"]),
-                outcome="APPLIED",
-            )
-            if completed:
-                result["completed"] += 1
+            successful_projections.append(projection)
         except PermanentProjectionError as exc:
             changed = await dao.fail_projection_outbox(
                 projection_id,
@@ -233,6 +228,10 @@ async def process_projection_outbox_once(
     )
     if sorted_projections:
         await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+    if successful_projections:
+        result["completed"] = await dao.complete_projection_outbox_batch(
+            successful_projections, worker_id=worker_id
+        )
     return result
 
 
