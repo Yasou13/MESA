@@ -227,7 +227,11 @@ async def process_projection_outbox_once(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
     if sorted_projections:
-        await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+        if dao._graph and dao._graph.is_operational and any(p.get("projection_name") == "GRAPH" for p in sorted_projections):
+            async with dao._graph.transaction():
+                await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+        else:
+            await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
     if successful_projections:
         result["completed"] = await dao.complete_projection_outbox_batch(
             successful_projections, worker_id=worker_id

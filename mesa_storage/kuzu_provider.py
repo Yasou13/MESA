@@ -44,7 +44,8 @@ import os
 import threading
 import typing
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 if typing.TYPE_CHECKING:
     import kuzu
@@ -442,6 +443,25 @@ class KuzuGraphProvider(BaseGraphProvider):
         await loop.run_in_executor(
             self._executor, self._sync_execute_write, query, parameters or {}
         )
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """Wrap batch operations in an explicit Kùzu transaction."""
+        self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor, self._sync_execute_write, "BEGIN TRANSACTION", {}
+        )
+        try:
+            yield
+            await loop.run_in_executor(
+                self._executor, self._sync_execute_write, "COMMIT", {}
+            )
+        except Exception:
+            await loop.run_in_executor(
+                self._executor, self._sync_execute_write, "ROLLBACK", {}
+            )
+            raise
 
     # ------------------------------------------------------------------
     # Domain operations — node & edge ingestion
