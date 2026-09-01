@@ -5054,8 +5054,8 @@ class MemoryDAO:
         if (object_id is None) == (literal_value is None):
             raise ValueError("canonical assertion object is invalid")
         graph_entities = [(subject_id, head)]
-        if object_id is not None and tail is not None:
-            graph_entities.append((object_id, tail))
+        if object_id is not None:
+            graph_entities.append((object_id, tail or object_id))
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT target_assertion_id FROM v4_assertion_links "
