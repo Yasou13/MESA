@@ -636,20 +636,20 @@ class KuzuGraphProvider(BaseGraphProvider):
         object_match = (
             ", (o:Entity {id: $object_id, agent_id: $agent_id}) " if object_key else " "
         )
-        object_link = " CREATE (a)-[:AssertionObject]->(o)" if object_key else ""
+        object_link = " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
         query = (
             "MATCH (s:Entity {id: $subject_id, agent_id: $agent_id})"
             + object_match
-            + "CREATE (a:Assertion {"
-            "id: $assertion_id, agent_id: $agent_id, predicate: $predicate, "
-            "object_value: $object_value, source_ref: $source_ref, evidence_span: $evidence_span, "
-            "jurisdiction: $jurisdiction, authority_level: $authority_level, "
-            "valid_from: $valid_from, valid_to: $valid_to, "
-            "observed_at: $observed_at, confidence: $confidence, "
-            "status: $status, mutation_id: $mutation_id, "
-            "pipeline_run_id: $pipeline_run_id"
-            "}) "
-            "CREATE (a)-[:AssertionSubject]->(s)" + object_link
+            + "MERGE (a:Assertion {id: $assertion_id}) "
+            "ON CREATE SET a.agent_id = $agent_id, a.predicate = $predicate, "
+            "a.object_value = $object_value, "
+            "a.source_ref = $source_ref, a.evidence_span = $evidence_span, "
+            "a.jurisdiction = $jurisdiction, a.authority_level = $authority_level, "
+            "a.valid_from = $valid_from, a.valid_to = $valid_to, "
+            "a.observed_at = $observed_at, a.confidence = $confidence, "
+            "a.status = $status, a.mutation_id = $mutation_id, "
+            "a.pipeline_run_id = $pipeline_run_id "
+            "MERGE (a)-[:AssertionSubject]->(s)" + object_link
         )
         parameters = {
             "assertion_id": assertion_key,
