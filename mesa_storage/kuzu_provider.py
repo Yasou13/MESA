@@ -452,7 +452,7 @@ class KuzuGraphProvider(BaseGraphProvider):
     # insert, preventing accidental overwrites on re-ingestion.
 
     _UPSERT_NODE_CYPHER = (
-        "MERGE (n:Entity {id: $id, agent_id: $agent_id}) ON CREATE SET n.name = $name"
+        "MERGE (n:Entity {id: $id}) ON CREATE SET n.name = $name, n.agent_id = $agent_id"
     )
 
     _UPSERT_EDGE_CYPHER = (
@@ -634,11 +634,11 @@ class KuzuGraphProvider(BaseGraphProvider):
         subject_key = self._composite_id(agent_id, subject_id)
         object_key = self._composite_id(agent_id, object_id) if object_id else None
         object_match = (
-            ", (o:Entity {id: $object_id, agent_id: $agent_id}) " if object_key else " "
+            ", (o:Entity {id: $object_id}) " if object_key else " "
         )
         object_link = " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
         query = (
-            "MATCH (s:Entity {id: $subject_id, agent_id: $agent_id})"
+            "MATCH (s:Entity {id: $subject_id})"
             + object_match
             + "MERGE (a:Assertion {id: $assertion_id}) "
             "ON CREATE SET a.agent_id = $agent_id, a.predicate = $predicate, "
