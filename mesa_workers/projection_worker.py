@@ -224,7 +224,11 @@ async def process_projection_outbox_once(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
     if sorted_projections:
-        await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+        if any(p.get("projection_name") == "GRAPH" for p in sorted_projections):
+            for p in sorted_projections:
+                await _handle_one(p)
+        else:
+            await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
     return result
 
 
