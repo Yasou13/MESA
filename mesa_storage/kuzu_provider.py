@@ -227,6 +227,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         self._initialized = False
         self._operational = False
         self._init_lock = asyncio.Lock()
+        self._known_nodes: set[str] = set()
+        self._known_assertions: set[str] = set()
 
     # ------------------------------------------------------------------
     # Properties
@@ -485,10 +487,13 @@ class KuzuGraphProvider(BaseGraphProvider):
             agent_id: Tenant isolation key (mandatory).
         """
         composite_id = self._composite_id(agent_id, node_id)
+        if composite_id in self._known_nodes:
+            return
         await self.execute_write(
             self._UPSERT_NODE_CYPHER,
             {"id": composite_id, "name": name, "agent_id": agent_id},
         )
+        self._known_nodes.add(composite_id)
 
     async def delete_nodes(
         self,
@@ -624,6 +629,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         if (object_id is None) == (object_value is None):
             raise ValueError("assertion requires exactly one object target")
         assertion_key = self._composite_id(agent_id, assertion_id)
+        if assertion_key in self._known_assertions:
+            return
         subject_key = self._composite_id(agent_id, subject_id)
         object_key = self._composite_id(agent_id, object_id) if object_id else None
         object_match = (
@@ -665,6 +672,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         if object_key:
             parameters["object_id"] = object_key
         await self.execute_write(query, parameters)
+        self._known_assertions.add(assertion_key)
 
     async def link_assertions(
         self,
