@@ -4526,7 +4526,19 @@ class MemoryDAO:
             if assertion.get("tail") is not None
             else str(assertion["literal_value"])
         )
-        payload_text = f"{subject} {predicate} {object_value}"
+        evidence_span = str(assertion.get("evidence_span") or "").strip()
+        parts = [
+            p
+            for p in (subject, predicate, object_value)
+            if p and not p.startswith("mesa-")
+        ]
+        if evidence_span:
+            if parts:
+                payload_text = f"{' '.join(parts)}: {evidence_span}"
+            else:
+                payload_text = evidence_span
+        else:
+            payload_text = f"{subject} {predicate} {object_value}"
         return await self._project_v4_vector_payload(
             mutation=mutation,
             vector_id=str(assertion["assertion_id"]),
