@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import datetime
 import logging
 import os
 import threading
@@ -480,7 +481,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         "MERGE (a)-[r:Observed]->(b) "
         "ON CREATE SET r.weight = $weight, "
         "r.agent_id = $agent_id, "
-        "r.updated_at = current_timestamp(), "
+        "r.updated_at = $updated_at, "
         "r.epistemic_uncertainty = $epistemic_uncertainty"
     )
 
@@ -613,6 +614,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         """
         comp_source_id = self._composite_id(agent_id, source_id)
         comp_target_id = self._composite_id(agent_id, target_id)
+        now = datetime.datetime.now(datetime.timezone.utc)
         await self.execute_write(
             self._UPSERT_EDGE_CYPHER,
             {
@@ -620,6 +622,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 "target_id": comp_target_id,
                 "weight": weight,
                 "agent_id": agent_id,
+                "updated_at": now,
                 "epistemic_uncertainty": epistemic_uncertainty,
             },
         )
