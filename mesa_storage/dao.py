@@ -4526,13 +4526,20 @@ class MemoryDAO:
             if assertion.get("tail") is not None
             else str(assertion["literal_value"])
         )
+        chunk_text = str(
+            mutation.get("text")
+            or mutation.get("content_payload")
+            or ""
+        ).strip()
         evidence_span = str(assertion.get("evidence_span") or "").strip()
-        parts = [
-            p
-            for p in (subject, predicate, object_value)
-            if p and not p.startswith("mesa-")
-        ]
-        if evidence_span:
+        if chunk_text:
+            payload_text = chunk_text[:2000]
+        elif evidence_span:
+            parts = [
+                p
+                for p in (subject, predicate, object_value)
+                if p and not p.startswith("mesa-")
+            ]
             if parts:
                 payload_text = f"{' '.join(parts)}: {evidence_span}"
             else:
