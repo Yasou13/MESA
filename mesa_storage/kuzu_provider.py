@@ -989,38 +989,32 @@ class KuzuGraphProvider(BaseGraphProvider):
             return []
 
         hits: dict[str, dict[str, Any]] = {}
+        allowed_entity_set = set(allowed_entity_ids) if allowed_entity_ids else None
+        allowed_assertion_set = set(allowed_assertion_ids) if allowed_assertion_ids else None
         params = {
             "seed_ids": comp_seed_ids,
             "agent_id": agent_id,
-            "allowed_entity_ids": [
-                self._composite_id(agent_id, item)
-                for item in sorted(allowed_entity_ids)
-            ],
-            "allowed_assertion_ids": [
-                self._composite_id(agent_id, item)
-                for item in sorted(allowed_assertion_ids)
-            ],
-            "limit": limit,
+            "limit": max(limit * 5, 200),
         }
 
         q1 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
-            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
+            "  AND a1.agent_id = $agent_id "
+            "  AND target.agent_id = $agent_id "
             "  AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id LIMIT $limit"
         )
         q2 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
-            "  AND e1.agent_id = $agent_id AND e1.id IN $allowed_entity_ids "
-            "  AND a2.agent_id = $agent_id AND a2.id IN $allowed_assertion_ids "
-            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
+            "  AND a1.agent_id = $agent_id "
+            "  AND e1.agent_id = $agent_id "
+            "  AND a2.agent_id = $agent_id "
+            "  AND target.agent_id = $agent_id "
             "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a2.id LIMIT $limit"
         )
@@ -1028,14 +1022,14 @@ class KuzuGraphProvider(BaseGraphProvider):
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(e2:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a3:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
-            "  AND e1.agent_id = $agent_id AND e1.id IN $allowed_entity_ids "
-            "  AND a2.agent_id = $agent_id AND a2.id IN $allowed_assertion_ids "
-            "  AND e2.agent_id = $agent_id AND e2.id IN $allowed_entity_ids "
-            "  AND a3.agent_id = $agent_id AND a3.id IN $allowed_assertion_ids "
-            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
+            "  AND a1.agent_id = $agent_id "
+            "  AND e1.agent_id = $agent_id "
+            "  AND a2.agent_id = $agent_id "
+            "  AND e2.agent_id = $agent_id "
+            "  AND a3.agent_id = $agent_id "
+            "  AND target.agent_id = $agent_id "
             "  AND e1.id <> seed.id AND e2.id <> e1.id AND e2.id <> seed.id "
             "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id LIMIT $limit"
@@ -1057,12 +1051,18 @@ class KuzuGraphProvider(BaseGraphProvider):
                     raw_target_id = str(row[1])
                     s_id = raw_seed_id.removeprefix(prefix)
                     t_id = raw_target_id.removeprefix(prefix)
-                    t_name = str(row[2]) if row[2] is not None else ""
+                    if allowed_entity_set is not None and t_id not in allowed_entity_set:
+                        continue
                     path_assertions = [
                         str(item).removeprefix(prefix)
                         for item in row[3:]
                         if item is not None
                     ]
+                    if allowed_assertion_set is not None and any(
+                        item not in allowed_assertion_set for item in path_assertions
+                    ):
+                        continue
+                    t_name = str(row[2]) if row[2] is not None else ""
                     score = 1.0 / hop
                     if t_id not in hits or hits[t_id]["hops"] > hop:
                         hits[t_id] = {
