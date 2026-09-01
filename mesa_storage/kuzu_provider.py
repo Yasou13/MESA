@@ -1016,7 +1016,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND a2.agent_id = $agent_id "
             "  AND target.agent_id = $agent_id "
             "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a2.id LIMIT $limit"
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id, e1.id LIMIT $limit"
         )
         q3 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
@@ -1032,7 +1032,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND target.agent_id = $agent_id "
             "  AND e1.id <> seed.id AND e2.id <> e1.id AND e2.id <> seed.id "
             "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id LIMIT $limit"
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id, e1.id, e2.id LIMIT $limit"
         )
 
         queries = [(1, q1), (2, q2), (3, q3)][:max_hops]
@@ -1053,11 +1053,31 @@ class KuzuGraphProvider(BaseGraphProvider):
                     t_id = raw_target_id.removeprefix(prefix)
                     if allowed_entity_set is not None and t_id not in allowed_entity_set:
                         continue
-                    path_assertions = [
-                        str(item).removeprefix(prefix)
-                        for item in row[3:]
-                        if item is not None
-                    ]
+                    if hop == 1:
+                        path_assertions = [str(row[3]).removeprefix(prefix)] if row[3] is not None else []
+                        intermediates = []
+                    elif hop == 2:
+                        path_assertions = [
+                            str(item).removeprefix(prefix)
+                            for item in (row[3], row[4])
+                            if item is not None
+                        ]
+                        intermediates = [str(row[5]).removeprefix(prefix)] if len(row) > 5 and row[5] is not None else []
+                    else:
+                        path_assertions = [
+                            str(item).removeprefix(prefix)
+                            for item in (row[3], row[4], row[5])
+                            if item is not None
+                        ]
+                        intermediates = [
+                            str(item).removeprefix(prefix)
+                            for item in row[6:]
+                            if item is not None
+                        ]
+                    if allowed_entity_set is not None and any(
+                        item not in allowed_entity_set for item in intermediates
+                    ):
+                        continue
                     if allowed_assertion_set is not None and any(
                         item not in allowed_assertion_set for item in path_assertions
                     ):
