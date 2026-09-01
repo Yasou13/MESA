@@ -17,6 +17,13 @@ from mesa_storage.dao import MemoryDAO
 logger = logging.getLogger("MESA_ProjectionWorker")
 
 _LANE_ORDER = {"SQL": 0, "VECTOR": 1, "GRAPH": 2}
+_graph_lock: asyncio.Lock | None = None
+
+def _get_graph_lock() -> asyncio.Lock:
+    global _graph_lock
+    if _graph_lock is None:
+        _graph_lock = asyncio.Lock()
+    return _graph_lock
 
 
 class PermanentProjectionError(ValueError):
@@ -146,8 +153,9 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         )
         if len(assertions) != len(triplets):
             raise PermanentProjectionError("canonical SQL assertions are unavailable")
-        for assertion in assertions:
-            await projector.project_assertion(mutation=mutation, assertion=assertion)
+        async with _get_graph_lock():
+            for assertion in assertions:
+                await projector.project_assertion(mutation=mutation, assertion=assertion)
     else:
         raise PermanentProjectionError(f"unknown projection lane: {lane}")
 
@@ -224,11 +232,7 @@ async def process_projection_outbox_once(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
     if sorted_projections:
-        if any(p.get("projection_name") == "GRAPH" for p in sorted_projections):
-            for p in sorted_projections:
-                await _handle_one(p)
-        else:
-            await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+        await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
     return result
 
 
