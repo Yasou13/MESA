@@ -2100,6 +2100,9 @@ class MemoryDAO:
                     )
                 await db.commit()
         except (aiosqlite.Error, OSError) as exc:
+            import traceback
+            traceback.print_exc()
+            logger.exception("admit_v4_memory failed with SQLite/OS error: %s", exc)
             raise QueueUnavailableError("durable admission is unavailable") from exc
         return {"outcome": "ADMITTED", "response": response}
 
@@ -3649,6 +3652,35 @@ class MemoryDAO:
             await db.commit()
         return cursor.rowcount == 1
 
+    async def complete_projection_outbox_batch(
+        self, items: list[dict[str, Any]], *, worker_id: str, outcome: str = "APPLIED"
+    ) -> int:
+        """Record fenced successful projections in a single atomic transaction."""
+        if not items:
+            return 0
+        completed_count = 0
+        async with self._sql.transaction() as db:
+            for p in items:
+                projection_id = str(p["projection_id"])
+                claim_token = str(p["claim_token"])
+                cursor = await db.execute(
+                    "UPDATE projection_outbox SET state = 'COMPLETED', claim_token = NULL, claimed_by = NULL, "
+                    "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ? AND claim_token = ? AND state = 'IN_FLIGHT'",
+                    (projection_id, claim_token),
+                )
+                if cursor.rowcount == 1:
+                    completed_count += 1
+                    await db.execute(
+                        "INSERT OR IGNORE INTO projection_attempts "
+                        "(attempt_id, projection_id, attempt_number, outcome, finished_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                        (str(uuid.uuid4()), projection_id, p.get("attempt_count", 1), outcome[:120]),
+                    )
+                    await self._advance_mutation_projection_state(
+                        db, str(p["mutation_id"])
+                    )
+            await db.commit()
+        return completed_count
+
     async def fail_projection_outbox(
         self,
         projection_id: str,
@@ -4494,7 +4526,26 @@ class MemoryDAO:
             if assertion.get("tail") is not None
             else str(assertion["literal_value"])
         )
-        payload_text = f"{subject} {predicate} {object_value}"
+        chunk_text = str(
+            mutation.get("text")
+            or mutation.get("content_payload")
+            or ""
+        ).strip()
+        evidence_span = str(assertion.get("evidence_span") or "").strip()
+        if chunk_text:
+            payload_text = chunk_text[:2000]
+        elif evidence_span:
+            parts = [
+                p
+                for p in (subject, predicate, object_value)
+                if p and not p.startswith("mesa-")
+            ]
+            if parts:
+                payload_text = f"{' '.join(parts)}: {evidence_span}"
+            else:
+                payload_text = evidence_span
+        else:
+            payload_text = f"{subject} {predicate} {object_value}"
         return await self._project_v4_vector_payload(
             mutation=mutation,
             vector_id=str(assertion["assertion_id"]),
@@ -5026,7 +5077,15 @@ class MemoryDAO:
                 "ORDER BY a.assertion_id",
                 (mutation_id,),
             ) as cursor:
-                return [dict(row) for row in await cursor.fetchall()]
+                assertions = [dict(row) for row in await cursor.fetchall()]
+            for a_item in assertions:
+                async with db.execute(
+                    "SELECT target_assertion_id FROM v4_assertion_links "
+                    "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
+                    (str(a_item["assertion_id"]),),
+                ) as l_cur:
+                    a_item["superseded_ids"] = [str(r[0]) for r in await l_cur.fetchall()]
+            return assertions
 
     async def project_v4_graph_assertion(
         self, *, mutation: dict[str, Any], assertion: dict[str, Any]
@@ -5051,17 +5110,19 @@ class MemoryDAO:
         if (object_id is None) == (literal_value is None):
             raise ValueError("canonical assertion object is invalid")
         graph_entities = [(subject_id, head)]
-        if object_id is not None and tail is not None:
-            graph_entities.append((object_id, tail))
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT target_assertion_id FROM v4_assertion_links "
-                "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
-                (assertion_id,),
-            ) as cursor:
-                superseded_assertion_ids = [
-                    str(row[0]) for row in await cursor.fetchall()
-                ]
+        if object_id is not None:
+            graph_entities.append((object_id, tail or object_id))
+        superseded_assertion_ids = assertion.get("superseded_ids")
+        if superseded_assertion_ids is None:
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT target_assertion_id FROM v4_assertion_links "
+                    "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
+                    (assertion_id,),
+                ) as cursor:
+                    superseded_assertion_ids = [
+                        str(row[0]) for row in await cursor.fetchall()
+                    ]
         graph = self._require_graph()
         try:
             for entity_id, entity_name in graph_entities:
@@ -5385,18 +5446,23 @@ class MemoryDAO:
             assertion_params.append(valid_to)
             provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
             provenance_params.append(valid_to)
+        
+        if provenance_filters:
+            assertion_filters.extend(provenance_filters)
+            assertion_params.extend(provenance_params)
+
+        assertion_query = (
+            "SELECT a.subject_id, a.object_entity_id FROM v4_assertions a "
+            "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
+            "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
+            f"WHERE {' AND '.join(assertion_filters)} "
+            "ORDER BY a.confidence DESC, a.assertion_id LIMIT ?"
+        )
         async with self._sql.connection() as db:
             async with db.execute(
-                "SELECT a.*, s.canonical_name AS subject_name, "
-                "o.canonical_name AS object_name "
-                "FROM v4_assertions a "
-                "JOIN v4_entities s ON s.entity_id = a.subject_id "
-                "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-                f"WHERE {' AND '.join(assertion_filters)} "
-                "ORDER BY a.confidence DESC, a.assertion_id LIMIT ?",
-                (*assertion_params, min(500, max(limit * 10, 50))),
+                assertion_query, (*assertion_params, limit)
             ) as cursor:
-                assertion_rows = [dict(row) for row in await cursor.fetchall()]
+                assertion_rows = await cursor.fetchall()
         assertion_lane: list[str] = []
         for assertion in assertion_rows:
             for candidate in (
@@ -5411,28 +5477,10 @@ class MemoryDAO:
                     assertion_lane.append(str(candidate))
 
         # Real Kùzu Graph V2 Traversal Lane
-        direct_seeds: list[str] = []
-        if tokens:
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT entity_id FROM v4_entities "
-                    "WHERE tenant_id = ? AND status = 'ACTIVE' "
-                    "AND (canonical_name LIKE ? OR normalized_name LIKE ?) "
-                    "ORDER BY entity_id LIMIT 10",
-                    (tenant_id, like_query, like_query),
-                ) as cursor:
-                    direct_seeds = [
-                        str(r[0])
-                        for r in await cursor.fetchall()
-                        if str(r[0]) in allowed_entity_ids
-                    ]
-
         graph_seed_ids: list[str] = []
         for seed_cand in (
-            *direct_seeds,
-            *vector_lane[:10],
-            *lexical_lane[:10],
-            *assertion_lane[:10],
+            *vector_lane[:5],
+            *lexical_lane[:2],
         ):
             if seed_cand in allowed_entity_ids and seed_cand not in graph_seed_ids:
                 graph_seed_ids.append(seed_cand)
@@ -5512,10 +5560,17 @@ class MemoryDAO:
             "assertion": assertion_lane,
             "graph": graph_lane,
         }
+        lane_weights = {
+            "vector": 10.0,
+            "bm25": 1.0,
+            "assertion": 1.0,
+            "graph": 2.0,
+        }
         for lane_name in V4_RRF_LANE_ORDER:
             lane = lanes.get(lane_name, [])
+            w = lane_weights.get(lane_name, 1.0)
             for rank, entity_id in enumerate(lane, start=1):
-                ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
+                ranks[entity_id] = ranks.get(entity_id, 0.0) + w / (60 + rank)
         if not ranks:
             return []
         entity_ids = sorted(set(ranks).intersection(allowed_entity_ids))
@@ -8344,7 +8399,7 @@ class MemoryDAO:
         )
 
     async def claim_raw_log(
-        self, agent_id: str, log_id: int, *, worker_id: str, lease_seconds: int = 300
+        self, agent_id: str, log_id: int, *, worker_id: str, lease_seconds: int = 1800
     ) -> dict[str, Any] | None:
         """Atomically claim a deferred or expired cold-path job."""
         _assert_valid_agent_id(agent_id)
@@ -8935,7 +8990,7 @@ class MemoryDAO:
                 )
                 await db.commit()
                 return False
-            cursor = await db.execute(
+            await db.execute(
                 "INSERT OR IGNORE INTO dispatch_completion_receipts (receipt_id, queue_record_id, dispatch_id, tenant_id, agent_id, "
                 "worker_id, claim_token, outcome, side_effect_verified, attempt_count, idempotency_key) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
@@ -8952,9 +9007,6 @@ class MemoryDAO:
                     f"completion:{row['idempotency_key']}",
                 ),
             )
-            if cursor.rowcount != 1:
-                await db.commit()
-                return False
             cursor = await db.execute(
                 "UPDATE dispatch_queue SET state = 'FINALIZED', claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL "
                 "WHERE queue_record_id = ? AND state = 'IN_FLIGHT' AND claim_token = ?",

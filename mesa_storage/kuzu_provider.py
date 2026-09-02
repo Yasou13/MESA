@@ -39,12 +39,14 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import datetime
 import logging
 import os
 import threading
 import typing
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 if typing.TYPE_CHECKING:
     import kuzu
@@ -227,6 +229,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         self._initialized = False
         self._operational = False
         self._init_lock = asyncio.Lock()
+        self._known_nodes: set[str] = set()
+        self._known_assertions: set[str] = set()
 
     # ------------------------------------------------------------------
     # Properties
@@ -441,6 +445,25 @@ class KuzuGraphProvider(BaseGraphProvider):
             self._executor, self._sync_execute_write, query, parameters or {}
         )
 
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """Wrap batch operations in an explicit Kùzu transaction."""
+        self._ensure_initialized()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor, self._sync_execute_write, "BEGIN TRANSACTION", {}
+        )
+        try:
+            yield
+            await loop.run_in_executor(
+                self._executor, self._sync_execute_write, "COMMIT", {}
+            )
+        except Exception:
+            await loop.run_in_executor(
+                self._executor, self._sync_execute_write, "ROLLBACK", {}
+            )
+            raise
+
     # ------------------------------------------------------------------
     # Domain operations — node & edge ingestion
     # ------------------------------------------------------------------
@@ -450,7 +473,7 @@ class KuzuGraphProvider(BaseGraphProvider):
     # insert, preventing accidental overwrites on re-ingestion.
 
     _UPSERT_NODE_CYPHER = (
-        "MERGE (n:Entity {id: $id, agent_id: $agent_id}) ON CREATE SET n.name = $name"
+        "MERGE (n:Entity {id: $id}) ON CREATE SET n.name = $name, n.agent_id = $agent_id"
     )
 
     _UPSERT_EDGE_CYPHER = (
@@ -458,7 +481,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         "MERGE (a)-[r:Observed]->(b) "
         "ON CREATE SET r.weight = $weight, "
         "r.agent_id = $agent_id, "
-        "r.updated_at = current_timestamp(), "
+        "r.updated_at = $updated_at, "
         "r.epistemic_uncertainty = $epistemic_uncertainty"
     )
 
@@ -485,10 +508,13 @@ class KuzuGraphProvider(BaseGraphProvider):
             agent_id: Tenant isolation key (mandatory).
         """
         composite_id = self._composite_id(agent_id, node_id)
+        if composite_id in self._known_nodes:
+            return
         await self.execute_write(
             self._UPSERT_NODE_CYPHER,
             {"id": composite_id, "name": name, "agent_id": agent_id},
         )
+        self._known_nodes.add(composite_id)
 
     async def delete_nodes(
         self,
@@ -588,6 +614,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         """
         comp_source_id = self._composite_id(agent_id, source_id)
         comp_target_id = self._composite_id(agent_id, target_id)
+        now = datetime.datetime.now(datetime.timezone.utc)
         await self.execute_write(
             self._UPSERT_EDGE_CYPHER,
             {
@@ -595,6 +622,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 "target_id": comp_target_id,
                 "weight": weight,
                 "agent_id": agent_id,
+                "updated_at": now,
                 "epistemic_uncertainty": epistemic_uncertainty,
             },
         )
@@ -624,14 +652,16 @@ class KuzuGraphProvider(BaseGraphProvider):
         if (object_id is None) == (object_value is None):
             raise ValueError("assertion requires exactly one object target")
         assertion_key = self._composite_id(agent_id, assertion_id)
+        if assertion_key in self._known_assertions:
+            return
         subject_key = self._composite_id(agent_id, subject_id)
         object_key = self._composite_id(agent_id, object_id) if object_id else None
         object_match = (
-            ", (o:Entity {id: $object_id, agent_id: $agent_id}) " if object_key else " "
+            ", (o:Entity {id: $object_id}) " if object_key else " "
         )
-        object_link = " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
+        object_link = " CREATE (a)-[:AssertionObject]->(o)" if object_key else ""
         query = (
-            "MATCH (s:Entity {id: $subject_id, agent_id: $agent_id})"
+            "MATCH (s:Entity {id: $subject_id})"
             + object_match
             + "MERGE (a:Assertion {id: $assertion_id}) "
             "ON CREATE SET a.agent_id = $agent_id, a.predicate = $predicate, "
@@ -642,7 +672,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "a.observed_at = $observed_at, a.confidence = $confidence, "
             "a.status = $status, a.mutation_id = $mutation_id, "
             "a.pipeline_run_id = $pipeline_run_id "
-            "MERGE (a)-[:AssertionSubject]->(s)" + object_link
+            "CREATE (a)-[:AssertionSubject]->(s)" + object_link
         )
         parameters = {
             "assertion_id": assertion_key,
@@ -665,6 +695,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         if object_key:
             parameters["object_id"] = object_key
         await self.execute_write(query, parameters)
+        self._known_assertions.add(assertion_key)
 
     async def link_assertions(
         self,
@@ -958,56 +989,50 @@ class KuzuGraphProvider(BaseGraphProvider):
             return []
 
         hits: dict[str, dict[str, Any]] = {}
+        allowed_entity_set = set(allowed_entity_ids) if allowed_entity_ids else None
+        allowed_assertion_set = set(allowed_assertion_ids) if allowed_assertion_ids else None
         params = {
             "seed_ids": comp_seed_ids,
             "agent_id": agent_id,
-            "allowed_entity_ids": [
-                self._composite_id(agent_id, item)
-                for item in sorted(allowed_entity_ids)
-            ],
-            "allowed_assertion_ids": [
-                self._composite_id(agent_id, item)
-                for item in sorted(allowed_assertion_ids)
-            ],
-            "limit": limit,
+            "limit": max(limit * 5, 200),
         }
 
         q1 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
-            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
+            "  AND a1.agent_id = $agent_id "
+            "  AND target.agent_id = $agent_id "
             "  AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id LIMIT $limit"
         )
         q2 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
-            "  AND e1.agent_id = $agent_id AND e1.id IN $allowed_entity_ids "
-            "  AND a2.agent_id = $agent_id AND a2.id IN $allowed_assertion_ids "
-            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
+            "  AND a1.agent_id = $agent_id "
+            "  AND e1.agent_id = $agent_id "
+            "  AND a2.agent_id = $agent_id "
+            "  AND target.agent_id = $agent_id "
             "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a2.id LIMIT $limit"
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id, e1.id LIMIT $limit"
         )
         q3 = (
             "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(e2:Entity)"
             "     -[:AssertionSubject|AssertionObject]-(a3:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids AND seed.id IN $allowed_entity_ids "
+            "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id AND a1.id IN $allowed_assertion_ids "
-            "  AND e1.agent_id = $agent_id AND e1.id IN $allowed_entity_ids "
-            "  AND a2.agent_id = $agent_id AND a2.id IN $allowed_assertion_ids "
-            "  AND e2.agent_id = $agent_id AND e2.id IN $allowed_entity_ids "
-            "  AND a3.agent_id = $agent_id AND a3.id IN $allowed_assertion_ids "
-            "  AND target.agent_id = $agent_id AND target.id IN $allowed_entity_ids "
+            "  AND a1.agent_id = $agent_id "
+            "  AND e1.agent_id = $agent_id "
+            "  AND a2.agent_id = $agent_id "
+            "  AND e2.agent_id = $agent_id "
+            "  AND a3.agent_id = $agent_id "
+            "  AND target.agent_id = $agent_id "
             "  AND e1.id <> seed.id AND e2.id <> e1.id AND e2.id <> seed.id "
             "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id LIMIT $limit"
+            "RETURN seed.id, target.id, target.name, a1.id, a2.id, a3.id, e1.id, e2.id LIMIT $limit"
         )
 
         queries = [(1, q1), (2, q2), (3, q3)][:max_hops]
@@ -1026,12 +1051,38 @@ class KuzuGraphProvider(BaseGraphProvider):
                     raw_target_id = str(row[1])
                     s_id = raw_seed_id.removeprefix(prefix)
                     t_id = raw_target_id.removeprefix(prefix)
+                    if allowed_entity_set is not None and t_id not in allowed_entity_set:
+                        continue
+                    if hop == 1:
+                        path_assertions = [str(row[3]).removeprefix(prefix)] if row[3] is not None else []
+                        intermediates = []
+                    elif hop == 2:
+                        path_assertions = [
+                            str(item).removeprefix(prefix)
+                            for item in (row[3], row[4])
+                            if item is not None
+                        ]
+                        intermediates = [str(row[5]).removeprefix(prefix)] if len(row) > 5 and row[5] is not None else []
+                    else:
+                        path_assertions = [
+                            str(item).removeprefix(prefix)
+                            for item in (row[3], row[4], row[5])
+                            if item is not None
+                        ]
+                        intermediates = [
+                            str(item).removeprefix(prefix)
+                            for item in row[6:]
+                            if item is not None
+                        ]
+                    if allowed_entity_set is not None and any(
+                        item not in allowed_entity_set for item in intermediates
+                    ):
+                        continue
+                    if allowed_assertion_set is not None and any(
+                        item not in allowed_assertion_set for item in path_assertions
+                    ):
+                        continue
                     t_name = str(row[2]) if row[2] is not None else ""
-                    path_assertions = [
-                        str(item).removeprefix(prefix)
-                        for item in row[3:]
-                        if item is not None
-                    ]
                     score = 1.0 / hop
                     if t_id not in hits or hits[t_id]["hops"] > hop:
                         hits[t_id] = {

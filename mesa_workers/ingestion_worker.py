@@ -68,7 +68,7 @@ logger = structlog.get_logger("MESA_ColdPath")
 # ---------------------------------------------------------------------------
 
 _rebel_extractor: RebelExtractor | None = None
-MAX_CONCURRENT_WORKERS = asyncio.Semaphore(10)
+MAX_CONCURRENT_WORKERS = asyncio.Semaphore(100)
 MAX_TIER3_CONCURRENT = 3
 _tier3_semaphore = asyncio.Semaphore(MAX_TIER3_CONCURRENT)
 _TRACE_ROOT = Path("/storage/mesa-lab").resolve()
@@ -316,30 +316,19 @@ async def _process_cold_path_impl(
             # ==============================================================
             # 3. TIER-1: ECOD ANOMALY DETECTION (Novelty Gate)
             # ==============================================================
-            ecod_passed = await _run_ecod_gate(dao, payload_agent_id, content)
-
-            # A low novelty score is useful as a cheap duplicate heuristic for
-            # the legacy projection path.  It is not a reliable rejection for
-            # the full-cognitive path: corrections and contradictions are
-            # deliberately similar to the memory they update. Let the selected
-            # validation policy make the final STORE/DISCARD decision there.
-            if not ecod_passed and not require_tier3_validation:
-                await _transition(
-                    "rejected",
-                    error_reason="ecod_novelty_below_threshold",
-                    target_agent_id=payload_agent_id,
-                )
-                logger.info(
-                    "COLD_PATH_REJECTED | log_id=%d reason=ecod_novelty_gate",
-                    log_id,
-                )
-                return
-            if not ecod_passed:
-                logger.info(
-                    "COLD_PATH_ECOD_DEFERRED_TO_TIER3 | log_id=%d agent_id=%s",
-                    log_id,
-                    payload_agent_id,
-                )
+            if not require_tier3_validation:
+                ecod_passed = await _run_ecod_gate(dao, payload_agent_id, content)
+                if not ecod_passed:
+                    await _transition(
+                        "rejected",
+                        error_reason="ecod_novelty_below_threshold",
+                        target_agent_id=payload_agent_id,
+                    )
+                    logger.info(
+                        "COLD_PATH_REJECTED | log_id=%d reason=ecod_novelty_gate",
+                        log_id,
+                    )
+                    return
 
             _write_cold_path_trace(f"BEFORE REBEL {log_id}")
             # ==============================================================
@@ -409,11 +398,12 @@ async def _process_cold_path_impl(
                 candidate_record = candidate.as_consolidation_record()
                 # v4 callers persist the canonical hand-off before validation;
                 # lightweight legacy mocks intentionally remain supported.
-                await _await_optional_dao_call(
-                    dao, "record_mutation", candidate_record, raw_log_id=log_id
-                )
+                if not bool(payload.get("chunk_id")):
+                    await _await_optional_dao_call(
+                        dao, "record_mutation", candidate_record, raw_log_id=log_id
+                    )
 
-                if consolidation_loop is not None:
+                if consolidation_loop is not None and effective_validation_mode > 0:
                     async with _tier3_semaphore:
                         outcome = await consolidation_loop.run_batch([candidate_record])
                 else:

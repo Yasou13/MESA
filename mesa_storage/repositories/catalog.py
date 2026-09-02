@@ -72,8 +72,8 @@ class CatalogRepository:
         """Resolve one tenant-scoped public ID to its opaque physical key."""
         async with db.execute(
             "SELECT physical_id FROM v4_catalog_identities "
-            "WHERE tenant_id = ? AND kind = ? AND external_id = ?",
-            (tenant_id, kind, external_id),
+            "WHERE tenant_id = ? AND kind = ? AND (external_id = ? OR physical_id = ?)",
+            (tenant_id, kind, external_id, external_id),
         ) as cursor:
             row = await cursor.fetchone()
         if row is not None:

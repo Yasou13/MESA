@@ -222,14 +222,14 @@ def load_explicit_dotenv(runtime: RuntimeProfileConfig) -> None:
 class QueueAdmissionPolicy(BaseModel):
     """Fail-closed, server-side admission limits for durable cold-path work."""
 
-    queue_max_pending_records: int = 10_000
-    queue_max_pending_bytes: int = 536_870_912
-    queue_max_pending_records_per_tenant: int = 2_000
-    queue_max_pending_bytes_per_tenant: int = 134_217_728
+    queue_max_pending_records: int = 50_000
+    queue_max_pending_bytes: int = 2_147_483_648
+    queue_max_pending_records_per_tenant: int = 50_000
+    queue_max_pending_bytes_per_tenant: int = 2_147_483_648
     queue_max_in_flight_records: int = 32
     queue_max_in_flight_records_per_tenant: int = 8
-    queue_max_retry_pending_records: int = 2_000
-    queue_max_retry_pending_records_per_tenant: int = 500
+    queue_max_retry_pending_records: int = 10_000
+    queue_max_retry_pending_records_per_tenant: int = 10_000
     queue_max_single_record_bytes: int = 8_388_608
     queue_retry_after_seconds: int = 5
 
@@ -661,16 +661,16 @@ class MesaConfig(BaseSettings):
     # WAVE-004B: bounded durable queue admission. Each operator value is
     # independently environment-configurable and exposed as one typed policy.
     queue_max_pending_records: int = Field(
-        10_000, validation_alias="MESA_QUEUE_MAX_PENDING_RECORDS"
+        50_000, validation_alias="MESA_QUEUE_MAX_PENDING_RECORDS"
     )
     queue_max_pending_bytes: int = Field(
-        536_870_912, validation_alias="MESA_QUEUE_MAX_PENDING_BYTES"
+        2_147_483_648, validation_alias="MESA_QUEUE_MAX_PENDING_BYTES"
     )
     queue_max_pending_records_per_tenant: int = Field(
-        2_000, validation_alias="MESA_QUEUE_MAX_PENDING_RECORDS_PER_TENANT"
+        50_000, validation_alias="MESA_QUEUE_MAX_PENDING_RECORDS_PER_TENANT"
     )
     queue_max_pending_bytes_per_tenant: int = Field(
-        134_217_728, validation_alias="MESA_QUEUE_MAX_PENDING_BYTES_PER_TENANT"
+        2_147_483_648, validation_alias="MESA_QUEUE_MAX_PENDING_BYTES_PER_TENANT"
     )
     queue_max_in_flight_records: int = Field(
         32, validation_alias="MESA_QUEUE_MAX_IN_FLIGHT_RECORDS"
@@ -679,10 +679,10 @@ class MesaConfig(BaseSettings):
         8, validation_alias="MESA_QUEUE_MAX_IN_FLIGHT_RECORDS_PER_TENANT"
     )
     queue_max_retry_pending_records: int = Field(
-        2_000, validation_alias="MESA_QUEUE_MAX_RETRY_PENDING_RECORDS"
+        10_000, validation_alias="MESA_QUEUE_MAX_RETRY_PENDING_RECORDS"
     )
     queue_max_retry_pending_records_per_tenant: int = Field(
-        500, validation_alias="MESA_QUEUE_MAX_RETRY_PENDING_RECORDS_PER_TENANT"
+        10_000, validation_alias="MESA_QUEUE_MAX_RETRY_PENDING_RECORDS_PER_TENANT"
     )
     queue_max_single_record_bytes: int = Field(
         8_388_608, validation_alias="MESA_QUEUE_MAX_SINGLE_RECORD_BYTES"

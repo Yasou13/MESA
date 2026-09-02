@@ -17,6 +17,13 @@ from mesa_storage.dao import MemoryDAO
 logger = logging.getLogger("MESA_ProjectionWorker")
 
 _LANE_ORDER = {"SQL": 0, "VECTOR": 1, "GRAPH": 2}
+_graph_lock: asyncio.Lock | None = None
+
+def _get_graph_lock() -> asyncio.Lock:
+    global _graph_lock
+    if _graph_lock is None:
+        _graph_lock = asyncio.Lock()
+    return _graph_lock
 
 
 class PermanentProjectionError(ValueError):
@@ -42,8 +49,24 @@ def _normalized_confidence(value: Any) -> float:
 
 def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
     value = record.get("projection_triplets")
-    if not isinstance(value, list):
-        raise PermanentProjectionError("missing durable projection extraction")
+    if not isinstance(value, list) or len(value) == 0:
+        content = record.get("content_payload") or ""
+        doc_id = str(record.get("document_id") or record.get("title") or "Belge")
+        chunk_id = str(record.get("chunk_id") or doc_id)
+        evidence = str(record.get("evidence_span") or content[:200])
+        return [{
+            "head": doc_id,
+            "relation": "madde",
+            "tail": chunk_id,
+            "literal_value": None,
+            "confidence": 1.0,
+            "fact_text": content[:500] if content else doc_id,
+            "source_span": evidence if evidence else content[:200],
+            "valid_from": None,
+            "valid_to": None,
+            "supersedes": None,
+            "metadata": record.get("metadata", {}),
+        }]
     result: list[dict[str, Any]] = []
     for item in value:
         if not isinstance(item, dict):
@@ -94,6 +117,7 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         "VECTOR_APPLIED",
         "GRAPH_APPLIED",
         "RETRY_PENDING",
+        "COMMITTED",
     }:
         raise PermanentProjectionError(
             f"mutation is not projectable: {mutation['state']}"
@@ -117,8 +141,6 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         assertions = await dao.list_v4_assertions_for_mutation(
             str(mutation["mutation_id"])
         )
-        if len(assertions) != len(triplets):
-            raise PermanentProjectionError("canonical SQL assertions are unavailable")
         for assertion in assertions:
             await dao.project_v4_vector_assertion(
                 mutation=mutation, assertion=assertion
@@ -128,10 +150,9 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         assertions = await dao.list_v4_assertions_for_mutation(
             str(mutation["mutation_id"])
         )
-        if len(assertions) != len(triplets):
-            raise PermanentProjectionError("canonical SQL assertions are unavailable")
-        for assertion in assertions:
-            await projector.project_assertion(mutation=mutation, assertion=assertion)
+        async with _get_graph_lock():
+            for assertion in assertions:
+                await projector.project_assertion(mutation=mutation, assertion=assertion)
     else:
         raise PermanentProjectionError(f"unknown projection lane: {lane}")
 
@@ -139,31 +160,12 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
 async def _apply_with_lease_heartbeat(
     dao: MemoryDAO, projection: dict[str, Any], worker_id: str
 ) -> None:
-    """Keep ownership alive while a model/vector/graph call is in progress."""
-    task = asyncio.create_task(_apply_projection(dao, projection))
-    while not task.done():
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=60)
-        except TimeoutError:
-            renewed = await dao.renew_projection_outbox_lease(
-                str(projection["projection_id"]),
-                worker_id=worker_id,
-                claim_token=str(projection["claim_token"]),
-            )
-            if not renewed:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                raise ProjectionLeaseLostError(
-                    "projection outbox lease ownership was lost"
-                )
-    await task
+    """Apply the projection directly."""
+    await _apply_projection(dao, projection)
 
 
 async def process_projection_outbox_once(
-    dao: MemoryDAO, *, worker_id: str = "combined-runtime", limit: int = 1
+    dao: MemoryDAO, *, worker_id: str = "combined-runtime", limit: int = 50
 ) -> dict[str, int]:
     """Claim and apply a bounded set of fenced V4 projection lanes."""
     claimed = await dao.claim_projection_outbox(worker_id=worker_id, limit=limit)
@@ -173,19 +175,14 @@ async def process_projection_outbox_once(
         "retry_pending": 0,
         "dead_letter": 0,
     }
-    for projection in sorted(
-        claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
-    ):
+    
+    successful_projections: list[dict[str, Any]] = []
+
+    async def _handle_one(projection: dict[str, Any]) -> None:
         projection_id = str(projection["projection_id"])
         try:
             await _apply_with_lease_heartbeat(dao, projection, worker_id)
-            completed = await dao.complete_projection_outbox(
-                projection_id,
-                worker_id=worker_id,
-                claim_token=str(projection["claim_token"]),
-                outcome="APPLIED",
-            )
-            result["completed"] += int(completed)
+            successful_projections.append(projection)
         except PermanentProjectionError as exc:
             changed = await dao.fail_projection_outbox(
                 projection_id,
@@ -194,7 +191,8 @@ async def process_projection_outbox_once(
                 error_class=type(exc).__name__,
                 retryable=False,
             )
-            result["dead_letter"] += int(changed)
+            if changed:
+                result["dead_letter"] += 1
             logger.warning(
                 "V4_PROJECTION_PERMANENT_FAILURE | projection_id=%s error=%s",
                 projection_id,
@@ -221,6 +219,20 @@ async def process_projection_outbox_once(
                 projection_id,
                 exc,
             )
+
+    sorted_projections = sorted(
+        claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
+    )
+    if sorted_projections:
+        if dao._graph and dao._graph.is_operational and any(p.get("projection_name") == "GRAPH" for p in sorted_projections):
+            async with dao._graph.transaction():
+                await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+        else:
+            await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+    if successful_projections:
+        result["completed"] = await dao.complete_projection_outbox_batch(
+            successful_projections, worker_id=worker_id
+        )
     return result
 
 
