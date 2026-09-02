@@ -5446,19 +5446,23 @@ class MemoryDAO:
             assertion_params.append(valid_to)
             provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
             provenance_params.append(valid_to)
+        
+        if provenance_filters:
+            assertion_filters.extend(provenance_filters)
+            assertion_params.extend(provenance_params)
+
+        assertion_query = (
+            "SELECT a.subject_id, a.object_entity_id FROM v4_assertions a "
+            "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
+            "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
+            f"WHERE {' AND '.join(assertion_filters)} "
+            "ORDER BY a.confidence DESC, a.assertion_id LIMIT ?"
+        )
         async with self._sql.connection() as db:
             async with db.execute(
-                "SELECT a.*, s.canonical_name AS subject_name, "
-                "o.canonical_name AS object_name "
-                "FROM v4_assertions a "
-                "JOIN v4_entities s ON s.entity_id = a.subject_id "
-                "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-                f"WHERE {' AND '.join(assertion_filters)} "
-                "ORDER BY a.confidence DESC, a.assertion_id LIMIT ?",
-                (*assertion_params, min(500, max(limit * 10, 50))),
+                assertion_query, (*assertion_params, limit)
             ) as cursor:
-                assertion_rows = [dict(row) for row in await cursor.fetchall()]
-        assertion_lane: list[str] = []
+                assertion_rows = await cursor.fetchall()
         for assertion in assertion_rows:
             for candidate in (
                 assertion["subject_id"],
@@ -5472,28 +5476,10 @@ class MemoryDAO:
                     assertion_lane.append(str(candidate))
 
         # Real Kùzu Graph V2 Traversal Lane
-        direct_seeds: list[str] = []
-        if tokens:
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT entity_id FROM v4_entities "
-                    "WHERE tenant_id = ? AND status = 'ACTIVE' "
-                    "AND (canonical_name LIKE ? OR normalized_name LIKE ?) "
-                    "ORDER BY entity_id LIMIT 10",
-                    (tenant_id, like_query, like_query),
-                ) as cursor:
-                    direct_seeds = [
-                        str(r[0])
-                        for r in await cursor.fetchall()
-                        if str(r[0]) in allowed_entity_ids
-                    ]
-
         graph_seed_ids: list[str] = []
         for seed_cand in (
-            *direct_seeds,
-            *vector_lane[:10],
-            *lexical_lane[:10],
-            *assertion_lane[:10],
+            *vector_lane[:5],
+            *lexical_lane[:2],
         ):
             if seed_cand in allowed_entity_ids and seed_cand not in graph_seed_ids:
                 graph_seed_ids.append(seed_cand)
