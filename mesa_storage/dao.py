@@ -5463,6 +5463,7 @@ class MemoryDAO:
                 assertion_query, (*assertion_params, limit)
             ) as cursor:
                 assertion_rows = await cursor.fetchall()
+        assertion_lane: list[str] = []
         for assertion in assertion_rows:
             for candidate in (
                 assertion["subject_id"],
