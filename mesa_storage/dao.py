@@ -5574,10 +5574,10 @@ class MemoryDAO:
             "graph": graph_lane,
         }
         lane_weights = {
-            "vector": 3.0,
+            "vector": 10.0,
             "bm25": 1.0,
             "assertion": 1.0,
-            "graph": 1.5,
+            "graph": 2.0,
         }
         for lane_name in V4_RRF_LANE_ORDER:
             lane = lanes.get(lane_name, [])
