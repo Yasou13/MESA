@@ -5573,10 +5573,17 @@ class MemoryDAO:
             "assertion": assertion_lane,
             "graph": graph_lane,
         }
+        lane_weights = {
+            "vector": 3.0,
+            "bm25": 1.0,
+            "assertion": 1.0,
+            "graph": 1.5,
+        }
         for lane_name in V4_RRF_LANE_ORDER:
             lane = lanes.get(lane_name, [])
+            w = lane_weights.get(lane_name, 1.0)
             for rank, entity_id in enumerate(lane, start=1):
-                ranks[entity_id] = ranks.get(entity_id, 0.0) + 1.0 / (60 + rank)
+                ranks[entity_id] = ranks.get(entity_id, 0.0) + w / (60 + rank)
         if not ranks:
             return []
         entity_ids = sorted(set(ranks).intersection(allowed_entity_ids))
