@@ -19,6 +19,7 @@ logger = logging.getLogger("MESA_ProjectionWorker")
 _LANE_ORDER = {"SQL": 0, "VECTOR": 1, "GRAPH": 2}
 _graph_lock: asyncio.Lock | None = None
 
+
 def _get_graph_lock() -> asyncio.Lock:
     global _graph_lock
     if _graph_lock is None:
@@ -54,19 +55,21 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
         doc_id = str(record.get("document_id") or record.get("title") or "Belge")
         chunk_id = str(record.get("chunk_id") or doc_id)
         evidence = str(record.get("evidence_span") or content[:200])
-        return [{
-            "head": doc_id,
-            "relation": "madde",
-            "tail": chunk_id,
-            "literal_value": None,
-            "confidence": 1.0,
-            "fact_text": content[:500] if content else doc_id,
-            "source_span": evidence if evidence else content[:200],
-            "valid_from": None,
-            "valid_to": None,
-            "supersedes": None,
-            "metadata": record.get("metadata", {}),
-        }]
+        return [
+            {
+                "head": doc_id,
+                "relation": "madde",
+                "tail": chunk_id,
+                "literal_value": None,
+                "confidence": 1.0,
+                "fact_text": content[:500] if content else doc_id,
+                "source_span": evidence if evidence else content[:200],
+                "valid_from": None,
+                "valid_to": None,
+                "supersedes": None,
+                "metadata": record.get("metadata", {}),
+            }
+        ]
     result: list[dict[str, Any]] = []
     for item in value:
         if not isinstance(item, dict):
@@ -152,7 +155,9 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         )
         async with _get_graph_lock():
             for assertion in assertions:
-                await projector.project_assertion(mutation=mutation, assertion=assertion)
+                await projector.project_assertion(
+                    mutation=mutation, assertion=assertion
+                )
     else:
         raise PermanentProjectionError(f"unknown projection lane: {lane}")
 
@@ -175,7 +180,7 @@ async def process_projection_outbox_once(
         "retry_pending": 0,
         "dead_letter": 0,
     }
-    
+
     successful_projections: list[dict[str, Any]] = []
 
     async def _handle_one(projection: dict[str, Any]) -> None:
@@ -224,11 +229,20 @@ async def process_projection_outbox_once(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
     if sorted_projections:
-        if dao._graph and dao._graph.is_operational and any(p.get("projection_name") == "GRAPH" for p in sorted_projections):
+        if (
+            dao._graph
+            and dao._graph.is_operational
+            and any(p.get("projection_name") == "GRAPH" for p in sorted_projections)
+        ):
             async with dao._graph.transaction():
-                await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+                await asyncio.gather(
+                    *(_handle_one(p) for p in sorted_projections),
+                    return_exceptions=True,
+                )
         else:
-            await asyncio.gather(*(_handle_one(p) for p in sorted_projections), return_exceptions=True)
+            await asyncio.gather(
+                *(_handle_one(p) for p in sorted_projections), return_exceptions=True
+            )
     if successful_projections:
         result["completed"] = await dao.complete_projection_outbox_batch(
             successful_projections, worker_id=worker_id

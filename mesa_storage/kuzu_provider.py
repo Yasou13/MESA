@@ -472,9 +472,7 @@ class KuzuGraphProvider(BaseGraphProvider):
     # MERGE ensures idempotency; ON CREATE SET populates only on first
     # insert, preventing accidental overwrites on re-ingestion.
 
-    _UPSERT_NODE_CYPHER = (
-        "MERGE (n:Entity {id: $id}) ON CREATE SET n.name = $name, n.agent_id = $agent_id"
-    )
+    _UPSERT_NODE_CYPHER = "MERGE (n:Entity {id: $id}) ON CREATE SET n.name = $name, n.agent_id = $agent_id"
 
     _UPSERT_EDGE_CYPHER = (
         "MATCH (a:Entity {id: $source_id, agent_id: $agent_id}), (b:Entity {id: $target_id, agent_id: $agent_id}) "
@@ -656,9 +654,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             return
         subject_key = self._composite_id(agent_id, subject_id)
         object_key = self._composite_id(agent_id, object_id) if object_id else None
-        object_match = (
-            ", (o:Entity {id: $object_id}) " if object_key else " "
-        )
+        object_match = ", (o:Entity {id: $object_id}) " if object_key else " "
         object_link = " CREATE (a)-[:AssertionObject]->(o)" if object_key else ""
         query = (
             "MATCH (s:Entity {id: $subject_id})"
@@ -990,7 +986,9 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         hits: dict[str, dict[str, Any]] = {}
         allowed_entity_set = set(allowed_entity_ids) if allowed_entity_ids else None
-        allowed_assertion_set = set(allowed_assertion_ids) if allowed_assertion_ids else None
+        allowed_assertion_set = (
+            set(allowed_assertion_ids) if allowed_assertion_ids else None
+        )
         params = {
             "seed_ids": comp_seed_ids,
             "agent_id": agent_id,
@@ -1051,10 +1049,17 @@ class KuzuGraphProvider(BaseGraphProvider):
                     raw_target_id = str(row[1])
                     s_id = raw_seed_id.removeprefix(prefix)
                     t_id = raw_target_id.removeprefix(prefix)
-                    if allowed_entity_set is not None and t_id not in allowed_entity_set:
+                    if (
+                        allowed_entity_set is not None
+                        and t_id not in allowed_entity_set
+                    ):
                         continue
                     if hop == 1:
-                        path_assertions = [str(row[3]).removeprefix(prefix)] if row[3] is not None else []
+                        path_assertions = (
+                            [str(row[3]).removeprefix(prefix)]
+                            if row[3] is not None
+                            else []
+                        )
                         intermediates = []
                     elif hop == 2:
                         path_assertions = [
@@ -1062,7 +1067,11 @@ class KuzuGraphProvider(BaseGraphProvider):
                             for item in (row[3], row[4])
                             if item is not None
                         ]
-                        intermediates = [str(row[5]).removeprefix(prefix)] if len(row) > 5 and row[5] is not None else []
+                        intermediates = (
+                            [str(row[5]).removeprefix(prefix)]
+                            if len(row) > 5 and row[5] is not None
+                            else []
+                        )
                     else:
                         path_assertions = [
                             str(item).removeprefix(prefix)

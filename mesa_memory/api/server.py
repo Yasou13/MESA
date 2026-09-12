@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Any
 
 from mesa_memory.observability.logger import setup_logging
 
@@ -245,7 +246,9 @@ async def _consume_combined_durable_work_once(
         )
 
     if claimed:
-        await asyncio.gather(*(_handle_one_dispatch(d) for d in claimed), return_exceptions=True)
+        await asyncio.gather(
+            *(_handle_one_dispatch(d) for d in claimed), return_exceptions=True
+        )
 
     finalizations = await dao.list_pending_session_finalizations(limit=10)
     for finalization in finalizations:
@@ -258,8 +261,12 @@ async def _consume_combined_durable_work_once(
     projections = {"completed": 0}
     cleanup = {"completed": 0}
     if type(dao) is MemoryDAO:
-        projections = await process_projection_outbox_once(dao, worker_id=worker_id, limit=100)
-        cleanup = await process_artifact_cleanup_once(dao, worker_id=worker_id, limit=100)
+        projections = await process_projection_outbox_once(
+            dao, worker_id=worker_id, limit=100
+        )
+        cleanup = await process_artifact_cleanup_once(
+            dao, worker_id=worker_id, limit=100
+        )
     return {
         "dispatches": len(claimed),
         "finalizations": len(finalizations),

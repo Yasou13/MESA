@@ -2101,6 +2101,7 @@ class MemoryDAO:
                 await db.commit()
         except (aiosqlite.Error, OSError) as exc:
             import traceback
+
             traceback.print_exc()
             logger.exception("admit_v4_memory failed with SQLite/OS error: %s", exc)
             raise QueueUnavailableError("durable admission is unavailable") from exc
@@ -3673,7 +3674,12 @@ class MemoryDAO:
                     await db.execute(
                         "INSERT OR IGNORE INTO projection_attempts "
                         "(attempt_id, projection_id, attempt_number, outcome, finished_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                        (str(uuid.uuid4()), projection_id, p.get("attempt_count", 1), outcome[:120]),
+                        (
+                            str(uuid.uuid4()),
+                            projection_id,
+                            p.get("attempt_count", 1),
+                            outcome[:120],
+                        ),
                     )
                     await self._advance_mutation_projection_state(
                         db, str(p["mutation_id"])
@@ -4527,9 +4533,7 @@ class MemoryDAO:
             else str(assertion["literal_value"])
         )
         chunk_text = str(
-            mutation.get("text")
-            or mutation.get("content_payload")
-            or ""
+            mutation.get("text") or mutation.get("content_payload") or ""
         ).strip()
         evidence_span = str(assertion.get("evidence_span") or "").strip()
         if chunk_text:
@@ -5084,7 +5088,9 @@ class MemoryDAO:
                     "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
                     (str(a_item["assertion_id"]),),
                 ) as l_cur:
-                    a_item["superseded_ids"] = [str(r[0]) for r in await l_cur.fetchall()]
+                    a_item["superseded_ids"] = [
+                        str(r[0]) for r in await l_cur.fetchall()
+                    ]
             return assertions
 
     async def project_v4_graph_assertion(
@@ -5446,7 +5452,7 @@ class MemoryDAO:
             assertion_params.append(valid_to)
             provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
             provenance_params.append(valid_to)
-        
+
         if provenance_filters:
             assertion_filters.extend(provenance_filters)
             assertion_params.extend(provenance_params)
@@ -5467,7 +5473,7 @@ class MemoryDAO:
         for assertion in assertion_rows:
             for candidate in (
                 assertion["subject_id"],
-                assertion.get("object_entity_id"),
+                assertion["object_entity_id"],
             ):
                 if (
                     candidate
