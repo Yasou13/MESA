@@ -73,6 +73,7 @@ from mesa_storage.repositories.operations import (
 )
 from mesa_storage.retrieval_scope import (
     V4_RRF_LANE_ORDER,
+    V4_RRF_LANE_WEIGHTS,
     build_v4_lexical_query,
     scope_vector_result_ids,
 )
@@ -5470,10 +5471,10 @@ class MemoryDAO:
             ) as cursor:
                 assertion_rows = await cursor.fetchall()
         assertion_lane: list[str] = []
-        for assertion in assertion_rows:
+        for assertion_row in assertion_rows:
             for candidate in (
-                assertion["subject_id"],
-                assertion["object_entity_id"],
+                assertion_row["subject_id"],
+                assertion_row["object_entity_id"],
             ):
                 if (
                     candidate
@@ -5566,15 +5567,9 @@ class MemoryDAO:
             "assertion": assertion_lane,
             "graph": graph_lane,
         }
-        lane_weights = {
-            "vector": 10.0,
-            "bm25": 1.0,
-            "assertion": 1.0,
-            "graph": 2.0,
-        }
         for lane_name in V4_RRF_LANE_ORDER:
             lane = lanes.get(lane_name, [])
-            w = lane_weights.get(lane_name, 1.0)
+            w = V4_RRF_LANE_WEIGHTS.get(lane_name, 1.0)
             for rank, entity_id in enumerate(lane, start=1):
                 ranks[entity_id] = ranks.get(entity_id, 0.0) + w / (60 + rank)
         if not ranks:
@@ -5717,6 +5712,9 @@ class MemoryDAO:
             )
         ][:limit]
         results: list[dict[str, Any]] = []
+        provenance_by_id = {
+            str(assertion["assertion_id"]): assertion for assertion in provenance
+        }
         for entity_id in ordered:
             retrieval_provenance: dict[str, Any] = {
                 "origins": [
@@ -5727,13 +5725,27 @@ class MemoryDAO:
             }
             if entity_id in graph_evidence_by_entity:
                 retrieval_provenance.update(graph_evidence_by_entity[entity_id])
+            entity_provenance = list(by_entity[entity_id])
+            included_assertion_ids = {
+                str(assertion["assertion_id"]) for assertion in entity_provenance
+            }
+            for assertion_id in retrieval_provenance.get(
+                "graph_path_assertion_ids", []
+            ):
+                path_assertion = provenance_by_id.get(str(assertion_id))
+                if (
+                    path_assertion is not None
+                    and str(assertion_id) not in included_assertion_ids
+                ):
+                    entity_provenance.append(path_assertion)
+                    included_assertion_ids.add(str(assertion_id))
             results.append(
                 {
                     "entity": entities[entity_id],
                     "rrf_score": ranks[entity_id],
                     "legal_factor": legal_factor[entity_id],
                     "final_score": ranks[entity_id] * legal_factor[entity_id],
-                    "provenance": by_entity[entity_id],
+                    "provenance": entity_provenance,
                     "retrieval_provenance": retrieval_provenance,
                 }
             )

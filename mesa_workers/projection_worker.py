@@ -229,12 +229,15 @@ async def process_projection_outbox_once(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
     if sorted_projections:
+        graph = dao._graph
+        graph_transaction = getattr(graph, "transaction", None)
         if (
-            dao._graph
-            and dao._graph.is_operational
+            graph is not None
+            and getattr(graph, "is_operational", False) is True
+            and callable(graph_transaction)
             and any(p.get("projection_name") == "GRAPH" for p in sorted_projections)
         ):
-            async with dao._graph.transaction():
+            async with graph_transaction():
                 await asyncio.gather(
                     *(_handle_one(p) for p in sorted_projections),
                     return_exceptions=True,

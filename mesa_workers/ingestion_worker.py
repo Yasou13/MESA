@@ -403,7 +403,7 @@ async def _process_cold_path_impl(
                         dao, "record_mutation", candidate_record, raw_log_id=log_id
                     )
 
-                if consolidation_loop is not None and effective_validation_mode > 0:
+                if consolidation_loop is not None:
                     async with _tier3_semaphore:
                         outcome = await consolidation_loop.run_batch([candidate_record])
                 else:
@@ -414,6 +414,16 @@ async def _process_cold_path_impl(
                         )
                     )
                     candidate_record["_mesa_tier3_audit"] = mode_zero_audit
+                    # Mode 0 bypasses ConsolidationLoop, which normally persists
+                    # extraction and advances RECEIVED -> EXTRACTED.  Preserve the
+                    # same durable lifecycle even when model extraction is disabled.
+                    await _await_optional_dao_call(
+                        dao,
+                        "record_mutation_extraction",
+                        payload_agent_id,
+                        candidate.mutation_id,
+                        triplets,
+                    )
                     outcome = {
                         "accepted": [candidate.candidate_id],
                         "rejected": [],
