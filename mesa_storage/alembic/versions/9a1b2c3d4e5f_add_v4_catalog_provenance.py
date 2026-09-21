@@ -267,6 +267,10 @@ def upgrade() -> None:
         "ON v4_assertions(tenant_id, dataset_id, status, predicate)"
     )
     op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_v4_assertions_mutation "
+        "ON v4_assertions(mutation_id)"
+    )
+    op.execute(
         "CREATE INDEX IF NOT EXISTS idx_artifact_sources_owner "
         "ON artifact_sources(mutation_id, state)"
     )

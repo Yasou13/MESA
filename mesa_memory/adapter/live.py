@@ -26,7 +26,7 @@ _OPENAI_RATE_LIMIT_ERRORS = (openai.RateLimitError,) if openai is not None else 
 _OPENAI_CONNECTION_ERRORS = (openai.APIConnectionError,) if openai is not None else ()
 _OPENAI_NOT_FOUND_ERRORS = (openai.NotFoundError,) if openai is not None else ()
 _RETRYABLE_OPENAI_ERRORS = _OPENAI_RATE_LIMIT_ERRORS + _OPENAI_CONNECTION_ERRORS
-_OPENAI_RETRY_STOP = stop_after_attempt(3) | stop_after_delay(45)
+_OPENAI_RETRY_STOP = stop_after_attempt(3) | stop_after_delay(1800)
 
 
 class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):

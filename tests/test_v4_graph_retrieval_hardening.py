@@ -25,6 +25,7 @@ from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
+from mesa_storage.retrieval_scope import V4_RRF_LANE_WEIGHTS
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -726,7 +727,7 @@ async def test_h_duplicate_graph_paths_do_not_amplify_rrf(tmp_path):
         assert len(target_results) == 1
         target = target_results[0]
         assert target["retrieval_provenance"]["origins"] == ["graph"]
-        assert target["rrf_score"] <= 1.0 / 61.0
+        assert target["rrf_score"] <= V4_RRF_LANE_WEIGHTS["graph"] / 61.0
     finally:
         await _close_test_env(sql, vector, graph)
 
