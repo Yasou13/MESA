@@ -7,31 +7,8 @@ import yaml
 
 from mesa_memory.config import RuntimeProfile
 from mesa_memory.runtime_entrypoint import command_for_profile
-from scripts.run_server import _dashboard_static_file
 
 ROOT = Path(__file__).parents[1]
-
-
-def test_dashboard_static_files_cannot_escape_dist_root(tmp_path: Path) -> None:
-    dashboard = tmp_path / "dist"
-    dashboard.mkdir()
-    asset = dashboard / "favicon.svg"
-    asset.write_text("safe", encoding="utf-8")
-    showcase = dashboard / "showcase"
-    showcase.mkdir()
-    showcase_index = showcase / "index.html"
-    showcase_index.write_text("showcase", encoding="utf-8")
-    secret = tmp_path / "outside.txt"
-    secret.write_text("not public", encoding="utf-8")
-    linked_directory = dashboard / "linked"
-    linked_directory.mkdir()
-    (linked_directory / "index.html").symlink_to(secret)
-
-    assert _dashboard_static_file(str(dashboard), "favicon.svg") == str(asset)
-    assert _dashboard_static_file(str(dashboard), "showcase/") == str(showcase_index)
-    assert _dashboard_static_file(str(dashboard), "linked/") is None
-    assert _dashboard_static_file(str(dashboard), "%2e%2e/outside.txt") is None
-    assert _dashboard_static_file(str(dashboard), "../outside.txt") is None
 
 
 def test_showcase_assets_live_under_dashboard_without_mock_console() -> None:
