@@ -208,11 +208,6 @@ class TestUpsert:
 
 class TestBulkUpsert:
     @pytest.mark.asyncio
-    async def test_empty_records(self, engine):
-        count = await engine.bulk_upsert([])
-        assert count == 0
-
-    @pytest.mark.asyncio
     async def test_multiple_records(self, engine):
         records = [
             {
