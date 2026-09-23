@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
-from urllib.parse import unquote
 
 import uvicorn
 
@@ -14,24 +12,6 @@ from mesa_memory.api import server as _server
 
 app = _server.app
 _state = _server.state
-
-
-def _dashboard_static_file(dashboard_path: str, full_path: str) -> str | None:
-    """Return an existing dashboard file only when it remains under ``dist``."""
-    if not full_path:
-        return None
-    dashboard_root = Path(dashboard_path).resolve()
-    requested_path = (dashboard_root / unquote(full_path)).resolve()
-    if not requested_path.is_relative_to(dashboard_root):
-        return None
-    if requested_path.is_dir():
-        requested_path = (requested_path / "index.html").resolve()
-    if (
-        not requested_path.is_relative_to(dashboard_root)
-        or not requested_path.is_file()
-    ):
-        return None
-    return str(requested_path)
 
 
 def _parse_args() -> argparse.Namespace:

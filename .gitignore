@@ -202,3 +202,10 @@ mcp_test1.md
 mesa_control_panel.md
 
 # Agent and Codex project metadata are local-only.
+/AGENTS.md
+/skills-lock.json
+/.serena/
+
+# Local Profile A campaign state and captured soak-test workspaces.
+/.profile-a-state.json
+/soak_test_results_*/

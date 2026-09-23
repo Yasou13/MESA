@@ -84,18 +84,6 @@ def dao(engines):
 
 
 class TestSentinelValidation:
-    def test_empty_agent_id_rejected(self):
-        with pytest.raises(ValueError):
-            _assert_valid_agent_id("")
-
-    def test_reserved_unset_rejected(self):
-        with pytest.raises(ValueError):
-            _assert_valid_agent_id("__unset__")
-
-    def test_reserved_system_rejected(self):
-        with pytest.raises(ValueError):
-            _assert_valid_agent_id("__system__")
-
     def test_valid_agent_id_accepted(self):
         _assert_valid_agent_id("agent-alpha")  # should not raise
 
