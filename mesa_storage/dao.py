@@ -72,9 +72,11 @@ from mesa_storage.repositories.operations import (
     RebuildAdmissionReader,
 )
 from mesa_storage.retrieval_scope import (
+    V4_RRF_DEFAULT_K,
     V4_RRF_LANE_ORDER,
     V4_RRF_LANE_WEIGHTS,
     build_v4_lexical_query,
+    compute_rrf_lane_score,
     scope_vector_result_ids,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -5375,6 +5377,8 @@ class MemoryDAO:
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        rrf_k: int | None = None,
+        rrf_weights: Mapping[str, float] | None = None,
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
@@ -5385,6 +5389,9 @@ class MemoryDAO:
             or not 1 <= limit <= 50
         ):
             raise ValueError("invalid v4 search scope")
+
+        effective_k = rrf_k if rrf_k is not None else V4_RRF_DEFAULT_K
+        effective_weights = rrf_weights if rrf_weights is not None else V4_RRF_LANE_WEIGHTS
 
         from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
         legal_resolver = LegalEntityResolver()
@@ -5962,7 +5969,6 @@ class MemoryDAO:
                 }
             return candidates[cand_id]
 
-        w_vec = V4_RRF_LANE_WEIGHTS.get("vector", 10.0)
         for rank, aid in enumerate(vector_lane, start=1):
             ass = vector_assertions[aid]
             cand = _get_or_create_cand(
@@ -5975,9 +5981,10 @@ class MemoryDAO:
             cand["lane_ranks"]["vector"] = rank
             if aid in vector_raw_distances:
                 cand["raw_scores"]["vector"] = vector_raw_distances[aid]
-            cand["rrf_score"] += w_vec / (60 + rank)
+            cand["rrf_score"] += compute_rrf_lane_score(
+                rank, lane="vector", k=effective_k, weights=effective_weights
+            )
 
-        w_ass = V4_RRF_LANE_WEIGHTS.get("assertion", 1.0)
         for rank, aid in enumerate(assertion_lane, start=1):
             ass = assertion_records[aid]
             cand = _get_or_create_cand(
@@ -5991,15 +5998,19 @@ class MemoryDAO:
             cand["raw_scores"]["assertion"] = assertion_scores.get(
                 aid, float(ass.get("confidence", 1.0))
             )
-            cand["rrf_score"] += w_ass / (60 + rank)
+            cand["rrf_score"] += compute_rrf_lane_score(
+                rank, lane="assertion", k=effective_k, weights=effective_weights
+            )
 
-        w_bm25 = V4_RRF_LANE_WEIGHTS.get("bm25", 1.0)
         for rank, hit_id in enumerate(lexical_lane, start=1):
+            score_contrib = compute_rrf_lane_score(
+                rank, lane="bm25", k=effective_k, weights=effective_weights
+            )
             if hit_id in candidates:
                 c = candidates[hit_id]
                 c["origins"].add("bm25")
                 c["lane_ranks"]["bm25"] = rank
-                c["rrf_score"] += w_bm25 / (60 + rank)
+                c["rrf_score"] += score_contrib
             elif hit_id in lexical_assertions:
                 ass = lexical_assertions[hit_id]
                 c = _get_or_create_cand(
@@ -6010,14 +6021,14 @@ class MemoryDAO:
                 )
                 c["origins"].add("bm25")
                 c["lane_ranks"]["bm25"] = rank
-                c["rrf_score"] += w_bm25 / (60 + rank)
+                c["rrf_score"] += score_contrib
             else:
                 matched_cands = [c for c in candidates.values() if c["entity_id"] == hit_id]
                 if matched_cands:
                     for c in matched_cands:
                         c["origins"].add("bm25")
                         c["lane_ranks"]["bm25"] = rank
-                        c["rrf_score"] += w_bm25 / (60 + rank)
+                        c["rrf_score"] += score_contrib
                 else:
                     cand = _get_or_create_cand(
                         f"entity:{hit_id}",
@@ -6027,10 +6038,12 @@ class MemoryDAO:
                     )
                     cand["origins"].add("bm25")
                     cand["lane_ranks"]["bm25"] = rank
-                    cand["rrf_score"] += w_bm25 / (60 + rank)
+                    cand["rrf_score"] += score_contrib
 
-        w_graph = V4_RRF_LANE_WEIGHTS.get("graph", 2.0)
         for rank, cand_id in enumerate(graph_lane, start=1):
+            score_contrib = compute_rrf_lane_score(
+                rank, lane="graph", k=effective_k, weights=effective_weights
+            )
             hit_ev = graph_evidence_by_entity.get(cand_id, {})
             p_aids = hit_ev.get("graph_path_assertion_ids", [])
             matched_cands = [c for c in candidates.values() if c["entity_id"] == cand_id]
@@ -6038,7 +6051,7 @@ class MemoryDAO:
                 for c in matched_cands:
                     c["origins"].add("graph")
                     c["lane_ranks"]["graph"] = rank
-                    c["rrf_score"] += w_graph / (60 + rank)
+                    c["rrf_score"] += score_contrib
                     c["supporting_evidence_ids"].extend(p_aids)
             else:
                 cand = _get_or_create_cand(
@@ -6049,18 +6062,12 @@ class MemoryDAO:
                 )
                 cand["origins"].add("graph")
                 cand["lane_ranks"]["graph"] = rank
-                cand["rrf_score"] += w_graph / (60 + rank)
+                cand["rrf_score"] += score_contrib
                 cand["supporting_evidence_ids"].extend(p_aids)
 
         if not candidates:
             return []
 
-        authority_factor = {
-            "OFFICIAL": 1.15,
-            "PRIMARY": 1.10,
-            "SUPREME_COURT": 1.15,
-            "SECONDARY": 0.95,
-        }
         cand_entity_ids = {c["entity_id"] for c in candidates.values() if c.get("entity_id")}
         for c in candidates.values():
             ass = c.get("assertion")
@@ -6082,17 +6089,8 @@ class MemoryDAO:
                         cand_entity_names[str(row["entity_id"])] = str(row["normalized_name"] or "")
 
         for cand in candidates.values():
-            ass = cand["assertion"]
-            if ass is not None:
-                factor = authority_factor.get(
-                    str(ass.get("authority_level") or "").upper(), 1.0
-                )
-                confidence = max(0.75, min(1.0, float(ass.get("confidence", 1.0))))
-                base_factor = max(0.75, min(1.25, factor * confidence))
-            else:
-                base_factor = 1.0
-
             if legal_citations:
+                ass = cand["assertion"]
                 cand_texts: list[str] = []
                 if ass is not None:
                     cand_texts.extend([
@@ -6140,15 +6138,16 @@ class MemoryDAO:
                             break
 
                 if target_statute_match and target_article_match:
-                    cand["legal_factor"] = base_factor * 1.5
+                    cand["legal_factor"] = 1.5
                 elif target_statute_match:
-                    cand["legal_factor"] = base_factor * 1.25
+                    cand["legal_factor"] = 1.25
                 elif competing_statute_match and not target_statute_match:
-                    cand["legal_factor"] = base_factor * 0.25
+                    cand["legal_factor"] = 0.25
                 else:
-                    cand["legal_factor"] = base_factor
+                    cand["legal_factor"] = 1.0
             else:
-                cand["legal_factor"] = base_factor
+                # No query legal citations: no query-independent boost allowed
+                cand["legal_factor"] = 1.0
 
         ordered_candidates = sorted(
             candidates.values(),

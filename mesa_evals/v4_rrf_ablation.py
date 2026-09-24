@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from mesa_storage.retrieval_scope import (
+    V4_RRF_DEFAULT_K,
+    V4_RRF_LANE_ORDER,
+    V4_RRF_LANE_WEIGHTS,
+    compute_rrf_lane_score,
+    rrf_fuse_lanes,
+)
 
-def rrf_fuse(rankings: list[list[str]], *, k: int = 60) -> list[str]:
+
+def rrf_fuse(rankings: list[list[str]], *, k: int = V4_RRF_DEFAULT_K) -> list[str]:
+    """Compatibility wrapper for unweighted list-of-lists rankings using production RRF math."""
     scores: dict[str, float] = {}
     for ranking in rankings:
         for rank, artifact_id in enumerate(ranking, start=1):
@@ -33,21 +43,26 @@ def _mean_reciprocal_rank(
 def evaluate_lane_ablation(
     corpus: dict[str, dict[str, list[str]]],
     qrels: dict[str, set[str]],
+    *,
+    k: int = V4_RRF_DEFAULT_K,
+    weights: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Compare vector-only with every deterministic RRF lane combination."""
     lane_sets = {
         "vector_only": ("vector",),
         "vector_bm25": ("vector", "bm25"),
         "vector_graph": ("vector", "graph"),
-        "rrf_all": ("vector", "bm25", "graph"),
+        "vector_assertion": ("vector", "assertion"),
+        "rrf_all": ("vector", "bm25", "assertion", "graph"),
     }
     metrics: dict[str, float] = {}
     runs: dict[str, dict[str, list[str]]] = {}
     for name, lanes in lane_sets.items():
-        run = {
-            query_id: rrf_fuse([lane_results.get(lane, []) for lane in lanes])
-            for query_id, lane_results in corpus.items()
-        }
+        run: dict[str, list[str]] = {}
+        for query_id, lane_results in corpus.items():
+            named_lanes = {lane: lane_results.get(lane, []) for lane in lanes}
+            fused = rrf_fuse_lanes(named_lanes, k=k, weights=weights)
+            run[query_id] = [cid for cid, _, _ in fused]
         runs[name] = run
         metrics[name] = _mean_reciprocal_rank(run, qrels)
     return {
