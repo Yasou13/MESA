@@ -140,6 +140,17 @@ async def _ingest_entity_and_assertion(
             ") VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', ?, 'ACTIVE', ?, ?)",
             (a_id, tenant_id, ds_id, s_id, predicate, o_id, confidence, mutation_id, pipe_id),
         )
+        reg_aid = f"reg_vec_{a_id}"
+        await db.execute(
+            "INSERT OR IGNORE INTO artifact_registry (registry_id, tenant_id, agent_id, store_name, artifact_kind, physical_artifact_id, state) "
+            "VALUES (?, ?, ?, 'canonical', 'ASSERTION_VECTOR', ?, 'ACTIVE')",
+            (reg_aid, tenant_id, agent_id, a_id),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO artifact_sources (source_ownership_id, registry_id, mutation_id, dataset_id, state) "
+            "VALUES (?, ?, ?, ?, 'ACTIVE')",
+            (f"src_vec_{a_id}_{mutation_id}", reg_aid, mutation_id, ds_id),
+        )
         await db.commit()
 
     # Project into Kùzu

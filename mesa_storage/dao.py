@@ -5951,7 +5951,9 @@ class MemoryDAO:
                     break
 
         # Real Kùzu Graph V2 Traversal Lane
-        graph_seed_ids: list[str] = []
+        seed_scores: dict[str, float] = {}
+
+        # 1. Legal citation entity seeds (high relevance)
         if legal_citations and allowed_entity_ids:
             legal_entity_names = set(legal_resolver.extract_entities(query))
             for c in legal_citations:
@@ -5971,18 +5973,52 @@ class MemoryDAO:
                     for row in await cursor.fetchall():
                         eid = str(row["entity_id"])
                         nname = str(row["normalized_name"] or "")
-                        if nname in norm_legal_names and eid not in graph_seed_ids:
-                            graph_seed_ids.append(eid)
+                        if nname in norm_legal_names:
+                            seed_scores[eid] = 1.0
 
-        for aid in vector_lane[:5]:
+        # 2. Query text direct entity matches in allowed_entity_ids
+        if allowed_entity_ids:
+            clean_query_norm = _normalize_identity_text(query).strip()
+            async with self._sql.connection() as db:
+                placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
+                async with db.execute(
+                    f"SELECT entity_id, normalized_name FROM v4_entities "
+                    f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
+                    (tenant_id, *allowed_entity_ids),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        eid = str(row["entity_id"])
+                        nname = str(row["normalized_name"] or "")
+                        if nname and (nname in clean_query_norm or clean_query_norm in nname):
+                            seed_scores[eid] = max(seed_scores.get(eid, 0.0), 0.95)
+
+        # 3. Top vector lane assertions: subjects and objects
+        for rank, aid in enumerate(vector_lane[:8], start=1):
             cand_assertion = vector_assertions.get(aid)
             if cand_assertion:
-                seed_cand = str(cand_assertion["subject_id"])
-                if seed_cand in allowed_entity_ids and seed_cand not in graph_seed_ids:
-                    graph_seed_ids.append(seed_cand)
-        for seed_cand in lexical_lane[:2]:
-            if seed_cand in allowed_entity_ids and seed_cand not in graph_seed_ids:
-                graph_seed_ids.append(seed_cand)
+                s_id = str(cand_assertion.get("subject_id") or "")
+                o_id = str(cand_assertion.get("object_entity_id") or "")
+                v_rel = max(0.4, 0.9 - 0.05 * rank)
+                if s_id in allowed_entity_ids:
+                    seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), v_rel)
+                if o_id in allowed_entity_ids:
+                    seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), v_rel * 0.9)
+
+        # 4. Top lexical lane assertions and entities
+        for rank, hit_id in enumerate(lexical_lane[:8], start=1):
+            l_rel = max(0.35, 0.85 - 0.05 * rank)
+            if hit_id in lexical_assertions:
+                ass = lexical_assertions[hit_id]
+                s_id = str(ass.get("subject_id") or "")
+                o_id = str(ass.get("object_entity_id") or "")
+                if s_id in allowed_entity_ids:
+                    seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), l_rel)
+                if o_id in allowed_entity_ids:
+                    seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), l_rel * 0.9)
+            elif hit_id in allowed_entity_ids:
+                seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
+
+        graph_seed_ids = sorted(seed_scores.keys(), key=lambda sid: -seed_scores[sid])
 
         graph_lane: list[str] = []
         graph_path_assertion_ids: set[str] = set()
@@ -6005,6 +6041,8 @@ class MemoryDAO:
                     allowed_assertion_ids=allowed_graph_assertion_ids,
                     max_hops=3,
                     limit=min(500, max(limit * 10, 50)),
+                    query=query,
+                    seed_scores=seed_scores,
                 )
                 for hit in graph_hits:
                     cand_id = str(hit.get("entity_id") or "")
