@@ -5340,6 +5340,8 @@ class MemoryDAO:
             return []
 
         vector_lane: list[str] = []
+        vector_raw_distances: dict[str, float] = {}
+        vector_assertions: dict[str, dict[str, Any]] = {}
         if self._vec is not None:
             try:
                 query_vector = await self._vec.compute_query_embedding(query)
@@ -5349,14 +5351,19 @@ class MemoryDAO:
                     allowed_node_ids=allowed_vector_ids,
                     limit=min(500, max(limit * 10, 50)),
                 )
-                ranked_assertion_ids = scope_vector_result_ids(
-                    vector_rows, allowed_ids=allowed_vector_ids
-                )
+                seen_vec: set[str] = set()
+                ranked_assertion_ids: list[str] = []
+                for row in vector_rows:
+                    node_id = str(row.get("node_id", ""))
+                    if node_id in allowed_vector_ids and node_id not in seen_vec:
+                        ranked_assertion_ids.append(node_id)
+                        seen_vec.add(node_id)
+                        vector_raw_distances[node_id] = float(row.get("_distance", 0.0))
                 if ranked_assertion_ids:
                     vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
                     async with self._sql.connection() as db:
                         async with db.execute(
-                            "SELECT assertion_id, subject_id, object_entity_id FROM v4_assertions "
+                            "SELECT * FROM v4_assertions "
                             f"WHERE assertion_id IN ({vector_placeholders})",
                             ranked_assertion_ids,
                         ) as cursor:
@@ -5368,16 +5375,11 @@ class MemoryDAO:
                         assertion = vector_assertions.get(assertion_id)
                         if assertion is None:
                             continue
-                        for entity_id in (
-                            assertion["subject_id"],
-                            assertion.get("object_entity_id"),
+                        if (
+                            str(assertion["subject_id"]) in allowed_entity_ids
+                            and assertion_id not in vector_lane
                         ):
-                            if (
-                                entity_id
-                                and entity_id in allowed_entity_ids
-                                and entity_id not in vector_lane
-                            ):
-                                vector_lane.append(str(entity_id))
+                            vector_lane.append(assertion_id)
             except SemanticRuntimeDisabledError:
                 vector_lane = []
 
@@ -5459,7 +5461,7 @@ class MemoryDAO:
             assertion_params.extend(provenance_params)
 
         assertion_query = (
-            "SELECT a.subject_id, a.object_entity_id FROM v4_assertions a "
+            "SELECT a.* FROM v4_assertions a "
             "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
             "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
             f"WHERE {' AND '.join(assertion_filters)} "
@@ -5469,26 +5471,27 @@ class MemoryDAO:
             async with db.execute(
                 assertion_query, (*assertion_params, limit)
             ) as cursor:
-                assertion_rows = await cursor.fetchall()
+                assertion_rows = [dict(row) for row in await cursor.fetchall()]
         assertion_lane: list[str] = []
-        for assertion_row in assertion_rows:
-            for candidate in (
-                assertion_row["subject_id"],
-                assertion_row["object_entity_id"],
+        assertion_records: dict[str, dict[str, Any]] = {}
+        for a_row in assertion_rows:
+            aid = str(a_row["assertion_id"])
+            if (
+                str(a_row["subject_id"]) in allowed_entity_ids
+                and aid not in assertion_lane
             ):
-                if (
-                    candidate
-                    and candidate in allowed_entity_ids
-                    and candidate not in assertion_lane
-                ):
-                    assertion_lane.append(str(candidate))
+                assertion_lane.append(aid)
+                assertion_records[aid] = a_row
 
         # Real Kùzu Graph V2 Traversal Lane
         graph_seed_ids: list[str] = []
-        for seed_cand in (
-            *vector_lane[:5],
-            *lexical_lane[:2],
-        ):
+        for aid in vector_lane[:5]:
+            cand_assertion = vector_assertions.get(aid)
+            if cand_assertion:
+                seed_cand = str(cand_assertion["subject_id"])
+                if seed_cand in allowed_entity_ids and seed_cand not in graph_seed_ids:
+                    graph_seed_ids.append(seed_cand)
+        for seed_cand in lexical_lane[:2]:
             if seed_cand in allowed_entity_ids and seed_cand not in graph_seed_ids:
                 graph_seed_ids.append(seed_cand)
 
@@ -5560,77 +5563,217 @@ class MemoryDAO:
                 )
                 raise
 
-        ranks: dict[str, float] = {}
-        lanes = {
-            "vector": vector_lane,
-            "bm25": lexical_lane,
-            "assertion": assertion_lane,
-            "graph": graph_lane,
+        # Internal candidate aggregation and fusion
+        candidates: dict[str, dict[str, Any]] = {}
+
+        def _get_or_create_cand(
+            cand_id: str,
+            *,
+            entity_id: str,
+            assertion_id: str | None = None,
+            assertion: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            if cand_id not in candidates:
+                candidates[cand_id] = {
+                    "candidate_id": cand_id,
+                    "assertion_id": assertion_id,
+                    "entity_id": entity_id,
+                    "assertion": assertion,
+                    "source_chunk_id": (
+                        str(assertion.get("chunk_id") or "") if assertion else None
+                    ),
+                    "document_id": (
+                        str(assertion.get("document_id") or "") if assertion else None
+                    ),
+                    "evidence_span": (
+                        str(assertion.get("evidence_span") or "") if assertion else None
+                    ),
+                    "origins": set(),
+                    "lane_ranks": {},
+                    "raw_scores": {},
+                    "supporting_evidence_ids": [],
+                    "rrf_score": 0.0,
+                    "legal_factor": 1.0,
+                    "materialized_provenance": [],
+                }
+            return candidates[cand_id]
+
+        w_vec = V4_RRF_LANE_WEIGHTS.get("vector", 10.0)
+        for rank, aid in enumerate(vector_lane, start=1):
+            ass = vector_assertions[aid]
+            cand = _get_or_create_cand(
+                aid,
+                entity_id=str(ass["subject_id"]),
+                assertion_id=aid,
+                assertion=ass,
+            )
+            cand["origins"].add("vector")
+            cand["lane_ranks"]["vector"] = rank
+            if aid in vector_raw_distances:
+                cand["raw_scores"]["vector"] = vector_raw_distances[aid]
+            cand["rrf_score"] += w_vec / (60 + rank)
+
+        w_ass = V4_RRF_LANE_WEIGHTS.get("assertion", 1.0)
+        for rank, aid in enumerate(assertion_lane, start=1):
+            ass = assertion_records[aid]
+            cand = _get_or_create_cand(
+                aid,
+                entity_id=str(ass["subject_id"]),
+                assertion_id=aid,
+                assertion=ass,
+            )
+            cand["origins"].add("assertion")
+            cand["lane_ranks"]["assertion"] = rank
+            if "confidence" in ass:
+                cand["raw_scores"]["assertion"] = float(ass["confidence"])
+            cand["rrf_score"] += w_ass / (60 + rank)
+
+        w_bm25 = V4_RRF_LANE_WEIGHTS.get("bm25", 1.0)
+        for rank, eid in enumerate(lexical_lane, start=1):
+            matched_cands = [c for c in candidates.values() if c["entity_id"] == eid]
+            if matched_cands:
+                for c in matched_cands:
+                    c["origins"].add("bm25")
+                    c["lane_ranks"]["bm25"] = rank
+                    c["rrf_score"] += w_bm25 / (60 + rank)
+            else:
+                cand = _get_or_create_cand(
+                    f"entity:{eid}",
+                    entity_id=eid,
+                    assertion_id=None,
+                    assertion=None,
+                )
+                cand["origins"].add("bm25")
+                cand["lane_ranks"]["bm25"] = rank
+                cand["rrf_score"] += w_bm25 / (60 + rank)
+
+        w_graph = V4_RRF_LANE_WEIGHTS.get("graph", 2.0)
+        for rank, cand_id in enumerate(graph_lane, start=1):
+            hit_ev = graph_evidence_by_entity.get(cand_id, {})
+            p_aids = hit_ev.get("graph_path_assertion_ids", [])
+            matched_cands = [c for c in candidates.values() if c["entity_id"] == cand_id]
+            if matched_cands:
+                for c in matched_cands:
+                    c["origins"].add("graph")
+                    c["lane_ranks"]["graph"] = rank
+                    c["rrf_score"] += w_graph / (60 + rank)
+                    c["supporting_evidence_ids"].extend(p_aids)
+            else:
+                cand = _get_or_create_cand(
+                    f"entity:{cand_id}",
+                    entity_id=cand_id,
+                    assertion_id=None,
+                    assertion=None,
+                )
+                cand["origins"].add("graph")
+                cand["lane_ranks"]["graph"] = rank
+                cand["rrf_score"] += w_graph / (60 + rank)
+                cand["supporting_evidence_ids"].extend(p_aids)
+
+        if not candidates:
+            return []
+
+        authority_factor = {
+            "OFFICIAL": 1.15,
+            "PRIMARY": 1.10,
+            "SUPREME_COURT": 1.15,
+            "SECONDARY": 0.95,
         }
-        for lane_name in V4_RRF_LANE_ORDER:
-            lane = lanes.get(lane_name, [])
-            w = V4_RRF_LANE_WEIGHTS.get(lane_name, 1.0)
-            for rank, entity_id in enumerate(lane, start=1):
-                ranks[entity_id] = ranks.get(entity_id, 0.0) + w / (60 + rank)
-        if not ranks:
-            return []
-        entity_ids = sorted(set(ranks).intersection(allowed_entity_ids))
-        if not entity_ids:
-            return []
-        entity_placeholders = ",".join("?" for _ in entity_ids)
+        for cand in candidates.values():
+            ass = cand["assertion"]
+            if ass is not None:
+                factor = authority_factor.get(
+                    str(ass.get("authority_level") or "").upper(), 1.0
+                )
+                confidence = max(0.75, min(1.0, float(ass.get("confidence", 1.0))))
+                cand["legal_factor"] = max(0.75, min(1.25, factor * confidence))
+            else:
+                cand["legal_factor"] = 1.0
 
-        graph_assertion_filter = ""
-        graph_assertion_params: list[Any] = []
-        if graph_path_assertion_ids:
-            graph_placeholders = ",".join("?" for _ in graph_path_assertion_ids)
-            graph_assertion_filter = f"OR a.assertion_id IN ({graph_placeholders}) "
-            graph_assertion_params = list(graph_path_assertion_ids)
+        ordered_candidates = sorted(
+            candidates.values(),
+            key=lambda c: (-(c["rrf_score"] * c["legal_factor"]), c["candidate_id"]),
+        )[:limit]
 
-        provenance_query = (
-            "SELECT a.* FROM v4_assertions a "
-            f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
-            f"AND {assertion_status_sql} AND (a.subject_id IN ({entity_placeholders}) "
-            f"OR a.object_entity_id IN ({entity_placeholders}) {graph_assertion_filter}) "
-            "AND EXISTS (SELECT 1 FROM memory_mutations m "
-            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
-            "AND m.state = 'COMMITTED') "
-            + (
-                "AND " + " AND ".join(provenance_filters) + " "
-                if provenance_filters
-                else ""
-            )
-            + "ORDER BY a.confidence DESC, a.assertion_id"
+        needed_entity_ids = sorted(
+            {c["entity_id"] for c in ordered_candidates if c["entity_id"] in allowed_entity_ids}
         )
+        entities: dict[str, dict[str, Any]] = {}
+        if needed_entity_ids:
+            entity_placeholders = ",".join("?" for _ in needed_entity_ids)
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    f"SELECT * FROM v4_entities WHERE tenant_id = ? "
+                    f"AND status = 'ACTIVE' AND entity_id IN ({entity_placeholders})",
+                    (tenant_id, *needed_entity_ids),
+                ) as cursor:
+                    entities = {
+                        str(row["entity_id"]): dict(row) for row in await cursor.fetchall()
+                    }
+
+        # Materialize assertions only for the ordered candidates
+        extra_assertion_ids: set[str] = set()
+        for cand in ordered_candidates:
+            if cand["assertion"] is None:
+                for p_aid in cand["supporting_evidence_ids"]:
+                    extra_assertion_ids.add(p_aid)
+
+        extra_assertions: dict[str, dict[str, Any]] = {}
+        if extra_assertion_ids:
+            extra_placeholders = ",".join("?" for _ in extra_assertion_ids)
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    f"SELECT * FROM v4_assertions WHERE assertion_id IN ({extra_placeholders})",
+                    list(extra_assertion_ids),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        extra_assertions[str(row["assertion_id"])] = dict(row)
+
+        entity_fallback_assertions: dict[str, list[dict[str, Any]]] = {}
+        entities_needing_assertions = [
+            cand["entity_id"]
+            for cand in ordered_candidates
+            if cand["assertion"] is None and not cand["supporting_evidence_ids"]
+        ]
+        if entities_needing_assertions:
+            async with self._sql.connection() as db:
+                for eid in entities_needing_assertions:
+                    async with db.execute(
+                        f"SELECT a.* FROM v4_assertions a WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
+                        f"AND {assertion_status_sql} AND (a.subject_id = ? OR a.object_entity_id = ?) "
+                        + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "") + " "
+                        "ORDER BY a.confidence DESC, a.assertion_id LIMIT 5",
+                        (tenant_id, *datasets, eid, eid, *provenance_params),
+                    ) as cursor:
+                        entity_fallback_assertions[eid] = [
+                            dict(row) for row in await cursor.fetchall()
+                        ]
+
+        all_materialized_assertions: list[dict[str, Any]] = []
+        for cand in ordered_candidates:
+            if cand["assertion"] is not None:
+                cand["materialized_provenance"] = [dict(cand["assertion"])]
+            elif cand["supporting_evidence_ids"]:
+                cand["materialized_provenance"] = [
+                    dict(extra_assertions[p_aid])
+                    for p_aid in cand["supporting_evidence_ids"]
+                    if p_aid in extra_assertions
+                ]
+            elif cand["entity_id"] in entity_fallback_assertions:
+                cand["materialized_provenance"] = [
+                    dict(a) for a in entity_fallback_assertions[cand["entity_id"]]
+                ]
+            all_materialized_assertions.extend(cand["materialized_provenance"])
+
+        mutation_ids = sorted(
+            {
+                str(a["mutation_id"])
+                for a in all_materialized_assertions
+                if a.get("mutation_id")
+            }
+        )
+        metadata_by_mutation: dict[str, dict[str, Any]] = {}
         async with self._sql.connection() as db:
-            async with db.execute(
-                f"SELECT * FROM v4_entities WHERE tenant_id = ? "
-                f"AND status = 'ACTIVE' AND entity_id IN ({entity_placeholders})",
-                (tenant_id, *entity_ids),
-            ) as cursor:
-                entities = {
-                    str(row["entity_id"]): dict(row) for row in await cursor.fetchall()
-                }
-            async with db.execute(
-                provenance_query,
-                (
-                    tenant_id,
-                    *datasets,
-                    *entity_ids,
-                    *entity_ids,
-                    *graph_assertion_params,
-                    agent_id,
-                    *provenance_params,
-                ),
-            ) as cursor:
-                provenance = [dict(row) for row in await cursor.fetchall()]
-            mutation_ids = sorted(
-                {
-                    str(assertion["mutation_id"])
-                    for assertion in provenance
-                    if assertion.get("mutation_id")
-                }
-            )
-            metadata_by_mutation: dict[str, dict[str, Any]] = {}
             if mutation_ids:
                 mutation_placeholders = ",".join("?" for _ in mutation_ids)
                 async with db.execute(
@@ -5649,7 +5792,7 @@ class MemoryDAO:
                                 for key, value in metadata.items()
                                 if not str(key).startswith("_mesa_")
                             }
-            for assertion in provenance:
+            for assertion in all_materialized_assertions:
                 metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
                 if metadata:
                     assertion["metadata"] = metadata
@@ -5667,85 +5810,55 @@ class MemoryDAO:
                             kind=kind,
                             physical_id=str(physical_id),
                         )
-        by_entity: dict[str, list[dict[str, Any]]] = {
-            item: [] for item in entity_ids if item in entities
-        }
-        authority_factor = {
-            "OFFICIAL": 1.15,
-            "PRIMARY": 1.10,
-            "SUPREME_COURT": 1.15,
-            "SECONDARY": 0.95,
-        }
-        legal_factor: dict[str, float] = {
-            item: 1.0 for item in entity_ids if item in entities
-        }
-        for assertion in provenance:
-            for raw_entity_id in (
-                assertion["subject_id"],
-                assertion.get("object_entity_id"),
-            ):
-                if raw_entity_id is None:
-                    continue
-                entity_id = str(raw_entity_id)
-                if entity_id not in by_entity:
-                    continue
-                by_entity[entity_id].append(assertion)
-                factor = authority_factor.get(
-                    str(assertion.get("authority_level") or "").upper(),
-                    1.0,
-                )
-                confidence = max(0.75, min(1.0, float(assertion["confidence"])))
-                legal_factor[entity_id] = max(
-                    legal_factor[entity_id],
-                    max(0.75, min(1.25, factor * confidence)),
-                )
-        eligible_entity_ids = [
-            entity_id
-            for entity_id, supporting_assertions in by_entity.items()
-            if supporting_assertions
-        ]
-        ordered = [
-            item
-            for item in sorted(
-                eligible_entity_ids,
-                key=lambda item: (-(ranks[item] * legal_factor[item]), item),
-            )
-        ][:limit]
+
+        for cand in ordered_candidates:
+            if cand["materialized_provenance"]:
+                first_prov = cand["materialized_provenance"][0]
+                cand["source_chunk_id"] = first_prov.get("chunk_id")
+                if not cand["document_id"]:
+                    cand["document_id"] = first_prov.get("document_id")
+                if not cand["evidence_span"]:
+                    cand["evidence_span"] = first_prov.get("evidence_span")
+
         results: list[dict[str, Any]] = []
-        provenance_by_id = {
-            str(assertion["assertion_id"]): assertion for assertion in provenance
-        }
-        for entity_id in ordered:
+        for cand in ordered_candidates:
+            eid = cand["entity_id"]
             retrieval_provenance: dict[str, Any] = {
-                "origins": [
-                    lane_name
-                    for lane_name in V4_RRF_LANE_ORDER
-                    if entity_id in lanes[lane_name]
-                ]
+                "origins": sorted(cand["origins"]),
+                "lane_ranks": cand["lane_ranks"],
+                "raw_scores": cand["raw_scores"],
             }
-            if entity_id in graph_evidence_by_entity:
-                retrieval_provenance.update(graph_evidence_by_entity[entity_id])
-            entity_provenance = list(by_entity[entity_id])
-            included_assertion_ids = {
-                str(assertion["assertion_id"]) for assertion in entity_provenance
-            }
-            for assertion_id in retrieval_provenance.get(
-                "graph_path_assertion_ids", []
-            ):
-                path_assertion = provenance_by_id.get(str(assertion_id))
-                if (
-                    path_assertion is not None
-                    and str(assertion_id) not in included_assertion_ids
-                ):
-                    entity_provenance.append(path_assertion)
-                    included_assertion_ids.add(str(assertion_id))
+            if cand["assertion_id"]:
+                retrieval_provenance["assertion_id"] = cand["assertion_id"]
+            if cand["source_chunk_id"]:
+                retrieval_provenance["source_chunk_id"] = cand["source_chunk_id"]
+            if eid in graph_evidence_by_entity:
+                retrieval_provenance.update(graph_evidence_by_entity[eid])
+            elif cand["supporting_evidence_ids"]:
+                retrieval_provenance["graph_path_assertion_ids"] = cand["supporting_evidence_ids"]
+
+            cand_prov = cand["materialized_provenance"]
+            if not cand_prov:
+                continue
             results.append(
                 {
-                    "entity": entities[entity_id],
-                    "rrf_score": ranks[entity_id],
-                    "legal_factor": legal_factor[entity_id],
-                    "final_score": ranks[entity_id] * legal_factor[entity_id],
-                    "provenance": entity_provenance,
+                    "entity": entities.get(eid, {}),
+                    "candidate_id": cand["candidate_id"],
+                    "evidence_id": cand["candidate_id"],
+                    "assertion_id": cand["assertion_id"],
+                    "source_chunk_id": cand["source_chunk_id"],
+                    "document_id": cand["document_id"],
+                    "evidence_span": cand["evidence_span"],
+                    "raw_score": (
+                        cand["raw_scores"].get("vector")
+                        if "vector" in cand["raw_scores"]
+                        else cand["raw_scores"].get("assertion")
+                    ),
+                    "rrf_score": cand["rrf_score"],
+                    "legal_factor": cand["legal_factor"],
+                    "final_score": cand["rrf_score"] * cand["legal_factor"],
+                    "provenance": cand_prov,
+                    "matched_assertions": cand_prov,
                     "retrieval_provenance": retrieval_provenance,
                 }
             )
