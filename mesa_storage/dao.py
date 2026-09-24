@@ -321,6 +321,86 @@ def _normalize_ontology_uri(value: str) -> str:
     return raw
 
 
+_DATE_REGEX = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?|\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{4})$"
+)
+_ARTICLE_REF_REGEX = re.compile(
+    r"\b(?:m\.|md\.|madde|fıkra|bent)\s*\d+", re.IGNORECASE
+)
+_LEGAL_STATUTES = {
+    "TBK", "TMK", "TCK", "TTK", "HMK", "CMK", "İYUK", "VUK", "İİK", "ANAYASA", "KVKK"
+}
+
+
+def classify_graph_object(
+    *,
+    tail: str | None,
+    literal_value: str | None,
+    object_type: str | None = None,
+) -> tuple[str | None, str | None, str]:
+    """Classify graph object into (tail_entity_name, literal_value, resolved_type).
+
+    Supported types:
+    - ENTITY: Concise named entity (creates graph node).
+    - LITERAL: Primitive value, number, description, or unstructured phrase.
+    - LEGAL_REFERENCE: Reference to a statute, code, or treaty.
+    - ARTICLE_REFERENCE: Reference to a specific legal article.
+    - DATE: ISO date or temporal expression.
+    """
+    raw_type = (object_type or "").strip().upper()
+    if raw_type:
+        if raw_type in ("LITERAL", "TEXT", "STRING", "NUMBER"):
+            val = literal_value if literal_value is not None else tail
+            return (None, val, "LITERAL")
+        if raw_type in ("DATE", "TEMPORAL", "TIME", "DATETIME"):
+            val = literal_value if literal_value is not None else tail
+            return (None, val, "DATE")
+        if raw_type == "ARTICLE_REFERENCE":
+            val = tail if tail is not None else literal_value
+            return (val, None, "ARTICLE_REFERENCE")
+        if raw_type in ("LEGAL_REFERENCE", "STATUTE_REFERENCE"):
+            val = tail if tail is not None else literal_value
+            return (val, None, "LEGAL_REFERENCE")
+        if raw_type == "ENTITY":
+            val = tail if tail is not None else literal_value
+            return (val, None, "ENTITY")
+
+    # Inferred classification
+    if literal_value is not None and tail is None:
+        if _DATE_REGEX.match(literal_value.strip()):
+            return (None, literal_value, "DATE")
+        return (None, literal_value, "LITERAL")
+
+    if tail is not None and literal_value is None:
+        cleaned_tail = tail.strip()
+        # 1. Date/temporal detection
+        if _DATE_REGEX.match(cleaned_tail):
+            return (None, cleaned_tail, "DATE")
+
+        # 2. Long phrase detection: prevent auto-entity node explosion
+        words = cleaned_tail.split()
+        has_clause_punctuation = any(p in cleaned_tail for p in (";", "\n", "\t"))
+        has_sentence_period = "." in cleaned_tail and not bool(
+            re.search(r"\b[a-zA-ZçğıöşüÇĞİÖŞÜ]+\.\d+", cleaned_tail)
+        )
+        if len(cleaned_tail) > 60 or len(words) > 6 or has_clause_punctuation or has_sentence_period:
+            return (None, cleaned_tail, "LITERAL")
+
+        # 3. Article reference detection
+        if _ARTICLE_REF_REGEX.search(cleaned_tail):
+            return (cleaned_tail, None, "ARTICLE_REFERENCE")
+
+        # 4. Legal reference detection
+        norm_upper = cleaned_tail.upper()
+        if norm_upper in _LEGAL_STATUTES or any(norm_upper.startswith(f"{s} ") for s in _LEGAL_STATUTES):
+            return (cleaned_tail, None, "LEGAL_REFERENCE")
+
+        # 5. Concise named entity
+        return (cleaned_tail, None, "ENTITY")
+
+    return (tail, literal_value, "ENTITY" if tail else "LITERAL")
+
+
 # ---------------------------------------------------------------------------
 # Core DAO
 # ---------------------------------------------------------------------------
@@ -4927,11 +5007,19 @@ class MemoryDAO:
         _assert_valid_agent_id(agent_id)
         tenant_id = str(mutation["tenant_id"])
         head = str(triplet["head"])
-        tail = str(triplet["tail"]) if triplet.get("tail") is not None else None
-        literal_value = (
+        raw_tail = str(triplet["tail"]) if triplet.get("tail") is not None else None
+        raw_literal = (
             str(triplet["literal_value"])
             if triplet.get("literal_value") is not None
             else None
+        )
+        explicit_type = (
+            str(triplet.get("object_type") or triplet.get("tail_type") or "")
+            if (triplet.get("object_type") or triplet.get("tail_type"))
+            else None
+        )
+        tail, literal_value, object_type = classify_graph_object(
+            tail=raw_tail, literal_value=raw_literal, object_type=explicit_type
         )
         if (tail is None) == (literal_value is None):
             raise ValueError("assertion requires one entity or literal object")
