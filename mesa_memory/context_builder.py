@@ -95,12 +95,12 @@ class ContextBuilder:
             )
 
         memory_records: list[dict[str, Any]] = []
-        for item in canonical_memories:
-            entity = item.get("entity", {})
+        for idx, item in enumerate(canonical_memories):
+            entity = item.get("entity", {}) if isinstance(item.get("entity"), dict) else {}
             name = str(entity.get("canonical_name", ""))
             provenance = item.get("provenance", [])
             facts: list[dict[str, Any]] = []
-            if provenance:
+            if provenance and isinstance(provenance, list):
                 for p in provenance:
                     predicate = str(p.get("predicate", "") or "")
                     val = p.get("literal_value")
@@ -155,6 +155,7 @@ class ContextBuilder:
                     "type": "canonical_memory",
                     "entity": name,
                     "facts": facts,
+                    "_raw_index": idx,
                 }
             )
 
@@ -164,6 +165,7 @@ class ContextBuilder:
                 "type": m["type"],
                 "entity": m["entity"],
                 "facts": list(m["facts"]),
+                "_raw_index": m["_raw_index"],
             }
             for m in memory_records
         ]
@@ -193,7 +195,6 @@ class ContextBuilder:
             if not pruned_fact:
                 cur_memories.pop()
 
-            cur_memories = [m for m in cur_memories if m["facts"]]
             formatted_context = _render_context(cur_sessions, cur_memories)
             actual_tokens = _count_tokens(formatted_context)
 
@@ -205,24 +206,21 @@ class ContextBuilder:
             cur_sessions = []
 
         # Construct authoritative model_visible_memories strictly matching formatted_context
-        retained_entities = {m["entity"] for m in cur_memories}
+        retained_indices = {m["_raw_index"]: m for m in cur_memories}
         model_visible_memories: list[dict[str, Any]] = []
-        for raw_mem in canonical_memories:
-            ent_name = raw_mem.get("entity", {}).get("canonical_name", "")
-            if ent_name in retained_entities:
-                matching_cur = next(
-                    (m for m in cur_memories if m["entity"] == ent_name), None
-                )
-                if matching_cur and matching_cur.get("facts"):
+        for idx, raw_mem in enumerate(canonical_memories):
+            if idx in retained_indices:
+                matching_cur = retained_indices[idx]
+                visible_item = dict(raw_mem)
+                if matching_cur.get("facts"):
                     retained_preds = {f["predicate"] for f in matching_cur["facts"]}
-                    filtered_prov = [
-                        p
-                        for p in raw_mem.get("provenance", [])
-                        if (p.get("predicate", "") or "") in retained_preds
-                    ]
-                    visible_item = dict(raw_mem)
-                    visible_item["provenance"] = filtered_prov
-                    model_visible_memories.append(visible_item)
+                    if "provenance" in visible_item and isinstance(visible_item["provenance"], list):
+                        visible_item["provenance"] = [
+                            p
+                            for p in raw_mem.get("provenance", [])
+                            if (p.get("predicate", "") or "") in retained_preds
+                        ]
+                model_visible_memories.append(visible_item)
 
         return {
             "formatted_context": formatted_context,

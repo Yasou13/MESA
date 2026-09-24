@@ -48,21 +48,36 @@ def evaluate_lane_ablation(
     weights: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Compare vector-only with every deterministic RRF lane combination."""
-    lane_sets = {
-        "vector_only": ("vector",),
-        "vector_bm25": ("vector", "bm25"),
-        "vector_graph": ("vector", "graph"),
-        "vector_assertion": ("vector", "assertion"),
-        "rrf_all": ("vector", "bm25", "assertion", "graph"),
-    }
+    has_assertion = any("assertion" in lane_map for lane_map in corpus.values())
+    if has_assertion:
+        lane_sets = {
+            "vector_only": ("vector",),
+            "vector_bm25": ("vector", "bm25"),
+            "vector_graph": ("vector", "graph"),
+            "vector_assertion": ("vector", "assertion"),
+            "rrf_all": ("vector", "bm25", "assertion", "graph"),
+        }
+    else:
+        lane_sets = {
+            "vector_only": ("vector",),
+            "vector_bm25": ("vector", "bm25"),
+            "vector_graph": ("vector", "graph"),
+            "rrf_all": ("vector", "bm25", "graph"),
+        }
     metrics: dict[str, float] = {}
     runs: dict[str, dict[str, list[str]]] = {}
     for name, lanes in lane_sets.items():
-        run: dict[str, list[str]] = {}
-        for query_id, lane_results in corpus.items():
-            named_lanes = {lane: lane_results.get(lane, []) for lane in lanes}
-            fused = rrf_fuse_lanes(named_lanes, k=k, weights=weights)
-            run[query_id] = [cid for cid, _, _ in fused]
+        if weights is not None:
+            run: dict[str, list[str]] = {}
+            for query_id, lane_results in corpus.items():
+                named_lanes = {lane: lane_results.get(lane, []) for lane in lanes}
+                fused = rrf_fuse_lanes(named_lanes, k=k, weights=weights)
+                run[query_id] = [cid for cid, _, _ in fused]
+        else:
+            run = {
+                query_id: rrf_fuse([lane_results.get(lane, []) for lane in lanes], k=k)
+                for query_id, lane_results in corpus.items()
+            }
         runs[name] = run
         metrics[name] = _mean_reciprocal_rank(run, qrels)
     return {
