@@ -12,7 +12,7 @@ TRUST_HEADER = untrusted_memory.TRUST_HEADER
 TAG_OPEN = untrusted_memory.TAG_OPEN
 TAG_CLOSE = untrusted_memory.TAG_CLOSE
 render_untrusted_memory = untrusted_memory.render_untrusted_memory
-MAX_EVIDENCE_SPAN_CHARS = 200
+MAX_EVIDENCE_SPAN_CHARS = 2000
 
 
 def _count_tokens(text: str) -> int:
@@ -54,6 +54,7 @@ class ContextBuilder:
         valid_from: str | None = None,
         valid_to: str | None = None,
         include_provenance: bool = True,
+        max_evidence_span_chars: int = MAX_EVIDENCE_SPAN_CHARS,
     ) -> dict[str, Any]:
         """Construct context combining current-session logs and long-term canonical truth."""
         if token_budget < 1:
@@ -104,11 +105,24 @@ class ContextBuilder:
                     predicate = str(p.get("predicate", "") or "")
                     val = p.get("literal_value")
                     if val is None:
-                        val = p.get("object_name") or p.get("object_entity_id") or ""
+                        obj_name = p.get("object_name")
+                        obj_id = p.get("object_entity_id")
+                        if obj_name:
+                            val = obj_name
+                        elif obj_id:
+                            # Avoid leaking opaque internal UUIDs into model-visible context
+                            if str(obj_id).startswith(("e_", "ent_", "ast_")) or len(str(obj_id)) > 24:
+                                val = p.get("predicate", "related_entity")
+                            else:
+                                val = str(obj_id)
+                        else:
+                            val = ""
                     val_str = str(val)
+                    direction = str(p.get("direction") or "forward")
                     fact_dict: dict[str, Any] = {
                         "predicate": predicate,
                         "value": val_str,
+                        "direction": direction,
                     }
                     if include_provenance:
                         source_ref = p.get("source_ref")
@@ -126,7 +140,7 @@ class ContextBuilder:
                         evidence_span = p.get("evidence_span")
                         if evidence_span:
                             fact_dict["evidence_span"] = str(evidence_span)[
-                                :MAX_EVIDENCE_SPAN_CHARS
+                                :max_evidence_span_chars
                             ]
                         jurisdiction = p.get("jurisdiction")
                         if jurisdiction:
@@ -144,23 +158,42 @@ class ContextBuilder:
                 }
             )
 
-        # 4. Enforce hard token budget via actual tokenizer counting and ranking-aware trimming
-        cur_memories = list(memory_records)
+        # 4. Enforce hard token budget via actual tokenizer counting and granular fact trimming
+        cur_memories = [
+            {
+                "type": m["type"],
+                "entity": m["entity"],
+                "facts": list(m["facts"]),
+            }
+            for m in memory_records
+        ]
         cur_sessions = list(session_records)
 
         formatted_context = _render_context(cur_sessions, cur_memories)
         actual_tokens = _count_tokens(formatted_context)
 
-        # Current-session chatter yields budget first so it cannot evict all
-        # ranked long-term evidence. Records are always removed from the end,
-        # preserving retrieval order within each source.
+        # Current-session chatter yields budget first
         while actual_tokens > token_budget and cur_sessions:
             cur_sessions.pop()
             formatted_context = _render_context(cur_sessions, cur_memories)
             actual_tokens = _count_tokens(formatted_context)
 
+        # Fine-grained fact/evidence-level trimming:
+        # Prevent any single large entity from crowding out others.
         while actual_tokens > token_budget and cur_memories:
-            cur_memories.pop()
+            # Check if any memory has > 1 fact; if so, prune the lowest-priority fact from the end
+            pruned_fact = False
+            for mem in reversed(cur_memories):
+                if len(mem["facts"]) > 1:
+                    mem["facts"].pop()
+                    pruned_fact = True
+                    break
+
+            # If all remaining memories have at most 1 fact, prune the lowest-ranked memory entity
+            if not pruned_fact:
+                cur_memories.pop()
+
+            cur_memories = [m for m in cur_memories if m["facts"]]
             formatted_context = _render_context(cur_sessions, cur_memories)
             actual_tokens = _count_tokens(formatted_context)
 
@@ -168,11 +201,35 @@ class ContextBuilder:
         if actual_tokens > token_budget:
             formatted_context = ""
             actual_tokens = 0
+            cur_memories = []
+            cur_sessions = []
+
+        # Construct authoritative model_visible_memories strictly matching formatted_context
+        retained_entities = {m["entity"] for m in cur_memories}
+        model_visible_memories: list[dict[str, Any]] = []
+        for raw_mem in canonical_memories:
+            ent_name = raw_mem.get("entity", {}).get("canonical_name", "")
+            if ent_name in retained_entities:
+                matching_cur = next(
+                    (m for m in cur_memories if m["entity"] == ent_name), None
+                )
+                if matching_cur and matching_cur.get("facts"):
+                    retained_preds = {f["predicate"] for f in matching_cur["facts"]}
+                    filtered_prov = [
+                        p
+                        for p in raw_mem.get("provenance", [])
+                        if (p.get("predicate", "") or "") in retained_preds
+                    ]
+                    visible_item = dict(raw_mem)
+                    visible_item["provenance"] = filtered_prov
+                    model_visible_memories.append(visible_item)
 
         return {
             "formatted_context": formatted_context,
-            "session_logs": session_logs,
-            "canonical_memories": canonical_memories,
+            "session_logs": cur_sessions,
+            "canonical_memories": model_visible_memories,
+            "model_visible_memories": model_visible_memories,
+            "_debug_raw_retrieval": canonical_memories,
             "token_budget": token_budget,
             "estimated_token_count": actual_tokens,
             "actual_token_count": actual_tokens,
