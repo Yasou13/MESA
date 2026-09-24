@@ -4526,31 +4526,77 @@ class MemoryDAO:
         self, *, mutation: dict[str, Any], assertion: dict[str, Any]
     ) -> str:
         """Embed canonical assertion text for supported V4 memory retrieval."""
-        subject = str(assertion["head"])
-        predicate = str(assertion["predicate"])
+        subject = str(assertion.get("head") or "").strip()
+        predicate = str(assertion.get("predicate") or "").strip()
         object_value = (
-            str(assertion["tail"])
+            str(assertion["tail"]).strip()
             if assertion.get("tail") is not None
-            else str(assertion["literal_value"])
+            else str(assertion.get("literal_value") or "").strip()
         )
         chunk_text = str(
             mutation.get("text") or mutation.get("content_payload") or ""
         ).strip()
         evidence_span = str(assertion.get("evidence_span") or "").strip()
-        if chunk_text:
-            payload_text = chunk_text[:2000]
-        elif evidence_span:
-            parts = [
-                p
-                for p in (subject, predicate, object_value)
-                if p and not p.startswith("mesa-")
-            ]
-            if parts:
-                payload_text = f"{' '.join(parts)}: {evidence_span}"
+        fact_text = str(assertion.get("fact_text") or "").strip()
+
+        # If fact_text is not directly on assertion, look in mutation projection_triplets
+        if not fact_text:
+            triplets = mutation.get("projection_triplets")
+            if isinstance(triplets, list):
+                for t in triplets:
+                    if not isinstance(t, dict):
+                        continue
+                    if (
+                        str(t.get("head") or "").strip() == subject
+                        and str(t.get("relation") or "").strip() == predicate
+                        and (
+                            (t.get("tail") is not None and str(t.get("tail")).strip() == object_value)
+                            or (t.get("literal_value") is not None and str(t.get("literal_value")).strip() == object_value)
+                            or (t.get("tail") is None and t.get("literal_value") is None)
+                        )
+                    ):
+                        if t.get("fact_text"):
+                            fact_text = str(t["fact_text"]).strip()
+                        if not evidence_span and t.get("source_span"):
+                            evidence_span = str(t["source_span"]).strip()
+                        if fact_text:
+                            break
+
+        # Architecture B: Build specific assertion semantic payload
+        parts = [
+            p
+            for p in (subject, predicate, object_value)
+            if p and not p.startswith("mesa-")
+        ]
+        prefix = " ".join(parts)
+
+        # Combine fact_text and evidence_span
+        semantic_body = ""
+        if fact_text and evidence_span:
+            if fact_text.lower() == evidence_span.lower() or evidence_span.lower() in fact_text.lower():
+                semantic_body = fact_text
+            elif fact_text.lower() in evidence_span.lower():
+                semantic_body = evidence_span
             else:
-                payload_text = evidence_span
+                semantic_body = f"{fact_text} (Kanıt: {evidence_span})"
+        elif fact_text:
+            semantic_body = fact_text
+        elif evidence_span:
+            semantic_body = evidence_span
+
+        if semantic_body:
+            if prefix and prefix.lower() not in semantic_body.lower():
+                payload_text = f"{prefix}: {semantic_body}"
+            else:
+                payload_text = semantic_body
+        elif prefix:
+            payload_text = prefix
         else:
-            payload_text = f"{subject} {predicate} {object_value}"
+            payload_text = chunk_text[:2000]
+
+        if len(payload_text) > 4000:
+            payload_text = payload_text[:4000]
+
         return await self._project_v4_vector_payload(
             mutation=mutation,
             vector_id=str(assertion["assertion_id"]),
@@ -5073,16 +5119,33 @@ class MemoryDAO:
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT a.*, subject.canonical_name AS head, "
-                "object_entity.canonical_name AS tail "
+                "object_entity.canonical_name AS tail, "
+                "reg.metadata_json AS artifact_meta "
                 "FROM v4_assertions a "
                 "JOIN v4_entities subject ON subject.entity_id = a.subject_id "
                 "LEFT JOIN v4_entities object_entity "
                 "ON object_entity.entity_id = a.object_entity_id "
+                "LEFT JOIN artifact_registry reg "
+                "ON reg.tenant_id = a.tenant_id "
+                "AND reg.physical_artifact_id = a.assertion_id "
+                "AND reg.store_name = 'SQL' "
+                "AND reg.artifact_kind = 'ASSERTION' "
                 "WHERE a.mutation_id = ? AND a.status IN ('ACTIVE', 'SUPERSEDED') "
                 "ORDER BY a.assertion_id",
                 (mutation_id,),
             ) as cursor:
-                assertions = [dict(row) for row in await cursor.fetchall()]
+                raw_assertions = [dict(row) for row in await cursor.fetchall()]
+            assertions = []
+            for row in raw_assertions:
+                meta_raw = row.pop("artifact_meta", None)
+                if meta_raw:
+                    try:
+                        meta = json.loads(meta_raw)
+                        if isinstance(meta, dict) and meta.get("fact_text"):
+                            row["fact_text"] = meta["fact_text"]
+                    except Exception:
+                        pass
+                assertions.append(row)
             for a_item in assertions:
                 async with db.execute(
                     "SELECT target_assertion_id FROM v4_assertion_links "
