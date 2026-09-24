@@ -291,6 +291,13 @@ def _normalize_identity_text(value: str) -> str:
     return _WHITESPACE_RE.sub(" ", cleaned.strip()).casefold()
 
 
+def _escape_like_pattern(value: str) -> str:
+    """Escape % and _ wildcards and backslash for SQLite LIKE ? ESCAPE '\\'."""
+    if not value:
+        return ""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _normalize_ontology_uri(value: str) -> str:
     """Normalize URI scheme/host without changing a case-sensitive path."""
     raw = unicodedata.normalize("NFKC", value).strip()
@@ -5652,7 +5659,7 @@ class MemoryDAO:
                             if eid in allowed_entity_ids and eid not in lexical_lane:
                                 lexical_lane.append(eid)
 
-        like_query = f"%{_normalize_identity_text(query)}%"
+        # Assertion Lane Redesign (Phase 5)
         assertion_filters = [
             "a.tenant_id = ?",
             f"a.dataset_id IN ({placeholders})",
@@ -5666,58 +5673,157 @@ class MemoryDAO:
             *datasets,
             agent_id,
         ]
-        if legal_citations:
-            statute_or_clauses = [
-                "s.normalized_name LIKE ?",
-                "o.normalized_name LIKE ?",
-                "lower(a.predicate) LIKE ?",
-            ]
-            statute_params = [like_query, like_query, like_query]
-            for c in legal_citations:
-                statute_or_clauses.append("s.normalized_name LIKE ?")
-                statute_params.append(f"%{_normalize_identity_text(c.statute_code)}%")
-                statute_or_clauses.append("s.normalized_name LIKE ?")
-                statute_params.append(f"%{_normalize_identity_text(c.statute_canonical)}%")
-                if c.article:
-                    statute_or_clauses.append("a.literal_value LIKE ?")
-                    statute_params.append(f"%{c.article}%")
-                    statute_or_clauses.append("a.evidence_span LIKE ?")
-                    statute_params.append(f"%{c.article}%")
-            assertion_filters.append(f"({' OR '.join(statute_or_clauses)})")
-            assertion_params.extend(statute_params)
-        else:
-            assertion_filters.append(
-                "(s.normalized_name LIKE ? OR o.normalized_name LIKE ? "
-                "OR lower(a.predicate) LIKE ?)"
+
+        # Multi-signal token and citation clauses for assertion lane
+        or_clauses: list[str] = []
+        or_params: list[Any] = []
+
+        tokens_to_match = content_tokens if content_tokens else raw_tokens
+        for token in tokens_to_match[:8]:
+            esc_token = f"%{_escape_like_pattern(token)}%"
+            or_clauses.append(
+                "(s.normalized_name LIKE ? ESCAPE '\\' OR o.normalized_name LIKE ? ESCAPE '\\' "
+                "OR lower(a.predicate) LIKE ? ESCAPE '\\' OR a.literal_value LIKE ? ESCAPE '\\' "
+                "OR a.evidence_span LIKE ? ESCAPE '\\')"
             )
-            assertion_params.extend([like_query, like_query, like_query])
+            or_params.extend([esc_token, esc_token, esc_token, esc_token, esc_token])
+
+        if legal_citations:
+            for c in legal_citations:
+                c_statute = _escape_like_pattern(_normalize_identity_text(c.statute_code))
+                c_canonical = _escape_like_pattern(_normalize_identity_text(c.statute_canonical))
+                or_clauses.append(
+                    "(s.normalized_name LIKE ? ESCAPE '\\' OR o.normalized_name LIKE ? ESCAPE '\\')"
+                )
+                or_params.extend([f"%{c_statute}%", f"%{c_canonical}%"])
+                if c.article:
+                    c_art = _escape_like_pattern(str(c.article))
+                    or_clauses.append(
+                        "(a.literal_value LIKE ? ESCAPE '\\' OR a.evidence_span LIKE ? ESCAPE '\\' "
+                        "OR s.normalized_name LIKE ? ESCAPE '\\')"
+                    )
+                    or_params.extend([f"%{c_art}%", f"%{c_art}%", f"%{c_art}%"])
+
+        if or_clauses:
+            assertion_filters.append(f"({' OR '.join(or_clauses)})")
+            assertion_params.extend(or_params)
 
         if provenance_filters:
             assertion_filters.extend(provenance_filters)
             assertion_params.extend(provenance_params)
 
         assertion_query = (
-            "SELECT a.* FROM v4_assertions a "
+            "SELECT a.*, s.normalized_name AS subject_name, o.normalized_name AS object_name "
+            "FROM v4_assertions a "
             "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
             "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
             f"WHERE {' AND '.join(assertion_filters)} "
             "ORDER BY a.confidence DESC, a.assertion_id LIMIT ?"
         )
+        fetch_limit = min(500, max(limit * 10, 50))
         async with self._sql.connection() as db:
             async with db.execute(
-                assertion_query, (*assertion_params, limit)
+                assertion_query, (*assertion_params, fetch_limit)
             ) as cursor:
                 assertion_rows = [dict(row) for row in await cursor.fetchall()]
-        assertion_lane: list[str] = []
-        assertion_records: dict[str, dict[str, Any]] = {}
+
+        # Composite multi-signal scoring for assertion candidates
+        query_norm = _normalize_identity_text(query)
+        scored_assertions: list[tuple[float, str, dict[str, Any]]] = []
+
         for a_row in assertion_rows:
             aid = str(a_row["assertion_id"])
-            if (
-                str(a_row["subject_id"]) in allowed_entity_ids
-                and aid not in assertion_lane
-            ):
+            if str(a_row["subject_id"]) not in allowed_entity_ids:
+                continue
+
+            score = 0.0
+            pred_raw = str(a_row.get("predicate") or "").lower()
+            pred_norm = _normalize_identity_text(pred_raw)
+            s_name_norm = _normalize_identity_text(str(a_row.get("subject_name") or ""))
+            o_name_norm = _normalize_identity_text(str(a_row.get("object_name") or ""))
+            lit_norm = _normalize_identity_text(str(a_row.get("literal_value") or ""))
+            ev_norm = _normalize_identity_text(str(a_row.get("evidence_span") or ""))
+            combined_text = f"{pred_norm} {s_name_norm} {o_name_norm} {lit_norm} {ev_norm}"
+
+            # 1. Predicate Match
+            if pred_norm and pred_norm in query_norm:
+                score += 50.0
+            elif any(t in pred_norm or pred_norm in t for t in tokens_to_match if len(t) >= 3):
+                score += 35.0
+
+            # 2. Subject Match
+            if any(t in s_name_norm for t in tokens_to_match if len(t) >= 2):
+                score += 25.0
+
+            # 3. Object / Literal Match
+            if any(t in o_name_norm or t in lit_norm for t in tokens_to_match if len(t) >= 2):
+                score += 25.0
+
+            # 4. Evidence Match
+            if any(t in ev_norm for t in tokens_to_match if len(t) >= 2):
+                score += 15.0
+
+            # 5. Token Coverage Bonus
+            if tokens_to_match:
+                match_count = sum(1 for t in tokens_to_match if t in combined_text)
+                coverage = match_count / len(tokens_to_match)
+                score += coverage * 40.0
+
+            # 6. Legal Citation Alignment & Collision Disambiguation
+            if legal_citations:
+                for c in legal_citations:
+                    statute_norm = _normalize_identity_text(c.statute_code)
+                    statute_aliases_norm = [_normalize_identity_text(al) for al in c.aliases]
+                    has_statute = (
+                        statute_norm in s_name_norm
+                        or statute_norm in ev_norm
+                        or any(al in s_name_norm or al in ev_norm for al in statute_aliases_norm)
+                    )
+                    has_art = bool(
+                        c.article
+                        and (
+                            f"m.{c.article}" in combined_text
+                            or f"madde {c.article}" in combined_text
+                            or f" {c.article} " in f" {combined_text} "
+                            or f" {c.article}." in combined_text
+                            or c.article in lit_norm
+                        )
+                    )
+                    if has_statute and has_art:
+                        score += 150.0
+                    elif has_statute:
+                        score += 40.0
+                    elif has_art:
+                        score += 10.0
+
+                competing_laws = legal_resolver.laws - target_statutes
+                for comp_law in competing_laws:
+                    comp_info = legal_resolver.ontology.get(comp_law)
+                    if comp_info:
+                        comp_terms = [comp_law, comp_info.get("canonical", ""), *comp_info.get("aliases", [])]
+                        if any(_normalize_identity_text(t) in combined_text for t in comp_terms if t):
+                            score -= 150.0
+                            break
+
+            # 7. Confidence Scaling
+            confidence = float(a_row.get("confidence") or 1.0)
+            score *= max(0.5, min(1.0, confidence))
+            score = max(score, float(a_row.get("confidence") or 0.1))
+
+            scored_assertions.append((score, aid, a_row))
+
+        scored_assertions.sort(key=lambda x: (-x[0], -float(x[2].get("confidence") or 0.0), str(x[1])))
+
+        assertion_lane: list[str] = []
+        assertion_records: dict[str, dict[str, Any]] = {}
+        assertion_scores: dict[str, float] = {}
+        for score, aid, a_row in scored_assertions:
+            if aid not in assertion_lane:
                 assertion_lane.append(aid)
                 assertion_records[aid] = a_row
+                assertion_scores[aid] = score
+                if len(assertion_lane) >= limit:
+                    break
 
         # Real Kùzu Graph V2 Traversal Lane
         graph_seed_ids: list[str] = []
@@ -5882,8 +5988,9 @@ class MemoryDAO:
             )
             cand["origins"].add("assertion")
             cand["lane_ranks"]["assertion"] = rank
-            if "confidence" in ass:
-                cand["raw_scores"]["assertion"] = float(ass["confidence"])
+            cand["raw_scores"]["assertion"] = assertion_scores.get(
+                aid, float(ass.get("confidence", 1.0))
+            )
             cand["rrf_score"] += w_ass / (60 + rank)
 
         w_bm25 = V4_RRF_LANE_WEIGHTS.get("bm25", 1.0)
