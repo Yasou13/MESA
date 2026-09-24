@@ -5398,6 +5398,32 @@ class MemoryDAO:
         legal_citations = legal_resolver.extract_citations(query)
         target_statutes = {c.statute_code for c in legal_citations}
 
+        historical_query = bool(valid_at or valid_from or valid_to)
+        assertion_status_sql = (
+            "a.status IN ('ACTIVE', 'SUPERSEDED')"
+            if historical_query
+            else "a.status = 'ACTIVE'"
+        )
+        provenance_filters: list[str] = []
+        provenance_params: list[Any] = []
+        if jurisdiction:
+            provenance_filters.append("a.jurisdiction = ?")
+            provenance_params.append(jurisdiction)
+        if valid_at:
+            provenance_filters.extend(
+                (
+                    "(a.valid_from = '' OR a.valid_from <= ?)",
+                    "(a.valid_to = '' OR a.valid_to >= ?)",
+                )
+            )
+            provenance_params.extend((valid_at, valid_at))
+        if valid_from:
+            provenance_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
+            provenance_params.append(valid_from)
+        if valid_to:
+            provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
+            provenance_params.append(valid_to)
+
         async with self._sql.connection() as db:
             datasets = sorted(
                 {
@@ -5426,19 +5452,48 @@ class MemoryDAO:
                 (tenant_id, *datasets, agent_id),
             ) as cursor:
                 artifact_rows = await cursor.fetchall()
-        allowed_entity_ids = {
+
+            # Pre-filter in-scope assertions before rank contribution in ANY lane
+            in_scope_assertion_query = (
+                "SELECT a.assertion_id, a.subject_id, a.object_entity_id FROM v4_assertions a "
+                f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
+                f"AND {assertion_status_sql} "
+                "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? AND m.state = 'COMMITTED') "
+                + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "")
+            )
+            async with db.execute(
+                in_scope_assertion_query,
+                (tenant_id, *datasets, agent_id, *provenance_params),
+            ) as cursor:
+                in_scope_assertion_rows = await cursor.fetchall()
+
+        raw_allowed_entity_ids = {
             str(row[1]) for row in artifact_rows if row[0] == "ENTITY"
         }
-        allowed_vector_ids = {
+        allowed_vector_registry_ids = {
             str(row[1]) for row in artifact_rows if row[0] == "ASSERTION_VECTOR"
         }
-        if not allowed_entity_ids:
+        in_scope_assertion_ids = {str(row[0]) for row in in_scope_assertion_rows}
+        in_scope_entity_ids_from_assertions = {
+            str(row[1]) for row in in_scope_assertion_rows if row[1]
+        } | {str(row[2]) for row in in_scope_assertion_rows if row[2]}
+
+        if provenance_filters:
+            allowed_entity_ids = raw_allowed_entity_ids & in_scope_entity_ids_from_assertions
+            if not allowed_entity_ids and not in_scope_assertion_ids:
+                return []
+        else:
+            allowed_entity_ids = raw_allowed_entity_ids
+
+        allowed_vector_ids = allowed_vector_registry_ids & in_scope_assertion_ids
+        if not allowed_entity_ids and not in_scope_assertion_ids:
             return []
 
         vector_lane: list[str] = []
         vector_raw_distances: dict[str, float] = {}
         vector_assertions: dict[str, dict[str, Any]] = {}
-        if self._vec is not None:
+        if self._vec is not None and allowed_vector_ids:
             try:
                 query_vector = await self._vec.compute_query_embedding(query)
                 vector_rows = await self._vec.search(
@@ -5472,38 +5527,13 @@ class MemoryDAO:
                         if assertion is None:
                             continue
                         if (
-                            str(assertion["subject_id"]) in allowed_entity_ids
+                            assertion_id in in_scope_assertion_ids
+                            and str(assertion["subject_id"]) in allowed_entity_ids
                             and assertion_id not in vector_lane
                         ):
                             vector_lane.append(assertion_id)
             except SemanticRuntimeDisabledError:
                 vector_lane = []
-
-        historical_query = bool(valid_at or valid_from or valid_to)
-        assertion_status_sql = (
-            "a.status IN ('ACTIVE', 'SUPERSEDED')"
-            if historical_query
-            else "a.status = 'ACTIVE'"
-        )
-        provenance_filters: list[str] = []
-        provenance_params: list[Any] = []
-        if jurisdiction:
-            provenance_filters.append("a.jurisdiction = ?")
-            provenance_params.append(jurisdiction)
-        if valid_at:
-            provenance_filters.extend(
-                (
-                    "(a.valid_from = '' OR a.valid_from <= ?)",
-                    "(a.valid_to = '' OR a.valid_to >= ?)",
-                )
-            )
-            provenance_params.extend((valid_at, valid_at))
-        if valid_from:
-            provenance_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
-            provenance_params.append(valid_from)
-        if valid_to:
-            provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
-            provenance_params.append(valid_to)
 
         # Phase 4: Structured Query Parsing & Passage/Article Lexical Retrieval
         TURKISH_LEGAL_STOPWORDS = {
@@ -5869,23 +5899,7 @@ class MemoryDAO:
         graph_lane: list[str] = []
         graph_path_assertion_ids: set[str] = set()
         graph_evidence_by_entity: dict[str, dict[str, Any]] = {}
-        graph_scope_query = (
-            "SELECT a.assertion_id FROM v4_assertions a "
-            f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
-            f"AND {assertion_status_sql} "
-            "AND EXISTS (SELECT 1 FROM memory_mutations m "
-            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
-            "AND m.state = 'COMMITTED') "
-            + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "")
-        )
-        async with self._sql.connection() as db:
-            async with db.execute(
-                graph_scope_query,
-                (tenant_id, *datasets, agent_id, *provenance_params),
-            ) as cursor:
-                allowed_graph_assertion_ids = {
-                    str(row[0]) for row in await cursor.fetchall()
-                }
+        allowed_graph_assertion_ids = in_scope_assertion_ids
         graph_provider = self._graph
         if (
             graph_provider is not None
