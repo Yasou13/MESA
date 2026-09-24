@@ -4928,7 +4928,10 @@ class MemoryDAO:
             raise ValueError("assertion requires one entity or literal object")
         relation = str(triplet["relation"])
         evidence_span = str(
-            triplet.get("source_span") or mutation.get("evidence_span") or ""
+            triplet.get("evidence_span")
+            or triplet.get("source_span")
+            or mutation.get("evidence_span")
+            or ""
         )
         mutation_metadata = mutation.get("metadata") or {}
         fact_metadata = triplet.get("metadata") or {}
@@ -5462,32 +5465,194 @@ class MemoryDAO:
             except SemanticRuntimeDisabledError:
                 vector_lane = []
 
-        tokens = re.findall(r"\w+", unicodedata.normalize("NFKC", query))
-        lexical_lane: list[str] = []
-        if tokens:
-            expression = " OR ".join(
-                f'"{token.replace(chr(34), "")}"' for token in tokens
-            )
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    build_v4_lexical_query(dataset_count=len(datasets)),
-                    (
-                        expression,
-                        tenant_id,
-                        agent_id,
-                        *datasets,
-                        min(500, max(limit * 10, 50)),
-                    ),
-                ) as cursor:
-                    lexical_lane = [str(row[0]) for row in await cursor.fetchall()]
-
-        like_query = f"%{_normalize_identity_text(query)}%"
         historical_query = bool(valid_at or valid_from or valid_to)
         assertion_status_sql = (
             "a.status IN ('ACTIVE', 'SUPERSEDED')"
             if historical_query
             else "a.status = 'ACTIVE'"
         )
+        provenance_filters: list[str] = []
+        provenance_params: list[Any] = []
+        if jurisdiction:
+            provenance_filters.append("a.jurisdiction = ?")
+            provenance_params.append(jurisdiction)
+        if valid_at:
+            provenance_filters.extend(
+                (
+                    "(a.valid_from = '' OR a.valid_from <= ?)",
+                    "(a.valid_to = '' OR a.valid_to >= ?)",
+                )
+            )
+            provenance_params.extend((valid_at, valid_at))
+        if valid_from:
+            provenance_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
+            provenance_params.append(valid_from)
+        if valid_to:
+            provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
+            provenance_params.append(valid_to)
+
+        # Phase 4: Structured Query Parsing & Passage/Article Lexical Retrieval
+        TURKISH_LEGAL_STOPWORDS = {
+            "m", "md", "madde", "maddesi", "maddesine", "maddesinde", "fıkra", "fıkrası",
+            "bent", "bendi", "uyarınca", "gereğince", "göre", "ve", "veya", "ile", "için",
+            "olan", "bir", "bu", "şu", "hükmü", "hükmünce", "kapsamında", "ilgili",
+            "nedir", "nelerdir", "hakkında", "tarafından", "sayılı", "kanun", "kanunu",
+        }
+        raw_tokens = re.findall(r"\w+", _normalize_identity_text(query))
+        citation_statutes_norm: set[str] = set()
+        for c in legal_citations:
+            citation_statutes_norm.add(_normalize_identity_text(c.statute_code))
+            citation_statutes_norm.add(_normalize_identity_text(c.statute_canonical))
+            for a in c.aliases:
+                citation_statutes_norm.add(_normalize_identity_text(a))
+        citation_articles = {c.article for c in legal_citations if c.article}
+
+        content_tokens: list[str] = []
+        for t in raw_tokens:
+            if t in TURKISH_LEGAL_STOPWORDS:
+                continue
+            if t in citation_statutes_norm:
+                continue
+            if t in citation_articles:
+                continue
+            if len(t) < 2:
+                continue
+            content_tokens.append(t)
+
+        lexical_lane: list[str] = []
+        lexical_assertions: dict[str, dict[str, Any]] = {}
+
+        # 1. Passage & Article Lexical Retrieval from v4_assertions and source_chunks
+        passage_match_clauses: list[str] = []
+        passage_match_params: list[Any] = []
+
+        if content_tokens:
+            for token in content_tokens:
+                token_like = f"%{token}%"
+                passage_match_clauses.append(
+                    "(a.evidence_span LIKE ? OR a.literal_value LIKE ? OR a.source_ref LIKE ? "
+                    "OR s.normalized_name LIKE ? OR sc.content_payload LIKE ?)"
+                )
+                passage_match_params.extend([token_like, token_like, token_like, token_like, token_like])
+
+        if legal_citations:
+            for c in legal_citations:
+                c_statute = _normalize_identity_text(c.statute_code)
+                passage_match_clauses.append(
+                    "(s.normalized_name LIKE ? OR a.source_ref LIKE ? OR a.document_id LIKE ?)"
+                )
+                passage_match_params.extend([f"%{c_statute}%", f"%{c_statute}%", f"%{c_statute}%"])
+                if c.article:
+                    passage_match_clauses.append(
+                        "(a.literal_value LIKE ? OR a.evidence_span LIKE ? OR a.source_ref LIKE ? "
+                        "OR s.normalized_name LIKE ?)"
+                    )
+                    passage_match_params.extend([f"%{c.article}%", f"%{c.article}%", f"%{c.article}%", f"%{c.article}%"])
+
+        if passage_match_clauses:
+            passage_sql = (
+                "SELECT a.*, sc.content_payload AS chunk_payload FROM v4_assertions a "
+                "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
+                "LEFT JOIN source_chunks sc ON sc.chunk_id = a.chunk_id "
+                f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
+                f"AND {assertion_status_sql} "
+                "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
+                "AND m.state = 'COMMITTED') "
+                + ("AND (" + " OR ".join(passage_match_clauses) + ") ")
+                + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "") + " "
+                "ORDER BY a.confidence DESC LIMIT 200"
+            )
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    passage_sql,
+                    (tenant_id, *datasets, agent_id, *passage_match_params, *provenance_params),
+                ) as cursor:
+                    passage_candidate_rows = [dict(row) for row in await cursor.fetchall()]
+
+            scored_passage_candidates: list[tuple[float, str, dict[str, Any]]] = []
+            for p_row in passage_candidate_rows:
+                aid = str(p_row["assertion_id"])
+                p_text = _normalize_identity_text(
+                    f"{p_row.get('source_ref') or ''} {p_row.get('document_id') or ''} "
+                    f"{p_row.get('literal_value') or ''} {p_row.get('evidence_span') or ''} "
+                    f"{p_row.get('chunk_payload') or ''}"
+                )
+                p_score = 0.0
+
+                matched_tokens = 0
+                for token in content_tokens:
+                    if token in p_text:
+                        matched_tokens += 1
+                        p_score += 10.0 + min(len(token), 10)
+                if content_tokens and matched_tokens == len(content_tokens):
+                    p_score += 50.0
+
+                clean_query = " ".join(content_tokens)
+                if clean_query and clean_query in p_text:
+                    p_score += 100.0
+
+                if legal_citations:
+                    for c in legal_citations:
+                        statute_norm = _normalize_identity_text(c.statute_code)
+                        statute_aliases_norm = [_normalize_identity_text(al) for al in c.aliases]
+                        has_statute = statute_norm in p_text or any(al in p_text for al in statute_aliases_norm)
+                        has_art = bool(
+                            c.article
+                            and (
+                                f"m.{c.article}" in p_text
+                                or f"madde {c.article}" in p_text
+                                or f" {c.article} " in f" {p_text} "
+                                or f" {c.article}." in p_text
+                            )
+                        )
+                        if has_statute and has_art:
+                            p_score += 200.0
+                        elif has_statute:
+                            p_score += 40.0
+                        elif has_art:
+                            p_score += 10.0
+
+                        competing_laws = legal_resolver.laws - target_statutes
+                        for comp_law in competing_laws:
+                            comp_info = legal_resolver.ontology.get(comp_law)
+                            if comp_info:
+                                comp_terms = [comp_law, comp_info.get("canonical", ""), *comp_info.get("aliases", [])]
+                                if any(_normalize_identity_text(t) in p_text for t in comp_terms if t):
+                                    p_score -= 150.0
+                                    break
+
+                scored_passage_candidates.append((p_score, aid, p_row))
+
+            scored_passage_candidates.sort(key=lambda x: -x[0])
+            for score, aid, p_row in scored_passage_candidates:
+                if str(p_row["subject_id"]) in allowed_entity_ids and aid not in lexical_lane:
+                    lexical_lane.append(aid)
+                    lexical_assertions[aid] = p_row
+
+        # 2. Entity FTS5 Retrieval with clean content tokens (anti-pattern fix: no stopwords / OR pollution)
+        fts_tokens = content_tokens if content_tokens else raw_tokens
+        if fts_tokens:
+            clean_fts_tokens = [t.replace('"', "") for t in fts_tokens if len(t) >= 2][:8]
+            if clean_fts_tokens:
+                expression = " OR ".join(f'"{t}"' for t in clean_fts_tokens)
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        build_v4_lexical_query(dataset_count=len(datasets)),
+                        (
+                            expression,
+                            tenant_id,
+                            agent_id,
+                            *datasets,
+                            min(500, max(limit * 10, 50)),
+                        ),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            eid = str(row[0])
+                            if eid in allowed_entity_ids and eid not in lexical_lane:
+                                lexical_lane.append(eid)
+
+        like_query = f"%{_normalize_identity_text(query)}%"
         assertion_filters = [
             "a.tenant_id = ?",
             f"a.dataset_id IN ({placeholders})",
@@ -5526,35 +5691,6 @@ class MemoryDAO:
                 "OR lower(a.predicate) LIKE ?)"
             )
             assertion_params.extend([like_query, like_query, like_query])
-
-        provenance_filters: list[str] = []
-        provenance_params: list[Any] = []
-        if jurisdiction:
-            assertion_filters.append("a.jurisdiction = ?")
-            assertion_params.append(jurisdiction)
-            provenance_filters.append("a.jurisdiction = ?")
-            provenance_params.append(jurisdiction)
-        if valid_at:
-            assertion_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
-            assertion_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
-            assertion_params.extend((valid_at, valid_at))
-            provenance_filters.extend(
-                (
-                    "(a.valid_from = '' OR a.valid_from <= ?)",
-                    "(a.valid_to = '' OR a.valid_to >= ?)",
-                )
-            )
-            provenance_params.extend((valid_at, valid_at))
-        if valid_from:
-            assertion_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
-            assertion_params.append(valid_from)
-            provenance_filters.append("(a.valid_to = '' OR a.valid_to >= ?)")
-            provenance_params.append(valid_from)
-        if valid_to:
-            assertion_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
-            assertion_params.append(valid_to)
-            provenance_filters.append("(a.valid_from = '' OR a.valid_from <= ?)")
-            provenance_params.append(valid_to)
 
         if provenance_filters:
             assertion_filters.extend(provenance_filters)
@@ -5751,23 +5887,40 @@ class MemoryDAO:
             cand["rrf_score"] += w_ass / (60 + rank)
 
         w_bm25 = V4_RRF_LANE_WEIGHTS.get("bm25", 1.0)
-        for rank, eid in enumerate(lexical_lane, start=1):
-            matched_cands = [c for c in candidates.values() if c["entity_id"] == eid]
-            if matched_cands:
-                for c in matched_cands:
-                    c["origins"].add("bm25")
-                    c["lane_ranks"]["bm25"] = rank
-                    c["rrf_score"] += w_bm25 / (60 + rank)
-            else:
-                cand = _get_or_create_cand(
-                    f"entity:{eid}",
-                    entity_id=eid,
-                    assertion_id=None,
-                    assertion=None,
+        for rank, hit_id in enumerate(lexical_lane, start=1):
+            if hit_id in candidates:
+                c = candidates[hit_id]
+                c["origins"].add("bm25")
+                c["lane_ranks"]["bm25"] = rank
+                c["rrf_score"] += w_bm25 / (60 + rank)
+            elif hit_id in lexical_assertions:
+                ass = lexical_assertions[hit_id]
+                c = _get_or_create_cand(
+                    hit_id,
+                    entity_id=str(ass["subject_id"]),
+                    assertion_id=hit_id,
+                    assertion=ass,
                 )
-                cand["origins"].add("bm25")
-                cand["lane_ranks"]["bm25"] = rank
-                cand["rrf_score"] += w_bm25 / (60 + rank)
+                c["origins"].add("bm25")
+                c["lane_ranks"]["bm25"] = rank
+                c["rrf_score"] += w_bm25 / (60 + rank)
+            else:
+                matched_cands = [c for c in candidates.values() if c["entity_id"] == hit_id]
+                if matched_cands:
+                    for c in matched_cands:
+                        c["origins"].add("bm25")
+                        c["lane_ranks"]["bm25"] = rank
+                        c["rrf_score"] += w_bm25 / (60 + rank)
+                else:
+                    cand = _get_or_create_cand(
+                        f"entity:{hit_id}",
+                        entity_id=hit_id,
+                        assertion_id=None,
+                        assertion=None,
+                    )
+                    cand["origins"].add("bm25")
+                    cand["lane_ranks"]["bm25"] = rank
+                    cand["rrf_score"] += w_bm25 / (60 + rank)
 
         w_graph = V4_RRF_LANE_WEIGHTS.get("graph", 2.0)
         for rank, cand_id in enumerate(graph_lane, start=1):
