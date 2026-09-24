@@ -277,8 +277,18 @@ def _assert_valid_agent_id(agent_id: str) -> None:
 
 
 def _normalize_identity_text(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value)
-    return _WHITESPACE_RE.sub(" ", normalized.strip()).casefold()
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFC", value)
+    cleaned = (
+        normalized.replace("İ", "i")
+        .replace("I", "ı")
+        .replace("\u0130", "i")
+        .replace("\u0131", "ı")
+        .replace("i\u0307", "i")
+    )
+    cleaned = unicodedata.normalize("NFKC", cleaned)
+    return _WHITESPACE_RE.sub(" ", cleaned.strip()).casefold()
 
 
 def _normalize_ontology_uri(value: str) -> str:
@@ -5365,6 +5375,12 @@ class MemoryDAO:
             or not 1 <= limit <= 50
         ):
             raise ValueError("invalid v4 search scope")
+
+        from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
+        legal_resolver = LegalEntityResolver()
+        legal_citations = legal_resolver.extract_citations(query)
+        target_statutes = {c.statute_code for c in legal_citations}
+
         async with self._sql.connection() as db:
             datasets = sorted(
                 {
@@ -5479,17 +5495,38 @@ class MemoryDAO:
             "EXISTS (SELECT 1 FROM memory_mutations m "
             "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
             "AND m.state = 'COMMITTED')",
-            "(s.normalized_name LIKE ? OR o.normalized_name LIKE ? "
-            "OR lower(a.predicate) LIKE ?)",
         ]
         assertion_params: list[Any] = [
             tenant_id,
             *datasets,
             agent_id,
-            like_query,
-            like_query,
-            like_query,
         ]
+        if legal_citations:
+            statute_or_clauses = [
+                "s.normalized_name LIKE ?",
+                "o.normalized_name LIKE ?",
+                "lower(a.predicate) LIKE ?",
+            ]
+            statute_params = [like_query, like_query, like_query]
+            for c in legal_citations:
+                statute_or_clauses.append("s.normalized_name LIKE ?")
+                statute_params.append(f"%{_normalize_identity_text(c.statute_code)}%")
+                statute_or_clauses.append("s.normalized_name LIKE ?")
+                statute_params.append(f"%{_normalize_identity_text(c.statute_canonical)}%")
+                if c.article:
+                    statute_or_clauses.append("a.literal_value LIKE ?")
+                    statute_params.append(f"%{c.article}%")
+                    statute_or_clauses.append("a.evidence_span LIKE ?")
+                    statute_params.append(f"%{c.article}%")
+            assertion_filters.append(f"({' OR '.join(statute_or_clauses)})")
+            assertion_params.extend(statute_params)
+        else:
+            assertion_filters.append(
+                "(s.normalized_name LIKE ? OR o.normalized_name LIKE ? "
+                "OR lower(a.predicate) LIKE ?)"
+            )
+            assertion_params.extend([like_query, like_query, like_query])
+
         provenance_filters: list[str] = []
         provenance_params: list[Any] = []
         if jurisdiction:
@@ -5548,6 +5585,28 @@ class MemoryDAO:
 
         # Real Kùzu Graph V2 Traversal Lane
         graph_seed_ids: list[str] = []
+        if legal_citations and allowed_entity_ids:
+            legal_entity_names = set(legal_resolver.extract_entities(query))
+            for c in legal_citations:
+                legal_entity_names.add(c.statute_code)
+                legal_entity_names.add(c.statute_canonical)
+                if c.article:
+                    legal_entity_names.add(f"{c.statute_code} {c.article}")
+                    legal_entity_names.add(f"{c.statute_code} m.{c.article}")
+            norm_legal_names = {_normalize_identity_text(n) for n in legal_entity_names}
+            async with self._sql.connection() as db:
+                placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
+                async with db.execute(
+                    f"SELECT entity_id, normalized_name FROM v4_entities "
+                    f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
+                    (tenant_id, *allowed_entity_ids),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        eid = str(row["entity_id"])
+                        nname = str(row["normalized_name"] or "")
+                        if nname in norm_legal_names and eid not in graph_seed_ids:
+                            graph_seed_ids.append(eid)
+
         for aid in vector_lane[:5]:
             cand_assertion = vector_assertions.get(aid)
             if cand_assertion:
@@ -5742,6 +5801,26 @@ class MemoryDAO:
             "SUPREME_COURT": 1.15,
             "SECONDARY": 0.95,
         }
+        cand_entity_ids = {c["entity_id"] for c in candidates.values() if c.get("entity_id")}
+        for c in candidates.values():
+            ass = c.get("assertion")
+            if ass is not None:
+                if ass.get("subject_id"):
+                    cand_entity_ids.add(str(ass["subject_id"]))
+                if ass.get("object_entity_id"):
+                    cand_entity_ids.add(str(ass["object_entity_id"]))
+        cand_entity_names: dict[str, str] = {}
+        if cand_entity_ids:
+            ce_placeholders = ",".join("?" for _ in cand_entity_ids)
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    f"SELECT entity_id, normalized_name FROM v4_entities "
+                    f"WHERE tenant_id = ? AND entity_id IN ({ce_placeholders})",
+                    (tenant_id, *cand_entity_ids),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        cand_entity_names[str(row["entity_id"])] = str(row["normalized_name"] or "")
+
         for cand in candidates.values():
             ass = cand["assertion"]
             if ass is not None:
@@ -5749,9 +5828,67 @@ class MemoryDAO:
                     str(ass.get("authority_level") or "").upper(), 1.0
                 )
                 confidence = max(0.75, min(1.0, float(ass.get("confidence", 1.0))))
-                cand["legal_factor"] = max(0.75, min(1.25, factor * confidence))
+                base_factor = max(0.75, min(1.25, factor * confidence))
             else:
-                cand["legal_factor"] = 1.0
+                base_factor = 1.0
+
+            if legal_citations:
+                cand_texts: list[str] = []
+                if ass is not None:
+                    cand_texts.extend([
+                        str(ass.get("document_id") or ""),
+                        str(ass.get("source_ref") or ""),
+                        str(ass.get("predicate") or ""),
+                        str(ass.get("literal_value") or ""),
+                        str(ass.get("evidence_span") or ""),
+                    ])
+                    sub_name = cand_entity_names.get(str(ass.get("subject_id") or ""), "")
+                    if sub_name:
+                        cand_texts.append(sub_name)
+                    obj_name = cand_entity_names.get(str(ass.get("object_entity_id") or ""), "")
+                    if obj_name:
+                        cand_texts.append(obj_name)
+                eid = cand.get("entity_id")
+                if eid and eid in cand_entity_names:
+                    cand_texts.append(cand_entity_names[eid])
+
+                cand_combined_norm = _normalize_identity_text(" ".join(cand_texts))
+
+                target_statute_match = False
+                target_article_match = False
+                for c in legal_citations:
+                    statute_terms = [c.statute_code, c.statute_canonical, *c.aliases]
+                    if any(_normalize_identity_text(t) in cand_combined_norm for t in statute_terms if t):
+                        target_statute_match = True
+                        if c.article and (
+                            f"m.{c.article}" in cand_combined_norm
+                            or f"madde {c.article}" in cand_combined_norm
+                            or f" {c.article} " in f" {cand_combined_norm} "
+                            or f" {c.article}." in cand_combined_norm
+                        ):
+                            target_article_match = True
+                            break
+
+                competing_statute_match = False
+                competing_laws = legal_resolver.laws - target_statutes
+                for comp_law in competing_laws:
+                    comp_info = legal_resolver.ontology.get(comp_law)
+                    if comp_info:
+                        comp_terms = [comp_law, comp_info.get("canonical", ""), *comp_info.get("aliases", [])]
+                        if any(_normalize_identity_text(t) in cand_combined_norm for t in comp_terms if t):
+                            competing_statute_match = True
+                            break
+
+                if target_statute_match and target_article_match:
+                    cand["legal_factor"] = base_factor * 1.5
+                elif target_statute_match:
+                    cand["legal_factor"] = base_factor * 1.25
+                elif competing_statute_match and not target_statute_match:
+                    cand["legal_factor"] = base_factor * 0.25
+                else:
+                    cand["legal_factor"] = base_factor
+            else:
+                cand["legal_factor"] = base_factor
 
         ordered_candidates = sorted(
             candidates.values(),
