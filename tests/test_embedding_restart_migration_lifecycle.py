@@ -22,6 +22,7 @@ from mesa_storage.rebuild_cutover import (
 from mesa_storage.rebuild_preparation import OfflineRebuildPreparer
 from mesa_storage.rebuild_replay import ProjectionReplayer
 from mesa_storage.repositories.operations import OperationRepository
+from mesa_storage.representation import V4_VECTOR_REPRESENTATION_VERSION
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -211,6 +212,13 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
     # Rebuild targets the new space while the old ACTIVE generation remains online.
     rebuild_sql = AsyncEngine(str(database))
     await rebuild_sql.initialize()
+    async with rebuild_sql.transaction() as connection:
+        await connection.execute(
+            "UPDATE artifact_registry SET metadata_json = "
+            "json_set(metadata_json, '$.representation_version', 'legacy-v0') "
+            "WHERE store_name = 'VECTOR' AND artifact_kind = 'ASSERTION_VECTOR'"
+        )
+        await connection.commit()
     operations = OperationRepository(rebuild_sql)
     rebuild_generations = ProjectionGenerationRepository(rebuild_sql)
     submitted = await operations.submit(
@@ -271,6 +279,14 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
                 "SELECT COUNT(*) FROM projection_generations WHERE lifecycle_state = 'ACTIVE'"
             )
             assert int((await cursor.fetchone())[0]) == 1
+            cursor = await connection.execute(
+                "SELECT DISTINCT json_extract(metadata_json, '$.representation_version') "
+                "FROM artifact_registry WHERE store_name = 'VECTOR' "
+                "AND artifact_kind = 'ASSERTION_VECTOR' AND state = 'ACTIVE'"
+            )
+            assert {str(row[0]) for row in await cursor.fetchall()} == {
+                V4_VECTOR_REPRESENTATION_VERSION
+            }
     finally:
         await rebuild_sql.close()
 

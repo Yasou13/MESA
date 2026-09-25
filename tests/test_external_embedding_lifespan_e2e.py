@@ -139,7 +139,10 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
         )
         assert results
         assert ("construct", "external-test-model") in calls
-        assert ("document", "MESA uses external embeddings.") in calls
+        document_payloads = [payload for role, payload in calls if role == "document"]
+        assert document_payloads == [
+            "MESA USES external embeddings: MESA uses external embeddings."
+        ]
         assert ("query", "external embedding query") in calls
     for field, value in original_config.items():
         object.__setattr__(config, field, value)

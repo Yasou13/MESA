@@ -545,6 +545,12 @@ class MesaConfig(BaseSettings):
     # score-space weights here because scores from those lanes are not
     # comparable.
     rrf_k: int = Field(60, validation_alias="MESA_RRF_K")
+    rrf_vector_weight: float = Field(1.0, validation_alias="MESA_RRF_VECTOR_WEIGHT")
+    rrf_bm25_weight: float = Field(1.0, validation_alias="MESA_RRF_BM25_WEIGHT")
+    rrf_assertion_weight: float = Field(
+        1.0, validation_alias="MESA_RRF_ASSERTION_WEIGHT"
+    )
+    rrf_graph_weight: float = Field(1.0, validation_alias="MESA_RRF_GRAPH_WEIGHT")
     t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
     cold_start_min_nodes: int = 10
     cold_start_fitness_weight: float = 0.5
@@ -777,6 +783,14 @@ class MesaConfig(BaseSettings):
         self.queue_admission_policy
         if not 1 <= self.rrf_k <= 10_000:
             raise ValueError(f"rrf_k MUST be between 1 and 10000, got {self.rrf_k}")
+        for lane, weight in {
+            "vector": self.rrf_vector_weight,
+            "bm25": self.rrf_bm25_weight,
+            "assertion": self.rrf_assertion_weight,
+            "graph": self.rrf_graph_weight,
+        }.items():
+            if weight <= 0:
+                raise ValueError(f"rrf {lane} weight MUST be positive, got {weight}")
         if not (0.5 < self.t_route < 0.99):
             raise ValueError(
                 f"t_route MUST be strictly between 0.5 and 0.99, got {self.t_route}"

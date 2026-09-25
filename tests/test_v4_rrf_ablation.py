@@ -9,10 +9,10 @@ from mesa_storage.retrieval_scope import V4_RRF_LANE_ORDER, V4_RRF_LANE_WEIGHTS
 def test_v4_rrf_lane_order_is_golden() -> None:
     assert V4_RRF_LANE_ORDER == ("vector", "bm25", "assertion", "graph")
     assert V4_RRF_LANE_WEIGHTS == {
-        "vector": 10.0,
+        "vector": 1.0,
         "bm25": 1.0,
         "assertion": 1.0,
-        "graph": 2.0,
+        "graph": 1.0,
     }
 
 

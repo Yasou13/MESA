@@ -72,6 +72,7 @@ _CREATE_ASSERTION_NODE = (
     "source_ref STRING, evidence_span STRING, jurisdiction STRING, "
     "authority_level STRING, valid_from STRING, valid_to STRING, observed_at STRING, "
     "confidence DOUBLE, status STRING, mutation_id STRING, pipeline_run_id STRING, "
+    "object_type STRING, representation_version STRING, "
     "PRIMARY KEY (id))"
 )
 _CREATE_ASSERTION_SUBJECT = (

@@ -12,11 +12,22 @@ logger = logging.getLogger("MESA_Tracer")
 
 def setup_telemetry_tracing() -> None:
     """Initialize LLM tracing based on environment variables."""
+    # LiteLLM's import path loads a cwd-discovered ``.env`` whenever its mode
+    # is DEV. MESA owns dotenv admission explicitly, so fence the import from
+    # mutating process configuration behind our runtime-profile checks.
+    previous_litellm_mode = os.environ.get("LITELLM_MODE")
+    os.environ["LITELLM_MODE"] = "PRODUCTION"
     try:
-        import litellm
-    except ImportError:
-        logger.warning("litellm is not installed. Tracing integration skipped.")
-        return
+        try:
+            import litellm
+        except ImportError:
+            logger.warning("litellm is not installed. Tracing integration skipped.")
+            return
+    finally:
+        if previous_litellm_mode is None:
+            os.environ.pop("LITELLM_MODE", None)
+        else:
+            os.environ["LITELLM_MODE"] = previous_litellm_mode
 
     callbacks: List[str] = []
 

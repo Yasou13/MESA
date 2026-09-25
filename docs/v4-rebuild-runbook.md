@@ -134,8 +134,9 @@ writer-lock korumalı ve açık operator onayı isteyen tek seferlik metadata
 adoption işlemidir. Var olan herhangi bir provider/model/version/dimension
 değeri assertion ile çelişirse transaction bütünüyle geri alınır. Bu kanıt
 yoksa adoption yapmayın; release `NO-GO` kalır ve sonraki full raw-source
-rebuild iş paketini bekleyin. `mesa-v4-rebuild run` canonical SQLite'ı hiçbir
-zaman değiştirmez.
+rebuild iş paketini bekleyin. `mesa-v4-rebuild run`, aşağıda açıklanan doğrulanmış
+assertion-vector representation işareti dışında canonical içerik kayıtlarını
+değiştirmez.
 
 Bir rebuild denemesi başladıysa adoption canonical manifest'i değiştirebileceği
 için aynı backup/checkpoint ile resume güvenli değildir ve komut fail-closed
@@ -161,6 +162,26 @@ mesa-v4-rebuild run \
 operation lease, backlog, path/symlink, disk, checksummed backup, source
 manifest, provider provenance, deterministic vector/graph replay, parity ve
 cutover kontrollerini yürütür.
+
+### Assertion-vector representation geçişi
+
+Alembic yükseltmesi mevcut `ASSERTION_VECTOR` kayıtlarını açıkça `legacy-v0`
+olarak işaretler. Runtime, yalnız `assertion-semantic-v1` representation
+sürümüne sahip vector kayıtlarını semantic lane'e kabul eder; eksik, bozuk veya
+karma sürümlü metadata fail-closed davranır. Yeni ingestion/reprojection aynı
+fiziksel assertion ID'sini upsert eder ve hem receipt hem registry metadata'sını
+güncel sürümle değiştirir.
+
+Mevcut corpus için desteklenen reindex yolu tam, offline
+`mesa-v4-rebuild run` akışıdır. Replay kaynağı yalnız canonical SQL assertion
+alanlarıdır ve payload subject + predicate + object + tam evidence span'dan
+deterministik olarak yeniden üretilir; entity/chunk vector'ları assertion
+kanıtı gibi taşınmaz. Eski aktif generation çalışırken `legacy-v0` kayıtları
+semantic lane'e katılmaz. Registry'deki representation sürümü ancak parity,
+atomic cutover ve post-cutover health/smoke doğrulaması başarılı olduktan sonra
+`assertion-semantic-v1` yapılır. Başarısız veya yarım staging generation bu
+işareti ilerletemez; aynı operation'ın crash-resume akışı işareti idempotent
+olarak yeniden yayımlar.
 
 Exit code'lar:
 

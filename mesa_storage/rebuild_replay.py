@@ -102,6 +102,8 @@ class GraphReplayTarget(Protocol):
         confidence: float = 1.0,
         pipeline_run_id: str = "",
         status: str = "ACTIVE",
+        object_type: str = "LEGACY",
+        representation_version: str = "legacy-v0",
     ) -> None: ...
 
     async def link_assertions(
@@ -131,20 +133,14 @@ _ACTIVE_OWNERSHIP = (
 _VECTOR_QUERY = f"""
     SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
            a.assertion_id AS assertion_id,
-           subject.canonical_name || ' ' || a.predicate || ' ' ||
-           COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
-    FROM artifact_registry r
-    JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
-                        AND a.tenant_id = r.tenant_id
-    JOIN v4_entities subject ON subject.entity_id = a.subject_id
-    LEFT JOIN v4_entities object_entity ON object_entity.entity_id = a.object_entity_id
-    WHERE {_ACTIVE_OWNERSHIP}
-      AND r.store_name = 'SQL' AND r.artifact_kind = 'ASSERTION'
-    UNION
-    SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
-           r.physical_artifact_id AS assertion_id,
-           subject.canonical_name || ' ' || a.predicate || ' ' ||
-           COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
+           CASE WHEN trim(a.evidence_span) != '' THEN
+             trim(subject.canonical_name || ' ' || a.predicate || ' ' ||
+                  COALESCE(object_entity.canonical_name, a.literal_value, '')) ||
+             ': ' || trim(a.evidence_span)
+           ELSE
+             trim(subject.canonical_name || ' ' || a.predicate || ' ' ||
+                  COALESCE(object_entity.canonical_name, a.literal_value, ''))
+           END AS payload_text
     FROM artifact_registry r
     JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
                         AND a.tenant_id = r.tenant_id
@@ -152,15 +148,6 @@ _VECTOR_QUERY = f"""
     LEFT JOIN v4_entities object_entity ON object_entity.entity_id = a.object_entity_id
     WHERE {_ACTIVE_OWNERSHIP}
       AND r.store_name = 'VECTOR' AND r.artifact_kind = 'ASSERTION_VECTOR'
-    UNION
-    SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
-           r.physical_artifact_id AS assertion_id,
-           entity.canonical_name AS payload_text
-    FROM artifact_registry r
-    JOIN v4_entities entity ON entity.entity_id = r.physical_artifact_id
-                           AND entity.tenant_id = r.tenant_id
-    WHERE {_ACTIVE_OWNERSHIP}
-      AND r.store_name = 'VECTOR' AND r.artifact_kind = 'ENTITY_VECTOR'
     ORDER BY tenant_id, agent_id, assertion_id
 """
 _GRAPH_ENTITY_QUERY = f"""
@@ -178,7 +165,7 @@ _GRAPH_ASSERTION_QUERY = f"""
            a.object_entity_id, a.literal_value, a.predicate, a.mutation_id,
            a.source_ref, a.evidence_span, a.jurisdiction, a.authority_level,
            a.valid_from, a.valid_to, a.observed_at, a.confidence,
-           a.pipeline_run_id, a.status
+           a.pipeline_run_id, a.status, a.object_type, a.representation_version
     FROM artifact_registry r
     JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
                         AND a.tenant_id = r.tenant_id
@@ -732,6 +719,8 @@ class ProjectionReplayer:
                     confidence=float(row["confidence"]),
                     pipeline_run_id=str(row["pipeline_run_id"]),
                     status=str(row["status"]),
+                    object_type=str(row["object_type"]),
+                    representation_version=str(row["representation_version"]),
                 )
         elif lane == "graph_link":
             for row in rows:

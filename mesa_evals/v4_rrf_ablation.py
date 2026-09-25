@@ -4,16 +4,26 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from mesa_storage.retrieval_scope import (
+    V4_RRF_DEFAULT_K,
+    rrf_fuse_lanes,
+)
 
-def rrf_fuse(rankings: list[list[str]], *, k: int = 60) -> list[str]:
-    scores: dict[str, float] = {}
-    for ranking in rankings:
-        for rank, artifact_id in enumerate(ranking, start=1):
-            scores[artifact_id] = scores.get(artifact_id, 0.0) + 1.0 / (k + rank)
-    return sorted(scores, key=lambda item: (-scores[item], item))
+
+def rrf_fuse(rankings: list[list[str]], *, k: int = V4_RRF_DEFAULT_K) -> list[str]:
+    """Compatibility wrapper for unweighted list-of-lists rankings using production RRF math."""
+    named_rankings = {
+        f"lane-{index}": ranking for index, ranking in enumerate(rankings)
+    }
+    weights = {lane: 1.0 for lane in named_rankings}
+    return [
+        candidate_id
+        for candidate_id, _, _ in rrf_fuse_lanes(named_rankings, k=k, weights=weights)
+    ]
 
 
 def _mean_reciprocal_rank(
@@ -33,21 +43,41 @@ def _mean_reciprocal_rank(
 def evaluate_lane_ablation(
     corpus: dict[str, dict[str, list[str]]],
     qrels: dict[str, set[str]],
+    *,
+    k: int = V4_RRF_DEFAULT_K,
+    weights: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Compare vector-only with every deterministic RRF lane combination."""
-    lane_sets = {
-        "vector_only": ("vector",),
-        "vector_bm25": ("vector", "bm25"),
-        "vector_graph": ("vector", "graph"),
-        "rrf_all": ("vector", "bm25", "graph"),
-    }
+    has_assertion = any("assertion" in lane_map for lane_map in corpus.values())
+    if has_assertion:
+        lane_sets = {
+            "vector_only": ("vector",),
+            "vector_bm25": ("vector", "bm25"),
+            "vector_graph": ("vector", "graph"),
+            "vector_assertion": ("vector", "assertion"),
+            "rrf_all": ("vector", "bm25", "assertion", "graph"),
+        }
+    else:
+        lane_sets = {
+            "vector_only": ("vector",),
+            "vector_bm25": ("vector", "bm25"),
+            "vector_graph": ("vector", "graph"),
+            "rrf_all": ("vector", "bm25", "graph"),
+        }
     metrics: dict[str, float] = {}
     runs: dict[str, dict[str, list[str]]] = {}
     for name, lanes in lane_sets.items():
-        run = {
-            query_id: rrf_fuse([lane_results.get(lane, []) for lane in lanes])
-            for query_id, lane_results in corpus.items()
-        }
+        if weights is not None:
+            run: dict[str, list[str]] = {}
+            for query_id, lane_results in corpus.items():
+                named_lanes = {lane: lane_results.get(lane, []) for lane in lanes}
+                fused = rrf_fuse_lanes(named_lanes, k=k, weights=weights)
+                run[query_id] = [cid for cid, _, _ in fused]
+        else:
+            run = {
+                query_id: rrf_fuse([lane_results.get(lane, []) for lane in lanes], k=k)
+                for query_id, lane_results in corpus.items()
+            }
         runs[name] = run
         metrics[name] = _mean_reciprocal_rank(run, qrels)
     return {

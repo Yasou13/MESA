@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mesa_storage.dao import MemoryDAO
+from mesa_storage.dao import V4_VECTOR_REPRESENTATION_VERSION, MemoryDAO
 from mesa_storage.vector_engine import (
     EmbeddingMigrationRequiredError,
     SemanticRuntimeDisabledError,
@@ -34,8 +34,24 @@ class _Connection:
         if "artifact_registry" in query:
             return _Cursor(
                 [
-                    ("ENTITY", "entity-1"),
-                    ("ASSERTION_VECTOR", "assertion-1"),
+                    ("ENTITY", "subject-1", "{}"),
+                    (
+                        "ASSERTION_VECTOR",
+                        "assertion-1",
+                        '{"representation_version":"'
+                        + V4_VECTOR_REPRESENTATION_VERSION
+                        + '"}',
+                    ),
+                ]
+            )
+        if "SELECT a.* FROM v4_assertions a" in query:
+            return _Cursor(
+                [
+                    {
+                        "assertion_id": "assertion-1",
+                        "subject_id": "subject-1",
+                        "object_entity_id": None,
+                    }
                 ]
             )
         return _Cursor([])

@@ -397,6 +397,7 @@ class TestDockerfile:
             "COPY --from=ghcr.io/astral-sh/uv:0.9.6@sha256:"
             "4b96ee9429583983fd172c33a02ecac5242d63fb46bc27804748e38c1cc9ad0d"
         ) in content
+        assert "apt-get upgrade -y --no-install-recommends" in content
         assert "HF_HUB_OFFLINE=1" in content
         assert "TRANSFORMERS_OFFLINE=1" in content
         assert "HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0" in content

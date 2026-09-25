@@ -131,7 +131,7 @@ def _seed_canonical_source(database: Path) -> None:
         "'pipeline-1')"
     )
     artifacts = (
-        ("vector-1", "VECTOR", "ENTITY_VECTOR", "entity-1"),
+        ("vector-1", "VECTOR", "ASSERTION_VECTOR", "assertion-1"),
         ("graph-e1", "GRAPH", "ENTITY", "entity-1"),
         ("graph-a1", "GRAPH", "ASSERTION", "assertion-1"),
     )

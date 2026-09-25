@@ -382,6 +382,13 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             runtime.profile is RuntimeProfile.COMBINED and runtime.model_enabled
         ),
         secondary_writes_enabled=runtime.profile is RuntimeProfile.COMBINED,
+        rrf_k=config.rrf_k,
+        rrf_weights={
+            "vector": config.rrf_vector_weight,
+            "bm25": config.rrf_bm25_weight,
+            "assertion": config.rrf_assertion_weight,
+            "graph": config.rrf_graph_weight,
+        },
     )
     await state.dao.initialize()
 

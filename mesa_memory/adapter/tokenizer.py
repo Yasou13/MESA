@@ -13,6 +13,16 @@ _CL100K_ENCODING: tiktoken.Encoding | None = None
 _TRANS_TOKENIZERS: dict[str, Any] = {}
 
 
+def _offline_token_count(text: str) -> int:
+    """Deterministic conservative count when the canonical BPE is unavailable.
+
+    One token per UTF-8 byte deliberately overestimates common model
+    tokenizers.  That keeps hard context bounds safe without a network or a
+    pre-warmed tiktoken cache.
+    """
+    return len(text.encode("utf-8"))
+
+
 def _get_cl100k_encoding() -> tiktoken.Encoding:
     global _CL100K_ENCODING
     if _CL100K_ENCODING is None:
@@ -32,15 +42,11 @@ def count_tokens(
             enc = _get_cl100k_encoding()
             return len(enc.encode(text))
         except Exception as exc:
-            if strict:
-                raise RuntimeError("canonical tokenizer is unavailable") from exc
-            # tiktoken lazily downloads its encoding table on a cold cache.
-            # Token budgeting must remain available in offline CI and local
-            # development, so use the same conservative fallback as Ollama.
             logger.warning(
-                "tiktoken encoding is unavailable, using word-count estimate: %s", exc
+                "tiktoken encoding is unavailable, using conservative offline count: %s",
+                exc,
             )
-            return int(len(text.split()) * 1.3)
+            return _offline_token_count(text)
     if adapter_type == "ollama":
         try:
             if model_id not in _TRANS_TOKENIZERS:

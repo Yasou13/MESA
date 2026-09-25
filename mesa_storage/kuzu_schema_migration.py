@@ -12,13 +12,17 @@ import kuzu
 from mesa_storage.kuzu_migration import KuzuMigrationCoordinator, MigrationOutcome
 from mesa_storage.kuzu_setup import initialize_schema_artifact
 
-CURRENT_SCHEMA_VERSION = "3"
+CURRENT_SCHEMA_VERSION = "4"
 
 
 @dataclass(frozen=True)
 class GraphSnapshot:
     nodes: list[tuple[str, str, str, bool]]
     edges: list[tuple[str, str, float, str, str, float]]
+    assertions: list[tuple[Any, ...]]
+    assertion_subjects: list[tuple[str, str]]
+    assertion_objects: list[tuple[str, str]]
+    assertion_links: list[tuple[str, str, str]]
 
 
 def _migration_id(live_path: Path) -> str:
@@ -62,7 +66,11 @@ def migrate_schema_offline(live_path: Path) -> MigrationOutcome:
     if coordinator.is_promoted(migration_id, CURRENT_SCHEMA_VERSION):
         return coordinator.promoted_outcome(migration_id, CURRENT_SCHEMA_VERSION)
 
-    snapshot = _snapshot(live_path) if live_path.exists() else GraphSnapshot([], [])
+    snapshot = (
+        _snapshot(live_path)
+        if live_path.exists()
+        else GraphSnapshot([], [], [], [], [], [])
+    )
     source_fingerprint = _fingerprint(live_path) if live_path.exists() else "fresh"
 
     def build(staging_path: Path) -> None:
@@ -130,7 +138,77 @@ def _snapshot(path: Path) -> GraphSnapshot:
                     "RETURN a.id, b.id, r.weight, r.updated_at, r.agent_id ORDER BY a.id, b.id",
                 )
             ]
-        return GraphSnapshot(nodes=nodes, edges=edges)
+        try:
+            assertion_subjects = [
+                (str(row[0]), str(row[1]))
+                for row in _rows(
+                    connection,
+                    "MATCH (a:Assertion)-[:AssertionSubject]->(e:Entity) "
+                    "RETURN a.id, e.id ORDER BY a.id, e.id",
+                )
+            ]
+            assertion_objects = [
+                (str(row[0]), str(row[1]))
+                for row in _rows(
+                    connection,
+                    "MATCH (a:Assertion)-[:AssertionObject]->(e:Entity) "
+                    "RETURN a.id, e.id ORDER BY a.id, e.id",
+                )
+            ]
+            assertion_links = [
+                (str(row[0]), str(row[1]), str(row[2]))
+                for row in _rows(
+                    connection,
+                    "MATCH (a:Assertion)-[r:AssertionLink]->(b:Assertion) "
+                    "RETURN a.id, b.id, r.relation_type ORDER BY a.id, b.id",
+                )
+            ]
+            try:
+                assertions = [
+                    tuple(row)
+                    for row in _rows(
+                        connection,
+                        "MATCH (a:Assertion) RETURN a.id, a.agent_id, a.predicate, "
+                        "a.object_value, a.source_ref, a.evidence_span, "
+                        "a.jurisdiction, a.authority_level, a.valid_from, a.valid_to, "
+                        "a.observed_at, a.confidence, a.status, a.mutation_id, "
+                        "a.pipeline_run_id, a.object_type, a.representation_version "
+                        "ORDER BY a.id",
+                    )
+                ]
+            except RuntimeError:
+                entity_object_assertions = {
+                    assertion_id for assertion_id, _ in assertion_objects
+                }
+                assertions = []
+                for row in _rows(
+                    connection,
+                    "MATCH (a:Assertion) RETURN a.id, a.agent_id, a.predicate, "
+                    "a.object_value, a.source_ref, a.evidence_span, "
+                    "a.jurisdiction, a.authority_level, a.valid_from, a.valid_to, "
+                    "a.observed_at, a.confidence, a.status, a.mutation_id, "
+                    "a.pipeline_run_id ORDER BY a.id",
+                ):
+                    assertion_id = str(row[0])
+                    object_type = (
+                        "ENTITY"
+                        if assertion_id in entity_object_assertions
+                        else "LEGACY_LITERAL"
+                    )
+                    assertions.append((*tuple(row), object_type, "legacy-v0"))
+        except RuntimeError:
+            assertions = []
+            assertion_subjects = []
+            assertion_objects = []
+            assertion_links = []
+        return GraphSnapshot(
+            nodes=nodes,
+            edges=edges,
+            assertions=assertions,
+            assertion_subjects=assertion_subjects,
+            assertion_objects=assertion_objects,
+            assertion_links=assertion_links,
+        )
     finally:
         connection.close()
         database.close()
@@ -185,6 +263,61 @@ def _load_snapshot(path: Path, snapshot: GraphSnapshot) -> None:
                     "uncertainty": uncertainty,
                 },
             )
+        assertion_fields = (
+            "id",
+            "agent_id",
+            "predicate",
+            "object_value",
+            "source_ref",
+            "evidence_span",
+            "jurisdiction",
+            "authority_level",
+            "valid_from",
+            "valid_to",
+            "observed_at",
+            "confidence",
+            "status",
+            "mutation_id",
+            "pipeline_run_id",
+            "object_type",
+            "representation_version",
+        )
+        for assertion_row in snapshot.assertions:
+            params = dict(zip(assertion_fields, assertion_row))
+            connection.execute(
+                "CREATE (:Assertion {id: $id, agent_id: $agent_id, "
+                "predicate: $predicate, object_value: $object_value, "
+                "source_ref: $source_ref, evidence_span: $evidence_span, "
+                "jurisdiction: $jurisdiction, authority_level: $authority_level, "
+                "valid_from: $valid_from, valid_to: $valid_to, "
+                "observed_at: $observed_at, confidence: $confidence, status: $status, "
+                "mutation_id: $mutation_id, pipeline_run_id: $pipeline_run_id, "
+                "object_type: $object_type, "
+                "representation_version: $representation_version})",
+                params,
+            )
+        for assertion_id, entity_id in snapshot.assertion_subjects:
+            connection.execute(
+                "MATCH (a:Assertion {id: $assertion}), (e:Entity {id: $entity}) "
+                "CREATE (a)-[:AssertionSubject]->(e)",
+                {"assertion": assertion_id, "entity": entity_id},
+            )
+        for assertion_id, entity_id in snapshot.assertion_objects:
+            connection.execute(
+                "MATCH (a:Assertion {id: $assertion}), (e:Entity {id: $entity}) "
+                "CREATE (a)-[:AssertionObject]->(e)",
+                {"assertion": assertion_id, "entity": entity_id},
+            )
+        for source_id, target_id, relation_type in snapshot.assertion_links:
+            connection.execute(
+                "MATCH (a:Assertion {id: $source}), (b:Assertion {id: $target}) "
+                "CREATE (a)-[:AssertionLink {relation_type: $relation_type}]->(b)",
+                {
+                    "source": source_id,
+                    "target": target_id,
+                    "relation_type": relation_type,
+                },
+            )
     finally:
         connection.close()
         database.close()
@@ -192,7 +325,14 @@ def _load_snapshot(path: Path, snapshot: GraphSnapshot) -> None:
 
 def _digest_snapshot(snapshot: GraphSnapshot) -> str:
     digest = hashlib.sha256()
-    for row in snapshot.nodes + snapshot.edges:
+    for row in (
+        snapshot.nodes
+        + snapshot.edges
+        + snapshot.assertions
+        + snapshot.assertion_subjects
+        + snapshot.assertion_objects
+        + snapshot.assertion_links
+    ):
         digest.update(repr(row).encode())
         digest.update(b"\n")
     return digest.hexdigest()

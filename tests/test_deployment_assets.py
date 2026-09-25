@@ -255,6 +255,11 @@ def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> N
     assert "FROM ${PYTHON_IMAGE} AS python-base" in dockerfile
     assert "apt-get upgrade -y --no-install-recommends" in dockerfile
 
+    benchmark_dockerfile = (ROOT / "mesa-benchmark" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    assert "apt-get upgrade -y --no-install-recommends" in benchmark_dockerfile
+
 
 def test_readme_compose_quickstart_matches_the_fail_closed_compose_profile() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
