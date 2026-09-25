@@ -119,6 +119,7 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "entity_aliases",
         "entity_external_ids",
         "v4_assertions",
+        "v4_assertions_fts",
         "v4_assertion_links",
         "pipeline_runs",
         "pipeline_run_events",
@@ -147,6 +148,9 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "trg_nodes_fts_insert",
         "trg_nodes_fts_delete",
         "trg_nodes_fts_update",
+        "trg_v4_assertions_fts_insert",
+        "trg_v4_assertions_fts_delete",
+        "trg_v4_assertions_fts_update",
         "trg_system_operation_events_no_update",
         "trg_system_operation_events_no_delete",
     }

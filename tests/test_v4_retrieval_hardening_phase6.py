@@ -19,14 +19,17 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 
-from mesa_evals.v4_rrf_ablation import evaluate_lane_ablation, fixed_legal_corpus, rrf_fuse
+from mesa_evals.v4_rrf_ablation import (
+    evaluate_lane_ablation,
+    fixed_legal_corpus,
+)
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.retrieval_scope import (
     V4_RRF_DEFAULT_K,
-    V4_RRF_LANE_ORDER,
     V4_RRF_LANE_WEIGHTS,
     compute_rrf_lane_score,
     rrf_fuse_lanes,
@@ -114,15 +117,21 @@ async def _seed_test_assertion(
 # 1. Single Authority & Unit Tests
 def test_p6_compute_rrf_lane_score_math():
     """Verify exact formula weight / (k + rank)."""
-    assert compute_rrf_lane_score(1, lane="vector", k=60) == pytest.approx(10.0 / 61.0)
+    assert compute_rrf_lane_score(1, lane="vector", k=60) == pytest.approx(1.0 / 61.0)
     assert compute_rrf_lane_score(2, lane="bm25", k=60) == pytest.approx(1.0 / 62.0)
-    assert compute_rrf_lane_score(1, lane="assertion", k=60) == pytest.approx(1.0 / 61.0)
-    assert compute_rrf_lane_score(3, lane="graph", k=60) == pytest.approx(2.0 / 63.0)
+    assert compute_rrf_lane_score(1, lane="assertion", k=60) == pytest.approx(
+        1.0 / 61.0
+    )
+    assert compute_rrf_lane_score(3, lane="graph", k=60) == pytest.approx(1.0 / 63.0)
 
     # Custom weights and custom k
     custom_weights = {"vector": 5.0, "bm25": 2.5}
-    assert compute_rrf_lane_score(1, lane="vector", k=100, weights=custom_weights) == pytest.approx(5.0 / 101.0)
-    assert compute_rrf_lane_score(1, lane="bm25", k=100, weights=custom_weights) == pytest.approx(2.5 / 101.0)
+    assert compute_rrf_lane_score(
+        1, lane="vector", k=100, weights=custom_weights
+    ) == pytest.approx(5.0 / 101.0)
+    assert compute_rrf_lane_score(
+        1, lane="bm25", k=100, weights=custom_weights
+    ) == pytest.approx(2.5 / 101.0)
 
     with pytest.raises(ValueError):
         compute_rrf_lane_score(0, lane="vector")
@@ -144,7 +153,9 @@ def test_p6_rrf_fuse_lanes_deterministic_ties():
 def test_p6_production_function_equals_test_function():
     """Verify that rrf_fuse and evaluate_lane_ablation use production math."""
     corpus, qrels = fixed_legal_corpus()
-    report = evaluate_lane_ablation(corpus, qrels, k=V4_RRF_DEFAULT_K, weights=V4_RRF_LANE_WEIGHTS)
+    report = evaluate_lane_ablation(
+        corpus, qrels, k=V4_RRF_DEFAULT_K, weights=V4_RRF_LANE_WEIGHTS
+    )
     assert "rrf_all" in report["scores"]
     assert report["scores"]["rrf_all"] >= report["scores"]["vector_only"]
 
@@ -160,7 +171,7 @@ def test_p6_missing_lane_graceful_handling():
     fused = rrf_fuse_lanes(lane_rankings, k=60)
     assert len(fused) == 1
     assert fused[0][0] == "item-1"
-    assert fused[0][1] == pytest.approx(10.0 / 61.0)
+    assert fused[0][1] == pytest.approx(1.0 / 61.0)
     assert fused[0][2] == {"vector": 1}
 
 
@@ -175,21 +186,19 @@ def test_p6_duplicate_candidate_score_accumulation():
     fused = rrf_fuse_lanes(lane_rankings, k=60)
     scores_by_id = {cid: score for cid, score, _ in fused}
     # cand-1: vector(rank 1) + bm25(rank 2) + assertion(rank 1) + graph(rank 1)
-    expected_c1 = (10.0 / 61.0) + (1.0 / 62.0) + (1.0 / 61.0) + (2.0 / 61.0)
+    expected_c1 = (1.0 / 61.0) + (1.0 / 62.0) + (1.0 / 61.0) + (1.0 / 61.0)
     assert scores_by_id["cand-1"] == pytest.approx(expected_c1)
 
 
-def test_p6_non_vector_agreement_beats_vector_under_balanced_weights():
-    """When weights are balanced or configured, unanimous consensus in bm25, assertion, and graph outranks a lonely vector hit."""
+def test_p6_non_vector_agreement_beats_vector_with_production_defaults():
+    """Three agreeing evidence lanes outrank a lone vector hit by default."""
     lane_rankings = {
         "vector": ["cand-wrong"],
         "bm25": ["cand-correct"],
         "assertion": ["cand-correct"],
         "graph": ["cand-correct"],
     }
-    # With balanced weights (e.g. vector 2.0, bm25 1.5, assertion 1.5, graph 2.0)
-    balanced_weights = {"vector": 2.0, "bm25": 1.5, "assertion": 1.5, "graph": 2.0}
-    fused = rrf_fuse_lanes(lane_rankings, k=60, weights=balanced_weights)
+    fused = rrf_fuse_lanes(lane_rankings, k=60)
     assert fused[0][0] == "cand-correct"
     assert fused[1][0] == "cand-wrong"
 
@@ -226,7 +235,7 @@ async def test_p6_query_independent_legal_boost_cannot_override_relevance(tmp_pa
         )
 
         # Candidate 2: Irrelevant/weakly relevant, but marked OFFICIAL
-        ass2 = await _seed_test_assertion(
+        await _seed_test_assertion(
             dao,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -275,7 +284,7 @@ async def test_p6_configurable_k_in_production_search(tmp_path):
     dataset_id = "dataset-p6"
 
     try:
-        ass = await _seed_test_assertion(
+        await _seed_test_assertion(
             dao,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -330,7 +339,7 @@ async def test_p6_configurable_weights_in_production_search(tmp_path):
     dataset_id = "dataset-p6"
 
     try:
-        ass = await _seed_test_assertion(
+        await _seed_test_assertion(
             dao,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -395,7 +404,7 @@ async def test_p6_materialization_does_not_alter_candidate_order(tmp_path):
             evidence_span="First evidence span text for ranking test.",
             raw_log_id=30,
         )
-        ass2 = await _seed_test_assertion(
+        await _seed_test_assertion(
             dao,
             tenant_id=tenant_id,
             agent_id=agent_id,

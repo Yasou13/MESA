@@ -18,7 +18,7 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "b3c4d5e6f7a8"
+HEAD = "c4d5e6f7a8b9"
 PREVIOUS_HEAD = "fd4e5f6a7b8c"
 ROUND7_PREDECESSOR = "0a7b8c9d0e1f"
 

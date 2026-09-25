@@ -10,20 +10,20 @@ from typing import Any
 
 from mesa_storage.retrieval_scope import (
     V4_RRF_DEFAULT_K,
-    V4_RRF_LANE_ORDER,
-    V4_RRF_LANE_WEIGHTS,
-    compute_rrf_lane_score,
     rrf_fuse_lanes,
 )
 
 
 def rrf_fuse(rankings: list[list[str]], *, k: int = V4_RRF_DEFAULT_K) -> list[str]:
     """Compatibility wrapper for unweighted list-of-lists rankings using production RRF math."""
-    scores: dict[str, float] = {}
-    for ranking in rankings:
-        for rank, artifact_id in enumerate(ranking, start=1):
-            scores[artifact_id] = scores.get(artifact_id, 0.0) + 1.0 / (k + rank)
-    return sorted(scores, key=lambda item: (-scores[item], item))
+    named_rankings = {
+        f"lane-{index}": ranking for index, ranking in enumerate(rankings)
+    }
+    weights = {lane: 1.0 for lane in named_rankings}
+    return [
+        candidate_id
+        for candidate_id, _, _ in rrf_fuse_lanes(named_rankings, k=k, weights=weights)
+    ]
 
 
 def _mean_reciprocal_rank(

@@ -21,14 +21,15 @@ from __future__ import annotations
 
 import json
 from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.context_builder import ContextBuilder, _count_tokens
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.schemas import initialize_schema
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
 
 
 async def _create_test_env(tmp_path, *, agent_id: str = "test-agent"):
@@ -62,11 +63,19 @@ async def test_p10_large_entity_does_not_crowd_out_other_entities():
     """Verify that a large entity with many facts does not crowd out smaller entities."""
     # Entity A has 15 facts, Entity B has 1 high-priority fact
     entity_a_facts = [
-        {"predicate": f"FACT_{i}", "literal_value": f"Detailed verbose fact statement {i} for entity A", "confidence": 0.9 - 0.02 * i}
+        {
+            "predicate": f"FACT_{i}",
+            "literal_value": f"Detailed verbose fact statement {i} for entity A",
+            "confidence": 0.9 - 0.02 * i,
+        }
         for i in range(15)
     ]
     entity_b_facts = [
-        {"predicate": "ESSENTIAL_RULE", "literal_value": "Critical rule statement for entity B", "confidence": 1.0}
+        {
+            "predicate": "ESSENTIAL_RULE",
+            "literal_value": "Critical rule statement for entity B",
+            "confidence": 1.0,
+        }
     ]
     mock_memories = [
         {
@@ -167,7 +176,11 @@ async def test_p10_exact_token_budget_and_no_raw_bypass():
         {
             "entity": {"canonical_name": f"Heavy_Entity_{i}"},
             "provenance": [
-                {"predicate": "DESC", "literal_value": f"Extremely long text payload description block for entity {i} " * 5}
+                {
+                    "predicate": "DESC",
+                    "literal_value": f"Extremely long text payload description block for entity {i} "
+                    * 5,
+                }
             ],
             "rrf_score": 0.01 * (10 - i),
         }
@@ -227,7 +240,6 @@ async def test_p10_evidence_span_preserves_legal_meaning_beyond_200_chars():
         "Haksız fiilde ise fiilin işlendiği tarihten itibaren temerrüt faizi işlemeye başlar."
     )
     assert len(legal_passage) > 300  # Well over 200 characters!
-
     mock_memories = [
         {
             "entity": {"canonical_name": "Temerrut_Hukuku"},
@@ -242,23 +254,86 @@ async def test_p10_evidence_span_preserves_legal_meaning_beyond_200_chars():
             "rrf_score": 0.1,
         }
     ]
-
     mock_dao = AsyncMock()
     mock_dao.get_recent_logs.return_value = []
     mock_dao.search_v4_memory.return_value = mock_memories
-
-    cb = ContextBuilder(mock_dao)
-    ctx = await cb.build_context(
+    ctx = await ContextBuilder(mock_dao).build_context(
         tenant_id="t1",
         agent_id="a1",
         dataset_ids=["ds1"],
         query="temerrüt",
         token_budget=1000,
     )
+    assert (
+        "Haksız fiilde ise fiilin işlendiği tarihten itibaren"
+        in ctx["formatted_context"]
+    )
 
-    formatted = ctx["formatted_context"]
-    # The critical exception clause at the end (beyond char 200) must be intact!
-    assert "Haksız fiilde ise fiilin işlendiği tarihten itibaren" in formatted
+
+@pytest.mark.asyncio
+async def test_p10_duplicate_predicates_do_not_restore_trimmed_evidence():
+    mock_dao = AsyncMock()
+    mock_dao.get_recent_logs.return_value = []
+    mock_dao.search_v4_memory.return_value = [
+        {
+            "entity": {"canonical_name": "BudgetedEntity"},
+            "provenance": [
+                {
+                    "assertion_id": "kept",
+                    "predicate": "SAME",
+                    "literal_value": "short high-ranked fact",
+                },
+                {
+                    "assertion_id": "trimmed",
+                    "predicate": "SAME",
+                    "literal_value": "oversized " * 400,
+                },
+            ],
+        }
+    ]
+
+    ctx = await ContextBuilder(mock_dao).build_context(
+        tenant_id="t1",
+        agent_id="a1",
+        dataset_ids=["ds1"],
+        query="same",
+        token_budget=160,
+    )
+
+    assert "short high-ranked fact" in ctx["formatted_context"]
+    assert "oversized" not in ctx["formatted_context"]
+    assert len(ctx["canonical_memories"][0]["provenance"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_p10_legal_tail_after_legacy_2000_boundary_is_preserved():
+    marker = "REQUIRED_TAIL_CONDITION"
+    evidence = "A" * 2050 + marker
+    mock_dao = AsyncMock()
+    mock_dao.get_recent_logs.return_value = []
+    mock_dao.search_v4_memory.return_value = [
+        {
+            "entity": {"canonical_name": "LongEvidence"},
+            "provenance": [
+                {
+                    "predicate": "RULE",
+                    "literal_value": "value",
+                    "evidence_span": evidence,
+                }
+            ],
+        }
+    ]
+
+    ctx = await ContextBuilder(mock_dao).build_context(
+        tenant_id="t1",
+        agent_id="a1",
+        dataset_ids=["ds1"],
+        query="rule",
+        token_budget=5000,
+    )
+
+    assert marker in ctx["formatted_context"]
+    assert marker in ctx["canonical_memories"][0]["provenance"][0]["evidence_span"]
 
 
 # End-to-end integrated tests: 9, 10, 11, 12, 13
@@ -276,8 +351,12 @@ async def test_p10_integrated_retrieval_to_context_builder(tmp_path):
     sql, graph, dao = await _create_test_env(tmp_path)
     try:
         # 1. Active Assertion with typed literal and evidence provenance (Phase 1, 8, 9)
-        s_entity = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="TBK_117")
-        o_entity = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="Temerrut_Sartlari")
+        s_entity = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="TBK_117"
+        )
+        o_entity = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="Temerrut_Sartlari"
+        )
         s_id = s_entity["entity_id"]
         o_id = o_entity["entity_id"]
 
@@ -286,22 +365,46 @@ async def test_p10_integrated_retrieval_to_context_builder(tmp_path):
                 db, tenant_id="test-tenant", kind="dataset", external_id="ds1"
             )
             doc_id = await dao._catalog.resolve_id_in_tx(
-                db, tenant_id="test-tenant", kind="document", external_id="doc_tbk", create=True
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="doc_tbk",
+                create=True,
             )
             rev_id = await dao._catalog.resolve_id_in_tx(
-                db, tenant_id="test-tenant", kind="revision", external_id="rev_1", create=True
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="rev_1",
+                create=True,
             )
             chk_id = await dao._catalog.resolve_id_in_tx(
-                db, tenant_id="test-tenant", kind="chunk", external_id="chk_001", create=True
+                db,
+                tenant_id="test-tenant",
+                kind="chunk",
+                external_id="chk_001",
+                create=True,
             )
             doc_old = await dao._catalog.resolve_id_in_tx(
-                db, tenant_id="test-tenant", kind="document", external_id="doc_ebk", create=True
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="doc_ebk",
+                create=True,
             )
             rev_old = await dao._catalog.resolve_id_in_tx(
-                db, tenant_id="test-tenant", kind="revision", external_id="rev_old", create=True
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="rev_old",
+                create=True,
             )
             chk_old = await dao._catalog.resolve_id_in_tx(
-                db, tenant_id="test-tenant", kind="chunk", external_id="chk_old", create=True
+                db,
+                tenant_id="test-tenant",
+                kind="chunk",
+                external_id="chk_old",
+                create=True,
             )
             await db.execute(
                 "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "

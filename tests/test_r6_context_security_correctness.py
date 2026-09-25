@@ -25,7 +25,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from mesa_memory.context_builder import (
-    MAX_EVIDENCE_SPAN_CHARS,
     TAG_CLOSE,
     TAG_OPEN,
     TRUST_HEADER,
@@ -363,14 +362,14 @@ def test_context_builder_fails_closed_without_its_canonical_tokenizer() -> None:
             _count_tokens("emoji-heavy evidence: 🚀🚀🚀")
 
 
-def test_context_builder_requests_strict_canonical_token_counting() -> None:
-    """Removing strict mode must expose the adapter's forbidden estimate fallback."""
+def test_context_builder_has_deterministic_offline_token_counting() -> None:
+    """A cold tiktoken cache uses the conservative offline hard bound."""
     with patch(
         "mesa_memory.adapter.tokenizer._get_cl100k_encoding",
         side_effect=RuntimeError("encoding cache unavailable"),
     ):
-        with pytest.raises(RuntimeError, match="canonical tokenizer is unavailable"):
-            _count_tokens("punctuation-heavy evidence: {}[]<>://\\|!?")
+        sample = "punctuation-heavy evidence: {}[]<>://\\|!?"
+        assert _count_tokens(sample) == len(sample.encode("utf-8"))
 
 
 @pytest.mark.asyncio
@@ -742,7 +741,8 @@ async def test_evidence_span_is_bounded() -> None:
         if line.startswith("{") and line.endswith("}"):
             parsed = json.loads(line)
             span = parsed["facts"][0]["evidence_span"]
-            assert len(span) <= MAX_EVIDENCE_SPAN_CHARS
+            assert span == huge_span
+            assert _count_tokens(formatted) <= 1000
 
 
 @pytest.mark.asyncio

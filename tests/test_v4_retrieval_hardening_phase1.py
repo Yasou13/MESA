@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
@@ -151,9 +152,7 @@ async def test_phase1_evidence_level_specificity_and_provenance_isolation(tmp_pa
         assert chunk_73_aid is not None
 
         # Mock vector search to return ONLY chunk-73's assertion with raw distance 0.042
-        vector.search.return_value = [
-            {"node_id": chunk_73_aid, "_distance": 0.042}
-        ]
+        vector.search.return_value = [{"node_id": chunk_73_aid, "_distance": 0.042}]
 
         results = await dao.search_v4_memory(
             tenant_id=tenant_id,
@@ -180,9 +179,9 @@ async def test_phase1_evidence_level_specificity_and_provenance_isolation(tmp_pa
         # Other 99 chunks must NOT pollute Top-1 provenance!
         prov_chunks = [p.get("chunk_id") for p in top1["provenance"]]
         assert "chunk-73" in prov_chunks
-        assert len(prov_chunks) == 1, (
-            f"Expected exactly 1 matched chunk in Top-1 provenance, but found {len(prov_chunks)}: {prov_chunks[:5]}..."
-        )
+        assert (
+            len(prov_chunks) == 1
+        ), f"Expected exactly 1 matched chunk in Top-1 provenance, but found {len(prov_chunks)}: {prov_chunks[:5]}..."
         assert "chunk-1" not in prov_chunks
         assert "chunk-12" not in prov_chunks
         assert "chunk-99" not in prov_chunks

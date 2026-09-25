@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 import aiosqlite
 
+from mesa_storage.representation import V4_VECTOR_REPRESENTATION_VERSION
 from mesa_storage.sqlite_engine import AsyncEngine
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -90,6 +91,10 @@ class ProjectionGenerationRepositoryPort(Protocol):
         expected_active_generation_id: str,
         runtime_fencing_token: int,
     ) -> dict[str, Any]: ...
+
+    async def mark_assertion_vector_representation(
+        self, generation_id: str, *, representation_version: str
+    ) -> int: ...
 
 
 def _identifier(value: str, *, label: str) -> str:
@@ -558,6 +563,47 @@ class ProjectionGenerationRepository:
             activated = await cursor.fetchone()
             assert activated is not None
             return dict(activated)
+
+    async def mark_assertion_vector_representation(
+        self, generation_id: str, *, representation_version: str
+    ) -> int:
+        """Publish the representation identity after verified cutover.
+
+        Rebuild writes every active assertion vector using the current payload
+        contract. The registry marker is advanced only while that generation
+        is the active runtime target, so old and partially rebuilt vectors stay
+        ineligible for semantic retrieval.
+        """
+        generation = _identifier(generation_id, label="generation id")
+        if representation_version != V4_VECTOR_REPRESENTATION_VERSION:
+            raise ValueError("assertion vector representation version is unsupported")
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "SELECT g.lifecycle_state FROM projection_runtime r "
+                "JOIN projection_generations g "
+                "ON g.generation_id = r.active_generation_id "
+                "WHERE r.runtime_id = 1 AND r.active_generation_id = ?",
+                (generation,),
+            )
+            active = await cursor.fetchone()
+            if active is None or active["lifecycle_state"] != "ACTIVE":
+                raise ProjectionGenerationFencedError(
+                    "assertion representation publication target is not active"
+                )
+            cursor = await db.execute(
+                "UPDATE artifact_registry SET metadata_json = "
+                "json_set(COALESCE(NULLIF(metadata_json, ''), '{}'), "
+                "'$.representation_version', ?) "
+                "WHERE store_name = 'VECTOR' "
+                "AND artifact_kind = 'ASSERTION_VECTOR' AND state = 'ACTIVE' "
+                "AND EXISTS (SELECT 1 FROM artifact_sources s "
+                "WHERE s.registry_id = artifact_registry.registry_id "
+                "AND s.state = 'ACTIVE')",
+                (representation_version,),
+            )
+            updated = int(cursor.rowcount)
+            await db.commit()
+        return updated
 
     async def rollback(
         self,

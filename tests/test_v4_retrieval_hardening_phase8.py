@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
@@ -24,13 +25,19 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
 
-def _make_dao_with_recording_graph(engine: AsyncEngine) -> tuple[MemoryDAO, SimpleNamespace]:
+def _make_dao_with_recording_graph(
+    engine: AsyncEngine,
+) -> tuple[MemoryDAO, SimpleNamespace]:
     inserted_nodes: list[tuple[str, str, str]] = []
     inserted_assertions: list[dict] = []
 
     graph = SimpleNamespace(
-        insert_node=AsyncMock(side_effect=lambda eid, name, aid: inserted_nodes.append((eid, name, aid))),
-        insert_assertion=AsyncMock(side_effect=lambda **kwargs: inserted_assertions.append(kwargs)),
+        insert_node=AsyncMock(
+            side_effect=lambda eid, name, aid: inserted_nodes.append((eid, name, aid))
+        ),
+        insert_assertion=AsyncMock(
+            side_effect=lambda **kwargs: inserted_assertions.append(kwargs)
+        ),
         link_assertions=AsyncMock(),
         traverse_paths=AsyncMock(return_value=[]),
         inserted_nodes=inserted_nodes,
@@ -49,46 +56,48 @@ def _make_dao_with_recording_graph(engine: AsyncEngine) -> tuple[MemoryDAO, Simp
 def test_p8_classify_graph_object_unit():
     """Verify classification logic for all supported types and anti-patterns."""
     # 1. Real entity
-    t, l, kind = classify_graph_object(tail="Yargıtay", literal_value=None)
+    t, literal, kind = classify_graph_object(tail="Yargıtay", literal_value=None)
     assert t == "Yargıtay"
-    assert l is None
+    assert literal is None
     assert kind == "ENTITY"
 
     # 2. Literal value
-    t, l, kind = classify_graph_object(tail=None, literal_value="15000 TL")
+    t, literal, kind = classify_graph_object(tail=None, literal_value="15000 TL")
     assert t is None
-    assert l == "15000 TL"
+    assert literal == "15000 TL"
     assert kind == "LITERAL"
 
     # 3. Explicit type override
-    t, l, kind = classify_graph_object(tail="Some text", literal_value=None, object_type="LITERAL")
+    t, literal, kind = classify_graph_object(
+        tail="Some text", literal_value=None, object_type="LITERAL"
+    )
     assert t is None
-    assert l == "Some text"
+    assert literal == "Some text"
     assert kind == "LITERAL"
 
     # 4. Long phrase anti-pattern: must NOT be an entity!
     long_phrase = "Muaccel bir borcun borçlusu, alacaklının ihtarıyla temerrüde düşer."
-    t, l, kind = classify_graph_object(tail=long_phrase, literal_value=None)
+    t, literal, kind = classify_graph_object(tail=long_phrase, literal_value=None)
     assert t is None
-    assert l == long_phrase
+    assert literal == long_phrase
     assert kind == "LITERAL"
 
     # 5. Article reference
-    t, l, kind = classify_graph_object(tail="TBK m.117", literal_value=None)
+    t, literal, kind = classify_graph_object(tail="TBK m.117", literal_value=None)
     assert t == "TBK m.117"
-    assert l is None
+    assert literal is None
     assert kind == "ARTICLE_REFERENCE"
 
     # 6. Legal reference
-    t, l, kind = classify_graph_object(tail="TBK", literal_value=None)
+    t, literal, kind = classify_graph_object(tail="TBK", literal_value=None)
     assert t == "TBK"
-    assert l is None
+    assert literal is None
     assert kind == "LEGAL_REFERENCE"
 
     # 7. Date string
-    t, l, kind = classify_graph_object(tail="2024-01-01", literal_value=None)
+    t, literal, kind = classify_graph_object(tail="2024-01-01", literal_value=None)
     assert t is None
-    assert l == "2024-01-01"
+    assert literal == "2024-01-01"
     assert kind == "DATE"
 
 
@@ -131,7 +140,9 @@ async def test_p8_long_phrase_does_not_create_entity_node(tmp_path):
         assert mut is not None
 
         # Triplet with long phrase mistakenly placed in tail
-        long_sentence = "Muaccel bir borcun borçlusu, alacaklının ihtarıyla temerrüde düşer."
+        long_sentence = (
+            "Muaccel bir borcun borçlusu, alacaklının ihtarıyla temerrüde düşer."
+        )
         triplet = {
             "head": "BorçlarKanunu",
             "relation": "hükmü",
@@ -147,6 +158,8 @@ async def test_p8_long_phrase_does_not_create_entity_node(tmp_path):
         ass = assertions[0]
         assert ass["object_entity_id"] is None
         assert ass["literal_value"] == long_sentence
+        assert ass["object_type"] == "LITERAL"
+        assert ass["representation_version"] == "assertion-v1"
 
         # Verify Kùzu Graph: Only 1 node (head: 'BorçlarKanunu') was inserted, NOT the sentence!
         inserted_names = [name for _, name, _ in mock_graph.inserted_nodes]
@@ -156,6 +169,7 @@ async def test_p8_long_phrase_does_not_create_entity_node(tmp_path):
         assert len(mock_graph.inserted_assertions) == 1
         assert mock_graph.inserted_assertions[0]["object_value"] == long_sentence
         assert mock_graph.inserted_assertions[0]["object_id"] is None
+        assert mock_graph.inserted_assertions[0]["object_type"] == "LITERAL"
     finally:
         await engine.close()
 
@@ -212,6 +226,7 @@ async def test_p8_real_entity_creates_graph_node_and_link(tmp_path):
         # Real entity creates object_entity_id
         assert ass["object_entity_id"] is not None
         assert ass["literal_value"] is None
+        assert ass["object_type"] == "ENTITY"
 
         # Both head and tail nodes are inserted into graph
         inserted_names = [name for _, name, _ in mock_graph.inserted_nodes]

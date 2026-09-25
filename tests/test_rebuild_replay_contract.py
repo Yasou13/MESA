@@ -97,7 +97,13 @@ def _source_database(tmp_path: Path) -> Path:
     )
 
     artifacts = [
-        ("vector-1", "VECTOR", "ENTITY_VECTOR", "entity-1", "mutation-1"),
+        (
+            "vector-1",
+            "VECTOR",
+            "ASSERTION_VECTOR",
+            "assertion-1",
+            "mutation-1",
+        ),
         ("graph-e1", "GRAPH", "ENTITY", "entity-1", "mutation-1"),
         ("graph-e2", "GRAPH", "ENTITY", "entity-2", "mutation-2"),
         ("graph-a1", "GRAPH", "ASSERTION", "assertion-1", "mutation-1"),
@@ -148,10 +154,19 @@ def _add_tenant_vector(database: Path) -> None:
         "'v1', 3, 'COMMITTED')"
     )
     connection.execute(
+        "INSERT INTO v4_assertions (assertion_id, tenant_id, dataset_id, "
+        "subject_id, predicate, literal_value, source_ref, document_id, "
+        "revision_id, chunk_id, evidence_span, "
+        "confidence, status, mutation_id, pipeline_run_id) VALUES "
+        "('assertion-b', 'tenant-b', 'dataset-a', 'entity-b', 'RELATES_TO', "
+        "'tenant-b fact', 'source-b', 'document-b', 'revision-b', 'chunk-b', "
+        "'tenant-b evidence', 1.0, 'ACTIVE', 'mutation-b', 'pipeline-b')"
+    )
+    connection.execute(
         "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
         "dataset_id, store_name, artifact_kind, physical_artifact_id, state) "
         "VALUES ('vector-b', 'tenant-b', 'agent-a', 'dataset-a', 'VECTOR', "
-        "'ENTITY_VECTOR', 'entity-b', 'ACTIVE')"
+        "'ASSERTION_VECTOR', 'assertion-b', 'ACTIVE')"
     )
     connection.execute(
         "INSERT INTO artifact_sources (source_ownership_id, registry_id, "
@@ -248,12 +263,14 @@ class _GraphTarget:
     ) -> set[str]:
         if label == "Entity":
             return {
-                node[0] for node in self.nodes
+                node[0]
+                for node in self.nodes
                 if node[0] in node_ids and node[2] == agent_id
             }
         else:
             return {
-                a["assertion_id"] for a in self.assertions
+                a["assertion_id"]
+                for a in self.assertions
                 if a["assertion_id"] in node_ids
             }
 
@@ -371,7 +388,7 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
     }
     assert result.completed == result.total == 6
     assert vector is not None and vector.closed is True
-    assert vector.records[0]["node_id"] == "entity-1"
+    assert vector.records[0]["node_id"] == "assertion-1"
     assert graph is not None and graph.closed is True
     assert [node[0] for node in graph.nodes] == ["entity-1", "entity-2"]
     assert [item["status"] for item in graph.assertions] == [
@@ -442,7 +459,7 @@ async def test_bounded_parity_checks_counts_ids_health_and_retrieval_smoke(
     vector = _VectorTarget(paths.vector_path)
     vector.records = [
         {
-            "node_id": "entity-1",
+            "node_id": "assertion-1",
             "agent_id": "agent-a",
             "embedding": [5.0, 0.5, 1.0],
         }
@@ -524,8 +541,12 @@ async def test_retrieval_smoke_rejects_provider_results_outside_tenant_dataset_s
 
     vector = LeakyVector(paths.vector_path)
     vector.records = [
-        {"node_id": "entity-1", "agent_id": "agent-a", "embedding": [1.0] * 3},
-        {"node_id": "entity-b", "agent_id": "agent-a", "embedding": [0.0] * 3},
+        {
+            "node_id": "assertion-1",
+            "agent_id": "agent-a",
+            "embedding": [1.0] * 3,
+        },
+        {"node_id": "assertion-b", "agent_id": "agent-a", "embedding": [0.0] * 3},
     ]
     graph = _GraphTarget(paths.graph_path)
     graph.nodes = [
@@ -554,10 +575,10 @@ def test_snapshot_vector_scope_includes_tenant_predicate(tmp_path: Path) -> None
 
     assert snapshot.allowed_vector_ids(
         tenant_id="tenant-a", agent_id="agent-a", dataset_id="dataset-a"
-    ) == {"entity-1"}
+    ) == {"assertion-1"}
     assert snapshot.allowed_vector_ids(
         tenant_id="tenant-b", agent_id="agent-a", dataset_id="dataset-a"
-    ) == {"entity-b"}
+    ) == {"assertion-b"}
     assert snapshot.retrieval_scopes(agent_id="agent-a") == [
         ("tenant-a", "dataset-a"),
         ("tenant-b", "dataset-a"),
@@ -582,8 +603,16 @@ async def test_parity_smoke_applies_live_dataset_scope_to_raw_vector_results(
     )
     vector = _VectorTarget(paths.vector_path)
     vector.records = [
-        {"node_id": "entity-1", "agent_id": "agent-a", "embedding": [1.0] * 3},
-        {"node_id": "entity-2", "agent_id": "agent-a", "embedding": [2.0] * 3},
+        {
+            "node_id": "assertion-1",
+            "agent_id": "agent-a",
+            "embedding": [1.0] * 3,
+        },
+        {
+            "node_id": "assertion-2",
+            "agent_id": "agent-a",
+            "embedding": [2.0] * 3,
+        },
     ]
     graph = _GraphTarget(paths.graph_path)
     graph.nodes = [
@@ -917,7 +946,7 @@ def _add_second_vector(database: Path, *, dataset_id: str = "dataset-a") -> None
         "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
         "dataset_id, store_name, artifact_kind, physical_artifact_id, state) "
         "VALUES ('vector-2', 'tenant-a', 'agent-a', ?, 'VECTOR', "
-        "'ENTITY_VECTOR', 'entity-2', 'ACTIVE')",
+        "'ASSERTION_VECTOR', 'assertion-2', 'ACTIVE')",
         (dataset_id,),
     )
     connection.execute(
@@ -1080,7 +1109,7 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
             should_stop=lambda: operations.current["progress_completed"] == 1,
         )
 
-    assert [record["node_id"] for record in vector.records] == ["entity-1"]
+    assert [record["node_id"] for record in vector.records] == ["assertion-1"]
     resumed = replace(preparation, operation=dict(operations.current))
     result = await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
         preparation=resumed,
@@ -1100,6 +1129,6 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
     )
 
     assert result.completed == result.total == 6
-    assert [record["node_id"] for record in vector.records] == ["entity-1"]
+    assert [record["node_id"] for record in vector.records] == ["assertion-1"]
     assert [node[0] for node in graph.nodes] == ["entity-1", "entity-2"]
     assert operations.current["state"] == "VERIFYING"

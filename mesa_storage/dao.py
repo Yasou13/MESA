@@ -55,6 +55,7 @@ import logging
 import re
 import unicodedata
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 from urllib.parse import urlsplit, urlunsplit
@@ -62,6 +63,7 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
+from mesa_storage.legal_identity import LegalEntityResolver
 from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
 from mesa_storage.repositories.operations import (
@@ -71,13 +73,16 @@ from mesa_storage.repositories.operations import (
     RebuildAdmissionPort,
     RebuildAdmissionReader,
 )
+from mesa_storage.representation import (
+    V4_ASSERTION_REPRESENTATION_VERSION,
+    V4_VECTOR_REPRESENTATION_VERSION,
+    build_v4_assertion_vector_payload,
+)
 from mesa_storage.retrieval_scope import (
     V4_RRF_DEFAULT_K,
-    V4_RRF_LANE_ORDER,
     V4_RRF_LANE_WEIGHTS,
     build_v4_lexical_query,
-    compute_rrf_lane_score,
-    scope_vector_result_ids,
+    rrf_fuse_lanes,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
@@ -324,11 +329,19 @@ def _normalize_ontology_uri(value: str) -> str:
 _DATE_REGEX = re.compile(
     r"^(?:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?|\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{4})$"
 )
-_ARTICLE_REF_REGEX = re.compile(
-    r"\b(?:m\.|md\.|madde|fıkra|bent)\s*\d+", re.IGNORECASE
-)
+_ARTICLE_REF_REGEX = re.compile(r"\b(?:m\.|md\.|madde|fıkra|bent)\s*\d+", re.IGNORECASE)
 _LEGAL_STATUTES = {
-    "TBK", "TMK", "TCK", "TTK", "HMK", "CMK", "İYUK", "VUK", "İİK", "ANAYASA", "KVKK"
+    "TBK",
+    "TMK",
+    "TCK",
+    "TTK",
+    "HMK",
+    "CMK",
+    "İYUK",
+    "VUK",
+    "İİK",
+    "ANAYASA",
+    "KVKK",
 }
 
 
@@ -383,7 +396,12 @@ def classify_graph_object(
         has_sentence_period = "." in cleaned_tail and not bool(
             re.search(r"\b[a-zA-ZçğıöşüÇĞİÖŞÜ]+\.\d+", cleaned_tail)
         )
-        if len(cleaned_tail) > 60 or len(words) > 6 or has_clause_punctuation or has_sentence_period:
+        if (
+            len(cleaned_tail) > 60
+            or len(words) > 6
+            or has_clause_punctuation
+            or has_sentence_period
+        ):
             return (None, cleaned_tail, "LITERAL")
 
         # 3. Article reference detection
@@ -392,7 +410,9 @@ def classify_graph_object(
 
         # 4. Legal reference detection
         norm_upper = cleaned_tail.upper()
-        if norm_upper in _LEGAL_STATUTES or any(norm_upper.startswith(f"{s} ") for s in _LEGAL_STATUTES):
+        if norm_upper in _LEGAL_STATUTES or any(
+            norm_upper.startswith(f"{s} ") for s in _LEGAL_STATUTES
+        ):
             return (cleaned_tail, None, "LEGAL_REFERENCE")
 
         # 5. Concise named entity
@@ -438,6 +458,8 @@ class MemoryDAO:
         "_rebuild_health",
         "_canonical_v4_writes_enabled",
         "_secondary_writes_enabled",
+        "_rrf_k",
+        "_rrf_weights",
     )
 
     def __init__(
@@ -448,6 +470,8 @@ class MemoryDAO:
         *,
         canonical_v4_writes_enabled: bool = True,
         secondary_writes_enabled: bool = True,
+        rrf_k: int = V4_RRF_DEFAULT_K,
+        rrf_weights: Mapping[str, float] | None = None,
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
@@ -458,6 +482,8 @@ class MemoryDAO:
         self._rebuild_health = RebuildHealthReader(sqlite_engine)
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
         self._secondary_writes_enabled = secondary_writes_enabled
+        self._rrf_k = rrf_k
+        self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
@@ -3503,9 +3529,11 @@ class MemoryDAO:
                     )
             artifact_row_id = str(uuid.uuid4())
             await db.execute(
-                "INSERT OR IGNORE INTO memory_artifacts "
+                "INSERT INTO memory_artifacts "
                 "(artifact_row_id, mutation_id, store_name, artifact_kind, artifact_id, metadata_json) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(mutation_id, store_name, artifact_kind, artifact_id) "
+                "DO UPDATE SET metadata_json = excluded.metadata_json",
                 (
                     artifact_row_id,
                     mutation_id,
@@ -3541,9 +3569,11 @@ class MemoryDAO:
                 )
             )
             await db.execute(
-                "INSERT OR IGNORE INTO artifact_registry "
+                "INSERT INTO artifact_registry "
                 "(registry_id, tenant_id, agent_id, dataset_id, store_name, artifact_kind, "
-                "physical_artifact_id, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "physical_artifact_id, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(tenant_id, agent_id, store_name, artifact_kind, physical_artifact_id) "
+                "DO UPDATE SET metadata_json = excluded.metadata_json",
                 (
                     registry_id,
                     mutation[0],
@@ -4588,6 +4618,7 @@ class MemoryDAO:
         """Apply only the SQLite Entity projection, idempotently."""
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
+        entity_name = LegalEntityResolver().canonicalize_entity(entity_name)
         entity = await self.resolve_v4_entity(
             tenant_id=str(mutation["tenant_id"]),
             canonical_name=entity_name,
@@ -4632,69 +4663,15 @@ class MemoryDAO:
             if assertion.get("tail") is not None
             else str(assertion.get("literal_value") or "").strip()
         )
-        chunk_text = str(
-            mutation.get("text") or mutation.get("content_payload") or ""
-        ).strip()
         evidence_span = str(assertion.get("evidence_span") or "").strip()
-        fact_text = str(assertion.get("fact_text") or "").strip()
-
-        # If fact_text is not directly on assertion, look in mutation projection_triplets
-        if not fact_text:
-            triplets = mutation.get("projection_triplets")
-            if isinstance(triplets, list):
-                for t in triplets:
-                    if not isinstance(t, dict):
-                        continue
-                    if (
-                        str(t.get("head") or "").strip() == subject
-                        and str(t.get("relation") or "").strip() == predicate
-                        and (
-                            (t.get("tail") is not None and str(t.get("tail")).strip() == object_value)
-                            or (t.get("literal_value") is not None and str(t.get("literal_value")).strip() == object_value)
-                            or (t.get("tail") is None and t.get("literal_value") is None)
-                        )
-                    ):
-                        if t.get("fact_text"):
-                            fact_text = str(t["fact_text"]).strip()
-                        if not evidence_span and t.get("source_span"):
-                            evidence_span = str(t["source_span"]).strip()
-                        if fact_text:
-                            break
-
-        # Architecture B: Build specific assertion semantic payload
-        parts = [
-            p
-            for p in (subject, predicate, object_value)
-            if p and not p.startswith("mesa-")
-        ]
-        prefix = " ".join(parts)
-
-        # Combine fact_text and evidence_span
-        semantic_body = ""
-        if fact_text and evidence_span:
-            if fact_text.lower() == evidence_span.lower() or evidence_span.lower() in fact_text.lower():
-                semantic_body = fact_text
-            elif fact_text.lower() in evidence_span.lower():
-                semantic_body = evidence_span
-            else:
-                semantic_body = f"{fact_text} (Kanıt: {evidence_span})"
-        elif fact_text:
-            semantic_body = fact_text
-        elif evidence_span:
-            semantic_body = evidence_span
-
-        if semantic_body:
-            if prefix and prefix.lower() not in semantic_body.lower():
-                payload_text = f"{prefix}: {semantic_body}"
-            else:
-                payload_text = semantic_body
-        elif prefix:
-            payload_text = prefix
-        else:
-            payload_text = chunk_text[:2000]
-
-        if len(payload_text) > 4000:
-            payload_text = payload_text[:4000]
+        payload_text = build_v4_assertion_vector_payload(
+            subject=subject,
+            predicate=predicate,
+            object_value=object_value,
+            evidence_span=evidence_span,
+        )
+        if not payload_text:
+            raise ValueError("assertion vector representation is empty")
 
         return await self._project_v4_vector_payload(
             mutation=mutation,
@@ -4827,6 +4804,11 @@ class MemoryDAO:
                 metadata={
                     **producer_identity_metadata,
                     "embedding_dimension": len(embedding),
+                    "representation_version": (
+                        V4_VECTOR_REPRESENTATION_VERSION
+                        if artifact_kind == "ASSERTION_VECTOR"
+                        else "entity-v1"
+                    ),
                 },
             )
         except Exception as exc:
@@ -5006,7 +4988,8 @@ class MemoryDAO:
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
         tenant_id = str(mutation["tenant_id"])
-        head = str(triplet["head"])
+        legal_resolver = LegalEntityResolver()
+        head = legal_resolver.canonicalize_entity(str(triplet["head"]))
         raw_tail = str(triplet["tail"]) if triplet.get("tail") is not None else None
         raw_literal = (
             str(triplet["literal_value"])
@@ -5021,6 +5004,8 @@ class MemoryDAO:
         tail, literal_value, object_type = classify_graph_object(
             tail=raw_tail, literal_value=raw_literal, object_type=explicit_type
         )
+        if tail is not None:
+            tail = legal_resolver.canonicalize_entity(tail)
         if (tail is None) == (literal_value is None):
             raise ValueError("assertion requires one entity or literal object")
         relation = str(triplet["relation"])
@@ -5128,8 +5113,9 @@ class MemoryDAO:
                 "(assertion_id, tenant_id, dataset_id, subject_id, predicate, "
                 "object_entity_id, literal_value, source_ref, document_id, revision_id, chunk_id, "
                 "evidence_span, jurisdiction, authority_level, valid_from, valid_to, "
-                "observed_at, confidence, status, mutation_id, pipeline_run_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
+                "observed_at, confidence, object_type, representation_version, "
+                "status, mutation_id, pipeline_run_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
                 (
                     assertion_id,
                     tenant_id,
@@ -5149,6 +5135,8 @@ class MemoryDAO:
                     valid_to,
                     observed_at,
                     float(triplet.get("confidence", 1.0)),
+                    object_type,
+                    V4_ASSERTION_REPRESENTATION_VERSION,
                     mutation["mutation_id"],
                     pipeline_run_id,
                 ),
@@ -5324,6 +5312,10 @@ class MemoryDAO:
                 observed_at=str(assertion["observed_at"] or ""),
                 confidence=float(assertion["confidence"]),
                 pipeline_run_id=str(assertion["pipeline_run_id"] or ""),
+                object_type=str(assertion.get("object_type") or "LEGACY"),
+                representation_version=str(
+                    assertion.get("representation_version") or "legacy-v0"
+                ),
             )
             for old_assertion_id in superseded_assertion_ids:
                 await graph.link_assertions(
@@ -5478,10 +5470,11 @@ class MemoryDAO:
         ):
             raise ValueError("invalid v4 search scope")
 
-        effective_k = rrf_k if rrf_k is not None else V4_RRF_DEFAULT_K
-        effective_weights = rrf_weights if rrf_weights is not None else V4_RRF_LANE_WEIGHTS
+        effective_k = rrf_k if rrf_k is not None else self._rrf_k
+        effective_weights = (
+            rrf_weights if rrf_weights is not None else self._rrf_weights
+        )
 
-        from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
         legal_resolver = LegalEntityResolver()
         legal_citations = legal_resolver.extract_citations(query)
         target_statutes = {c.statute_code for c in legal_citations}
@@ -5526,7 +5519,8 @@ class MemoryDAO:
             )
             placeholders = ",".join("?" for _ in datasets)
             async with db.execute(
-                "SELECT DISTINCT r.artifact_kind, r.physical_artifact_id FROM artifact_registry r "
+                "SELECT DISTINCT r.artifact_kind, r.physical_artifact_id, "
+                "r.metadata_json FROM artifact_registry r "
                 "JOIN artifact_sources s ON s.registry_id = r.registry_id "
                 "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
                 "LEFT JOIN v4_entities e ON r.artifact_kind = 'ENTITY' "
@@ -5543,12 +5537,16 @@ class MemoryDAO:
 
             # Pre-filter in-scope assertions before rank contribution in ANY lane
             in_scope_assertion_query = (
-                "SELECT a.assertion_id, a.subject_id, a.object_entity_id FROM v4_assertions a "
+                "SELECT a.* FROM v4_assertions a "
                 f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
                 f"AND {assertion_status_sql} "
                 "AND EXISTS (SELECT 1 FROM memory_mutations m "
                 "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? AND m.state = 'COMMITTED') "
-                + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "")
+                + (
+                    "AND " + " AND ".join(provenance_filters)
+                    if provenance_filters
+                    else ""
+                )
             )
             async with db.execute(
                 in_scope_assertion_query,
@@ -5559,16 +5557,37 @@ class MemoryDAO:
         raw_allowed_entity_ids = {
             str(row[1]) for row in artifact_rows if row[0] == "ENTITY"
         }
-        allowed_vector_registry_ids = {
-            str(row[1]) for row in artifact_rows if row[0] == "ASSERTION_VECTOR"
+        allowed_vector_registry_ids: set[str] = set()
+        for artifact_row in artifact_rows:
+            if artifact_row[0] != "ASSERTION_VECTOR":
+                continue
+            try:
+                artifact_metadata = json.loads(str(artifact_row[2] or "{}"))
+            except (TypeError, json.JSONDecodeError):
+                artifact_metadata = {}
+            if (
+                artifact_metadata.get("representation_version")
+                == V4_VECTOR_REPRESENTATION_VERSION
+            ):
+                allowed_vector_registry_ids.add(str(artifact_row[1]))
+        in_scope_assertions = {
+            str(row["assertion_id"]): dict(row) for row in in_scope_assertion_rows
         }
-        in_scope_assertion_ids = {str(row[0]) for row in in_scope_assertion_rows}
+        in_scope_assertion_ids = set(in_scope_assertions)
         in_scope_entity_ids_from_assertions = {
-            str(row[1]) for row in in_scope_assertion_rows if row[1]
-        } | {str(row[2]) for row in in_scope_assertion_rows if row[2]}
+            str(row["subject_id"])
+            for row in in_scope_assertion_rows
+            if row["subject_id"]
+        } | {
+            str(row["object_entity_id"])
+            for row in in_scope_assertion_rows
+            if row["object_entity_id"]
+        }
 
         if provenance_filters:
-            allowed_entity_ids = raw_allowed_entity_ids & in_scope_entity_ids_from_assertions
+            allowed_entity_ids = (
+                raw_allowed_entity_ids & in_scope_entity_ids_from_assertions
+            )
             if not allowed_entity_ids and not in_scope_assertion_ids:
                 return []
         else:
@@ -5625,10 +5644,38 @@ class MemoryDAO:
 
         # Phase 4: Structured Query Parsing & Passage/Article Lexical Retrieval
         TURKISH_LEGAL_STOPWORDS = {
-            "m", "md", "madde", "maddesi", "maddesine", "maddesinde", "fıkra", "fıkrası",
-            "bent", "bendi", "uyarınca", "gereğince", "göre", "ve", "veya", "ile", "için",
-            "olan", "bir", "bu", "şu", "hükmü", "hükmünce", "kapsamında", "ilgili",
-            "nedir", "nelerdir", "hakkında", "tarafından", "sayılı", "kanun", "kanunu",
+            "m",
+            "md",
+            "madde",
+            "maddesi",
+            "maddesine",
+            "maddesinde",
+            "fıkra",
+            "fıkrası",
+            "bent",
+            "bendi",
+            "uyarınca",
+            "gereğince",
+            "göre",
+            "ve",
+            "veya",
+            "ile",
+            "için",
+            "olan",
+            "bir",
+            "bu",
+            "şu",
+            "hükmü",
+            "hükmünce",
+            "kapsamında",
+            "ilgili",
+            "nedir",
+            "nelerdir",
+            "hakkında",
+            "tarafından",
+            "sayılı",
+            "kanun",
+            "kanunu",
         }
         raw_tokens = re.findall(r"\w+", _normalize_identity_text(query))
         citation_statutes_norm: set[str] = set()
@@ -5653,64 +5700,81 @@ class MemoryDAO:
 
         lexical_lane: list[str] = []
         lexical_assertions: dict[str, dict[str, Any]] = {}
+        lexical_scores: dict[str, float] = {}
+        lexical_entity_lane: list[str] = []
 
-        # 1. Passage & Article Lexical Retrieval from v4_assertions and source_chunks
-        passage_match_clauses: list[str] = []
-        passage_match_params: list[Any] = []
+        # 1. Passage/article FTS5 retrieval.  Authorization and assertion
+        # lifecycle predicates execute in the same query before BM25 LIMIT.
+        fts_query_tokens = list(content_tokens)
+        for citation in legal_citations:
+            fts_query_tokens.extend(
+                re.findall(r"\w+", _normalize_identity_text(citation.statute_code))
+            )
+            if citation.article:
+                fts_query_tokens.append(citation.article)
+        if not fts_query_tokens:
+            fts_query_tokens = [token for token in raw_tokens if len(token) >= 2]
+        fts_query_tokens = list(
+            dict.fromkeys(
+                token.replace('"', "") for token in fts_query_tokens if len(token) >= 2
+            )
+        )[:12]
+        passage_candidate_rows: list[dict[str, Any]] = []
 
-        if content_tokens:
-            for token in content_tokens:
-                token_like = f"%{token}%"
-                passage_match_clauses.append(
-                    "(a.evidence_span LIKE ? OR a.literal_value LIKE ? OR a.source_ref LIKE ? "
-                    "OR s.normalized_name LIKE ? OR sc.content_payload LIKE ?)"
-                )
-                passage_match_params.extend([token_like, token_like, token_like, token_like, token_like])
-
-        if legal_citations:
-            for c in legal_citations:
-                c_statute = _normalize_identity_text(c.statute_code)
-                passage_match_clauses.append(
-                    "(s.normalized_name LIKE ? OR a.source_ref LIKE ? OR a.document_id LIKE ?)"
-                )
-                passage_match_params.extend([f"%{c_statute}%", f"%{c_statute}%", f"%{c_statute}%"])
-                if c.article:
-                    passage_match_clauses.append(
-                        "(a.literal_value LIKE ? OR a.evidence_span LIKE ? OR a.source_ref LIKE ? "
-                        "OR s.normalized_name LIKE ?)"
-                    )
-                    passage_match_params.extend([f"%{c.article}%", f"%{c.article}%", f"%{c.article}%", f"%{c.article}%"])
-
-        if passage_match_clauses:
+        if fts_query_tokens:
+            fts_expression = " OR ".join(f'"{token}"' for token in fts_query_tokens)
             passage_sql = (
-                "SELECT a.*, sc.content_payload AS chunk_payload FROM v4_assertions a "
+                "SELECT a.*, s.normalized_name AS subject_name, "
+                "o.normalized_name AS object_name, "
+                "bm25(v4_assertions_fts, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
+                "AS bm25_score FROM v4_assertions_fts "
+                "JOIN v4_assertions a ON a.rowid = v4_assertions_fts.rowid "
                 "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
-                "LEFT JOIN source_chunks sc ON sc.chunk_id = a.chunk_id "
-                f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
+                "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
+                "WHERE v4_assertions_fts MATCH ? AND a.tenant_id = ? "
+                f"AND a.dataset_id IN ({placeholders}) "
                 f"AND {assertion_status_sql} "
                 "AND EXISTS (SELECT 1 FROM memory_mutations m "
                 "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
                 "AND m.state = 'COMMITTED') "
-                + ("AND (" + " OR ".join(passage_match_clauses) + ") ")
-                + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "") + " "
-                "ORDER BY a.confidence DESC LIMIT 200"
+                + (
+                    "AND " + " AND ".join(provenance_filters)
+                    if provenance_filters
+                    else ""
+                )
+                + " "
+                "ORDER BY bm25_score, a.assertion_id LIMIT ?"
             )
             async with self._sql.connection() as db:
                 async with db.execute(
                     passage_sql,
-                    (tenant_id, *datasets, agent_id, *passage_match_params, *provenance_params),
+                    (
+                        fts_expression,
+                        tenant_id,
+                        *datasets,
+                        agent_id,
+                        *provenance_params,
+                        min(1000, max(limit * 25, 100)),
+                    ),
                 ) as cursor:
-                    passage_candidate_rows = [dict(row) for row in await cursor.fetchall()]
+                    passage_candidate_rows = [
+                        dict(row) for row in await cursor.fetchall()
+                    ]
 
             scored_passage_candidates: list[tuple[float, str, dict[str, Any]]] = []
             for p_row in passage_candidate_rows:
                 aid = str(p_row["assertion_id"])
                 p_text = _normalize_identity_text(
-                    f"{p_row.get('source_ref') or ''} {p_row.get('document_id') or ''} "
+                    f"{p_row.get('subject_name') or ''} {p_row.get('source_ref') or ''} "
+                    f"{p_row.get('document_id') or ''} "
                     f"{p_row.get('literal_value') or ''} {p_row.get('evidence_span') or ''} "
-                    f"{p_row.get('chunk_payload') or ''}"
+                    f"{p_row.get('predicate') or ''} {p_row.get('object_name') or ''}"
                 )
-                p_score = 0.0
+                # SQLite BM25 is lower-is-better (usually negative).  Preserve
+                # it verbatim for observability while using its negation as a
+                # small relevance component in the combined lexical order.
+                raw_bm25 = float(p_row.get("bm25_score") or 0.0)
+                p_score = -raw_bm25
 
                 matched_tokens = 0
                 for token in content_tokens:
@@ -5727,8 +5791,12 @@ class MemoryDAO:
                 if legal_citations:
                     for c in legal_citations:
                         statute_norm = _normalize_identity_text(c.statute_code)
-                        statute_aliases_norm = [_normalize_identity_text(al) for al in c.aliases]
-                        has_statute = statute_norm in p_text or any(al in p_text for al in statute_aliases_norm)
+                        statute_aliases_norm = [
+                            _normalize_identity_text(al) for al in c.aliases
+                        ]
+                        has_statute = statute_norm in p_text or any(
+                            al in p_text for al in statute_aliases_norm
+                        )
                         has_art = bool(
                             c.article
                             and (
@@ -5749,8 +5817,16 @@ class MemoryDAO:
                         for comp_law in competing_laws:
                             comp_info = legal_resolver.ontology.get(comp_law)
                             if comp_info:
-                                comp_terms = [comp_law, comp_info.get("canonical", ""), *comp_info.get("aliases", [])]
-                                if any(_normalize_identity_text(t) in p_text for t in comp_terms if t):
+                                comp_terms = [
+                                    comp_law,
+                                    comp_info.get("canonical", ""),
+                                    *comp_info.get("aliases", []),
+                                ]
+                                if any(
+                                    _normalize_identity_text(t) in p_text
+                                    for t in comp_terms
+                                    if t
+                                ):
                                     p_score -= 150.0
                                     break
 
@@ -5758,14 +5834,20 @@ class MemoryDAO:
 
             scored_passage_candidates.sort(key=lambda x: -x[0])
             for score, aid, p_row in scored_passage_candidates:
-                if str(p_row["subject_id"]) in allowed_entity_ids and aid not in lexical_lane:
+                if (
+                    str(p_row["subject_id"]) in allowed_entity_ids
+                    and aid not in lexical_lane
+                ):
                     lexical_lane.append(aid)
                     lexical_assertions[aid] = p_row
+                    lexical_scores[aid] = float(p_row.get("bm25_score") or 0.0)
 
         # 2. Entity FTS5 Retrieval with clean content tokens (anti-pattern fix: no stopwords / OR pollution)
         fts_tokens = content_tokens if content_tokens else raw_tokens
         if fts_tokens:
-            clean_fts_tokens = [t.replace('"', "") for t in fts_tokens if len(t) >= 2][:8]
+            clean_fts_tokens = [t.replace('"', "") for t in fts_tokens if len(t) >= 2][
+                :8
+            ]
             if clean_fts_tokens:
                 expression = " OR ".join(f'"{t}"' for t in clean_fts_tokens)
                 async with self._sql.connection() as db:
@@ -5781,76 +5863,17 @@ class MemoryDAO:
                     ) as cursor:
                         for row in await cursor.fetchall():
                             eid = str(row[0])
-                            if eid in allowed_entity_ids and eid not in lexical_lane:
-                                lexical_lane.append(eid)
+                            if (
+                                eid in allowed_entity_ids
+                                and eid not in lexical_entity_lane
+                            ):
+                                lexical_entity_lane.append(eid)
 
         # Assertion Lane Redesign (Phase 5)
-        assertion_filters = [
-            "a.tenant_id = ?",
-            f"a.dataset_id IN ({placeholders})",
-            assertion_status_sql,
-            "EXISTS (SELECT 1 FROM memory_mutations m "
-            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
-            "AND m.state = 'COMMITTED')",
-        ]
-        assertion_params: list[Any] = [
-            tenant_id,
-            *datasets,
-            agent_id,
-        ]
-
-        # Multi-signal token and citation clauses for assertion lane
-        or_clauses: list[str] = []
-        or_params: list[Any] = []
-
         tokens_to_match = content_tokens if content_tokens else raw_tokens
-        for token in tokens_to_match[:8]:
-            esc_token = f"%{_escape_like_pattern(token)}%"
-            or_clauses.append(
-                "(s.normalized_name LIKE ? ESCAPE '\\' OR o.normalized_name LIKE ? ESCAPE '\\' "
-                "OR lower(a.predicate) LIKE ? ESCAPE '\\' OR a.literal_value LIKE ? ESCAPE '\\' "
-                "OR a.evidence_span LIKE ? ESCAPE '\\')"
-            )
-            or_params.extend([esc_token, esc_token, esc_token, esc_token, esc_token])
-
-        if legal_citations:
-            for c in legal_citations:
-                c_statute = _escape_like_pattern(_normalize_identity_text(c.statute_code))
-                c_canonical = _escape_like_pattern(_normalize_identity_text(c.statute_canonical))
-                or_clauses.append(
-                    "(s.normalized_name LIKE ? ESCAPE '\\' OR o.normalized_name LIKE ? ESCAPE '\\')"
-                )
-                or_params.extend([f"%{c_statute}%", f"%{c_canonical}%"])
-                if c.article:
-                    c_art = _escape_like_pattern(str(c.article))
-                    or_clauses.append(
-                        "(a.literal_value LIKE ? ESCAPE '\\' OR a.evidence_span LIKE ? ESCAPE '\\' "
-                        "OR s.normalized_name LIKE ? ESCAPE '\\')"
-                    )
-                    or_params.extend([f"%{c_art}%", f"%{c_art}%", f"%{c_art}%"])
-
-        if or_clauses:
-            assertion_filters.append(f"({' OR '.join(or_clauses)})")
-            assertion_params.extend(or_params)
-
-        if provenance_filters:
-            assertion_filters.extend(provenance_filters)
-            assertion_params.extend(provenance_params)
-
-        assertion_query = (
-            "SELECT a.*, s.normalized_name AS subject_name, o.normalized_name AS object_name "
-            "FROM v4_assertions a "
-            "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
-            "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-            f"WHERE {' AND '.join(assertion_filters)} "
-            "ORDER BY a.confidence DESC, a.assertion_id LIMIT ?"
-        )
-        fetch_limit = min(500, max(limit * 10, 50))
-        async with self._sql.connection() as db:
-            async with db.execute(
-                assertion_query, (*assertion_params, fetch_limit)
-            ) as cursor:
-                assertion_rows = [dict(row) for row in await cursor.fetchall()]
+        # Reuse the scoped FTS candidate pool.  This avoids admitting rows
+        # through SQLite's ASCII-only LIKE casing before Turkish-aware scoring.
+        assertion_rows = passage_candidate_rows
 
         # Composite multi-signal scoring for assertion candidates
         query_norm = _normalize_identity_text(query)
@@ -5868,12 +5891,16 @@ class MemoryDAO:
             o_name_norm = _normalize_identity_text(str(a_row.get("object_name") or ""))
             lit_norm = _normalize_identity_text(str(a_row.get("literal_value") or ""))
             ev_norm = _normalize_identity_text(str(a_row.get("evidence_span") or ""))
-            combined_text = f"{pred_norm} {s_name_norm} {o_name_norm} {lit_norm} {ev_norm}"
+            combined_text = (
+                f"{pred_norm} {s_name_norm} {o_name_norm} {lit_norm} {ev_norm}"
+            )
 
             # 1. Predicate Match
             if pred_norm and pred_norm in query_norm:
                 score += 50.0
-            elif any(t in pred_norm or pred_norm in t for t in tokens_to_match if len(t) >= 3):
+            elif any(
+                t in pred_norm or pred_norm in t for t in tokens_to_match if len(t) >= 3
+            ):
                 score += 35.0
 
             # 2. Subject Match
@@ -5881,7 +5908,11 @@ class MemoryDAO:
                 score += 25.0
 
             # 3. Object / Literal Match
-            if any(t in o_name_norm or t in lit_norm for t in tokens_to_match if len(t) >= 2):
+            if any(
+                t in o_name_norm or t in lit_norm
+                for t in tokens_to_match
+                if len(t) >= 2
+            ):
                 score += 25.0
 
             # 4. Evidence Match
@@ -5898,11 +5929,16 @@ class MemoryDAO:
             if legal_citations:
                 for c in legal_citations:
                     statute_norm = _normalize_identity_text(c.statute_code)
-                    statute_aliases_norm = [_normalize_identity_text(al) for al in c.aliases]
+                    statute_aliases_norm = [
+                        _normalize_identity_text(al) for al in c.aliases
+                    ]
                     has_statute = (
                         statute_norm in s_name_norm
                         or statute_norm in ev_norm
-                        or any(al in s_name_norm or al in ev_norm for al in statute_aliases_norm)
+                        or any(
+                            al in s_name_norm or al in ev_norm
+                            for al in statute_aliases_norm
+                        )
                     )
                     has_art = bool(
                         c.article
@@ -5925,8 +5961,16 @@ class MemoryDAO:
                 for comp_law in competing_laws:
                     comp_info = legal_resolver.ontology.get(comp_law)
                     if comp_info:
-                        comp_terms = [comp_law, comp_info.get("canonical", ""), *comp_info.get("aliases", [])]
-                        if any(_normalize_identity_text(t) in combined_text for t in comp_terms if t):
+                        comp_terms = [
+                            comp_law,
+                            comp_info.get("canonical", ""),
+                            *comp_info.get("aliases", []),
+                        ]
+                        if any(
+                            _normalize_identity_text(t) in combined_text
+                            for t in comp_terms
+                            if t
+                        ):
                             score -= 150.0
                             break
 
@@ -5937,7 +5981,9 @@ class MemoryDAO:
 
             scored_assertions.append((score, aid, a_row))
 
-        scored_assertions.sort(key=lambda x: (-x[0], -float(x[2].get("confidence") or 0.0), str(x[1])))
+        scored_assertions.sort(
+            key=lambda x: (-x[0], -float(x[2].get("confidence") or 0.0), str(x[1]))
+        )
 
         assertion_lane: list[str] = []
         assertion_records: dict[str, dict[str, Any]] = {}
@@ -5989,7 +6035,9 @@ class MemoryDAO:
                     for row in await cursor.fetchall():
                         eid = str(row["entity_id"])
                         nname = str(row["normalized_name"] or "")
-                        if nname and (nname in clean_query_norm or clean_query_norm in nname):
+                        if nname and (
+                            nname in clean_query_norm or clean_query_norm in nname
+                        ):
                             seed_scores[eid] = max(seed_scores.get(eid, 0.0), 0.95)
 
         # 3. Top vector lane assertions: subjects and objects
@@ -6004,7 +6052,8 @@ class MemoryDAO:
                 if o_id in allowed_entity_ids:
                     seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), v_rel * 0.9)
 
-        # 4. Top lexical lane assertions and entities
+        # 4. Top lexical evidence plus entity-name-only graph seeds.  Entity
+        # name hits are deliberately not fused as assertion evidence.
         for rank, hit_id in enumerate(lexical_lane[:8], start=1):
             l_rel = max(0.35, 0.85 - 0.05 * rank)
             if hit_id in lexical_assertions:
@@ -6015,14 +6064,13 @@ class MemoryDAO:
                     seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), l_rel)
                 if o_id in allowed_entity_ids:
                     seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), l_rel * 0.9)
-            elif hit_id in allowed_entity_ids:
-                seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
+        for hit_id in lexical_entity_lane[:8]:
+            seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
 
         graph_seed_ids = sorted(seed_scores.keys(), key=lambda sid: -seed_scores[sid])
 
         graph_lane: list[str] = []
-        graph_path_assertion_ids: set[str] = set()
-        graph_evidence_by_entity: dict[str, dict[str, Any]] = {}
+        graph_evidence_by_candidate: dict[str, dict[str, Any]] = {}
         allowed_graph_assertion_ids = in_scope_assertion_ids
         graph_provider = self._graph
         if (
@@ -6045,26 +6093,46 @@ class MemoryDAO:
                     seed_scores=seed_scores,
                 )
                 for hit in graph_hits:
-                    cand_id = str(hit.get("entity_id") or "")
-                    if cand_id and cand_id in allowed_entity_ids:
-                        if cand_id not in graph_lane:
-                            graph_lane.append(cand_id)
-                        path_assertion_ids = [
-                            str(item)
-                            for item in hit.get("path_assertion_ids", [])
-                            if item
-                        ]
-                        graph_evidence_by_entity.setdefault(
-                            cand_id,
-                            {
-                                "graph_hop_count": int(hit.get("hops") or 0),
-                                "graph_seed_entity_id": str(hit.get("seed_id") or ""),
-                                "graph_path_assertion_ids": path_assertion_ids,
-                            },
+                    target_entity_id = str(hit.get("entity_id") or "")
+                    if (
+                        not target_entity_id
+                        or target_entity_id not in allowed_entity_ids
+                    ):
+                        continue
+                    path_assertion_ids = [
+                        str(item)
+                        for item in hit.get(
+                            "best_path_assertion_ids",
+                            hit.get("path_assertion_ids", []),
                         )
-                        for p_aid in path_assertion_ids:
-                            if p_aid:
-                                graph_path_assertion_ids.add(p_aid)
+                        if str(item) in allowed_graph_assertion_ids
+                    ]
+                    matched_assertion_id = str(
+                        hit.get("matched_assertion_id")
+                        or (path_assertion_ids[-1] if path_assertion_ids else "")
+                    )
+                    if matched_assertion_id not in allowed_graph_assertion_ids:
+                        continue
+                    graph_candidate_id = (
+                        f"graph:{target_entity_id}:{matched_assertion_id}"
+                    )
+                    if graph_candidate_id not in graph_lane:
+                        graph_lane.append(graph_candidate_id)
+                    graph_evidence_by_candidate.setdefault(
+                        graph_candidate_id,
+                        {
+                            "matched_assertion_id": matched_assertion_id,
+                            "graph_hop_count": int(hit.get("hops") or 0),
+                            "graph_seed_entity_id": str(hit.get("seed_id") or ""),
+                            "graph_target_entity_id": target_entity_id,
+                            "graph_path_assertion_ids": path_assertion_ids,
+                            "graph_direction": str(
+                                hit.get("direction") or "undirected"
+                            ),
+                            "graph_support_count": int(hit.get("support_count") or 1),
+                            "graph_score": float(hit.get("score") or 0.0),
+                        },
+                    )
             except GraphSearchError as exc:
                 logger.warning(
                     "V4_GRAPH_RETRIEVAL_DEGRADED | agent_id=%s seeds=%s error=%s",
@@ -6076,177 +6144,127 @@ class MemoryDAO:
 
         # Internal candidate aggregation and fusion
         candidates: dict[str, dict[str, Any]] = {}
-
-        def _get_or_create_cand(
-            cand_id: str,
-            *,
-            entity_id: str,
-            assertion_id: str | None = None,
-            assertion: dict[str, Any] | None = None,
-        ) -> dict[str, Any]:
-            if cand_id not in candidates:
-                candidates[cand_id] = {
-                    "candidate_id": cand_id,
-                    "assertion_id": assertion_id,
-                    "entity_id": entity_id,
-                    "assertion": assertion,
-                    "source_chunk_id": (
-                        str(assertion.get("chunk_id") or "") if assertion else None
-                    ),
-                    "document_id": (
-                        str(assertion.get("document_id") or "") if assertion else None
-                    ),
-                    "evidence_span": (
-                        str(assertion.get("evidence_span") or "") if assertion else None
-                    ),
-                    "origins": set(),
-                    "lane_ranks": {},
-                    "raw_scores": {},
-                    "supporting_evidence_ids": [],
-                    "rrf_score": 0.0,
-                    "legal_factor": 1.0,
-                    "materialized_provenance": [],
-                }
-            return candidates[cand_id]
-
-        for rank, aid in enumerate(vector_lane, start=1):
-            ass = vector_assertions[aid]
-            cand = _get_or_create_cand(
-                aid,
-                entity_id=str(ass["subject_id"]),
-                assertion_id=aid,
-                assertion=ass,
+        candidate_assertions = dict(in_scope_assertions)
+        candidate_assertions.update(vector_assertions)
+        candidate_assertions.update(lexical_assertions)
+        candidate_assertions.update(assertion_records)
+        for graph_candidate_id, graph_evidence in graph_evidence_by_candidate.items():
+            matched_assertion_id = str(graph_evidence["matched_assertion_id"])
+            matched_assertion = in_scope_assertions.get(matched_assertion_id)
+            if matched_assertion is not None:
+                candidate_assertions[graph_candidate_id] = matched_assertion
+        lane_rankings = {
+            "vector": vector_lane,
+            "bm25": lexical_lane,
+            "assertion": assertion_lane,
+            "graph": graph_lane,
+        }
+        for candidate_id, fused_score, lane_ranks in rrf_fuse_lanes(
+            lane_rankings,
+            k=effective_k,
+            weights=effective_weights,
+        ):
+            assertion = candidate_assertions.get(candidate_id)
+            if assertion is None:
+                continue
+            raw_scores: dict[str, float] = {}
+            if candidate_id in vector_raw_distances:
+                raw_scores["vector"] = vector_raw_distances[candidate_id]
+            if candidate_id in lexical_scores:
+                raw_scores["bm25"] = lexical_scores[candidate_id]
+            if candidate_id in assertion_scores:
+                raw_scores["assertion"] = assertion_scores[candidate_id]
+            graph_evidence = graph_evidence_by_candidate.get(candidate_id, {})
+            assertion_id = str(
+                graph_evidence.get("matched_assertion_id") or candidate_id
             )
-            cand["origins"].add("vector")
-            cand["lane_ranks"]["vector"] = rank
-            if aid in vector_raw_distances:
-                cand["raw_scores"]["vector"] = vector_raw_distances[aid]
-            cand["rrf_score"] += compute_rrf_lane_score(
-                rank, lane="vector", k=effective_k, weights=effective_weights
-            )
-
-        for rank, aid in enumerate(assertion_lane, start=1):
-            ass = assertion_records[aid]
-            cand = _get_or_create_cand(
-                aid,
-                entity_id=str(ass["subject_id"]),
-                assertion_id=aid,
-                assertion=ass,
-            )
-            cand["origins"].add("assertion")
-            cand["lane_ranks"]["assertion"] = rank
-            cand["raw_scores"]["assertion"] = assertion_scores.get(
-                aid, float(ass.get("confidence", 1.0))
-            )
-            cand["rrf_score"] += compute_rrf_lane_score(
-                rank, lane="assertion", k=effective_k, weights=effective_weights
-            )
-
-        for rank, hit_id in enumerate(lexical_lane, start=1):
-            score_contrib = compute_rrf_lane_score(
-                rank, lane="bm25", k=effective_k, weights=effective_weights
-            )
-            if hit_id in candidates:
-                c = candidates[hit_id]
-                c["origins"].add("bm25")
-                c["lane_ranks"]["bm25"] = rank
-                c["rrf_score"] += score_contrib
-            elif hit_id in lexical_assertions:
-                ass = lexical_assertions[hit_id]
-                c = _get_or_create_cand(
-                    hit_id,
-                    entity_id=str(ass["subject_id"]),
-                    assertion_id=hit_id,
-                    assertion=ass,
-                )
-                c["origins"].add("bm25")
-                c["lane_ranks"]["bm25"] = rank
-                c["rrf_score"] += score_contrib
-            else:
-                matched_cands = [c for c in candidates.values() if c["entity_id"] == hit_id]
-                if matched_cands:
-                    for c in matched_cands:
-                        c["origins"].add("bm25")
-                        c["lane_ranks"]["bm25"] = rank
-                        c["rrf_score"] += score_contrib
-                else:
-                    cand = _get_or_create_cand(
-                        f"entity:{hit_id}",
-                        entity_id=hit_id,
-                        assertion_id=None,
-                        assertion=None,
-                    )
-                    cand["origins"].add("bm25")
-                    cand["lane_ranks"]["bm25"] = rank
-                    cand["rrf_score"] += score_contrib
-
-        for rank, cand_id in enumerate(graph_lane, start=1):
-            score_contrib = compute_rrf_lane_score(
-                rank, lane="graph", k=effective_k, weights=effective_weights
-            )
-            hit_ev = graph_evidence_by_entity.get(cand_id, {})
-            p_aids = hit_ev.get("graph_path_assertion_ids", [])
-            matched_cands = [c for c in candidates.values() if c["entity_id"] == cand_id]
-            if matched_cands:
-                for c in matched_cands:
-                    c["origins"].add("graph")
-                    c["lane_ranks"]["graph"] = rank
-                    c["rrf_score"] += score_contrib
-                    c["supporting_evidence_ids"].extend(p_aids)
-            else:
-                cand = _get_or_create_cand(
-                    f"entity:{cand_id}",
-                    entity_id=cand_id,
-                    assertion_id=None,
-                    assertion=None,
-                )
-                cand["origins"].add("graph")
-                cand["lane_ranks"]["graph"] = rank
-                cand["rrf_score"] += score_contrib
-                cand["supporting_evidence_ids"].extend(p_aids)
+            if graph_evidence:
+                raw_scores["graph"] = float(graph_evidence.get("graph_score") or 0.0)
+            candidates[candidate_id] = {
+                "candidate_id": candidate_id,
+                "assertion_id": assertion_id,
+                "entity_id": str(
+                    graph_evidence.get("graph_target_entity_id")
+                    or assertion["subject_id"]
+                ),
+                "assertion": assertion,
+                "source_chunk_id": str(assertion.get("chunk_id") or "") or None,
+                "document_id": str(assertion.get("document_id") or "") or None,
+                "evidence_span": str(assertion.get("evidence_span") or "") or None,
+                "origins": set(lane_ranks),
+                "lane_ranks": lane_ranks,
+                "raw_scores": raw_scores,
+                "supporting_evidence_ids": list(
+                    graph_evidence.get("graph_path_assertion_ids", [])
+                ),
+                "graph_evidence": graph_evidence,
+                "rrf_score": fused_score,
+                "legal_factor": 1.0,
+                "materialized_provenance": [],
+            }
 
         if not candidates:
             return []
 
-        cand_entity_ids = {c["entity_id"] for c in candidates.values() if c.get("entity_id")}
-        for c in candidates.values():
-            ass = c.get("assertion")
-            if ass is not None:
-                if ass.get("subject_id"):
-                    cand_entity_ids.add(str(ass["subject_id"]))
-                if ass.get("object_entity_id"):
-                    cand_entity_ids.add(str(ass["object_entity_id"]))
+        cand_entity_ids: set[str] = {
+            str(candidate["entity_id"])
+            for candidate in candidates.values()
+            if candidate.get("entity_id")
+        }
+        for candidate in candidates.values():
+            candidate_assertion = cast(
+                dict[str, Any] | None, candidate.get("assertion")
+            )
+            if candidate_assertion is not None:
+                if candidate_assertion.get("subject_id"):
+                    cand_entity_ids.add(str(candidate_assertion["subject_id"]))
+                if candidate_assertion.get("object_entity_id"):
+                    cand_entity_ids.add(str(candidate_assertion["object_entity_id"]))
+            for supporting_id in candidate.get("supporting_evidence_ids", []):
+                supporting = in_scope_assertions.get(str(supporting_id))
+                if supporting and supporting.get("subject_id"):
+                    cand_entity_ids.add(str(supporting["subject_id"]))
+                if supporting and supporting.get("object_entity_id"):
+                    cand_entity_ids.add(str(supporting["object_entity_id"]))
         cand_entity_names: dict[str, str] = {}
         if cand_entity_ids:
             ce_placeholders = ",".join("?" for _ in cand_entity_ids)
             async with self._sql.connection() as db:
                 async with db.execute(
-                    f"SELECT entity_id, normalized_name FROM v4_entities "
+                    f"SELECT entity_id, canonical_name FROM v4_entities "
                     f"WHERE tenant_id = ? AND entity_id IN ({ce_placeholders})",
                     (tenant_id, *cand_entity_ids),
                 ) as cursor:
                     for row in await cursor.fetchall():
-                        cand_entity_names[str(row["entity_id"])] = str(row["normalized_name"] or "")
+                        cand_entity_names[str(row["entity_id"])] = str(
+                            row["canonical_name"] or ""
+                        )
 
         for cand in candidates.values():
             if legal_citations:
                 ass = cand["assertion"]
                 cand_texts: list[str] = []
                 if ass is not None:
-                    cand_texts.extend([
-                        str(ass.get("document_id") or ""),
-                        str(ass.get("source_ref") or ""),
-                        str(ass.get("predicate") or ""),
-                        str(ass.get("literal_value") or ""),
-                        str(ass.get("evidence_span") or ""),
-                    ])
-                    sub_name = cand_entity_names.get(str(ass.get("subject_id") or ""), "")
+                    cand_texts.extend(
+                        [
+                            str(ass.get("document_id") or ""),
+                            str(ass.get("source_ref") or ""),
+                            str(ass.get("predicate") or ""),
+                            str(ass.get("literal_value") or ""),
+                            str(ass.get("evidence_span") or ""),
+                        ]
+                    )
+                    sub_name = cand_entity_names.get(
+                        str(ass.get("subject_id") or ""), ""
+                    )
                     if sub_name:
                         cand_texts.append(sub_name)
-                    obj_name = cand_entity_names.get(str(ass.get("object_entity_id") or ""), "")
+                    obj_name = cand_entity_names.get(
+                        str(ass.get("object_entity_id") or ""), ""
+                    )
                     if obj_name:
                         cand_texts.append(obj_name)
-                eid = cand.get("entity_id")
+                eid = str(cand.get("entity_id") or "")
                 if eid and eid in cand_entity_names:
                     cand_texts.append(cand_entity_names[eid])
 
@@ -6256,7 +6274,11 @@ class MemoryDAO:
                 target_article_match = False
                 for c in legal_citations:
                     statute_terms = [c.statute_code, c.statute_canonical, *c.aliases]
-                    if any(_normalize_identity_text(t) in cand_combined_norm for t in statute_terms if t):
+                    if any(
+                        _normalize_identity_text(t) in cand_combined_norm
+                        for t in statute_terms
+                        if t
+                    ):
                         target_statute_match = True
                         if c.article and (
                             f"m.{c.article}" in cand_combined_norm
@@ -6272,8 +6294,16 @@ class MemoryDAO:
                 for comp_law in competing_laws:
                     comp_info = legal_resolver.ontology.get(comp_law)
                     if comp_info:
-                        comp_terms = [comp_law, comp_info.get("canonical", ""), *comp_info.get("aliases", [])]
-                        if any(_normalize_identity_text(t) in cand_combined_norm for t in comp_terms if t):
+                        comp_terms = [
+                            comp_law,
+                            comp_info.get("canonical", ""),
+                            *comp_info.get("aliases", []),
+                        ]
+                        if any(
+                            _normalize_identity_text(t) in cand_combined_norm
+                            for t in comp_terms
+                            if t
+                        ):
                             competing_statute_match = True
                             break
 
@@ -6295,7 +6325,11 @@ class MemoryDAO:
         )[:limit]
 
         needed_entity_ids = sorted(
-            {c["entity_id"] for c in ordered_candidates if c["entity_id"] in allowed_entity_ids}
+            {
+                c["entity_id"]
+                for c in ordered_candidates
+                if c["entity_id"] in allowed_entity_ids
+            }
         )
         entities: dict[str, dict[str, Any]] = {}
         if needed_entity_ids:
@@ -6307,14 +6341,15 @@ class MemoryDAO:
                     (tenant_id, *needed_entity_ids),
                 ) as cursor:
                     entities = {
-                        str(row["entity_id"]): dict(row) for row in await cursor.fetchall()
+                        str(row["entity_id"]): dict(row)
+                        for row in await cursor.fetchall()
                     }
 
         # Materialize assertions only for the ordered candidates
         extra_assertion_ids: set[str] = set()
         for cand in ordered_candidates:
-            if cand["assertion"] is None:
-                for p_aid in cand["supporting_evidence_ids"]:
+            for p_aid in cand["supporting_evidence_ids"]:
+                if p_aid != cand["assertion_id"]:
                     extra_assertion_ids.add(p_aid)
 
         extra_assertions: dict[str, dict[str, Any]] = {}
@@ -6328,39 +6363,40 @@ class MemoryDAO:
                     for row in await cursor.fetchall():
                         extra_assertions[str(row["assertion_id"])] = dict(row)
 
-        entity_fallback_assertions: dict[str, list[dict[str, Any]]] = {}
-        entities_needing_assertions = [
-            cand["entity_id"]
-            for cand in ordered_candidates
-            if cand["assertion"] is None and not cand["supporting_evidence_ids"]
-        ]
-        if entities_needing_assertions:
-            async with self._sql.connection() as db:
-                for eid in entities_needing_assertions:
-                    async with db.execute(
-                        f"SELECT a.* FROM v4_assertions a WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
-                        f"AND {assertion_status_sql} AND (a.subject_id = ? OR a.object_entity_id = ?) "
-                        + ("AND " + " AND ".join(provenance_filters) if provenance_filters else "") + " "
-                        "ORDER BY a.confidence DESC, a.assertion_id LIMIT 5",
-                        (tenant_id, *datasets, eid, eid, *provenance_params),
-                    ) as cursor:
-                        entity_fallback_assertions[eid] = [
-                            dict(row) for row in await cursor.fetchall()
-                        ]
-
         all_materialized_assertions: list[dict[str, Any]] = []
         for cand in ordered_candidates:
             if cand["assertion"] is not None:
-                cand["materialized_provenance"] = [dict(cand["assertion"])]
+                provenance_ids = list(cand["supporting_evidence_ids"]) or [
+                    cand["assertion_id"]
+                ]
+                provenance_by_id = {
+                    cand["assertion_id"]: dict(cand["assertion"]),
+                    **extra_assertions,
+                }
+                for provenance_id in dict.fromkeys(provenance_ids):
+                    source_assertion = provenance_by_id.get(provenance_id)
+                    if source_assertion is None:
+                        continue
+                    matched_assertion = dict(source_assertion)
+                    subject_id = str(matched_assertion.get("subject_id") or "")
+                    object_id = str(matched_assertion.get("object_entity_id") or "")
+                    if subject_id in cand_entity_names:
+                        matched_assertion["subject_name"] = cand_entity_names[
+                            subject_id
+                        ]
+                    if object_id in cand_entity_names:
+                        matched_assertion["object_name"] = cand_entity_names[object_id]
+                    graph_direction = cand.get("graph_evidence", {}).get(
+                        "graph_direction"
+                    )
+                    if graph_direction:
+                        matched_assertion["direction"] = graph_direction
+                    cand["materialized_provenance"].append(matched_assertion)
             elif cand["supporting_evidence_ids"]:
                 cand["materialized_provenance"] = [
                     dict(extra_assertions[p_aid])
                     for p_aid in cand["supporting_evidence_ids"]
                     if p_aid in extra_assertions
-                ]
-            elif cand["entity_id"] in entity_fallback_assertions:
-                cand["materialized_provenance"] = [
-                    dict(a) for a in entity_fallback_assertions[cand["entity_id"]]
                 ]
             all_materialized_assertions.extend(cand["materialized_provenance"])
 
@@ -6414,8 +6450,10 @@ class MemoryDAO:
             if cand["materialized_provenance"]:
                 first_prov = cand["materialized_provenance"][0]
                 cand["source_chunk_id"] = first_prov.get("chunk_id")
-                if not cand["document_id"]:
-                    cand["document_id"] = first_prov.get("document_id")
+                # Materialized provenance has already crossed the catalog
+                # boundary above.  Never retain the earlier physical ID that
+                # was copied from the canonical assertion row.
+                cand["document_id"] = first_prov.get("document_id")
                 if not cand["evidence_span"]:
                     cand["evidence_span"] = first_prov.get("evidence_span")
 
@@ -6431,10 +6469,8 @@ class MemoryDAO:
                 retrieval_provenance["assertion_id"] = cand["assertion_id"]
             if cand["source_chunk_id"]:
                 retrieval_provenance["source_chunk_id"] = cand["source_chunk_id"]
-            if eid in graph_evidence_by_entity:
-                retrieval_provenance.update(graph_evidence_by_entity[eid])
-            elif cand["supporting_evidence_ids"]:
-                retrieval_provenance["graph_path_assertion_ids"] = cand["supporting_evidence_ids"]
+            if cand.get("graph_evidence"):
+                retrieval_provenance.update(cand["graph_evidence"])
 
             cand_prov = cand["materialized_provenance"]
             if not cand_prov:

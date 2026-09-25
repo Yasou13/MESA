@@ -664,6 +664,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         confidence: float = 1.0,
         pipeline_run_id: str = "",
         status: str = "ACTIVE",
+        object_type: str = "LEGACY",
+        representation_version: str = "legacy-v0",
     ) -> None:
         """Idempotently persist one provenance-preserving Graph V2 assertion."""
         if (object_id is None) == (object_value is None):
@@ -686,7 +688,8 @@ class KuzuGraphProvider(BaseGraphProvider):
             "a.valid_from = $valid_from, a.valid_to = $valid_to, "
             "a.observed_at = $observed_at, a.confidence = $confidence, "
             "a.status = $status, a.mutation_id = $mutation_id, "
-            "a.pipeline_run_id = $pipeline_run_id "
+            "a.pipeline_run_id = $pipeline_run_id, a.object_type = $object_type, "
+            "a.representation_version = $representation_version "
             "CREATE (a)-[:AssertionSubject]->(s)" + object_link
         )
         parameters = {
@@ -706,6 +709,8 @@ class KuzuGraphProvider(BaseGraphProvider):
             "status": status,
             "mutation_id": mutation_id,
             "pipeline_run_id": pipeline_run_id,
+            "object_type": object_type,
+            "representation_version": representation_version,
         }
         if object_key:
             parameters["object_id"] = object_key
@@ -1006,7 +1011,18 @@ class KuzuGraphProvider(BaseGraphProvider):
         params = {
             "seed_ids": comp_seed_ids,
             "agent_id": agent_id,
-            "limit": max(limit * 5, 200),
+            "allowed_entity_ids": [
+                self._composite_id(agent_id, entity_id)
+                for entity_id in sorted(allowed_entity_ids)
+            ],
+            "allowed_assertion_ids": [
+                self._composite_id(agent_id, assertion_id)
+                for assertion_id in sorted(allowed_assertion_ids)
+            ],
+            "limit": min(
+                5000,
+                max(limit * 20, len(allowed_assertion_ids) * 4, 200),
+            ),
         }
 
         # Tokenize query and detect legal context for predicate relevance
@@ -1017,7 +1033,8 @@ class KuzuGraphProvider(BaseGraphProvider):
             norm_q = _normalize_text(query)
             query_tokens = [t for t in re.findall(r"\w+", norm_q) if len(t) >= 2]
             try:
-                from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
+                from mesa_storage.legal_identity import LegalEntityResolver
+
                 resolver = LegalEntityResolver()
                 citations = resolver.extract_citations(query)
                 for c in citations:
@@ -1038,6 +1055,8 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND seed.agent_id = $agent_id "
             "  AND a1.agent_id = $agent_id "
             "  AND target.agent_id = $agent_id "
+            "  AND a1.id IN $allowed_assertion_ids "
+            "  AND target.id IN $allowed_entity_ids "
             "  AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, 'forward' AS direction LIMIT $limit"
         )
@@ -1047,6 +1066,8 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND seed.agent_id = $agent_id "
             "  AND a1.agent_id = $agent_id "
             "  AND target.agent_id = $agent_id "
+            "  AND a1.id IN $allowed_assertion_ids "
+            "  AND target.id IN $allowed_entity_ids "
             "  AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, 'reverse' AS direction LIMIT $limit"
         )
@@ -1060,6 +1081,10 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND e1.agent_id = $agent_id "
             "  AND a2.agent_id = $agent_id "
             "  AND target.agent_id = $agent_id "
+            "  AND a1.id IN $allowed_assertion_ids "
+            "  AND a2.id IN $allowed_assertion_ids "
+            "  AND e1.id IN $allowed_entity_ids "
+            "  AND target.id IN $allowed_entity_ids "
             "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
             "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, e1.id, 'forward' AS direction LIMIT $limit"
@@ -1073,6 +1098,10 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND e1.agent_id = $agent_id "
             "  AND a2.agent_id = $agent_id "
             "  AND target.agent_id = $agent_id "
+            "  AND a1.id IN $allowed_assertion_ids "
+            "  AND a2.id IN $allowed_assertion_ids "
+            "  AND e1.id IN $allowed_entity_ids "
+            "  AND target.id IN $allowed_entity_ids "
             "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
             "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, e1.id, 'undirected' AS direction LIMIT $limit"
@@ -1090,6 +1119,12 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND e2.agent_id = $agent_id "
             "  AND a3.agent_id = $agent_id "
             "  AND target.agent_id = $agent_id "
+            "  AND a1.id IN $allowed_assertion_ids "
+            "  AND a2.id IN $allowed_assertion_ids "
+            "  AND a3.id IN $allowed_assertion_ids "
+            "  AND e1.id IN $allowed_entity_ids "
+            "  AND e2.id IN $allowed_entity_ids "
+            "  AND target.id IN $allowed_entity_ids "
             "  AND e1.id <> seed.id AND e2.id <> e1.id AND e2.id <> seed.id "
             "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
@@ -1147,7 +1182,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                         evidence_spans = [str(row[6] or "")] if len(row) > 6 else []
                         jurisdictions = [str(row[7] or "")] if len(row) > 7 else []
                         intermediates: list[str] = []
-                        dir_tag = str(row[8] or "forward") if len(row) > 8 else "forward"
+                        dir_tag = (
+                            str(row[8] or "forward") if len(row) > 8 else "forward"
+                        )
                     elif hop == 2:
                         path_assertions = [
                             str(item).removeprefix(prefix)
@@ -1163,23 +1200,47 @@ class KuzuGraphProvider(BaseGraphProvider):
                             if len(row) > 13 and row[13] is not None
                             else []
                         )
-                        dir_tag = str(row[14] or "undirected") if len(row) > 14 else "undirected"
+                        dir_tag = (
+                            str(row[14] or "undirected")
+                            if len(row) > 14
+                            else "undirected"
+                        )
                     else:  # hop == 3
                         path_assertions = [
                             str(item).removeprefix(prefix)
                             for item in (row[3], row[8], row[13])
                             if item is not None
                         ]
-                        predicates = [str(row[4] or ""), str(row[9] or ""), str(row[14] or "")]
-                        confidences = [float(row[5] or 1.0), float(row[10] or 1.0), float(row[15] or 1.0)]
-                        evidence_spans = [str(row[6] or ""), str(row[11] or ""), str(row[16] or "")]
-                        jurisdictions = [str(row[7] or ""), str(row[12] or ""), str(row[17] or "")]
+                        predicates = [
+                            str(row[4] or ""),
+                            str(row[9] or ""),
+                            str(row[14] or ""),
+                        ]
+                        confidences = [
+                            float(row[5] or 1.0),
+                            float(row[10] or 1.0),
+                            float(row[15] or 1.0),
+                        ]
+                        evidence_spans = [
+                            str(row[6] or ""),
+                            str(row[11] or ""),
+                            str(row[16] or ""),
+                        ]
+                        jurisdictions = [
+                            str(row[7] or ""),
+                            str(row[12] or ""),
+                            str(row[17] or ""),
+                        ]
                         intermediates = [
                             str(item).removeprefix(prefix)
                             for item in (row[18], row[19])
                             if item is not None
                         ]
-                        dir_tag = str(row[20] or "undirected") if len(row) > 20 else "undirected"
+                        dir_tag = (
+                            str(row[20] or "undirected")
+                            if len(row) > 20
+                            else "undirected"
+                        )
 
                     if allowed_entity_set is not None and any(
                         item not in allowed_entity_set for item in intermediates
@@ -1208,7 +1269,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                     # 3. Query, predicate, and evidence relevance
                     pred_bonus = 0.0
                     if query_tokens:
-                        for pred, ev, jur in zip(predicates, evidence_spans, jurisdictions):
+                        for pred, ev, jur in zip(
+                            predicates, evidence_spans, jurisdictions
+                        ):
                             p_norm = _normalize_text(pred)
                             ev_norm = _normalize_text(ev)
                             jur_norm = _normalize_text(jur)
@@ -1218,11 +1281,13 @@ class KuzuGraphProvider(BaseGraphProvider):
                                 elif tok in ev_norm:
                                     pred_bonus += 0.3
                             if target_statutes and any(
-                                ts in ev_norm or ts in jur_norm or ts in p_norm for ts in target_statutes
+                                ts in ev_norm or ts in jur_norm or ts in p_norm
+                                for ts in target_statutes
                             ):
                                 pred_bonus += 0.4
                             if competing_statutes and any(
-                                cs in ev_norm or cs in jur_norm for cs in competing_statutes
+                                cs in ev_norm or cs in jur_norm
+                                for cs in competing_statutes
                             ):
                                 pred_bonus -= 0.8
 
@@ -1235,7 +1300,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                     # 5. Direction factor (favor forward semantic direction)
                     dir_factor = 1.0 if dir_tag == "forward" else 0.85
 
-                    path_score = base_len * seed_factor * pred_factor * ev_factor * dir_factor
+                    path_score = (
+                        base_len * seed_factor * pred_factor * ev_factor * dir_factor
+                    )
 
                     paths_by_target.setdefault(t_id, []).append(
                         {
@@ -1290,6 +1357,10 @@ class KuzuGraphProvider(BaseGraphProvider):
                 "score": final_score,
                 "seed_id": best_p["seed_id"],
                 "path_assertion_ids": all_path_assertions,
+                "best_path_assertion_ids": list(best_p["path_assertions"]),
+                "matched_assertion_id": (
+                    best_p["path_assertions"][-1] if best_p["path_assertions"] else None
+                ),
                 "support_count": support_count,
                 "direction": best_p["direction"],
             }

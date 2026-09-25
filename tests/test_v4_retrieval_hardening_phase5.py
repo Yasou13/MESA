@@ -13,14 +13,13 @@ Verifies:
 
 from __future__ import annotations
 
-import unicodedata
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
-from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
-from mesa_storage.dao import MemoryDAO, _normalize_identity_text
+from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -129,7 +128,9 @@ async def test_phase5_natural_language_query_assertion_lane_not_empty(tmp_path):
         )
 
         # Full natural language question - previously failed because whole question was passed to LIKE
-        query = "Muaccel bir borcun borçlusu hangi hallerde ve ne şekilde temerrüde düşer?"
+        query = (
+            "Muaccel bir borcun borçlusu hangi hallerde ve ne şekilde temerrüde düşer?"
+        )
         results = await dao.search_v4_memory(
             query=query,
             tenant_id=tenant_id,
@@ -142,10 +143,45 @@ async def test_phase5_natural_language_query_assertion_lane_not_empty(tmp_path):
         top = results[0]
         assert top["assertion_id"] == ass["assertion_id"]
         # Must participate in the assertion lane
-        assert "assertion" in top["retrieval_provenance"]["origins"], (
-            f"Expected assertion lane participation, got {top['retrieval_provenance']['origins']}"
-        )
+        assert (
+            "assertion" in top["retrieval_provenance"]["origins"]
+        ), f"Expected assertion lane participation, got {top['retrieval_provenance']['origins']}"
         assert top["retrieval_provenance"]["lane_ranks"].get("assertion") is not None
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_phase5_turkish_dotted_i_match_is_admitted_from_evidence_only(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "phase5-turkish-evidence-only.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = _make_dao(engine)
+
+    try:
+        assertion = await _seed_assertion(
+            dao,
+            tenant_id="tenant-p5-evidence",
+            agent_id="agent-p5-evidence",
+            dataset_id="dataset-p5-evidence",
+            doc_id="doc-p5-evidence",
+            subject="UnrelatedSubject",
+            predicate="requires_notice",
+            literal_value="Unrelated literal",
+            evidence_span="Borçluya İHTAR gönderilmesi zorunludur.",
+            raw_log_id=501,
+        )
+
+        results = await dao.search_v4_memory(
+            tenant_id="tenant-p5-evidence",
+            agent_id="agent-p5-evidence",
+            dataset_ids=["dataset-p5-evidence"],
+            query="ihtar",
+        )
+
+        assert assertion["assertion_id"] in {
+            result["assertion_id"] for result in results
+        }
     finally:
         await engine.close()
 
@@ -177,7 +213,7 @@ async def test_phase5_exact_predicate_matching(tmp_path):
             raw_log_id=10,
         )
 
-        ass2 = await _seed_assertion(
+        await _seed_assertion(
             dao,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -286,7 +322,7 @@ async def test_phase5_evidence_identity_preservation(tmp_path):
         assert len(results) >= 1
         top = results[0]
         assert top["assertion_id"] == ass["assertion_id"]
-        assert top["source_chunk_id"] == f"chunk-doc-spec"
+        assert top["source_chunk_id"] == "chunk-doc-spec"
         assert top["evidence_span"] == ass["evidence_span"]
         assert len(top["matched_assertions"]) >= 1
         assert top["matched_assertions"][0]["assertion_id"] == ass["assertion_id"]
@@ -395,4 +431,3 @@ async def test_phase5_same_article_collision_disambiguation(tmp_path):
             assert results[0]["rrf_score"] > results[1]["rrf_score"]
     finally:
         await engine.close()
-

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
@@ -25,7 +26,9 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
 
-def _make_dao(engine: AsyncEngine, mock_vector_rows: list[dict] | None = None) -> MemoryDAO:
+def _make_dao(
+    engine: AsyncEngine, mock_vector_rows: list[dict] | None = None
+) -> MemoryDAO:
     vector = SimpleNamespace(
         compute_embedding=AsyncMock(return_value=[1.0, 0.0]),
         compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
@@ -115,6 +118,121 @@ async def _seed_versioned_assertion(
         )
         await db.commit()
     return assertion
+
+
+async def _seed_entity_only(
+    dao: MemoryDAO,
+    *,
+    tenant_id: str,
+    agent_id: str,
+    dataset_id: str,
+    subject: str,
+    raw_log_id: int,
+) -> None:
+    candidate = MemoryCandidate.from_raw_log(
+        raw_log_id=raw_log_id,
+        tenant_id=tenant_id,
+        workspace_id="workspace-p7",
+        dataset_id=dataset_id,
+        document_id=f"doc-entity-{raw_log_id}",
+        revision_id=f"rev-entity-{raw_log_id}",
+        chunk_id=f"chunk-entity-{raw_log_id}",
+        source_ref=f"source-entity-{raw_log_id}",
+        agent_id=agent_id,
+        session_id="session-p7",
+        content_payload=subject,
+        embedding_provider="test",
+        embedding_model="catalog-contract",
+        embedding_version="v1",
+        embedding_dimension=2,
+        embedding_space_id="test:catalog-contract:v1:2:norm=true",
+        embedding_normalized=True,
+    ).as_consolidation_record()
+    await dao.record_mutation(candidate, raw_log_id=raw_log_id)
+    mutation = await dao.get_projection_mutation(str(candidate["mutation_id"]))
+    assert mutation is not None
+    await dao.project_v4_sql_entity(mutation=mutation, entity_name=subject)
+    async with dao._sql.transaction() as db:
+        await db.execute(
+            "UPDATE memory_mutations SET state = 'COMMITTED' WHERE mutation_id = ?",
+            (mutation["mutation_id"],),
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_p7_shared_entity_fallback_cannot_leak_another_agents_assertion(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "p7-shared-entity-agent.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = _make_dao(engine)
+
+    try:
+        await _seed_entity_only(
+            dao,
+            tenant_id="tenant-p7-shared",
+            agent_id="agent-a",
+            dataset_id="dataset-p7-shared",
+            subject="SharedEntity",
+            raw_log_id=7001,
+        )
+        await _seed_versioned_assertion(
+            dao,
+            tenant_id="tenant-p7-shared",
+            agent_id="agent-b",
+            dataset_id="dataset-p7-shared",
+            doc_id="document-agent-b",
+            subject="SharedEntity",
+            predicate="belongs_to_agent_b",
+            literal_value="private fact",
+            evidence_span="Only agent B may retrieve this evidence.",
+            raw_log_id=7002,
+        )
+
+        results = await dao.search_v4_memory(
+            tenant_id="tenant-p7-shared",
+            agent_id="agent-a",
+            dataset_ids=["dataset-p7-shared"],
+            query="SharedEntity",
+        )
+
+        assert results == []
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_p7_public_top_level_document_id_matches_translated_provenance(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "p7-public-document-id.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = _make_dao(engine)
+
+    try:
+        await _seed_versioned_assertion(
+            dao,
+            tenant_id="tenant-p7-public",
+            agent_id="agent-p7-public",
+            dataset_id="dataset-p7-public",
+            doc_id="document-public",
+            subject="PublicEntity",
+            predicate="has_public_id",
+            literal_value="public fact",
+            evidence_span="Public evidence.",
+            raw_log_id=7003,
+        )
+        results = await dao.search_v4_memory(
+            tenant_id="tenant-p7-public",
+            agent_id="agent-p7-public",
+            dataset_ids=["dataset-p7-public"],
+            query="PublicEntity",
+        )
+
+        assert results
+        assert results[0]["provenance"][0]["document_id"] == "document-public"
+        assert results[0]["document_id"] == "document-public"
+    finally:
+        await engine.close()
 
 
 @pytest.mark.asyncio
@@ -373,6 +491,7 @@ async def test_p7_tenant_dataset_and_agent_isolation(tmp_path):
 
         # Cross-tenant dataset identifier lookup fails closed
         from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
+
         with pytest.raises(CatalogIdentityNotFoundError):
             await dao.search_v4_memory(
                 query="Gizli ticari sırlar",
@@ -520,7 +639,7 @@ async def test_p7_stale_lexical_row_excluded_from_rank(tmp_path):
         )
 
         # Active assertion with partial match
-        ass_active = await _seed_versioned_assertion(
+        await _seed_versioned_assertion(
             dao,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -613,4 +732,3 @@ async def test_p7_graph_seeds_strictly_in_scope(tmp_path):
             assert "DE" not in str(r.get("evidence_span", ""))
     finally:
         await engine.close()
-

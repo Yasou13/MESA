@@ -18,13 +18,14 @@ from __future__ import annotations
 import unicodedata
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 
+from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
 from mesa_storage.dao import MemoryDAO, _normalize_identity_text
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_memory.consolidation.schemas import MemoryCandidate
 
 
 def test_phase3_turkish_i_normalization_matrix():
@@ -37,7 +38,9 @@ def test_phase3_turkish_i_normalization_matrix():
         unicodedata.normalize("NFC", "İŞ KANUNU"),
     ]
     normalized_set = {_normalize_identity_text(v) for v in variations}
-    assert len(normalized_set) == 1, f"Expected 1 canonical normalized form, got {normalized_set}"
+    assert (
+        len(normalized_set) == 1
+    ), f"Expected 1 canonical normalized form, got {normalized_set}"
     assert "iş kanunu" in normalized_set
 
     # Verify dotted İ and small i map to the same letter
@@ -52,23 +55,35 @@ def test_phase3_legal_resolver_citation_formats():
 
     # 1. TBK m.117
     e1 = resolver.extract_entities("TBK m.117 uyarınca temerrüt")
-    assert any("TBK" in x and "117" in x for x in e1), f"Failed to resolve 'TBK m.117': {e1}"
+    assert any(
+        "TBK" in x and "117" in x for x in e1
+    ), f"Failed to resolve 'TBK m.117': {e1}"
 
     # 2. Türk Borçlar Kanunu 117
-    e2 = resolver.extract_entities("Türk Borçlar Kanunu 117 gereğince borçlunun temerrüdü")
-    assert any("TBK" in x and "117" in x for x in e2), f"Failed to resolve 'Türk Borçlar Kanunu 117': {e2}"
+    e2 = resolver.extract_entities(
+        "Türk Borçlar Kanunu 117 gereğince borçlunun temerrüdü"
+    )
+    assert any(
+        "TBK" in x and "117" in x for x in e2
+    ), f"Failed to resolve 'Türk Borçlar Kanunu 117': {e2}"
 
     # 3. TBK 117. madde
     e3 = resolver.extract_entities("TBK 117. madde kapsamında fesih")
-    assert any("TBK" in x and "117" in x for x in e3), f"Failed to resolve 'TBK 117. madde': {e3}"
+    assert any(
+        "TBK" in x and "117" in x for x in e3
+    ), f"Failed to resolve 'TBK 117. madde': {e3}"
 
     # 4. TBK 117
     e4 = resolver.extract_entities("TBK 117 ihtar şartı")
-    assert any("TBK" in x and "117" in x for x in e4), f"Failed to resolve 'TBK 117': {e4}"
+    assert any(
+        "TBK" in x and "117" in x for x in e4
+    ), f"Failed to resolve 'TBK 117': {e4}"
 
     # 5. Reverse: 117. maddesi TBK
     e5 = resolver.extract_entities("117. maddesi uyarınca TBK kapsamında")
-    assert any("TBK" in x and "117" in x for x in e5), f"Failed to resolve reverse citation: {e5}"
+    assert any(
+        "TBK" in x and "117" in x for x in e5
+    ), f"Failed to resolve reverse citation: {e5}"
 
 
 def test_phase3_statute_coverage():
@@ -89,9 +104,9 @@ def test_phase3_statute_coverage():
     ]
     for text, expected_code, expected_art in statute_cases:
         resolved = resolver.extract_entities(text)
-        assert any(expected_code in x and expected_art in x for x in resolved), (
-            f"Failed on '{text}'. Expected {expected_code} with art {expected_art}, got {resolved}"
-        )
+        assert any(
+            expected_code in x and expected_art in x for x in resolved
+        ), f"Failed on '{text}'. Expected {expected_code} with art {expected_art}, got {resolved}"
 
 
 def test_phase3_same_article_different_statute_no_cartesian_collision():
@@ -103,18 +118,28 @@ def test_phase3_same_article_different_statute_no_cartesian_collision():
     resolved = resolver.extract_entities(text)
 
     # Must contain TBK m.117 and TMK m.50
-    assert any("TBK" in x and "117" in x for x in resolved), f"Missing TBK 117 in {resolved}"
-    assert any("TMK" in x and "50" in x for x in resolved), f"Missing TMK 50 in {resolved}"
+    assert any(
+        "TBK" in x and "117" in x for x in resolved
+    ), f"Missing TBK 117 in {resolved}"
+    assert any(
+        "TMK" in x and "50" in x for x in resolved
+    ), f"Missing TMK 50 in {resolved}"
 
     # Must NOT contain cross-polluted pairs: TBK 50 or TMK 117!
-    assert not any("TBK" in x and "50" in x for x in resolved), f"Illegal collision: TBK 50 found in {resolved}"
-    assert not any("TMK" in x and "117" in x for x in resolved), f"Illegal collision: TMK 117 found in {resolved}"
+    assert not any(
+        "TBK" in x and "50" in x for x in resolved
+    ), f"Illegal collision: TBK 50 found in {resolved}"
+    assert not any(
+        "TMK" in x and "117" in x for x in resolved
+    ), f"Illegal collision: TMK 117 found in {resolved}"
 
 
 def test_phase3_structured_citations():
     """Verify structured citations extraction."""
     resolver = LegalEntityResolver()
-    citations = resolver.extract_citations("CMK 141 tazminat vs TCK 141 hırsızlık vs Anayasa 141 aleniyet")
+    citations = resolver.extract_citations(
+        "CMK 141 tazminat vs TCK 141 hırsızlık vs Anayasa 141 aleniyet"
+    )
     assert len(citations) == 3
 
     statutes = {c.statute_code: c.article for c in citations}
@@ -270,6 +295,51 @@ async def test_phase3_downstream_same_article_disambiguation(tmp_path):
         # Competing TMK/TCK hits must have penalized legal_factor
         for r in results[1:]:
             if r["assertion_id"] in (ass_tmk["assertion_id"], ass_tck["assertion_id"]):
-                assert r["legal_factor"] < 1.0, f"Expected penalized legal_factor, got {r['legal_factor']}"
+                assert (
+                    r["legal_factor"] < 1.0
+                ), f"Expected penalized legal_factor, got {r['legal_factor']}"
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_phase3_ingestion_uses_structural_legal_identity(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "phase3-ingestion-identity.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    vector = SimpleNamespace(
+        compute_embedding=AsyncMock(return_value=[1.0, 0.0]),
+        compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
+        upsert=AsyncMock(),
+        search=AsyncMock(return_value=[]),
+    )
+    graph = SimpleNamespace(
+        insert_node=AsyncMock(),
+        insert_assertion=AsyncMock(),
+        link_assertions=AsyncMock(),
+    )
+    dao = MemoryDAO(engine, vector, graph)
+
+    try:
+        assertion = await _seed_legal_assertion(
+            dao,
+            tenant_id="tenant-p3-identity",
+            agent_id="agent-p3-identity",
+            dataset_id="dataset-p3-identity",
+            doc_id="doc-p3-identity",
+            subject="Türk Borçlar Kanunu madde 117",
+            predicate="hükmü",
+            literal_value="Temerrüt",
+            evidence_span="TBK 117 temerrüt kuralı.",
+            raw_log_id=301,
+        )
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT canonical_name FROM v4_entities WHERE entity_id = ?",
+                (assertion["subject_id"],),
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == "TBK m.117"
     finally:
         await engine.close()

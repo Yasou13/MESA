@@ -54,7 +54,7 @@ class ContextBuilder:
         valid_from: str | None = None,
         valid_to: str | None = None,
         include_provenance: bool = True,
-        max_evidence_span_chars: int = MAX_EVIDENCE_SPAN_CHARS,
+        max_evidence_span_chars: int | None = None,
     ) -> dict[str, Any]:
         """Construct context combining current-session logs and long-term canonical truth."""
         if token_budget < 1:
@@ -96,12 +96,14 @@ class ContextBuilder:
 
         memory_records: list[dict[str, Any]] = []
         for idx, item in enumerate(canonical_memories):
-            entity = item.get("entity", {}) if isinstance(item.get("entity"), dict) else {}
+            entity = (
+                item.get("entity", {}) if isinstance(item.get("entity"), dict) else {}
+            )
             name = str(entity.get("canonical_name", ""))
             provenance = item.get("provenance", [])
             facts: list[dict[str, Any]] = []
             if provenance and isinstance(provenance, list):
-                for p in provenance:
+                for provenance_index, p in enumerate(provenance):
                     predicate = str(p.get("predicate", "") or "")
                     val = p.get("literal_value")
                     if val is None:
@@ -111,19 +113,29 @@ class ContextBuilder:
                             val = obj_name
                         elif obj_id:
                             # Avoid leaking opaque internal UUIDs into model-visible context
-                            if str(obj_id).startswith(("e_", "ent_", "ast_")) or len(str(obj_id)) > 24:
+                            if (
+                                str(obj_id).startswith(("e_", "ent_", "ast_"))
+                                or len(str(obj_id)) > 24
+                            ):
                                 val = p.get("predicate", "related_entity")
                             else:
                                 val = str(obj_id)
                         else:
                             val = ""
                     val_str = str(val)
-                    direction = str(p.get("direction") or "forward")
+                    direction = str(p.get("direction") or "asserted")
                     fact_dict: dict[str, Any] = {
                         "predicate": predicate,
                         "value": val_str,
                         "direction": direction,
+                        "_source_provenance_index": provenance_index,
                     }
+                    subject_name = p.get("subject_name") or name
+                    if subject_name:
+                        fact_dict["subject"] = str(subject_name)
+                    object_type = p.get("object_type")
+                    if object_type:
+                        fact_dict["object_type"] = str(object_type)
                     if include_provenance:
                         source_ref = p.get("source_ref")
                         if source_ref:
@@ -139,9 +151,10 @@ class ContextBuilder:
                             fact_dict["chunk_id"] = str(chunk_id)
                         evidence_span = p.get("evidence_span")
                         if evidence_span:
-                            fact_dict["evidence_span"] = str(evidence_span)[
-                                :max_evidence_span_chars
-                            ]
+                            # Evidence is retained intact here.  The token
+                            # budget below removes whole evidence records
+                            # rather than silently cutting a legal condition.
+                            fact_dict["evidence_span"] = str(evidence_span)
                         jurisdiction = p.get("jurisdiction")
                         if jurisdiction:
                             fact_dict["jurisdiction"] = str(jurisdiction)
@@ -171,13 +184,40 @@ class ContextBuilder:
         ]
         cur_sessions = list(session_records)
 
-        formatted_context = _render_context(cur_sessions, cur_memories)
+        def _model_visible_records(
+            records: list[dict[str, Any]],
+        ) -> list[dict[str, Any]]:
+            return [
+                {
+                    key: (
+                        [
+                            {
+                                fact_key: fact_value
+                                for fact_key, fact_value in fact.items()
+                                if not fact_key.startswith("_")
+                            }
+                            for fact in value
+                        ]
+                        if key == "facts"
+                        else value
+                    )
+                    for key, value in record.items()
+                    if not key.startswith("_")
+                }
+                for record in records
+            ]
+
+        formatted_context = _render_context(
+            cur_sessions, _model_visible_records(cur_memories)
+        )
         actual_tokens = _count_tokens(formatted_context)
 
         # Current-session chatter yields budget first
         while actual_tokens > token_budget and cur_sessions:
             cur_sessions.pop()
-            formatted_context = _render_context(cur_sessions, cur_memories)
+            formatted_context = _render_context(
+                cur_sessions, _model_visible_records(cur_memories)
+            )
             actual_tokens = _count_tokens(formatted_context)
 
         # Fine-grained fact/evidence-level trimming:
@@ -195,7 +235,9 @@ class ContextBuilder:
             if not pruned_fact:
                 cur_memories.pop()
 
-            formatted_context = _render_context(cur_sessions, cur_memories)
+            formatted_context = _render_context(
+                cur_sessions, _model_visible_records(cur_memories)
+            )
             actual_tokens = _count_tokens(formatted_context)
 
         # If empty structural wrapper itself exceeds token_budget (tiny budget case)
@@ -211,15 +253,34 @@ class ContextBuilder:
         for idx, raw_mem in enumerate(canonical_memories):
             if idx in retained_indices:
                 matching_cur = retained_indices[idx]
-                visible_item = dict(raw_mem)
-                if matching_cur.get("facts"):
-                    retained_preds = {f["predicate"] for f in matching_cur["facts"]}
-                    if "provenance" in visible_item and isinstance(visible_item["provenance"], list):
-                        visible_item["provenance"] = [
-                            p
-                            for p in raw_mem.get("provenance", [])
-                            if (p.get("predicate", "") or "") in retained_preds
-                        ]
+                retained_facts = matching_cur.get("facts", [])
+                visible_item: dict[str, Any] = {
+                    "entity": {
+                        "canonical_name": str(
+                            raw_mem.get("entity", {}).get("canonical_name", "")
+                        )
+                    },
+                    "provenance": [
+                        {
+                            key: value
+                            for key, value in fact.items()
+                            if not key.startswith("_")
+                        }
+                        for fact in retained_facts
+                    ],
+                }
+                for key in (
+                    "candidate_id",
+                    "evidence_id",
+                    "assertion_id",
+                    "source_chunk_id",
+                    "document_id",
+                    "rrf_score",
+                    "final_score",
+                    "retrieval_provenance",
+                ):
+                    if key in raw_mem:
+                        visible_item[key] = raw_mem[key]
                 model_visible_memories.append(visible_item)
 
         return {

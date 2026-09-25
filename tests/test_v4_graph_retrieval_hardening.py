@@ -22,7 +22,7 @@ from mesa_memory.embedding.service import (
     EmbeddingUnavailableError,
 )
 from mesa_memory.security.rbac import AccessControl
-from mesa_storage.dao import MemoryDAO
+from mesa_storage.dao import V4_VECTOR_REPRESENTATION_VERSION, MemoryDAO
 from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.retrieval_scope import V4_RRF_LANE_WEIGHTS
@@ -31,7 +31,9 @@ from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
 
-async def _create_test_env(tmp_path, *, agent_id: str = "test-agent", tenant_id: str = "test-tenant"):
+async def _create_test_env(
+    tmp_path, *, agent_id: str = "test-agent", tenant_id: str = "test-tenant"
+):
     db_file = tmp_path / f"{agent_id}_mesa.db"
     sql = AsyncEngine(str(db_file))
     await sql.initialize()
@@ -138,13 +140,29 @@ async def _ingest_entity_and_assertion(
             "assertion_id, tenant_id, dataset_id, subject_id, predicate, object_entity_id, "
             "source_ref, document_id, revision_id, chunk_id, confidence, status, mutation_id, pipeline_run_id"
             ") VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', ?, 'ACTIVE', ?, ?)",
-            (a_id, tenant_id, ds_id, s_id, predicate, o_id, confidence, mutation_id, pipe_id),
+            (
+                a_id,
+                tenant_id,
+                ds_id,
+                s_id,
+                predicate,
+                o_id,
+                confidence,
+                mutation_id,
+                pipe_id,
+            ),
         )
         reg_aid = f"reg_vec_{a_id}"
         await db.execute(
-            "INSERT OR IGNORE INTO artifact_registry (registry_id, tenant_id, agent_id, store_name, artifact_kind, physical_artifact_id, state) "
-            "VALUES (?, ?, ?, 'canonical', 'ASSERTION_VECTOR', ?, 'ACTIVE')",
-            (reg_aid, tenant_id, agent_id, a_id),
+            "INSERT OR IGNORE INTO artifact_registry (registry_id, tenant_id, agent_id, store_name, artifact_kind, physical_artifact_id, state, metadata_json) "
+            "VALUES (?, ?, ?, 'canonical', 'ASSERTION_VECTOR', ?, 'ACTIVE', ?)",
+            (
+                reg_aid,
+                tenant_id,
+                agent_id,
+                a_id,
+                '{"representation_version":"' + V4_VECTOR_REPRESENTATION_VERSION + '"}',
+            ),
         )
         await db.execute(
             "INSERT OR IGNORE INTO artifact_sources (source_ownership_id, registry_id, mutation_id, dataset_id, state) "
@@ -186,7 +204,9 @@ async def test_a_provider_wiring(tmp_path):
             object_name="Aurora",
         )
 
-        with patch.object(graph, "search_v4_graph", wraps=graph.search_v4_graph) as spy_graph:
+        with patch.object(
+            graph, "search_v4_graph", wraps=graph.search_v4_graph
+        ) as spy_graph:
             results = await dao.search_v4_memory(
                 tenant_id="test-tenant",
                 agent_id="test-agent",
@@ -358,7 +378,9 @@ async def test_d_graph_ablation(tmp_path):
         }
 
         # 2. With graph disabled
-        dao_no_graph = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=None)
+        dao_no_graph = MemoryDAO(
+            sqlite_engine=sql, vector_engine=vector, graph_provider=None
+        )
         results_no_graph = await dao_no_graph.search_v4_memory(
             tenant_id="test-tenant",
             agent_id="test-agent",
@@ -594,7 +616,9 @@ async def test_g_stale_deleted_projection_filtering(tmp_path):
 
         # Canonical deletion happens before asynchronous registry/graph cleanup.
         async with dao._sql.transaction() as db:
-            await db.execute("UPDATE v4_entities SET status = 'DELETED' WHERE entity_id = ?", (o_id,))
+            await db.execute(
+                "UPDATE v4_entities SET status = 'DELETED' WHERE entity_id = ?", (o_id,)
+            )
             await db.commit()
 
         results = await dao.search_v4_memory(
@@ -655,14 +679,10 @@ async def test_g_superseded_graph_bridge_cannot_drive_current_traversal(tmp_path
             limit=10,
         )
 
-        assert "OldDB" not in {
-            item["entity"]["canonical_name"] for item in results
-        }
+        assert "OldDB" not in {item["entity"]["canonical_name"] for item in results}
         assert all(
             stale_assertion_id
-            not in item["retrieval_provenance"].get(
-                "graph_path_assertion_ids", []
-            )
+            not in item["retrieval_provenance"].get("graph_path_assertion_ids", [])
             for item in results
         )
     finally:
@@ -693,8 +713,10 @@ async def test_h_multi_lane_deduplication(tmp_path):
             query="Quantum",
             limit=10,
         )
-        entity_ids = [r["entity"]["entity_id"] for r in results]
-        assert len(entity_ids) == len(set(entity_ids)), "Every entity in results must be deduplicated"
+        candidate_ids = [r["candidate_id"] for r in results]
+        assert len(candidate_ids) == len(
+            set(candidate_ids)
+        ), "Every matched evidence candidate must be deduplicated"
     finally:
         await _close_test_env(sql, vector, graph)
 
@@ -730,9 +752,7 @@ async def test_h_duplicate_graph_paths_do_not_amplify_rrf(tmp_path):
             limit=10,
         )
         target_results = [
-            item
-            for item in results
-            if item["entity"]["canonical_name"] == "TargetDB"
+            item for item in results if item["entity"]["canonical_name"] == "TargetDB"
         ]
 
         assert len(target_results) == 1
@@ -837,13 +857,24 @@ async def test_j_semantic_capability_and_failure_handling(tmp_path):
         )
         access_control = AccessControl(policy_path=str(tmp_path / "rbac_j.db"))
         await access_control.initialize()
-        await access_control.grant_scope_role("test-principal", tenant_id="test-tenant", workspace_id="default-ws", dataset_id="default-ds", role="WRITER")
-        await access_control.grant_principal_session_access("test-principal", "test-agent", "test-sess-sem", "READ")
+        await access_control.grant_scope_role(
+            "test-principal",
+            tenant_id="test-tenant",
+            workspace_id="default-ws",
+            dataset_id="default-ds",
+            role="WRITER",
+        )
+        await access_control.grant_principal_session_access(
+            "test-principal", "test-agent", "test-sess-sem", "READ"
+        )
         await access_control.grant_access("test-agent", "test-sess-sem", "READ")
 
         async def attach_principal(request: Request) -> None:
             request.state.principal = SimpleNamespace(
-                principal_id="test-principal", principal_type="USER", status="active", roles={"admin": False}
+                principal_id="test-principal",
+                principal_type="USER",
+                status="active",
+                roles={"admin": False},
             )
 
         app = FastAPI(dependencies=[Depends(attach_principal)])
@@ -854,8 +885,14 @@ async def test_j_semantic_capability_and_failure_handling(tmp_path):
             )
         )
 
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            with patch.object(vector, "compute_query_embedding", side_effect=EmbeddingUnavailableError("embedding backend down")):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch.object(
+                vector,
+                "compute_query_embedding",
+                side_effect=EmbeddingUnavailableError("embedding backend down"),
+            ):
                 res = await client.post(
                     "/v4/memory/search",
                     json={"session_id": "test-sess-sem", "query": "Alice"},
@@ -1034,9 +1071,19 @@ async def test_k_session_oracle_elimination(tmp_path):
         active_session_id = active_sess["session_id"]
         ended_session_id = ended_sess["session_id"]
 
-        await access_control.grant_scope_role("owner-principal", tenant_id="test-tenant", workspace_id="default-ws", dataset_id="default-ds", role="WRITER")
-        await access_control.grant_principal_session_access("owner-principal", "test-agent", active_session_id, "WRITE")
-        await access_control.grant_principal_session_access("owner-principal", "test-agent", ended_session_id, "WRITE")
+        await access_control.grant_scope_role(
+            "owner-principal",
+            tenant_id="test-tenant",
+            workspace_id="default-ws",
+            dataset_id="default-ds",
+            role="WRITER",
+        )
+        await access_control.grant_principal_session_access(
+            "owner-principal", "test-agent", active_session_id, "WRITE"
+        )
+        await access_control.grant_principal_session_access(
+            "owner-principal", "test-agent", ended_session_id, "WRITE"
+        )
         await access_control.grant_access("test-agent", active_session_id, "WRITE")
         await access_control.grant_access("test-agent", ended_session_id, "WRITE")
 

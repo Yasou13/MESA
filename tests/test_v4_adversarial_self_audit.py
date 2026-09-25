@@ -26,22 +26,21 @@ Covers all 20 audit attack vectors defined in Section 11 of the Loop Plan:
 from __future__ import annotations
 
 import inspect
-import json
 import re
 from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.context_builder import ContextBuilder, _count_tokens
+from mesa_memory.retrieval.legal_resolver import normalize_turkish
 from mesa_storage.dao import MemoryDAO, classify_graph_object
-from mesa_storage.retrieval_scope import (
-    compute_rrf_lane_score,
-    V4_RRF_DEFAULT_K,
-    V4_RRF_LANE_WEIGHTS,
-    rrf_fuse_lanes,
-)
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
-from mesa_memory.retrieval.legal_resolver import LegalEntityResolver, normalize_turkish
+from mesa_storage.retrieval_scope import (
+    V4_RRF_DEFAULT_K,
+    V4_RRF_LANE_WEIGHTS,
+    compute_rrf_lane_score,
+)
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -73,18 +72,48 @@ async def _create_test_env(tmp_path, *, agent_id: str = "audit-agent"):
 
 # Attack Vector 1: Evidence-level identity vs broad entity provenance
 @pytest.mark.asyncio
-async def test_audit_v1_evidence_identity_not_conflated_with_entity_provenance(tmp_path):
+async def test_audit_v1_evidence_identity_not_conflated_with_entity_provenance(
+    tmp_path,
+):
     """Attack 1: Verify returned candidate has specific assertion/chunk identity, not conflated."""
     sql, graph, dao = await _create_test_env(tmp_path)
     try:
-        ent = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="Borclar_Genel")
+        ent = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="Borclar_Genel"
+        )
         eid = ent["entity_id"]
         async with dao._sql.transaction() as db:
-            ds_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="dataset", external_id="ds1")
-            doc_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="doc1", create=True)
-            rev_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="revision", external_id="rev1", create=True)
-            chk1 = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="chk_gold", create=True)
-            chk2 = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="chk_noise", create=True)
+            ds_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="dataset", external_id="ds1"
+            )
+            doc_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="doc1",
+                create=True,
+            )
+            rev_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="rev1",
+                create=True,
+            )
+            chk1 = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="chunk",
+                external_id="chk_gold",
+                create=True,
+            )
+            await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="chunk",
+                external_id="chk_noise",
+                create=True,
+            )
 
             await db.execute(
                 "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
@@ -139,15 +168,51 @@ async def test_audit_v2_same_article_wrong_statute_collision(tmp_path):
     """Attack 2: When querying TBK 117, TCK 117 must not outrank or collide with TBK 117."""
     sql, graph, dao = await _create_test_env(tmp_path)
     try:
-        e_tbk = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="TBK_117")
-        e_tck = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="TCK_117")
+        e_tbk = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="TBK_117"
+        )
+        e_tck = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="TCK_117"
+        )
         async with dao._sql.transaction() as db:
-            ds_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="dataset", external_id="ds1")
-            doc_tbk = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="doc_tbk", create=True)
-            doc_tck = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="doc_tck", create=True)
-            rev_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="revision", external_id="rev1", create=True)
-            chk_tbk = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="chk_tbk", create=True)
-            chk_tck = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="chk_tck", create=True)
+            ds_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="dataset", external_id="ds1"
+            )
+            doc_tbk = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="doc_tbk",
+                create=True,
+            )
+            doc_tck = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="doc_tck",
+                create=True,
+            )
+            rev_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="rev1",
+                create=True,
+            )
+            chk_tbk = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="chunk",
+                external_id="chk_tbk",
+                create=True,
+            )
+            chk_tck = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="chunk",
+                external_id="chk_tck",
+                create=True,
+            )
 
             await db.execute(
                 "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
@@ -211,13 +276,35 @@ async def test_audit_v3_superseded_assertion_excluded_from_ranking(tmp_path):
     """Attack 3: Stale/superseded assertions must never contribute to rank or appear in results."""
     sql, graph, dao = await _create_test_env(tmp_path)
     try:
-        ent = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="Sozlesme_Hukuku")
+        ent = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="Sozlesme_Hukuku"
+        )
         eid = ent["entity_id"]
         async with dao._sql.transaction() as db:
-            ds_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="dataset", external_id="ds1")
-            doc_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="doc1", create=True)
-            rev_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="revision", external_id="rev1", create=True)
-            chk_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="chk1", create=True)
+            ds_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="dataset", external_id="ds1"
+            )
+            doc_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="doc1",
+                create=True,
+            )
+            rev_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="rev1",
+                create=True,
+            )
+            chk_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="chunk",
+                external_id="chk1",
+                create=True,
+            )
 
             await db.execute(
                 "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
@@ -287,15 +374,43 @@ async def test_audit_v6_bm25_article_number_collision(tmp_path):
     """Attack 6: Verify passage lane disambiguates article numbers with statute identity."""
     sql, graph, dao = await _create_test_env(tmp_path)
     try:
-        e1 = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="HMK_30")
-        e2 = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="CMK_30")
+        e1 = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="HMK_30"
+        )
+        e2 = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="CMK_30"
+        )
         async with dao._sql.transaction() as db:
-            ds_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="dataset", external_id="ds1")
-            doc1 = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="d1", create=True)
-            doc2 = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="d2", create=True)
-            rev_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="revision", external_id="r1", create=True)
-            chk1 = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="c1", create=True)
-            chk2 = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="c2", create=True)
+            ds_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="dataset", external_id="ds1"
+            )
+            doc1 = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="d1",
+                create=True,
+            )
+            doc2 = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="d2",
+                create=True,
+            )
+            rev_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="r1",
+                create=True,
+            )
+            chk1 = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="chunk", external_id="c1", create=True
+            )
+            chk2 = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="chunk", external_id="c2", create=True
+            )
 
             await db.execute(
                 "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
@@ -352,13 +467,31 @@ async def test_audit_v7_assertion_lane_natural_language_matching(tmp_path):
     """Attack 7: Natural language query without explicit citation must still produce assertion candidates."""
     sql, graph, dao = await _create_test_env(tmp_path)
     try:
-        ent = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="Temerrut")
+        ent = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="Temerrut"
+        )
         eid = ent["entity_id"]
         async with dao._sql.transaction() as db:
-            ds_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="dataset", external_id="ds1")
-            doc_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="d1", create=True)
-            rev_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="revision", external_id="r1", create=True)
-            chk_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="c1", create=True)
+            ds_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="dataset", external_id="ds1"
+            )
+            doc_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="d1",
+                create=True,
+            )
+            rev_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="r1",
+                create=True,
+            )
+            chk_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="chunk", external_id="c1", create=True
+            )
 
             await db.execute(
                 "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
@@ -409,8 +542,8 @@ def test_audit_v8_rrf_configuration_authority():
     assert V4_RRF_DEFAULT_K == 60
     assert V4_RRF_LANE_WEIGHTS["bm25"] == 1.0
     assert V4_RRF_LANE_WEIGHTS["assertion"] == 1.0
-    assert V4_RRF_LANE_WEIGHTS["vector"] == 10.0
-    assert V4_RRF_LANE_WEIGHTS["graph"] == 2.0
+    assert V4_RRF_LANE_WEIGHTS["vector"] == 1.0
+    assert V4_RRF_LANE_WEIGHTS["graph"] == 1.0
 
 
 # Attack Vector 9: Irrelevant Hop-1 vs Relevant Hop-2 in graph
@@ -520,7 +653,9 @@ async def test_audit_v10_graph_direction_in_rendered_context():
 # Attack Vector 11: Literal phrase node prevention
 def test_audit_v11_phrase_node_prevention():
     """Attack 11: Long sentential clauses must not become entity nodes."""
-    sentence = "Borçlu temerrüde düştüğü anda gecikme tazminatı ödemekle yükümlü hale gelir."
+    sentence = (
+        "Borçlu temerrüde düştüğü anda gecikme tazminatı ödemekle yükümlü hale gelir."
+    )
     tail, lit, kind = classify_graph_object(tail=sentence, literal_value=None)
     assert kind == "LITERAL"
     assert tail is None
@@ -540,7 +675,11 @@ async def test_audit_v12_large_provenance_strictly_bounded():
         for i in range(50)
     ]
     mock_memories = [
-        {"entity": {"canonical_name": "Buyuk_Kanun"}, "provenance": facts, "rrf_score": 0.9}
+        {
+            "entity": {"canonical_name": "Buyuk_Kanun"},
+            "provenance": facts,
+            "rrf_score": 0.9,
+        }
     ]
     mock_dao = AsyncMock()
     mock_dao.get_recent_logs.return_value = []
@@ -564,7 +703,11 @@ async def test_audit_v12_large_provenance_strictly_bounded():
 async def test_audit_v13_no_raw_token_bypass():
     """Attack 13: canonical_memories in result must not leak evicted items."""
     mock_memories = [
-        {"entity": {"canonical_name": f"Entity_{i}"}, "provenance": [{"predicate": "p", "literal_value": "v" * 100}], "rrf_score": 1.0 / (i + 1)}
+        {
+            "entity": {"canonical_name": f"Entity_{i}"},
+            "provenance": [{"predicate": "p", "literal_value": "v" * 100}],
+            "rrf_score": 1.0 / (i + 1),
+        }
         for i in range(20)
     ]
     mock_dao = AsyncMock()
@@ -596,14 +739,16 @@ def test_audit_v14_cold_tokenizer_deterministic_offline():
 # Attack Vector 15: No hardcoded benchmark query IDs or holdout shortcuts
 def test_audit_v15_no_hardcoded_benchmark_shortcuts():
     """Attack 15: Source code must not contain hardcoded benchmark/eval query IDs."""
-    import mesa_storage.dao as dao_mod
-    import mesa_memory.retrieval.legal_resolver as lr_mod
     import mesa_memory.context_builder as cb_mod
+    import mesa_memory.retrieval.legal_resolver as lr_mod
+    import mesa_storage.dao as dao_mod
 
     for mod in (dao_mod, lr_mod, cb_mod):
         source = inspect.getsource(mod)
         # Search for hardcoded query patterns like "q_001", "query_001", "golden_query", etc.
-        assert not re.search(r'["\'](q_\d+|query_\d+|eval_\d+|benchmark_\d+)["\']', source)
+        assert not re.search(
+            r'["\'](q_\d+|query_\d+|eval_\d+|benchmark_\d+)["\']', source
+        )
 
 
 # Attack Vector 16: Query-independent legal boost prevention
@@ -612,13 +757,31 @@ async def test_audit_v16_no_query_independent_legal_boost(tmp_path):
     """Attack 16: When query lacks legal citations, legal_factor must be 1.0 (no arbitrary boost)."""
     sql, graph, dao = await _create_test_env(tmp_path)
     try:
-        ent = await dao.resolve_v4_entity(tenant_id="test-tenant", canonical_name="Muhasebe_Standardi")
+        ent = await dao.resolve_v4_entity(
+            tenant_id="test-tenant", canonical_name="Muhasebe_Standardi"
+        )
         eid = ent["entity_id"]
         async with dao._sql.transaction() as db:
-            ds_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="dataset", external_id="ds1")
-            doc_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="document", external_id="d1", create=True)
-            rev_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="revision", external_id="r1", create=True)
-            chk_id = await dao._catalog.resolve_id_in_tx(db, tenant_id="test-tenant", kind="chunk", external_id="c1", create=True)
+            ds_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="dataset", external_id="ds1"
+            )
+            doc_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="document",
+                external_id="d1",
+                create=True,
+            )
+            rev_id = await dao._catalog.resolve_id_in_tx(
+                db,
+                tenant_id="test-tenant",
+                kind="revision",
+                external_id="r1",
+                create=True,
+            )
+            chk_id = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="test-tenant", kind="chunk", external_id="c1", create=True
+            )
 
             await db.execute(
                 "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
@@ -677,6 +840,7 @@ def test_audit_v17_lazy_materialization_bounded():
 def test_audit_v18_evidence_span_beyond_200_chars():
     """Attack 18: ContextBuilder default evidence span must not truncate at 200 chars."""
     from mesa_memory.context_builder import MAX_EVIDENCE_SPAN_CHARS
+
     assert MAX_EVIDENCE_SPAN_CHARS >= 2000
 
 

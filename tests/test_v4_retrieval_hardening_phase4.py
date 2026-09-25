@@ -13,9 +13,9 @@ Verifies:
 
 from __future__ import annotations
 
-import unicodedata
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
@@ -137,10 +137,14 @@ async def test_phase4_paraphrase_passage_lexical_retrieval(tmp_path):
             limit=5,
         )
 
-        assert len(results) >= 1, "Expected passage lexical retrieval to find the assertion"
+        assert (
+            len(results) >= 1
+        ), "Expected passage lexical retrieval to find the assertion"
         top = results[0]
         assert top["assertion_id"] == ass["assertion_id"]
-        assert "bm25" in top["retrieval_provenance"]["origins"], "Expected origin to include bm25 lexical lane"
+        assert (
+            "bm25" in top["retrieval_provenance"]["origins"]
+        ), "Expected origin to include bm25 lexical lane"
         assert top["retrieval_provenance"]["lane_ranks"].get("bm25") == 1
     finally:
         await engine.close()
@@ -173,7 +177,7 @@ async def test_phase4_same_article_collision_lexical(tmp_path):
             raw_log_id=10,
         )
 
-        ass_tmk = await _seed_assertion_with_passage(
+        await _seed_assertion_with_passage(
             dao,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -353,13 +357,40 @@ async def test_phase4_tenant_dataset_isolation(tmp_path):
 def test_phase4_query_parsing_antipattern_fixed():
     """Verify that query parsing separates structured legal identity from free-text terms and strips stopwords."""
     import re
-    from mesa_storage.dao import _normalize_identity_text
 
     TURKISH_LEGAL_STOPWORDS = {
-        "m", "md", "madde", "maddesi", "maddesine", "maddesinde", "fıkra", "fıkrası",
-        "bent", "bendi", "uyarınca", "gereğince", "göre", "ve", "veya", "ile", "için",
-        "olan", "bir", "bu", "şu", "hükmü", "hükmünce", "kapsamında", "ilgili",
-        "nedir", "nelerdir", "hakkında", "tarafından", "sayılı", "kanun", "kanunu",
+        "m",
+        "md",
+        "madde",
+        "maddesi",
+        "maddesine",
+        "maddesinde",
+        "fıkra",
+        "fıkrası",
+        "bent",
+        "bendi",
+        "uyarınca",
+        "gereğince",
+        "göre",
+        "ve",
+        "veya",
+        "ile",
+        "için",
+        "olan",
+        "bir",
+        "bu",
+        "şu",
+        "hükmü",
+        "hükmünce",
+        "kapsamında",
+        "ilgili",
+        "nedir",
+        "nelerdir",
+        "hakkında",
+        "tarafından",
+        "sayılı",
+        "kanun",
+        "kanunu",
     }
 
     resolver = LegalEntityResolver()
@@ -371,13 +402,17 @@ def test_phase4_query_parsing_antipattern_fixed():
     assert c.article == "117"
 
     raw_tokens = re.findall(r"\w+", _normalize_identity_text(query))
-    citation_statutes_norm = {_normalize_identity_text(c.statute_code), _normalize_identity_text(c.statute_canonical)}
+    citation_statutes_norm = {
+        _normalize_identity_text(c.statute_code),
+        _normalize_identity_text(c.statute_canonical),
+    }
     for a in c.aliases:
         citation_statutes_norm.add(_normalize_identity_text(a))
     citation_articles = {c.article for c in citations if c.article}
 
     content_tokens = [
-        t for t in raw_tokens
+        t
+        for t in raw_tokens
         if t not in TURKISH_LEGAL_STOPWORDS
         and t not in citation_statutes_norm
         and t not in citation_articles
@@ -396,4 +431,3 @@ def test_phase4_query_parsing_antipattern_fixed():
     assert "tbk" not in content_tokens
     assert "uyarınca" not in content_tokens
     assert "ve" not in content_tokens
-

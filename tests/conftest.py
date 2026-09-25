@@ -12,6 +12,7 @@ import hashlib
 import math
 import os
 import shutil
+from copy import deepcopy
 from pathlib import Path
 
 # --- MESA CI: INJECT DUMMY KEYS TO BYPASS VALIDATION ---
@@ -101,11 +102,19 @@ def deterministic_embedding(text: str, dim: int = 768) -> list[float]:
 
 @pytest.fixture(autouse=True)
 def reset_circuit_breaker():
-    """Ensure the global circuit breaker is reset before every test to prevent state leakage."""
+    """Reset process-wide runtime state before and after every test."""
+    from mesa_memory.config import config
     from mesa_memory.consolidation.loop import llm_circuit_breaker
 
     llm_circuit_breaker.failures = 0
     llm_circuit_breaker.last_failure_time = 0.0
+    baseline_config = {
+        field_name: deepcopy(getattr(config, field_name))
+        for field_name in config.__class__.model_fields
+    }
+    yield
+    for field_name, value in baseline_config.items():
+        object.__setattr__(config, field_name, value)
 
 
 def pytest_unconfigure(config):
@@ -124,6 +133,20 @@ def pytest_unconfigure(config):
             _state.maintenance_worker.stop()
         if getattr(_state, "rem_worker", None):
             _state.rem_worker.stop()
+    except Exception:
+        pass
+
+    # tqdm classes (including auto/notebook subclasses) each may own a daemon
+    # monitor and deliberately stop it through an atexit hook. Stop exact
+    # TMonitor instances explicitly so the lifecycle audit runs against a fully
+    # quiescent process instead of racing those later hooks.
+    try:
+        for thread in list(threading.enumerate()):
+            if (
+                thread.__class__.__module__ == "tqdm._monitor"
+                and thread.__class__.__name__ == "TMonitor"
+            ):
+                thread.exit()
     except Exception:
         pass
 
@@ -148,8 +171,15 @@ def pytest_unconfigure(config):
     # 3. Inspect and handle lingering non-daemon threads that block interpreter exit.
     try:
         main_t = threading.main_thread()
+        # LanceDB 0.34 intentionally owns one process-wide daemon loop for its
+        # synchronous bridge. It is not an engine-scoped resource and cannot
+        # block interpreter exit, so it is not a lifecycle leak from MESA.
         alive_threads = [
-            t for t in threading.enumerate() if t is not main_t and t.is_alive()
+            t
+            for t in threading.enumerate()
+            if t is not main_t
+            and t.is_alive()
+            and not (t.name == "LanceDBBackgroundEventLoop" and t.daemon)
         ]
         if alive_threads:
             print(

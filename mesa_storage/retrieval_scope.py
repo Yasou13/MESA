@@ -6,10 +6,10 @@ from typing import Any
 V4_RRF_DEFAULT_K = 60
 V4_RRF_LANE_ORDER = ("vector", "bm25", "assertion", "graph")
 V4_RRF_LANE_WEIGHTS: dict[str, float] = {
-    "vector": 10.0,
+    "vector": 1.0,
     "bm25": 1.0,
     "assertion": 1.0,
-    "graph": 2.0,
+    "graph": 1.0,
 }
 
 

@@ -391,13 +391,12 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     initialized_but_unavailable_dao.graph_operational = False
     initialized_but_unavailable_dao._graph = SimpleNamespace(is_initialized=True)
     initialized_but_unavailable = (
-        await asgi_client(
-            _app(initialized_but_unavailable_dao, _access())
-        ).get("/v4/capability")
+        await asgi_client(_app(initialized_but_unavailable_dao, _access())).get(
+            "/v4/capability"
+        )
     ).json()
     assert (
-        initialized_but_unavailable["capabilities"]["graph_neighbor_retrieval"]
-        is False
+        initialized_but_unavailable["capabilities"]["graph_neighbor_retrieval"] is False
     )
 
     operational_dao = MagicMock()
@@ -414,9 +413,7 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
     projection_only_dao.graph_configured = True
     projection_only_dao.graph_implementation_available = False
     projection_only = (
-        await asgi_client(_app(projection_only_dao, _access())).get(
-            "/v4/capability"
-        )
+        await asgi_client(_app(projection_only_dao, _access())).get("/v4/capability")
     ).json()
     assert projection_only["capabilities"]["graph_projection"] is True
     assert projection_only["capabilities"]["graph_neighbor_retrieval"] is False
@@ -922,7 +919,23 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
     )
     dao.get_v4_session = AsyncMock(return_value=session)
     dao.search_v4_memory = AsyncMock(
-        return_value=[{"artifact_id": "artifact-a", "content": "Exact content"}]
+        return_value=[
+            {
+                "artifact_id": "artifact-a",
+                "candidate_id": "artifact-a",
+                "assertion_id": "assertion-a",
+                "entity": {"canonical_name": "Document A"},
+                "provenance": [
+                    {
+                        "predicate": "contains",
+                        "literal_value": "Exact content",
+                        "subject_name": "Document A",
+                        "evidence_span": "Exact content",
+                        "source_ref": "source-a",
+                    }
+                ],
+            }
+        ]
     )
     dao.get_mutation_summary = AsyncMock(return_value=mutation)
     dao.get_pipeline_run = AsyncMock(
@@ -1064,9 +1077,11 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
     assert "First" in context_body["context"]
     assert "Second" in context_body["context"]
     assert "<UNTRUSTED_MEMORY_EVIDENCE>" in context_body["context"]
-    assert context_body["canonical_memories"] == [
-        {"artifact_id": "artifact-a", "content": "Exact content"}
-    ]
+    visible_memory = context_body["canonical_memories"][0]
+    assert visible_memory["candidate_id"] == "artifact-a"
+    assert visible_memory["assertion_id"] == "assertion-a"
+    assert visible_memory["provenance"][0]["value"] == "Exact content"
+    assert visible_memory["provenance"][0]["evidence_span"] == "Exact content"
     ended = await client.post("/v4/sessions/session-a/end")
     assert ended.status_code == 200
     assert ended.json() == {

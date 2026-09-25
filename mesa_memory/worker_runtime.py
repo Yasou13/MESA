@@ -203,7 +203,18 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
         kuzu_setup.initialize_schema(str(projection_paths.graph_path))
         graph_provider = KuzuGraphProvider(str(projection_paths.graph_path))
         await graph_provider.initialize()
-        dao = MemoryDAO(engine, vector_engine, graph_provider=graph_provider)
+        dao = MemoryDAO(
+            engine,
+            vector_engine,
+            graph_provider=graph_provider,
+            rrf_k=config.rrf_k,
+            rrf_weights={
+                "vector": config.rrf_vector_weight,
+                "bm25": config.rrf_bm25_weight,
+                "assertion": config.rrf_assertion_weight,
+                "graph": config.rrf_graph_weight,
+            },
+        )
         await dao.initialize()
         supervisor = WorkerSupervisor(max_restarts=3)
         initial_recovery = await _recover_once(dao)

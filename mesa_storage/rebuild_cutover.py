@@ -20,6 +20,7 @@ from mesa_storage.rebuild_replay import (
     VectorReplayTarget,
 )
 from mesa_storage.repositories.operations import OperationRepositoryPort
+from mesa_storage.representation import V4_VECTOR_REPRESENTATION_VERSION
 from mesa_storage.retrieval_scope import scope_vector_result_ids
 from mesa_storage.vector_engine import EmbeddingProvider, VectorEngine
 
@@ -472,6 +473,14 @@ class ParityGatedActivator:
 
         checkpoint["phase"] = "COMPLETED"
         checkpoint["post_cutover"] = post_cutover.checkpoint()
+        publish_representation = getattr(
+            self._generations, "mark_assertion_vector_representation", None
+        )
+        if publish_representation is not None:
+            checkpoint["assertion_vectors_reindexed"] = await publish_representation(
+                preparation.target_generation_id,
+                representation_version=V4_VECTOR_REPRESENTATION_VERSION,
+            )
         operation = await self._operations.transition(
             operation_id,
             to_state="COMPLETED",
