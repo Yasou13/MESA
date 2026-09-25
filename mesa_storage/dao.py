@@ -5611,12 +5611,12 @@ class MemoryDAO:
                 )
                 seen_vec: set[str] = set()
                 ranked_assertion_ids: list[str] = []
-                for row in vector_rows:
-                    node_id = str(row.get("node_id", ""))
+                for v_row in vector_rows:
+                    node_id = str(v_row.get("node_id", ""))
                     if node_id in allowed_vector_ids and node_id not in seen_vec:
                         ranked_assertion_ids.append(node_id)
                         seen_vec.add(node_id)
-                        vector_raw_distances[node_id] = float(row.get("_distance", 0.0))
+                        vector_raw_distances[node_id] = float(v_row.get("_distance", 0.0))
                 if ranked_assertion_ids:
                     vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
                     async with self._sql.connection() as db:
