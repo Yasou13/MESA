@@ -335,7 +335,7 @@ _TR_DATE_REGEX = re.compile(
 )
 _TR_YEAR_REGEX = re.compile(r"^\d{4}\s+(?:yılı|senesi)$", re.IGNORECASE)
 _QUANTITY_REGEX = re.compile(
-    r"^(?:(?:\d+(?:[.,]\d+)?)|(?:bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on|yirmi|otuz|kırk|elli|altmış|yetmiş|seksen|doksan|yüz|bin))\s*(?:gün|ay|yıl|sene|hafta|saat|dakika|saniye|kişi|adet|parça|tane|lira|tl|usd|eur|dolar|euro|₺|\$|€|kg|kilogram|gr|gram|km|kilometre|metre|m2|m3|ton|derece)(?:\s+(?:süre|boyunca|içinde|kadar))?$",
+    r"^(?:(?:\d+(?:[.,]\d+)*)|(?:bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on|yirmi|otuz|kırk|elli|altmış|yetmiş|seksen|doksan|yüz|bin))\s*(?:gün|ay|yıl|sene|hafta|saat|dakika|saniye|kişi|adet|parça|tane|lira|tl|usd|eur|dolar|euro|₺|\$|€|kg|kilogram|gr|gram|km|kilometre|metre|m2|m3|ton|derece)(?:\s+(?:süre|boyunca|içinde|kadar))?$",
     re.IGNORECASE,
 )
 _PERCENT_REGEX = re.compile(
@@ -441,8 +441,10 @@ def classify_graph_object(
         # 4. Legal reference citation detection
         norm_upper = cleaned_tail.upper()
         if any(
-            norm_upper == s or norm_upper.startswith(f"{s} ")
-            for s in _LEGAL_STATUTES
+            norm_upper == s or norm_upper.startswith(f"{s} ") for s in _LEGAL_STATUTES
+        ) or any(
+            citation.statute_code.upper() in _LEGAL_STATUTES
+            for citation in LegalEntityResolver().extract_citations(cleaned_tail)
         ):
             return (None, cleaned_tail, "LEGAL_REFERENCE")
 
@@ -3473,6 +3475,8 @@ class MemoryDAO:
                     "valid_to": triplet.get("valid_to"),
                     "source_span": triplet.get("source_span"),
                     "supersedes": triplet.get("supersedes"),
+                    "object_type": triplet.get("object_type")
+                    or triplet.get("tail_type"),
                     "metadata": (
                         triplet.get("metadata")
                         if isinstance(triplet.get("metadata"), dict)

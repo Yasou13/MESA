@@ -424,11 +424,11 @@ class GraphWriter:
     def _to_dict(triplet: ExtractedTriplet | None) -> dict:
         """Convert an ExtractedTriplet to a plain dict, or empty sentinel."""
         if triplet:
-            return {
-                "head": triplet.head,
-                "relation": triplet.relation,
-                "tail": triplet.tail,
-            }
+            return triplet.model_dump(
+                exclude={"record_index", "additional_triplets"},
+                exclude_none=True,
+                exclude_defaults=True,
+            )
         return {"head": "", "relation": "", "tail": ""}
 
     @staticmethod
