@@ -159,9 +159,7 @@ from all commits. No force operation or main/master merge was performed.
 
 ## Push status
 
-**BLOCKED by automatic approval review.** The reviewer did not accept the
-attached request's §46 as authorization to export code/history to
-`https://github.com/Yasou13/MESA.git`. A normal push of
-`fix/v4-hardening-final-correction` was rejected twice; no push occurred.
-Explicit confirmation for that destination has been requested. This does not
-change the local verification results above.
+**PUSHED** to `https://github.com/Yasou13/MESA.git`, branch
+`fix/v4-hardening-final-correction`. The initial automatic approval rejection
+was resolved by the user's explicit confirmation of the destination and
+code/history transfer. Normal push succeeded; no force push or main merge.
