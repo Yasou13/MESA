@@ -3376,6 +3376,8 @@ class MemoryDAO:
                 (mutation_id, agent_id),
             ) as pipeline_cursor:
                 pipeline_row = await pipeline_cursor.fetchone()
+            if pipeline_row is None:
+                return False
             changed = await self._transition_memory_mutation_in_tx(
                 db,
                 mutation_id,
