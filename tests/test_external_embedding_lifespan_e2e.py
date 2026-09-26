@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi import FastAPI
 
 from mesa_memory.api import server
 from mesa_memory.config import config, configured_embedding_identity
-from mesa_workers.projection_worker import process_projection_outbox_once
 
 
 @pytest.mark.asyncio
@@ -129,8 +130,21 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
             ],
         )
         await dao.set_mutation_state("agent-external", mutation_id, "VALIDATED")
-        for _ in range(3):
-            assert (await process_projection_outbox_once(dao))["completed"] == 1
+        # The real combined consumer owns the outbox. A second consumer in this
+        # test races it and may claim nothing even after successful projection.
+        deadline = asyncio.get_running_loop().time() + 10.0
+        while True:
+            mutation = await dao.get_mutation_summary(mutation_id)
+            assert mutation is not None
+            if mutation["state"] == "COMMITTED":
+                break
+            assert mutation["state"] not in {"REJECTED", "DEAD_LETTER"}, mutation
+            assert asyncio.get_running_loop().time() < deadline, mutation
+            await asyncio.sleep(0.01)
+        assert {
+            receipt["projection_name"]: receipt["state"]
+            for receipt in mutation["projections"]
+        } == {"SQL": "COMPLETED", "VECTOR": "COMPLETED", "GRAPH": "COMPLETED"}
         results = await dao.search_v4_memory(
             tenant_id="tenant-external",
             agent_id="agent-external",
