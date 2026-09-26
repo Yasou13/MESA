@@ -470,8 +470,15 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
     entity = entity if isinstance(entity, dict) else {}
     raw_provenance = item.get("provenance")
     assertions = raw_provenance if isinstance(raw_provenance, list) else []
+    evidence_id = item.get("evidence_id") or item.get("assertion_id")
     primary_assertion = next(
-        (assertion for assertion in assertions if isinstance(assertion, dict)), {}
+        (
+            assertion
+            for assertion in assertions
+            if isinstance(assertion, dict)
+            and (not evidence_id or assertion.get("assertion_id") == evidence_id)
+        ),
+        {},
     )
     metadata = item.get("metadata") or primary_assertion.get("metadata") or {}
     metadata = metadata if isinstance(metadata, dict) else {}
@@ -487,11 +494,27 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         provenance = {}
     return {
         "memory_id": item.get("memory_id")
+        or evidence_id
         or entity.get("entity_id")
         or item.get("chunk_id"),
         "document_id": item.get("document_id") or primary_assertion.get("document_id"),
-        "chunk_id": item.get("chunk_id") or primary_assertion.get("chunk_id"),
-        "content": item.get("content") or entity.get("canonical_name"),
+        "chunk_id": item.get("source_chunk_id")
+        or item.get("chunk_id")
+        or primary_assertion.get("chunk_id"),
+        "content": item.get("content")
+        or item.get("evidence_span")
+        or primary_assertion.get("evidence_span")
+        or primary_assertion.get("fact_text")
+        or " ".join(
+            str(value)
+            for value in (
+                primary_assertion.get("subject_name") or entity.get("canonical_name"),
+                primary_assertion.get("predicate"),
+                primary_assertion.get("literal_value")
+                or primary_assertion.get("object_name"),
+            )
+            if value
+        ),
         "memory_type": metadata.get("memory_type", "unknown"),
         "status": item.get("status") or entity.get("status", "active"),
         "score": item.get("score")
