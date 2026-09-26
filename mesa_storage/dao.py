@@ -6158,26 +6158,57 @@ class MemoryDAO:
                     )
                     if matched_assertion_id not in allowed_graph_assertion_ids:
                         continue
-                    graph_candidate_id = (
-                        f"graph:{target_entity_id}:{matched_assertion_id}"
-                    )
-                    if graph_candidate_id not in graph_lane:
-                        graph_lane.append(graph_candidate_id)
-                    graph_evidence_by_candidate.setdefault(
-                        graph_candidate_id,
-                        {
+                    cand_id = matched_assertion_id
+                    if cand_id not in graph_lane:
+                        graph_lane.append(cand_id)
+
+                    hit_entity_ids = [
+                        str(item) for item in hit.get("path_entity_ids", [])
+                    ]
+                    hit_score = float(hit.get("score") or 0.0)
+                    hit_hops = int(hit.get("hops") or 0)
+                    hit_seed = str(hit.get("seed_id") or "")
+                    hit_support = int(hit.get("support_count") or 1)
+                    hit_dir = str(hit.get("direction") or "undirected")
+
+                    if cand_id not in graph_evidence_by_candidate:
+                        graph_evidence_by_candidate[cand_id] = {
                             "matched_assertion_id": matched_assertion_id,
-                            "graph_hop_count": int(hit.get("hops") or 0),
-                            "graph_seed_entity_id": str(hit.get("seed_id") or ""),
+                            "graph_hop_count": hit_hops,
+                            "graph_seed_entity_id": hit_seed,
+                            "graph_seed_entity_ids": [hit_seed] if hit_seed else [],
                             "graph_target_entity_id": target_entity_id,
+                            "graph_target_entity_ids": [target_entity_id],
                             "graph_path_assertion_ids": path_assertion_ids,
-                            "graph_direction": str(
-                                hit.get("direction") or "undirected"
-                            ),
-                            "graph_support_count": int(hit.get("support_count") or 1),
-                            "graph_score": float(hit.get("score") or 0.0),
-                        },
-                    )
+                            "graph_path_entity_ids": hit_entity_ids,
+                            "graph_direction": hit_dir,
+                            "graph_support_count": hit_support,
+                            "graph_score": hit_score,
+                        }
+                    else:
+                        existing = graph_evidence_by_candidate[cand_id]
+                        existing["graph_support_count"] = (
+                            int(existing.get("graph_support_count") or 1) + hit_support
+                        )
+                        if hit_score > float(existing.get("graph_score") or 0.0):
+                            existing["graph_score"] = hit_score
+                            existing["graph_seed_entity_id"] = hit_seed
+                            existing["graph_target_entity_id"] = target_entity_id
+                        existing["graph_hop_count"] = min(
+                            int(existing.get("graph_hop_count") or hit_hops), hit_hops
+                        )
+                        seeds = existing.setdefault("graph_seed_entity_ids", [])
+                        if hit_seed and hit_seed not in seeds:
+                            seeds.append(hit_seed)
+                        targets = existing.setdefault("graph_target_entity_ids", [])
+                        if target_entity_id not in targets:
+                            targets.append(target_entity_id)
+                        p_aids = existing.setdefault("graph_path_assertion_ids", [])
+                        for pa in path_assertion_ids:
+                            if pa not in p_aids:
+                                p_aids.append(pa)
+                        if not existing.get("graph_path_entity_ids") and hit_entity_ids:
+                            existing["graph_path_entity_ids"] = hit_entity_ids
             except GraphSearchError as exc:
                 logger.warning(
                     "V4_GRAPH_RETRIEVAL_DEGRADED | agent_id=%s seeds=%s error=%s",
@@ -6193,11 +6224,6 @@ class MemoryDAO:
         candidate_assertions.update(vector_assertions)
         candidate_assertions.update(lexical_assertions)
         candidate_assertions.update(assertion_records)
-        for graph_candidate_id, graph_evidence in graph_evidence_by_candidate.items():
-            matched_assertion_id = str(graph_evidence["matched_assertion_id"])
-            matched_assertion = in_scope_assertions.get(matched_assertion_id)
-            if matched_assertion is not None:
-                candidate_assertions[graph_candidate_id] = matched_assertion
         lane_rankings = {
             "vector": vector_lane,
             "bm25": lexical_lane,
@@ -6220,23 +6246,29 @@ class MemoryDAO:
             if candidate_id in assertion_scores:
                 raw_scores["assertion"] = assertion_scores[candidate_id]
             graph_evidence = graph_evidence_by_candidate.get(candidate_id, {})
-            assertion_id = str(
-                graph_evidence.get("matched_assertion_id") or candidate_id
-            )
-            if graph_evidence:
-                raw_scores["graph"] = float(graph_evidence.get("graph_score") or 0.0)
+            assertion_id = candidate_id
+            origins_set = set(lane_ranks)
+            if origins_set - {"graph"}:
+                cand_entity_id = str(
+                    assertion.get("subject_id")
+                    or graph_evidence.get("graph_target_entity_id")
+                    or ""
+                )
+            else:
+                cand_entity_id = str(
+                    graph_evidence.get("graph_target_entity_id")
+                    or assertion.get("subject_id")
+                    or ""
+                )
             candidates[candidate_id] = {
                 "candidate_id": candidate_id,
                 "assertion_id": assertion_id,
-                "entity_id": str(
-                    graph_evidence.get("graph_target_entity_id")
-                    or assertion["subject_id"]
-                ),
+                "entity_id": cand_entity_id,
                 "assertion": assertion,
                 "source_chunk_id": str(assertion.get("chunk_id") or "") or None,
                 "document_id": str(assertion.get("document_id") or "") or None,
                 "evidence_span": str(assertion.get("evidence_span") or "") or None,
-                "origins": set(lane_ranks),
+                "origins": origins_set,
                 "lane_ranks": lane_ranks,
                 "raw_scores": raw_scores,
                 "supporting_evidence_ids": list(
@@ -6418,6 +6450,14 @@ class MemoryDAO:
                     cand["assertion_id"]: dict(cand["assertion"]),
                     **extra_assertions,
                 }
+                path_entities = list(
+                    cand.get("graph_evidence", {}).get("graph_path_entity_ids", [])
+                )
+                path_aids = list(
+                    cand.get("graph_evidence", {}).get("graph_path_assertion_ids", [])
+                )
+                edge_directions: list[str] = []
+
                 for provenance_id in dict.fromkeys(provenance_ids):
                     source_assertion = provenance_by_id.get(provenance_id)
                     if source_assertion is None:
@@ -6431,12 +6471,31 @@ class MemoryDAO:
                         ]
                     if object_id in cand_entity_names:
                         matched_assertion["object_name"] = cand_entity_names[object_id]
-                    graph_direction = cand.get("graph_evidence", {}).get(
-                        "graph_direction"
-                    )
-                    if graph_direction:
-                        matched_assertion["direction"] = graph_direction
+
+                    # Determine per-edge traversal direction
+                    edge_dir = "undirected"
+                    if provenance_id in path_aids and len(path_entities) >= 2:
+                        idx = path_aids.index(provenance_id)
+                        if idx < len(path_entities) - 1:
+                            u = path_entities[idx]
+                            v = path_entities[idx + 1]
+                            if subject_id == u and object_id == v:
+                                edge_dir = "forward"
+                            elif subject_id == v and object_id == u:
+                                edge_dir = "reverse"
+                            else:
+                                edge_dir = cand.get("graph_evidence", {}).get(
+                                    "graph_direction", "undirected"
+                                )
+                    elif cand.get("graph_evidence", {}).get("graph_direction"):
+                        edge_dir = str(cand["graph_evidence"]["graph_direction"])
+
+                    matched_assertion["direction"] = edge_dir
+                    edge_directions.append(edge_dir)
                     cand["materialized_provenance"].append(matched_assertion)
+
+                if cand.get("graph_evidence"):
+                    cand["graph_evidence"]["graph_edge_directions"] = edge_directions
             elif cand["supporting_evidence_ids"]:
                 cand["materialized_provenance"] = [
                     dict(extra_assertions[p_aid])
@@ -6524,7 +6583,7 @@ class MemoryDAO:
                 {
                     "entity": entities.get(eid, {}),
                     "candidate_id": cand["candidate_id"],
-                    "evidence_id": cand["candidate_id"],
+                    "evidence_id": cand["assertion_id"],
                     "assertion_id": cand["assertion_id"],
                     "source_chunk_id": cand["source_chunk_id"],
                     "document_id": cand["document_id"],

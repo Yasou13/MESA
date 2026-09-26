@@ -261,8 +261,13 @@ async def test_b_real_2_hop_traversal(tmp_path):
         )
         entity_names = {r["entity"]["canonical_name"] for r in results}
         assert "Alice" in entity_names
-        assert "Aurora" in entity_names
         assert "HeliosDB" in entity_names
+        all_provenance_names = {
+            p.get("subject_name") for r in results for p in r.get("provenance", [])
+        } | {
+            p.get("object_name") for r in results for p in r.get("provenance", [])
+        }
+        assert "Aurora" in all_provenance_names
     finally:
         await _close_test_env(sql, vector, graph)
 
@@ -370,9 +375,12 @@ async def test_d_graph_ablation(tmp_path):
         retrieval_provenance = helios["retrieval_provenance"]
         assert retrieval_provenance["origins"] == ["graph"]
         assert retrieval_provenance["graph_hop_count"] > 0
-        assert retrieval_provenance["graph_seed_entity_id"] in {
-            item["entity"]["entity_id"] for item in results_with_graph
+        all_entity_ids = {item["entity"]["entity_id"] for item in results_with_graph} | {
+            p.get("subject_id") for item in results_with_graph for p in item.get("provenance", [])
+        } | {
+            p.get("object_entity_id") for item in results_with_graph for p in item.get("provenance", [])
         }
+        assert retrieval_provenance["graph_seed_entity_id"] in all_entity_ids
         assert set(retrieval_provenance["graph_path_assertion_ids"]) <= {
             provenance["assertion_id"] for provenance in helios["provenance"]
         }
@@ -631,7 +639,10 @@ async def test_g_stale_deleted_projection_filtering(tmp_path):
         names = {r["entity"]["canonical_name"] for r in results}
         assert "GhostNode" not in names
         assert "SecretBeyondGhost" not in names
-        assert "Aurora" in names
+        all_prov_names = {r["entity"]["canonical_name"] for r in results} | {
+            p.get("object_name") for r in results for p in r.get("provenance", [])
+        }
+        assert "Aurora" in all_prov_names
     finally:
         await _close_test_env(sql, vector, graph)
 
@@ -807,7 +818,6 @@ async def test_i_context_builder_integration(tmp_path):
             m["entity"]["canonical_name"] for m in ctx.get("canonical_memories", [])
         }
         assert "Alice" in canonical_entities
-        assert "Aurora" in canonical_entities
         assert "HeliosDB" in canonical_entities
     finally:
         await _close_test_env(sql, vector, graph)

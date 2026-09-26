@@ -1304,6 +1304,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                         base_len * seed_factor * pred_factor * ev_factor * dir_factor
                     )
 
+                    path_entity_ids = [s_id, *intermediates, t_id]
                     paths_by_target.setdefault(t_id, []).append(
                         {
                             "seed_id": s_id,
@@ -1311,6 +1312,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                             "hops": hop,
                             "path_score": path_score,
                             "path_assertions": path_assertions,
+                            "path_entity_ids": path_entity_ids,
                             "direction": dir_tag,
                             "min_conf": min_conf,
                         }
@@ -1358,6 +1360,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 "seed_id": best_p["seed_id"],
                 "path_assertion_ids": all_path_assertions,
                 "best_path_assertion_ids": list(best_p["path_assertions"]),
+                "path_entity_ids": list(best_p.get("path_entity_ids") or []),
                 "matched_assertion_id": (
                     best_p["path_assertions"][-1] if best_p["path_assertions"] else None
                 ),
