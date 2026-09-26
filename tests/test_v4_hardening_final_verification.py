@@ -12,7 +12,6 @@ Strictly verifies all 24 Hard Gates from mesa_v4_hardering_loop_prompt.md:
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 
 import pytest

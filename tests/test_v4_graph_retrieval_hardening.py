@@ -734,7 +734,8 @@ async def test_h_multi_lane_deduplication(tmp_path):
 
 @pytest.mark.asyncio
 async def test_h_duplicate_graph_paths_do_not_amplify_rrf(tmp_path):
-    """Two graph paths contribute at most one rank from the graph lane."""
+    """Each distinct terminal assertion receives exactly one graph rank."""
+
     sql, vector, graph, dao = await _create_test_env(tmp_path)
     try:
         for mutation_id, subject_name, object_name in (
@@ -766,10 +767,13 @@ async def test_h_duplicate_graph_paths_do_not_amplify_rrf(tmp_path):
             item for item in results if item["entity"]["canonical_name"] == "TargetDB"
         ]
 
-        assert len(target_results) == 1
-        target = target_results[0]
-        assert target["retrieval_provenance"]["origins"] == ["graph"]
-        assert target["rrf_score"] <= V4_RRF_LANE_WEIGHTS["graph"] / 61.0
+        # These are two distinct terminal assertions, not duplicate evidence.
+        # Both must survive; only repeated paths to the SAME assertion dedup.
+        assert len(target_results) == 2
+        assert len({target["assertion_id"] for target in target_results}) == 2
+        for target in target_results:
+            assert target["retrieval_provenance"]["origins"] == ["graph"]
+            assert target["rrf_score"] <= V4_RRF_LANE_WEIGHTS["graph"] / 61.0
     finally:
         await _close_test_env(sql, vector, graph)
 

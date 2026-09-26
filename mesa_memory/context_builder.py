@@ -219,6 +219,29 @@ class ContextBuilder:
                 for record in records
             ]
 
+        # Discard units which cannot fit even on their own before they can
+        # evict useful lower-ranked evidence. Never clip an atomic proof.
+        fitting_memories: list[dict[str, Any]] = []
+        for memory in cur_memories:
+            if not memory.get("_is_atomic_proof"):
+                memory["facts"] = [
+                    fact
+                    for fact in memory["facts"]
+                    if _count_tokens(
+                        _render_context(
+                            [], _model_visible_records([{**memory, "facts": [fact]}])
+                        )
+                    )
+                    <= token_budget
+                ]
+            if memory["facts"] and (
+                not memory.get("_is_atomic_proof")
+                or _count_tokens(_render_context([], _model_visible_records([memory])))
+                <= token_budget
+            ):
+                fitting_memories.append(memory)
+        cur_memories = fitting_memories
+
         formatted_context = _render_context(
             cur_sessions, _model_visible_records(cur_memories)
         )

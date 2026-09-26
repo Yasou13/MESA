@@ -29,5 +29,3 @@ def test_legal_citation_spans_do_not_borrow_neighbor_articles(text, expected):
         (c.statute_code, c.article)
         for c in LegalEntityResolver().extract_citations(text)
     } == expected
-
-
