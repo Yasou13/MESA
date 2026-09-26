@@ -156,3 +156,12 @@ rehearsal and 24-hour soak) were not executed by this audit.
 
 The user's untracked `mesa_v4_hardering_loop_prompt.md` was preserved and excluded
 from all commits. No force operation or main/master merge was performed.
+
+## Push status
+
+**BLOCKED by automatic approval review.** The reviewer did not accept the
+attached request's §46 as authorization to export code/history to
+`https://github.com/Yasou13/MESA.git`. A normal push of
+`fix/v4-hardening-final-correction` was rejected twice; no push occurred.
+Explicit confirmation for that destination has been requested. This does not
+change the local verification results above.
