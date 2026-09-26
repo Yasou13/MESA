@@ -273,7 +273,7 @@ class MesaHttpV4Service:
         search_arguments.update(
             {
                 key: kwargs[key]
-                for key in ("valid_at", "valid_from", "valid_to")
+                for key in ("jurisdiction", "valid_at", "valid_from", "valid_to")
                 if kwargs.get(key) is not None
             }
         )
@@ -327,7 +327,7 @@ class MesaHttpV4Service:
         context_arguments.update(
             {
                 key: kwargs[key]
-                for key in ("valid_at", "valid_from", "valid_to")
+                for key in ("jurisdiction", "valid_at", "valid_from", "valid_to")
                 if kwargs.get(key) is not None
             }
         )

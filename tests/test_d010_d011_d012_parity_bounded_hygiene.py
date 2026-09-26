@@ -20,7 +20,7 @@ def test_d010_temporal_parity_sdk_signatures():
     sync_ctx_params = MesaV4Client.get_context.__code__.co_varnames
     async_ctx_params = AsyncMesaV4Client.get_context.__code__.co_varnames
 
-    for param in ("valid_at", "valid_from", "valid_to"):
+    for param in ("jurisdiction", "valid_at", "valid_from", "valid_to"):
         assert param in sync_search_params
         assert param in async_search_params
         assert param in sync_ctx_params
@@ -37,6 +37,7 @@ def test_d010_sync_sdk_serializes_temporal_filters(monkeypatch):
 
     monkeypatch.setattr(client, "_request", capture)
     filters = {
+        "jurisdiction": "TR",
         "valid_at": "2026-08-14T10:00:00Z",
         "valid_from": "2026-01-01T00:00:00Z",
         "valid_to": "2026-12-31T23:59:59Z",
@@ -59,6 +60,7 @@ async def test_d010_async_sdk_serializes_temporal_filters(monkeypatch):
 
     monkeypatch.setattr(client, "_request", capture)
     filters = {
+        "jurisdiction": "TR",
         "valid_at": "2026-08-14T10:00:00Z",
         "valid_from": "2026-01-01T00:00:00Z",
         "valid_to": "2026-12-31T23:59:59Z",

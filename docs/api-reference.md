@@ -158,6 +158,11 @@ canonical activation bariyerini transaction içinde yeniden çalıştırır; ba�
 bir mutation transition gerekmez. Tek `ACTIVE` document head ve tekrarlanan
 finalization idempotence'i korunur.
 
+Search ve context işlemleri `jurisdiction` filtresini (ör. `TR`) HTTP,
+sync/async SDK ve MCP üzerinden retrieval aşamasına taşır. Context HTTP
+çağrısında bu alan query parametresidir; kapsam dışı ülke evidence kayıtları
+canonical context içine alınmaz.
+
 Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
 `valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
 yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. Search sonucu `score`

@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **V4 jurisdiction propagation:** Context HTTP, sync/async SDK and MCP context
+  and recall calls now preserve the requested jurisdiction through retrieval.
+
 - **Round-8 SQLite durability:** Canonical production SQLite connections now
   explicitly request `synchronous=FULL`. Weaker `NORMAL`/`OFF` synchronization
   is accepted only in the explicit `test-isolated` runtime profile. Auxiliary
