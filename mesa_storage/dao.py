@@ -434,11 +434,30 @@ def classify_graph_object(
         if _QUANTITY_REGEX.match(cleaned_tail) or _PERCENT_REGEX.match(cleaned_tail):
             return (None, cleaned_tail, "LITERAL")
 
-        # 3. Long phrase detection: prevent auto-entity node explosion
+        # 3. Article reference detection
+        if _ARTICLE_REF_REGEX.search(cleaned_tail):
+            return (None, cleaned_tail, "ARTICLE_REFERENCE")
+
+        # 4. Legal reference citation detection
+        norm_upper = cleaned_tail.upper()
+        if any(
+            norm_upper == s or norm_upper.startswith(f"{s} ")
+            for s in _LEGAL_STATUTES
+        ):
+            return (None, cleaned_tail, "LEGAL_REFERENCE")
+
+        # 5. Long phrase detection: prevent auto-entity node explosion
         words = cleaned_tail.split()
         has_clause_punctuation = any(p in cleaned_tail for p in (";", "\n", "\t"))
-        has_sentence_period = "." in cleaned_tail and not bool(
-            re.search(r"\b[a-zA-ZçğıöşüÇĞİÖŞÜ]+\.\d+", cleaned_tail)
+        tail_no_abbr = re.sub(
+            r"\b(?:T\.C\.|A\.Ş\.|Ltd\.|Şti\.|Dr\.|Prof\.|Av\.|vd\.|vb\.|vs\.)",
+            "",
+            cleaned_tail,
+            flags=re.IGNORECASE,
+        )
+        has_sentence_period = (
+            bool(re.search(r"\.\s+[a-zA-ZçğıöşüÇĞİÖŞÜ]", tail_no_abbr))
+            or (tail_no_abbr.strip().endswith(".") and len(words) >= 3)
         )
         if (
             len(cleaned_tail) > 60
@@ -447,18 +466,6 @@ def classify_graph_object(
             or has_sentence_period
         ):
             return (None, cleaned_tail, "LITERAL")
-
-        # 4. Article reference detection
-        if _ARTICLE_REF_REGEX.search(cleaned_tail):
-            return (None, cleaned_tail, "ARTICLE_REFERENCE")
-
-        # 5. Legal reference citation detection
-        norm_upper = cleaned_tail.upper()
-        if any(
-            norm_upper == s or norm_upper.startswith(f"{s} ")
-            for s in _LEGAL_STATUTES
-        ):
-            return (None, cleaned_tail, "LEGAL_REFERENCE")
 
         # 6. Concise named entity
         return (cleaned_tail, None, "ENTITY")
