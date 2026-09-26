@@ -1148,6 +1148,7 @@ class ConsolidationLoop:
                 "source_span": fact.source_span,
                 "supersedes": fact.supersedes,
                 "metadata": fact.metadata,
+                "object_type": fact.object_type,
             }
             for fact in facts
         ]

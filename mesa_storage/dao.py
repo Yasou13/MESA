@@ -329,7 +329,22 @@ def _normalize_ontology_uri(value: str) -> str:
 _DATE_REGEX = re.compile(
     r"^(?:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?|\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{4})$"
 )
-_ARTICLE_REF_REGEX = re.compile(r"\b(?:m\.|md\.|madde|fıkra|bent)\s*\d+", re.IGNORECASE)
+_TR_DATE_REGEX = re.compile(
+    r"^(?:\d{1,2}\s+)?(?:ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\s+\d{4}$",
+    re.IGNORECASE,
+)
+_TR_YEAR_REGEX = re.compile(r"^\d{4}\s+(?:yılı|senesi)$", re.IGNORECASE)
+_QUANTITY_REGEX = re.compile(
+    r"^(?:(?:\d+(?:[.,]\d+)?)|(?:bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on|yirmi|otuz|kırk|elli|altmış|yetmiş|seksen|doksan|yüz|bin))\s*(?:gün|ay|yıl|sene|hafta|saat|dakika|saniye|kişi|adet|parça|tane|lira|tl|usd|eur|dolar|euro|₺|\$|€|kg|kilogram|gr|gram|km|kilometre|metre|m2|m3|ton|derece)(?:\s+(?:süre|boyunca|içinde|kadar))?$",
+    re.IGNORECASE,
+)
+_PERCENT_REGEX = re.compile(
+    r"^(?:%(?:\s*)\d+(?:[.,]\d+)?|yüzde\s+\d+(?:[.,]\d+)?|binde\s+\d+(?:[.,]\d+)?)$",
+    re.IGNORECASE,
+)
+_ARTICLE_REF_REGEX = re.compile(
+    r"\b(?:m\.|md\.?|madde|fıkra|bent)\s*\d+|\b\d+\.\s*madde", re.IGNORECASE
+)
 _LEGAL_STATUTES = {
     "TBK",
     "TMK",
@@ -342,6 +357,16 @@ _LEGAL_STATUTES = {
     "İİK",
     "ANAYASA",
     "KVKK",
+    "İŞ KANUNU",
+    "4857",
+    "6098",
+    "4721",
+    "5237",
+    "5271",
+    "6100",
+    "6102",
+    "2577",
+    "6698",
 }
 
 
@@ -355,10 +380,10 @@ def classify_graph_object(
 
     Supported types:
     - ENTITY: Concise named entity (creates graph node).
-    - LITERAL: Primitive value, number, description, or unstructured phrase.
-    - LEGAL_REFERENCE: Reference to a statute, code, or treaty.
-    - ARTICLE_REFERENCE: Reference to a specific legal article.
-    - DATE: ISO date or temporal expression.
+    - LITERAL: Primitive value, quantity, duration, description, or phrase (no graph node).
+    - LEGAL_REFERENCE: Reference to a statute or code citation (no graph node).
+    - ARTICLE_REFERENCE: Reference to a specific legal article (no graph node).
+    - DATE: ISO date or natural temporal expression (no graph node).
     """
     raw_type = (object_type or "").strip().upper()
     if raw_type:
@@ -369,28 +394,47 @@ def classify_graph_object(
             val = literal_value if literal_value is not None else tail
             return (None, val, "DATE")
         if raw_type == "ARTICLE_REFERENCE":
-            val = tail if tail is not None else literal_value
-            return (val, None, "ARTICLE_REFERENCE")
+            val = literal_value if literal_value is not None else tail
+            return (None, val, "ARTICLE_REFERENCE")
         if raw_type in ("LEGAL_REFERENCE", "STATUTE_REFERENCE"):
-            val = tail if tail is not None else literal_value
-            return (val, None, "LEGAL_REFERENCE")
+            val = literal_value if literal_value is not None else tail
+            return (None, val, "LEGAL_REFERENCE")
         if raw_type == "ENTITY":
             val = tail if tail is not None else literal_value
             return (val, None, "ENTITY")
 
     # Inferred classification
     if literal_value is not None and tail is None:
-        if _DATE_REGEX.match(literal_value.strip()):
+        cleaned_lit = literal_value.strip()
+        if (
+            _DATE_REGEX.match(cleaned_lit)
+            or _TR_DATE_REGEX.match(cleaned_lit)
+            or _TR_YEAR_REGEX.match(cleaned_lit)
+        ):
             return (None, literal_value, "DATE")
+        if _ARTICLE_REF_REGEX.search(cleaned_lit):
+            return (None, literal_value, "ARTICLE_REFERENCE")
+        norm_upper = cleaned_lit.upper()
+        if any(norm_upper.startswith(s) for s in _LEGAL_STATUTES):
+            return (None, literal_value, "LEGAL_REFERENCE")
         return (None, literal_value, "LITERAL")
 
     if tail is not None and literal_value is None:
         cleaned_tail = tail.strip()
+
         # 1. Date/temporal detection
-        if _DATE_REGEX.match(cleaned_tail):
+        if (
+            _DATE_REGEX.match(cleaned_tail)
+            or _TR_DATE_REGEX.match(cleaned_tail)
+            or _TR_YEAR_REGEX.match(cleaned_tail)
+        ):
             return (None, cleaned_tail, "DATE")
 
-        # 2. Long phrase detection: prevent auto-entity node explosion
+        # 2. Quantity / duration / currency / percentage / measurement
+        if _QUANTITY_REGEX.match(cleaned_tail) or _PERCENT_REGEX.match(cleaned_tail):
+            return (None, cleaned_tail, "LITERAL")
+
+        # 3. Long phrase detection: prevent auto-entity node explosion
         words = cleaned_tail.split()
         has_clause_punctuation = any(p in cleaned_tail for p in (";", "\n", "\t"))
         has_sentence_period = "." in cleaned_tail and not bool(
@@ -404,18 +448,19 @@ def classify_graph_object(
         ):
             return (None, cleaned_tail, "LITERAL")
 
-        # 3. Article reference detection
+        # 4. Article reference detection
         if _ARTICLE_REF_REGEX.search(cleaned_tail):
-            return (cleaned_tail, None, "ARTICLE_REFERENCE")
+            return (None, cleaned_tail, "ARTICLE_REFERENCE")
 
-        # 4. Legal reference detection
+        # 5. Legal reference citation detection
         norm_upper = cleaned_tail.upper()
-        if norm_upper in _LEGAL_STATUTES or any(
-            norm_upper.startswith(f"{s} ") for s in _LEGAL_STATUTES
+        if any(
+            norm_upper == s or norm_upper.startswith(f"{s} ")
+            for s in _LEGAL_STATUTES
         ):
-            return (cleaned_tail, None, "LEGAL_REFERENCE")
+            return (None, cleaned_tail, "LEGAL_REFERENCE")
 
-        # 5. Concise named entity
+        # 6. Concise named entity
         return (cleaned_tail, None, "ENTITY")
 
     return (tail, literal_value, "ENTITY" if tail else "LITERAL")

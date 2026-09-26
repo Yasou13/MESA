@@ -204,6 +204,9 @@ class ExtractedTriplet(BaseModel):
     head: str = Field(..., min_length=1, max_length=256)
     relation: str = Field(..., min_length=1, max_length=256)
     tail: str = Field(..., min_length=1, max_length=256)
+    object_type: Optional[str] = Field(
+        default=None, description="Semantic category of the object"
+    )
     confidence: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -230,6 +233,7 @@ class ExtractedTriplet(BaseModel):
                     relation=str(item["relation"]),
                     tail=str(item["tail"]),
                     confidence=item.get("confidence"),
+                    object_type=item.get("object_type"),
                 )
                 for item in self.additional_triplets
             ],

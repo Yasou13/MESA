@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
@@ -92,6 +92,10 @@ class FactCandidate(BaseModel):
         max_length=_MAX_FACT_FIELD_LENGTH,
         description="Object entity / attribute value",
     )
+    object_type: Optional[str] = Field(
+        default=None,
+        description="Semantic category of the object: ENTITY, LITERAL, DATE, LEGAL_REFERENCE, ARTICLE_REFERENCE",
+    )
     valid_from: Optional[str] = Field(
         default=None, description="ISO-8601 date or timestamp start"
     )
@@ -128,7 +132,7 @@ class FactCandidate(BaseModel):
         return v_str
 
     @field_validator(
-        "source_span", "supersedes", "valid_from", "valid_to", mode="before"
+        "source_span", "supersedes", "valid_from", "valid_to", "object_type", mode="before"
     )
     @classmethod
     def strip_optional_str(cls, v: Any) -> Optional[str]:
@@ -136,6 +140,14 @@ class FactCandidate(BaseModel):
             return None
         v_str = str(v).strip()
         return v_str if v_str else None
+
+    @model_validator(mode="after")
+    def populate_object_type(self) -> "FactCandidate":
+        if not self.object_type and self.object:
+            from mesa_storage.dao import classify_graph_object
+            _, _, resolved_type = classify_graph_object(tail=self.object, literal_value=None)
+            self.object_type = resolved_type
+        return self
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -267,6 +279,7 @@ def fact_candidates_to_extracted_triplet(
                 "supersedes": c.supersedes,
                 "source_span": c.source_span,
                 "metadata": c.metadata,
+                "object_type": c.object_type,
             }
         )
 
@@ -276,6 +289,7 @@ def fact_candidates_to_extracted_triplet(
         relation=primary.predicate,
         tail=primary.object,
         confidence=primary.confidence,
+        object_type=primary.object_type,
         additional_triplets=additional,
     )
 
