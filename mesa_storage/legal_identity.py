@@ -36,48 +36,150 @@ class LegalCitation:
 ONTOLOGY: dict[str, dict[str, Any]] = {
     "TBK": {
         "canonical": "Türk Borçlar Kanunu",
-        "aliases": ["türk borçlar kanunu", "borçlar kanunu", "6098 sayılı türk borçlar kanunu", "6098 sayılı kanun", "6098", "tbk"],
+        "aliases": [
+            "türk borçlar kanunu",
+            "borçlar kanunu",
+            "6098 sayılı türk borçlar kanunu",
+            "6098 sayılı kanun",
+            "6098",
+            "tbk",
+        ],
     },
     "TMK": {
         "canonical": "Türk Medeni Kanunu",
-        "aliases": ["türk medeni kanunu", "medeni kanun", "4721 sayılı türk medeni kanunu", "4721 sayılı kanun", "4721", "tmk", "m.k.", "mk"],
+        "aliases": [
+            "türk medeni kanunu",
+            "medeni kanun",
+            "4721 sayılı türk medeni kanunu",
+            "4721 sayılı kanun",
+            "4721",
+            "tmk",
+            "m.k.",
+            "mk",
+        ],
     },
     "TCK": {
         "canonical": "Türk Ceza Kanunu",
-        "aliases": ["türk ceza kanunu", "ceza kanunu", "5237 sayılı türk ceza kanunu", "5237 sayılı kanun", "5237", "tck"],
+        "aliases": [
+            "türk ceza kanunu",
+            "ceza kanunu",
+            "5237 sayılı türk ceza kanunu",
+            "5237 sayılı kanun",
+            "5237",
+            "tck",
+        ],
     },
     "CMK": {
         "canonical": "Ceza Muhakemesi Kanunu",
-        "aliases": ["ceza muhakemesi kanunu", "ceza muhakemeleri kanunu", "5271 sayılı ceza muhakemesi kanunu", "5271 sayılı kanun", "5271", "cmk", "cmuk"],
+        "aliases": [
+            "ceza muhakemesi kanunu",
+            "ceza muhakemeleri kanunu",
+            "5271 sayılı ceza muhakemesi kanunu",
+            "5271 sayılı kanun",
+            "5271",
+            "cmk",
+            "cmuk",
+        ],
     },
     "HMK": {
         "canonical": "Hukuk Muhakemeleri Kanunu",
-        "aliases": ["hukuk muhakemeleri kanunu", "hukuk usulü muhakemeleri kanunu", "6100 sayılı hukuk muhakemeleri kanunu", "6100 sayılı kanun", "6100", "hmk", "humk"],
+        "aliases": [
+            "hukuk muhakemeleri kanunu",
+            "hukuk usulü muhakemeleri kanunu",
+            "6100 sayılı hukuk muhakemeleri kanunu",
+            "6100 sayılı kanun",
+            "6100",
+            "hmk",
+            "humk",
+        ],
     },
     "TTK": {
         "canonical": "Türk Ticaret Kanunu",
-        "aliases": ["türk ticaret kanunu", "ticaret kanunu", "6102 sayılı türk ticaret kanunu", "6102 sayılı kanun", "6102", "ttk"],
+        "aliases": [
+            "türk ticaret kanunu",
+            "ticaret kanunu",
+            "6102 sayılı türk ticaret kanunu",
+            "6102 sayılı kanun",
+            "6102",
+            "ttk",
+        ],
     },
     "İYUK": {
         "canonical": "İdari Yargılama Usulü Kanunu",
-        "aliases": ["idari yargılama usulü kanunu", "idari yargılama kanunu", "2577 sayılı idari yargılama usulü kanunu", "2577 sayılı kanun", "2577", "iyuk"],
+        "aliases": [
+            "idari yargılama usulü kanunu",
+            "idari yargılama kanunu",
+            "2577 sayılı idari yargılama usulü kanunu",
+            "2577 sayılı kanun",
+            "2577",
+            "iyuk",
+            "ıyuk",
+        ],
     },
     "KVKK": {
         "canonical": "Kişisel Verilerin Korunması Kanunu",
-        "aliases": ["kişisel verilerin korunması kanunu", "6698 sayılı kişisel verilerin korunması kanunu", "6698 sayılı kanun", "6698", "kvkk", "k.v.k.k."],
+        "aliases": [
+            "kişisel verilerin korunması kanunu",
+            "6698 sayılı kişisel verilerin korunması kanunu",
+            "6698 sayılı kanun",
+            "6698",
+            "kvkk",
+            "k.v.k.k.",
+        ],
     },
     "İş Kanunu": {
         "canonical": "İş Kanunu",
-        "aliases": ["iş kanunu", "türk iş kanunu", "4857 sayılı iş kanunu", "4857 sayılı kanun", "is kanunu", "4857 s.k.", "4857 sk", "4857"],
+        "aliases": [
+            "iş kanunu",
+            "türk iş kanunu",
+            "4857 sayılı iş kanunu",
+            "4857 sayılı kanun",
+            "is kanunu",
+            "4857 s.k.",
+            "4857 sk",
+            "4857",
+        ],
     },
     "Anayasa": {
         "canonical": "Anayasa",
-        "aliases": ["türk anayasası", "türkiye cumhuriyeti anayasası", "t.c. anayasası", "1982 anayasası", "2709 sayılı kanun", "anayasa", "ay"],
+        "aliases": [
+            "türk anayasası",
+            "türkiye cumhuriyeti anayasası",
+            "t.c. anayasası",
+            "1982 anayasası",
+            "2709 sayılı kanun",
+            "anayasa",
+            "ay",
+        ],
     },
-    "Yargıtay Hukuk Genel Kurulu": {"canonical": "Yargıtay Hukuk Genel Kurulu", "aliases": ["yargıtay hukuk genel kurulu", "hukuk genel kurulu", "yhgk"]},
-    "Yargıtay Ceza Genel Kurulu": {"canonical": "Yargıtay Ceza Genel Kurulu", "aliases": ["yargıtay ceza genel kurulu", "ceza genel kurulu", "ycgk"]},
-    "Yargıtay 4. Hukuk Dairesi": {"canonical": "Yargıtay 4. Hukuk Dairesi", "aliases": ["yargıtay 4. hukuk dairesi", "yargıtay 4. dairesi", "4. hukuk dairesi", "4.hd", "4. hd"]},
-    "Yargıtay 11. Hukuk Dairesi": {"canonical": "Yargıtay 11. Hukuk Dairesi", "aliases": ["yargıtay 11. hukuk dairesi", "yargıtay 11. dairesi", "11. hukuk dairesi", "11.hd", "11. hd"]},
+    "Yargıtay Hukuk Genel Kurulu": {
+        "canonical": "Yargıtay Hukuk Genel Kurulu",
+        "aliases": ["yargıtay hukuk genel kurulu", "hukuk genel kurulu", "yhgk"],
+    },
+    "Yargıtay Ceza Genel Kurulu": {
+        "canonical": "Yargıtay Ceza Genel Kurulu",
+        "aliases": ["yargıtay ceza genel kurulu", "ceza genel kurulu", "ycgk"],
+    },
+    "Yargıtay 4. Hukuk Dairesi": {
+        "canonical": "Yargıtay 4. Hukuk Dairesi",
+        "aliases": [
+            "yargıtay 4. hukuk dairesi",
+            "yargıtay 4. dairesi",
+            "4. hukuk dairesi",
+            "4.hd",
+            "4. hd",
+        ],
+    },
+    "Yargıtay 11. Hukuk Dairesi": {
+        "canonical": "Yargıtay 11. Hukuk Dairesi",
+        "aliases": [
+            "yargıtay 11. hukuk dairesi",
+            "yargıtay 11. dairesi",
+            "11. hukuk dairesi",
+            "11.hd",
+            "11. hd",
+        ],
+    },
 }
 
 
@@ -118,21 +220,29 @@ class LegalEntityResolver:
             if statute_match in ("ay",):
                 orig_snippet = text[match.start("statute"):match.end("statute")]
                 is_explicit_upper = orig_snippet in ("AY", "A.Y.", "A. Y.")
-                has_article = bool(article)
-                if not (is_explicit_upper or has_article):
+                article_prefix = (
+                    normalized[match.end("statute") : match.start("art")]
+                    if article
+                    else ""
+                )
+                has_article_marker = bool(re.search(r"m\.|md\.?|madde", article_prefix))
+                if not (is_explicit_upper or has_article_marker):
                     continue
             elif statute_match.isdigit():
                 # Pure statute law numbers (e.g. "4857") MUST be accompanied by article or law keyword
                 if not article and "sayılı" not in match.group(0):
                     continue
 
-            raw_matches.append({
-                "code": code,
-                "article": article,
-                "start": match.start(),
-                "end": match.end(),
-                "statute_match": statute_match,
-            })
+            raw_matches.append(
+                {
+                    "code": code,
+                    "article": article,
+                    "start": match.start(),
+                    "end": match.end(),
+                    "statute_match": statute_match,
+                    "article_span": match.span("art") if article else None,
+                }
+            )
 
         # Find reverse matches ([article] statute)
         for match in self._reverse_pattern.finditer(normalized):
@@ -142,6 +252,14 @@ class LegalEntityResolver:
                 continue
             article = match.group("art")
             has_marker = bool(match.group("has_art_marker") or "madde" in match.group(0))
+
+            # A number already attached to a preceding statute cannot also
+            # become the next statute's reverse citation (TBK 117 CMK 86).
+            if any(
+                prior.get("article_span") == match.span("art") and prior["code"] != code
+                for prior in raw_matches
+            ):
+                continue
 
             # Guard: bare numbers before "ay" (e.g. "3 ay") are durations, NOT Anayasa citations!
             if statute_match == "ay":
