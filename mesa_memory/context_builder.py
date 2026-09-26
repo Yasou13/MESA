@@ -50,6 +50,7 @@ class ContextBuilder:
         query: str = "",
         session_id: str | None = None,
         token_budget: int = 2048,
+        jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
@@ -79,6 +80,7 @@ class ContextBuilder:
                     dataset_ids=dataset_ids,
                     query=search_query,
                     limit=20,
+                    jurisdiction=jurisdiction,
                     valid_at=valid_at,
                     valid_from=valid_from,
                     valid_to=valid_to,
@@ -163,12 +165,21 @@ class ContextBuilder:
                             fact_dict["authority_level"] = str(authority)
                     facts.append(fact_dict)
 
+            retrieval_prov = item.get("retrieval_provenance") or {}
+            graph_hop_count = int(retrieval_prov.get("graph_hop_count") or 0)
+            is_atomic_proof = (
+                graph_hop_count > 1
+                or len(retrieval_prov.get("graph_path_assertion_ids", [])) > 1
+                or bool(retrieval_prov.get("is_atomic_proof"))
+            )
+
             memory_records.append(
                 {
                     "type": "canonical_memory",
                     "entity": name,
                     "facts": facts,
                     "_raw_index": idx,
+                    "_is_atomic_proof": is_atomic_proof,
                 }
             )
 
@@ -179,6 +190,7 @@ class ContextBuilder:
                 "entity": m["entity"],
                 "facts": list(m["facts"]),
                 "_raw_index": m["_raw_index"],
+                "_is_atomic_proof": m.get("_is_atomic_proof", False),
             }
             for m in memory_records
         ]
@@ -207,6 +219,29 @@ class ContextBuilder:
                 for record in records
             ]
 
+        # Discard units which cannot fit even on their own before they can
+        # evict useful lower-ranked evidence. Never clip an atomic proof.
+        fitting_memories: list[dict[str, Any]] = []
+        for memory in cur_memories:
+            if not memory.get("_is_atomic_proof"):
+                memory["facts"] = [
+                    fact
+                    for fact in memory["facts"]
+                    if _count_tokens(
+                        _render_context(
+                            [], _model_visible_records([{**memory, "facts": [fact]}])
+                        )
+                    )
+                    <= token_budget
+                ]
+            if memory["facts"] and (
+                not memory.get("_is_atomic_proof")
+                or _count_tokens(_render_context([], _model_visible_records([memory])))
+                <= token_budget
+            ):
+                fitting_memories.append(memory)
+        cur_memories = fitting_memories
+
         formatted_context = _render_context(
             cur_sessions, _model_visible_records(cur_memories)
         )
@@ -221,17 +256,19 @@ class ContextBuilder:
             actual_tokens = _count_tokens(formatted_context)
 
         # Fine-grained fact/evidence-level trimming:
-        # Prevent any single large entity from crowding out others.
+        # Prevent any single large entity from crowding out others, while preserving
+        # atomic multi-hop graph proofs intact (never leaving half-broken inference chains).
         while actual_tokens > token_budget and cur_memories:
-            # Check if any memory has > 1 fact; if so, prune the lowest-priority fact from the end
             pruned_fact = False
             for mem in reversed(cur_memories):
-                if len(mem["facts"]) > 1:
+                # Only prune individual facts from non-atomic memories
+                if not mem.get("_is_atomic_proof") and len(mem["facts"]) > 1:
                     mem["facts"].pop()
                     pruned_fact = True
                     break
 
-            # If all remaining memories have at most 1 fact, prune the lowest-ranked memory entity
+            # If all remaining non-atomic memories have at most 1 fact (or there are only atomic memories),
+            # prune the lowest-ranked memory entity entirely
             if not pruned_fact:
                 cur_memories.pop()
 

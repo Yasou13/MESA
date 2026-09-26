@@ -82,16 +82,16 @@ def test_p8_classify_graph_object_unit():
     assert literal == long_phrase
     assert kind == "LITERAL"
 
-    # 5. Article reference
+    # 5. Article reference: must NOT be an entity node
     t, literal, kind = classify_graph_object(tail="TBK m.117", literal_value=None)
-    assert t == "TBK m.117"
-    assert literal is None
+    assert t is None
+    assert literal == "TBK m.117"
     assert kind == "ARTICLE_REFERENCE"
 
-    # 6. Legal reference
-    t, literal, kind = classify_graph_object(tail="TBK", literal_value=None)
-    assert t == "TBK"
-    assert literal is None
+    # 6. Legal reference: must NOT be an entity node
+    t, literal, kind = classify_graph_object(tail="TBK 117", literal_value=None)
+    assert t is None
+    assert literal == "TBK 117"
     assert kind == "LEGAL_REFERENCE"
 
     # 7. Date string
@@ -99,6 +99,20 @@ def test_p8_classify_graph_object_unit():
     assert t is None
     assert literal == "2024-01-01"
     assert kind == "DATE"
+
+    # 8. Literals: 30 gün, 15000 TL, 3 kişi must NOT be entity nodes
+    for lit_val in ("30 gün", "15000 TL", "3 kişi", "%25", "5 kilogram", "10 kilometre", "iki yıl"):
+        t, literal, kind = classify_graph_object(tail=lit_val, literal_value=None)
+        assert t is None, f"{lit_val} must not be an entity"
+        assert literal == lit_val
+        assert kind == "LITERAL"
+
+    # 9. Natural dates: 26 Eylül 2026, 1 Ocak 2025, 2024 yılı must NOT be entity nodes
+    for date_val in ("26 Eylül 2026", "1 Ocak 2025", "2024 yılı"):
+        t, literal, kind = classify_graph_object(tail=date_val, literal_value=None)
+        assert t is None, f"{date_val} must not be an entity"
+        assert literal == date_val
+        assert kind == "DATE"
 
 
 # 2. Integration Tests with DAO projection

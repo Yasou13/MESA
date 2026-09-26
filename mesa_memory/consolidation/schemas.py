@@ -204,6 +204,9 @@ class ExtractedTriplet(BaseModel):
     head: str = Field(..., min_length=1, max_length=256)
     relation: str = Field(..., min_length=1, max_length=256)
     tail: str = Field(..., min_length=1, max_length=256)
+    object_type: Optional[str] = Field(
+        default=None, description="Semantic category of the object"
+    )
     confidence: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -211,6 +214,12 @@ class ExtractedTriplet(BaseModel):
         description="Model self-reported extraction confidence",
     )
     additional_triplets: list[dict[str, Any]] = Field(default_factory=list)
+    fact_text: Optional[str] = None
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    source_span: Optional[str] = None
+    supersedes: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("head", "relation", "tail", mode="before")
     @classmethod
@@ -226,10 +235,11 @@ class ExtractedTriplet(BaseModel):
             *[
                 ExtractedTriplet(
                     record_index=self.record_index,
-                    head=str(item["head"]),
-                    relation=str(item["relation"]),
-                    tail=str(item["tail"]),
-                    confidence=item.get("confidence"),
+                    **{
+                        key: value
+                        for key, value in item.items()
+                        if key != "record_index"
+                    },
                 )
                 for item in self.additional_triplets
             ],

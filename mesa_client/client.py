@@ -176,6 +176,12 @@ class MesaClient:
 
     def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         """Internal request executor with error handling and retry logic."""
+        if isinstance(kwargs.get("params"), dict):
+            kwargs["params"] = {
+                key: value
+                for key, value in kwargs["params"].items()
+                if value is not None
+            }
 
         def _op() -> httpx.Response:
             response = self._client.request(method, path, **kwargs)
@@ -280,6 +286,12 @@ class AsyncMesaClient:
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         """Internal request executor with error handling and retry logic."""
+        if isinstance(kwargs.get("params"), dict):
+            kwargs["params"] = {
+                key: value
+                for key, value in kwargs["params"].items()
+                if value is not None
+            }
 
         async def _op() -> httpx.Response:
             response = await self._client.request(method, path, **kwargs)
@@ -675,6 +687,7 @@ class MesaV4Client(MesaClient):
         session_id: str,
         query: str = "",
         token_budget: int = 2048,
+        jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
@@ -685,6 +698,7 @@ class MesaV4Client(MesaClient):
             params={
                 "query": query,
                 "token_budget": token_budget,
+                "jurisdiction": jurisdiction,
                 "valid_at": valid_at,
                 "valid_from": valid_from,
                 "valid_to": valid_to,
@@ -997,6 +1011,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         session_id: str,
         query: str = "",
         token_budget: int = 2048,
+        jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
@@ -1007,6 +1022,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
             params={
                 "query": query,
                 "token_budget": token_budget,
+                "jurisdiction": jurisdiction,
                 "valid_at": valid_at,
                 "valid_from": valid_from,
                 "valid_to": valid_to,

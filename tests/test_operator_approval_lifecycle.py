@@ -252,6 +252,10 @@ async def test_public_remember_approval_recall_survives_restart(
                     for memory in recall["memories"]
                 ), recall
                 remembered_ids = {memory["memory_id"] for memory in recall["memories"]}
+                remembered_content = {
+                    memory["memory_id"]: memory["content"]
+                    for memory in recall["memories"]
+                }
 
     async with server.lifespan(server.app):
         restarted_gateway = create_gateway_app(settings)
@@ -281,6 +285,10 @@ async def test_public_remember_approval_recall_survives_restart(
                     memory["memory_id"] for memory in recall["memories"]
                 } == remembered_ids
                 assert any(
-                    memory["content"] == "operator approval"
+                    memory["content"] == "MESA operator approval survives a restart."
                     for memory in recall["memories"]
                 ), recall
+                assert {
+                    memory["memory_id"]: memory["content"]
+                    for memory in recall["memories"]
+                } == remembered_content

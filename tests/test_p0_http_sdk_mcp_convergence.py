@@ -157,6 +157,7 @@ async def test_sdk_context_forwards_cross_session_query_and_temporal_budget():
             session_id="session_b",
             query="Which database is used?",
             token_budget=321,
+            jurisdiction="TR",
             valid_at="2024-01-01T00:00:00Z",
         )
     finally:
@@ -169,6 +170,7 @@ async def test_sdk_context_forwards_cross_session_query_and_temporal_budget():
         params={
             "query": "Which database is used?",
             "token_budget": 321,
+            "jurisdiction": "TR",
             "valid_at": "2024-01-01T00:00:00Z",
             "valid_from": None,
             "valid_to": None,
@@ -196,7 +198,7 @@ async def test_mcp_adapter_preserves_canonical_context_and_write_semantics():
     adapter = MesaMCPAdapter(legacy, settings, v4)
 
     context = await adapter.get_context(
-        {"query": "Which database?", "token_budget": 100}
+        {"query": "Which database?", "token_budget": 100, "jurisdiction": "TR"}
     )
     assert context["canonical_memories"] == [{"memory_id": "m1"}]
     legacy.search_memories.assert_not_awaited()
@@ -204,6 +206,7 @@ async def test_mcp_adapter_preserves_canonical_context_and_write_semantics():
         dataset_id=None,
         query="Which database?",
         token_budget=100,
+        jurisdiction="TR",
         valid_at=None,
         valid_from=None,
         valid_to=None,

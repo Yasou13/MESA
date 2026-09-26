@@ -263,12 +263,7 @@ class BatchResponseParser:
                 # the last one.
                 existing.additional_triplets.extend(
                     [
-                        {
-                            "head": item.head,
-                            "relation": item.relation,
-                            "tail": item.tail,
-                            "confidence": item.confidence,
-                        }
+                        item.model_dump(exclude={"record_index", "additional_triplets"})
                         for item in triplet.all_triplets()
                     ]
                 )

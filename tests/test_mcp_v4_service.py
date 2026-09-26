@@ -304,6 +304,7 @@ async def test_v4_context_and_improve_preserve_canonical_v4_arguments() -> None:
         actor_id="agent",
         query="current policy",
         token_budget=321,
+        jurisdiction="TR",
         valid_at="2026-01-01T00:00:00Z",
         valid_from="2025-01-01T00:00:00Z",
         valid_to="2027-01-01T00:00:00Z",
@@ -325,6 +326,7 @@ async def test_v4_context_and_improve_preserve_canonical_v4_arguments() -> None:
             "session_id": "session-1",
             "query": "current policy",
             "token_budget": 321,
+            "jurisdiction": "TR",
             "valid_at": "2026-01-01T00:00:00Z",
             "valid_from": "2025-01-01T00:00:00Z",
             "valid_to": "2027-01-01T00:00:00Z",
@@ -349,3 +351,40 @@ async def test_v4_context_and_improve_preserve_canonical_v4_arguments() -> None:
     assert insert["metadata"] == {"memory_type": "decision"}
     assert insert["idempotency_key"] == "correction-1"
     assert insert["supersedes_revision_id"] == "rev-current"
+
+
+@pytest.mark.asyncio
+async def test_recall_preserves_distinct_evidence_and_primary_content():
+    class EvidenceClient(RecordingV4Client):
+        async def search(self, **_kwargs):
+            return {
+                "results": [
+                    {
+                        "entity": {"entity_id": "shared", "canonical_name": "Subject"},
+                        "evidence_id": aid,
+                        "assertion_id": aid,
+                        "source_chunk_id": f"chunk-{aid}",
+                        "provenance": [
+                            {
+                                "assertion_id": "support",
+                                "evidence_span": "unrelated support",
+                                "chunk_id": "wrong",
+                            },
+                            {
+                                "assertion_id": aid,
+                                "evidence_span": f"matched {aid}",
+                                "chunk_id": f"chunk-{aid}",
+                            },
+                        ],
+                    }
+                    for aid in ("ast-a", "ast-b")
+                ]
+            }
+
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    await service._http_client.aclose()
+    service._http_client = EvidenceClient()
+    results = await service.v4_recall(query="matched")
+    assert [r["memory_id"] for r in results] == ["ast-a", "ast-b"]
+    assert [r["content"] for r in results] == ["matched ast-a", "matched ast-b"]
+    assert [r["chunk_id"] for r in results] == ["chunk-ast-a", "chunk-ast-b"]

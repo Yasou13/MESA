@@ -382,6 +382,7 @@ async def test_canonical_v4_uses_single_fact_extractor_across_validation_modes(
                 "confidence": 0.9,
                 "fact_text": "EntityA is connected to EntityB.",
                 "head": "EntityA",
+                "object_type": "ENTITY",
                 "literal_value": None,
                 "metadata": {},
                 "relation": "connected_to",

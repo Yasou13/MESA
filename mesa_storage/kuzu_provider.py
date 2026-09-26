@@ -1031,22 +1031,17 @@ class KuzuGraphProvider(BaseGraphProvider):
         competing_statutes: list[str] = []
         if query and query.strip():
             norm_q = _normalize_text(query)
-            query_tokens = [t for t in re.findall(r"\w+", norm_q) if len(t) >= 2]
-            try:
-                from mesa_storage.legal_identity import LegalEntityResolver
+            query_tokens = list(
+                dict.fromkeys(t for t in re.findall(r"\w+", norm_q) if len(t) >= 2)
+            )
+            from mesa_storage.legal_identity import LegalEntityResolver
 
-                resolver = LegalEntityResolver()
-                citations = resolver.extract_citations(query)
-                for c in citations:
-                    target_statutes.add(_normalize_text(c.statute_code))
-                    target_statutes.add(_normalize_text(c.statute_canonical))
-                if target_statutes:
-                    for s in resolver.laws:
-                        norm_s = _normalize_text(s)
-                        if norm_s not in target_statutes:
-                            competing_statutes.append(norm_s)
-            except Exception:
-                pass
+            resolver = LegalEntityResolver()
+            citations = resolver.extract_citations(query)
+            target_statutes = {c.statute_code for c in citations}
+            competing_statutes = (
+                sorted(resolver.laws - target_statutes) if target_statutes else []
+            )
 
         # Direction-aware Cypher query templates
         q1_forward = (
@@ -1090,8 +1085,8 @@ class KuzuGraphProvider(BaseGraphProvider):
             "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, e1.id, 'forward' AS direction LIMIT $limit"
         )
         q2_undirected = (
-            "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
-            "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
+            "MATCH (seed:Entity)-[r1:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
+            "     -[r2:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
             "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
             "  AND a1.agent_id = $agent_id "
@@ -1104,13 +1099,13 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND target.id IN $allowed_entity_ids "
             "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
-            "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, e1.id, 'undirected' AS direction LIMIT $limit"
+            "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, e1.id, 'undirected' AS direction, label(r1), label(r2) LIMIT $limit"
         )
 
         q3_undirected = (
-            "MATCH (seed:Entity)-[:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
-            "     -[:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(e2:Entity)"
-            "     -[:AssertionSubject|AssertionObject]-(a3:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
+            "MATCH (seed:Entity)-[r1:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
+            "     -[r2:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(e2:Entity)"
+            "     -[r3:AssertionSubject|AssertionObject]-(a3:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
             "WHERE seed.id IN $seed_ids "
             "  AND seed.agent_id = $agent_id "
             "  AND a1.agent_id = $agent_id "
@@ -1129,7 +1124,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
             "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
             "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, "
-            "       a3.id, a3.predicate, a3.confidence, a3.evidence_span, a3.jurisdiction, e1.id, e2.id, 'undirected' AS direction LIMIT $limit"
+            "       a3.id, a3.predicate, a3.confidence, a3.evidence_span, a3.jurisdiction, e1.id, e2.id, 'undirected' AS direction, label(r1), label(r2), label(r3) LIMIT $limit"
         )
 
         query_plan: list[tuple[int, str]] = []
@@ -1178,7 +1173,11 @@ class KuzuGraphProvider(BaseGraphProvider):
                             else []
                         )
                         predicates = [str(row[4] or "")] if len(row) > 4 else []
-                        confidences = [float(row[5] or 1.0)] if len(row) > 5 else [1.0]
+                        confidences = (
+                            [float(row[5] if row[5] is not None else 1.0)]
+                            if len(row) > 5
+                            else [1.0]
+                        )
                         evidence_spans = [str(row[6] or "")] if len(row) > 6 else []
                         jurisdictions = [str(row[7] or "")] if len(row) > 7 else []
                         intermediates: list[str] = []
@@ -1192,7 +1191,10 @@ class KuzuGraphProvider(BaseGraphProvider):
                             if item is not None
                         ]
                         predicates = [str(row[4] or ""), str(row[9] or "")]
-                        confidences = [float(row[5] or 1.0), float(row[10] or 1.0)]
+                        confidences = [
+                            float(row[5] if row[5] is not None else 1.0),
+                            float(row[10] if row[10] is not None else 1.0),
+                        ]
                         evidence_spans = [str(row[6] or ""), str(row[11] or "")]
                         jurisdictions = [str(row[7] or ""), str(row[12] or "")]
                         intermediates = (
@@ -1217,9 +1219,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                             str(row[14] or ""),
                         ]
                         confidences = [
-                            float(row[5] or 1.0),
-                            float(row[10] or 1.0),
-                            float(row[15] or 1.0),
+                            float(row[5] if row[5] is not None else 1.0),
+                            float(row[10] if row[10] is not None else 1.0),
+                            float(row[15] if row[15] is not None else 1.0),
                         ]
                         evidence_spans = [
                             str(row[6] or ""),
@@ -1241,6 +1243,20 @@ class KuzuGraphProvider(BaseGraphProvider):
                             if len(row) > 20
                             else "undirected"
                         )
+
+                    edge_directions = [dir_tag] * hop
+                    label_offset = 15 if hop == 2 else 21
+                    if hop > 1 and dir_tag == "undirected":
+                        if len(row) < label_offset + hop:
+                            raise GraphSearchError(
+                                "graph path is missing edge direction metadata"
+                            )
+                        edge_directions = [
+                            "forward" if str(label) == "AssertionSubject" else "reverse"
+                            for label in row[label_offset : label_offset + hop]
+                        ]
+                    if len(path_assertions) != hop or len(intermediates) != hop - 1:
+                        raise GraphSearchError("graph path metadata is misaligned")
 
                     if allowed_entity_set is not None and any(
                         item not in allowed_entity_set for item in intermediates
@@ -1274,36 +1290,39 @@ class KuzuGraphProvider(BaseGraphProvider):
                         ):
                             p_norm = _normalize_text(pred)
                             ev_norm = _normalize_text(ev)
-                            jur_norm = _normalize_text(jur)
                             for tok in query_tokens:
                                 if tok in p_norm:
                                     pred_bonus += 0.6
                                 elif tok in ev_norm:
                                     pred_bonus += 0.3
-                            if target_statutes and any(
-                                ts in ev_norm or ts in jur_norm or ts in p_norm
-                                for ts in target_statutes
-                            ):
-                                pred_bonus += 0.4
-                            if competing_statutes and any(
-                                cs in ev_norm or cs in jur_norm
-                                for cs in competing_statutes
-                            ):
-                                pred_bonus -= 0.8
+                            if target_statutes:
+                                edge_statutes = {
+                                    c.statute_code
+                                    for c in resolver.extract_citations(
+                                        f"{pred} {ev} {jur}"
+                                    )
+                                }
+                                if edge_statutes & target_statutes:
+                                    pred_bonus += 0.4
+                                if edge_statutes & set(competing_statutes):
+                                    pred_bonus -= 0.8
 
                     pred_factor = max(0.2, 1.0 + min(2.5, pred_bonus))
 
                     # 4. Evidence confidence
                     min_conf = min(confidences) if confidences else 1.0
+                    if min_conf < 0.15:
+                        continue
                     ev_factor = max(0.1, min(1.0, min_conf))
 
                     # 5. Direction factor (favor forward semantic direction)
-                    dir_factor = 1.0 if dir_tag == "forward" else 0.85
+                    dir_factor = 1.0 - 0.15 * edge_directions.count("reverse") / hop
 
                     path_score = (
                         base_len * seed_factor * pred_factor * ev_factor * dir_factor
                     )
 
+                    path_entity_ids = [s_id, *intermediates, t_id]
                     paths_by_target.setdefault(t_id, []).append(
                         {
                             "seed_id": s_id,
@@ -1311,7 +1330,10 @@ class KuzuGraphProvider(BaseGraphProvider):
                             "hops": hop,
                             "path_score": path_score,
                             "path_assertions": path_assertions,
+                            "path_entity_ids": path_entity_ids,
                             "direction": dir_tag,
+                            "edge_directions": edge_directions,
+                            "predicates": predicates,
                             "min_conf": min_conf,
                         }
                     )
@@ -1330,7 +1352,14 @@ class KuzuGraphProvider(BaseGraphProvider):
         # Aggregate multiple paths per target entity
         hits: dict[str, dict[str, Any]] = {}
         for t_id, target_paths in paths_by_target.items():
-            target_paths.sort(key=lambda p: -p["path_score"])
+            target_paths.sort(
+                key=lambda p: (
+                    -p["path_score"],
+                    p["hops"],
+                    p["seed_id"],
+                    tuple(p["path_assertions"]),
+                )
+            )
             best_p = target_paths[0]
             best_score = best_p["path_score"]
             support_count = len(target_paths)
@@ -1353,16 +1382,31 @@ class KuzuGraphProvider(BaseGraphProvider):
             hits[t_id] = {
                 "entity_id": t_id,
                 "entity_name": best_p["target_name"],
-                "hops": min(p["hops"] for p in target_paths),
+                "hops": best_p["hops"],
                 "score": final_score,
                 "seed_id": best_p["seed_id"],
                 "path_assertion_ids": all_path_assertions,
                 "best_path_assertion_ids": list(best_p["path_assertions"]),
+                "path_entity_ids": list(best_p.get("path_entity_ids") or []),
                 "matched_assertion_id": (
                     best_p["path_assertions"][-1] if best_p["path_assertions"] else None
                 ),
                 "support_count": support_count,
                 "direction": best_p["direction"],
+                "edge_directions": list(best_p["edge_directions"]),
+                "predicates": list(best_p["predicates"]),
+                "distinct_seed_count": distinct_seeds,
+                "paths": [
+                    {
+                        "seed_id": path["seed_id"],
+                        "entity_ids": list(path["path_entity_ids"]),
+                        "assertion_ids": list(path["path_assertions"]),
+                        "edge_directions": list(path["edge_directions"]),
+                        "predicates": list(path["predicates"]),
+                        "score": path["path_score"],
+                    }
+                    for path in target_paths
+                ],
             }
 
         sorted_hits = sorted(

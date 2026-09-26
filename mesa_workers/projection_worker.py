@@ -12,7 +12,7 @@ import math
 from typing import Any
 
 from mesa_memory.graph.projector import GraphProjector
-from mesa_storage.dao import MemoryDAO
+from mesa_storage.dao import MemoryDAO, classify_graph_object
 
 logger = logging.getLogger("MESA_ProjectionWorker")
 
@@ -90,6 +90,7 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
                 "valid_to": item.get("valid_to"),
                 "source_span": item.get("source_span"),
                 "supersedes": item.get("supersedes"),
+                "object_type": item.get("object_type") or item.get("tail_type"),
                 "metadata": (
                     item.get("metadata")
                     if isinstance(item.get("metadata"), dict)
@@ -106,6 +107,14 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
             or (triplet["tail"] is None) == (triplet["literal_value"] is None)
         ):
             raise PermanentProjectionError("blank durable projection extraction")
+        # Resolve semantics before the SQL lane creates object entities.
+        triplet["tail"], triplet["literal_value"], triplet["object_type"] = (
+            classify_graph_object(
+                tail=triplet["tail"],
+                literal_value=triplet["literal_value"],
+                object_type=triplet["object_type"],
+            )
+        )
         result.append(triplet)
     return result
 

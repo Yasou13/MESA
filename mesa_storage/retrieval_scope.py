@@ -48,8 +48,11 @@ def rrf_fuse_lanes(
     scores: dict[str, float] = {}
     lane_ranks: dict[str, dict[str, int]] = {}
 
-    for lane, ranking in lane_rankings.items():
-        for rank, cand_id in enumerate(ranking, start=1):
+    # A repeated backend hit is one vote and must not shift later ranks.
+    # Sort lanes so floating point addition is independent of mapping order.
+    for lane in sorted(lane_rankings):
+        ranking = lane_rankings[lane]
+        for rank, cand_id in enumerate(dict.fromkeys(ranking), start=1):
             contrib = compute_rrf_lane_score(rank, lane=lane, k=k, weights=weights)
             scores[cand_id] = scores.get(cand_id, 0.0) + contrib
             if cand_id not in lane_ranks:
