@@ -79,12 +79,14 @@ from mesa_storage.representation import (
     build_v4_assertion_vector_payload,
 )
 from mesa_storage.retrieval_scope import (
+    V4_GRAPH_ABLATION_CONTRACT_VERSION,
     V4_RRF_DEFAULT_K,
     V4_RRF_LANE_WEIGHTS,
     V4_SCOPE_AUDIT_CONTRACT_VERSION,
     build_v4_lexical_query,
     rrf_fuse_lanes,
     stable_contract_hash,
+    stable_graph_path_id,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
@@ -5518,6 +5520,7 @@ class MemoryDAO:
         valid_to: str | None = None,
         rrf_k: int | None = None,
         rrf_weights: Mapping[str, float] | None = None,
+        graph_enabled: bool = True,
         request_principal_id: str | None = None,
         certification_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
@@ -5660,6 +5663,13 @@ class MemoryDAO:
             }
             requested_scope_identity = stable_contract_hash(requested_scope)
             query_identity = stable_contract_hash({"query": query})
+            retrieval_config_identity = stable_contract_hash(
+                {
+                    "limit": limit,
+                    "rrf_k": effective_k,
+                    "rrf_weights": dict(effective_weights),
+                }
+            )
             audit_decisions = []
             eligible_count = 0
             for row in audit_rows:
@@ -5701,6 +5711,20 @@ class MemoryDAO:
                                 "decisions": audit_decisions,
                             }
                         ),
+                    },
+                    "graph_ablation": {
+                        "contract_version": V4_GRAPH_ABLATION_CONTRACT_VERSION,
+                        "mode": "enabled" if graph_enabled else "disabled",
+                        "pair_identity": stable_contract_hash(
+                            {
+                                "query_identity": query_identity,
+                                "retrieval_config_identity": retrieval_config_identity,
+                                "scope_identity": requested_scope_identity,
+                            }
+                        ),
+                        "query_identity": query_identity,
+                        "retrieval_config_identity": retrieval_config_identity,
+                        "scope_identity": requested_scope_identity,
                     },
                 }
             )
@@ -6179,7 +6203,8 @@ class MemoryDAO:
         allowed_graph_assertion_ids = in_scope_assertion_ids
         graph_provider = self._graph
         if (
-            graph_provider is not None
+            graph_enabled
+            and graph_provider is not None
             and self.graph_implementation_available
             and graph_seed_ids
             and allowed_graph_assertion_ids
@@ -6260,6 +6285,12 @@ class MemoryDAO:
                             "seed_id": path_entities[0],
                             "score": float(path.get("score") or 0.0),
                         }
+                        normalized_path["graph_path_id"] = stable_graph_path_id(
+                            assertion_ids=path_aids,
+                            entity_ids=path_entities,
+                            edge_directions=directions,
+                            predicates=predicates,
+                        )
                         path_key = (tuple(path_entities), tuple(path_aids))
                         if path_key not in seen_graph_paths:
                             seen_graph_paths.add(path_key)
@@ -6291,6 +6322,7 @@ class MemoryDAO:
                             "graph_target_entity_ids": targets,
                             "graph_path_assertion_ids": list(best["assertion_ids"]),
                             "graph_path_entity_ids": list(best["entity_ids"]),
+                            "graph_path_id": best["graph_path_id"],
                             "graph_edge_directions": list(best["edge_directions"]),
                             "graph_predicates": list(best["predicates"]),
                             "graph_direction": (

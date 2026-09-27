@@ -248,6 +248,10 @@ class V4SearchRequest(BaseModel):
     valid_at: datetime | None = None
     valid_from: datetime | None = None
     valid_to: datetime | None = None
+    graph_mode: Literal["enabled", "disabled"] = Field(
+        default="enabled",
+        description="Enable or disable only the graph retrieval lane for matched ablation.",
+    )
 
     @model_validator(mode="after")
     def validate_temporal_range(self) -> "V4SearchRequest":
@@ -272,6 +276,19 @@ class V4ScopeAudit(BaseModel):
     exclusion_audit_hash: str
 
 
+class V4GraphAblation(BaseModel):
+    """Versioned identity for a supported graph ON/OFF matched execution."""
+
+    model_config = ConfigDict(frozen=True)
+
+    contract_version: str
+    mode: Literal["enabled", "disabled"]
+    pair_identity: str
+    query_identity: str
+    retrieval_config_identity: str
+    scope_identity: str
+
+
 class V4SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -279,6 +296,7 @@ class V4SearchResponse(BaseModel):
     dataset_ids: list[str]
     results: list[dict[str, Any]]
     scope_audit: V4ScopeAudit | None = None
+    graph_ablation: V4GraphAblation | None = None
 
 
 def _active_principal(request: Request):
@@ -1087,6 +1105,7 @@ def create_v4_router(
                     payload.valid_from.isoformat() if payload.valid_from else None
                 ),
                 valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
+                graph_enabled=payload.graph_mode == "enabled",
                 request_principal_id=str(principal.principal_id),
                 certification_metadata=certification_metadata,
             )

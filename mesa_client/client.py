@@ -9,7 +9,7 @@ Strictly relies on Pydantic V2 schemas from the core API to ensure type safety.
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Literal, Optional, TypeVar
 from urllib.parse import quote
 
 import httpx
@@ -619,6 +619,7 @@ class MesaV4Client(MesaClient):
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        graph_mode: Literal["enabled", "disabled"] = "enabled",
     ) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -632,6 +633,7 @@ class MesaV4Client(MesaClient):
                 "valid_at": valid_at,
                 "valid_from": valid_from,
                 "valid_to": valid_to,
+                **({"graph_mode": graph_mode} if graph_mode != "enabled" else {}),
             },
         )
 
@@ -943,6 +945,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        graph_mode: Literal["enabled", "disabled"] = "enabled",
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -956,6 +959,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "valid_at": valid_at,
                 "valid_from": valid_from,
                 "valid_to": valid_to,
+                **({"graph_mode": graph_mode} if graph_mode != "enabled" else {}),
             },
         )
 

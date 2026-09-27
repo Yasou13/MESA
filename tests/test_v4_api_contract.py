@@ -1058,6 +1058,7 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
         valid_at=None,
         valid_from=None,
         valid_to=None,
+        graph_enabled=True,
         request_principal_id="principal-a",
         certification_metadata={},
     )

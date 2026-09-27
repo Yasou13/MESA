@@ -8,6 +8,7 @@ from typing import Any
 V4_RRF_DEFAULT_K = 60
 V4_RRF_LANE_ORDER = ("vector", "bm25", "assertion", "graph")
 V4_SCOPE_AUDIT_CONTRACT_VERSION = "mesa.scope-audit.v1"
+V4_GRAPH_ABLATION_CONTRACT_VERSION = "mesa.graph-ablation.v1"
 V4_RRF_LANE_WEIGHTS: dict[str, float] = {
     "vector": 1.0,
     "bm25": 1.0,
@@ -25,6 +26,24 @@ def stable_contract_hash(value: Any) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def stable_graph_path_id(
+    *,
+    assertion_ids: Sequence[str],
+    entity_ids: Sequence[str],
+    edge_directions: Sequence[str],
+    predicates: Sequence[str],
+) -> str:
+    """Return the stable semantic identity of one ordered graph path."""
+    return stable_contract_hash(
+        {
+            "assertion_ids": list(assertion_ids),
+            "entity_ids": list(entity_ids),
+            "edge_directions": list(edge_directions),
+            "predicates": list(predicates),
+        }
+    )
 
 
 def compute_rrf_lane_score(
