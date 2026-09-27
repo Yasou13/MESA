@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -248,12 +248,55 @@ class V4SearchRequest(BaseModel):
     valid_at: datetime | None = None
     valid_from: datetime | None = None
     valid_to: datetime | None = None
+    graph_mode: Literal["enabled", "disabled"] = Field(
+        default="enabled",
+        description="Enable or disable only the graph retrieval lane for matched ablation.",
+    )
 
     @model_validator(mode="after")
     def validate_temporal_range(self) -> "V4SearchRequest":
         if self.valid_from and self.valid_to and self.valid_from > self.valid_to:
             raise ValueError("valid_from must not be after valid_to")
         return self
+
+
+class V4ScopeAudit(BaseModel):
+    """Versioned proof that the canonical candidate pool was scoped pre-rank."""
+
+    model_config = ConfigDict(frozen=True)
+
+    contract_version: str
+    enforcement_stage: Literal["pre_rank"]
+    requested_scope: dict[str, Any]
+    requested_scope_identity: str
+    query_identity: str
+    evaluated_candidate_count: int = Field(ge=0)
+    excluded_candidate_count: int = Field(ge=0)
+    eligible_candidate_count: int = Field(ge=0)
+    exclusion_audit_hash: str
+
+
+class V4GraphAblation(BaseModel):
+    """Versioned identity for a supported graph ON/OFF matched execution."""
+
+    model_config = ConfigDict(frozen=True)
+
+    contract_version: str
+    mode: Literal["enabled", "disabled"]
+    pair_identity: str
+    query_identity: str
+    retrieval_config_identity: str
+    scope_identity: str
+
+
+class V4SearchResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    session_id: str
+    dataset_ids: list[str]
+    results: list[dict[str, Any]]
+    scope_audit: V4ScopeAudit | None = None
+    graph_ablation: V4GraphAblation | None = None
 
 
 def _active_principal(request: Request):
@@ -1032,7 +1075,7 @@ def create_v4_router(
             response["duplicate"] = True
         return response
 
-    @router.post("/memory/search")
+    @router.post("/memory/search", response_model=V4SearchResponse)
     async def search_memory(
         request: Request,
         payload: V4SearchRequest,
@@ -1048,6 +1091,8 @@ def create_v4_router(
                 status_code=403, detail="Dataset is outside session scope"
             )
         try:
+            certification_metadata: dict[str, Any] = {}
+            principal = _active_principal(request)
             results = await dao.search_v4_memory(
                 tenant_id=str(session["tenant_id"]),
                 agent_id=str(session["agent_id"]),
@@ -1060,6 +1105,9 @@ def create_v4_router(
                     payload.valid_from.isoformat() if payload.valid_from else None
                 ),
                 valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
+                graph_enabled=payload.graph_mode == "enabled",
+                request_principal_id=str(principal.principal_id),
+                certification_metadata=certification_metadata,
             )
         except EmbeddingMigrationRequiredError:
             raise HTTPException(
@@ -1086,6 +1134,7 @@ def create_v4_router(
             "session_id": payload.session_id,
             "dataset_ids": datasets,
             "results": results,
+            **certification_metadata,
         }
 
     @router.get("/mutations/{mutation_id}", response_model=V4MutationStatusResponse)

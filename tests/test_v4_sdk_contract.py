@@ -11,6 +11,37 @@ from mesa_client.client import (
 )
 
 
+def test_sync_v4_search_exposes_graph_ablation_without_changing_default_wire(
+    monkeypatch,
+) -> None:
+    request = MagicMock(return_value={"results": []})
+    monkeypatch.setattr(MesaV4Client, "_request", request)
+    client = MesaV4Client(base_url="http://mesa.invalid", api_key="test-key")
+    try:
+        client.search(session_id="session-a", query="q")
+        client.search(session_id="session-a", query="q", graph_mode="disabled")
+    finally:
+        client.close()
+
+    default_payload = request.call_args_list[0].kwargs["json"]
+    disabled_payload = request.call_args_list[1].kwargs["json"]
+    assert "graph_mode" not in default_payload
+    assert disabled_payload["graph_mode"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_async_v4_search_exposes_graph_ablation(monkeypatch) -> None:
+    request = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr(AsyncMesaV4Client, "_request", request)
+    client = AsyncMesaV4Client(base_url="http://mesa.invalid", api_key="test-key")
+    try:
+        await client.search(session_id="session-a", query="q", graph_mode="disabled")
+    finally:
+        await client.aclose()
+
+    assert request.await_args.kwargs["json"]["graph_mode"] == "disabled"
+
+
 def test_sync_v4_capability_uses_versioned_contract(monkeypatch) -> None:
     request = MagicMock(return_value={"api_version": "v4"})
     monkeypatch.setattr(MesaV4Client, "_request", request)
