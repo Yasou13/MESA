@@ -81,8 +81,10 @@ from mesa_storage.representation import (
 from mesa_storage.retrieval_scope import (
     V4_RRF_DEFAULT_K,
     V4_RRF_LANE_WEIGHTS,
+    V4_SCOPE_AUDIT_CONTRACT_VERSION,
     build_v4_lexical_query,
     rrf_fuse_lanes,
+    stable_contract_hash,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
@@ -457,10 +459,9 @@ def classify_graph_object(
             cleaned_tail,
             flags=re.IGNORECASE,
         )
-        has_sentence_period = (
-            bool(re.search(r"\.\s+[a-zA-ZçğıöşüÇĞİÖŞÜ]", tail_no_abbr))
-            or (tail_no_abbr.strip().endswith(".") and len(words) >= 3)
-        )
+        has_sentence_period = bool(
+            re.search(r"\.\s+[a-zA-ZçğıöşüÇĞİÖŞÜ]", tail_no_abbr)
+        ) or (tail_no_abbr.strip().endswith(".") and len(words) >= 3)
         if (
             len(cleaned_tail) > 60
             or len(words) > 6
@@ -5517,6 +5518,8 @@ class MemoryDAO:
         valid_to: str | None = None,
         rrf_k: int | None = None,
         rrf_weights: Mapping[str, float] | None = None,
+        request_principal_id: str | None = None,
+        certification_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
@@ -5616,6 +5619,92 @@ class MemoryDAO:
             ) as cursor:
                 in_scope_assertion_rows = await cursor.fetchall()
 
+            audit_rows: list[aiosqlite.Row] = []
+            if certification_metadata is not None:
+                audit_query = (
+                    "SELECT a.assertion_id, a.tenant_id, a.dataset_id, "
+                    "COALESCE(c.external_id, '') AS external_dataset_id, "
+                    "m.agent_id, a.jurisdiction, a.status, a.valid_from, a.valid_to "
+                    "FROM v4_assertions a "
+                    "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                    "LEFT JOIN v4_catalog_identities c ON c.tenant_id = a.tenant_id "
+                    "AND c.kind = 'dataset' AND c.physical_id = a.dataset_id "
+                    f"WHERE a.tenant_id = ? AND {assertion_status_sql} "
+                    "AND m.state = 'COMMITTED' "
+                    + (
+                        "AND " + " AND ".join(provenance_filters)
+                        if provenance_filters
+                        else ""
+                    )
+                    + " ORDER BY a.assertion_id, a.tenant_id, m.agent_id"
+                )
+                async with db.execute(
+                    audit_query, (tenant_id, *provenance_params)
+                ) as cursor:
+                    audit_rows = await cursor.fetchall()
+
+        if certification_metadata is not None:
+            requested_scope = {
+                "tenant_id": tenant_id,
+                "dataset_ids": sorted(set(dataset_ids)),
+                "agent_id": agent_id,
+                **(
+                    {"principal_id": request_principal_id}
+                    if request_principal_id is not None
+                    else {}
+                ),
+                "jurisdiction": jurisdiction,
+                "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
+            }
+            requested_scope_identity = stable_contract_hash(requested_scope)
+            query_identity = stable_contract_hash({"query": query})
+            audit_decisions = []
+            eligible_count = 0
+            for row in audit_rows:
+                eligible = (
+                    str(row["tenant_id"]) == tenant_id
+                    and str(row["dataset_id"]) in datasets
+                    and str(row["agent_id"]) == agent_id
+                )
+                eligible_count += int(eligible)
+                audit_decisions.append(
+                    {
+                        "assertion_id": str(row["assertion_id"]),
+                        "tenant_id": str(row["tenant_id"]),
+                        "dataset_id": str(row["external_dataset_id"]),
+                        "agent_id": str(row["agent_id"]),
+                        "jurisdiction": str(row["jurisdiction"] or ""),
+                        "status": str(row["status"]),
+                        "valid_from": str(row["valid_from"] or ""),
+                        "valid_to": str(row["valid_to"] or ""),
+                        "eligible": eligible,
+                    }
+                )
+            certification_metadata.update(
+                {
+                    "scope_audit": {
+                        "contract_version": V4_SCOPE_AUDIT_CONTRACT_VERSION,
+                        "enforcement_stage": "pre_rank",
+                        "requested_scope": requested_scope,
+                        "requested_scope_identity": requested_scope_identity,
+                        "query_identity": query_identity,
+                        "evaluated_candidate_count": len(audit_decisions),
+                        "excluded_candidate_count": len(audit_decisions)
+                        - eligible_count,
+                        "eligible_candidate_count": eligible_count,
+                        "exclusion_audit_hash": stable_contract_hash(
+                            {
+                                "query_identity": query_identity,
+                                "requested_scope_identity": requested_scope_identity,
+                                "decisions": audit_decisions,
+                            }
+                        ),
+                    },
+                }
+            )
+
         raw_allowed_entity_ids = {
             str(row[1]) for row in artifact_rows if row[0] == "ENTITY"
         }
@@ -5678,7 +5767,9 @@ class MemoryDAO:
                     if node_id in allowed_vector_ids and node_id not in seen_vec:
                         ranked_assertion_ids.append(node_id)
                         seen_vec.add(node_id)
-                        vector_raw_distances[node_id] = float(v_row.get("_distance", 0.0))
+                        vector_raw_distances[node_id] = float(
+                            v_row.get("_distance", 0.0)
+                        )
                 if ranked_assertion_ids:
                     vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
                     async with self._sql.connection() as db:
@@ -6557,37 +6648,41 @@ class MemoryDAO:
             cand_prov = cand["materialized_provenance"]
             if not cand_prov:
                 continue
-            results.append(
-                {
-                    "entity": entities.get(eid, {}),
-                    "candidate_id": cand["candidate_id"],
-                    "evidence_id": cand["assertion_id"],
-                    "assertion_id": cand["assertion_id"],
-                    "source_chunk_id": cand["source_chunk_id"],
-                    "document_id": cand["document_id"],
-                    "evidence_span": cand["evidence_span"],
-                    "raw_score": (
-                        cand["raw_scores"].get("vector")
-                        if "vector" in cand["raw_scores"]
-                        else cand["raw_scores"].get("assertion")
-                    ),
-                    "rrf_score": cand["rrf_score"],
-                    "legal_factor": cand["legal_factor"],
-                    "final_score": cand["rrf_score"] * cand["legal_factor"],
-                    "provenance": cand_prov,
-                    "matched_assertions": [
-                        p
-                        for p in cand_prov
-                        if p["assertion_id"] == cand["assertion_id"]
-                    ],
-                    "supporting_assertions": [
-                        p
-                        for p in cand_prov
-                        if p["assertion_id"] != cand["assertion_id"]
-                    ],
-                    "retrieval_provenance": retrieval_provenance,
+            result = {
+                "entity": entities.get(eid, {}),
+                "candidate_id": cand["candidate_id"],
+                "evidence_id": cand["assertion_id"],
+                "assertion_id": cand["assertion_id"],
+                "source_chunk_id": cand["source_chunk_id"],
+                "document_id": cand["document_id"],
+                "evidence_span": cand["evidence_span"],
+                "raw_score": (
+                    cand["raw_scores"].get("vector")
+                    if "vector" in cand["raw_scores"]
+                    else cand["raw_scores"].get("assertion")
+                ),
+                "rrf_score": cand["rrf_score"],
+                "legal_factor": cand["legal_factor"],
+                "final_score": cand["rrf_score"] * cand["legal_factor"],
+                "provenance": cand_prov,
+                "matched_assertions": [
+                    p for p in cand_prov if p["assertion_id"] == cand["assertion_id"]
+                ],
+                "supporting_assertions": [
+                    p for p in cand_prov if p["assertion_id"] != cand["assertion_id"]
+                ],
+                "retrieval_provenance": retrieval_provenance,
+            }
+            if certification_metadata is not None:
+                first_provenance = cand_prov[0]
+                result["scope_identity"] = {
+                    "tenant_id": tenant_id,
+                    "dataset_id": str(first_provenance.get("dataset_id") or ""),
+                    "agent_id": agent_id,
+                    "jurisdiction": str(first_provenance.get("jurisdiction") or ""),
+                    "status": str(first_provenance.get("status") or ""),
                 }
-            )
+            results.append(result)
         return results
 
     async def count_active_memories(

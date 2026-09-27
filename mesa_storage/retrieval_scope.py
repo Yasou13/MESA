@@ -1,16 +1,30 @@
 """Dataset ownership filtering shared by live and rebuild retrieval paths."""
 
+import hashlib
+import json
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 V4_RRF_DEFAULT_K = 60
 V4_RRF_LANE_ORDER = ("vector", "bm25", "assertion", "graph")
+V4_SCOPE_AUDIT_CONTRACT_VERSION = "mesa.scope-audit.v1"
 V4_RRF_LANE_WEIGHTS: dict[str, float] = {
     "vector": 1.0,
     "bm25": 1.0,
     "assertion": 1.0,
     "graph": 1.0,
 }
+
+
+def stable_contract_hash(value: Any) -> str:
+    """Hash a JSON contract value using deterministic, type-preserving encoding."""
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def compute_rrf_lane_score(
