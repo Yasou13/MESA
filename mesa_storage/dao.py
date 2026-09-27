@@ -5644,7 +5644,7 @@ class MemoryDAO:
                 async with db.execute(
                     audit_query, (tenant_id, *provenance_params)
                 ) as cursor:
-                    audit_rows = await cursor.fetchall()
+                    audit_rows = list(await cursor.fetchall())
 
         if certification_metadata is not None:
             requested_scope = {
