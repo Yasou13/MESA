@@ -48,8 +48,8 @@ import time
 import typing
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Mapping
+from contextlib import asynccontextmanager, contextmanager
+from typing import Any, AsyncIterator, Iterator, Mapping
 
 if typing.TYPE_CHECKING:
     import kuzu
@@ -251,6 +251,12 @@ class KuzuGraphProvider(BaseGraphProvider):
         self._conn_lock = threading.Lock()
         self._initialized = False
         self._operational = False
+        self._shutting_down = False
+        self._active_native_queries = 0
+        self._state_lock = threading.Lock()
+        self._drain_event = threading.Event()
+        self._drain_event.set()
+        self._query_semaphore: asyncio.Semaphore | None = None
         self._init_lock = asyncio.Lock()
         self._known_nodes: set[str] = set()
         self._known_assertions: set[str] = set()
@@ -271,6 +277,29 @@ class KuzuGraphProvider(BaseGraphProvider):
     def is_operational(self) -> bool:
         """Return whether the provider is initialized and connected."""
         return self._initialized and self._conn is not None and self._operational
+
+    @property
+    def query_semaphore(self) -> asyncio.Semaphore:
+        """Bounded concurrency semaphore for graph queries."""
+        if self._query_semaphore is None:
+            self._query_semaphore = asyncio.Semaphore(self._max_workers)
+        return self._query_semaphore
+
+    @contextmanager
+    def _in_flight_native_query(self) -> Iterator[None]:
+        """Context manager tracking native query execution on worker threads."""
+        with self._state_lock:
+            if self._shutting_down:
+                raise GraphSearchError("Kùzu graph provider is shutting down")
+            self._active_native_queries += 1
+            self._drain_event.clear()
+        try:
+            yield
+        finally:
+            with self._state_lock:
+                self._active_native_queries -= 1
+                if self._active_native_queries == 0:
+                    self._drain_event.set()
 
     # ------------------------------------------------------------------
     # Async context manager
@@ -392,25 +421,75 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         return result
 
-    async def close(self) -> None:
-        """Close the connection, release the database, and shut down the executor."""
-        if self._initialized:
-            loop = asyncio.get_running_loop()
+    async def close(self, *, timeout: float = 10.0) -> None:
+        """Close the connection, release the database, and shut down the executor safely.
+
+        Graceful Shutdown Policy:
+        1. Immediately refuse new queries (_shutting_down = True).
+        2. Wait up to `timeout` seconds for active native queries to complete.
+        3. Dispatch _sync_close under _conn_lock so Connection and Database are
+           never closed while a native C++ call is active.
+        4. Shut down the executor waiting for all worker threads to cleanly terminate.
+        """
+        if not self._initialized:
+            return
+
+        with self._state_lock:
+            if self._shutting_down:
+                return
+            self._shutting_down = True
+            active = self._active_native_queries
+
+        loop = asyncio.get_running_loop()
+
+        # Step 2: Shutdown barrier - wait for active native queries to complete
+        if active > 0:
+            logger.info(
+                "KUZU_SHUTDOWN_BARRIER | waiting for %d active query(ies) to finish (timeout=%ss)",
+                active,
+                timeout,
+            )
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, self._drain_event.wait, timeout),
+                    timeout=timeout + 0.5,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "KUZU_SHUTDOWN_BARRIER_TIMEOUT | %d queries still active after %ss",
+                    self._active_native_queries,
+                    timeout,
+                )
+
+        # Step 3: Run _sync_close under _conn_lock
+        try:
             await loop.run_in_executor(self._executor, self._sync_close)
             logger.info("KUZU_PROVIDER_CLOSED | db_path=%s", self._db_path)
+        except Exception as exc:
+            logger.error("KUZU_SYNC_CLOSE_ERROR | error=%s", exc)
 
-        self._executor.shutdown(wait=False)
+        # Step 4: Shutdown executor threads cleanly
+        self._executor.shutdown(wait=True)
         self._initialized = False
         self._operational = False
 
     def _sync_close(self) -> None:
-        """Synchronous cleanup (runs in executor thread)."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
-        if self._db is not None:
-            self._db.close()
-            self._db = None
+        """Synchronous cleanup (runs in executor thread under _conn_lock)."""
+        with self._conn_lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception as exc:
+                    logger.warning("KUZU_CONN_CLOSE_ERROR | error=%s", exc)
+                finally:
+                    self._conn = None
+            if self._db is not None:
+                try:
+                    self._db.close()
+                except Exception as exc:
+                    logger.warning("KUZU_DB_CLOSE_ERROR | error=%s", exc)
+                finally:
+                    self._db = None
 
     # ------------------------------------------------------------------
     # Query execution — async wrappers
@@ -436,13 +515,18 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         Raises:
             RuntimeError: If the provider has not been initialised.
+            GraphSearchError: If the provider is shutting down.
         """
         self._ensure_initialized()
+        with self._state_lock:
+            if self._shutting_down:
+                raise GraphSearchError("Kùzu graph provider is shutting down")
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, self._sync_execute, query, parameters or {}
-        )
+        async with self.query_semaphore:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                self._executor, self._sync_execute, query, parameters or {}
+            )
 
     async def execute_write(
         self,
@@ -460,13 +544,18 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         Raises:
             RuntimeError: If the provider has not been initialised.
+            GraphSearchError: If the provider is shutting down.
         """
         self._ensure_initialized()
+        with self._state_lock:
+            if self._shutting_down:
+                raise GraphSearchError("Kùzu graph provider is shutting down")
 
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor, self._sync_execute_write, query, parameters or {}
-        )
+        async with self.query_semaphore:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                self._executor, self._sync_execute_write, query, parameters or {}
+            )
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:
@@ -1532,36 +1621,47 @@ class KuzuGraphProvider(BaseGraphProvider):
         """Run a Cypher query and drain all rows (executor thread)."""
         import typing
 
-        with self._conn_lock:
-            assert self._conn is not None, "Connection not initialised"
-            result = self._conn.execute(query, parameters=parameters)
+        with self._in_flight_native_query():
+            with self._conn_lock:
+                if self._conn is None:
+                    raise RuntimeError("Connection closed or not initialised")
+                try:
+                    result = self._conn.execute(query, parameters=parameters)
+                except Exception as exc:
+                    err_msg = str(exc)
+                    if "Buffer manager exception" in err_msg or "memory" in err_msg.lower():
+                        logger.error("KUZU_BUFFER_MANAGER_EXCEPTION | error=%s", exc)
+                        raise GraphSearchError("Kùzu graph retrieval resource exhausted") from exc
+                    logger.error("KUZU_EXECUTE_FAILED | query=%s error=%s", query[:80], exc)
+                    raise
 
-        rows: list[list[Any]] = []
-        try:
-            if hasattr(result, "has_next"):  # type: ignore[unused-ignore]
-                agent_id = parameters.get("agent_id") if parameters else None
-                prefix = f"{agent_id}::" if agent_id else None
+                rows: list[list[Any]] = []
+                try:
+                    if hasattr(result, "has_next"):  # type: ignore[unused-ignore]
+                        agent_id = parameters.get("agent_id") if parameters else None
+                        prefix = f"{agent_id}::" if agent_id else None
 
-                import typing
-
-                while typing.cast(typing.Any, result).has_next():
-                    row = typing.cast(typing.Any, result).get_next()
-                    if prefix:
-                        if isinstance(row, dict):
-                            for k, v in row.items():
-                                if isinstance(v, str) and v.startswith(prefix):
-                                    row[k] = v[len(prefix) :]
-                        elif isinstance(row, list):
-                            for i in range(len(row)):
-                                if isinstance(row[i], str) and row[i].startswith(
-                                    prefix
-                                ):
-                                    row[i] = row[i][len(prefix) :]
-                    rows.append(typing.cast(list[Any], row))
-        finally:
-            if hasattr(result, "close"):
-                result.close()
-        return rows
+                        while typing.cast(typing.Any, result).has_next():
+                            row = typing.cast(typing.Any, result).get_next()
+                            if prefix:
+                                if isinstance(row, dict):
+                                    for k, v in row.items():
+                                        if isinstance(v, str) and v.startswith(prefix):
+                                            row[k] = v[len(prefix) :]
+                                elif isinstance(row, list):
+                                    for i in range(len(row)):
+                                        if isinstance(row[i], str) and row[i].startswith(
+                                            prefix
+                                        ):
+                                            row[i] = row[i][len(prefix) :]
+                            rows.append(typing.cast(list[Any], row))
+                finally:
+                    if hasattr(result, "close"):
+                        try:
+                            result.close()
+                        except Exception:
+                            pass
+                return rows
 
     def _sync_execute_write(
         self,
@@ -1569,11 +1669,16 @@ class KuzuGraphProvider(BaseGraphProvider):
         parameters: dict[str, Any],
     ) -> None:
         """Run a Cypher mutation and discard the result (executor thread)."""
-        with self._conn_lock:
-            assert self._conn is not None, "Connection not initialised"
-            result = self._conn.execute(query, parameters=parameters)
-            if hasattr(result, "close"):
-                result.close()
+        with self._in_flight_native_query():
+            with self._conn_lock:
+                if self._conn is None:
+                    raise RuntimeError("Connection closed or not initialised")
+                result = self._conn.execute(query, parameters=parameters)
+                if hasattr(result, "close"):
+                    try:
+                        result.close()
+                    except Exception:
+                        pass
 
     # ------------------------------------------------------------------
     # Guards
