@@ -44,6 +44,7 @@ import logging
 import os
 import re
 import threading
+import time
 import typing
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
@@ -82,6 +83,9 @@ _MAX_WORKERS = min(4, os.cpu_count() or 2)  # Cap to prevent over-subscription
 _MAX_V4_GRAPH_SEEDS = 20
 _MAX_V4_GRAPH_RESULTS = 500
 _DEFAULT_V4_GRAPH_TIMEOUT_SECONDS = 5.0
+_MAX_FRONTIER_NODES = 64
+_MAX_FANOUT_PER_NODE = 32
+_MAX_PATHS_PER_TARGET = 32
 
 
 # ---------------------------------------------------------------------------
@@ -1004,31 +1008,14 @@ class KuzuGraphProvider(BaseGraphProvider):
         if not comp_seed_ids:
             return []
 
-        allowed_entity_set = set(allowed_entity_ids) if allowed_entity_ids else None
-        allowed_assertion_set = (
-            set(allowed_assertion_ids) if allowed_assertion_ids else None
-        )
-        params = {
-            "seed_ids": comp_seed_ids,
-            "agent_id": agent_id,
-            "allowed_entity_ids": [
-                self._composite_id(agent_id, entity_id)
-                for entity_id in sorted(allowed_entity_ids)
-            ],
-            "allowed_assertion_ids": [
-                self._composite_id(agent_id, assertion_id)
-                for assertion_id in sorted(allowed_assertion_ids)
-            ],
-            "limit": min(
-                5000,
-                max(limit * 20, len(allowed_assertion_ids) * 4, 200),
-            ),
-        }
+        allowed_entity_set = set(allowed_entity_ids)
+        allowed_assertion_set = set(allowed_assertion_ids)
 
         # Tokenize query and detect legal context for predicate relevance
         query_tokens: list[str] = []
         target_statutes: set[str] = set()
         competing_statutes: list[str] = []
+        resolver = None
         if query and query.strip():
             norm_q = _normalize_text(query)
             query_tokens = list(
@@ -1043,291 +1030,185 @@ class KuzuGraphProvider(BaseGraphProvider):
                 sorted(resolver.laws - target_statutes) if target_statutes else []
             )
 
-        # Direction-aware Cypher query templates
-        q1_forward = (
-            "MATCH (seed:Entity)<-[:AssertionSubject]-(a1:Assertion)-[:AssertionObject]->(target:Entity) "
-            "WHERE seed.id IN $seed_ids "
-            "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id "
-            "  AND target.agent_id = $agent_id "
-            "  AND a1.id IN $allowed_assertion_ids "
-            "  AND target.id IN $allowed_entity_ids "
-            "  AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, 'forward' AS direction LIMIT $limit"
-        )
-        q1_reverse = (
-            "MATCH (seed:Entity)<-[:AssertionObject]-(a1:Assertion)-[:AssertionSubject]->(target:Entity) "
-            "WHERE seed.id IN $seed_ids "
-            "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id "
-            "  AND target.agent_id = $agent_id "
-            "  AND a1.id IN $allowed_assertion_ids "
-            "  AND target.id IN $allowed_entity_ids "
-            "  AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, 'reverse' AS direction LIMIT $limit"
-        )
-
-        q2_forward = (
-            "MATCH (seed:Entity)<-[:AssertionSubject]-(a1:Assertion)-[:AssertionObject]->(e1:Entity)"
-            "     <-[:AssertionSubject]-(a2:Assertion)-[:AssertionObject]->(target:Entity) "
-            "WHERE seed.id IN $seed_ids "
-            "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id "
-            "  AND e1.agent_id = $agent_id "
-            "  AND a2.agent_id = $agent_id "
-            "  AND target.agent_id = $agent_id "
-            "  AND a1.id IN $allowed_assertion_ids "
-            "  AND a2.id IN $allowed_assertion_ids "
-            "  AND e1.id IN $allowed_entity_ids "
-            "  AND target.id IN $allowed_entity_ids "
-            "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
-            "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, e1.id, 'forward' AS direction LIMIT $limit"
-        )
-        q2_undirected = (
-            "MATCH (seed:Entity)-[r1:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
-            "     -[r2:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids "
-            "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id "
-            "  AND e1.agent_id = $agent_id "
-            "  AND a2.agent_id = $agent_id "
-            "  AND target.agent_id = $agent_id "
-            "  AND a1.id IN $allowed_assertion_ids "
-            "  AND a2.id IN $allowed_assertion_ids "
-            "  AND e1.id IN $allowed_entity_ids "
-            "  AND target.id IN $allowed_entity_ids "
-            "  AND e1.id <> seed.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
-            "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, e1.id, 'undirected' AS direction, label(r1), label(r2) LIMIT $limit"
-        )
-
-        q3_undirected = (
-            "MATCH (seed:Entity)-[r1:AssertionSubject|AssertionObject]-(a1:Assertion)-[:AssertionSubject|AssertionObject]-(e1:Entity)"
-            "     -[r2:AssertionSubject|AssertionObject]-(a2:Assertion)-[:AssertionSubject|AssertionObject]-(e2:Entity)"
-            "     -[r3:AssertionSubject|AssertionObject]-(a3:Assertion)-[:AssertionSubject|AssertionObject]-(target:Entity) "
-            "WHERE seed.id IN $seed_ids "
-            "  AND seed.agent_id = $agent_id "
-            "  AND a1.agent_id = $agent_id "
-            "  AND e1.agent_id = $agent_id "
-            "  AND a2.agent_id = $agent_id "
-            "  AND e2.agent_id = $agent_id "
-            "  AND a3.agent_id = $agent_id "
-            "  AND target.agent_id = $agent_id "
-            "  AND a1.id IN $allowed_assertion_ids "
-            "  AND a2.id IN $allowed_assertion_ids "
-            "  AND a3.id IN $allowed_assertion_ids "
-            "  AND e1.id IN $allowed_entity_ids "
-            "  AND e2.id IN $allowed_entity_ids "
-            "  AND target.id IN $allowed_entity_ids "
-            "  AND e1.id <> seed.id AND e2.id <> e1.id AND e2.id <> seed.id "
-            "  AND target.id <> e2.id AND target.id <> e1.id AND target.id <> seed.id "
-            "RETURN seed.id, target.id, target.name, a1.id, a1.predicate, a1.confidence, a1.evidence_span, a1.jurisdiction, "
-            "       a2.id, a2.predicate, a2.confidence, a2.evidence_span, a2.jurisdiction, "
-            "       a3.id, a3.predicate, a3.confidence, a3.evidence_span, a3.jurisdiction, e1.id, e2.id, 'undirected' AS direction, label(r1), label(r2), label(r3) LIMIT $limit"
-        )
-
-        query_plan: list[tuple[int, str]] = []
-        if direction == "forward":
-            query_plan.append((1, q1_forward))
-            if max_hops >= 2:
-                query_plan.append((2, q2_forward))
-        elif direction == "reverse":
-            query_plan.append((1, q1_reverse))
-        else:  # "any"
-            query_plan.append((1, q1_forward))
-            query_plan.append((1, q1_reverse))
-            if max_hops >= 2:
-                query_plan.append((2, q2_forward))
-                query_plan.append((2, q2_undirected))
-            if max_hops >= 3:
-                query_plan.append((3, q3_undirected))
-
-        prefix = f"{agent_id}::"
         paths_by_target: dict[str, list[dict[str, Any]]] = {}
         seen_path_keys: set[tuple[str, str, tuple[str, ...]]] = set()
 
+        t_deadline = time.monotonic() + self._search_timeout_seconds
+
+        def remaining_timeout() -> float:
+            rem = t_deadline - time.monotonic()
+            if rem <= 0:
+                raise asyncio.TimeoutError("search timeout exceeded")
+            return rem
+
         try:
-            for hop, query_str in query_plan:
-                rows = await asyncio.wait_for(
-                    self.execute_query(query_str, params),
-                    timeout=self._search_timeout_seconds,
+            # -----------------------------------------------------------
+            # Hop 1: Seed-local expansion
+            # -----------------------------------------------------------
+            hop1_paths: list[dict[str, Any]] = []
+            rows_hop1 = await asyncio.wait_for(
+                self._step_expand(
+                    agent_id=agent_id,
+                    src_composite_ids=comp_seed_ids,
+                    direction=direction,
+                    fanout_limit=min(5000, max(200, len(comp_seed_ids) * _MAX_FANOUT_PER_NODE * 2)),
+                ),
+                timeout=remaining_timeout(),
+            )
+
+            for row in rows_hop1:
+                if len(row) < 9:
+                    continue
+                s_id = str(row[0])
+                t_id = str(row[1])
+                t_name = str(row[2] or "")
+                a_id = str(row[3])
+                predicate = str(row[4] or "")
+                conf = float(row[5] if row[5] is not None else 1.0)
+                ev_span = str(row[6] or "")
+                jur = str(row[7] or "")
+                dir_tag = str(row[8] or "forward")
+
+                if t_id not in allowed_entity_set or a_id not in allowed_assertion_set:
+                    continue
+                if conf < 0.15:
+                    continue
+
+                path_assertions = [a_id]
+                path_entity_ids = [s_id, t_id]
+                edge_directions = [dir_tag]
+                predicates = [predicate]
+                confidences = [conf]
+                evidence_spans = [ev_span]
+                jurisdictions = [jur]
+
+                path_key = (s_id, t_id, tuple(path_assertions))
+                if path_key in seen_path_keys:
+                    continue
+                seen_path_keys.add(path_key)
+
+                path_score = self._compute_path_score(
+                    hop=1,
+                    seed_id=s_id,
+                    seed_scores=seed_scores,
+                    query_tokens=query_tokens,
+                    predicates=predicates,
+                    evidence_spans=evidence_spans,
+                    jurisdictions=jurisdictions,
+                    confidences=confidences,
+                    edge_directions=edge_directions,
+                    target_statutes=target_statutes,
+                    competing_statutes=competing_statutes,
+                    resolver=resolver,
                 )
-                for row in rows:
-                    if len(row) < 4:
+
+                path_obj = {
+                    "seed_id": s_id,
+                    "target_name": t_name,
+                    "hops": 1,
+                    "path_score": path_score,
+                    "path_assertions": path_assertions,
+                    "path_entity_ids": path_entity_ids,
+                    "direction": dir_tag,
+                    "edge_directions": edge_directions,
+                    "predicates": predicates,
+                    "min_conf": conf,
+                    "confidences": confidences,
+                    "evidence_spans": evidence_spans,
+                    "jurisdictions": jurisdictions,
+                }
+                paths_by_target.setdefault(t_id, []).append(path_obj)
+                hop1_paths.append(path_obj)
+
+            # -----------------------------------------------------------
+            # Hop 2: Bounded frontier expansion
+            # -----------------------------------------------------------
+            hop2_paths: list[dict[str, Any]] = []
+            if max_hops >= 2 and hop1_paths:
+                frontier_best_score: dict[str, float] = {}
+                paths_by_intermediate: dict[str, list[dict[str, Any]]] = {}
+                for p in hop1_paths:
+                    mid = p["path_entity_ids"][-1]
+                    paths_by_intermediate.setdefault(mid, []).append(p)
+                    if mid not in frontier_best_score or p["path_score"] > frontier_best_score[mid]:
+                        frontier_best_score[mid] = p["path_score"]
+
+                sorted_frontier = sorted(
+                    frontier_best_score.keys(),
+                    key=lambda eid: (-frontier_best_score[eid], eid),
+                )[:_MAX_FRONTIER_NODES]
+
+                comp_frontier_ids = [self._composite_id(agent_id, eid) for eid in sorted_frontier]
+                rows_hop2 = await asyncio.wait_for(
+                    self._step_expand(
+                        agent_id=agent_id,
+                        src_composite_ids=comp_frontier_ids,
+                        direction=direction,
+                        fanout_limit=min(5000, max(200, len(comp_frontier_ids) * _MAX_FANOUT_PER_NODE * 2)),
+                    ),
+                    timeout=remaining_timeout(),
+                )
+
+                for row in rows_hop2:
+                    if len(row) < 9:
                         continue
-                    raw_seed_id = str(row[0])
-                    raw_target_id = str(row[1])
-                    s_id = raw_seed_id.removeprefix(prefix)
-                    t_id = raw_target_id.removeprefix(prefix)
-                    if (
-                        allowed_entity_set is not None
-                        and t_id not in allowed_entity_set
-                    ):
+                    mid_id = str(row[0])
+                    t_id = str(row[1])
+                    t_name = str(row[2] or "")
+                    a2_id = str(row[3])
+                    predicate2 = str(row[4] or "")
+                    conf2 = float(row[5] if row[5] is not None else 1.0)
+                    ev_span2 = str(row[6] or "")
+                    jur2 = str(row[7] or "")
+                    dir2 = str(row[8] or "forward")
+
+                    if t_id not in allowed_entity_set or a2_id not in allowed_assertion_set:
+                        continue
+                    if conf2 < 0.15:
                         continue
 
-                    if hop == 1:
-                        path_assertions = (
-                            [str(row[3]).removeprefix(prefix)]
-                            if row[3] is not None
-                            else []
-                        )
-                        predicates = [str(row[4] or "")] if len(row) > 4 else []
-                        confidences = (
-                            [float(row[5] if row[5] is not None else 1.0)]
-                            if len(row) > 5
-                            else [1.0]
-                        )
-                        evidence_spans = [str(row[6] or "")] if len(row) > 6 else []
-                        jurisdictions = [str(row[7] or "")] if len(row) > 7 else []
-                        intermediates: list[str] = []
+                    for p1 in paths_by_intermediate.get(mid_id, []):
+                        if t_id in p1["path_entity_ids"] or a2_id in p1["path_assertions"]:
+                            continue
+
+                        path_assertions = [*p1["path_assertions"], a2_id]
+                        path_key = (p1["seed_id"], t_id, tuple(path_assertions))
+                        if path_key in seen_path_keys:
+                            continue
+                        seen_path_keys.add(path_key)
+
+                        edge_directions = [*p1["edge_directions"], dir2]
                         dir_tag = (
-                            str(row[8] or "forward") if len(row) > 8 else "forward"
+                            "forward"
+                            if all(d == "forward" for d in edge_directions)
+                            else ("reverse" if all(d == "reverse" for d in edge_directions) else "undirected")
                         )
-                    elif hop == 2:
-                        path_assertions = [
-                            str(item).removeprefix(prefix)
-                            for item in (row[3], row[8])
-                            if item is not None
-                        ]
-                        predicates = [str(row[4] or ""), str(row[9] or "")]
-                        confidences = [
-                            float(row[5] if row[5] is not None else 1.0),
-                            float(row[10] if row[10] is not None else 1.0),
-                        ]
-                        evidence_spans = [str(row[6] or ""), str(row[11] or "")]
-                        jurisdictions = [str(row[7] or ""), str(row[12] or "")]
-                        intermediates = (
-                            [str(row[13]).removeprefix(prefix)]
-                            if len(row) > 13 and row[13] is not None
-                            else []
-                        )
-                        dir_tag = (
-                            str(row[14] or "undirected")
-                            if len(row) > 14
-                            else "undirected"
-                        )
-                    else:  # hop == 3
-                        path_assertions = [
-                            str(item).removeprefix(prefix)
-                            for item in (row[3], row[8], row[13])
-                            if item is not None
-                        ]
-                        predicates = [
-                            str(row[4] or ""),
-                            str(row[9] or ""),
-                            str(row[14] or ""),
-                        ]
-                        confidences = [
-                            float(row[5] if row[5] is not None else 1.0),
-                            float(row[10] if row[10] is not None else 1.0),
-                            float(row[15] if row[15] is not None else 1.0),
-                        ]
-                        evidence_spans = [
-                            str(row[6] or ""),
-                            str(row[11] or ""),
-                            str(row[16] or ""),
-                        ]
-                        jurisdictions = [
-                            str(row[7] or ""),
-                            str(row[12] or ""),
-                            str(row[17] or ""),
-                        ]
-                        intermediates = [
-                            str(item).removeprefix(prefix)
-                            for item in (row[18], row[19])
-                            if item is not None
-                        ]
-                        dir_tag = (
-                            str(row[20] or "undirected")
-                            if len(row) > 20
-                            else "undirected"
+                        path_entity_ids = [*p1["path_entity_ids"], t_id]
+                        predicates = [*p1["predicates"], predicate2]
+                        confidences = [*p1["confidences"], conf2]
+                        evidence_spans = [*p1["evidence_spans"], ev_span2]
+                        jurisdictions = [*p1["jurisdictions"], jur2]
+                        min_conf = min(p1["min_conf"], conf2)
+
+                        path_score = self._compute_path_score(
+                            hop=2,
+                            seed_id=p1["seed_id"],
+                            seed_scores=seed_scores,
+                            query_tokens=query_tokens,
+                            predicates=predicates,
+                            evidence_spans=evidence_spans,
+                            jurisdictions=jurisdictions,
+                            confidences=confidences,
+                            edge_directions=edge_directions,
+                            target_statutes=target_statutes,
+                            competing_statutes=competing_statutes,
+                            resolver=resolver,
                         )
 
-                    edge_directions = [dir_tag] * hop
-                    label_offset = 15 if hop == 2 else 21
-                    if hop > 1 and dir_tag == "undirected":
-                        if len(row) < label_offset + hop:
-                            raise GraphSearchError(
-                                "graph path is missing edge direction metadata"
-                            )
-                        edge_directions = [
-                            "forward" if str(label) == "AssertionSubject" else "reverse"
-                            for label in row[label_offset : label_offset + hop]
-                        ]
-                    if len(path_assertions) != hop or len(intermediates) != hop - 1:
-                        raise GraphSearchError("graph path metadata is misaligned")
-
-                    if allowed_entity_set is not None and any(
-                        item not in allowed_entity_set for item in intermediates
-                    ):
-                        continue
-                    if allowed_assertion_set is not None and any(
-                        item not in allowed_assertion_set for item in path_assertions
-                    ):
-                        continue
-
-                    path_key = (s_id, t_id, tuple(path_assertions))
-                    if path_key in seen_path_keys:
-                        continue
-                    seen_path_keys.add(path_key)
-
-                    t_name = str(row[2]) if row[2] is not None else ""
-
-                    # --- Multi-Signal Composite Path Score ---
-                    # 1. Base length decay
-                    base_len = 1.0 / (1.0 + 0.5 * (hop - 1))
-
-                    # 2. Seed relevance factor
-                    seed_sc = float(seed_scores.get(s_id, 1.0) if seed_scores else 1.0)
-                    seed_factor = 0.2 + 0.8 * max(0.0, min(1.0, seed_sc))
-
-                    # 3. Query, predicate, and evidence relevance
-                    pred_bonus = 0.0
-                    if query_tokens:
-                        for pred, ev, jur in zip(
-                            predicates, evidence_spans, jurisdictions
-                        ):
-                            p_norm = _normalize_text(pred)
-                            ev_norm = _normalize_text(ev)
-                            for tok in query_tokens:
-                                if tok in p_norm:
-                                    pred_bonus += 0.6
-                                elif tok in ev_norm:
-                                    pred_bonus += 0.3
-                            if target_statutes:
-                                edge_statutes = {
-                                    c.statute_code
-                                    for c in resolver.extract_citations(
-                                        f"{pred} {ev} {jur}"
-                                    )
-                                }
-                                if edge_statutes & target_statutes:
-                                    pred_bonus += 0.4
-                                if edge_statutes & set(competing_statutes):
-                                    pred_bonus -= 0.8
-
-                    pred_factor = max(0.2, 1.0 + min(2.5, pred_bonus))
-
-                    # 4. Evidence confidence
-                    min_conf = min(confidences) if confidences else 1.0
-                    if min_conf < 0.15:
-                        continue
-                    ev_factor = max(0.1, min(1.0, min_conf))
-
-                    # 5. Direction factor (favor forward semantic direction)
-                    dir_factor = 1.0 - 0.15 * edge_directions.count("reverse") / hop
-
-                    path_score = (
-                        base_len * seed_factor * pred_factor * ev_factor * dir_factor
-                    )
-
-                    path_entity_ids = [s_id, *intermediates, t_id]
-                    paths_by_target.setdefault(t_id, []).append(
-                        {
-                            "seed_id": s_id,
+                        path_obj = {
+                            "seed_id": p1["seed_id"],
                             "target_name": t_name,
-                            "hops": hop,
+                            "hops": 2,
                             "path_score": path_score,
                             "path_assertions": path_assertions,
                             "path_entity_ids": path_entity_ids,
@@ -1335,18 +1216,140 @@ class KuzuGraphProvider(BaseGraphProvider):
                             "edge_directions": edge_directions,
                             "predicates": predicates,
                             "min_conf": min_conf,
+                            "confidences": confidences,
+                            "evidence_spans": evidence_spans,
+                            "jurisdictions": jurisdictions,
                         }
-                    )
+                        paths_by_target.setdefault(t_id, []).append(path_obj)
+                        hop2_paths.append(path_obj)
+
+            # -----------------------------------------------------------
+            # Hop 3: Bounded frontier expansion
+            # -----------------------------------------------------------
+            if max_hops >= 3 and hop2_paths:
+                frontier2_best_score: dict[str, float] = {}
+                paths_by_intermediate2: dict[str, list[dict[str, Any]]] = {}
+                for p in hop2_paths:
+                    mid = p["path_entity_ids"][-1]
+                    paths_by_intermediate2.setdefault(mid, []).append(p)
+                    if mid not in frontier2_best_score or p["path_score"] > frontier2_best_score[mid]:
+                        frontier2_best_score[mid] = p["path_score"]
+
+                sorted_frontier2 = sorted(
+                    frontier2_best_score.keys(),
+                    key=lambda eid: (-frontier2_best_score[eid], eid),
+                )[:_MAX_FRONTIER_NODES]
+
+                comp_frontier2_ids = [self._composite_id(agent_id, eid) for eid in sorted_frontier2]
+                rows_hop3 = await asyncio.wait_for(
+                    self._step_expand(
+                        agent_id=agent_id,
+                        src_composite_ids=comp_frontier2_ids,
+                        direction=direction,
+                        fanout_limit=min(5000, max(200, len(comp_frontier2_ids) * _MAX_FANOUT_PER_NODE * 2)),
+                    ),
+                    timeout=remaining_timeout(),
+                )
+
+                for row in rows_hop3:
+                    if len(row) < 9:
+                        continue
+                    mid_id = str(row[0])
+                    t_id = str(row[1])
+                    t_name = str(row[2] or "")
+                    a3_id = str(row[3])
+                    predicate3 = str(row[4] or "")
+                    conf3 = float(row[5] if row[5] is not None else 1.0)
+                    ev_span3 = str(row[6] or "")
+                    jur3 = str(row[7] or "")
+                    dir3 = str(row[8] or "forward")
+
+                    if t_id not in allowed_entity_set or a3_id not in allowed_assertion_set:
+                        continue
+                    if conf3 < 0.15:
+                        continue
+
+                    for p2 in paths_by_intermediate2.get(mid_id, []):
+                        if t_id in p2["path_entity_ids"] or a3_id in p2["path_assertions"]:
+                            continue
+
+                        path_assertions = [*p2["path_assertions"], a3_id]
+                        path_key = (p2["seed_id"], t_id, tuple(path_assertions))
+                        if path_key in seen_path_keys:
+                            continue
+                        seen_path_keys.add(path_key)
+
+                        edge_directions = [*p2["edge_directions"], dir3]
+                        dir_tag = (
+                            "forward"
+                            if all(d == "forward" for d in edge_directions)
+                            else ("reverse" if all(d == "reverse" for d in edge_directions) else "undirected")
+                        )
+                        path_entity_ids = [*p2["path_entity_ids"], t_id]
+                        predicates = [*p2["predicates"], predicate3]
+                        confidences = [*p2["confidences"], conf3]
+                        evidence_spans = [*p2["evidence_spans"], ev_span3]
+                        jurisdictions = [*p2["jurisdictions"], jur3]
+                        min_conf = min(p2["min_conf"], conf3)
+
+                        path_score = self._compute_path_score(
+                            hop=3,
+                            seed_id=p2["seed_id"],
+                            seed_scores=seed_scores,
+                            query_tokens=query_tokens,
+                            predicates=predicates,
+                            evidence_spans=evidence_spans,
+                            jurisdictions=jurisdictions,
+                            confidences=confidences,
+                            edge_directions=edge_directions,
+                            target_statutes=target_statutes,
+                            competing_statutes=competing_statutes,
+                            resolver=resolver,
+                        )
+
+                        path_obj = {
+                            "seed_id": p2["seed_id"],
+                            "target_name": t_name,
+                            "hops": 3,
+                            "path_score": path_score,
+                            "path_assertions": path_assertions,
+                            "path_entity_ids": path_entity_ids,
+                            "direction": dir_tag,
+                            "edge_directions": edge_directions,
+                            "predicates": predicates,
+                            "min_conf": min_conf,
+                            "confidences": confidences,
+                            "evidence_spans": evidence_spans,
+                            "jurisdictions": jurisdictions,
+                        }
+                        paths_by_target.setdefault(t_id, []).append(path_obj)
 
             self._operational = True
-        except (RuntimeError, asyncio.TimeoutError) as exc:
+        except asyncio.TimeoutError as exc:
             self._operational = False
+            logger.error(
+                "SEARCH_V4_GRAPH_TIMEOUT | agent_id=%s seeds=%s timeout=%ss",
+                agent_id,
+                seed_entity_ids,
+                self._search_timeout_seconds,
+            )
+            raise GraphSearchError(
+                f"Kùzu graph retrieval timed out after {self._search_timeout_seconds}s"
+            ) from exc
+        except GraphSearchError:
+            self._operational = False
+            raise
+        except RuntimeError as exc:
+            self._operational = False
+            err_msg = str(exc)
             logger.error(
                 "SEARCH_V4_GRAPH_FAILED | agent_id=%s seeds=%s error=%s",
                 agent_id,
                 seed_entity_ids,
                 exc,
             )
+            if "Buffer manager exception" in err_msg or "memory" in err_msg.lower():
+                raise GraphSearchError("Kùzu graph retrieval resource exhausted") from exc
             raise GraphSearchError("Kùzu graph retrieval is unavailable") from exc
 
         # Aggregate multiple paths per target entity
@@ -1414,6 +1417,108 @@ class KuzuGraphProvider(BaseGraphProvider):
             key=lambda h: (-h["score"], h["hops"], h["entity_id"]),
         )
         return sorted_hits[:limit]
+
+    async def _step_expand(
+        self,
+        *,
+        agent_id: str,
+        src_composite_ids: list[str],
+        direction: str,
+        fanout_limit: int,
+    ) -> list[list[Any]]:
+        """Bounded 1-step expansion from source nodes in specified direction(s)."""
+        if not src_composite_ids:
+            return []
+
+        q_forward = (
+            "MATCH (src:Entity)<-[:AssertionSubject]-(a:Assertion)-[:AssertionObject]->(dst:Entity) "
+            "WHERE src.id IN $src_ids "
+            "  AND src.agent_id = $agent_id "
+            "  AND a.agent_id = $agent_id "
+            "  AND dst.agent_id = $agent_id "
+            "  AND dst.id <> src.id "
+            "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.evidence_span, a.jurisdiction, 'forward' AS direction "
+            "LIMIT $limit"
+        )
+        q_reverse = (
+            "MATCH (src:Entity)<-[:AssertionObject]-(a:Assertion)-[:AssertionSubject]->(dst:Entity) "
+            "WHERE src.id IN $src_ids "
+            "  AND src.agent_id = $agent_id "
+            "  AND a.agent_id = $agent_id "
+            "  AND dst.agent_id = $agent_id "
+            "  AND dst.id <> src.id "
+            "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.evidence_span, a.jurisdiction, 'reverse' AS direction "
+            "LIMIT $limit"
+        )
+
+        params = {
+            "src_ids": src_composite_ids,
+            "agent_id": agent_id,
+            "limit": fanout_limit,
+        }
+
+        rows: list[list[Any]] = []
+        if direction in ("forward", "any"):
+            rows.extend(await self.execute_query(q_forward, params))
+        if direction in ("reverse", "any"):
+            rows.extend(await self.execute_query(q_reverse, params))
+        return rows
+
+    @staticmethod
+    def _compute_path_score(
+        *,
+        hop: int,
+        seed_id: str,
+        seed_scores: Mapping[str, float] | None,
+        query_tokens: list[str],
+        predicates: list[str],
+        evidence_spans: list[str],
+        jurisdictions: list[str],
+        confidences: list[float],
+        edge_directions: list[str],
+        target_statutes: set[str],
+        competing_statutes: list[str],
+        resolver: Any,
+    ) -> float:
+        """Compute composite path score honoring length decay, seed weight, query relevance, confidence, and direction."""
+        # 1. Base length decay
+        base_len = 1.0 / (1.0 + 0.5 * (hop - 1))
+
+        # 2. Seed relevance factor
+        seed_sc = float(seed_scores.get(seed_id, 1.0) if seed_scores else 1.0)
+        seed_factor = 0.2 + 0.8 * max(0.0, min(1.0, seed_sc))
+
+        # 3. Query, predicate, and evidence relevance
+        pred_bonus = 0.0
+        if query_tokens:
+            for pred, ev, jur in zip(predicates, evidence_spans, jurisdictions):
+                p_norm = _normalize_text(pred)
+                ev_norm = _normalize_text(ev)
+                for tok in query_tokens:
+                    if tok in p_norm:
+                        pred_bonus += 0.6
+                    elif tok in ev_norm:
+                        pred_bonus += 0.3
+                if target_statutes and resolver is not None:
+                    edge_statutes = {
+                        c.statute_code
+                        for c in resolver.extract_citations(f"{pred} {ev} {jur}")
+                    }
+                    if edge_statutes & target_statutes:
+                        pred_bonus += 0.4
+                    if edge_statutes & set(competing_statutes):
+                        pred_bonus -= 0.8
+
+        pred_factor = max(0.2, 1.0 + min(2.5, pred_bonus))
+
+        # 4. Evidence confidence
+        min_conf = min(confidences) if confidences else 1.0
+        ev_factor = max(0.1, min(1.0, min_conf))
+
+        # 5. Direction factor (favor forward semantic direction)
+        dir_factor = 1.0 - 0.15 * edge_directions.count("reverse") / hop
+
+        return base_len * seed_factor * pred_factor * ev_factor * dir_factor
 
     # ------------------------------------------------------------------
     # Synchronous internals (run inside executor threads)
