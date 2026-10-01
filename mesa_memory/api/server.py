@@ -366,7 +366,10 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         logger.info("KUZU_DATABASE_OPENED")
 
         # Initialize the async-safe KuzuGraphProvider for edge operations.
-        graph_provider = KuzuGraphProvider(db_path=str(_KUZU_PATH))
+        graph_provider = KuzuGraphProvider(
+            db_path=str(_KUZU_PATH),
+            search_timeout_seconds=config.v4_graph_timeout_seconds,
+        )
         await graph_provider.initialize()
     else:
         logger.info("API_ONLY_GRAPH_STORE_OWNED_BY_WORKER")

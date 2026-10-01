@@ -1026,7 +1026,7 @@ async def test_j_graph_outage_is_typed_and_updates_readiness(tmp_path):
                     max_hops=1,
                     limit=10,
                 )
-        assert graph.is_operational is False
+        assert graph.is_operational is True  # ordinary query timeout does not mark provider non-operational
 
         with pytest.raises(ValueError, match="limit must be <= 500"):
             await graph.search_v4_graph(

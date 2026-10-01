@@ -201,7 +201,10 @@ async def _run_worker_owned(runtime: RuntimeProfileConfig) -> None:
         # journaled live graph, rather than creating an unjournaled staging
         # artifact that the read-only API correctly rejects at startup.
         kuzu_setup.initialize_schema(str(projection_paths.graph_path))
-        graph_provider = KuzuGraphProvider(str(projection_paths.graph_path))
+        graph_provider = KuzuGraphProvider(
+            str(projection_paths.graph_path),
+            search_timeout_seconds=config.v4_graph_timeout_seconds,
+        )
         await graph_provider.initialize()
         dao = MemoryDAO(
             engine,
