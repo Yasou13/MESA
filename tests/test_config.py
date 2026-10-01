@@ -50,3 +50,21 @@ def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode():
     )
     assert external_identity.provider == config.embedding_provider
     assert external_identity.model == config.external_embedding_model
+
+
+def test_v4_graph_timeout_config_default_and_env_override(monkeypatch):
+    import pytest
+
+    monkeypatch.delenv("MESA_V4_GRAPH_TIMEOUT_SECONDS", raising=False)
+    cfg = MesaConfig(_env_file=None)
+    assert cfg.v4_graph_timeout_seconds == 15.0
+
+    monkeypatch.setenv("MESA_V4_GRAPH_TIMEOUT_SECONDS", "25.5")
+    cfg2 = MesaConfig(_env_file=None)
+    assert cfg2.v4_graph_timeout_seconds == 25.5
+
+    # Test invalid values rejected
+    for invalid in ["0", "-1", "-5.5", "nan", "inf", "-inf", "not_a_num", "", "True", "False"]:
+        monkeypatch.setenv("MESA_V4_GRAPH_TIMEOUT_SECONDS", invalid)
+        with pytest.raises((ValueError, Exception)):
+            MesaConfig(_env_file=None)
