@@ -16,8 +16,6 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import math
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -34,20 +32,16 @@ from mesa_memory.config import (
     RuntimeProfileConfig,
     config,
 )
-from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import (
     GraphSearchError,
     KuzuGraphProvider,
 )
 from mesa_storage.kuzu_setup import initialize_schema_artifact
-from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.vector_engine import VectorEngine
 from tests.test_v4_graph_retrieval_hardening import (
     _close_test_env,
     _create_test_env,
     _ingest_entity_and_assertion,
 )
-
 
 # ---------------------------------------------------------------------------
 # 1. Config loading & defaults
