@@ -1430,7 +1430,6 @@ class KuzuGraphProvider(BaseGraphProvider):
 
             self._operational = True
         except asyncio.TimeoutError as exc:
-            self._operational = False
             logger.error(
                 "SEARCH_V4_GRAPH_TIMEOUT | agent_id=%s seeds=%s timeout=%ss",
                 agent_id,
@@ -1440,8 +1439,9 @@ class KuzuGraphProvider(BaseGraphProvider):
             raise GraphSearchError(
                 f"Kùzu graph retrieval timed out after {self._search_timeout_seconds}s"
             ) from exc
-        except GraphSearchError:
-            self._operational = False
+        except GraphSearchError as exc:
+            if "resource exhausted" in str(exc) or "unavailable" in str(exc):
+                self._operational = False
             raise
         except RuntimeError as exc:
             self._operational = False
