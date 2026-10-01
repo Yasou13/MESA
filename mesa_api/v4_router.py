@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
@@ -252,6 +252,36 @@ class V4SearchRequest(BaseModel):
         default="enabled",
         description="Enable or disable only the graph retrieval lane for matched ablation.",
     )
+
+    @field_validator("valid_at", "valid_from", "valid_to", mode="before")
+    @classmethod
+    def parse_iso8601_temporal(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw or len(raw) > 128 or any(ord(char) < 32 for char in raw):
+                raise ValueError(
+                    "temporal value must be a valid ISO-8601 timestamp string"
+                )
+            if raw.endswith(("Z", "z")):
+                normalized = raw[:-1] + "+00:00"
+            else:
+                normalized = raw
+            try:
+                parsed = datetime.fromisoformat(normalized)
+            except ValueError as exc:
+                raise ValueError(
+                    f"temporal value must be a valid ISO-8601 timestamp string: {value!r}"
+                ) from exc
+            if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+                raise ValueError(
+                    f"temporal value must include a timezone offset (e.g. 'Z' or '+00:00'): {value!r}"
+                )
+            return parsed
+        return value
 
     @model_validator(mode="after")
     def validate_temporal_range(self) -> "V4SearchRequest":
