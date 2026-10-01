@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -447,6 +448,36 @@ class MesaConfig(BaseSettings):
         True, validation_alias="MESA_EMBEDDING_NORMALIZED"
     )
 
+    @field_validator("v4_graph_timeout_seconds", mode="before")
+    @classmethod
+    def validate_v4_graph_timeout_seconds_input(cls, v: Any) -> float:
+        if isinstance(v, bool):
+            raise ValueError(
+                f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a positive finite number, got boolean {v}"
+            )
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str:
+                raise ValueError("MESA_V4_GRAPH_TIMEOUT_SECONDS cannot be empty")
+            try:
+                val = float(v_str)
+            except ValueError as exc:
+                raise ValueError(
+                    f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a valid float, got '{v}'"
+                ) from exc
+        elif isinstance(v, (int, float)):
+            val = float(v)
+        else:
+            raise ValueError(
+                f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a number, got {type(v).__name__}"
+            )
+
+        if math.isnan(val) or math.isinf(val) or val <= 0:
+            raise ValueError(
+                f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a positive finite number, got {val}"
+            )
+        return val
+
     @field_validator("tier3_mode", mode="before")
     @classmethod
     def validate_tier3_mode_input(cls, v: Any) -> int | None:
@@ -560,6 +591,13 @@ class MesaConfig(BaseSettings):
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this
     # flag advertises and admits the durable workflow; it never makes it online.
     v4_rebuild_enabled: bool = Field(False, validation_alias="MESA_V4_REBUILD_ENABLED")
+
+    # V4 bounded graph retrieval timeout (seconds). Protects runtime against
+    # genuinely stuck queries while allowing production 20-seed / 3-hop workloads
+    # to complete reliably.
+    v4_graph_timeout_seconds: float = Field(
+        15.0, validation_alias="MESA_V4_GRAPH_TIMEOUT_SECONDS"
+    )
 
     # CrossEncoder Reranking (v0.7.1)
     crossencoder_enabled: bool = Field(
@@ -798,6 +836,16 @@ class MesaConfig(BaseSettings):
         if self.crossencoder_pool_multiplier < 1:
             raise ValueError(
                 f"crossencoder_pool_multiplier MUST be >= 1, got {self.crossencoder_pool_multiplier}"
+            )
+        if (
+            isinstance(self.v4_graph_timeout_seconds, bool)
+            or not isinstance(self.v4_graph_timeout_seconds, (int, float))
+            or math.isnan(self.v4_graph_timeout_seconds)
+            or math.isinf(self.v4_graph_timeout_seconds)
+            or self.v4_graph_timeout_seconds <= 0
+        ):
+            raise ValueError(
+                f"v4_graph_timeout_seconds MUST be a positive finite number, got {self.v4_graph_timeout_seconds}"
             )
         return self
 

@@ -10077,6 +10077,7 @@ class MemoryDAO:
             result["graph"] = {
                 "status": graph_status,
                 "db_path": self._graph.db_path,
+                "timeout_seconds": getattr(self._graph, "search_timeout_seconds", None),
             }
         async with self._sql.connection() as db:
             async with db.execute(

@@ -41,6 +41,7 @@ import abc
 import asyncio
 import datetime
 import logging
+import math
 import os
 import re
 import threading
@@ -82,7 +83,7 @@ class GraphSearchError(RuntimeError):
 _MAX_WORKERS = min(4, os.cpu_count() or 2)  # Cap to prevent over-subscription
 _MAX_V4_GRAPH_SEEDS = 20
 _MAX_V4_GRAPH_RESULTS = 500
-_DEFAULT_V4_GRAPH_TIMEOUT_SECONDS = 5.0
+_DEFAULT_V4_GRAPH_TIMEOUT_SECONDS = 15.0
 _MAX_FRONTIER_NODES = 64
 _MAX_FANOUT_PER_NODE = 32
 _MAX_PATHS_PER_TARGET = 32
@@ -237,11 +238,19 @@ class KuzuGraphProvider(BaseGraphProvider):
         max_workers: int = _MAX_WORKERS,
         search_timeout_seconds: float = _DEFAULT_V4_GRAPH_TIMEOUT_SECONDS,
     ) -> None:
-        if search_timeout_seconds <= 0:
-            raise ValueError("search_timeout_seconds must be positive")
+        if (
+            isinstance(search_timeout_seconds, bool)
+            or not isinstance(search_timeout_seconds, (int, float))
+            or math.isnan(search_timeout_seconds)
+            or math.isinf(search_timeout_seconds)
+            or search_timeout_seconds <= 0
+        ):
+            raise ValueError(
+                f"search_timeout_seconds must be a positive finite number, got {search_timeout_seconds!r}"
+            )
         self._db_path = db_path
         self._max_workers = max_workers
-        self._search_timeout_seconds = search_timeout_seconds
+        self._search_timeout_seconds = float(search_timeout_seconds)
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="mesa_kuzu",
@@ -264,6 +273,11 @@ class KuzuGraphProvider(BaseGraphProvider):
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
+
+    @property
+    def search_timeout_seconds(self) -> float:
+        """Return the configured timeout in seconds for V4 graph retrieval."""
+        return self._search_timeout_seconds
 
     @property
     def db_path(self) -> str:
@@ -400,6 +414,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "db_path": self._db_path,
             "initialized": self._initialized,
             "max_workers": self._max_workers,
+            "search_timeout_seconds": self._search_timeout_seconds,
         }
 
         if not self._initialized:
