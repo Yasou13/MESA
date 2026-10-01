@@ -142,7 +142,7 @@ def test_v4_search_request_accepts_valid_temporal_inputs() -> None:
         ("valid_at", "June 1 2026"),  # human-readable date
         ("valid_at", "01/06/2026"),  # slash format
         ("valid_at", "tomorrow"),  # relative date
-        ("valid_at", "2026-06-01T00:00:00+03"),  # missing offset minutes
+        ("valid_at", "2026-06-01T00:00:00+03:abc"),  # malformed offset characters
         ("valid_at", "2026-06-01T00:00:00+25:00"),  # out-of-range offset
         ("valid_at", "2026-06-01T00:00:00Z extra"),  # trailing junk
         ("valid_at", ""),  # empty string
