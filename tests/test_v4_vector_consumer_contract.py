@@ -17,7 +17,6 @@ from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
 
-
 IDENTITY = EmbeddingIdentity(
     provider="test",
     model="v4-vector-consumer",

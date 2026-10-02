@@ -21,7 +21,6 @@ from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
-
 TEST_EMBEDDING_IDENTITY = EmbeddingIdentity(
     provider="test", model="catalog-contract", version="v1", dimension=2
 )

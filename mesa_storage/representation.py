@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass
-import inspect
 from typing import Any
 
 V4_ASSERTION_REPRESENTATION_VERSION = "assertion-v1"
