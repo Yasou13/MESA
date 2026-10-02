@@ -199,9 +199,10 @@ async def test_historical_shape_keeps_minimum_complete_graph_proof():
         "short-bridge-0",
         "target-0",
     ]
-    assert {
-        fact["assertion_id"] for fact in retained["provenance"]
-    } == {"short-bridge-0", "target-0"}
+    assert {fact["assertion_id"] for fact in retained["provenance"]} == {
+        "short-bridge-0",
+        "target-0",
+    }
     assert context["context_status"] == "CONTEXT_BUILT_SUCCESSFULLY"
     assert context["context_diagnostics"]["compacted_graph_proof_count"] >= 1
 
@@ -400,8 +401,7 @@ async def test_non_graph_fact_trimming_remains_ranked_and_budget_bounded():
 
     assert len(context["canonical_memories"]) == 1
     assert [
-        fact["predicate"]
-        for fact in context["canonical_memories"][0]["provenance"]
+        fact["predicate"] for fact in context["canonical_memories"][0]["provenance"]
     ] == ["first"]
     assert context["actual_token_count"] <= 900
 

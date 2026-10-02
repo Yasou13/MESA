@@ -68,7 +68,10 @@ def _valid_graph_paths(
             not path.get("graph_path_id")
             or not assertion_ids
             or assertion_ids[-1] != principal_assertion_id
-            or any(assertion_id not in facts_by_assertion_id for assertion_id in assertion_ids)
+            or any(
+                assertion_id not in facts_by_assertion_id
+                for assertion_id in assertion_ids
+            )
             or len(entity_ids) != len(assertion_ids) + 1
             or len(edge_directions) != len(assertion_ids)
             or len(predicates) != len(assertion_ids)
@@ -162,9 +165,7 @@ def _selected_retrieval_provenance(
             "graph_edge_directions": edge_directions,
             "graph_predicates": predicates,
             "graph_direction": (
-                edge_directions[0]
-                if len(set(edge_directions)) == 1
-                else "mixed"
+                edge_directions[0] if len(set(edge_directions)) == 1 else "mixed"
             ),
             "graph_support_count": 1,
             "graph_supporting_assertion_ids": assertion_ids,
@@ -422,19 +423,15 @@ class ContextBuilder:
                 cur_memories.append(full_memory)
                 continue
 
-            candidate_id = canonical_memories[memory["_raw_index"]].get(
-                "candidate_id"
-            )
+            candidate_id = canonical_memories[memory["_raw_index"]].get("candidate_id")
             if memory.get("_is_atomic_proof"):
                 compact = _minimum_complete_graph_proof(
                     memory, memory["_principal_assertion_id"]
                 )
                 if compact is not None and _fits_with_selected(compact):
                     selected_path = compact["_selected_graph_path"]
-                    compact["_retrieval_provenance"] = (
-                        _selected_retrieval_provenance(
-                            memory["_retrieval_provenance"], selected_path
-                        )
+                    compact["_retrieval_provenance"] = _selected_retrieval_provenance(
+                        memory["_retrieval_provenance"], selected_path
                     )
                     cur_memories.append(compact)
                     compacted_graph_proof_count += 1
