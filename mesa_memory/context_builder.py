@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from mesa_memory.adapter.tokenizer import count_tokens
@@ -14,12 +15,182 @@ TAG_CLOSE = untrusted_memory.TAG_CLOSE
 render_untrusted_memory = untrusted_memory.render_untrusted_memory
 MAX_EVIDENCE_SPAN_CHARS = 2000
 
+_GRAPH_PATH_SEQUENCE_FIELDS = (
+    "assertion_ids",
+    "entity_ids",
+    "edge_directions",
+    "predicates",
+)
+
+
+def _fact_assertion_id(fact: dict[str, Any]) -> str:
+    return str(fact.get("assertion_id") or fact.get("_assertion_id") or "")
+
+
+def _visible_graph_path(path: dict[str, Any]) -> dict[str, Any]:
+    """Keep only deterministic structural graph-proof fields."""
+    visible: dict[str, Any] = {}
+    path_id = path.get("graph_path_id")
+    if path_id:
+        visible["graph_path_id"] = str(path_id)
+    for key in _GRAPH_PATH_SEQUENCE_FIELDS:
+        value = path.get(key)
+        if isinstance(value, (list, tuple)):
+            visible[key] = [str(item) for item in value]
+    seed_id = path.get("seed_id")
+    if seed_id:
+        visible["seed_id"] = str(seed_id)
+    return visible
+
+
+def _valid_graph_paths(
+    memory: dict[str, Any], principal_assertion_id: str
+) -> list[dict[str, Any]]:
+    """Return complete paths that can be mapped to rendered provenance facts."""
+    facts_by_assertion_id = {
+        _fact_assertion_id(fact): fact
+        for fact in memory.get("facts", [])
+        if _fact_assertion_id(fact)
+    }
+    if not principal_assertion_id or not facts_by_assertion_id:
+        return []
+
+    paths: list[tuple[int, dict[str, Any]]] = []
+    for original_index, raw_path in enumerate(memory.get("_graph_paths", [])):
+        if not isinstance(raw_path, dict):
+            continue
+        path = _visible_graph_path(raw_path)
+        assertion_ids = path.get("assertion_ids", [])
+        entity_ids = path.get("entity_ids", [])
+        edge_directions = path.get("edge_directions", [])
+        predicates = path.get("predicates", [])
+        if (
+            not path.get("graph_path_id")
+            or not assertion_ids
+            or assertion_ids[-1] != principal_assertion_id
+            or any(
+                assertion_id not in facts_by_assertion_id
+                for assertion_id in assertion_ids
+            )
+            or len(entity_ids) != len(assertion_ids) + 1
+            or len(edge_directions) != len(assertion_ids)
+            or len(predicates) != len(assertion_ids)
+        ):
+            continue
+        paths.append((original_index, path))
+
+    # Exact structural duplicates add no proof content.  Keep the representative
+    # with the stable smallest path identity before selecting a minimum proof.
+    deduplicated: dict[
+        tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]],
+        tuple[int, dict[str, Any]],
+    ] = {}
+    for original_index, path in paths:
+        signature = (
+            tuple(str(item) for item in path.get("assertion_ids", [])),
+            tuple(str(item) for item in path.get("entity_ids", [])),
+            tuple(str(item) for item in path.get("edge_directions", [])),
+            tuple(str(item) for item in path.get("predicates", [])),
+        )
+        existing = deduplicated.get(signature)
+        if existing is None or str(path["graph_path_id"]) < str(
+            existing[1]["graph_path_id"]
+        ):
+            deduplicated[signature] = (original_index, path)
+
+    return [
+        path
+        for _, path in sorted(
+            deduplicated.values(),
+            key=lambda entry: (
+                len(entry[1]["assertion_ids"]),
+                str(entry[1]["graph_path_id"]),
+                entry[0],
+            ),
+        )
+    ]
+
+
+def _minimum_complete_graph_proof(
+    memory: dict[str, Any], principal_assertion_id: str
+) -> dict[str, Any] | None:
+    """Select one shortest complete path using only stable graph structure."""
+    valid_paths = _valid_graph_paths(memory, principal_assertion_id)
+    if not valid_paths:
+        return None
+    selected_path = valid_paths[0]
+    facts_by_assertion_id = {
+        _fact_assertion_id(fact): fact
+        for fact in memory["facts"]
+        if _fact_assertion_id(fact)
+    }
+    compact = deepcopy(memory)
+    compact["facts"] = [
+        deepcopy(facts_by_assertion_id[assertion_id])
+        for assertion_id in selected_path["assertion_ids"]
+    ]
+    compact["_graph_paths"] = [deepcopy(selected_path)]
+    compact["_selected_graph_path"] = deepcopy(selected_path)
+    compact["_proof_compacted"] = (
+        len(valid_paths) != 1
+        or [
+            _fact_assertion_id(fact)
+            for fact in memory["facts"]
+            if _fact_assertion_id(fact)
+        ]
+        != selected_path["assertion_ids"]
+    )
+    return compact
+
+
+def _selected_retrieval_provenance(
+    retrieval_provenance: dict[str, Any],
+    selected_path: dict[str, Any],
+) -> dict[str, Any]:
+    """Describe the graph proof that actually survived context packing."""
+    selected = deepcopy(retrieval_provenance)
+    original_paths = retrieval_provenance.get("graph_paths", [])
+    assertion_ids = list(selected_path["assertion_ids"])
+    entity_ids = list(selected_path["entity_ids"])
+    edge_directions = list(selected_path["edge_directions"])
+    predicates = list(selected_path["predicates"])
+    selected.update(
+        {
+            "graph_hop_count": len(assertion_ids),
+            "graph_seed_entity_id": entity_ids[0],
+            "graph_seed_entity_ids": [entity_ids[0]],
+            "graph_distinct_seed_count": 1,
+            "graph_target_entity_id": entity_ids[-1],
+            "graph_target_entity_ids": [entity_ids[-1]],
+            "graph_path_assertion_ids": assertion_ids,
+            "graph_path_entity_ids": entity_ids,
+            "graph_path_id": selected_path["graph_path_id"],
+            "graph_edge_directions": edge_directions,
+            "graph_predicates": predicates,
+            "graph_direction": (
+                edge_directions[0] if len(set(edge_directions)) == 1 else "mixed"
+            ),
+            "graph_support_count": 1,
+            "graph_supporting_assertion_ids": assertion_ids,
+            "graph_paths": [deepcopy(selected_path)],
+            "graph_compaction": {
+                "applied": True,
+                "policy": "shortest_path_then_graph_path_id",
+                "original_path_count": (
+                    len(original_paths) if isinstance(original_paths, list) else 0
+                ),
+                "selected_graph_path_id": selected_path["graph_path_id"],
+            },
+        }
+    )
+    return selected
+
 
 def _count_tokens(text: str) -> int:
     """Canonical tokenizer counting path for ContextBuilder."""
     if not text:
         return 0
-    return count_tokens(text, adapter_type="openai", strict=True)
+    return int(count_tokens(text, adapter_type="openai", strict=True))
 
 
 def _render_context(
@@ -27,11 +198,13 @@ def _render_context(
     memory_records: list[dict[str, Any]],
 ) -> str:
     """Render structured untrusted evidence with explicit boundary tags."""
-    return render_untrusted_memory(
-        [
-            ("Current Session Information", session_records),
-            ("Long-Term Canonical Truth", memory_records),
-        ]
+    return str(
+        render_untrusted_memory(
+            [
+                ("Current Session Information", session_records),
+                ("Long-Term Canonical Truth", memory_records),
+            ]
+        )
     )
 
 
@@ -132,6 +305,9 @@ class ContextBuilder:
                         "direction": direction,
                         "_source_provenance_index": provenance_index,
                     }
+                    assertion_id = p.get("assertion_id")
+                    if assertion_id:
+                        fact_dict["_assertion_id"] = str(assertion_id)
                     subject_name = p.get("subject_name") or name
                     if subject_name:
                         fact_dict["subject"] = str(subject_name)
@@ -172,28 +348,43 @@ class ContextBuilder:
                 or len(retrieval_prov.get("graph_path_assertion_ids", [])) > 1
                 or bool(retrieval_prov.get("is_atomic_proof"))
             )
+            graph_paths = [
+                _visible_graph_path(path)
+                for path in retrieval_prov.get("graph_paths", [])
+                if isinstance(path, dict)
+            ]
+            if graph_paths:
+                for fact in facts:
+                    if fact.get("_assertion_id"):
+                        fact["assertion_id"] = fact["_assertion_id"]
 
-            memory_records.append(
-                {
-                    "type": "canonical_memory",
-                    "entity": name,
-                    "facts": facts,
-                    "_raw_index": idx,
-                    "_is_atomic_proof": is_atomic_proof,
-                }
-            )
-
-        # 4. Enforce hard token budget via actual tokenizer counting and granular fact trimming
-        cur_memories = [
-            {
-                "type": m["type"],
-                "entity": m["entity"],
-                "facts": list(m["facts"]),
-                "_raw_index": m["_raw_index"],
-                "_is_atomic_proof": m.get("_is_atomic_proof", False),
+            memory_record: dict[str, Any] = {
+                "type": "canonical_memory",
+                "entity": name,
+                "facts": facts,
+                "_raw_index": idx,
+                "_is_atomic_proof": is_atomic_proof,
+                "_principal_assertion_id": str(
+                    item.get("assertion_id")
+                    or item.get("evidence_id")
+                    or retrieval_prov.get("matched_assertion_id")
+                    or retrieval_prov.get("assertion_id")
+                    or ""
+                ),
+                "_retrieval_provenance": deepcopy(retrieval_prov),
             }
-            for m in memory_records
-        ]
+            if graph_paths:
+                # Structural path metadata drives atomic proof selection and
+                # remains available in canonical retrieval provenance.  It is
+                # not evidence text, so keep it out of the model token budget.
+                memory_record["_graph_paths"] = graph_paths
+            memory_records.append(memory_record)
+
+        # 4. Enforce the hard token budget in fused retrieval order.  Full
+        # evidence wins when it fits.  Otherwise graph evidence may fall back
+        # only to one structurally complete path; non-graph evidence may shed
+        # whole trailing facts.  No text is semantically summarized.
+        cur_memories: list[dict[str, Any]] = []
         cur_sessions = list(session_records)
 
         def _model_visible_records(
@@ -219,28 +410,95 @@ class ContextBuilder:
                 for record in records
             ]
 
-        # Discard units which cannot fit even on their own before they can
-        # evict useful lower-ranked evidence. Never clip an atomic proof.
-        fitting_memories: list[dict[str, Any]] = []
-        for memory in cur_memories:
-            if not memory.get("_is_atomic_proof"):
-                memory["facts"] = [
-                    fact
-                    for fact in memory["facts"]
-                    if _count_tokens(
-                        _render_context(
-                            [], _model_visible_records([{**memory, "facts": [fact]}])
-                        )
-                    )
-                    <= token_budget
-                ]
-            if memory["facts"] and (
-                not memory.get("_is_atomic_proof")
-                or _count_tokens(_render_context([], _model_visible_records([memory])))
+        budget_rejections: list[dict[str, Any]] = []
+
+        def _fits(records: list[dict[str, Any]]) -> bool:
+            return (
+                _count_tokens(_render_context([], _model_visible_records(records)))
                 <= token_budget
-            ):
-                fitting_memories.append(memory)
-        cur_memories = fitting_memories
+            )
+
+        # Give every ranked candidate one chance to place its minimum valid
+        # representation before a large early candidate consumes the budget.
+        # This preserves retrieval order without allowing a many-fact entity to
+        # crowd out all lower-ranked evidence.
+        prepared_memories: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
+        for memory in memory_records:
+            if not memory["facts"]:
+                continue
+            full_memory = deepcopy(memory)
+            candidate_id = canonical_memories[memory["_raw_index"]].get("candidate_id")
+            if memory.get("_is_atomic_proof"):
+                compact = _minimum_complete_graph_proof(
+                    memory, memory["_principal_assertion_id"]
+                )
+                if compact is not None:
+                    selected_path = compact["_selected_graph_path"]
+                    compact["_retrieval_provenance"] = _selected_retrieval_provenance(
+                        memory["_retrieval_provenance"], selected_path
+                    )
+                    minimum_memory = compact
+                else:
+                    # Older atomic metadata without a complete graph_paths
+                    # contract cannot be split safely.
+                    minimum_memory = full_memory
+            else:
+                minimum_memory = deepcopy(memory)
+                minimum_memory["facts"] = minimum_memory["facts"][:1]
+
+            prepared_memories.append((full_memory, minimum_memory, candidate_id))
+            if not _fits([minimum_memory]):
+                budget_rejections.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "reason": (
+                            "PROOF_EXCEEDS_CONTEXT_BUDGET"
+                            if memory.get("_is_atomic_proof")
+                            else "EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
+                        ),
+                    }
+                )
+            elif _fits([*cur_memories, minimum_memory]):
+                cur_memories.append(minimum_memory)
+            else:
+                budget_rejections.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "reason": "CONTEXT_BUDGET_EXHAUSTED",
+                    }
+                )
+
+        # Enrich retained candidates in the same fused order. Atomic graph
+        # candidates upgrade only as a whole; non-graph candidates add whole
+        # facts one at a time.
+        retained_by_index = {
+            memory["_raw_index"]: position
+            for position, memory in enumerate(cur_memories)
+        }
+        for full_memory, minimum_memory, _ in prepared_memories:
+            position = retained_by_index.get(full_memory["_raw_index"])
+            if position is None:
+                continue
+            if full_memory.get("_is_atomic_proof"):
+                if minimum_memory.get("_proof_compacted"):
+                    enriched = list(cur_memories)
+                    enriched[position] = full_memory
+                    if _fits(enriched):
+                        cur_memories = enriched
+                continue
+
+            for fact in full_memory["facts"][1:]:
+                enriched_memory = deepcopy(cur_memories[position])
+                enriched_memory["facts"].append(deepcopy(fact))
+                enriched = list(cur_memories)
+                enriched[position] = enriched_memory
+                if not _fits(enriched):
+                    break
+                cur_memories = enriched
+
+        compacted_graph_proof_count = sum(
+            1 for memory in cur_memories if memory.get("_proof_compacted")
+        )
 
         formatted_context = _render_context(
             cur_sessions, _model_visible_records(cur_memories)
@@ -250,28 +508,6 @@ class ContextBuilder:
         # Current-session chatter yields budget first
         while actual_tokens > token_budget and cur_sessions:
             cur_sessions.pop()
-            formatted_context = _render_context(
-                cur_sessions, _model_visible_records(cur_memories)
-            )
-            actual_tokens = _count_tokens(formatted_context)
-
-        # Fine-grained fact/evidence-level trimming:
-        # Prevent any single large entity from crowding out others, while preserving
-        # atomic multi-hop graph proofs intact (never leaving half-broken inference chains).
-        while actual_tokens > token_budget and cur_memories:
-            pruned_fact = False
-            for mem in reversed(cur_memories):
-                # Only prune individual facts from non-atomic memories
-                if not mem.get("_is_atomic_proof") and len(mem["facts"]) > 1:
-                    mem["facts"].pop()
-                    pruned_fact = True
-                    break
-
-            # If all remaining non-atomic memories have at most 1 fact (or there are only atomic memories),
-            # prune the lowest-ranked memory entity entirely
-            if not pruned_fact:
-                cur_memories.pop()
-
             formatted_context = _render_context(
                 cur_sessions, _model_visible_records(cur_memories)
             )
@@ -312,13 +548,31 @@ class ContextBuilder:
                     "assertion_id",
                     "source_chunk_id",
                     "document_id",
+                    "scope_identity",
                     "rrf_score",
                     "final_score",
-                    "retrieval_provenance",
                 ):
                     if key in raw_mem:
                         visible_item[key] = raw_mem[key]
+                if "retrieval_provenance" in raw_mem:
+                    visible_item["retrieval_provenance"] = matching_cur.get(
+                        "_retrieval_provenance", raw_mem["retrieval_provenance"]
+                    )
                 model_visible_memories.append(visible_item)
+
+        renderable_candidate_count = sum(
+            1 for memory in memory_records if memory["facts"]
+        )
+        if model_visible_memories:
+            context_status = "CONTEXT_BUILT_SUCCESSFULLY"
+        elif canonical_memories and renderable_candidate_count == 0:
+            context_status = "ALL_EVIDENCE_INVALID"
+        elif canonical_memories:
+            context_status = "VALID_EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
+        elif cur_sessions:
+            context_status = "CONTEXT_BUILT_SUCCESSFULLY"
+        else:
+            context_status = "NO_RETRIEVAL_EVIDENCE"
 
         return {
             "formatted_context": formatted_context,
@@ -329,4 +583,13 @@ class ContextBuilder:
             "token_budget": token_budget,
             "estimated_token_count": actual_tokens,
             "actual_token_count": actual_tokens,
+            "context_status": context_status,
+            "context_diagnostics": {
+                "retrieval_candidate_count": len(canonical_memories),
+                "renderable_candidate_count": renderable_candidate_count,
+                "retained_memory_count": len(model_visible_memories),
+                "compacted_graph_proof_count": compacted_graph_proof_count,
+                "budget_rejection_count": len(budget_rejections),
+                "budget_rejections": budget_rejections,
+            },
         }

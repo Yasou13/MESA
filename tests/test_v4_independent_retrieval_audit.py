@@ -164,6 +164,16 @@ async def test_graph_primary_source_and_parallel_paths_remain_aligned(tmp_path):
             token_budget=2000,
         )
         assert "primary evidence" in context["formatted_context"]
+        full_visible = next(
+            visible
+            for visible in context["canonical_memories"]
+            if visible["evidence_id"] == primary
+        )
+        assert {p["evidence_span"] for p in full_visible["provenance"]} == {
+            "primary evidence",
+            "first supporting evidence",
+            "second supporting evidence",
+        }
         for budget in (1, 60, 160, 300, 2000):
             context = await ContextBuilder(dao).build_context(
                 tenant_id="tenant",
@@ -175,11 +185,14 @@ async def test_graph_primary_source_and_parallel_paths_remain_aligned(tmp_path):
             assert context["actual_token_count"] <= budget
             for visible in context["canonical_memories"]:
                 if visible["evidence_id"] == primary:
-                    assert {p["evidence_span"] for p in visible["provenance"]} == {
-                        "primary evidence",
-                        "first supporting evidence",
-                        "second supporting evidence",
+                    retained_path_assertions = {
+                        assertion_id
+                        for path in visible["retrieval_provenance"]["graph_paths"]
+                        for assertion_id in path["assertion_ids"]
                     }
+                    assert {
+                        p["assertion_id"] for p in visible["provenance"]
+                    } == retained_path_assertions
     finally:
         await sql.close()
 
