@@ -86,8 +86,11 @@ def _valid_graph_paths(
         tuple[int, dict[str, Any]],
     ] = {}
     for original_index, path in paths:
-        signature = tuple(
-            tuple(path.get(key, [])) for key in _GRAPH_PATH_SEQUENCE_FIELDS
+        signature = (
+            tuple(str(item) for item in path.get("assertion_ids", [])),
+            tuple(str(item) for item in path.get("entity_ids", [])),
+            tuple(str(item) for item in path.get("edge_directions", [])),
+            tuple(str(item) for item in path.get("predicates", [])),
         )
         existing = deduplicated.get(signature)
         if existing is None or str(path["graph_path_id"]) < str(
@@ -187,7 +190,7 @@ def _count_tokens(text: str) -> int:
     """Canonical tokenizer counting path for ContextBuilder."""
     if not text:
         return 0
-    return count_tokens(text, adapter_type="openai", strict=True)
+    return int(count_tokens(text, adapter_type="openai", strict=True))
 
 
 def _render_context(
@@ -195,11 +198,13 @@ def _render_context(
     memory_records: list[dict[str, Any]],
 ) -> str:
     """Render structured untrusted evidence with explicit boundary tags."""
-    return render_untrusted_memory(
-        [
-            ("Current Session Information", session_records),
-            ("Long-Term Canonical Truth", memory_records),
-        ]
+    return str(
+        render_untrusted_memory(
+            [
+                ("Current Session Information", session_records),
+                ("Long-Term Canonical Truth", memory_records),
+            ]
+        )
     )
 
 
