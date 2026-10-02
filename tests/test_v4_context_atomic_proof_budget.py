@@ -1,9 +1,34 @@
 import copy
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from mesa_memory.context_builder import ContextBuilder
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_token_counter(monkeypatch):
+    monkeypatch.setattr(
+        "mesa_memory.context_builder._count_tokens",
+        lambda text: len(text.encode("utf-8")),
+    )
+
+
+async def _build_context(
+    candidates: list[dict[str, Any]], *, token_budget: int
+) -> tuple[dict[str, Any], AsyncMock]:
+    dao = AsyncMock()
+    dao.get_recent_logs.return_value = []
+    dao.search_v4_memory.return_value = candidates
+    context = await ContextBuilder(dao).build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=token_budget,
+    )
+    return context, dao
 
 
 def _assertion(
@@ -30,7 +55,7 @@ def _assertion(
     }
 
 
-def _historical_shape_candidate(index: int) -> dict[str, object]:
+def _historical_shape_candidate(index: int) -> dict[str, Any]:
     target_id = f"target-{index}"
     short_bridge_id = f"short-bridge-{index}"
     long_bridge_a_id = f"long-bridge-a-{index}"
@@ -43,6 +68,13 @@ def _historical_shape_candidate(index: int) -> dict[str, object]:
         "source_chunk_id": f"chunk:{target_id}",
         "document_id": "document-1",
         "rrf_score": 1.0 / (61 + index),
+        "scope_identity": {
+            "tenant_id": "tenant-1",
+            "dataset_id": "dataset-1",
+            "agent_id": "agent-1",
+            "jurisdiction": "TR",
+            "status": "ACTIVE",
+        },
         "provenance": [
             _assertion(
                 target_id,
@@ -121,12 +153,8 @@ def _historical_shape_candidate(index: int) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
-async def test_historical_shape_keeps_minimum_complete_graph_proof(monkeypatch):
+async def test_historical_shape_keeps_minimum_complete_graph_proof():
     """A compactable valid proof must not become zero evidence at 2048 tokens."""
-    monkeypatch.setattr(
-        "mesa_memory.context_builder._count_tokens",
-        lambda text: len(text.encode("utf-8")),
-    )
     candidates = [_historical_shape_candidate(index) for index in range(4)]
     dao = AsyncMock()
     dao.get_recent_logs.return_value = []
@@ -174,3 +202,222 @@ async def test_historical_shape_keeps_minimum_complete_graph_proof(monkeypatch):
     assert {
         fact["assertion_id"] for fact in retained["provenance"]
     } == {"short-bridge-0", "target-0"}
+    assert context["context_status"] == "CONTEXT_BUILT_SUCCESSFULLY"
+    assert context["context_diagnostics"]["compacted_graph_proof_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_non_graph_evidence_that_fits_is_unchanged():
+    candidate = {
+        "entity": {"canonical_name": "Non Graph"},
+        "candidate_id": "non-graph-1",
+        "evidence_id": "non-graph-assertion-1",
+        "assertion_id": "non-graph-assertion-1",
+        "provenance": [
+            _assertion(
+                "non-graph-assertion-1",
+                subject="Subject",
+                predicate="states",
+                value="Object",
+                evidence_span="Ordinary lexical evidence.",
+            )
+        ],
+        "retrieval_provenance": {
+            "origins": ["bm25"],
+            "lane_ranks": {"bm25": 1},
+        },
+    }
+
+    context, _ = await _build_context([candidate], token_budget=2048)
+
+    assert context["context_status"] == "CONTEXT_BUILT_SUCCESSFULLY"
+    assert len(context["canonical_memories"]) == 1
+    assert context["canonical_memories"][0]["provenance"] == [
+        {
+            "predicate": "states",
+            "value": "Object",
+            "direction": "forward",
+            "subject": "Subject",
+            "source_ref": "source:non-graph-assertion-1",
+            "document_id": "document-1",
+            "revision_id": "revision-1",
+            "chunk_id": "chunk:non-graph-assertion-1",
+            "evidence_span": "Ordinary lexical evidence.",
+            "jurisdiction": "TR",
+            "authority_level": "primary",
+        }
+    ]
+    assert context["actual_token_count"] <= 2048
+
+
+@pytest.mark.asyncio
+async def test_atomic_graph_proof_that_fits_retains_all_paths():
+    candidate = _historical_shape_candidate(0)
+    for assertion in candidate["provenance"]:
+        assertion["evidence_span"] = "Concise complete evidence."
+
+    context, _ = await _build_context([candidate], token_budget=10000)
+
+    retained = context["canonical_memories"][0]
+    assert len(retained["provenance"]) == 4
+    assert len(retained["retrieval_provenance"]["graph_paths"]) == 2
+    assert "graph_compaction" not in retained["retrieval_provenance"]
+    assert context["context_diagnostics"]["compacted_graph_proof_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_shortest_path_uses_stable_graph_path_id_tie_break():
+    candidate = _historical_shape_candidate(0)
+    candidate["provenance"] = [
+        candidate["provenance"][0],
+        candidate["provenance"][1],
+        candidate["provenance"][2],
+    ]
+    candidate["provenance"][1]["evidence_span"] = "Z bridge detail. " * 40
+    candidate["provenance"][2]["evidence_span"] = "A bridge detail. " * 40
+    candidate["retrieval_provenance"]["graph_paths"] = [
+        {
+            "graph_path_id": "path-z",
+            "assertion_ids": ["short-bridge-0", "target-0"],
+            "entity_ids": ["seed-z", "bridge-z", "target-0"],
+            "edge_directions": ["forward", "forward"],
+            "predicates": ["supports", "establishes"],
+            "seed_id": "seed-z",
+        },
+        {
+            "graph_path_id": "path-a",
+            "assertion_ids": ["long-bridge-a-0", "target-0"],
+            "entity_ids": ["seed-a", "bridge-a", "target-0"],
+            "edge_directions": ["forward", "forward"],
+            "predicates": ["alternative_support", "establishes"],
+            "seed_id": "seed-a",
+        },
+    ]
+
+    context, _ = await _build_context([candidate], token_budget=2200)
+
+    retained = context["canonical_memories"][0]
+    assert retained["retrieval_provenance"]["graph_path_id"] == "path-a"
+    assert [fact["assertion_id"] for fact in retained["provenance"]] == [
+        "long-bridge-a-0",
+        "target-0",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_minimum_complete_proof_exceeding_budget_fails_closed_explicitly():
+    candidate = _historical_shape_candidate(0)
+    candidate["provenance"][0]["evidence_span"] = "required target text " * 500
+
+    context, _ = await _build_context([candidate], token_budget=1024)
+
+    assert context["canonical_memories"] == []
+    assert context["formatted_context"] == ""
+    assert context["actual_token_count"] == 0
+    assert context["context_status"] == "VALID_EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
+    assert context["context_diagnostics"]["budget_rejections"] == [
+        {
+            "candidate_id": "target-0",
+            "reason": "PROOF_EXCEEDS_CONTEXT_BUDGET",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_compacted_proof_preserves_auditable_provenance_and_scope():
+    context, _ = await _build_context(
+        [_historical_shape_candidate(0)], token_budget=2048
+    )
+
+    retained = context["canonical_memories"][0]
+    assert retained["scope_identity"] == {
+        "tenant_id": "tenant-1",
+        "dataset_id": "dataset-1",
+        "agent_id": "agent-1",
+        "jurisdiction": "TR",
+        "status": "ACTIVE",
+    }
+    for fact in retained["provenance"]:
+        assert fact["assertion_id"]
+        assert fact["source_ref"]
+        assert fact["document_id"] == "document-1"
+        assert fact["revision_id"] == "revision-1"
+        assert fact["chunk_id"]
+        assert fact["evidence_span"]
+        assert fact["jurisdiction"] == "TR"
+        assert fact["authority_level"] == "primary"
+
+
+@pytest.mark.asyncio
+async def test_scope_arguments_reach_retrieval_and_filtered_empty_stays_empty():
+    context, dao = await _build_context([], token_budget=2048)
+
+    dao.search_v4_memory.assert_awaited_once_with(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        limit=20,
+        jurisdiction=None,
+        valid_at=None,
+        valid_from=None,
+        valid_to=None,
+    )
+    assert context["canonical_memories"] == []
+    assert context["context_status"] == "NO_RETRIEVAL_EVIDENCE"
+
+
+@pytest.mark.asyncio
+async def test_non_graph_fact_trimming_remains_ranked_and_budget_bounded():
+    candidate = {
+        "entity": {"canonical_name": "Budgeted Non Graph"},
+        "candidate_id": "non-graph-1",
+        "evidence_id": "kept",
+        "assertion_id": "kept",
+        "provenance": [
+            _assertion(
+                "kept",
+                subject="Subject",
+                predicate="first",
+                value="kept value",
+                evidence_span="Short evidence.",
+            ),
+            _assertion(
+                "trimmed",
+                subject="Subject",
+                predicate="second",
+                value="trimmed value",
+                evidence_span="oversized trailing evidence " * 200,
+            ),
+        ],
+        "retrieval_provenance": {
+            "origins": ["bm25"],
+            "lane_ranks": {"bm25": 1},
+        },
+    }
+
+    context, _ = await _build_context([candidate], token_budget=900)
+
+    assert len(context["canonical_memories"]) == 1
+    assert [
+        fact["predicate"]
+        for fact in context["canonical_memories"][0]["provenance"]
+    ] == ["first"]
+    assert context["actual_token_count"] <= 900
+
+
+@pytest.mark.asyncio
+async def test_graph_compaction_is_deterministic():
+    candidates = [_historical_shape_candidate(index) for index in range(3)]
+
+    first, _ = await _build_context(copy.deepcopy(candidates), token_budget=2048)
+    second, _ = await _build_context(copy.deepcopy(candidates), token_budget=2048)
+
+    for key in (
+        "canonical_memories",
+        "formatted_context",
+        "actual_token_count",
+        "context_status",
+        "context_diagnostics",
+    ):
+        assert first[key] == second[key]

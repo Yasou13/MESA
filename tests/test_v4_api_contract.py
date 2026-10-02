@@ -1085,6 +1085,8 @@ async def test_v4_catalog_search_mutation_and_session_lifecycle_contracts(
     assert visible_memory["assertion_id"] == "assertion-a"
     assert visible_memory["provenance"][0]["value"] == "Exact content"
     assert visible_memory["provenance"][0]["evidence_span"] == "Exact content"
+    assert context_body["context_status"] == "CONTEXT_BUILT_SUCCESSFULLY"
+    assert context_body["context_diagnostics"]["retained_memory_count"] == 1
     ended = await client.post("/v4/sessions/session-a/end")
     assert ended.status_code == 200
     assert ended.json() == {
