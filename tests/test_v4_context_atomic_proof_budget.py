@@ -152,6 +152,75 @@ def _historical_shape_candidate(index: int) -> dict[str, Any]:
     }
 
 
+def _graph_chain_candidates() -> list[dict[str, Any]]:
+    """Mirror the one-hop plus two-hop candidates from graph integration."""
+    alice_id = "d56f5d43-80f0-5afb-9461-2dac6783d36e"
+    aurora_id = "ea22626f-6faf-5a88-8b68-88ae9b708ada"
+    helios_id = "205a1299-54c1-5a91-9734-18fd28ab071c"
+    leads_id = f"ast_m1_{alice_id}_{aurora_id}"
+    uses_id = f"ast_m2_{aurora_id}_{helios_id}"
+    leads = {
+        "assertion_id": leads_id,
+        "subject_name": "Alice",
+        "predicate": "leads",
+        "object_name": "Aurora",
+        "direction": "forward",
+    }
+    uses = {
+        "assertion_id": uses_id,
+        "subject_name": "Aurora",
+        "predicate": "uses",
+        "object_name": "HeliosDB",
+        "direction": "forward",
+    }
+    first_path = {
+        "graph_path_id": "54b3b98068311f5cf572e3b1bead991e6928d70e8e614e8f77d21c3d1e436401",
+        "assertion_ids": [leads_id],
+        "entity_ids": [alice_id, aurora_id],
+        "edge_directions": ["forward"],
+        "predicates": ["leads"],
+        "seed_id": alice_id,
+    }
+    second_path = {
+        "graph_path_id": "4de89728d40c0113fb71186e56eae28e048c194ab29166c39f8ce1925a606e70",
+        "assertion_ids": [leads_id, uses_id],
+        "entity_ids": [alice_id, aurora_id, helios_id],
+        "edge_directions": ["forward", "forward"],
+        "predicates": ["leads", "uses"],
+        "seed_id": alice_id,
+    }
+    return [
+        {
+            "entity": {"canonical_name": "Alice"},
+            "candidate_id": leads_id,
+            "evidence_id": leads_id,
+            "assertion_id": leads_id,
+            "provenance": [leads],
+            "retrieval_provenance": {
+                "origins": ["graph"],
+                "lane_ranks": {"graph": 1},
+                "graph_hop_count": 1,
+                "graph_path_assertion_ids": [leads_id],
+                "graph_paths": [first_path],
+            },
+        },
+        {
+            "entity": {"canonical_name": "HeliosDB"},
+            "candidate_id": uses_id,
+            "evidence_id": uses_id,
+            "assertion_id": uses_id,
+            "provenance": [uses, leads],
+            "retrieval_provenance": {
+                "origins": ["graph"],
+                "lane_ranks": {"graph": 2},
+                "graph_hop_count": 2,
+                "graph_path_assertion_ids": [leads_id, uses_id],
+                "graph_paths": [second_path],
+            },
+        },
+    ]
+
+
 @pytest.mark.asyncio
 async def test_historical_shape_keeps_minimum_complete_graph_proof():
     """A compactable valid proof must not become zero evidence at 2048 tokens."""
@@ -205,6 +274,29 @@ async def test_historical_shape_keeps_minimum_complete_graph_proof():
     }
     assert context["context_status"] == "CONTEXT_BUILT_SUCCESSFULLY"
     assert context["context_diagnostics"]["compacted_graph_proof_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_graph_chain_budget_counts_evidence_not_internal_path_metadata():
+    """Opaque path identifiers must not evict graph-retrieved target evidence."""
+    context, _ = await _build_context(_graph_chain_candidates(), token_budget=1000)
+
+    assert {
+        memory["entity"]["canonical_name"] for memory in context["canonical_memories"]
+    } == {"Alice", "HeliosDB"}
+    assert "Alice" in context["formatted_context"]
+    assert "Aurora" in context["formatted_context"]
+    assert "HeliosDB" in context["formatted_context"]
+    assert "graph_path_id" not in context["formatted_context"]
+    helios = next(
+        memory
+        for memory in context["canonical_memories"]
+        if memory["entity"]["canonical_name"] == "HeliosDB"
+    )
+    assert helios["retrieval_provenance"]["graph_paths"] == [
+        _graph_chain_candidates()[1]["retrieval_provenance"]["graph_paths"][0]
+    ]
+    assert context["actual_token_count"] <= 1000
 
 
 @pytest.mark.asyncio

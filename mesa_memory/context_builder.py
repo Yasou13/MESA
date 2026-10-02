@@ -56,7 +56,7 @@ def _valid_graph_paths(
         return []
 
     paths: list[tuple[int, dict[str, Any]]] = []
-    for original_index, raw_path in enumerate(memory.get("graph_paths", [])):
+    for original_index, raw_path in enumerate(memory.get("_graph_paths", [])):
         if not isinstance(raw_path, dict):
             continue
         path = _visible_graph_path(raw_path)
@@ -129,7 +129,7 @@ def _minimum_complete_graph_proof(
         deepcopy(facts_by_assertion_id[assertion_id])
         for assertion_id in selected_path["assertion_ids"]
     ]
-    compact["graph_paths"] = [deepcopy(selected_path)]
+    compact["_graph_paths"] = [deepcopy(selected_path)]
     compact["_selected_graph_path"] = deepcopy(selected_path)
     compact["_proof_compacted"] = (
         len(valid_paths) != 1
@@ -374,7 +374,10 @@ class ContextBuilder:
                 "_retrieval_provenance": deepcopy(retrieval_prov),
             }
             if graph_paths:
-                memory_record["graph_paths"] = graph_paths
+                # Structural path metadata drives atomic proof selection and
+                # remains available in canonical retrieval provenance.  It is
+                # not evidence text, so keep it out of the model token budget.
+                memory_record["_graph_paths"] = graph_paths
             memory_records.append(memory_record)
 
         # 4. Enforce the hard token budget in fused retrieval order.  Full
