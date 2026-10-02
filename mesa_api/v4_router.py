@@ -1321,6 +1321,8 @@ def create_v4_router(
             "context": ctx["formatted_context"],
             "canonical_memories": ctx["canonical_memories"],
             "estimated_token_count": ctx["estimated_token_count"],
+            "context_status": ctx["context_status"],
+            "context_diagnostics": ctx["context_diagnostics"],
             "mutations": mutations,
         }
 
