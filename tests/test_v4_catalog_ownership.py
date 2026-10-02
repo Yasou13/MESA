@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
+from mesa_memory.embedding.service import EmbeddingIdentity
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
@@ -461,6 +462,9 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
     await engine.initialize()
     await initialize_schema(engine)
     vector = SimpleNamespace(
+        embedding_identity=EmbeddingIdentity(
+            provider="test", model="catalog-contract", version="v1", dimension=2
+        ),
         compute_embedding=AsyncMock(return_value=[1.0, 0.0]),
         compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
         upsert=AsyncMock(),
