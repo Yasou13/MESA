@@ -402,74 +402,95 @@ class ContextBuilder:
                 for record in records
             ]
 
-        compacted_graph_proof_count = 0
         budget_rejections: list[dict[str, Any]] = []
 
-        def _fits_with_selected(candidate: dict[str, Any]) -> bool:
+        def _fits(records: list[dict[str, Any]]) -> bool:
             return (
-                _count_tokens(
-                    _render_context(
-                        [], _model_visible_records([*cur_memories, candidate])
-                    )
-                )
+                _count_tokens(_render_context([], _model_visible_records(records)))
                 <= token_budget
             )
 
+        # Give every ranked candidate one chance to place its minimum valid
+        # representation before a large early candidate consumes the budget.
+        # This preserves retrieval order without allowing a many-fact entity to
+        # crowd out all lower-ranked evidence.
+        prepared_memories: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
         for memory in memory_records:
             if not memory["facts"]:
                 continue
             full_memory = deepcopy(memory)
-            if _fits_with_selected(full_memory):
-                cur_memories.append(full_memory)
-                continue
-
             candidate_id = canonical_memories[memory["_raw_index"]].get("candidate_id")
             if memory.get("_is_atomic_proof"):
                 compact = _minimum_complete_graph_proof(
                     memory, memory["_principal_assertion_id"]
                 )
-                if compact is not None and _fits_with_selected(compact):
+                if compact is not None:
                     selected_path = compact["_selected_graph_path"]
                     compact["_retrieval_provenance"] = _selected_retrieval_provenance(
                         memory["_retrieval_provenance"], selected_path
                     )
-                    cur_memories.append(compact)
-                    compacted_graph_proof_count += 1
-                    continue
+                    minimum_memory = compact
+                else:
+                    # Older atomic metadata without a complete graph_paths
+                    # contract cannot be split safely.
+                    minimum_memory = full_memory
+            else:
+                minimum_memory = deepcopy(memory)
+                minimum_memory["facts"] = minimum_memory["facts"][:1]
 
-                minimum_exceeds_budget = compact is None or (
-                    _count_tokens(
-                        _render_context(
-                            [],
-                            _model_visible_records([compact]),
-                        )
-                    )
-                    > token_budget
-                )
+            prepared_memories.append((full_memory, minimum_memory, candidate_id))
+            if not _fits([minimum_memory]):
                 budget_rejections.append(
                     {
                         "candidate_id": candidate_id,
                         "reason": (
                             "PROOF_EXCEEDS_CONTEXT_BUDGET"
-                            if minimum_exceeds_budget
-                            else "CONTEXT_BUDGET_EXHAUSTED"
+                            if memory.get("_is_atomic_proof")
+                            else "EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
                         ),
                     }
                 )
-                continue
-
-            trimmed = deepcopy(memory)
-            while trimmed["facts"] and not _fits_with_selected(trimmed):
-                trimmed["facts"].pop()
-            if trimmed["facts"]:
-                cur_memories.append(trimmed)
+            elif _fits([*cur_memories, minimum_memory]):
+                cur_memories.append(minimum_memory)
             else:
                 budget_rejections.append(
                     {
                         "candidate_id": candidate_id,
-                        "reason": "EVIDENCE_EXCEEDS_CONTEXT_BUDGET",
+                        "reason": "CONTEXT_BUDGET_EXHAUSTED",
                     }
                 )
+
+        # Enrich retained candidates in the same fused order. Atomic graph
+        # candidates upgrade only as a whole; non-graph candidates add whole
+        # facts one at a time.
+        retained_by_index = {
+            memory["_raw_index"]: position
+            for position, memory in enumerate(cur_memories)
+        }
+        for full_memory, minimum_memory, _ in prepared_memories:
+            position = retained_by_index.get(full_memory["_raw_index"])
+            if position is None:
+                continue
+            if full_memory.get("_is_atomic_proof"):
+                if minimum_memory.get("_proof_compacted"):
+                    enriched = list(cur_memories)
+                    enriched[position] = full_memory
+                    if _fits(enriched):
+                        cur_memories = enriched
+                continue
+
+            for fact in full_memory["facts"][1:]:
+                enriched_memory = deepcopy(cur_memories[position])
+                enriched_memory["facts"].append(deepcopy(fact))
+                enriched = list(cur_memories)
+                enriched[position] = enriched_memory
+                if not _fits(enriched):
+                    break
+                cur_memories = enriched
+
+        compacted_graph_proof_count = sum(
+            1 for memory in cur_memories if memory.get("_proof_compacted")
+        )
 
         formatted_context = _render_context(
             cur_sessions, _model_visible_records(cur_memories)
