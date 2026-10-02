@@ -55,6 +55,7 @@ import logging
 import re
 import unicodedata
 import uuid
+from collections import Counter
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Protocol, cast
@@ -75,6 +76,7 @@ from mesa_storage.repositories.operations import (
 )
 from mesa_storage.representation import (
     V4_ASSERTION_REPRESENTATION_VERSION,
+    V4_VECTOR_CONSUMER_CONTRACT,
     V4_VECTOR_REPRESENTATION_VERSION,
     build_v4_assertion_vector_payload,
 )
@@ -92,6 +94,17 @@ from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
 
 logger = logging.getLogger("MESA_DAO")
+
+V4_VECTOR_LANE_DIAGNOSTIC_CONTRACT_VERSION = "mesa.vector-lane.v1"
+
+
+def _decode_registry_metadata(value: Any) -> dict[str, Any]:
+    """Decode registry metadata without ever treating malformed data as valid."""
+    try:
+        decoded = json.loads(str(value or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 
 def _public_tier3_audit(value: Any) -> dict[str, Any] | None:
@@ -5588,18 +5601,19 @@ class MemoryDAO:
             placeholders = ",".join("?" for _ in datasets)
             async with db.execute(
                 "SELECT DISTINCT r.artifact_kind, r.physical_artifact_id, "
-                "r.metadata_json FROM artifact_registry r "
+                "r.metadata_json, r.registry_id FROM artifact_registry r "
                 "JOIN artifact_sources s ON s.registry_id = r.registry_id "
                 "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
                 "LEFT JOIN v4_entities e ON r.artifact_kind = 'ENTITY' "
                 "AND e.entity_id = r.physical_artifact_id "
                 f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
                 "AND m.agent_id = ? AND m.state = 'COMMITTED' "
+                "AND (r.artifact_kind != 'ASSERTION_VECTOR' OR r.agent_id = ?) "
                 "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
                 "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR') "
                 "AND (r.artifact_kind = 'ASSERTION_VECTOR' OR "
                 "(e.tenant_id = r.tenant_id AND e.status = 'ACTIVE'))",
-                (tenant_id, *datasets, agent_id),
+                (tenant_id, *datasets, agent_id, agent_id),
             ) as cursor:
                 artifact_rows = await cursor.fetchall()
 
@@ -5732,19 +5746,37 @@ class MemoryDAO:
         raw_allowed_entity_ids = {
             str(row[1]) for row in artifact_rows if row[0] == "ENTITY"
         }
+        embedding_identity = getattr(self._vec, "embedding_identity", None)
         allowed_vector_registry_ids: set[str] = set()
+        vector_registry_artifacts: dict[str, dict[str, Any]] = {}
+        vector_rejection_reasons: Counter[str] = Counter()
+        vector_registry_count = 0
         for artifact_row in artifact_rows:
             if artifact_row[0] != "ASSERTION_VECTOR":
                 continue
-            try:
-                artifact_metadata = json.loads(str(artifact_row[2] or "{}"))
-            except (TypeError, json.JSONDecodeError):
-                artifact_metadata = {}
-            if (
-                artifact_metadata.get("representation_version")
-                == V4_VECTOR_REPRESENTATION_VERSION
-            ):
-                allowed_vector_registry_ids.add(str(artifact_row[1]))
+            vector_registry_count += 1
+            artifact_metadata = _decode_registry_metadata(artifact_row[2])
+            registry_id = str(artifact_row[3]) if len(artifact_row) > 3 else ""
+            errors = list(
+                V4_VECTOR_CONSUMER_CONTRACT.compatibility_errors(
+                    artifact_metadata,
+                    embedding_identity=embedding_identity,
+                )
+            )
+            if not registry_id:
+                errors.append("registry_id")
+            if errors:
+                vector_rejection_reasons.update(errors)
+                continue
+            vector_id = str(artifact_row[1])
+            allowed_vector_registry_ids.add(vector_id)
+            vector_registry_artifacts[vector_id] = {
+                "registry_id": registry_id,
+                "vector_id": vector_id,
+                "representation_version": artifact_metadata["representation_version"],
+                "embedding_space_id": artifact_metadata["embedding_space_id"],
+                "embedding_dimension": artifact_metadata["embedding_dimension"],
+            }
         in_scope_assertions = {
             str(row["assertion_id"]): dict(row) for row in in_scope_assertion_rows
         }
@@ -5763,12 +5795,56 @@ class MemoryDAO:
             allowed_entity_ids = (
                 raw_allowed_entity_ids & in_scope_entity_ids_from_assertions
             )
-            if not allowed_entity_ids and not in_scope_assertion_ids:
-                return []
         else:
             allowed_entity_ids = raw_allowed_entity_ids
 
         allowed_vector_ids = allowed_vector_registry_ids & in_scope_assertion_ids
+        identity_metadata = V4_VECTOR_CONSUMER_CONTRACT._identity_metadata(
+            embedding_identity
+        )
+        vector_lane_diagnostics: dict[str, Any] = {
+            "contract_version": V4_VECTOR_LANE_DIAGNOSTIC_CONTRACT_VERSION,
+            "status": (
+                "no_registry_artifacts"
+                if vector_registry_count == 0
+                else (
+                    "no_compatible_artifacts"
+                    if not allowed_vector_registry_ids
+                    else (
+                        "no_in_scope_artifacts" if not allowed_vector_ids else "ready"
+                    )
+                )
+            ),
+            "representation_version": V4_VECTOR_CONSUMER_CONTRACT.representation_version,
+            "embedding_space_id": (
+                identity_metadata["embedding_space_id"]
+                if identity_metadata is not None
+                else None
+            ),
+            "registry_artifact_count": vector_registry_count,
+            "compatible_registry_artifact_count": len(allowed_vector_registry_ids),
+            "allowed_vector_id_count": len(allowed_vector_ids),
+            "rejected_artifact_count": (
+                vector_registry_count - len(allowed_vector_registry_ids)
+            ),
+            "rejection_reasons": dict(sorted(vector_rejection_reasons.items())),
+            "search_executed": False,
+            "search_result_count": 0,
+            "candidate_count": 0,
+            "physical_vector_id_count": len(allowed_vector_ids),
+            "missing_vector_id_count": 0,
+        }
+        if certification_metadata is not None:
+            certification_metadata["vector_lane"] = vector_lane_diagnostics
+        if vector_registry_count and not allowed_vector_registry_ids:
+            logger.warning(
+                "V4_VECTOR_LANE_NO_COMPATIBLE_ARTIFACTS | tenant_id=%s "
+                "agent_id=%s registry_artifacts=%s rejection_reasons=%s",
+                tenant_id,
+                agent_id,
+                vector_registry_count,
+                dict(sorted(vector_rejection_reasons.items())),
+            )
         if not allowed_entity_ids and not in_scope_assertion_ids:
             return []
 
@@ -5777,13 +5853,41 @@ class MemoryDAO:
         vector_assertions: dict[str, dict[str, Any]] = {}
         if self._vec is not None and allowed_vector_ids:
             try:
-                query_vector = await self._vec.compute_query_embedding(query)
-                vector_rows = await self._vec.search(
-                    query_vector,
-                    agent_id=agent_id,
-                    allowed_node_ids=allowed_vector_ids,
-                    limit=min(500, max(limit * 10, 50)),
-                )
+                searchable_vector_ids = allowed_vector_ids
+                if callable(getattr(type(self._vec), "get_existing_node_ids", None)):
+                    existing_vector_ids = await self._vec.get_existing_node_ids(
+                        agent_id, sorted(allowed_vector_ids)
+                    )
+                    searchable_vector_ids = allowed_vector_ids & existing_vector_ids
+                    missing_vector_ids = allowed_vector_ids - existing_vector_ids
+                    vector_lane_diagnostics["physical_vector_id_count"] = len(
+                        searchable_vector_ids
+                    )
+                    vector_lane_diagnostics["missing_vector_id_count"] = len(
+                        missing_vector_ids
+                    )
+                    if missing_vector_ids:
+                        logger.warning(
+                            "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "
+                            "agent_id=%s missing_vector_ids=%s",
+                            tenant_id,
+                            agent_id,
+                            len(missing_vector_ids),
+                        )
+                    if not searchable_vector_ids:
+                        vector_lane_diagnostics["status"] = "registry_vector_mismatch"
+                if not searchable_vector_ids:
+                    vector_rows = []
+                else:
+                    query_vector = await self._vec.compute_query_embedding(query)
+                    vector_rows = await self._vec.search(
+                        query_vector,
+                        agent_id=agent_id,
+                        allowed_node_ids=searchable_vector_ids,
+                        limit=min(500, max(limit * 10, 50)),
+                    )
+                    vector_lane_diagnostics["search_executed"] = True
+                vector_lane_diagnostics["search_result_count"] = len(vector_rows)
                 seen_vec: set[str] = set()
                 ranked_assertion_ids: list[str] = []
                 for v_row in vector_rows:
@@ -5816,8 +5920,31 @@ class MemoryDAO:
                             and assertion_id not in vector_lane
                         ):
                             vector_lane.append(assertion_id)
+                vector_lane_diagnostics["candidate_count"] = len(vector_lane)
+                if vector_lane:
+                    vector_lane_diagnostics["status"] = "active"
+                elif not vector_rows and searchable_vector_ids:
+                    vector_lane_diagnostics["status"] = "registry_vector_mismatch"
+                    logger.warning(
+                        "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "
+                        "agent_id=%s allowed_vector_ids=%s",
+                        tenant_id,
+                        agent_id,
+                        len(allowed_vector_ids),
+                    )
+                else:
+                    vector_lane_diagnostics["status"] = "provenance_mismatch"
+                    logger.warning(
+                        "V4_VECTOR_PROVENANCE_MISMATCH | tenant_id=%s "
+                        "agent_id=%s search_results=%s candidates=%s",
+                        tenant_id,
+                        agent_id,
+                        len(vector_rows),
+                        len(vector_lane),
+                    )
             except SemanticRuntimeDisabledError:
                 vector_lane = []
+                vector_lane_diagnostics["status"] = "semantic_runtime_disabled"
 
         # Phase 4: Structured Query Parsing & Passage/Article Lexical Retrieval
         TURKISH_LEGAL_STOPWORDS = {
@@ -6408,6 +6535,11 @@ class MemoryDAO:
                 "origins": origins_set,
                 "lane_ranks": lane_ranks,
                 "raw_scores": raw_scores,
+                "vector_artifact": (
+                    vector_registry_artifacts.get(candidate_id)
+                    if "vector" in origins_set
+                    else None
+                ),
                 "supporting_evidence_ids": list(
                     graph_evidence.get("graph_supporting_assertion_ids", [])
                 ),
@@ -6674,6 +6806,25 @@ class MemoryDAO:
                 retrieval_provenance["assertion_id"] = cand["assertion_id"]
             if cand["source_chunk_id"]:
                 retrieval_provenance["source_chunk_id"] = cand["source_chunk_id"]
+            vector_artifact = cand.get("vector_artifact")
+            if vector_artifact is not None:
+                retrieval_provenance["vector"] = {
+                    **vector_artifact,
+                    "distance": cand["raw_scores"]["vector"],
+                    "rank": cand["lane_ranks"]["vector"],
+                    "scope_identity": {
+                        "tenant_id": tenant_id,
+                        "dataset_id": (
+                            str(
+                                cand["materialized_provenance"][0].get("dataset_id")
+                                or ""
+                            )
+                            if cand["materialized_provenance"]
+                            else ""
+                        ),
+                        "agent_id": agent_id,
+                    },
+                }
             if cand.get("graph_evidence"):
                 retrieval_provenance.update(cand["graph_evidence"])
 
@@ -10056,6 +10207,54 @@ class MemoryDAO:
     # HEALTH — engine passthrough
     # ==================================================================
 
+    async def vector_consumer_status(self) -> dict[str, Any]:
+        """Report whether active registry vectors can be consumed right now."""
+        embedding_identity = getattr(self._vec, "embedding_identity", None)
+        identity_metadata = V4_VECTOR_CONSUMER_CONTRACT._identity_metadata(
+            embedding_identity
+        )
+        async with self._sql.connection() as db:
+            async with db.execute(
+                "SELECT DISTINCT r.registry_id, r.metadata_json "
+                "FROM artifact_registry r "
+                "WHERE r.store_name = 'VECTOR' "
+                "AND r.artifact_kind = 'ASSERTION_VECTOR' "
+                "AND r.state = 'ACTIVE' "
+                "AND EXISTS (SELECT 1 FROM artifact_sources s "
+                "WHERE s.registry_id = r.registry_id AND s.state = 'ACTIVE')"
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        rejection_reasons: Counter[str] = Counter()
+        compatible = 0
+        for row in rows:
+            metadata = _decode_registry_metadata(row[1])
+            errors = V4_VECTOR_CONSUMER_CONTRACT.compatibility_errors(
+                metadata,
+                embedding_identity=embedding_identity,
+            )
+            if errors:
+                rejection_reasons.update(errors)
+            else:
+                compatible += 1
+        active = len(rows)
+        return {
+            "status": (
+                "empty" if active == 0 else "healthy" if compatible > 0 else "degraded"
+            ),
+            "contract_version": V4_VECTOR_LANE_DIAGNOSTIC_CONTRACT_VERSION,
+            "representation_version": V4_VECTOR_CONSUMER_CONTRACT.representation_version,
+            "embedding_space_id": (
+                identity_metadata["embedding_space_id"]
+                if identity_metadata is not None
+                else None
+            ),
+            "active_registry_artifacts": active,
+            "compatible_registry_artifacts": compatible,
+            "rejected_registry_artifacts": active - compatible,
+            "rejection_reasons": dict(sorted(rejection_reasons.items())),
+        }
+
     async def health_check(self) -> dict[str, Any]:
         """Aggregate health status from all storage backends."""
         sql_health = await self._sql.health_check()
@@ -10138,6 +10337,7 @@ class MemoryDAO:
             "pipeline_states": pipeline_states,
         }
         result["v4_rebuild"] = await self._rebuild_health.snapshot()
+        result["v4_vector_consumer"] = await self.vector_consumer_status()
         return result
 
     @staticmethod

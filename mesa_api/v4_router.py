@@ -319,6 +319,27 @@ class V4GraphAblation(BaseModel):
     scope_identity: str
 
 
+class V4VectorLaneDiagnostics(BaseModel):
+    """Bounded explanation of vector-lane availability for one search."""
+
+    model_config = ConfigDict(frozen=True)
+
+    contract_version: str
+    status: str
+    representation_version: str
+    embedding_space_id: str | None = None
+    registry_artifact_count: int = Field(ge=0)
+    compatible_registry_artifact_count: int = Field(ge=0)
+    allowed_vector_id_count: int = Field(ge=0)
+    rejected_artifact_count: int = Field(ge=0)
+    rejection_reasons: dict[str, int]
+    search_executed: bool
+    search_result_count: int = Field(ge=0)
+    candidate_count: int = Field(ge=0)
+    physical_vector_id_count: int = Field(ge=0)
+    missing_vector_id_count: int = Field(ge=0)
+
+
 class V4SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -327,6 +348,7 @@ class V4SearchResponse(BaseModel):
     results: list[dict[str, Any]]
     scope_audit: V4ScopeAudit | None = None
     graph_ablation: V4GraphAblation | None = None
+    vector_lane: V4VectorLaneDiagnostics | None = None
 
 
 def _active_principal(request: Request):
@@ -836,6 +858,12 @@ def create_v4_router(
             "semantic_operational",
             getattr(getattr(dao, "_vec", None), "semantic_runtime_available", False),
         )
+        vector_contract_available = True
+        if callable(getattr(type(dao), "vector_consumer_status", None)):
+            vector_consumer = await dao.vector_consumer_status()
+            vector_contract_available = (
+                vector_consumer.get("compatible_registry_artifacts", 0) > 0
+            )
         graph_available = getattr(dao, "graph_operational", False)
         canonical_writes_available = dao.canonical_v4_writes_enabled is not False
         capabilities = V4CapabilityFlags(
@@ -843,7 +871,9 @@ def create_v4_router(
             idempotent_ingestion=canonical_writes_available,
             durable_rebuild=config.v4_rebuild_enabled,
             vector_retrieval=(
-                vector_available if isinstance(vector_available, bool) else False
+                vector_available and vector_contract_available
+                if isinstance(vector_available, bool)
+                else False
             ),
             graph_projection=canonical_writes_available,
             graph_neighbor_retrieval=(
