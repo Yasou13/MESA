@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -153,6 +154,12 @@ async def _ingest_entity_and_assertion(
             ),
         )
         reg_aid = f"reg_vec_{a_id}"
+        identity = dao._vec.embedding_identity
+        vector_metadata = {
+            **identity.as_dict(),
+            "embedding_dimension": identity.dimension,
+            "representation_version": V4_VECTOR_REPRESENTATION_VERSION,
+        }
         await db.execute(
             "INSERT OR IGNORE INTO artifact_registry (registry_id, tenant_id, agent_id, store_name, artifact_kind, physical_artifact_id, state, metadata_json) "
             "VALUES (?, ?, ?, 'canonical', 'ASSERTION_VECTOR', ?, 'ACTIVE', ?)",
@@ -161,7 +168,7 @@ async def _ingest_entity_and_assertion(
                 tenant_id,
                 agent_id,
                 a_id,
-                '{"representation_version":"' + V4_VECTOR_REPRESENTATION_VERSION + '"}',
+                json.dumps(vector_metadata),
             ),
         )
         await db.execute(
@@ -203,7 +210,6 @@ async def test_a_provider_wiring(tmp_path):
             predicate="leads",
             object_name="Aurora",
         )
-
         with patch.object(
             graph, "search_v4_graph", wraps=graph.search_v4_graph
         ) as spy_graph:
@@ -848,7 +854,7 @@ async def test_j_semantic_capability_and_failure_handling(tmp_path):
         assert vec_unloaded.semantic_runtime_available is False
 
         # Ingest one entity so search_v4_memory executes vector search
-        await _ingest_entity_and_assertion(
+        _subject_id, _object_id, assertion_id = await _ingest_entity_and_assertion(
             dao,
             graph,
             tenant_id="test-tenant",
@@ -858,6 +864,11 @@ async def test_j_semantic_capability_and_failure_handling(tmp_path):
             subject_name="Alice",
             predicate="leads",
             object_name="Aurora",
+        )
+        await vector.upsert(
+            assertion_id,
+            "test-agent",
+            [1.0] + [0.0] * 7,
         )
 
         # 2. VectorEngine operational failure mapping to 503 in v4_router
