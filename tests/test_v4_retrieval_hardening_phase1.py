@@ -16,9 +16,14 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
+from mesa_memory.embedding.service import EmbeddingIdentity
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
+
+TEST_EMBEDDING_IDENTITY = EmbeddingIdentity(
+    provider="test", model="catalog-contract", version="v1", dimension=2
+)
 
 
 async def _create_committed_mutation(
@@ -112,6 +117,7 @@ async def test_phase1_evidence_level_specificity_and_provenance_isolation(tmp_pa
     await initialize_schema(engine)
 
     vector = SimpleNamespace(
+        embedding_identity=TEST_EMBEDDING_IDENTITY,
         compute_embedding=AsyncMock(return_value=[1.0, 0.0]),
         compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
         upsert=AsyncMock(),
@@ -211,6 +217,7 @@ async def test_phase1_endpoint_expansion_does_not_displace_vector_rank(tmp_path)
     await initialize_schema(engine)
 
     vector = SimpleNamespace(
+        embedding_identity=TEST_EMBEDDING_IDENTITY,
         compute_embedding=AsyncMock(return_value=[1.0, 0.0]),
         compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
         upsert=AsyncMock(),

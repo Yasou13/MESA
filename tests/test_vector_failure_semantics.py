@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 import pytest
 
+from mesa_memory.embedding.service import EmbeddingIdentity
 from mesa_storage.dao import V4_VECTOR_REPRESENTATION_VERSION, MemoryDAO
 from mesa_storage.vector_engine import (
     EmbeddingMigrationRequiredError,
@@ -38,9 +40,14 @@ class _Connection:
                     (
                         "ASSERTION_VECTOR",
                         "assertion-1",
-                        '{"representation_version":"'
-                        + V4_VECTOR_REPRESENTATION_VERSION
-                        + '"}',
+                        json.dumps(
+                            {
+                                **_IDENTITY.as_dict(),
+                                "embedding_dimension": _IDENTITY.dimension,
+                                "representation_version": V4_VECTOR_REPRESENTATION_VERSION,
+                            }
+                        ),
+                        "registry-1",
                     ),
                 ]
             )
@@ -68,12 +75,18 @@ class _Catalog:
         return "dataset-physical-1"
 
 
+_IDENTITY = EmbeddingIdentity(
+    provider="test", model="failure-semantics", version="v1", dimension=2
+)
+
+
 def _dao(
     *,
     compute_error: Exception | None = None,
     search_error: Exception | None = None,
 ) -> MemoryDAO:
     vector = AsyncMock()
+    vector.embedding_identity = _IDENTITY
     vector.compute_query_embedding = AsyncMock(
         side_effect=compute_error,
         return_value=[0.1, 0.2],

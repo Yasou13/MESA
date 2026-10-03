@@ -4,7 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from test_v4_retrieval_hardening_phase1 import _create_committed_mutation
+from test_v4_retrieval_hardening_phase1 import (
+    TEST_EMBEDDING_IDENTITY,
+    _create_committed_mutation,
+)
 
 from mesa_memory.context_builder import ContextBuilder
 from mesa_storage.dao import MemoryDAO
@@ -20,6 +23,7 @@ async def make_env(tmp_path, *, real_graph=False):
     await sql.initialize()
     await initialize_schema(sql)
     vector = SimpleNamespace(
+        embedding_identity=TEST_EMBEDDING_IDENTITY,
         compute_embedding=AsyncMock(return_value=[1.0, 0.0]),
         compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
         upsert=AsyncMock(),
