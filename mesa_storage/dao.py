@@ -10223,7 +10223,7 @@ class MemoryDAO:
                 "AND EXISTS (SELECT 1 FROM artifact_sources s "
                 "WHERE s.registry_id = r.registry_id AND s.state = 'ACTIVE')"
             ) as cursor:
-                rows = await cursor.fetchall()
+                rows = list(await cursor.fetchall())
 
         rejection_reasons: Counter[str] = Counter()
         compatible = 0
