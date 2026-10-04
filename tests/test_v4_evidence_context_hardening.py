@@ -178,15 +178,11 @@ async def test_fallback_projection_preserves_full_multi_paragraph_source_in_cont
 
 
 @pytest.mark.asyncio
-async def test_budget_packing_considers_small_rank_three_candidate(monkeypatch) -> None:
+async def test_budget_packing_considers_small_rank_three_candidate() -> None:
     """Two verbose early candidates must not starve a fitting later candidate."""
-    monkeypatch.setattr(
-        "mesa_memory.context_builder._count_tokens",
-        lambda text: len(text.encode("utf-8")),
-    )
     candidates = [
-        _candidate(1, evidence=("A " * 350) + "RANK_ONE"),
-        _candidate(2, evidence=("B " * 200) + "RANK_TWO"),
+        _candidate(1, evidence=("A " * 1_000) + "RANK_ONE"),
+        _candidate(2, evidence=("B " * 1_000) + "RANK_TWO"),
         _candidate(3, evidence=("C " * 10) + "ANSWER_RANK_THREE"),
     ]
     dao = AsyncMock()
@@ -207,6 +203,32 @@ async def test_budget_packing_considers_small_rank_three_candidate(monkeypatch) 
     assert [memory["candidate_id"] for memory in context["canonical_memories"]] == [
         "candidate-1",
         "candidate-3",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fused_rank_wins_when_multiple_companions_fit() -> None:
+    candidates = [
+        _candidate(1, evidence=("A " * 600) + "RANK_ONE"),
+        _candidate(2, evidence=("B " * 600) + "RANK_TWO"),
+        _candidate(3, evidence=("C " * 600) + "RANK_THREE"),
+    ]
+    dao = AsyncMock()
+    dao.get_recent_logs.return_value = []
+    dao.search_v4_memory.return_value = candidates
+
+    context = await ContextBuilder(dao).build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=2048,
+    )
+
+    assert context["actual_token_count"] <= 2048
+    assert [memory["candidate_id"] for memory in context["canonical_memories"]] == [
+        "candidate-1",
+        "candidate-2",
     ]
 
 
@@ -274,45 +296,62 @@ async def test_duplicate_evidence_identity_does_not_consume_budget(monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_exact_budget_boundary_and_one_token_over_are_deterministic(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "mesa_memory.context_builder._count_tokens",
-        lambda text: len(text.encode("utf-8")),
-    )
-    candidate = _candidate(1, evidence="Complete boundary evidence.")
+async def test_exact_2048_budget_boundary_and_one_token_over_are_deterministic() -> (
+    None
+):
+    candidate = _candidate(1, evidence="")
     dao = AsyncMock()
     dao.get_recent_logs.return_value = []
     dao.search_v4_memory.return_value = [candidate]
     builder = ContextBuilder(dao)
 
-    baseline = await builder.build_context(
+    # " boundary" is one token in the production cl100k tokenizer.  Adjust
+    # against the fully rendered context so the fixture lands exactly at 2048,
+    # including trust tags and structured provenance overhead.
+    boundary_tokens = 0
+    for _ in range(8):
+        candidate["provenance"][0]["evidence_span"] = " boundary" * boundary_tokens
+        baseline = await builder.build_context(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            dataset_ids=["dataset-1"],
+            query="target",
+            token_budget=10_000,
+        )
+        deficit = 2048 - baseline["actual_token_count"]
+        if deficit == 0:
+            break
+        boundary_tokens += deficit
+        assert boundary_tokens >= 0
+    assert baseline["actual_token_count"] == 2048
+
+    exact = await builder.build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=2048,
+    )
+    candidate["provenance"][0]["evidence_span"] += " boundary"
+    over_baseline = await builder.build_context(
         tenant_id="tenant-1",
         agent_id="agent-1",
         dataset_ids=["dataset-1"],
         query="target",
         token_budget=10_000,
     )
-    exact_budget = baseline["actual_token_count"]
-    exact = await builder.build_context(
-        tenant_id="tenant-1",
-        agent_id="agent-1",
-        dataset_ids=["dataset-1"],
-        query="target",
-        token_budget=exact_budget,
-    )
     one_over = await builder.build_context(
         tenant_id="tenant-1",
         agent_id="agent-1",
         dataset_ids=["dataset-1"],
         query="target",
-        token_budget=exact_budget - 1,
+        token_budget=2048,
     )
 
-    assert exact["actual_token_count"] == exact_budget
+    assert exact["actual_token_count"] == 2048
     assert exact["canonical_memories"][0]["candidate_id"] == "candidate-1"
-    assert one_over["actual_token_count"] <= exact_budget - 1
+    assert over_baseline["actual_token_count"] == 2049
+    assert one_over["actual_token_count"] <= 2048
     assert one_over["canonical_memories"] == []
     assert one_over["context_status"] == "VALID_EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
 

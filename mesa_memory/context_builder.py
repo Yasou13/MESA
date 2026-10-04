@@ -459,7 +459,7 @@ class ContextBuilder:
                 minimum_memory["facts"] = minimum_memory["facts"][:1]
             prepared_memories.append((full_memory, minimum_memory, candidate_id))
 
-        viable_memories: list[tuple[dict[str, Any], dict[str, Any], Any, int]] = []
+        viable_memories: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
         for full_memory, minimum_memory, candidate_id in prepared_memories:
             if not _fits([minimum_memory]):
                 budget_rejections.append(
@@ -473,17 +473,12 @@ class ContextBuilder:
                     }
                 )
             else:
-                minimum_tokens = _count_tokens(
-                    _render_context([], _model_visible_records([minimum_memory]))
-                )
-                viable_memories.append(
-                    (full_memory, minimum_memory, candidate_id, minimum_tokens)
-                )
+                viable_memories.append((full_memory, minimum_memory, candidate_id))
 
         def _ordered_minimums(positions: set[int]) -> list[dict[str, Any]]:
             return [
                 minimum_memory
-                for position, (_, minimum_memory, _, _) in enumerate(viable_memories)
+                for position, (_, minimum_memory, _) in enumerate(viable_memories)
                 if position in positions
             ]
 
@@ -496,13 +491,10 @@ class ContextBuilder:
                 if partner != anchor and _fits(_ordered_minimums({anchor, partner}))
             ]
             if fitting_partners:
-                partner = min(
-                    fitting_partners,
-                    key=lambda position: (
-                        viable_memories[position][3],
-                        position,
-                    ),
-                )
+                # Fused rank remains the priority signal: reserve the earliest
+                # ranked partner that fits with this anchor.  A later, smaller
+                # candidate is considered only when earlier partners cannot fit.
+                partner = min(fitting_partners)
                 selected_pair = (anchor, partner)
                 break
 
@@ -521,7 +513,7 @@ class ContextBuilder:
                 selected_positions = proposed
 
         cur_memories = _ordered_minimums(selected_positions)
-        for position, (_, _, candidate_id, _) in enumerate(viable_memories):
+        for position, (_, _, candidate_id) in enumerate(viable_memories):
             if position not in selected_positions:
                 budget_rejections.append(
                     {
