@@ -80,6 +80,8 @@ class BoundedQueryPlanner:
 
     async def plan(self, original_query: str) -> PlannerResult:
         normalized_original = normalize_planner_query(original_query)
+        if not normalized_original or len(normalized_original) > MAX_QUERY_LENGTH:
+            return PlannerResult((), "planner_invalid_query_fallback_single")
         prompt = (
             "Generate search reformulations only. Do not answer the question.\n"
             "Preserve the user's intent and use concise retrieval-oriented wording.\n"

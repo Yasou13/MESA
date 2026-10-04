@@ -147,6 +147,18 @@ async def test_planner_provider_failure_falls_back(error: Exception) -> None:
 
 
 @pytest.mark.asyncio
+async def test_overlong_original_query_skips_provider_call() -> None:
+    adapter = _Adapter({"queries": ["unused"]})
+
+    result = await BoundedQueryPlanner(adapter).plan("x" * 4097)  # type: ignore[arg-type]
+
+    assert result == PlannerResult(
+        expansions=(), status="planner_invalid_query_fallback_single"
+    )
+    assert adapter.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_planner_validation_is_deterministic_and_citation_safe() -> None:
     response = {
         "queries": [
