@@ -662,6 +662,18 @@ def test_legal_resolver_extracts_range_and_chained_articles() -> None:
     } == {("TMK", "161")}
 
 
+@pytest.mark.parametrize(
+    "text",
+    ["TMK'nın 6 aylık süresi", "Türk Medeni Kanunu'nun 1 yıllık süresi"],
+)
+def test_legal_resolver_does_not_borrow_possessive_duration_as_article(
+    text: str,
+) -> None:
+    assert [
+        citation.article for citation in LegalEntityResolver().extract_citations(text)
+    ] == [None]
+
+
 async def _real_searchable_legal_memory(tmp_path):
     engine = AsyncEngine(str(tmp_path / "adaptive-retrieval.sqlite"))
     await engine.initialize()

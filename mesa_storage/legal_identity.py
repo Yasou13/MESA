@@ -206,7 +206,8 @@ class LegalEntityResolver:
         alias_pattern = "|".join(re.escape(alias) for alias in aliases)
         self._forward_pattern = re.compile(
             rf"(?:(?<=\W)|^)(?P<statute>{alias_pattern})(?:(?=\W)|$)"
-            rf"(?:['’]n?[ıiuü]n)?(?:\s*(?:m\.|md\.?|madde))?\s*"
+            rf"(?P<possessive>['’]n?[ıiuü]n)?"
+            rf"(?:\s*(?P<forward_art_marker>m\.|md\.?|madde))?\s*"
             rf"(?P<art>\d+)?(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?",
             re.IGNORECASE,
         )
@@ -233,6 +234,17 @@ class LegalEntityResolver:
             if not code:
                 continue
             article = match.group("art")
+            if (
+                article
+                and match.group("possessive")
+                and not match.group("forward_art_marker")
+                and re.match(
+                    r"\s*(?:aylık|yıllık|günlük|haftalık|saatlik|dakikalık|"
+                    r"ay|yıl|gün|hafta|saat|dakika)(?:\W|$)",
+                    normalized[match.end() :],
+                )
+            ):
+                article = None
 
             # Guard against short alias false positives (e.g. "ay" meaning month or digits)
             if statute_match in ("ay",):
