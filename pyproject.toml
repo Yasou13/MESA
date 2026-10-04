@@ -96,13 +96,6 @@ full = [
     "matplotlib>=3.10.0",
     "pillow>=12.0.0",
 ]
-benchmarks = [
-    "datasets>=2.14.0",
-    "sentence-transformers>=3.0.0",
-    "mem0ai>=0.1.0",
-    "letta-client>=1.0.0",
-    "zep-cloud>=2.0.0",
-]
 loadtest = [
     "aiohttp>=3.14.3",
     "locust>=2.29.0",
@@ -122,7 +115,6 @@ dev = [
 [project.scripts]
 mesa-recovery = "mesa_storage.recovery:main"
 mesa-v4-rebuild = "mesa_memory.rebuild_runner:main"
-mesa-benchmark = "mesa_benchmark.cli:main"
 mesa-v4-admin = "mesa_memory.security.admin_cli:main"
 mesa-mcp = "mesa_mcp.server:main"
 mesa-mcp-gateway = "mesa_mcp.gateway.app:main"
@@ -140,8 +132,8 @@ Issues = "https://github.com/Yasou13/MESA/issues"
 include-package-data = false
 
 [tool.setuptools.packages.find]
-where = [".", "mesa-benchmark"]
-include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*", "mesa_benchmark*"]
+where = ["."]
+include = ["mesa_memory*", "mesa_api*", "mesa_client*", "mesa_evals*", "mesa_storage*", "mesa_workers*", "mesa_mcp*"]
 exclude = [
     "*.__pycache__",
     "*.__pycache__.*",
@@ -177,8 +169,6 @@ plugins = ["pydantic.mypy"]
 exclude = [
     "^venv/",
     "^build/",
-    "^mesa-benchmark/scratch/",
-    "^mesa-benchmark/scripts/",
     "test_node\\.py$",
 ]
 
@@ -325,9 +315,3 @@ exclude_lines = [
 
 [tool.setuptools.package-data]
 "mesa_storage" = ["alembic.ini", "alembic/**/*"]
-"mesa_benchmark" = [
-    "resources/**/*.json",
-    "resources/**/*.tiktoken",
-    "resources/**/*.yaml",
-    "dashboard/static/**/*",
-]

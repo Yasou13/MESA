@@ -1,4 +1,4 @@
-.PHONY: install install-all dev v4-dev test test-local test-all test-adapters check bench docker-up v4-docker-up health zero-cost-dev
+.PHONY: install install-all dev v4-dev test test-local test-all test-adapters check docker-up v4-docker-up health zero-cost-dev
 
 UV ?= uv
 
@@ -31,11 +31,6 @@ test-adapters:
 check:
 	$(UV) run ruff check .
 	$(UV) run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases --follow-imports=skip
-	$(UV) run mypy mesa-benchmark/mesa_benchmark
-
-bench:
-	$(UV) run mesa-benchmark dataset-sync --suite smoke
-	$(UV) run mesa-benchmark run-suite --suite smoke --results-root results
 
 docker-up:
 	docker compose up --build -d

@@ -7,7 +7,7 @@ MESA BaseMemoryClient adapter. It tests multi-session continuity and
 long-term memory recall over massive context sizes.
 
 Usage:
-    python -m mesa_evals.run_beam_eval --adapter mesa --dataset mesa-benchmark/datasets/beam/dataset.json
+    python -m mesa_evals.run_beam_eval --adapter mesa --dataset path/to/beam/dataset.json
 """
 
 import argparse
@@ -219,7 +219,7 @@ def main() -> None:
         "--dataset",
         type=str,
         required=True,
-        help="Path to BEAM dataset JSON (e.g., mesa-benchmark/datasets/beam/dataset.json)",
+        help="Path to BEAM dataset JSON (e.g., path/to/beam/dataset.json)",
     )
     parser.add_argument(
         "--limit",

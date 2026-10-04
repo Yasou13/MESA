@@ -188,8 +188,7 @@ def test_profile_b_rendered_compose_environment_parity() -> None:
 
     assert container_env["MESA_EMBEDDING_PROVIDER"] == "openai_compatible"
     assert (
-        container_env["MESA_EXTERNAL_EMBEDDING_MODEL"]
-        == "nvidia/nemotron-3-embed-1b"
+        container_env["MESA_EXTERNAL_EMBEDDING_MODEL"] == "nvidia/nemotron-3-embed-1b"
     )
     assert container_env["MESA_EMBEDDING_DIMENSION"] == "2048"
     assert container_env["MESA_EMBEDDING_VERSION"] == "nemotron-qpass-v1"
@@ -215,16 +214,11 @@ def test_profile_b_rendered_compose_environment_parity() -> None:
     assert parsed_config.llm_timeout_seconds == 35.0
     assert parsed_config.llm_api_key == "test-llm-secret-sentinel"
     assert parsed_config.embedding_provider == "openai_compatible"
-    assert (
-        parsed_config.external_embedding_model == "nvidia/nemotron-3-embed-1b"
-    )
+    assert parsed_config.external_embedding_model == "nvidia/nemotron-3-embed-1b"
     assert parsed_config.embedding_dimension == 2048
     assert parsed_config.embedding_version == "nemotron-qpass-v1"
     assert parsed_config.embedding_normalized is True
-    assert (
-        parsed_config.embedding_base_url
-        == "https://integrate.api.nvidia.com/v1"
-    )
+    assert parsed_config.embedding_base_url == "https://integrate.api.nvidia.com/v1"
     assert parsed_config.embedding_api_key == "test-embed-secret-sentinel"
     assert parsed_config.embedding_model_revision == "nemotron-rev-1"
     assert parsed_config.extraction_provider == "openai_compatible"
@@ -254,11 +248,6 @@ def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> N
     assert "--frozen" in dockerfile
     assert "FROM ${PYTHON_IMAGE} AS python-base" in dockerfile
     assert "apt-get upgrade -y --no-install-recommends" in dockerfile
-
-    benchmark_dockerfile = (ROOT / "mesa-benchmark" / "Dockerfile").read_text(
-        encoding="utf-8"
-    )
-    assert "apt-get upgrade -y --no-install-recommends" in benchmark_dockerfile
 
 
 def test_readme_compose_quickstart_matches_the_fail_closed_compose_profile() -> None:
@@ -364,7 +353,7 @@ def test_ci_runs_the_full_coverage_suite_on_the_docker_python_version() -> None:
     assert "coverage-report-${{ matrix.python-version }}" in coverage_job
 
 
-def test_mcp_and_benchmark_coverage_gates_reject_regressions() -> None:
+def test_mcp_coverage_gates_reject_regressions() -> None:
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     mcp_coverage = ci.split("  mcp-coverage:", maxsplit=1)[1].split(
         "  zero-cost-contract:", maxsplit=1
@@ -373,21 +362,6 @@ def test_mcp_and_benchmark_coverage_gates_reject_regressions() -> None:
     assert "--cov=mesa_mcp.v4_service --cov-fail-under=55" in mcp_coverage
     assert "mcp-coverage.xml" in mcp_coverage
     assert "mcp-coverage.json" in mcp_coverage
-
-    benchmark_workflow = (
-        ROOT / ".github" / "workflows" / "benchmark-quality.yml"
-    ).read_text(encoding="utf-8")
-    assert "--cov=mesa_benchmark.dashboard --cov-fail-under=54" in benchmark_workflow
-    assert "benchmark-coverage.xml" in benchmark_workflow
-    assert "benchmark-coverage.json" in benchmark_workflow
-    assert "npm run test:coverage" in benchmark_workflow
-
-    frontend_config = (
-        ROOT / "mesa-benchmark" / "dashboard-ui" / "vite.config.ts"
-    ).read_text(encoding="utf-8")
-    assert 'provider: "v8"' in frontend_config
-    assert "lines: 10" in frontend_config
-    assert "branches: 30" in frontend_config
 
 
 def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cost() -> (
@@ -406,20 +380,17 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_shipped_images() -> 
         "  zero-cost-contract:", maxsplit=1
     )[0]
 
-    assert "uv sync --locked --extra dev --extra benchmarks" in supply_chain
-    assert "npm ci --ignore-scripts" in supply_chain
-    assert "npm audit --omit=dev --audit-level=high" in supply_chain
-    assert "docker build --pull=false --tag mesa-benchmark:security" in supply_chain
+    assert "uv sync --locked --extra dev" in supply_chain
     assert "docker build --pull=false --tag mesa-memory:security" in supply_chain
     assert 'TRIVY_TIMEOUT: "10m"' in supply_chain
     assert (
         supply_chain.count(
             "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
         )
-        == 5
+        == 4
     )
-    assert supply_chain.count('exit-code: "1"') == 3
-    assert supply_chain.count("severity: HIGH,CRITICAL") == 3
+    assert supply_chain.count('exit-code: "1"') == 2
+    assert supply_chain.count("severity: HIGH,CRITICAL") == 2
     assert "format: cyclonedx" in supply_chain
     assert supply_chain.count("if: always()") == 3
     assert "supply-chain-sbom.cdx.json" in supply_chain
@@ -428,11 +399,10 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_shipped_images() -> 
     dependabot = yaml.safe_load(
         (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
     )
-    assert {
-        "package-ecosystem": "npm",
-        "directory": "/mesa-benchmark/dashboard-ui",
-        "schedule": {"interval": "weekly"},
-    } in dependabot["updates"]
+    assert not any(
+        u.get("directory") == "/mesa-benchmark/dashboard-ui"
+        for u in dependabot["updates"]
+    )
 
 
 def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None:
@@ -444,19 +414,6 @@ def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None
     assert 'uv run python -c "from mesa_memory.runtime_entrypoint' in docs_smoke
     assert 'uv run python -c "from mesa_memory.worker_runtime' in docs_smoke
     assert "uv run mesa-recovery --help" in docs_smoke
-
-
-def test_benchmark_workflow_defers_runner_temp_resolution_to_a_step() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "benchmark-quality.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert "BENCHMARK_JUDGE_CALIBRATION_PATH: ${{ runner.temp }}" not in workflow
-    assert (
-        'echo "BENCHMARK_JUDGE_CALIBRATION_PATH=$RUNNER_TEMP/judge-calibration.json" '
-        '>> "$GITHUB_ENV"'
-    ) in workflow
-    assert "timeout-minutes: 720" not in workflow
 
 
 def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:

@@ -531,16 +531,12 @@ uv run ruff check .
 
 # Historical synthetic diagnostics (not a release gate)
 python -m mesa_evals.evals        # Run 30-entry synthetic benchmark
-
-# Canonical benchmark/release evidence
-mesa-benchmark --help
 ```
 
 `mesa_evals`, yalnız tarihsel sentetik tanılama paketidir ve release authority
 değildir. MESA, Mem0, Zep veya Letta arasında yayınlanabilir karşılaştırma
-sonucu üretmez. Bu amaçla kanonik paket ve CLI olan `mesa-benchmark` kullanılır;
-onun metodolojisi, external dataset kuralları ve sonuç geçerliliği
-`mesa-benchmark/README.md` içinde tanımlanır.
+sonucu üretmez. Dış sistem karşılaştırmalı, yayınlanabilir bilimsel benchmark suite'i
+bağımsız `mesa_benchmark` reposunda (`mesa-benchmark` CLI) geliştirilmektedir.
 
 ---
 
@@ -591,7 +587,6 @@ MESA/
 ├── mesa_api/             # Versioned FastAPI v3 compatibility + v4 routers
 ├── mesa_client/          # Versioned Python SDKs (v3 and v4, sync/async)
 ├── mesa_evals/           # MESA çekirdek golden dataset + CI regresyon değerlendirmesi
-├── mesa-benchmark/       # Dış sistem karşılaştırmalı, yayınlanabilir benchmark CLI'ı
 ├── mesa_memory/
 │   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
 │   ├── api/              # FastAPI server entrypoint + auth middleware
