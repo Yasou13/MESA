@@ -10,7 +10,7 @@ from mesa_memory.context_builder import ContextBuilder
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_workers.projection_worker import process_projection_outbox_once
+from mesa_workers.projection_worker import _triplets, process_projection_outbox_once
 
 
 def _candidate(rank: int, *, evidence: str) -> dict:
@@ -43,6 +43,23 @@ def _candidate(rank: int, *, evidence: str) -> dict:
             "lane_ranks": {"bm25": rank},
         },
     }
+
+
+def test_short_fallback_evidence_is_unchanged() -> None:
+    source = "Kısa Türkçe hukuk kuralı aynen korunur."
+
+    [triplet] = _triplets(
+        {
+            "document_id": "document-short",
+            "chunk_id": "chunk-short",
+            "content_payload": source,
+            "evidence_span": "",
+            "projection_triplets": [],
+        }
+    )
+
+    assert triplet["fact_text"] == source
+    assert triplet["source_span"] == source
 
 
 @pytest.mark.asyncio
