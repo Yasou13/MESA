@@ -155,8 +155,12 @@ def retrieval_is_weak(candidates: list[dict[str, Any]]) -> bool:
             if isinstance(provenance, dict)
             else candidate.get("origins", [])
         )
-        if isinstance(origins, (list, tuple, set)) and len(set(origins)) >= 2:
-            return False
+        if isinstance(origins, (list, tuple, set)):
+            unique_origins = {
+                origin for origin in origins if isinstance(origin, str) and origin
+            }
+            if len(unique_origins) >= 2:
+                return False
     return True
 
 

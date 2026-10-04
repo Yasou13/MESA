@@ -250,6 +250,22 @@ def test_weak_trigger_is_pure_and_deterministic() -> None:
     assert [retrieval_is_weak(deepcopy(weak)) for _ in range(3)] == [True] * 3
 
 
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        {},
+        {"retrieval_provenance": None},
+        {"retrieval_provenance": {"origins": []}},
+        {"retrieval_provenance": {"origins": ["bm25", "bm25"]}},
+        {"retrieval_provenance": {"origins": [["vector"], {"lane": "bm25"}]}},
+    ],
+)
+def test_weak_trigger_treats_malformed_or_duplicate_origins_as_weak(
+    candidate: dict,
+) -> None:
+    assert retrieval_is_weak([candidate]) is True
+
+
 def test_query_fusion_deduplicates_and_preserves_inner_provenance() -> None:
     q0_shared = _candidate("shared", origins=("vector", "bm25"))
     q0_only = _candidate("q0-only")
