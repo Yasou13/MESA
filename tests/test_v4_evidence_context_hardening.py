@@ -47,9 +47,13 @@ def _candidate(rank: int, *, evidence: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_fallback_projection_preserves_full_multi_paragraph_source_in_context(
-    tmp_path,
+    tmp_path, monkeypatch
 ) -> None:
     """Canonical source after the old boundary must survive through ContextBuilder."""
+    monkeypatch.setattr(
+        "mesa_memory.context_builder._count_tokens",
+        lambda text: len(text.encode("utf-8")),
+    )
     engine = AsyncEngine(str(tmp_path / "evidence-preservation.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
