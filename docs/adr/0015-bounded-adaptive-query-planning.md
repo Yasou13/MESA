@@ -3,6 +3,7 @@
 - Status: Accepted
 - Baseline: MESA 0.7.1 at `9f27c82`
 - Extends: ADR 0013 and ADR 0014
+- Supersedes: ADR 0014 only where it deferred retrieval planning outside 0.7.x
 
 ## Context
 
@@ -16,11 +17,17 @@ The legacy `HybridRetriever` has an optional multi-hop decomposition path.
 That path splits a question into research subqueries and is not semantic query
 reformulation, so its contract and behavior remain unchanged.
 
+This decision advances only ADR 0014's previously deferred retrieval-planner
+stage. It does not change that ADR's closure, release-gate or production
+`NO-GO` requirements; the new mode remains disabled by default and requires
+external A/B evidence before default enablement.
+
 ## Decision
 
 Bounded adaptive retrieval will be a `mesa_memory.retrieval` module above the
-storage layer. Its small interface accepts one immutable server-authored search
-scope and returns one fused candidate list plus bounded diagnostics.
+storage layer. Its small interface accepts server-authored search scope
+arguments, captures them once in the retrieval operation and returns one fused
+candidate list plus bounded diagnostics.
 
 The module always runs the normalized original query first. A pure trigger
 requests planning only when the result is empty or none of the first three
