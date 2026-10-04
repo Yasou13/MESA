@@ -374,6 +374,12 @@ def _v4_control_value(value: str, *, label: str) -> str:
     return value
 
 
+def _v4_retrieval_mode(value: object) -> Literal["single", "adaptive"]:
+    if value not in {"single", "adaptive"}:
+        raise MesaValidationError("retrieval_mode must be 'single' or 'adaptive'")
+    return "single" if value == "single" else "adaptive"
+
+
 def _v4_operation_path(operation_id: str, suffix: str = "") -> str:
     identifier = _v4_control_value(operation_id, label="operation_id")
     return f"/v4/operations/{quote(identifier, safe='')}{suffix}"
@@ -695,6 +701,7 @@ class MesaV4Client(MesaClient):
         valid_to: str | None = None,
         retrieval_mode: Literal["single", "adaptive"] = "single",
     ) -> dict[str, Any]:
+        retrieval_mode = _v4_retrieval_mode(retrieval_mode)
         params: dict[str, Any] = {
             "query": query,
             "token_budget": token_budget,
@@ -1025,6 +1032,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         valid_to: str | None = None,
         retrieval_mode: Literal["single", "adaptive"] = "single",
     ) -> dict[str, Any]:
+        retrieval_mode = _v4_retrieval_mode(retrieval_mode)
         params: dict[str, Any] = {
             "query": query,
             "token_budget": token_budget,

@@ -11,7 +11,11 @@ from fastapi import Depends, FastAPI, Request
 
 import mesa_api.v4_router as v4_api
 from mesa_api.v4_router import create_v4_router
-from mesa_client.client import AsyncMesaV4Client, MesaV4Client
+from mesa_client.client import (
+    AsyncMesaV4Client,
+    MesaV4Client,
+    MesaValidationError,
+)
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.errors import MCPError
@@ -59,6 +63,19 @@ def test_sync_client_sends_adaptive_mode_only_when_opted_in() -> None:
     assert request.call_args.kwargs["params"]["retrieval_mode"] == "adaptive"
 
 
+def test_sync_client_rejects_invalid_retrieval_mode() -> None:
+    client = MesaV4Client(base_url="http://mesa.invalid", api_key="test")
+    request = MagicMock(return_value={})
+    client._request = request
+
+    with pytest.raises(MesaValidationError, match="retrieval_mode"):
+        client.get_context(  # type: ignore[arg-type]
+            session_id="session", query="q", retrieval_mode="unsupported"
+        )
+
+    request.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_async_client_sends_adaptive_mode_only_when_opted_in() -> None:
     client = AsyncMesaV4Client(base_url="http://mesa.invalid", api_key="test")
@@ -73,6 +90,22 @@ async def test_async_client_sends_adaptive_mode_only_when_opted_in() -> None:
             session_id="session", query="q", retrieval_mode="adaptive"
         )
         assert request.await_args.kwargs["params"]["retrieval_mode"] == "adaptive"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_client_rejects_invalid_retrieval_mode() -> None:
+    client = AsyncMesaV4Client(base_url="http://mesa.invalid", api_key="test")
+    request = AsyncMock(return_value={})
+    client._request = request
+    try:
+        with pytest.raises(MesaValidationError, match="retrieval_mode"):
+            await client.get_context(  # type: ignore[arg-type]
+                session_id="session", query="q", retrieval_mode="unsupported"
+            )
+
+        request.assert_not_awaited()
     finally:
         await client.aclose()
 
