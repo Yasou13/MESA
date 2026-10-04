@@ -270,7 +270,20 @@ class ContextBuilder:
             )
 
         memory_records: list[dict[str, Any]] = []
+        seen_evidence_ids: set[str] = set()
+        duplicate_candidate_count = 0
         for idx, item in enumerate(canonical_memories):
+            evidence_identity = str(
+                item.get("assertion_id")
+                or item.get("evidence_id")
+                or item.get("candidate_id")
+                or ""
+            )
+            if evidence_identity and evidence_identity in seen_evidence_ids:
+                duplicate_candidate_count += 1
+                continue
+            if evidence_identity:
+                seen_evidence_ids.add(evidence_identity)
             entity = (
                 item.get("entity", {}) if isinstance(item.get("entity"), dict) else {}
             )
@@ -418,10 +431,11 @@ class ContextBuilder:
                 <= token_budget
             )
 
-        # Give every ranked candidate one chance to place its minimum valid
-        # representation before a large early candidate consumes the budget.
-        # This preserves retrieval order without allowing a many-fact entity to
-        # crowd out all lower-ranked evidence.
+        # Prepare one indivisible minimum representation per ranked candidate.
+        # Selection below keeps fused rank as the anchor, while reserving one
+        # complete slot for compact evidence when any ranked pair can fit.  This
+        # prevents an early verbose minimum from greedily consuming the budget
+        # before later candidates are considered.
         prepared_memories: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
         for memory in memory_records:
             if not memory["facts"]:
@@ -445,8 +459,10 @@ class ContextBuilder:
             else:
                 minimum_memory = deepcopy(memory)
                 minimum_memory["facts"] = minimum_memory["facts"][:1]
-
             prepared_memories.append((full_memory, minimum_memory, candidate_id))
+
+        viable_memories: list[tuple[dict[str, Any], dict[str, Any], Any, int]] = []
+        for full_memory, minimum_memory, candidate_id in prepared_memories:
             if not _fits([minimum_memory]):
                 budget_rejections.append(
                     {
@@ -458,9 +474,57 @@ class ContextBuilder:
                         ),
                     }
                 )
-            elif _fits([*cur_memories, minimum_memory]):
-                cur_memories.append(minimum_memory)
             else:
+                minimum_tokens = _count_tokens(
+                    _render_context([], _model_visible_records([minimum_memory]))
+                )
+                viable_memories.append(
+                    (full_memory, minimum_memory, candidate_id, minimum_tokens)
+                )
+
+        def _ordered_minimums(positions: set[int]) -> list[dict[str, Any]]:
+            return [
+                minimum_memory
+                for position, (_, minimum_memory, _, _) in enumerate(viable_memories)
+                if position in positions
+            ]
+
+        selected_positions: set[int] = set()
+        selected_pair: tuple[int, int] | None = None
+        for anchor in range(len(viable_memories)):
+            fitting_partners = [
+                partner
+                for partner in range(len(viable_memories))
+                if partner != anchor and _fits(_ordered_minimums({anchor, partner}))
+            ]
+            if fitting_partners:
+                partner = min(
+                    fitting_partners,
+                    key=lambda position: (
+                        viable_memories[position][3],
+                        position,
+                    ),
+                )
+                selected_pair = (anchor, partner)
+                break
+
+        if selected_pair is not None:
+            selected_positions.update(selected_pair)
+        elif viable_memories:
+            selected_positions.add(0)
+
+        # Once the rank anchor and compact companion are reserved, consume all
+        # remaining capacity in the original fused order.
+        for position in range(len(viable_memories)):
+            if position in selected_positions:
+                continue
+            proposed = {*selected_positions, position}
+            if _fits(_ordered_minimums(proposed)):
+                selected_positions = proposed
+
+        cur_memories = _ordered_minimums(selected_positions)
+        for position, (_, _, candidate_id, _) in enumerate(viable_memories):
+            if position not in selected_positions:
                 budget_rejections.append(
                     {
                         "candidate_id": candidate_id,
@@ -589,6 +653,7 @@ class ContextBuilder:
                 "renderable_candidate_count": renderable_candidate_count,
                 "retained_memory_count": len(model_visible_memories),
                 "compacted_graph_proof_count": compacted_graph_proof_count,
+                "duplicate_candidate_count": duplicate_candidate_count,
                 "budget_rejection_count": len(budget_rejections),
                 "budget_rejections": budget_rejections,
             },

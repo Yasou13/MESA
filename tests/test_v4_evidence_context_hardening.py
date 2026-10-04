@@ -68,7 +68,9 @@ async def test_fallback_projection_preserves_full_multi_paragraph_source_in_cont
         insert_assertion=AsyncMock(),
     )
     dao = MemoryDAO(engine, vector, graph)
-    later_rule = "SONRAKI_OPERATIF_KURAL: borçluya Türkçe bildirim eksiksiz yapılmalıdır."
+    later_rule = (
+        "SONRAKI_OPERATIF_KURAL: borçluya Türkçe bildirim eksiksiz yapılmalıdır."
+    )
     source = (
         "Genel başlangıç kuralı, hükmün kapsamını ve temel uygulama alanını açıklar. "
         "Bu giriş paragrafı tarihsel iki yüz karakter sınırını aşacak kadar ayrıntılı "
@@ -110,12 +112,8 @@ async def test_fallback_projection_preserves_full_multi_paragraph_source_in_cont
             validation_mode=0,
         )
         mutation_id = admission["response"]["mutation_id"]
-        assert await dao.record_mutation_extraction(
-            "agent-evidence", mutation_id, []
-        )
-        assert await dao.set_mutation_state(
-            "agent-evidence", mutation_id, "VALIDATED"
-        )
+        assert await dao.record_mutation_extraction("agent-evidence", mutation_id, [])
+        assert await dao.set_mutation_state("agent-evidence", mutation_id, "VALIDATED")
         projected = await process_projection_outbox_once(
             dao, worker_id="evidence-projector", limit=1
         )
@@ -189,6 +187,115 @@ async def test_budget_packing_considers_small_rank_three_candidate(monkeypatch) 
     assert context["actual_token_count"] <= 2048
     assert "RANK_ONE" in context["formatted_context"]
     assert "ANSWER_RANK_THREE" in context["formatted_context"]
+    assert [memory["candidate_id"] for memory in context["canonical_memories"]] == [
+        "candidate-1",
+        "candidate-3",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_all_fitting_evidence_stays_ranked_and_mixed_provenance_survives(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "mesa_memory.context_builder._count_tokens",
+        lambda text: len(text.encode("utf-8")),
+    )
+    candidates = [
+        _candidate(1, evidence="First complete rule."),
+        _candidate(2, evidence="Second complete rule."),
+        _candidate(3, evidence="Third complete rule."),
+    ]
+    candidates[0]["retrieval_provenance"]["origins"] = ["vector", "bm25"]
+    candidates[1]["retrieval_provenance"]["origins"] = ["assertion"]
+    candidates[2]["retrieval_provenance"]["origins"] = ["graph"]
+    dao = AsyncMock()
+    dao.get_recent_logs.return_value = []
+    dao.search_v4_memory.return_value = candidates
+
+    context = await ContextBuilder(dao).build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=2048,
+    )
+
+    assert [memory["candidate_id"] for memory in context["canonical_memories"]] == [
+        "candidate-1",
+        "candidate-2",
+        "candidate-3",
+    ]
     assert [
-        memory["candidate_id"] for memory in context["canonical_memories"]
-    ] == ["candidate-1", "candidate-3"]
+        memory["retrieval_provenance"]["origins"]
+        for memory in context["canonical_memories"]
+    ] == [["vector", "bm25"], ["assertion"], ["graph"]]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_evidence_identity_does_not_consume_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mesa_memory.context_builder._count_tokens",
+        lambda text: len(text.encode("utf-8")),
+    )
+    duplicate = _candidate(1, evidence=("duplicate " * 40) + "DUPLICATE")
+    later = _candidate(2, evidence="DISTINCT_LATER_EVIDENCE")
+    dao = AsyncMock()
+    dao.get_recent_logs.return_value = []
+    dao.search_v4_memory.return_value = [duplicate, duplicate.copy(), later]
+
+    context = await ContextBuilder(dao).build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=2048,
+    )
+
+    assert context["formatted_context"].count("DUPLICATE") == 1
+    assert "DISTINCT_LATER_EVIDENCE" in context["formatted_context"]
+    assert context["context_diagnostics"]["duplicate_candidate_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_exact_budget_boundary_and_one_token_over_are_deterministic(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "mesa_memory.context_builder._count_tokens",
+        lambda text: len(text.encode("utf-8")),
+    )
+    candidate = _candidate(1, evidence="Complete boundary evidence.")
+    dao = AsyncMock()
+    dao.get_recent_logs.return_value = []
+    dao.search_v4_memory.return_value = [candidate]
+    builder = ContextBuilder(dao)
+
+    baseline = await builder.build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=10_000,
+    )
+    exact_budget = baseline["actual_token_count"]
+    exact = await builder.build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=exact_budget,
+    )
+    one_over = await builder.build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=exact_budget - 1,
+    )
+
+    assert exact["actual_token_count"] == exact_budget
+    assert exact["canonical_memories"][0]["candidate_id"] == "candidate-1"
+    assert one_over["actual_token_count"] <= exact_budget - 1
+    assert one_over["canonical_memories"] == []
+    assert one_over["context_status"] == "VALID_EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
