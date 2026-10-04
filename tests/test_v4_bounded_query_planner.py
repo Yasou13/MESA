@@ -159,6 +159,20 @@ async def test_overlong_original_query_skips_provider_call() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["unsafe\x00query", "ﬃ" * 2000])
+async def test_invalid_or_normalization_expanded_original_skips_provider_call(
+    query: str,
+) -> None:
+    adapter = _Adapter({"queries": ["unused"]})
+
+    result = await BoundedQueryPlanner(adapter).plan(query)  # type: ignore[arg-type]
+
+    assert result.status == "planner_invalid_query_fallback_single"
+    assert result.expansions == ()
+    assert adapter.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_planner_validation_is_deterministic_and_citation_safe() -> None:
     response = {
         "queries": [
@@ -188,6 +202,7 @@ async def test_planner_validation_is_deterministic_and_citation_safe() -> None:
         ["TMK m.162 yeni madde"],
         ["satır\nsonu"],
         ["x" * 4097],
+        ["ﬃ" * 2000],
     ],
 )
 @pytest.mark.asyncio

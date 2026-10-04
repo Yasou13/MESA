@@ -80,7 +80,11 @@ class BoundedQueryPlanner:
 
     async def plan(self, original_query: str) -> PlannerResult:
         normalized_original = normalize_planner_query(original_query)
-        if not normalized_original or len(normalized_original) > MAX_QUERY_LENGTH:
+        if (
+            not normalized_original
+            or len(normalized_original) > MAX_QUERY_LENGTH
+            or _has_invalid_control_character(original_query)
+        ):
             return PlannerResult((), "planner_invalid_query_fallback_single")
         prompt = (
             "Generate search reformulations only. Do not answer the question.\n"
@@ -124,7 +128,11 @@ class BoundedQueryPlanner:
             ):
                 continue
             normalized = normalize_planner_query(raw_query)
-            if not normalized or normalized in seen:
+            if (
+                not normalized
+                or len(normalized) > MAX_QUERY_LENGTH
+                or normalized in seen
+            ):
                 continue
             if _introduces_citation(normalized_original, normalized):
                 continue
