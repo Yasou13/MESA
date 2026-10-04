@@ -106,6 +106,19 @@ async def test_mcp_context_rejects_non_string_retrieval_mode() -> None:
         await adapter.get_context({"query": "q", "retrieval_mode": []})
 
 
+@pytest.mark.asyncio
+async def test_legacy_mcp_context_does_not_silently_claim_adaptive_mode() -> None:
+    adapter = MesaMCPAdapter(
+        AsyncMock(),
+        MCPSettings(api_key="test", use_v4=False),
+    )
+
+    with pytest.raises(MCPError) as raised:
+        await adapter.get_context({"query": "q", "retrieval_mode": "adaptive"})
+
+    assert raised.value.code == "UNIMPLEMENTED"
+
+
 def test_mcp_context_schema_exposes_only_single_and_adaptive() -> None:
     tool = next(tool for tool in _tools() if tool.name == "mesa_get_context")
 

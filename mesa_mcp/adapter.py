@@ -192,6 +192,11 @@ class MesaMCPAdapter:
             if retrieval_mode == "adaptive":
                 context_arguments["retrieval_mode"] = retrieval_mode
             return await self._v4_service.v4_context(**context_arguments)
+        if retrieval_mode == "adaptive":
+            raise MCPError(
+                "UNIMPLEMENTED",
+                "adaptive retrieval requires the V4 context service",
+            )
         # 4 chars/token is deliberately conservative and keeps MCP responses bounded.
         candidates = await self._service.search_memories(
             query=query,
