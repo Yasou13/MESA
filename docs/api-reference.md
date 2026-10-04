@@ -142,6 +142,13 @@ otomatik olarak caller-declared kabul edilmez.
 | `GET` | `/v4/sessions/{session_id}/context` | Session context ve mutation provenance’ını verir |
 | `POST` | `/v4/sessions/{session_id}/end` | Durable finalization ister ve session’ı kapatır |
 
+Context çağrısı varsayılan olarak mevcut tek-sorgulu davranışı kullanan
+`retrieval_mode=single` ile çalışır. İstemci açıkça
+`retrieval_mode=adaptive` gönderirse sunucu, yetkili session kapsamını
+değiştirmeden en fazla bir planlayıcı çağrısı ve iki ek arama ile sınırlı
+semantik sorgu genişletmeyi etkinleştirir. Ham `/v4/memory/search` davranışı
+değişmez.
+
 `POST /v4/memory/insert` tenant, workspace ve agent değerlerini istemciden
 almaz; bunları doğrulanmış session’dan türetir. İstek `session_id`,
 `dataset_id`, document/revision/chunk kimlikleri, `source_ref` ve exact

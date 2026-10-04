@@ -1,6 +1,6 @@
 # ADR 0015: Bounded adaptive query planning
 
-- Status: Proposed
+- Status: Accepted
 - Baseline: MESA 0.7.1 at `9f27c82`
 - Extends: ADR 0013 and ADR 0014
 
