@@ -219,6 +219,22 @@ async def test_planner_rejects_duplicate_blank_unsafe_or_overlong_expansions(
     assert result.status == "planner_no_valid_expansions"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "expansion",
+    ["TMK'nın 161. maddesi", "Türk Medeni Kanunu'nun 161. maddesi"],
+)
+async def test_planner_rejects_article_added_with_turkish_possessive_form(
+    expansion: str,
+) -> None:
+    result = await BoundedQueryPlanner(  # type: ignore[arg-type]
+        _Adapter({"queries": [expansion]})
+    ).plan("TMK kapsamında boşanma")
+
+    assert result.expansions == ()
+    assert result.status == "planner_no_valid_expansions"
+
+
 def test_normalization_preserves_meaning_and_unicode() -> None:
     assert normalize_planner_query("  İŞ   KANUNU  ") == "iş kanunu"
     assert normalize_planner_query("TMK   m 161") == "tmk m 161"
@@ -622,6 +638,12 @@ def test_legal_resolver_extracts_range_and_chained_articles() -> None:
         (citation.statute_code, citation.article)
         for citation in resolver.extract_citations("TMK m.161 ve m.162")
     } == {("TMK", "161"), ("TMK", "162")}
+    assert {
+        (citation.statute_code, citation.article)
+        for citation in resolver.extract_citations(
+            "Türk Medeni Kanunu'nun 161. maddesi"
+        )
+    } == {("TMK", "161")}
 
 
 async def _real_searchable_legal_memory(tmp_path):
