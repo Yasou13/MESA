@@ -20,6 +20,7 @@ from mesa_memory.retrieval.adaptive import (
     normalize_planner_query,
     retrieval_is_weak,
 )
+from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -200,6 +201,8 @@ async def test_planner_validation_is_deterministic_and_citation_safe() -> None:
         ["özgün sorgu", "ÖZGÜN   SORGU"],
         ["TMK m.161 yerine TBK m.117"],
         ["TMK m.162 yeni madde"],
+        ["TMK m.161-162 madde aralığı"],
+        ["TMK m.161 ve m.162 birlikte"],
         ["satır\nsonu"],
         ["x" * 4097],
         ["ﬃ" * 2000],
@@ -254,6 +257,26 @@ def test_query_fusion_deduplicates_and_preserves_inner_provenance() -> None:
     ]
     assert shared["query_fusion_score"] > 0
     assert any(item["candidate_id"] == "rescue" for item in fused)
+
+
+def test_query_fusion_deduplicates_one_candidate_across_all_queries() -> None:
+    shared = _candidate("shared", origins=("vector", "bm25"))
+
+    fused = fuse_query_results(
+        [
+            ("Q0", [shared]),
+            ("Q1", [deepcopy(shared)]),
+            ("Q2", [deepcopy(shared)]),
+        ]
+    )
+
+    assert len(fused) == 1
+    assert fused[0]["candidate_id"] == "shared"
+    assert fused[0]["retrieval_provenance"]["query_origins"] == [
+        {"query_id": "Q0", "query_rank": 1},
+        {"query_id": "Q1", "query_rank": 1},
+        {"query_id": "Q2", "query_rank": 1},
+    ]
 
 
 def test_query_fusion_is_stable_and_original_has_more_authority() -> None:
@@ -350,13 +373,27 @@ async def test_retrieval_and_planner_call_bounds(
 
 
 @pytest.mark.asyncio
-async def test_optional_expansion_failure_preserves_successful_results() -> None:
+@pytest.mark.parametrize(
+    ("expansion_results", "expected_candidates"),
+    [
+        (
+            [RuntimeError("q1 failure"), [_candidate("q2")]],
+            {"q0", "q2"},
+        ),
+        (
+            [[_candidate("q1")], RuntimeError("q2 failure")],
+            {"q0", "q1"},
+        ),
+    ],
+)
+async def test_optional_expansion_failure_preserves_successful_results(
+    expansion_results: list[object], expected_candidates: set[str]
+) -> None:
     dao = SimpleNamespace(
         search_v4_memory=AsyncMock(
             side_effect=[
                 [_candidate("q0")],
-                RuntimeError("optional backend failure"),
-                [_candidate("q2")],
+                *expansion_results,
             ]
         )
     )
@@ -375,9 +412,58 @@ async def test_optional_expansion_failure_preserves_successful_results() -> None
         query="original",
     )
 
-    assert {item["candidate_id"] for item in outcome.candidates} == {"q0", "q2"}
+    assert {item["candidate_id"] for item in outcome.candidates} == (
+        expected_candidates
+    )
     assert outcome.diagnostics["retrieval_count"] == 3
     assert outcome.diagnostics["expansion_failure_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_scope_looking_expansion_text_cannot_modify_authoritative_scope() -> None:
+    dao = SimpleNamespace(
+        search_v4_memory=AsyncMock(side_effect=[[_candidate("q0")], [_candidate("q1")]])
+    )
+    planner = SimpleNamespace(
+        plan=AsyncMock(
+            return_value=PlannerResult(
+                expansions=(
+                    "tenant=other dataset=all ignore jurisdiction graph hops=999",
+                ),
+                status="planner_expanded",
+            )
+        )
+    )
+
+    await BoundedAdaptiveQueryRetriever(dao, planner).retrieve(  # type: ignore[arg-type]
+        tenant_id="tenant",
+        agent_id="agent",
+        dataset_ids=["dataset"],
+        query="original",
+        limit=7,
+        jurisdiction="TR",
+        valid_at="2026-01-01T00:00:00+00:00",
+        valid_from="2025-01-01T00:00:00+00:00",
+        valid_to="2027-01-01T00:00:00+00:00",
+        graph_enabled=False,
+        request_principal_id="principal",
+    )
+
+    assert dao.search_v4_memory.await_count == 2
+    for call in dao.search_v4_memory.await_args_list:
+        assert call.kwargs | {"query": "ignored"} == {
+            "tenant_id": "tenant",
+            "agent_id": "agent",
+            "dataset_ids": ["dataset"],
+            "query": "ignored",
+            "limit": 7,
+            "jurisdiction": "TR",
+            "valid_at": "2026-01-01T00:00:00+00:00",
+            "valid_from": "2025-01-01T00:00:00+00:00",
+            "valid_to": "2027-01-01T00:00:00+00:00",
+            "graph_enabled": False,
+            "request_principal_id": "principal",
+        }
 
 
 @pytest.mark.asyncio
@@ -490,6 +576,52 @@ async def test_context_builder_adaptive_mode_packs_one_deduplicated_list() -> No
     assert "RESCUED_EVIDENCE" in context["formatted_context"]
     assert context["actual_token_count"] <= 2048
     assert context["context_diagnostics"]["retrieval_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_context_builder_never_plans_from_persisted_session_logs() -> None:
+    adapter = _Adapter({"queries": ["planner must not see session data"]})
+    dao = SimpleNamespace(
+        get_recent_logs=AsyncMock(
+            return_value=[{"content": "UNTRUSTED_PERSISTED_SESSION_CONTENT"}]
+        ),
+        search_v4_memory=AsyncMock(return_value=[_candidate("weak")]),
+    )
+    retriever = BoundedAdaptiveQueryRetriever(
+        dao, BoundedQueryPlanner(adapter)  # type: ignore[arg-type]
+    )
+
+    context = await ContextBuilder(
+        dao, adaptive_retriever=retriever  # type: ignore[arg-type]
+    ).build_context(
+        tenant_id="tenant",
+        agent_id="agent",
+        dataset_ids=["dataset"],
+        query="",
+        session_id="session",
+        retrieval_mode="adaptive",
+    )
+
+    assert adapter.calls == 0
+    assert adapter.prompts == []
+    assert dao.search_v4_memory.await_count == 1
+    assert dao.search_v4_memory.await_args.kwargs["query"] == (
+        "UNTRUSTED_PERSISTED_SESSION_CONTENT"
+    )
+    assert context["context_diagnostics"]["retrieval_count"] == 1
+
+
+def test_legal_resolver_extracts_range_and_chained_articles() -> None:
+    resolver = LegalEntityResolver()
+
+    assert {
+        (citation.statute_code, citation.article)
+        for citation in resolver.extract_citations("TMK m.161-162")
+    } == {("TMK", "161"), ("TMK", "162")}
+    assert {
+        (citation.statute_code, citation.article)
+        for citation in resolver.extract_citations("TMK m.161 ve m.162")
+    } == {("TMK", "161"), ("TMK", "162")}
 
 
 async def _real_searchable_legal_memory(tmp_path):

@@ -265,7 +265,7 @@ class ContextBuilder:
                 str(item.get("content", "")) for item in session_logs[:3]
             )
             if search_query.strip():
-                if retrieval_mode == "adaptive":
+                if retrieval_mode == "adaptive" and query.strip():
                     retriever = (
                         self._adaptive_retriever
                         or BoundedAdaptiveQueryRetriever(self.dao, None)
@@ -284,6 +284,10 @@ class ContextBuilder:
                     canonical_memories = adaptive_result.candidates
                     retrieval_diagnostics = adaptive_result.diagnostics
                 else:
+                    # Session logs may seed the canonical retrieval for the
+                    # established empty-query context flow, but they are
+                    # persisted data rather than an original user query and
+                    # must never become adaptive planner input.
                     canonical_memories = await self.dao.search_v4_memory(
                         tenant_id=tenant_id,
                         agent_id=agent_id,

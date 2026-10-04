@@ -186,7 +186,18 @@ ONTOLOGY: dict[str, dict[str, Any]] = {
 class LegalEntityResolver:
     def __init__(self) -> None:
         self.ontology = ONTOLOGY
-        self.laws = {"TBK", "TMK", "TCK", "CMK", "HMK", "TTK", "İYUK", "KVKK", "İş Kanunu", "Anayasa"}
+        self.laws = {
+            "TBK",
+            "TMK",
+            "TCK",
+            "CMK",
+            "HMK",
+            "TTK",
+            "İYUK",
+            "KVKK",
+            "İş Kanunu",
+            "Anayasa",
+        }
         self.alias_to_code: dict[str, str] = {}
         for code, info in self.ontology.items():
             for alias in info["aliases"]:
@@ -199,6 +210,11 @@ class LegalEntityResolver:
         )
         self._reverse_pattern = re.compile(
             rf"(?P<has_art_marker>m\.|md\.?|madde)?\s*(?P<art>\d+)(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?(?:\s+(?:uyarınca|gereğince|kapsamında|hükmü|hükmünce|düzenlemesi))?\s+(?P<statute>{alias_pattern})(?:(?=\W)|$)",
+            re.IGNORECASE,
+        )
+        self._continued_article_pattern = re.compile(
+            r"\s*(?:(?:-|–|—|ila)\s*|(?:,|;|ve|ile)\s*(?:m\.|md\.?|madde)\s*)"
+            r"(?P<art>\d+)(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?",
             re.IGNORECASE,
         )
 
@@ -218,7 +234,7 @@ class LegalEntityResolver:
 
             # Guard against short alias false positives (e.g. "ay" meaning month or digits)
             if statute_match in ("ay",):
-                orig_snippet = text[match.start("statute"):match.end("statute")]
+                orig_snippet = text[match.start("statute") : match.end("statute")]
                 is_explicit_upper = orig_snippet in ("AY", "A.Y.", "A. Y.")
                 article_prefix = (
                     normalized[match.end("statute") : match.start("art")]
@@ -243,6 +259,22 @@ class LegalEntityResolver:
                     "article_span": match.span("art") if article else None,
                 }
             )
+            if article and code in self.laws:
+                continuation_start = match.end()
+                while continued := self._continued_article_pattern.match(
+                    normalized, continuation_start
+                ):
+                    raw_matches.append(
+                        {
+                            "code": code,
+                            "article": continued.group("art"),
+                            "start": continued.start(),
+                            "end": continued.end(),
+                            "statute_match": statute_match,
+                            "article_span": continued.span("art"),
+                        }
+                    )
+                    continuation_start = continued.end()
 
         # Find reverse matches ([article] statute)
         for match in self._reverse_pattern.finditer(normalized):
@@ -251,7 +283,9 @@ class LegalEntityResolver:
             if not code:
                 continue
             article = match.group("art")
-            has_marker = bool(match.group("has_art_marker") or "madde" in match.group(0))
+            has_marker = bool(
+                match.group("has_art_marker") or "madde" in match.group(0)
+            )
 
             # A number already attached to a preceding statute cannot also
             # become the next statute's reverse citation (TBK 117 CMK 86).
@@ -263,7 +297,7 @@ class LegalEntityResolver:
 
             # Guard: bare numbers before "ay" (e.g. "3 ay") are durations, NOT Anayasa citations!
             if statute_match == "ay":
-                orig_snippet = text[match.start("statute"):match.end("statute")]
+                orig_snippet = text[match.start("statute") : match.end("statute")]
                 is_explicit_upper = orig_snippet in ("AY", "A.Y.", "A. Y.")
                 if not (is_explicit_upper or has_marker):
                     continue
@@ -271,13 +305,15 @@ class LegalEntityResolver:
                 if not has_marker and "sayılı" not in match.group(0):
                     continue
 
-            raw_matches.append({
-                "code": code,
-                "article": article,
-                "start": match.start(),
-                "end": match.end(),
-                "statute_match": statute_match,
-            })
+            raw_matches.append(
+                {
+                    "code": code,
+                    "article": article,
+                    "start": match.start(),
+                    "end": match.end(),
+                    "statute_match": statute_match,
+                }
+            )
 
         if not raw_matches:
             return []
@@ -340,9 +376,7 @@ class LegalEntityResolver:
             return text
         citation = citations[0]
         return (
-            citation.canonical_name
-            if citation.article
-            else citation.statute_canonical
+            citation.canonical_name if citation.article else citation.statute_canonical
         )
 
     def extract_entities(self, text: str) -> list[str]:
