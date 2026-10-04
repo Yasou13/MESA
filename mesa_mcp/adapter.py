@@ -151,7 +151,10 @@ class MesaMCPAdapter:
         query = _required_string(arguments, "query", max_length=_MAX_QUERY_LENGTH)
         project_id = _project_id(arguments, self._settings)
         retrieval_mode = arguments.get("retrieval_mode", "single")
-        if retrieval_mode not in {"single", "adaptive"}:
+        if not isinstance(retrieval_mode, str) or retrieval_mode not in {
+            "single",
+            "adaptive",
+        }:
             raise MCPError(
                 "INVALID_ARGUMENT",
                 "retrieval_mode must be 'single' or 'adaptive'",

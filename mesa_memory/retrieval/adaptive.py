@@ -12,9 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.retrieval.core import normalize_query
-from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
+from mesa_memory.retrieval.legal_resolver import LegalEntityResolver, normalize_turkish
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.legal_identity import normalize_turkish
 from mesa_storage.retrieval_scope import V4_RRF_DEFAULT_K, rrf_fuse_lanes
 
 logger = logging.getLogger("MESA_AdaptiveRetrieval")
@@ -270,12 +269,13 @@ class BoundedAdaptiveQueryRetriever:
         diagnostics["planner_used"] = True
         plan = await self._planner.plan(normalized_query)
         diagnostics["planner_status"] = plan.status
-        diagnostics["expansion_count"] = len(plan.expansions)
-        if not plan.expansions:
+        expansions = plan.expansions[:MAX_EXPANSION_QUERIES]
+        diagnostics["expansion_count"] = len(expansions)
+        if not expansions:
             return AdaptiveRetrievalResult(original, diagnostics)
 
         successful_results: list[tuple[str, list[dict[str, Any]]]] = [("Q0", original)]
-        for index, expansion in enumerate(plan.expansions, start=1):
+        for index, expansion in enumerate(expansions, start=1):
             diagnostics["retrieval_count"] += 1
             try:
                 expansion_results = await self._dao.search_v4_memory(

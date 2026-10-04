@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from typing import Any, Callable, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
@@ -1314,7 +1314,7 @@ def create_v4_router(
     async def get_context(
         session_id: PublicIdentifier,
         request: Request,
-        query: str = "",
+        query: str = Query(default="", max_length=4096),
         token_budget: int = 2048,
         jurisdiction: str | None = None,
         valid_at: datetime | None = None,

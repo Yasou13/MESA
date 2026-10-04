@@ -354,6 +354,39 @@ async def test_optional_expansion_failure_preserves_successful_results() -> None
 
 
 @pytest.mark.asyncio
+async def test_retriever_defensively_caps_injected_planner_at_two_expansions() -> None:
+    dao = SimpleNamespace(
+        search_v4_memory=AsyncMock(
+            side_effect=[
+                [_candidate("q0")],
+                [_candidate("q1")],
+                [_candidate("q2")],
+            ]
+        )
+    )
+    planner = SimpleNamespace(
+        plan=AsyncMock(
+            return_value=PlannerResult(
+                expansions=("one", "two", "forbidden-three"),
+                status="planner_expanded",
+            )
+        )
+    )
+
+    outcome = await BoundedAdaptiveQueryRetriever(dao, planner).retrieve(  # type: ignore[arg-type]
+        tenant_id="tenant",
+        agent_id="agent",
+        dataset_ids=["dataset"],
+        query="original",
+    )
+
+    assert dao.search_v4_memory.await_count == 3
+    assert planner.plan.await_count == 1
+    assert outcome.diagnostics["retrieval_count"] == 3
+    assert outcome.diagnostics["expansion_count"] == 2
+
+
+@pytest.mark.asyncio
 async def test_original_retrieval_failure_remains_fail_closed() -> None:
     dao = SimpleNamespace(
         search_v4_memory=AsyncMock(side_effect=RuntimeError("core failure"))

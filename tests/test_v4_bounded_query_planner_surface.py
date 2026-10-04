@@ -14,6 +14,7 @@ from mesa_api.v4_router import create_v4_router
 from mesa_client.client import AsyncMesaV4Client, MesaV4Client
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
+from mesa_mcp.errors import MCPError
 from mesa_mcp.server import _tools
 from mesa_mcp.v4_service import MesaHttpV4Service
 
@@ -91,6 +92,18 @@ async def test_mcp_context_forwards_explicit_adaptive_mode() -> None:
         "context": "ok"
     }
     assert v4.v4_context.await_args.kwargs["retrieval_mode"] == "adaptive"
+
+
+@pytest.mark.asyncio
+async def test_mcp_context_rejects_non_string_retrieval_mode() -> None:
+    adapter = MesaMCPAdapter(
+        AsyncMock(),
+        MCPSettings(api_key="test", use_v4=True),
+        AsyncMock(),
+    )
+
+    with pytest.raises(MCPError, match="retrieval_mode"):
+        await adapter.get_context({"query": "q", "retrieval_mode": []})
 
 
 def test_mcp_context_schema_exposes_only_single_and_adaptive() -> None:
