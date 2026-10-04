@@ -30,9 +30,6 @@ results/
 models/
 data/
 .cache/
-mesa-benchmark/.cache/
-mesa-benchmark/datasets/
-mesa-benchmark/results/
 htmlcov/
 coverage.xml
 .coverage*
@@ -47,9 +44,6 @@ coverage.xml
 *.log
 
 # Development-only material
-mesa-benchmark/dashboard-ui/node_modules/
-mesa-benchmark/tests/
-mesa-benchmark/scripts/
 tests/
 scripts/
 docs/

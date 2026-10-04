@@ -158,38 +158,19 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: mesa-benchmark/dashboard-ui/package-lock.json
-      - name: Install lockfile-resolved Python and Node dependencies
+      - name: Install lockfile-resolved Python dependencies
         run: |
           python -m pip install "uv==0.9.6"
-          uv sync --locked --extra dev --extra benchmarks
-          npm ci --ignore-scripts --prefix mesa-benchmark/dashboard-ui
-      - name: Fail on high or critical Node dependency findings
-        working-directory: mesa-benchmark/dashboard-ui
-        run: npm audit --omit=dev --audit-level=high
-      - name: Build the digest-pinned benchmark image for scanning
-        run: docker build --pull=false --tag mesa-benchmark:security --file mesa-benchmark/Dockerfile .
+          uv sync --locked --extra dev
       - name: Build the shipped full-cognitive runtime image for scanning
         run: docker build --pull=false --tag mesa-memory:security --target runtime --file Dockerfile .
-      - name: Fail on high or critical Python and Node dependency findings
+      - name: Fail on high or critical Python dependency findings
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: fs
           scan-ref: .
           scanners: vuln
           vuln-type: library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-      - name: Fail on high or critical benchmark image findings
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
-        with:
-          scan-type: image
-          image-ref: mesa-benchmark:security
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
