@@ -375,7 +375,7 @@ def _v4_control_value(value: str, *, label: str) -> str:
 
 
 def _v4_retrieval_mode(value: object) -> Literal["single", "adaptive"]:
-    if value not in {"single", "adaptive"}:
+    if not isinstance(value, str) or value not in {"single", "adaptive"}:
         raise MesaValidationError("retrieval_mode must be 'single' or 'adaptive'")
     return "single" if value == "single" else "adaptive"
 

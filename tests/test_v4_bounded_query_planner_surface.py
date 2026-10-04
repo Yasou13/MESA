@@ -63,14 +63,15 @@ def test_sync_client_sends_adaptive_mode_only_when_opted_in() -> None:
     assert request.call_args.kwargs["params"]["retrieval_mode"] == "adaptive"
 
 
-def test_sync_client_rejects_invalid_retrieval_mode() -> None:
+@pytest.mark.parametrize("invalid_mode", ["unsupported", []])
+def test_sync_client_rejects_invalid_retrieval_mode(invalid_mode: object) -> None:
     client = MesaV4Client(base_url="http://mesa.invalid", api_key="test")
     request = MagicMock(return_value={})
     client._request = request
 
     with pytest.raises(MesaValidationError, match="retrieval_mode"):
         client.get_context(  # type: ignore[arg-type]
-            session_id="session", query="q", retrieval_mode="unsupported"
+            session_id="session", query="q", retrieval_mode=invalid_mode
         )
 
     request.assert_not_called()
@@ -95,14 +96,17 @@ async def test_async_client_sends_adaptive_mode_only_when_opted_in() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_client_rejects_invalid_retrieval_mode() -> None:
+@pytest.mark.parametrize("invalid_mode", ["unsupported", []])
+async def test_async_client_rejects_invalid_retrieval_mode(
+    invalid_mode: object,
+) -> None:
     client = AsyncMesaV4Client(base_url="http://mesa.invalid", api_key="test")
     request = AsyncMock(return_value={})
     client._request = request
     try:
         with pytest.raises(MesaValidationError, match="retrieval_mode"):
             await client.get_context(  # type: ignore[arg-type]
-                session_id="session", query="q", retrieval_mode="unsupported"
+                session_id="session", query="q", retrieval_mode=invalid_mode
             )
 
         request.assert_not_awaited()
