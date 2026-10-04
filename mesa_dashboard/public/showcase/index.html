@@ -408,11 +408,11 @@ context = client.search(agent_id="support_01", query="Kullanıcı ne satın alma
                         <div class="term-dots">
                             <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
                         </div>
-                        <span class="term-title" data-i18n="term_console_title">Live CI/CD Verification Runner (`python -m mesa_benchmark.runner`)</span>
+                        <span class="term-title" data-i18n="term_console_title">Live CI/CD Verification Runner (`mesa-benchmark run`)</span>
                         <span class="badge" style="font-size: 0.75rem; background: rgba(16, 185, 129, 0.15); color: #34d399;">CI/CD VERIFIED</span>
                     </div>
                     <div class="term-body">
-                        <div class="term-cmd-line">$ <span id="benchTermCmd">python -m mesa_benchmark.runner --config config_beam.yaml --queries 400 --rerank cross_encoder</span></div>
+                        <div class="term-cmd-line">$ <span id="benchTermCmd">mesa-benchmark run --config config_beam.yaml --queries 400 --rerank cross_encoder</span></div>
                         <pre id="benchTermLog" class="term-log-output">[INFO] Loaded 400 test cases from golden_dataset_beam.json
 [INFO] Initializing MemoryDAO: SQLite WAL + LanceDB + KùzuDB (Top-K=5 parity)
 [PASS] test_contradiction_001..080 (100% schema compliance)

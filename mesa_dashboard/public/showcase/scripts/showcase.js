@@ -135,7 +135,7 @@ const I18N = {
         method_title: "Methodological Verification & Judge Consensus Analysis",
         method_desc: "Our evaluation pipeline validates keyword-based proxy scores against dual LLM Judges (GPT-4 / Claude consensus). For BEAM, our measured agreement rate is <strong>79.17%</strong> (Cohen's Kappa: <code>0.1319</code>), proving that exact-match proxies provide fast CI/CD feedback while LLM consensus handles nuanced factual verification.",
         
-        term_console_title: "Live CI/CD Verification Runner (`python -m mesa_benchmark.runner`)",
+        term_console_title: "Live CI/CD Verification Runner (`mesa-benchmark run`)",
         
         // Layer 5: Enterprise Security & Zero-Cost Mode
         sec_title: "Enterprise Security & Zero-Cost Local RAG",
@@ -294,7 +294,7 @@ const I18N = {
         method_title: "Metodolojik Doğrulama ve Jüri Uyum Analizi",
         method_desc: "Değerlendirme boru hattımız, kelime bazlı vekil skorları çift LLM Jürisi (GPT-4 / Claude fikir birliği) ile çapraz doğrular. BEAM testlerinde ölçülen uyum oranı <strong>%79.17</strong> (Cohen's Kappa: <code>0.1319</code>) olarak gerçekleşmiştir. Bu sonuç, hızlı CI/CD testlerinde kelime bazlı kontrolün etkili olduğunu ancak hassas olgusal çıkarımlarda LLM Jürisinin zorunlu olduğunu kanıtlar.",
         
-        term_console_title: "Canlı CI/CD Doğrulama Konsolu (`python -m mesa_benchmark.runner`)",
+        term_console_title: "Canlı CI/CD Doğrulama Konsolu (`mesa-benchmark run`)",
         
         // Layer 5: Enterprise Security & Zero-Cost Mode
         sec_title: "Kurumsal Güvenlik & Sıfır Maliyetli Yerel RAG",
@@ -406,7 +406,7 @@ const BENCHMARK_DATA = {
         w4_label: "Response Synthesis & Schema Verification",
         w4_ms: "125 ms",
         w4_pct: "58%",
-        terminal_cmd: "python -m mesa_benchmark.runner --config config_beam.yaml --queries 400 --rerank cross_encoder",
+        terminal_cmd: "mesa-benchmark run --config config_beam.yaml --queries 400 --rerank cross_encoder",
         terminal_log: `[INFO] Loaded 400 test cases from golden_dataset_beam.json
 [INFO] Initializing MemoryDAO: SQLite WAL + LanceDB + KùzuDB (Top-K=5 parity)
 [PASS] test_contradiction_001..080 (100% schema compliance)
@@ -436,7 +436,7 @@ Total Execution Time: 88.14s | Zero Context Leakage Violations Detected`
         w4_label: "Direct Hydration (Zero-LLM Overhead Mode)",
         w4_ms: "0 ms",
         w4_pct: "0%",
-        terminal_cmd: "python -m mesa_benchmark.runner --config config_multihop.yaml --queries 58 --graph-depth 3",
+        terminal_cmd: "mesa-benchmark run --config config_multihop.yaml --queries 58 --graph-depth 3",
         terminal_log: `[INFO] Loaded 58 multi-hop entity reasoning chains from golden_dataset_graph.json
 [INFO] KùzuDB threadpool initialized with 8 async query workers
 [PASS] test_graph_chain_01..20 (2-hop entity salience verified)
