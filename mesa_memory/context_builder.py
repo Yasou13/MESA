@@ -270,7 +270,18 @@ class ContextBuilder:
             )
 
         memory_records: list[dict[str, Any]] = []
+        seen_evidence_ids: set[str] = set()
         for idx, item in enumerate(canonical_memories):
+            evidence_identity = str(
+                item.get("assertion_id")
+                or item.get("evidence_id")
+                or item.get("candidate_id")
+                or ""
+            )
+            if evidence_identity and evidence_identity in seen_evidence_ids:
+                continue
+            if evidence_identity:
+                seen_evidence_ids.add(evidence_identity)
             entity = (
                 item.get("entity", {}) if isinstance(item.get("entity"), dict) else {}
             )
@@ -418,10 +429,11 @@ class ContextBuilder:
                 <= token_budget
             )
 
-        # Give every ranked candidate one chance to place its minimum valid
-        # representation before a large early candidate consumes the budget.
-        # This preserves retrieval order without allowing a many-fact entity to
-        # crowd out all lower-ranked evidence.
+        # Prepare one indivisible minimum representation per ranked candidate.
+        # Selection below keeps fused rank as the anchor, while reserving one
+        # complete slot for compact evidence when any ranked pair can fit.  This
+        # prevents an early verbose minimum from greedily consuming the budget
+        # before later candidates are considered.
         prepared_memories: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
         for memory in memory_records:
             if not memory["facts"]:
@@ -445,22 +457,64 @@ class ContextBuilder:
             else:
                 minimum_memory = deepcopy(memory)
                 minimum_memory["facts"] = minimum_memory["facts"][:1]
-
             prepared_memories.append((full_memory, minimum_memory, candidate_id))
+
+        viable_memories: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
+        for full_memory, minimum_memory, candidate_id in prepared_memories:
             if not _fits([minimum_memory]):
                 budget_rejections.append(
                     {
                         "candidate_id": candidate_id,
                         "reason": (
                             "PROOF_EXCEEDS_CONTEXT_BUDGET"
-                            if memory.get("_is_atomic_proof")
+                            if full_memory.get("_is_atomic_proof")
                             else "EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
                         ),
                     }
                 )
-            elif _fits([*cur_memories, minimum_memory]):
-                cur_memories.append(minimum_memory)
             else:
+                viable_memories.append((full_memory, minimum_memory, candidate_id))
+
+        def _ordered_minimums(positions: set[int]) -> list[dict[str, Any]]:
+            return [
+                minimum_memory
+                for position, (_, minimum_memory, _) in enumerate(viable_memories)
+                if position in positions
+            ]
+
+        selected_positions: set[int] = set()
+        selected_pair: tuple[int, int] | None = None
+        for anchor in range(len(viable_memories)):
+            fitting_partners = [
+                partner
+                for partner in range(len(viable_memories))
+                if partner != anchor and _fits(_ordered_minimums({anchor, partner}))
+            ]
+            if fitting_partners:
+                # Fused rank remains the priority signal: reserve the earliest
+                # ranked partner that fits with this anchor.  A later, smaller
+                # candidate is considered only when earlier partners cannot fit.
+                partner = min(fitting_partners)
+                selected_pair = (anchor, partner)
+                break
+
+        if selected_pair is not None:
+            selected_positions.update(selected_pair)
+        elif viable_memories:
+            selected_positions.add(0)
+
+        # Once the rank anchor and compact companion are reserved, consume all
+        # remaining capacity in the original fused order.
+        for position in range(len(viable_memories)):
+            if position in selected_positions:
+                continue
+            proposed = {*selected_positions, position}
+            if _fits(_ordered_minimums(proposed)):
+                selected_positions = proposed
+
+        cur_memories = _ordered_minimums(selected_positions)
+        for position, (_, _, candidate_id) in enumerate(viable_memories):
+            if position not in selected_positions:
                 budget_rejections.append(
                     {
                         "candidate_id": candidate_id,
@@ -476,22 +530,22 @@ class ContextBuilder:
             for position, memory in enumerate(cur_memories)
         }
         for full_memory, minimum_memory, _ in prepared_memories:
-            position = retained_by_index.get(full_memory["_raw_index"])
-            if position is None:
+            retained_position = retained_by_index.get(full_memory["_raw_index"])
+            if retained_position is None:
                 continue
             if full_memory.get("_is_atomic_proof"):
                 if minimum_memory.get("_proof_compacted"):
                     enriched = list(cur_memories)
-                    enriched[position] = full_memory
+                    enriched[retained_position] = full_memory
                     if _fits(enriched):
                         cur_memories = enriched
                 continue
 
             for fact in full_memory["facts"][1:]:
-                enriched_memory = deepcopy(cur_memories[position])
+                enriched_memory = deepcopy(cur_memories[retained_position])
                 enriched_memory["facts"].append(deepcopy(fact))
                 enriched = list(cur_memories)
-                enriched[position] = enriched_memory
+                enriched[retained_position] = enriched_memory
                 if not _fits(enriched):
                     break
                 cur_memories = enriched
