@@ -271,7 +271,6 @@ async def test_duplicate_evidence_identity_does_not_consume_budget(monkeypatch) 
 
     assert context["formatted_context"].count("DUPLICATE") == 1
     assert "DISTINCT_LATER_EVIDENCE" in context["formatted_context"]
-    assert context["context_diagnostics"]["duplicate_candidate_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -316,3 +315,67 @@ async def test_exact_budget_boundary_and_one_token_over_are_deterministic(
     assert one_over["actual_token_count"] <= exact_budget - 1
     assert one_over["canonical_memories"] == []
     assert one_over["context_status"] == "VALID_EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
+
+
+@pytest.mark.asyncio
+async def test_budget_rejection_reasons_follow_each_candidate_type(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mesa_memory.context_builder._count_tokens",
+        lambda text: len(text.encode("utf-8")),
+    )
+    graph = _candidate(1, evidence="graph principal " * 200)
+    graph["provenance"].insert(
+        0,
+        {
+            "assertion_id": "graph-bridge",
+            "subject_name": "Graph Seed",
+            "predicate": "supports",
+            "literal_value": "Article 1",
+            "direction": "forward",
+            "source_ref": "source-bridge",
+            "document_id": "document-bridge",
+            "revision_id": "revision-bridge",
+            "chunk_id": "chunk-bridge",
+            "evidence_span": "graph bridge " * 200,
+            "jurisdiction": "TR",
+        },
+    )
+    graph["retrieval_provenance"].update(
+        {
+            "origins": ["graph"],
+            "graph_hop_count": 2,
+            "graph_path_assertion_ids": ["graph-bridge", "assertion-1"],
+            "graph_paths": [
+                {
+                    "graph_path_id": "graph-path-1",
+                    "assertion_ids": ["graph-bridge", "assertion-1"],
+                    "entity_ids": ["seed", "bridge", "target"],
+                    "edge_directions": ["forward", "forward"],
+                    "predicates": ["supports", "states"],
+                }
+            ],
+        }
+    )
+    ordinary = _candidate(2, evidence="ordinary evidence " * 200)
+    dao = AsyncMock()
+    dao.get_recent_logs.return_value = []
+    dao.search_v4_memory.return_value = [graph, ordinary]
+
+    context = await ContextBuilder(dao).build_context(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        dataset_ids=["dataset-1"],
+        query="target",
+        token_budget=256,
+    )
+
+    assert context["context_diagnostics"]["budget_rejections"] == [
+        {
+            "candidate_id": "candidate-1",
+            "reason": "PROOF_EXCEEDS_CONTEXT_BUDGET",
+        },
+        {
+            "candidate_id": "candidate-2",
+            "reason": "EVIDENCE_EXCEEDS_CONTEXT_BUDGET",
+        },
+    ]

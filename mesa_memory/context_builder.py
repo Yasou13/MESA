@@ -271,7 +271,6 @@ class ContextBuilder:
 
         memory_records: list[dict[str, Any]] = []
         seen_evidence_ids: set[str] = set()
-        duplicate_candidate_count = 0
         for idx, item in enumerate(canonical_memories):
             evidence_identity = str(
                 item.get("assertion_id")
@@ -280,7 +279,6 @@ class ContextBuilder:
                 or ""
             )
             if evidence_identity and evidence_identity in seen_evidence_ids:
-                duplicate_candidate_count += 1
                 continue
             if evidence_identity:
                 seen_evidence_ids.add(evidence_identity)
@@ -469,7 +467,7 @@ class ContextBuilder:
                         "candidate_id": candidate_id,
                         "reason": (
                             "PROOF_EXCEEDS_CONTEXT_BUDGET"
-                            if memory.get("_is_atomic_proof")
+                            if full_memory.get("_is_atomic_proof")
                             else "EVIDENCE_EXCEEDS_CONTEXT_BUDGET"
                         ),
                     }
@@ -653,7 +651,6 @@ class ContextBuilder:
                 "renderable_candidate_count": renderable_candidate_count,
                 "retained_memory_count": len(model_visible_memories),
                 "compacted_graph_proof_count": compacted_graph_proof_count,
-                "duplicate_candidate_count": duplicate_candidate_count,
                 "budget_rejection_count": len(budget_rejections),
                 "budget_rejections": budget_rejections,
             },
