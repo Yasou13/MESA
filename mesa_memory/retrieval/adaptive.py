@@ -235,22 +235,23 @@ class BoundedAdaptiveQueryRetriever:
         request_principal_id: str | None = None,
     ) -> AdaptiveRetrievalResult:
         normalized_query = normalize_planner_query(query)
-        scope = {
-            "tenant_id": tenant_id,
-            "agent_id": agent_id,
-            "dataset_ids": dataset_ids,
-            "limit": limit,
-            "jurisdiction": jurisdiction,
-            "valid_at": valid_at,
-            "valid_from": valid_from,
-            "valid_to": valid_to,
-            "graph_enabled": graph_enabled,
-            "request_principal_id": request_principal_id,
-        }
-        original = await self._dao.search_v4_memory(
-            query=normalized_query,
-            **scope,
-        )
+
+        async def search(query_text: str) -> list[dict[str, Any]]:
+            return await self._dao.search_v4_memory(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                dataset_ids=dataset_ids,
+                query=query_text,
+                limit=limit,
+                jurisdiction=jurisdiction,
+                valid_at=valid_at,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                graph_enabled=graph_enabled,
+                request_principal_id=request_principal_id,
+            )
+
+        original = await search(normalized_query)
         diagnostics: dict[str, Any] = {
             "retrieval_mode": "adaptive",
             "planner_used": False,
@@ -278,10 +279,7 @@ class BoundedAdaptiveQueryRetriever:
         for index, expansion in enumerate(expansions, start=1):
             diagnostics["retrieval_count"] += 1
             try:
-                expansion_results = await self._dao.search_v4_memory(
-                    query=expansion,
-                    **scope,
-                )
+                expansion_results = await search(expansion)
             except Exception as exc:
                 diagnostics["expansion_failure_count"] += 1
                 logger.warning(
