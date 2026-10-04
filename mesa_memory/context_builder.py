@@ -540,22 +540,22 @@ class ContextBuilder:
             for position, memory in enumerate(cur_memories)
         }
         for full_memory, minimum_memory, _ in prepared_memories:
-            position = retained_by_index.get(full_memory["_raw_index"])
-            if position is None:
+            retained_position = retained_by_index.get(full_memory["_raw_index"])
+            if retained_position is None:
                 continue
             if full_memory.get("_is_atomic_proof"):
                 if minimum_memory.get("_proof_compacted"):
                     enriched = list(cur_memories)
-                    enriched[position] = full_memory
+                    enriched[retained_position] = full_memory
                     if _fits(enriched):
                         cur_memories = enriched
                 continue
 
             for fact in full_memory["facts"][1:]:
-                enriched_memory = deepcopy(cur_memories[position])
+                enriched_memory = deepcopy(cur_memories[retained_position])
                 enriched_memory["facts"].append(deepcopy(fact))
                 enriched = list(cur_memories)
-                enriched[position] = enriched_memory
+                enriched[retained_position] = enriched_memory
                 if not _fits(enriched):
                     break
                 cur_memories = enriched
