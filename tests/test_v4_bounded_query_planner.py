@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from mesa_memory.config import config
 from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.retrieval.adaptive import (
     AdaptiveRetrievalResult,
@@ -19,6 +20,10 @@ from mesa_memory.retrieval.adaptive import (
     normalize_planner_query,
     retrieval_is_weak,
 )
+from mesa_storage.dao import MemoryDAO
+from mesa_storage.schemas import initialize_schema
+from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_workers.projection_worker import process_projection_outbox_once
 
 
 def _candidate(
@@ -425,3 +430,147 @@ async def test_context_builder_adaptive_mode_packs_one_deduplicated_list() -> No
     assert "RESCUED_EVIDENCE" in context["formatted_context"]
     assert context["actual_token_count"] <= 2048
     assert context["context_diagnostics"]["retrieval_count"] == 2
+
+
+async def _real_searchable_legal_memory(tmp_path):
+    engine = AsyncEngine(str(tmp_path / "adaptive-retrieval.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    vector = SimpleNamespace(
+        is_initialized=True,
+        compute_embedding=AsyncMock(return_value=[0.1, 0.2, 0.3]),
+        compute_query_embedding=AsyncMock(return_value=[0.1, 0.2, 0.3]),
+        search=AsyncMock(return_value=[]),
+    )
+    graph = SimpleNamespace(
+        is_operational=False,
+        insert_node=AsyncMock(),
+        insert_assertion=AsyncMock(),
+    )
+    dao = MemoryDAO(engine, vector, graph)
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="tenant-integration",
+        workspace_id="workspace-integration",
+        dataset_id="dataset-integration",
+    )
+    marker = "ADAPTIVE_RESCUE_EVIDENCE"
+    admission = await dao.admit_v4_memory(
+        tenant_id="tenant-integration",
+        workspace_id="workspace-integration",
+        dataset_id="dataset-integration",
+        agent_id="agent-integration",
+        session_id="session-integration",
+        document_id="document-zina-rule",
+        revision_id="revision-zina-rule",
+        chunk_id="chunk-zina-rule",
+        title="Zina nedeniyle boşanma süresi",
+        content_payload=(
+            "Zina nedeniyle boşanma davası için öğrenmeden başlayan süre uygulanır. "
+            f"{marker}"
+        ),
+        source_ref="law://semantic-rescue",
+        evidence_span="",
+        revision_number=1,
+        chunk_ordinal=0,
+        supersedes_revision_id=None,
+        metadata={"jurisdiction": "TR"},
+        embedding_provider="local-test",
+        embedding_model="deterministic",
+        embedding_version="v1",
+        embedding_dimension=3,
+        policy=config.queue_admission_policy,
+        validation_mode=0,
+    )
+    mutation_id = admission["response"]["mutation_id"]
+    assert await dao.record_mutation_extraction("agent-integration", mutation_id, [])
+    assert await dao.set_mutation_state("agent-integration", mutation_id, "VALIDATED")
+    assert (
+        await process_projection_outbox_once(
+            dao, worker_id="adaptive-projector", limit=1
+        )
+    )["completed"] == 1
+
+    # This integration targets the real canonical SQL retrieval path. Mark
+    # optional secondary projections complete without introducing a provider.
+    async with engine.transaction() as db:
+        for lane in ("VECTOR", "GRAPH"):
+            await db.execute(
+                "UPDATE projection_outbox SET state = 'COMPLETED' "
+                "WHERE mutation_id = ? AND projection_name = ?",
+                (mutation_id, lane),
+            )
+            await MemoryDAO._advance_mutation_projection_state(db, mutation_id)
+        await db.commit()
+    return engine, dao, marker
+
+
+@pytest.mark.asyncio
+async def test_real_v4_retrieval_planner_rescue_reaches_context(tmp_path) -> None:
+    engine, dao, marker = await _real_searchable_legal_memory(tmp_path)
+    adapter = _Adapter({"queries": ["zina boşanma süresi"]})
+    planner = BoundedQueryPlanner(adapter)  # type: ignore[arg-type]
+    search = AsyncMock(wraps=dao.search_v4_memory)
+    retrieval_dao = SimpleNamespace(search_v4_memory=search)
+    try:
+        context = await ContextBuilder(
+            retrieval_dao,
+            adaptive_retriever=BoundedAdaptiveQueryRetriever(retrieval_dao, planner),
+        ).build_context(
+            tenant_id="tenant-integration",
+            agent_id="agent-integration",
+            dataset_ids=["dataset-integration"],
+            query="Eşimin beni aldattığını öğrendim, ne kadar sürem var?",
+            jurisdiction="TR",
+            retrieval_mode="adaptive",
+        )
+
+        assert adapter.calls == 1
+        assert search.await_count == 2
+        assert context["context_diagnostics"]["planner_status"] == "planner_expanded"
+        assert marker in context["formatted_context"]
+        assert context["canonical_memories"]
+        assert context["actual_token_count"] <= 2048
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_real_v4_strong_original_skips_planner_and_extra_retrieval(
+    tmp_path,
+) -> None:
+    engine, dao, marker = await _real_searchable_legal_memory(tmp_path)
+    adapter = _Adapter({"queries": ["unused expansion"]})
+    planner = BoundedQueryPlanner(adapter)  # type: ignore[arg-type]
+    search = AsyncMock(wraps=dao.search_v4_memory)
+    retrieval_dao = SimpleNamespace(search_v4_memory=search)
+    try:
+        single = await ContextBuilder(retrieval_dao).build_context(
+            tenant_id="tenant-integration",
+            agent_id="agent-integration",
+            dataset_ids=["dataset-integration"],
+            query="zina boşanma süresi",
+            jurisdiction="TR",
+        )
+        search.reset_mock()
+        adaptive = await ContextBuilder(
+            retrieval_dao,
+            adaptive_retriever=BoundedAdaptiveQueryRetriever(retrieval_dao, planner),
+        ).build_context(
+            tenant_id="tenant-integration",
+            agent_id="agent-integration",
+            dataset_ids=["dataset-integration"],
+            query="zina boşanma süresi",
+            jurisdiction="TR",
+            retrieval_mode="adaptive",
+        )
+
+        assert marker in single["formatted_context"]
+        assert adaptive["formatted_context"] == single["formatted_context"]
+        assert adaptive["canonical_memories"] == single["canonical_memories"]
+        assert adapter.calls == 0
+        assert search.await_count == 1
+        assert adaptive["context_diagnostics"]["planner_status"] == (
+            "planner_not_needed"
+        )
+    finally:
+        await engine.close()
