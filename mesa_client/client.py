@@ -693,18 +693,22 @@ class MesaV4Client(MesaClient):
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        retrieval_mode: Literal["single", "adaptive"] = "single",
     ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "query": query,
+            "token_budget": token_budget,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if retrieval_mode == "adaptive":
+            params["retrieval_mode"] = retrieval_mode
         return self._request(
             "GET",
             f"/v4/sessions/{session_id}/context",
-            params={
-                "query": query,
-                "token_budget": token_budget,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-            },
+            params=params,
         )
 
 
@@ -1019,16 +1023,20 @@ class AsyncMesaV4Client(AsyncMesaClient):
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        retrieval_mode: Literal["single", "adaptive"] = "single",
     ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "query": query,
+            "token_budget": token_budget,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if retrieval_mode == "adaptive":
+            params["retrieval_mode"] = retrieval_mode
         return await self._request(
             "GET",
             f"/v4/sessions/{session_id}/context",
-            params={
-                "query": query,
-                "token_budget": token_budget,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-            },
+            params=params,
         )

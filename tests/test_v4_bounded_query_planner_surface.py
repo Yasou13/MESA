@@ -54,9 +54,7 @@ def test_sync_client_sends_adaptive_mode_only_when_opted_in() -> None:
     default_params = request.call_args.kwargs["params"]
     assert "retrieval_mode" not in default_params
 
-    client.get_context(
-        session_id="session", query="q", retrieval_mode="adaptive"
-    )
+    client.get_context(session_id="session", query="q", retrieval_mode="adaptive")
     assert request.call_args.kwargs["params"]["retrieval_mode"] == "adaptive"
 
 
@@ -89,9 +87,9 @@ async def test_mcp_context_forwards_explicit_adaptive_mode() -> None:
         v4,
     )
 
-    assert await adapter.get_context(
-        {"query": "q", "retrieval_mode": "adaptive"}
-    ) == {"context": "ok"}
+    assert await adapter.get_context({"query": "q", "retrieval_mode": "adaptive"}) == {
+        "context": "ok"
+    }
     assert v4.v4_context.await_args.kwargs["retrieval_mode"] == "adaptive"
 
 
@@ -130,9 +128,7 @@ async def test_api_adaptive_context_runs_planner_and_preserves_session_scope(
             return schema.model_validate({"queries": ["semantic rescue"]})
 
     fake_adapter = FakeAdapter()
-    monkeypatch.setattr(
-        v4_api.AdapterFactory, "get_adapter", lambda: fake_adapter
-    )
+    monkeypatch.setattr(v4_api.AdapterFactory, "get_adapter", lambda: fake_adapter)
     dao = MagicMock()
     dao.rebuild_admission.is_pending = AsyncMock(return_value=False)
     dao.get_v4_session = AsyncMock(
@@ -156,6 +152,8 @@ async def test_api_adaptive_context_runs_planner_and_preserves_session_scope(
     access = MagicMock()
     access.check_principal_session_access = AsyncMock(return_value=True)
     access.check_principal_permission = AsyncMock(return_value=True)
+    access.check_access = AsyncMock(return_value=True)
+    access.check_scope_role = AsyncMock(return_value=True)
 
     async def attach_principal(request: Request) -> None:
         request.state.principal = SimpleNamespace(
@@ -169,11 +167,9 @@ async def test_api_adaptive_context_runs_planner_and_preserves_session_scope(
         return access
 
     app = FastAPI(dependencies=[Depends(attach_principal)])
-    app.include_router(
-        create_v4_router(get_dao=get_dao, get_access_control=get_access)
-    )
+    app.include_router(create_v4_router(get_dao=get_dao, get_access_control=get_access))
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=True),
         base_url="http://test",
     ) as client:
         response = await client.get(

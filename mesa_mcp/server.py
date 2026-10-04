@@ -214,6 +214,11 @@ def _tools() -> list[types.Tool]:
                     "valid_at": {"type": "string"},
                     "valid_from": {"type": "string"},
                     "valid_to": {"type": "string"},
+                    "retrieval_mode": {
+                        "type": "string",
+                        "enum": ["single", "adaptive"],
+                        "default": "single",
+                    },
                 },
                 "required": ["query"],
             },
