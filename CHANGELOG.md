@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bounded adaptive context retrieval:** Added an explicit opt-in context mode
+  that runs the original V4 query first, makes at most one semantic
+  reformulation call for weak results, executes at most two additional searches
+  with the same authorized scope, and feeds one deduplicated candidate list to
+  the existing ContextBuilder budget pass. Single-query retrieval remains the
+  default for HTTP, sync/async SDK and MCP callers.
 - **Selectable validation policy:** Added explicit deterministic-only,
   single-LLM and dual-LLM consensus modes with truthful runtime capability
   reporting and durable per-mutation policy snapshots.

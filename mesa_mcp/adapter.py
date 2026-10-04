@@ -150,6 +150,15 @@ class MesaMCPAdapter:
     async def get_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
         query = _required_string(arguments, "query", max_length=_MAX_QUERY_LENGTH)
         project_id = _project_id(arguments, self._settings)
+        retrieval_mode = arguments.get("retrieval_mode", "single")
+        if not isinstance(retrieval_mode, str) or retrieval_mode not in {
+            "single",
+            "adaptive",
+        }:
+            raise MCPError(
+                "INVALID_ARGUMENT",
+                "retrieval_mode must be 'single' or 'adaptive'",
+            )
         token_budget = arguments.get(
             "token_budget", self._settings.context_default_token_budget
         )
@@ -171,14 +180,22 @@ class MesaMCPAdapter:
                 "INVALID_ARGUMENT", "include_types contains an unsupported value"
             )
         if self._v4_service:
-            return await self._v4_service.v4_context(
-                dataset_id=arguments.get("dataset_id"),
-                query=query,
-                token_budget=token_budget,
-                jurisdiction=arguments.get("jurisdiction"),
-                valid_at=arguments.get("valid_at"),
-                valid_from=arguments.get("valid_from"),
-                valid_to=arguments.get("valid_to"),
+            context_arguments = {
+                "dataset_id": arguments.get("dataset_id"),
+                "query": query,
+                "token_budget": token_budget,
+                "jurisdiction": arguments.get("jurisdiction"),
+                "valid_at": arguments.get("valid_at"),
+                "valid_from": arguments.get("valid_from"),
+                "valid_to": arguments.get("valid_to"),
+            }
+            if retrieval_mode == "adaptive":
+                context_arguments["retrieval_mode"] = retrieval_mode
+            return await self._v4_service.v4_context(**context_arguments)
+        if retrieval_mode == "adaptive":
+            raise MCPError(
+                "UNIMPLEMENTED",
+                "adaptive retrieval requires the V4 context service",
             )
         # 4 chars/token is deliberately conservative and keeps MCP responses bounded.
         candidates = await self._service.search_memories(

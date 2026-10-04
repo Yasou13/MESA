@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
+from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
@@ -26,6 +27,10 @@ from mesa_memory.embedding.service import (
     EmbeddingIdentityMismatchError,
     EmbeddingUnavailableError,
     ExternalProviderForbiddenError,
+)
+from mesa_memory.retrieval.adaptive import (
+    BoundedAdaptiveQueryRetriever,
+    BoundedQueryPlanner,
 )
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.rbac import AccessControl
@@ -1315,6 +1320,7 @@ def create_v4_router(
         valid_at: datetime | None = None,
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
+        retrieval_mode: Literal["single", "adaptive"] = "single",
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
@@ -1326,7 +1332,18 @@ def create_v4_router(
                 status_code=422, detail="valid_from must not be after valid_to"
             )
         agent_id = str(session["agent_id"])
-        builder = ContextBuilder(dao)
+        adaptive_retriever = None
+        if retrieval_mode == "adaptive":
+            planner = None
+            try:
+                planner = BoundedQueryPlanner(AdapterFactory.get_adapter())
+            except Exception as exc:
+                logger.warning(
+                    "QUERY_PLANNER_COMPOSITION_UNAVAILABLE | exception_type=%s",
+                    type(exc).__name__,
+                )
+            adaptive_retriever = BoundedAdaptiveQueryRetriever(dao, planner)
+        builder = ContextBuilder(dao, adaptive_retriever=adaptive_retriever)
         ctx = await builder.build_context(
             tenant_id=str(session["tenant_id"]),
             agent_id=agent_id,
@@ -1338,6 +1355,7 @@ def create_v4_router(
             valid_at=valid_at.isoformat() if valid_at else None,
             valid_from=valid_from.isoformat() if valid_from else None,
             valid_to=valid_to.isoformat() if valid_to else None,
+            retrieval_mode=retrieval_mode,
         )
         mutations = await dao.list_session_mutation_summaries(
             agent_id, session_id, limit=20

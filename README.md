@@ -311,7 +311,7 @@ paylaşılan bir config dosyasına sabit yazmayın.
 | `mesa_store_memory` | Queue durable project knowledge |
 | `mesa_search_memory` | Search memories in one MCP project session |
 | `mesa_get_memory` | Retrieve an exact memory by ID in one project session |
-| `mesa_get_context` | Build a token-bounded project context bundle |
+| `mesa_get_context` | Build a token-bounded project context bundle; optional `retrieval_mode=adaptive` enables bounded semantic expansion |
 
 Claude can now persist facts across conversations and recall them on demand through your local MESA instance.
 

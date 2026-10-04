@@ -374,6 +374,12 @@ def _v4_control_value(value: str, *, label: str) -> str:
     return value
 
 
+def _v4_retrieval_mode(value: object) -> Literal["single", "adaptive"]:
+    if not isinstance(value, str) or value not in {"single", "adaptive"}:
+        raise MesaValidationError("retrieval_mode must be 'single' or 'adaptive'")
+    return "single" if value == "single" else "adaptive"
+
+
 def _v4_operation_path(operation_id: str, suffix: str = "") -> str:
     identifier = _v4_control_value(operation_id, label="operation_id")
     return f"/v4/operations/{quote(identifier, safe='')}{suffix}"
@@ -693,18 +699,23 @@ class MesaV4Client(MesaClient):
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        retrieval_mode: Literal["single", "adaptive"] = "single",
     ) -> dict[str, Any]:
+        retrieval_mode = _v4_retrieval_mode(retrieval_mode)
+        params: dict[str, Any] = {
+            "query": query,
+            "token_budget": token_budget,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if retrieval_mode == "adaptive":
+            params["retrieval_mode"] = retrieval_mode
         return self._request(
             "GET",
             f"/v4/sessions/{session_id}/context",
-            params={
-                "query": query,
-                "token_budget": token_budget,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-            },
+            params=params,
         )
 
 
@@ -1019,16 +1030,21 @@ class AsyncMesaV4Client(AsyncMesaClient):
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        retrieval_mode: Literal["single", "adaptive"] = "single",
     ) -> dict[str, Any]:
+        retrieval_mode = _v4_retrieval_mode(retrieval_mode)
+        params: dict[str, Any] = {
+            "query": query,
+            "token_budget": token_budget,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if retrieval_mode == "adaptive":
+            params["retrieval_mode"] = retrieval_mode
         return await self._request(
             "GET",
             f"/v4/sessions/{session_id}/context",
-            params={
-                "query": query,
-                "token_budget": token_budget,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-            },
+            params=params,
         )
