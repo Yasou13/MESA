@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal
 
 from mesa_memory.adapter.tokenizer import count_tokens
+from mesa_memory.retrieval.adaptive import BoundedAdaptiveQueryRetriever
 from mesa_memory.security import untrusted_memory
 from mesa_storage.dao import MemoryDAO
 
@@ -211,8 +212,14 @@ def _render_context(
 class ContextBuilder:
     """Canonical ContextBuilder for long-term multi-session memory integration."""
 
-    def __init__(self, dao: MemoryDAO) -> None:
+    def __init__(
+        self,
+        dao: MemoryDAO,
+        *,
+        adaptive_retriever: BoundedAdaptiveQueryRetriever | None = None,
+    ) -> None:
         self.dao = dao
+        self._adaptive_retriever = adaptive_retriever
 
     async def build_context(
         self,
@@ -229,10 +236,13 @@ class ContextBuilder:
         valid_to: str | None = None,
         include_provenance: bool = True,
         max_evidence_span_chars: int | None = None,
+        retrieval_mode: Literal["single", "adaptive"] = "single",
     ) -> dict[str, Any]:
         """Construct context combining current-session logs and long-term canonical truth."""
         if token_budget < 1:
             raise ValueError("token_budget must be positive")
+        if retrieval_mode not in {"single", "adaptive"}:
+            raise ValueError("retrieval_mode must be 'single' or 'adaptive'")
 
         # 1. Fetch current session raw logs if session_id provided
         session_logs: list[dict[str, Any]] = []
@@ -242,22 +252,50 @@ class ContextBuilder:
 
         # 2. Perform canonical retrieval if query or dataset_ids provided
         canonical_memories: list[dict[str, Any]] = []
+        retrieval_diagnostics: dict[str, Any] = {
+            "retrieval_mode": retrieval_mode,
+            "planner_used": False,
+            "planner_status": "planner_not_needed",
+            "expansion_count": 0,
+            "retrieval_count": 0,
+            "expansion_failure_count": 0,
+        }
         if dataset_ids and (query or session_logs):
             search_query = query or " ".join(
                 str(item.get("content", "")) for item in session_logs[:3]
             )
             if search_query.strip():
-                canonical_memories = await self.dao.search_v4_memory(
-                    tenant_id=tenant_id,
-                    agent_id=agent_id,
-                    dataset_ids=dataset_ids,
-                    query=search_query,
-                    limit=20,
-                    jurisdiction=jurisdiction,
-                    valid_at=valid_at,
-                    valid_from=valid_from,
-                    valid_to=valid_to,
-                )
+                if retrieval_mode == "adaptive":
+                    retriever = (
+                        self._adaptive_retriever
+                        or BoundedAdaptiveQueryRetriever(self.dao, None)
+                    )
+                    adaptive_result = await retriever.retrieve(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        dataset_ids=dataset_ids,
+                        query=search_query,
+                        limit=20,
+                        jurisdiction=jurisdiction,
+                        valid_at=valid_at,
+                        valid_from=valid_from,
+                        valid_to=valid_to,
+                    )
+                    canonical_memories = adaptive_result.candidates
+                    retrieval_diagnostics = adaptive_result.diagnostics
+                else:
+                    canonical_memories = await self.dao.search_v4_memory(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        dataset_ids=dataset_ids,
+                        query=search_query,
+                        limit=20,
+                        jurisdiction=jurisdiction,
+                        valid_at=valid_at,
+                        valid_from=valid_from,
+                        valid_to=valid_to,
+                    )
+                    retrieval_diagnostics["retrieval_count"] = 1
 
         # 3. Construct candidate structured evidence records
         session_records: list[dict[str, Any]] = []
@@ -605,6 +643,7 @@ class ContextBuilder:
                     "scope_identity",
                     "rrf_score",
                     "final_score",
+                    "query_fusion_score",
                 ):
                     if key in raw_mem:
                         visible_item[key] = raw_mem[key]
@@ -639,6 +678,7 @@ class ContextBuilder:
             "actual_token_count": actual_tokens,
             "context_status": context_status,
             "context_diagnostics": {
+                **retrieval_diagnostics,
                 "retrieval_candidate_count": len(canonical_memories),
                 "renderable_candidate_count": renderable_candidate_count,
                 "retained_memory_count": len(model_visible_memories),
