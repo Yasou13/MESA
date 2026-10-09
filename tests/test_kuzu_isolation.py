@@ -21,6 +21,9 @@ Test Scenarios:
     5. Bidirectional isolation — symmetry check (A↛B AND B↛A).
 """
 
+from datetime import datetime, timezone
+from typing import Any, Protocol
+
 import pytest
 import pytest_asyncio
 
@@ -35,12 +38,20 @@ AGENT_A = "agent_alpha_sec"
 AGENT_B = "agent_beta_sec"
 
 
+class _WriteProvider(Protocol):
+    async def execute_write(
+        self,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> None: ...
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def kuzu_provider(tmp_path):
     """Provision a fresh KùzuDB instance per test module.
 
@@ -82,6 +93,63 @@ async def _seed_tenant_graph(provider: KuzuGraphProvider) -> None:
     await provider.insert_node("B1", "BetaNode1", AGENT_B)
     await provider.insert_node("B2", "BetaNode2", AGENT_B)
     await provider.insert_edge("B1", "B2", weight=0.8, agent_id=AGENT_B)
+
+
+async def _insert_rogue_edge(
+    provider: _WriteProvider,
+    *,
+    source_id: str,
+    target_id: str,
+    agent_id: str,
+    weight: float,
+) -> None:
+    """Bypass tenant validation while preserving the production time contract."""
+    await provider.execute_write(
+        "MATCH (a:Entity {id: $src}), (b:Entity {id: $tgt}) "
+        "CREATE (a)-[:Observed {weight: $weight, agent_id: $aid, "
+        "updated_at: $updated_at}]->(b)",
+        {
+            "src": source_id,
+            "tgt": target_id,
+            "aid": agent_id,
+            "weight": weight,
+            "updated_at": datetime.now(timezone.utc),
+        },
+    )
+
+
+class _WriteRecorder:
+    def __init__(self) -> None:
+        self.query = ""
+        self.parameters: dict[str, Any] = {}
+
+    async def execute_write(
+        self,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> None:
+        self.query = query
+        self.parameters = parameters or {}
+
+
+@pytest.mark.asyncio
+async def test_rogue_edge_timestamp_uses_utc_parameter_binding():
+    """Manual isolation writes must share the portable production time contract."""
+    recorder = _WriteRecorder()
+
+    await _insert_rogue_edge(
+        recorder,
+        source_id="agent_a::source",
+        target_id="agent_b::target",
+        agent_id="agent_a",
+        weight=1.0,
+    )
+
+    assert "$updated_at" in recorder.query
+    assert "current_timestamp" not in recorder.query.lower()
+    updated_at = recorder.parameters["updated_at"]
+    assert isinstance(updated_at, datetime)
+    assert updated_at.tzinfo is timezone.utc
 
 
 # ===========================================================================
@@ -209,11 +277,12 @@ class TestRogueEdgeInjection:
         # ROGUE INJECTION: Create a cross-tenant edge A2 -> B1
         # This simulates a bug or compromised code path that bypasses
         # the DAO's agent_id validation.
-        await kuzu_provider.execute_write(
-            "MATCH (a:Entity {id: $src}), (b:Entity {id: $tgt}) "
-            "CREATE (a)-[:Observed {weight: 1.0, agent_id: $aid, "
-            "updated_at: current_timestamp()}]->(b)",
-            {"src": f"{AGENT_A}::A2", "tgt": f"{AGENT_B}::B1", "aid": AGENT_A},
+        await _insert_rogue_edge(
+            kuzu_provider,
+            source_id=f"{AGENT_A}::A2",
+            target_id=f"{AGENT_B}::B1",
+            agent_id=AGENT_A,
+            weight=1.0,
         )
 
         # Verify the rogue edge EXISTS in the raw data
@@ -250,11 +319,12 @@ class TestRogueEdgeInjection:
         await _seed_tenant_graph(kuzu_provider)
 
         # ROGUE: Agent A injects edge from B1 -> A1 (using agent_A's ID)
-        await kuzu_provider.execute_write(
-            "MATCH (a:Entity {id: $src}), (b:Entity {id: $tgt}) "
-            "CREATE (a)-[:Observed {weight: 1.0, agent_id: $aid, "
-            "updated_at: current_timestamp()}]->(b)",
-            {"src": f"{AGENT_B}::B1", "tgt": f"{AGENT_A}::A1", "aid": AGENT_A},
+        await _insert_rogue_edge(
+            kuzu_provider,
+            source_id=f"{AGENT_B}::B1",
+            target_id=f"{AGENT_A}::A1",
+            agent_id=AGENT_A,
+            weight=1.0,
         )
 
         # Agent B traverses from B1 — must NOT see A1
@@ -293,11 +363,12 @@ class TestNodeDegreeIsolation:
         assert degree_a == 1, f"Expected degree 1 for A1, got {degree_a}"
 
         # Inject rogue cross-tenant edge A1 -> B1
-        await kuzu_provider.execute_write(
-            "MATCH (a:Entity {id: $src}), (b:Entity {id: $tgt}) "
-            "CREATE (a)-[:Observed {weight: 0.5, agent_id: $aid, "
-            "updated_at: current_timestamp()}]->(b)",
-            {"src": f"{AGENT_A}::A1", "tgt": f"{AGENT_B}::B1", "aid": AGENT_A},
+        await _insert_rogue_edge(
+            kuzu_provider,
+            source_id=f"{AGENT_A}::A1",
+            target_id=f"{AGENT_B}::B1",
+            agent_id=AGENT_A,
+            weight=0.5,
         )
 
         # Re-check degree — should STILL be 1 (rogue edge destination

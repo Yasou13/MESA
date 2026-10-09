@@ -712,7 +712,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         Uses ``MATCH`` + ``MERGE`` so that:
           - Both endpoints must already exist (no dangling edges).
           - First call creates the relationship with weight, agent_id,
-            epistemic_uncertainty, and a server-side ``current_timestamp()``.
+            epistemic_uncertainty, and an application-generated UTC timestamp.
           - Subsequent calls with the same (source, target) pair are
             no-ops (idempotent).
 
