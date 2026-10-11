@@ -143,6 +143,7 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         "idx_system_operation_events_sequence",
         "idx_projection_generations_lifecycle",
         "uq_active_document_revision",
+        "idx_v4_assertions_legal_identity_scope",
     }
     expected_triggers = {
         "trg_nodes_fts_insert",

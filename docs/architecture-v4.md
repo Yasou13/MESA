@@ -61,6 +61,15 @@ revision, chunk, source reference, evidence span, agent/session, pipeline,
 extraction and embedding versions. Authorization fields are never read from
 free-form metadata.
 
+An authenticated dataset writer may additionally supply the typed
+`legal_identity` object (`law_id`, `statute_code`, `article_id`, and optional
+version/paragraph/clause identifiers). MESA validates it against the bounded
+legal alias ontology, binds it to the immutable mutation provenance and stores
+it on canonical assertions. Reserved `_mesa_*` keys in caller metadata are
+always discarded, so free-form metadata cannot opt into legal ranking. The
+producer remains responsible for verifying that the declared identity belongs
+to the source; MESA_Data must not populate it from a bare article heading.
+
 Validation is an explicit policy gate configured via `MESA_TIER3_MODE` (0 = deterministic-only, 1 = single LLM validator, 2 = dual-LLM consensus). A rejected mutation may keep its raw
 audit source, but it cannot create an active SQL, vector, entity, edge or
 assertion artifact. In Mode 0, deterministic admission checks gate progression with zero LLM validator dependencies.
@@ -86,6 +95,12 @@ SQL → vector → graph
 
 The projector only claims a later lane when its predecessor is complete.
 Every lane is idempotent by mutation and physical artifact identity.
+
+Legal citation retrieval selects trusted typed identities through the scoped
+compound assertion index before lane ranking. Tenant, dataset, agent,
+jurisdiction, validity and committed-state predicates are applied in that SQL
+selection. Typed identity refines candidate recall and lane order; it does not
+bypass deterministic weighted RRF or replace canonical evidence text.
 
 ## Canonical entity and Graph V2
 

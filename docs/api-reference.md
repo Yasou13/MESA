@@ -155,6 +155,16 @@ almaz; bunları doğrulanmış session’dan türetir. İstek `session_id`,
 `content` taşır. `202` yanıtı `mutation_id`, `candidate_id`,
 `pipeline_run_id` ve `raw_log_id` döndürür.
 
+Yetkili dataset writer, doğrulanmış kaynak kataloğundan gelmek kaydıyla isteğe
+bağlı `legal_identity` nesnesi gönderebilir. `law_id` ve `article_id`
+zorunludur; `statute_code`, `version_id`, `paragraph_id` ve `clause_id`
+opsiyoneldir. Kanun numarası/adı/kısaltması yerleşik alias sözleşmesiyle aynı
+kanuna çözülmeli, aksi halde istek reddedilir. Bu alan serbest `metadata`
+içinden okunmaz; caller tarafından gönderilen bütün `_mesa_*` anahtarları
+atılır. Kaynağın gerçekten bildirilen kanun/maddeye ait olduğunu kanıtlama
+sorumluluğu producer/catalog katmanındadır; yalnız `MADDE 1` metninden kimlik
+türetilmez.
+
 Bir revision birden çok chunk içeriyorsa son chunk dışındaki insert'ler
 `finalize_revision=false`, son insert ise `finalize_revision=true` gönderir.
 Finalization source/chunk manifestini dondurur; bundan sonra aynı revision'a
