@@ -300,16 +300,16 @@ async def test_same_article_wrong_law_and_wrong_article_do_not_receive_exact_boo
     try:
         seeded: dict[str, dict] = {}
         cases = (
-            (20, "tbk-1", "TBK", "6098", "1"),
-            (21, "tbk-2", "TBK", "6098", "2"),
-            (22, "tck-1", "TCK", "5237", "1"),
+            (20, "tbk-1", "TBK", "6098", "1", "hedef düzenleme"),
+            (21, "tbk-2", "TBK", "6098", "2", "ikinci düzenleme"),
+            (22, "tck-1", "TCK", "5237", "1", "başka düzenleme"),
         )
-        for raw_log_id, name, code, law_id, article_id in cases:
+        for raw_log_id, name, code, law_id, article_id, body in cases:
             mutation = await _record_candidate(
                 dao,
                 raw_log_id=raw_log_id,
-                document_id=f"opaque-{name}",
-                content=f"MADDE {article_id} — {name} için bağımsız düzenleme.",
+                document_id=f"opaque-record-{raw_log_id}",
+                content=f"MADDE {article_id} — {body}.",
                 metadata={
                     "_mesa_legal_identity": {
                         "law_id": law_id,

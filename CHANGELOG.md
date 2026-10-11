@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Typed legal retrieval identity:** V4 ingestion can carry a validated,
+  provenance-bound law/article/version identity. Canonical assertions persist
+  the identity through fallback projection, and scoped indexed pre-rank lookup
+  can recover a bare article chunk without trusting reserved caller metadata.
+
 - **Bounded adaptive context retrieval:** Added an explicit opt-in context mode
   that runs the original V4 query first, makes at most one semantic
   reformulation call for weak results, executes at most two additional searches

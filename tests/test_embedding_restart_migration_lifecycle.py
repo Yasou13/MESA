@@ -60,6 +60,16 @@ def _candidate(raw_log_id: int, identity: EmbeddingIdentity) -> dict[str, object
         agent_id="agent-a",
         session_id="session-a",
         content_payload="MESA uses durable embedding generations.",
+        metadata={
+            "_mesa_legal_identity": {
+                "law_id": "6098",
+                "statute_code": "TBK",
+                "article_id": "1",
+                "version_id": "rebuild-proof-v1",
+                "identity_source": "catalog",
+            },
+            "jurisdiction": "TR",
+        },
         embedding_provider=identity.provider,
         embedding_model=identity.model,
         embedding_version=identity.version,
@@ -320,6 +330,20 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
         )
         assert results
         assert str(current["mutation_id"]) != pending_mutation_id
+        legal_results = await post_dao.search_v4_memory(
+            tenant_id="tenant-a",
+            agent_id="agent-a",
+            dataset_ids=["dataset-a"],
+            query="6098 sayılı Türk Borçlar Kanunu madde 1",
+            jurisdiction="TR",
+            limit=5,
+        )
+        assert legal_results
+        assert all(
+            row["retrieval_provenance"]["legal_identity"]["version_id"]
+            == "rebuild-proof-v1"
+            for row in legal_results
+        )
     finally:
         await post_graph.close()
         await post_vector.close()

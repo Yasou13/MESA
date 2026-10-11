@@ -5839,16 +5839,48 @@ class MemoryDAO:
         in_scope_assertion_ids = set(in_scope_assertions)
         typed_legal_candidate_ids: set[str] = set()
         if legal_citations:
-            query_statute_codes = {
-                citation.statute_code for citation in legal_citations
-            }
-            for assertion_id, assertion in in_scope_assertions.items():
-                identity = _assertion_legal_identity(assertion)
-                if (
-                    identity is not None
-                    and identity["statute_code"] in query_statute_codes
-                ):
-                    typed_legal_candidate_ids.add(assertion_id)
+            identity_clauses: list[str] = []
+            identity_params: list[str] = []
+            for citation in legal_citations:
+                if citation.article:
+                    identity_clauses.append("(a.statute_code = ? AND a.article_id = ?)")
+                    identity_params.extend((citation.statute_code, citation.article))
+                else:
+                    identity_clauses.append("a.statute_code = ?")
+                    identity_params.append(citation.statute_code)
+            typed_candidate_query = (
+                "SELECT a.assertion_id FROM v4_assertions a INDEXED BY "
+                "idx_v4_assertions_legal_identity_scope "
+                f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
+                f"AND {assertion_status_sql} "
+                "AND a.legal_identity_source IN ('catalog', 'verified_ingestion') "
+                f"AND ({' OR '.join(identity_clauses)}) "
+                "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
+                "AND m.state = 'COMMITTED') "
+                + (
+                    "AND " + " AND ".join(provenance_filters)
+                    if provenance_filters
+                    else ""
+                )
+                + " ORDER BY a.statute_code, a.article_id, a.legal_version_id, "
+                "a.assertion_id LIMIT ?"
+            )
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    typed_candidate_query,
+                    (
+                        tenant_id,
+                        *datasets,
+                        *identity_params,
+                        agent_id,
+                        *provenance_params,
+                        min(1000, max(limit * 25, 100)),
+                    ),
+                ) as cursor:
+                    typed_legal_candidate_ids = {
+                        str(row["assertion_id"]) for row in await cursor.fetchall()
+                    }
         in_scope_entity_ids_from_assertions = {
             str(row["subject_id"])
             for row in in_scope_assertion_rows
