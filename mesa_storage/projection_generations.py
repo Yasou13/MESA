@@ -322,7 +322,8 @@ class ProjectionGenerationRepository:
                     "WHERE r.store_name = 'VECTOR' AND r.artifact_kind = 'ENTITY_VECTOR' "
                     "AND r.state = 'ACTIVE'"
                 )
-                has_vectors = int((await cursor.fetchone())[0]) > 0
+                row = await cursor.fetchone()
+                has_vectors = bool(row and int(row[0]) > 0)
                 if has_vectors:
                     raise ProjectionGenerationIdentityMismatchError(
                         "active vector generation has no full embedding identity; rebuild is required"
