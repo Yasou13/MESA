@@ -1,0 +1,89 @@
+{
+  "fixture_id": "mesa-v4-round2-legal-dev-v1",
+  "purpose": "Disjoint synthetic DEV verification; never official Profile B TEST data",
+  "locked": true,
+  "top_k": 5,
+  "queries": [
+    {
+      "query_id": "DIRECT_ARTICLE_ID",
+      "query": "6098 sayılı Türk Borçlar Kanunu madde 1",
+      "expected_evidence_ids": ["tbk-current-1"],
+      "required_groups": [["tbk-current-1"]],
+      "label_basis": "typed law/article identity",
+      "quality": "synthetic-contract"
+    },
+    {
+      "query_id": "SEMANTIC_PARAPHRASE",
+      "query": "Tarafların karşılıklı irade açıklamasıyla kurulan sözleşme hükmü nedir?",
+      "expected_evidence_ids": ["tbk-current-1"],
+      "required_groups": [["tbk-current-1"]],
+      "label_basis": "paraphrase of the local DEV clause",
+      "quality": "synthetic-contract"
+    },
+    {
+      "query_id": "FALSE_FRIEND",
+      "query": "TCK madde 1",
+      "expected_evidence_ids": ["tck-current-1"],
+      "required_groups": [["tck-current-1"]],
+      "label_basis": "same article number, different statute",
+      "quality": "synthetic-contract"
+    },
+    {
+      "query_id": "ALIAS_DISAMBIGUATION",
+      "query": "TBK m.1",
+      "expected_evidence_ids": ["tbk-current-1"],
+      "required_groups": [["tbk-current-1"]],
+      "label_basis": "authoritative in-repository alias map",
+      "quality": "synthetic-contract"
+    },
+    {
+      "query_id": "TEMPORAL_VERSION",
+      "query": "TBK madde 1",
+      "valid_at": "2024-06-01T00:00:00Z",
+      "expected_evidence_ids": ["tbk-historic-1"],
+      "required_groups": [["tbk-historic-1"]],
+      "label_basis": "non-overlapping local validity windows",
+      "quality": "synthetic-contract"
+    },
+    {
+      "query_id": "MULTI_HOP_COMPLETE",
+      "query": "DEV sözleşmesinin iki bağımsız koşulunu göster",
+      "expected_evidence_ids": ["graph-proof-a", "graph-proof-b"],
+      "required_groups": [["graph-proof-a"], ["graph-proof-b"]],
+      "label_basis": "two independently necessary synthetic evidence groups",
+      "quality": "synthetic-contract"
+    },
+    {
+      "query_id": "GRAPH_SCOPE_NEGATIVE",
+      "query": "Yabancı tenant köprüsünü kullan",
+      "expected_evidence_ids": [],
+      "required_groups": [],
+      "label_basis": "foreign graph hop must be excluded",
+      "quality": "security-negative"
+    },
+    {
+      "query_id": "NO_ANSWER",
+      "query": "DEV corpusunda bulunmayan hüküm",
+      "expected_evidence_ids": [],
+      "required_groups": [],
+      "label_basis": "explicit absent evidence",
+      "quality": "security-negative"
+    },
+    {
+      "query_id": "RESTART_PROJECTION",
+      "query": "Türk Borçlar Kanunu madde 1",
+      "expected_evidence_ids": ["tbk-current-1"],
+      "required_groups": [["tbk-current-1"]],
+      "label_basis": "same canonical assertion after storage restart",
+      "quality": "synthetic-contract"
+    },
+    {
+      "query_id": "VECTOR_SPACE_MISMATCH",
+      "query": "TBK madde 1",
+      "expected_evidence_ids": ["tbk-current-1"],
+      "required_groups": [["tbk-current-1"]],
+      "label_basis": "wrong vector digest/dimension/version must not contribute",
+      "quality": "synthetic-contract"
+    }
+  ]
+}
