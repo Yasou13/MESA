@@ -64,7 +64,10 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
-from mesa_storage.legal_identity import LegalEntityResolver
+from mesa_storage.legal_identity import (
+    LegalEntityResolver,
+    canonicalize_trusted_legal_identity,
+)
 from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
 from mesa_storage.repositories.operations import (
@@ -96,6 +99,30 @@ from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngin
 logger = logging.getLogger("MESA_DAO")
 
 V4_VECTOR_LANE_DIAGNOSTIC_CONTRACT_VERSION = "mesa.vector-lane.v1"
+
+
+def _assertion_legal_identity(assertion: Mapping[str, Any]) -> dict[str, str] | None:
+    """Return only canonical legal identity persisted from a trusted source."""
+    source = str(assertion.get("legal_identity_source") or "")
+    law_id = str(assertion.get("law_id") or "")
+    statute_code = str(assertion.get("statute_code") or "")
+    article_id = str(assertion.get("article_id") or "")
+    if source not in {"catalog", "verified_ingestion"}:
+        return None
+    if not law_id or not statute_code or not article_id:
+        return None
+    identity = {
+        "law_id": law_id,
+        "statute_code": statute_code,
+        "article_id": article_id,
+        "version_id": str(assertion.get("legal_version_id") or ""),
+        "identity_source": source,
+    }
+    for key in ("paragraph_id", "clause_id"):
+        value = str(assertion.get(key) or "")
+        if value:
+            identity[key] = value
+    return identity
 
 
 def _decode_registry_metadata(value: Any) -> dict[str, Any]:
@@ -1873,6 +1900,7 @@ class MemoryDAO:
         embedding_dimension: int,
         policy: QueueAdmissionPolicy,
         validation_mode: int,
+        legal_identity: Mapping[str, Any] | None = None,
         embedding_space_id: str | None = None,
         embedding_model_revision: str | None = None,
         embedding_normalized: bool = True,
@@ -1924,6 +1952,13 @@ class MemoryDAO:
             for key, value in (metadata.items() if isinstance(metadata, dict) else ())
             if not str(key).startswith("_mesa_")
         }
+        normalized_legal_identity = canonicalize_trusted_legal_identity(
+            {**legal_identity, "identity_source": "verified_ingestion"}
+            if legal_identity is not None
+            else None
+        )
+        if normalized_legal_identity is not None:
+            effective_metadata["_mesa_legal_identity"] = normalized_legal_identity
         if type(validation_mode) is not int or validation_mode not in (0, 1, 2):
             raise ValueError("validation_mode must be 0, 1, or 2")
         effective_mode = validation_mode
@@ -2341,6 +2376,11 @@ class MemoryDAO:
         mutation_id = str(candidate["mutation_id"])
         pipeline_run_id = str(candidate["pipeline_run_id"])
         metadata = dict(candidate.get("metadata") or {})
+        legal_identity = canonicalize_trusted_legal_identity(
+            metadata.get("_mesa_legal_identity")
+        )
+        if legal_identity is not None:
+            metadata["_mesa_legal_identity"] = legal_identity
         if "_mesa_embedding_identity" not in metadata:
             provider = candidate.get("embedding_provider")
             model = candidate.get("embedding_model")
@@ -3547,6 +3587,9 @@ class MemoryDAO:
             if not key.startswith("_mesa_")
         }
         record["embedding_identity_snapshot"] = metadata.get("_mesa_embedding_identity")
+        record["legal_identity"] = canonicalize_trusted_legal_identity(
+            metadata.get("_mesa_legal_identity")
+        )
         record["projection_triplets"] = metadata.get("_mesa_v4_projection_triplets", [])
         return record
 
@@ -5112,6 +5155,9 @@ class MemoryDAO:
             or mutation_metadata.get("observed_at")
             or ""
         )
+        legal_identity = canonicalize_trusted_legal_identity(
+            mutation.get("legal_identity")
+        )
         subject_id = self.v4_entity_id(tenant_id, head)
         object_id = self.v4_entity_id(tenant_id, tail) if tail is not None else None
         graph_entities = [(subject_id, head)]
@@ -5188,8 +5234,11 @@ class MemoryDAO:
                 "object_entity_id, literal_value, source_ref, document_id, revision_id, chunk_id, "
                 "evidence_span, jurisdiction, authority_level, valid_from, valid_to, "
                 "observed_at, confidence, object_type, representation_version, "
+                "law_id, statute_code, article_id, paragraph_id, clause_id, "
+                "legal_version_id, legal_identity_source, "
                 "status, mutation_id, pipeline_run_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
                 (
                     assertion_id,
                     tenant_id,
@@ -5211,6 +5260,13 @@ class MemoryDAO:
                     float(triplet.get("confidence", 1.0)),
                     object_type,
                     V4_ASSERTION_REPRESENTATION_VERSION,
+                    str((legal_identity or {}).get("law_id") or ""),
+                    str((legal_identity or {}).get("statute_code") or ""),
+                    str((legal_identity or {}).get("article_id") or ""),
+                    str((legal_identity or {}).get("paragraph_id") or ""),
+                    str((legal_identity or {}).get("clause_id") or ""),
+                    str((legal_identity or {}).get("version_id") or ""),
+                    str((legal_identity or {}).get("identity_source") or ""),
                     mutation["mutation_id"],
                     pipeline_run_id,
                 ),
@@ -5781,6 +5837,18 @@ class MemoryDAO:
             str(row["assertion_id"]): dict(row) for row in in_scope_assertion_rows
         }
         in_scope_assertion_ids = set(in_scope_assertions)
+        typed_legal_candidate_ids: set[str] = set()
+        if legal_citations:
+            query_statute_codes = {
+                citation.statute_code for citation in legal_citations
+            }
+            for assertion_id, assertion in in_scope_assertions.items():
+                identity = _assertion_legal_identity(assertion)
+                if (
+                    identity is not None
+                    and identity["statute_code"] in query_statute_codes
+                ):
+                    typed_legal_candidate_ids.add(assertion_id)
         in_scope_entity_ids_from_assertions = {
             str(row["subject_id"])
             for row in in_scope_assertion_rows
@@ -5911,12 +5979,13 @@ class MemoryDAO:
                                 for row in await cursor.fetchall()
                             }
                     for assertion_id in ranked_assertion_ids:
-                        assertion = vector_assertions.get(assertion_id)
-                        if assertion is None:
+                        vector_assertion = vector_assertions.get(assertion_id)
+                        if vector_assertion is None:
                             continue
                         if (
                             assertion_id in in_scope_assertion_ids
-                            and str(assertion["subject_id"]) in allowed_entity_ids
+                            and str(vector_assertion["subject_id"])
+                            in allowed_entity_ids
                             and assertion_id not in vector_lane
                         ):
                             vector_lane.append(assertion_id)
@@ -6067,6 +6136,18 @@ class MemoryDAO:
                         dict(row) for row in await cursor.fetchall()
                     ]
 
+            # Trusted typed legal identity participates in candidate generation
+            # before lane ranking.  It is sourced only from canonical assertion
+            # columns; arbitrary free-form metadata and bare article text never
+            # enter this path.
+            passage_ids = {str(row["assertion_id"]) for row in passage_candidate_rows}
+            for assertion_id in sorted(typed_legal_candidate_ids - passage_ids):
+                typed_row = dict(in_scope_assertions[assertion_id])
+                typed_row["subject_name"] = ""
+                typed_row["object_name"] = ""
+                typed_row["bm25_score"] = 0.0
+                passage_candidate_rows.append(typed_row)
+
             scored_passage_candidates: list[tuple[float, str, dict[str, Any]]] = []
             for p_row in passage_candidate_rows:
                 aid = str(p_row["assertion_id"])
@@ -6096,18 +6177,40 @@ class MemoryDAO:
                     p_score += 100.0
 
                 if legal_citations:
-                    row_citations = legal_resolver.extract_citations(p_raw_text)
-                    row_identities = {
-                        (c.statute_code, c.article) for c in row_citations
-                    }
-                    row_statutes = {c.statute_code for c in row_citations}
-                    for c in legal_citations:
-                        if c.article and (c.statute_code, c.article) in row_identities:
-                            p_score += 200.0
-                        elif c.statute_code in row_statutes:
-                            p_score += 40.0
-                    if row_statutes & (legal_resolver.laws - target_statutes):
-                        p_score -= 150.0
+                    typed_identity = _assertion_legal_identity(p_row)
+                    if typed_identity is not None:
+                        for citation in legal_citations:
+                            if (
+                                citation.article
+                                and typed_identity["statute_code"]
+                                == citation.statute_code
+                                and typed_identity["article_id"] == citation.article
+                            ):
+                                p_score += 200.0
+                            elif (
+                                typed_identity["statute_code"] == citation.statute_code
+                            ):
+                                p_score += 40.0
+                    else:
+                        row_citations = legal_resolver.extract_citations(p_raw_text)
+                        row_identities = {
+                            (c.statute_code, c.article) for c in row_citations
+                        }
+                        row_statutes = {c.statute_code for c in row_citations}
+                        for c in legal_citations:
+                            if (
+                                c.article
+                                and (
+                                    c.statute_code,
+                                    c.article,
+                                )
+                                in row_identities
+                            ):
+                                p_score += 200.0
+                            elif c.statute_code in row_statutes:
+                                p_score += 40.0
+                        if row_statutes & (legal_resolver.laws - target_statutes):
+                            p_score -= 150.0
 
                 scored_passage_candidates.append((p_score, aid, p_row))
 
@@ -6207,28 +6310,49 @@ class MemoryDAO:
             # 6. Match complete statute/article identities, never free numbers
             # or short aliases inside unrelated words.
             if legal_citations:
-                row_citations = legal_resolver.extract_citations(
-                    " ".join(
-                        str(a_row.get(field) or "")
-                        for field in (
-                            "predicate",
-                            "subject_name",
-                            "object_name",
-                            "literal_value",
-                            "evidence_span",
-                            "source_ref",
+                typed_identity = _assertion_legal_identity(a_row)
+                if typed_identity is not None:
+                    for citation in legal_citations:
+                        if (
+                            citation.article
+                            and typed_identity["statute_code"] == citation.statute_code
+                            and typed_identity["article_id"] == citation.article
+                        ):
+                            score += 150.0
+                        elif typed_identity["statute_code"] == citation.statute_code:
+                            score += 40.0
+                else:
+                    row_citations = legal_resolver.extract_citations(
+                        " ".join(
+                            str(a_row.get(field) or "")
+                            for field in (
+                                "predicate",
+                                "subject_name",
+                                "object_name",
+                                "literal_value",
+                                "evidence_span",
+                                "source_ref",
+                            )
                         )
                     )
-                )
-                row_identities = {(c.statute_code, c.article) for c in row_citations}
-                row_statutes = {c.statute_code for c in row_citations}
-                for c in legal_citations:
-                    if c.article and (c.statute_code, c.article) in row_identities:
-                        score += 150.0
-                    elif c.statute_code in row_statutes:
-                        score += 40.0
-                if row_statutes & (legal_resolver.laws - target_statutes):
-                    score -= 150.0
+                    row_identities = {
+                        (c.statute_code, c.article) for c in row_citations
+                    }
+                    row_statutes = {c.statute_code for c in row_citations}
+                    for c in legal_citations:
+                        if (
+                            c.article
+                            and (
+                                c.statute_code,
+                                c.article,
+                            )
+                            in row_identities
+                        ):
+                            score += 150.0
+                        elif c.statute_code in row_statutes:
+                            score += 40.0
+                    if row_statutes & (legal_resolver.laws - target_statutes):
+                        score -= 150.0
 
             # 7. Confidence Scaling
             confidence = float(a_row.get("confidence") or 1.0)
@@ -6499,8 +6623,8 @@ class MemoryDAO:
             k=effective_k,
             weights=effective_weights,
         ):
-            assertion = candidate_assertions.get(candidate_id)
-            if assertion is None:
+            fused_assertion = candidate_assertions.get(candidate_id)
+            if fused_assertion is None:
                 continue
             raw_scores: dict[str, float] = {}
             if candidate_id in vector_raw_distances:
@@ -6514,24 +6638,25 @@ class MemoryDAO:
             origins_set = set(lane_ranks)
             if origins_set - {"graph"}:
                 cand_entity_id = str(
-                    assertion.get("subject_id")
+                    fused_assertion.get("subject_id")
                     or graph_evidence.get("graph_target_entity_id")
                     or ""
                 )
             else:
                 cand_entity_id = str(
                     graph_evidence.get("graph_target_entity_id")
-                    or assertion.get("subject_id")
+                    or fused_assertion.get("subject_id")
                     or ""
                 )
             candidates[candidate_id] = {
                 "candidate_id": candidate_id,
                 "assertion_id": assertion_id,
                 "entity_id": cand_entity_id,
-                "assertion": assertion,
-                "source_chunk_id": str(assertion.get("chunk_id") or "") or None,
-                "document_id": str(assertion.get("document_id") or "") or None,
-                "evidence_span": str(assertion.get("evidence_span") or "") or None,
+                "assertion": fused_assertion,
+                "source_chunk_id": str(fused_assertion.get("chunk_id") or "") or None,
+                "document_id": str(fused_assertion.get("document_id") or "") or None,
+                "evidence_span": str(fused_assertion.get("evidence_span") or "")
+                or None,
                 "origins": origins_set,
                 "lane_ranks": lane_ranks,
                 "raw_scores": raw_scores,
@@ -6589,6 +6714,28 @@ class MemoryDAO:
         for cand in candidates.values():
             if legal_citations:
                 ass = cand["assertion"]
+                typed_identity = (
+                    _assertion_legal_identity(ass) if ass is not None else None
+                )
+                if typed_identity is not None:
+                    target_statute_match = any(
+                        typed_identity["statute_code"] == citation.statute_code
+                        for citation in legal_citations
+                    )
+                    target_article_match = any(
+                        citation.article
+                        and typed_identity["statute_code"] == citation.statute_code
+                        and typed_identity["article_id"] == citation.article
+                        for citation in legal_citations
+                    )
+                    competing_statute_match = not target_statute_match
+                    if target_article_match:
+                        cand["legal_factor"] = 1.5
+                    elif target_statute_match:
+                        cand["legal_factor"] = 1.25
+                    elif competing_statute_match:
+                        cand["legal_factor"] = 0.25
+                    continue
                 cand_texts: list[str] = []
                 if ass is not None:
                     cand_texts.extend(
@@ -6827,6 +6974,9 @@ class MemoryDAO:
                 }
             if cand.get("graph_evidence"):
                 retrieval_provenance.update(cand["graph_evidence"])
+            legal_identity = _assertion_legal_identity(cand["assertion"] or {})
+            if legal_identity is not None:
+                retrieval_provenance["legal_identity"] = legal_identity
 
             cand_prov = cand["materialized_provenance"]
             if not cand_prov:

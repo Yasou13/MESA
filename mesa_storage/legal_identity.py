@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -181,6 +182,75 @@ ONTOLOGY: dict[str, dict[str, Any]] = {
         ],
     },
 }
+
+LAW_IDS: dict[str, str] = {
+    "TBK": "6098",
+    "TMK": "4721",
+    "TCK": "5237",
+    "CMK": "5271",
+    "HMK": "6100",
+    "TTK": "6102",
+    "İYUK": "2577",
+    "KVKK": "6698",
+    "İş Kanunu": "4857",
+    "Anayasa": "2709",
+}
+
+_LEGAL_COMPONENT_PATTERN = re.compile(r"^[0-9A-Za-zÇĞİÖŞÜçğıöşü._:/-]{1,128}$")
+_ARTICLE_PATTERN = re.compile(r"^(?:madde[- ]*)?(?P<article>\d+[A-Za-zÇĞİÖŞÜçğıöşü]?)$")
+
+
+def canonicalize_trusted_legal_identity(
+    value: Mapping[str, Any] | None,
+) -> dict[str, str] | None:
+    """Validate a runtime-owned legal identity snapshot and canonicalize aliases.
+
+    This function is intentionally strict.  A partial, unknown or internally
+    inconsistent identity is rejected instead of being guessed from a bare
+    article number.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError("legal identity must be an object")
+
+    resolver = LegalEntityResolver()
+    law_ref = str(value.get("law_id") or "").strip()
+    statute_ref = str(value.get("statute_code") or "").strip()
+    article_ref = str(value.get("article_id") or "").strip()
+    if not law_ref or not article_ref:
+        raise ValueError("legal identity requires law_id and article_id")
+
+    def resolve_code(reference: str) -> str | None:
+        return resolver.alias_to_code.get(normalize_turkish(reference))
+
+    law_code = resolve_code(law_ref)
+    statute_code = resolve_code(statute_ref) if statute_ref else law_code
+    if law_code not in resolver.laws or statute_code != law_code:
+        raise ValueError("legal identity law aliases are unknown or inconsistent")
+
+    article_match = _ARTICLE_PATTERN.fullmatch(article_ref)
+    if article_match is None:
+        raise ValueError("legal identity article_id is invalid")
+
+    source = str(value.get("identity_source") or "catalog").strip()
+    if source not in {"catalog", "verified_ingestion"}:
+        raise ValueError("legal identity source is not trusted")
+
+    normalized: dict[str, str] = {
+        "law_id": LAW_IDS[law_code],
+        "statute_code": law_code,
+        "article_id": article_match.group("article"),
+        "version_id": str(value.get("version_id") or "").strip(),
+        "paragraph_id": str(value.get("paragraph_id") or "").strip(),
+        "clause_id": str(value.get("clause_id") or "").strip(),
+        "identity_source": source,
+    }
+    for key in ("version_id", "paragraph_id", "clause_id"):
+        component = normalized[key]
+        if component and _LEGAL_COMPONENT_PATTERN.fullmatch(component) is None:
+            raise ValueError(f"legal identity {key} is invalid")
+    return normalized
 
 
 class LegalEntityResolver:

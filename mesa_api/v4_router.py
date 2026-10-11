@@ -44,6 +44,7 @@ from mesa_storage.dao import (
     QueueUnavailableError,
 )
 from mesa_storage.kuzu_provider import GraphSearchError
+from mesa_storage.legal_identity import canonicalize_trusted_legal_identity
 from mesa_storage.repositories.operations import (
     OperationActiveConflictError,
     OperationIdempotencyConflictError,
@@ -215,6 +216,31 @@ class V4SessionStartRequest(BaseModel):
     agent_id: PublicIdentifier
 
 
+class V4LegalIdentityRequest(BaseModel):
+    """Typed, validated legal identity supplied by an authorized ingestion writer."""
+
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    law_id: SourceIdentifier
+    statute_code: SourceIdentifier | None = None
+    article_id: str = Field(
+        pattern=r"^(?:madde[- ]*)?\d+[A-Za-zÇĞİÖŞÜçğıöşü]?$", max_length=32
+    )
+    version_id: SourceIdentifier | None = None
+    paragraph_id: SourceIdentifier | None = None
+    clause_id: SourceIdentifier | None = None
+
+    @model_validator(mode="after")
+    def validate_legal_identity(self) -> "V4LegalIdentityRequest":
+        canonicalize_trusted_legal_identity(
+            {
+                **self.model_dump(exclude_none=True),
+                "identity_source": "verified_ingestion",
+            }
+        )
+        return self
+
+
 class V4MemoryInsertRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
@@ -232,6 +258,7 @@ class V4MemoryInsertRequest(BaseModel):
     finalize_revision: bool = True
     supersedes_revision_id: SourceIdentifier | None = None
     metadata: dict = Field(default_factory=dict)
+    legal_identity: V4LegalIdentityRequest | None = None
     idempotency_key: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
@@ -1106,6 +1133,11 @@ def create_v4_router(
                 chunk_ordinal=payload.chunk_ordinal,
                 supersedes_revision_id=payload.supersedes_revision_id,
                 metadata=payload.metadata,
+                legal_identity=(
+                    payload.legal_identity.model_dump(exclude_none=True)
+                    if payload.legal_identity is not None
+                    else None
+                ),
                 embedding_provider=embedding_identity.provider,
                 embedding_model=embedding_identity.model,
                 embedding_version=embedding_identity.version,

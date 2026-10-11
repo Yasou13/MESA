@@ -54,18 +54,31 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
         content = record.get("content_payload") or ""
         doc_id = str(record.get("document_id") or record.get("title") or "Belge")
         chunk_id = str(record.get("chunk_id") or doc_id)
+        legal_identity = record.get("legal_identity")
         # This fallback assertion represents the complete source chunk because
         # no finer-grained extracted fact exists.  A bounded preview here would
         # become the canonical assertion evidence consumed by ContextBuilder
         # and irreversibly hide later clauses even though the source chunk is
         # still durable in SQLite.
         evidence = str(record.get("evidence_span") or content)
+        if isinstance(legal_identity, dict):
+            statute_code = str(legal_identity["statute_code"])
+            article_id = str(legal_identity["article_id"])
+            head = f"{statute_code} m.{article_id}"
+            relation = "hükmü"
+            tail = None
+            literal_value = str(content or evidence)
+        else:
+            head = doc_id
+            relation = "madde"
+            tail = chunk_id
+            literal_value = None
         return [
             {
-                "head": doc_id,
-                "relation": "madde",
-                "tail": chunk_id,
-                "literal_value": None,
+                "head": head,
+                "relation": relation,
+                "tail": tail,
+                "literal_value": literal_value,
                 "confidence": 1.0,
                 "fact_text": content if content else doc_id,
                 "source_span": evidence,
