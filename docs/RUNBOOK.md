@@ -146,7 +146,7 @@ ve ancak ardından cutover yapın.
 
 ## Single-writer kapasite sınırı
 
-Bir storage root için yalnız bir aktif `worker-only` process çalıştırın.
+V3 split topology’de bir storage root için yalnız bir aktif `worker-only` process çalıştırın. V4 yalnız bir `combined` owner kullanır; ayrı worker-only topology desteklenmez.
 Worker başlangıcı aynı hostta advisory lock ile ikinci writer'ı reddeder;
 çoklu host/NFS için bu bir koordinasyon mekanizması değildir. API, valence ve
 MCP process-local cache'leri yalnız performans optimizasyonudur; doğruluk

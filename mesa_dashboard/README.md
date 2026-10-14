@@ -27,9 +27,11 @@ npm run build
 
 Önceki bağımsız demo içeriği dashboard’un public varlıkları altında tutulur:
 
-- `/dashboard/showcase/`: ürün landing sayfası ve canlı RAG sandbox
-- `/dashboard/showcase/visualizer/`: ingestion/knowledge-graph görselleştiricisi
+- `/dashboard/showcase/`: bilingual implementation summary; ölçüm/benchmark sunmaz
+- `/dashboard/showcase/visualizer/`: browser içi graph simülasyonu; API/model/persistence kanıtı değildir
 
 Showcase ortak marka varlıklarını `/dashboard/brand/` yolundan kullanır.
 Eski mock demo console kaldırılmıştır; “Open Console” bağlantıları gerçek
 control-plane paneline (`/dashboard/`) gider.
+
+Control API routes ve yetki için [Control panel](../docs/Mesa_Control_Panel.md); product kapsamı için [docs index](../docs/README.md).

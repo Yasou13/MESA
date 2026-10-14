@@ -1,5 +1,7 @@
 # 7. WAL Queue ve Phantom Write Çözümü
 
+> Current applicability: Historical V3 WAL decision. Current V4 order/ownership uses ADR 0009; no shared cross-store ACID transaction.
+
 Date: 2026-07-17
 
 ## Status

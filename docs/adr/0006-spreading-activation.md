@@ -1,5 +1,7 @@
 # 6. Spreading Activation & Fan-Effect Tasarımı
 
+> Current applicability: Historical decision. Current bounded V4 path retrieval is documented in ../retrieval-and-graph.md; no exhaustive spreading-activation guarantee.
+
 Date: 2026-07-17
 
 ## Status

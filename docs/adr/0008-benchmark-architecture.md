@@ -1,5 +1,7 @@
 # 8. Benchmark mimarisi: retrieval ve ortak Full‑QA
 
+> Current applicability: Historical external benchmark design. The comparative suite now belongs to mesa_benchmark; this is not Core release certification.
+
 Date: 2026-07-17
 Status: Accepted and implemented
 

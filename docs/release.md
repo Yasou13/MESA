@@ -1,6 +1,8 @@
 # Release procedure
 
-V4 paket sürümü `0.7.1` olan bir release candidate’dır. Production kararı
+V4 paket sürümü `0.7.1`; `v0.8.0` hazırlanacak sürüm hedefidir ve henüz
+yayınlanmış değildir. Mevcut checkout v0.7.1 sonrası değişiklikler içerir ve
+release candidate olarak değerlendirilir. Production kararı
 Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
 tag’in atanması tek başına production GO anlamına gelmez. Mevcut `v0.6.1`
 tag/release tarihsel v3 kaydıdır.
@@ -36,7 +38,8 @@ uv pip check
 uv run ruff check .
 uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
   --ignore-missing-imports --explicit-package-bases --follow-imports=skip
-uv run pytest -q
+make test-local
+# Adapter-inclusive ayrı gate: dev + adapters kurulumu sonrası make test-all
 uv build --wheel
 ```
 
@@ -58,7 +61,9 @@ Full-cognitive kanıt gerçek provider ile ayrı staging rehearsal’dan gelir.
 Release commit’inde şu workflow’lar geçmelidir:
 
 - `MESA CI`: quality, v4 contract, security, migrations, package ve coverage;
-- `Benchmark data quality`: benchmark contractları ve RRF ablation artifact’ı;
+- Benchmark contractları ve dataset filtreli RRF ablation artifact’ı:
+  eski `Benchmark data quality` workflow’u Core’dan çıkarılmıştır; ayrı
+  `mesa_benchmark` kanıtı aynı release commitine bağlanmalıdır. Yokluğu PASS değildir;
 - `MESA external release gates`: v3 compatibility Compose, v4 combined Compose,
   flow, bounded capacity ve executable docs.
 
@@ -82,7 +87,7 @@ python scripts/release_preflight.py vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Tag workflow’u reproducible wheel, CycloneDX SBOM ve GitHub OIDC attestation
+Core CI tag job’ı reproducible wheel, CycloneDX SBOM ve GitHub OIDC attestation
 üretir. Repository workflow’ları GitHub Release veya production deployment’ı
 otomatik oluşturmaz.
 
@@ -108,3 +113,10 @@ Release artifact’ları şunları birlikte taşır:
 
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
 yapılmaz; eski storage ve v3 compatibility servisi korunur.
+
+## v0.8.0 aday durumu
+
+[Yeni aday notları](release-notes-v0.8.0.md) ve [migration](migration-v0.8.0.md)
+mevcuttur. Bu docs refresh gerçek-provider/24h soak/CI/attestation kanıtı
+yerine geçmez. İmzalama keyring’i veya mandatory evidence eksikse tag ve
+GitHub Release oluşturulmaz. Release note hazırlanmış olması yayın değildir.

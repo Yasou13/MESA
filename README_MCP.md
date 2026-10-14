@@ -55,8 +55,8 @@ never issues or displays plaintext tokens. Codex hooks load bounded project
 memory on session start and compaction; they never write transcript content to
 memory and do not prevent a session from starting when MESA is unavailable.
 
-Do not commit credentials. The systemd service and protected local environment
-must both be mode `0600`.
+Do not commit credentials. The protected environment file must be mode `0600`;
+the unit file is nonsecret deployment configuration.
 
 For systemd, copy `deploy/systemd/mcp-gateway.env.example` to
 `/etc/mesa/mcp-gateway.env`, set mode `0600`, and use the supplied
@@ -137,5 +137,9 @@ With the same protected environment used by Antigravity:
 
 Use MCP Inspector or Antigravity to initialize the process and call
 `mesa_health`. Do not run it in a terminal expecting human-readable stdout:
-stdio is a JSON-RPC protocol stream. The direct `mesa_mcp.server` remains for
-legacy V3-compatible integrations only.
+stdio is a JSON-RPC protocol stream. `mesa_mcp.server` defaults to V3; an explicit `MESA_USE_V4=true` selects its
+V4 service adapter. Provide `MESA_TENANT_ID`, `MESA_WORKSPACE_ID`,
+`MESA_DATASET_ID`, `MESA_WORKSPACE_ROOT` and an authorized binding/scope.
+The supervised gateway is the documented Codex/Antigravity path.
+
+See [configuration](docs/configuration.md), [control panel](docs/Mesa_Control_Panel.md) and [quickstart](docs/getting-started.md). Provision Core credential/ACL before server startup; the placeholder commands above require actual protected values. No automatic transcript saving or certified legal review is promised.

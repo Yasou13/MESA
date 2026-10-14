@@ -35,6 +35,8 @@ os.environ["MESA_MODEL_ENABLED"] = "true"
 os.environ["MESA_EXTERNAL_PROVIDER_ENABLED"] = "true"
 ```
 
+Model-enabled kullanımda local ML için `--extra ml` gerekir. External embedding seçiliyorsa model/boyut/version ayrıca uyumlu ayarlanır (ör. text-embedding-3-small için 1536). [Configuration](configuration.md) rehberini kullanın.
+
 Provider adapter/model değişkenlerini kullandığınız provider’a göre ayrıca
 tanımlayın. Bunları notebook çıktısında göstermeyin.
 
@@ -115,10 +117,13 @@ accepted = client.insert(
     document_id="demo-doc",
     revision_id="revision-1",
     chunk_id="chunk-1",
+    title="Colab demo source",
     source_ref="colab://demo",
     content="Exact demo source",
 )
-client.wait_until_committed(accepted["mutation_id"])
+terminal = client.wait_until_committed(accepted["mutation_id"])
+if terminal["state"] != "COMMITTED":
+    raise RuntimeError(terminal["state"])
 ```
 
 ## 6. Test

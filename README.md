@@ -1,624 +1,128 @@
-<div align="center">
-
 # MESA — Memory Engine for Structured Agents
 
-[![MESA CI](https://github.com/Yasou13/MESA/actions/workflows/ci.yml/badge.svg)](https://github.com/Yasou13/MESA/actions)
-[![codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/Version-0.7.1-green.svg)
+MESA Core stores source-backed agent memory and retrieves scoped evidence over
+HTTP, Python clients and MCP. SQLite owns the catalog, assertions, mutation
+ledger and artifact ownership; LanceDB and Kùzu provide derived projections.
 
-**A durable, tenant- and dataset-isolated memory engine for autonomous AI agents.**
-The v3 compatibility runtime remains a model-disabled lexical core. The v4
-release candidate adds canonical source provenance, selectable validation,
-idempotent SQL/vector/graph projection and Graph V2 in one storage-owner
-process. Production remains `NO-GO` pending Final MVP Certification.
+The checkout has package version **0.7.1**. **v0.8.0 is a release target, not a
+published or certified release.** This development tree is a release candidate.
+Production remains `NO-GO` until the
+[required release gates](docs/release.md) pass on the intended release commit.
+Check published versions in [GitHub Releases](https://github.com/Yasou13/MESA/releases).
 
-</div>
+## Getting started
 
----
-
-## ⚡ Quickstart (Local Installation)
-
-For repeatable development and deployment, use the checked-in lock file:
+Python 3.10–3.13 are the CI matrix; the project declares Python >=3.10.
+Use the checked-in lockfile:
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
 uv sync --locked --extra dev
-# Optional local ML models and external-provider SDKs:
-uv sync --locked --extra dev --extra ml --extra adapters
+uv pip check
 ```
 
-## 🐳 Quickstart (Docker) — 60 Seconds
+Follow the [disposable local quickstart](docs/getting-started.md) for credential
+and ACL provisioning, scoped insert, terminal-state polling, retrieval and
+restart. Model-disabled operation demonstrates V3 storage and lexical behavior;
+it does not measure embedding quality or LLM extraction. Full provider setup
+is in [installation](docs/installation.md) and [configuration](docs/configuration.md).
 
-Copy-paste this to get a running MESA instance with zero local dependencies:
+### Safe core Compose
+
+Provision `MESA_API_KEY` and `MESA_PRINCIPAL_ID` through your reviewed secret
+environment before starting the separate V3 API/worker topology:
 
 ```bash
-git clone https://github.com/Yasou13/MESA.git
-cd MESA
-export MESA_API_KEY=local-dev-key
-export MESA_PRINCIPAL_ID=local-compose-principal
 docker compose config --quiet
 docker compose up --build -d
-```
-
-> **Safe core runtime profile:** Compose starts separate API and worker roles with the
-> persistent named `mesa-data` volume. It deliberately sets
-> `MESA_MODEL_ENABLED=false` and `MESA_EXTERNAL_PROVIDER_ENABLED=false`.
-> The application does not load a dotenv file, nor does its worker invoke
-> REBEL, an LLM adapter, or dual-LLM consensus; it commits accepted records as
-> durable raw memories. Supply Compose variables from exported environment
-> variables or Compose's interpolation `.env` file. Use a reviewed explicit
-> full cognitive runtime when model or provider access is required.
-
-Verify it's running:
-
-```bash
 curl --fail -H "X-API-Key: $MESA_API_KEY" http://localhost:8000/health
-# → {"status": "ok", ...}
 ```
 
-MESA is now live at **`http://localhost:8000`** with Swagger docs at [`/docs`](http://localhost:8000/docs).
-
-### v4 full cognitive runtime
-
-`docker-compose.yml` is the backwards-compatible v3 lexical-core topology.
-For v4, use the single storage-owner topology in `docker-compose.v4.yml`.
-It deliberately requires explicit model/provider enablement and never starts a
-second process against the same SQLite, LanceDB, or Kùzu storage directory:
-
-```bash
-export MESA_API_KEY=replace-with-a-secret
-export MESA_PRINCIPAL_ID=production-principal
-export MESA_MODEL_ENABLED=true
-export MESA_EXTERNAL_PROVIDER_ENABLED=true
-docker compose -f docker-compose.v4.yml config --quiet
-docker compose -f docker-compose.v4.yml up --build -d
-```
-
-Provision hash-backed keys and catalog authorization with the offline operator
-CLI (the generated credential is shown once):
-
-```bash
-mesa-v4-admin issue-key --principal production-principal
-mesa-v4-admin grant-role --principal production-principal \
-  --tenant tenant-a --role OWNER
-mesa-v4-admin grant-agent --principal production-principal \
-  --agent agent-a --permission SESSION_CREATE
-# Yalnız storage-root rebuild operator'ı için:
-mesa-v4-admin grant-control --principal production-principal
-```
-
-The selected adapter and its credentials must be configured by the deployment
-platform; do not put credentials in the Compose file. v4 is not production
-ready until its validation, migration, backup/restore and soak gates pass.
-The canonical design is
-[`docs/architecture-v4.md`](docs/architecture-v4.md); root
-`ARCHITECTURE.md` is a preserved historical v3 record.
-
-The v4 catalog and provenance hierarchy is
-`Tenant → Workspace → Dataset → Document → DocumentRevision → SourceChunk`.
-Sessions are created by the server with an immutable authorized dataset set;
-insert and search derive tenant/agent scope from that session. Canonical entity
-IDs use tenant, entity type and ontology URI (or a normalized canonical name).
-Mutation status, replay and source-owned rollback remain durable operations:
-
-```text
-POST /v4/catalog/workspaces        GET /v4/catalog/workspaces
-POST /v4/catalog/datasets          GET /v4/catalog/datasets
-POST /v4/catalog/documents         GET /v4/catalog/documents
-POST /v4/catalog/revisions         GET /v4/catalog/revisions
-POST /v4/catalog/source-chunks
-POST /v4/sessions/start
-POST /v4/memory/insert             POST /v4/memory/search
-GET  /v4/mutations/{id}
-POST /v4/mutations/{id}/replay
-POST /v4/mutations/{id}/rollback
-POST /v4/operations/rebuild
-GET  /v4/operations/{id}
-POST /v4/operations/{id}/cancel
-POST /v4/operations/{id}/retry
-```
-
-Projection rebuild varsayılan olarak kapalı, storage-root-wide ve offline'dır.
-Operator prosedürü, resume ve automatic rollback sınırları
-[`docs/v4-rebuild-runbook.md`](docs/v4-rebuild-runbook.md) içinde açıklanır.
-
----
-
-## 🔑 API Examples (v3)
-
-All endpoints require the `X-API-Key` header. It must match the `MESA_API_KEY`
-provided to the running API process. For Compose this value may come from an
-exported environment variable or Compose's interpolation `.env` file; the
-container itself does not load `.env`.
-
-### Insert a Memory
-
-```bash
-curl -X POST http://localhost:8000/v3/memory/insert \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: local-dev-key" \
-  -d '{
-    "agent_id": "analyst_1",
-    "session_id": "session_001",
-    "content": "Tesla Q4 2025 revenue exceeded $25B, up 12% YoY."
-  }'
-# → {"status": "queued", "log_id": 1, "processing_mode": "async"}
-```
-
-The insert endpoint returns **202 Accepted** after durable admission; latency
-depends on the deployment, storage, and queue state. The safe-core cold path
-performs novelty checks and a raw-memory commit. Model extraction and LLM
-validation are available only in an explicitly enabled full cognitive runtime.
-The [historical five-minute soak result](docs/historical_benchmarks/v0.4.2_results.md)
-used 20 RPS and 30 connections and explicitly states that it is not production
-certification; do not treat it as a universal latency guarantee.
-
-### Check Ingestion Status
-
-```bash
-curl "http://localhost:8000/v3/memory/status/1?agent_id=analyst_1" \
-  -H "X-API-Key: local-dev-key"
-# → {"log_id": 1, "status": "processed"}
-```
-
-### Search Memories
-
-```bash
-curl -X POST http://localhost:8000/v3/memory/search \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: local-dev-key" \
-  -d '{
-    "agent_id": "analyst_1",
-    "query": "What was Tesla Q4 revenue?",
-    "limit": 5
-  }'
-# → {"context": "...", "retrieved_nodes": [...], "metrics": {"latency_ms": 12}, "degraded_sources": []}
-```
-
-`degraded_sources` boş değilse istek başarılı sonuç üretmiştir, ancak ilgili
-retrieval kaynağı (`vector`, `graph` veya `lexical`) kullanılamamıştır. İstemci
-bu sonucu eksik sinyalli olarak ele almalıdır; aynı olay Prometheus'ta
-`mesa_retrieval_degraded_total{source=...}` ile sayılır.
-
-### Purge Memories (Tombstoning)
-
-```bash
-curl -X DELETE http://localhost:8000/v3/memory/purge \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: local-dev-key" \
-  -d '{
-    "agent_id": "analyst_1",
-    "scope": "agent"
-  }'
-# → {"status": "purged", "deleted_records_count": 42}
-```
-
----
-
-## 🐍 Python SDK
-
-V4 applications use the version-specific client:
-
-```python
-from mesa_client import MesaV4Client
-
-with MesaV4Client("http://localhost:8000", api_key=credential) as client:
-    session = client.start_session(
-        tenant_id="tenant-a",
-        workspace_id="workspace-a",
-        dataset_ids=["dataset-a"],
-        agent_id="agent-a",
-    )
-    accepted = client.insert(
-        session_id=session["session_id"],
-        dataset_id="dataset-a",
-        document_id="doc-a",
-        revision_id="rev-1",
-        chunk_id="chunk-1",
-        source_ref="contract://a",
-        content="Exact source text",
-    )
-    client.wait_until_committed(accepted["mutation_id"])
-```
-
-For a multi-chunk revision, pass `finalize_revision=False` on every insert
-except the last one; the final insert freezes the manifest and enables
-aggregate activation once every required mutation commits. V4 `search` and
-`get_context` accept the same `valid_at`, `valid_from`, and `valid_to`
-ISO-8601 filters across HTTP, sync/async SDK, and MCP. Search scores are fused
-relevance scores, so higher is better.
-
-The following client remains the v3 compatibility SDK:
-
-```python
-from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
-from mesa_client import MesaClient
-
-client = MesaClient(base_url="http://localhost:8000", api_key="local-dev-key")
-
-# Insert
-response = client.insert(MemoryInsertRequest(
-    agent_id="analyst_1",
-    session_id="s1",
-    content="Tesla Q4 revenue: $25B, up 12% YoY.",
-))
-print(f"Queued: log_id={response.log_id}")
-
-# Search
-results = client.search(MemorySearchRequest(
-    agent_id="analyst_1",
-    query="Tesla revenue",
-    limit=5,
-))
-print(f"Found {results.total} results")
-for r in results.results:
-    print(f"  {r.entity_name} (score: {r.score:.4f})")
-```
-
----
-
-## 🤖 Integrations: Claude Desktop (MCP)
-
-MESA includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/)
-stdio server (`mesa_mcp.server`). It calls MESA's public v3 HTTP API and
-scopes each MCP project to a deterministic `mcp-{namespace}-{project_id}`
-session; it never opens the storage databases directly.
-
-### Setup
-
-1. **Start MESA** (Docker or local — must be running on `localhost:8000`).
-
-2. **Install the MCP extra and add the server config** (the same `mcpServers`
-entry also works in Antigravity and other stdio MCP hosts):
-
-```bash
-uv sync --locked --extra mcp
-```
-
-```json
-{
-  "mcpServers": {
-    "mesa-memory": {
-      "command": "uv",
-      "args": ["run", "mesa-mcp"],
-      "cwd": "/absolute/path/to/MESA",
-      "env": {
-        "MESA_BASE_URL": "http://localhost:8000",
-        "MESA_API_KEY": "the-key-configured-on-your-MESA-server",
-        "MESA_WORKSPACE_ROOT": "/absolute/path/to/MESA",
-        "MESA_NAMESPACE": "local",
-        "MESA_ACTOR_ID": "antigravity-agent",
-        "MESA_PROJECT_ID": "mesa"
-      }
-    }
-  }
-}
-```
-
-`MESA_WORKSPACE_ROOT` zorunlu, mevcut ve mutlak bir dizindir; `source_file`
-doğrulamasının güvenlik sınırını oluşturur. API anahtarını kaynak koda veya
-paylaşılan bir config dosyasına sabit yazmayın.
-
-3. **Restart the MCP host.** The configured actor must have READ/WRITE access
-   to its generated project session in the running MESA service.
-
-| MCP Tool | Description |
-|---|---|
-| `mesa_health` | Check MCP and MESA service readiness |
-| `mesa_store_memory` | Queue durable project knowledge |
-| `mesa_search_memory` | Search memories in one MCP project session |
-| `mesa_get_memory` | Retrieve an exact memory by ID in one project session |
-| `mesa_get_context` | Build a token-bounded project context bundle; optional `retrieval_mode=adaptive` enables bounded semantic expansion |
-
-Claude can now persist facts across conversations and recall them on demand through your local MESA instance.
-
-> [!TIP]
-> Set a distinct `MESA_NAMESPACE` when independent MCP installations share a
-> MESA service. The server derives the session from namespace and `project_id`;
-> callers cannot supply a raw MESA session ID.
-
----
-
-## Why MESA?
-
-Traditional agent memory is a flat buffer of text. MESA v3 preserves a durable
-lexical core. V4 adds dataset isolation, source provenance, mandatory
-validation and ordered structured projections before retrieval.
-
-| Runtime | V3 lexical-core Compose | V4 combined runtime |
-|---|---|---|
-| Model/provider access | Disabled | Explicitly enabled and reviewed |
-| Cold-path result | Durable raw memory | Validated mutation plus ordered projections |
-| Fact extraction | Not invoked | `FactExtractionService` is the canonical owner |
-| REBEL | Legacy/V3 opt-in only | Not part of canonical v4 extraction |
-| Dual-LLM consensus | Not invoked | Opt-in |
+Compose sets `MESA_MODEL_ENABLED=false` and
+`MESA_EXTERNAL_PROVIDER_ENABLED=false`. Create an authorized session through
+`/v3/memory/session/start` before writing. For an already authorized
+`analyst_1` record with returned log ID 1, the status URL pattern is
+`/v3/memory/status/1?agent_id=analyst_1`; substitute your actual actor and log ID.
+This example does not promise a download/build duration.
 
 ### Full cognitive runtime
 
-Full cognitive processing uses `docker-compose.v4.yml`, explicitly sets
-`MESA_MODEL_ENABLED=true`, supplies only the required provider credentials and
-runs one combined storage owner. It has different cost, latency,
-model-download and provider-rate-limit characteristics from v3.
+V4 uses `docker-compose.v4.yml` with one combined owner, model-enabled canonical
+processing, reviewed providers and matching embedding identity. Follow the
+provider prerequisites in [installation](docs/installation.md); model-disabled
+boot rejects V4 inserts with `503 canonical_processing_unavailable`.
 
-The full-cognitive profile selects validation with `MESA_TIER3_MODE`: Mode 0
-uses deterministic checks and requires no validation adapter; Mode 1 requires
-validator A; Mode 2 requires explicit, distinct A/B provider-model pairs via
-`MESA_TIER3_LLM_PROVIDER_A`, `MESA_TIER3_LLM_MODEL_A`,
-`MESA_TIER3_LLM_PROVIDER_B`, and `MESA_TIER3_LLM_MODEL_B`. Compose forwards
-these together with the selected LLM/embedding provider variables, and startup
-fails closed when the selected mode's dependencies are missing or invalid.
-
-| Capability | MESA | LangChain Memory | MemGPT |
-|---|---|---|---|
-| **Hallucination Mitigation** | Selectable deterministic/single/dual validation policy; rejected mutations create no active artifact | Prompt-based | Self-correction |
-| **Validation Architecture** | Versioned pipeline with ledger, retries, DLQ and rollback | None | Prompt-based |
-| **Knowledge Graph** | Graph V2 Entity/Assertion projection with provenance | Manual | None |
-| **Zero-Cost Mode** | Native 100% local execution via Ollama (`MESA_ZERO_COST_MODE`) | External | External |
-| **Tenant Isolation** | V4 principal → tenant → workspace → dataset ACL and server-bound session | None | None |
-| **Session Lifecycle APIs** | Native `/session/start`, `/context`, `/end` endpoints | None | Implicit |
-| **Fault Tolerance** | Fenced leases + bounded retry + DLQ + reconciliation | Try/Catch | Retry Decorator |
-| **Local-First** | Yes (SQLite WAL, LanceDB, KùzuDB) | Cloud-dependent | Cloud-dependent |
-| **Observability** | Prometheus + structured JSON logs | Basic logging | Basic logging |
-
----
-
-## Features & Capabilities
-
-The v0.7.1/v4 release line and published v0.6.1/v3 line have
-different contracts.
-Current v4 capabilities include:
-
-1. **Canonical ingestion:** exact source, version and pipeline provenance from
-   admission through every projection.
-2. **Mutation ledger/outbox:** ordered, idempotent SQLite → vector → graph
-   projection with fenced leases, retry, DLQ, rollback and reconciliation.
-3. **Graph V2:** deterministic tenant-scoped entities, immutable
-   provenance-rich assertions and source-owned rollback.
-4. **Dataset security:** principal/tenant/workspace/dataset roles plus explicit
-   purge and rollback permissions.
-5. **Retrieval V2:** dataset-filtered vector/BM25/assertion-relational rank
-   fusion with true RRF and deterministic bounded legal reranking. Kùzu graph
-   neighbor traversal is not an advertised retrieval capability.
-6. **Versioned clients:** matching v4 REST, sync/async SDK and MCP lifecycle
-   operations.
-
-Runtime capability truth is available from `GET /v4/capability`. Projection
-rebuild remains disabled unless `MESA_V4_REBUILD_ENABLED=true`, and its
-reported scope is always the complete storage root.
-
----
-
-## Architecture Overview
-
-MESA uses three physical stores, but v4 has one decision source:
-1. **SQLite:** mutation/pipeline ledger, catalog, authorization, artifact
-   ownership, assertions and ordered outbox.
-2. **LanceDB:** idempotent vector projection with embedding provenance.
-3. **KuzuDB:** idempotent Graph V2 projection; it is not the assertion decision
-   source.
+## Architecture overview
 
 ```mermaid
 flowchart LR
-    C[Authorized v4 session] --> A[Admission + mutation]
-    A --> V{Selected validation policy}
-    V -->|reject| R[REJECTED: no active artifact]
-    V -->|accept| L[SQLite ledger and SQL projection]
-    L --> X[Vector projection]
-    X --> G[Graph V2 projection]
-    G --> M[COMMITTED]
-    S[Dataset-scoped search] --> B[BM25]
-    S --> E[Vector]
-    S --> Q[Graph assertions]
-    B --> F[True RRF + bounded legal rerank]
-    E --> F
-    Q --> F
+    Client[Principal-bound session] --> Admission[Canonical mutation admission]
+    Admission --> Validation[Selected validation policy]
+    Validation --> SQL[SQLite canonical ledger and assertions]
+    SQL --> Vector[LanceDB projection]
+    Vector --> Graph[Kùzu projection]
+    Graph --> Commit[COMMITTED]
+    Search[Authorized scoped search] --> Lanes[Vector / BM25 / assertion / graph]
+    Lanes --> RRF[Weighted rank fusion and bounded legal factor]
+    RRF --> Context[Evidence packing and token budget]
 ```
 
----
+V4 runs one `combined` storage owner per root. Sessions bind a principal,
+tenant, workspace, agent and immutable dataset set. Validation is selectable:
+deterministic-only (0), single LLM (1), or dual LLM consensus (2). Model consensus
+does not prove source truth or legal correctness.
 
-## Local Development (without Docker)
-
-### 1. Install
-
-`pyproject.toml` defines supported dependency ranges; `uv.lock` is the
-reproducible deployment graph consumed by Docker and CI. The standard local
-development environment installs the locked `dev` extra and intentionally
-omits optional provider SDKs.
-
-```bash
-git clone https://github.com/Yasou13/MESA.git
-cd MESA
-uv sync --locked --extra dev
-```
-
-**Optional Legacy/V3 ML Models:** If you need the local REBEL transformer model for legacy English-only offline triplet extraction, install the optional package:
-```bash
-uv sync --locked --extra dev --extra ml
-```
-
-**Optional LLM Adapters:** The core package avoids installing third-party LLM SDKs to keep the footprint small. If you intend to use cloud providers (OpenAI, Anthropic, Groq, LiteLLM) or Ollama instead of pure local logic, install the adapters group:
-```bash
-uv sync --locked --extra dev --extra adapters
-```
-
-### 2. Configure
-
-```bash
-export MESA_RUNTIME_PROFILE=api-only
-export MESA_STORAGE_ROOT=/absolute/path/to/mesa-data
-export MESA_LOAD_DOTENV=false
-export MESA_MODEL_ENABLED=false
-export MESA_EXTERNAL_PROVIDER_ENABLED=false
-export MESA_API_KEY=local-dev-key
-export MESA_PRINCIPAL_ID=local-api-principal
-```
-
-### 3. Launch
-
-> **WARNING:** `make dev` is not a production-parity command. For the separate
-> API/worker topology, use the Compose quickstart above or the operator
-> runbook in [`docs/installation.md`](docs/installation.md).
-
-```bash
-uvicorn mesa_memory.api.server:app --host 0.0.0.0 --port 8000 --reload
-# → http://127.0.0.1:8000/docs  (Swagger UI)
-# → http://127.0.0.1:8000/health
-```
-
----
-
-## API Endpoints (v3)
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/v3/memory/insert` | Admit durable lexical-core worker ingestion |
-| `POST` | `/v3/memory/search` | Hybrid vector + graph + FTS5 retrieval |
-| `GET` | `/v3/memory/status/{log_id}` | Query cold-path processing status |
-| `DELETE` | `/v3/memory/purge` | Tombstoning only (hard-delete is background-only) |
-| `POST` | `/v3/memory/session/start` | Generate a v3 agent/session-scoped session |
-| `GET` | `/v3/memory/session/{session_id}/context` | Retrieve episodic + graph context scoped to session |
-| `POST` | `/v3/memory/session/{session_id}/end` | Terminate session and trigger final consolidation |
-| `GET` | `/health/init` | Container orchestration readiness probe (returns 200 when workers are alive) |
-| `GET` | `/health` | System status and database health check |
-| `GET` | `/metrics` | Prometheus scrape endpoint |
-
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `MESA_RUNTIME_PROFILE` | *(required)* | `api-only`, `worker-only`, `combined` veya yalnız testler için `test-isolated` |
-| `MESA_STORAGE_ROOT` | *(required)* | Uygulamanın sahip olduğu mutlak ve yazılabilir storage dizini |
-| `MESA_LOAD_DOTENV` | `false` | `.env` yüklemeyi yalnız açıkça izin verilmiş profilde etkinleştirir |
-| `MESA_MODEL_ENABLED` | `false` | Model hattını etkinleştirir; v4 Compose açık değer ister |
-| `MESA_EXTERNAL_PROVIDER_ENABLED` | `false` | Haricî provider erişimini etkinleştirir; v4 Compose açık değer ister |
-| `MESA_API_KEY` | *(required)* | V3 bootstrap key veya v4 `key_id.secret` credential |
-| `MESA_PRINCIPAL_ID` | *(required)* | API key ile ilişkilendirilen sunucu tarafı principal |
-| `MESA_PRINCIPAL_TYPE` | `SERVICE` | Principal türü |
-| `MESA_PRINCIPAL_STATUS` | `active` | Principal durumu |
-| `LLM_API_KEY` | *(provider profile)* | Yalnız external-provider erişimi açık, gözden geçirilmiş profiller için sağlayıcı anahtarı |
-| `MESA_ZERO_COST_MODE` | `false` | Yerel Ollama/embedding seçimini ister; Compose profili bunu etkinleştirmez |
-
----
-
-## Running Tests
-
-```bash
-# Core local suite (works with `uv sync --locked --extra dev`)
-make test-local
-
-# Complete installed suite (install `dev` + `adapters` first)
-make test-all
-
-# Optional provider/MCP contracts only
-make test-adapters
-
-# Core local suite with coverage
-uv run pytest tests/ -m "not optional_provider and not optional_mcp and not live_external" \
-  --cov=mesa_memory --cov=mesa_api --cov=mesa_storage \
-  --cov-report=term-missing --ignore=tests/bench
-
-# Type checking
-uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases
-
-# Formatting
-uv run black --check mesa_memory/ mesa_api/ mesa_storage/ tests/
-uv run ruff check .
-
-# Historical synthetic diagnostics (not a release gate)
-python -m mesa_evals.evals        # Run 30-entry synthetic benchmark
-```
-
-`mesa_evals`, yalnız tarihsel sentetik tanılama paketidir ve release authority
-değildir. MESA, Mem0, Zep veya Letta arasında yayınlanabilir karşılaştırma
-sonucu üretmez. Dış sistem karşılaştırmalı, yayınlanabilir bilimsel benchmark suite'i
-bağımsız `mesa_benchmark` reposunda (`mesa-benchmark` CLI) geliştirilmektedir.
-
----
-
-## Known Limitations
-
-> [!WARNING]
-> **Understand these constraints before deploying to production.**
-
-### KùzuDB Graph Scalability
-
-MESA uses **KùzuDB** for disk-backed graph topology. This reduces the need to
-hold the complete graph topology in application memory, but capacity remains
-bounded by storage, query shape, indexes, process memory, and host resources.
-Load and soak testing are required for each production deployment.
-
-### LLM Provider Rate Limits
-
-When using Groq's free tier as the LLM backend, you may hit **30 requests/minute** rate limits during consolidation batches. Mitigations:
-- Reduce `consolidation_batch_size` in your `.env` or config.
-- Use the `mock` provider for local development and testing.
-- Deploy with a paid plan or switch to a self-hosted Ollama instance.
+`FactExtractionService` owns canonical V4 extraction; REBEL is not part of
+canonical V4 extraction.
 
 ### Legacy/V3 CPU-Only REBEL Extraction
 
-The legacy/V3 REBEL model (`Babelscape/rebel-large`, 1.8 GB) runs at **~2–5 seconds per record on CPU**. It is not part of canonical v4 extraction; v4 uses `FactExtractionService`. For legacy deployments:
-- Set `MESA_REBEL_DEVICE=cuda` if a GPU is available.
-- REBEL is English-only. Set `MESA_REBEL_ENABLED=false` to use the configured
-  LLM extraction prompts, which support Turkish (`tr`) and English (`en`).
-- The legacy/V3 path falls back to its configured LLM extraction when REBEL fails. This is not a v4 fallback contract.
+REBEL is a legacy V3 opt-in using the ML extra. Its CPU cost and language/model
+behavior require deployment-specific measurement; no current latency or model
+quality result is claimed here.
 
-### Current status
+Search combines four evidence lanes with weighted reciprocal rank fusion.
+Graph neighbor retrieval is available when the configured provider is
+operational. `GET /v4/capability` reports runtime availability. Context defaults
+to one search; optional `adaptive` mode makes at most one planner call and two
+additional searches while retaining the authorized scope.
 
-V0.7.1 is the package version of the v4 full-cognitive release candidate.
-V0.6.1 remains the
-preserved v3 lexical-core compatibility release; its queue and
-compensating-write behavior must not be read as a v4 guarantee. V4 uses a
-mutation/pipeline ledger, ordered outbox, artifact ownership and reconciliation.
-Production status remains `NO-GO` pending Final MVP Certification, including
-real-provider, production-like crash/concurrency, migration/restore and
-24-hour soak evidence.
+V3 remains a compatibility API with a separate lexical-core API/worker Compose
+topology. Its agent/session controls are not the V4 tenant/dataset contract.
+[Root ARCHITECTURE.md](ARCHITECTURE.md) is preserved historical V3 material;
+[architecture-v4.md](docs/architecture-v4.md) describes the current design.
 
----
+## Documentation
 
-## Project Structure
+- [Documentation index](docs/README.md)
+- [API and SDK](docs/api-reference.md), [CLI](docs/cli-reference.md), [MCP](README_MCP.md)
+- [Concepts and ingestion](docs/concepts-and-ingestion.md)
+- [Retrieval and graph](docs/retrieval-and-graph.md)
+- [Operations](docs/RUNBOOK.md), [offline projection rebuild](docs/v4-rebuild-runbook.md)
+- [Security and privacy](docs/security-and-privacy.md), [vulnerability reporting](SECURITY.md)
+- [Troubleshooting](docs/troubleshooting.md), [capacity and limitations](docs/performance-and-limitations.md)
+- [Ecosystem boundaries](docs/ecosystem.md), [migration](docs/migration-v0.8.0.md)
+- [Contributing](CONTRIBUTING.md), [testing](docs/testing.md), [changelog](CHANGELOG.md)
 
-```
-MESA/
-├── mesa_api/             # Versioned FastAPI v3 compatibility + v4 routers
-├── mesa_client/          # Versioned Python SDKs (v3 and v4, sync/async)
-├── mesa_evals/           # MESA çekirdek golden dataset + CI regresyon değerlendirmesi
-├── mesa_memory/
-│   ├── adapter/          # LLM provider adapters (Claude, Ollama, Mock)
-│   ├── api/              # FastAPI server entrypoint + auth middleware
-│   ├── consolidation/    # Batch orchestration + graph writing
-│   ├── extraction/       # FactExtractionService plus legacy/V3 REBEL adapter
-│   ├── observability/    # Prometheus metrics + structured logging
-│   ├── retrieval/        # Hybrid vector + graph retrieval
-│   ├── schema/           # Pydantic CMB schema
-│   ├── security/         # RBAC access control + input sanitisation
-│   └── valence/          # ECOD anomaly detection + novelty scoring
-├── mesa_mcp/             # Model Context Protocol server (Claude Desktop)
-├── mesa_storage/         # Triple Storage Engine
-│   ├── dao.py            # Orchestration & WAL queueing
-│   ├── kuzu_provider.py  # Graph Storage
-│   └── vector_engine.py  # Vector Storage
-├── mesa_workers/         # Cold-path ingestion worker, MaintenanceWorker, rem_cycle.py
-├── tests/                # pytest suite + benchmarks
-├── examples/             # Tutorial scripts (hello_mesa.py, legal_assistant.py)
-├── Dockerfile            # Production container
-├── docker-compose.yml    # V3 lexical-core API + worker deployment
-├── docker-compose.v4.yml # V4 single combined storage-owner deployment
-├── pyproject.toml        # Package metadata + dependency ranges
-├── uv.lock               # Reproducible resolved dependency graph
-└── SECURITY.md            # Security disclosure policy
-```
+## Limitations
 
----
-
-## Contributing
-
-We welcome contributions! Please follow the **Fork → Feature Branch → Pytest → Pull Request** workflow. Ensure all tests pass and code is formatted with `black` and `ruff` before submitting.
+Embedded storage requires one writer and deployment-specific capacity testing.
+Rebuild is offline, storage-root-wide and disabled by default. Bitemporal
+queries, associative PPR, hosted/distributed storage and legal certification
+are not implemented Core guarantees. Evidence linkage is not citation truth.
+Historical benchmarks and interrupted soaks are not v0.8.0 measurements.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE) — Copyright © 2026 MESA Core Team.
+[MIT](LICENSE).
+
+## Development checks
+
+```bash
+make test-local
+# After installing dev + adapters:
+make test-all
+```
+
+See [testing](docs/testing.md) for optional integrations and release evidence.

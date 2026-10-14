@@ -1,5 +1,7 @@
 # 5. PageRank Quarantine (Epistemic Uncertainty Sönümleme)
 
+> Current applicability: Superseded in full by ADR 0010. PageRank is observation-only and cannot quarantine retrieval artifacts.
+
 Date: 2026-07-17
 
 ## Status

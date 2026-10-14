@@ -5,6 +5,8 @@ candidate topology’sini ayrı tutar. Production kararı Final MVP Certificatio
 tamamlanana kadar `NO-GO`dur. Repository `.env` dosyasını
 kendiliğinden yüklemez. Gerçek secret’ları bir secret manager’da saklayın.
 
+Doğrudan çalıştırılabilir model-disabled demo için [Getting started](getting-started.md) rehberini kullanın. Aşağıdaki `/srv/mesa` yolları operator örneğidir, otomatik kurulum değildir. Credential/ACL bootstrap runtime başlamadan önce yapılır.
+
 ## Gereksinimler
 
 - Python 3.10–3.13
@@ -50,6 +52,8 @@ export MESA_PRINCIPAL_TYPE=SERVICE
 export MESA_PRINCIPAL_STATUS=active
 python -m mesa_memory.runtime_entrypoint
 ```
+
+Bu başlatma önce credential/ACL kurulmasını ve model/provider bağımlılıklarını gerektirir. Local model için `--extra ml`; provider SDK gerekiyorsa `--extra adapters` kurulur. External `text-embedding-3-small` seçimi `MESA_EMBEDDING_DIMENSION=1536` gerektirir; local Magibu varsayılanı 768 ile karıştırmayın. Tam alan listesi [configuration](configuration.md) içindedir.
 
 Provider’a özel adapter/model/credential değişkenleri deployment tarafından
 sağlanır. Release adayı provider seçimi performans, maliyet ve güvenlik kanıtı
@@ -143,8 +147,12 @@ Bu topology v4 Graph V2, dataset ACL veya projection-ledger garantisi sunmaz.
 
 Migration yalnız uygulama durmuşken ve release runbook onayıyla çalıştırılır:
 
+`mesa_storage/alembic.ini` içindeki `sqlalchemy.url` migration hedefidir;
+`MESA_STORAGE_ROOT` tek başına bu URL’yi değiştirmez. Operator-reviewed config
+kopyasında mutlak staging DB URL’si ve mutlak `script_location` tanımlayın.
+
 ```bash
-alembic -c mesa_storage/alembic.ini upgrade head
+.venv/bin/alembic -c /srv/mesa/reviewed-staging-alembic.ini upgrade head
 ```
 
 Offline backup/restore:

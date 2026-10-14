@@ -18,7 +18,7 @@
 
     <header class="hero">
         <h1>MESA</h1>
-        <p class="subtitle">Otonom AI Ajanları İçin Yapılandırılmış Hafıza Motoru</p>
+        <p class="subtitle">Tarayıcı içinde örnek graf animasyonu — gerçek MESA çalışması değildir</p>
     </header>
 
     <main class="container">
@@ -28,7 +28,7 @@
             <section class="panel interaction-panel">
                 <div class="panel-header">
                     <h2>1. Veri Girişi</h2>
-                    <p>MESA'nın hafızasına kaydedilecek yeni bir bilgi (hafıza) girin.</p>
+                    <p>Yerel animasyon için örnek metin girin. API çağrısı, model çalışması veya kalıcı kayıt yapılmaz.</p>
                 </div>
                 
                 <form id="ingestion-form" class="input-terminal">
@@ -36,7 +36,7 @@
                         <span class="dot red"></span>
                         <span class="dot yellow"></span>
                         <span class="dot green"></span>
-                        <span class="title">POST /v3/memory/insert</span>
+                        <span class="title">SIMULATION — no HTTP request</span>
                     </div>
                     <div class="terminal-body">
                         <label for="memory-input">"content":</label>
@@ -50,15 +50,15 @@
 
                 <div class="panel-header" style="margin-top: 2rem;">
                     <h2>2. İşleme Hattı (Pipeline)</h2>
-                    <p>Sisteme giren veri, halüsinasyon riskine karşı ardışık filtrelerden geçer.</p>
+                    <p>Aşağıdaki aşamalar örnek animasyondur; doğrulama sonucu veya sertifikasyon kanıtı değildir.</p>
                 </div>
 
                 <div class="pipeline-visualizer">
                     <div class="step" id="step-valence">
                         <div class="step-icon">1</div>
                         <div class="step-content">
-                            <h3>Valence Motor (Geçit)</h3>
-                            <p>Verinin uygunluğu ve anormallik (ECOD) kontrolü yapılır.</p>
+                            <h3>Örnek aşama 1</h3>
+                            <p>Temsili aşama; ECOD çalıştırılmaz.</p>
                         </div>
                         <div class="status-indicator">Bekliyor</div>
                     </div>
@@ -68,7 +68,7 @@
                     <div class="step" id="step-extraction">
                         <div class="step-icon">2</div>
                         <div class="step-content">
-                            <h3>REBEL Çıkarımı (Triplet)</h3>
+                            <h3>Yerel metin sezgiseli</h3>
                             <p>Düz metin Özellik-Yüklem-Nesne üçlülerine (graf) ayrıştırılır.</p>
                         </div>
                         <div class="status-indicator">Bekliyor</div>
@@ -79,8 +79,8 @@
                     <div class="step" id="step-consensus">
                         <div class="step-icon">3</div>
                         <div class="step-content">
-                            <h3>Çift-LLM Konsensüsü</h3>
-                            <p>Çıkarılan bilgilerin doğruluğu 2 farklı LLM ile çapraz teyit edilir.</p>
+                            <h3>Örnek aşama 3</h3>
+                            <p>Hiçbir LLM çağrısı veya konsensüs doğrulaması yapılmaz.</p>
                         </div>
                         <div class="status-indicator">Bekliyor</div>
                     </div>
@@ -102,12 +102,12 @@
                 <div class="educational-content">
                     <div class="edu-card">
                         <h3><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> Sistem Nasıl Çalışır ve Bağlantılar Nasıl Kurulur?</h3>
-                        <p>Düz bir metin sisteme girdiğinde <strong>REBEL</strong> modeli (veya LLM fallback), cümleyi <em>Üçlü (Triplet)</em> adı verilen yapı taşlarına böler: <code>[Özne] -> (İlişki/Yüklem) -> [Nesne]</code>. Örneğin, "Tesla'nın gelirleri arttı" cümlesi <code>[Tesla] -[SAHİPTİR]-> [Gelir Artışı]</code> şekline dönüşür. Bu düğümler (node) ve kenarlar (edge), KùzuDB üzerinde bir ağ (graf) oluşturur.</p>
+                        <p>Bu görsel browser içindeki metin sezgiseliyle örnek ilişkiler üretir. Gerçek V4 FactExtractionService, seçili validation policy ve canonical provenance için kaynak dokümantasyonuna başvurun.</p>
                     </div>
 
                     <div class="edu-card">
                         <h3><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-secondary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> Neyi Amaçlıyor ve Neyi Kanıtlıyor?</h3>
-                        <p>Geleneksel yapay zeka hafızası "düz metin" depolar, bu da <strong>halüsinasyona (yanılgıya)</strong> sebep olur. MESA, istatistiksel anomali tespiti ve <em>Çift-LLM Konsensüsü (Çapraz Doğrulama)</em> ile sisteme giren veriyi filtreler. Düz metni <strong>yapılandırılmış, doğrulanmış graf ağına</strong> dönüştürerek yapay zeka ajanlarının sadece yakın zamandakileri değil, geçmişi de <em>kesin ve doğru (halüsinasyonsuz)</em> hatırlayabildiğini kanıtlar.</p>
+                        <p>Animasyon doğruluk, halüsinasyonsuz çalışma, source attribution veya Kùzu persistence kanıtı değildir. Hukuki doğruluk ve model performansı burada ölçülmez.</p>
                     </div>
                 </div>
             </section>

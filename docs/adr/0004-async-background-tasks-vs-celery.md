@@ -1,5 +1,7 @@
 # ADR 0004: Async Background Tasks vs. Celery
 
+> Current applicability: V4 superseded by ADR 0009: durable ledger/outbox and single owner. The old measured values below are historical, not current release gates.
+
 ## Status
 Accepted
 
