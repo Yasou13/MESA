@@ -11,3 +11,5 @@ Tam method docstring doğruluğu henüz sertifikalanmadı; Black geniş format b
 User-owned journal deletion/prompt commit dışında tutulur. Ayrıntılı yerel raw logs, wheels ve build cache ignored olarak kalır; seçilmiş küçük kanıt/raporlar commitlenir. Kesin pushed commit/PR referansı 14 raporundaki son readback'tir. Sonraki owner eylemleri 13 raporundaki sıralı gerçek kapılardır; otomatik release denemesi için kanıt uydurulmaz.
 
 Doğrulanan düzeltme commit’i: `f627a93ae55a5ce5f0819efddf1a357e54db91f2`. Test dosyaları bu SHA’ya kadarki runtime semantiği ile aynıdır; son değişiklikler açıklama/örnek kontrolleri ve patch lockfile düzeyindedir.
+
+Uzak gönderim doğrulandı: `e643322f6625ebf45f7645d6bcc40ad85a85fbcc`; inceleme teslimi taslak PR https://github.com/Yasou13/MESA/pull/108 . Son takip commit yalnız yayın/readback raporu taşır. Release kapısı BLOCKED; VERSION_METADATA NOT_UPDATED; RELEASE_TAG NOT_CREATED; GITHUB_RELEASE_URL NOT_PUBLISHED.

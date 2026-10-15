@@ -1,0 +1,15 @@
+{
+  "observed_at_utc": "2026-10-15T17:26:32.348353+00:00",
+  "method": "git push normal fast-forward exit0; independent git ls-remote exit0",
+  "verified_remote_work_sha": "e643322f6625ebf45f7645d6bcc40ad85a85fbcc",
+  "default_main_sha": "54d11678b64f7801934a6cd265db2083981a9f54",
+  "pull_request": "https://github.com/Yasou13/MESA/pull/108",
+  "draft": true,
+  "v080_tag": "NOT_CREATED; remote refs/tags/v0.8.0 absent",
+  "v080_release": "NOT_PUBLISHED",
+  "user_owned_changes_excluded": [
+    "PROFILE_A_REPAIR_JOURNAL.md deletion",
+    "MESA_v080_release_prompt.md untracked"
+  ],
+  "note": "This evidence observes the code/audit push. A following report-only commit records these observations; its final SHA is verified after push separately."
+}

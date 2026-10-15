@@ -1,7 +1,7 @@
 {
-  "observed_at_utc": "2026-10-15T17:21:08.533844+00:00",
+  "observed_at_utc": "2026-10-15T17:26:46.044894+00:00",
   "command": "static regex content scan of changed source/docs and new reports; git ls-files sensitive credential paths",
-  "scanned_files": 67,
+  "scanned_files": 124,
   "findings": [],
   "public_docs_personal_path_findings": [],
   "tracked_secret_paths": [],
