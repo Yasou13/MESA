@@ -295,7 +295,7 @@ async def run_load_test(
         req_headers = {"X-API-Key": api_key}
 
     print(f"\n{'=' * 70}")
-    print("  MESA v0.7.1 — Hot Path Load Test")
+    print("  MESA v0.8.0 — Hot Path Load Test")
     print(f"{'=' * 70}")
     print(f"  Target:       {url}")
     print(
@@ -433,7 +433,7 @@ def _render_report(result: LoadTestResult) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="mesa_load_test",
-        description="MESA v0.7.1 — Hot Path Ingestion Load & Stress Tester",
+        description="MESA v0.8.0 — Hot Path Ingestion Load & Stress Tester",
     )
     parser.add_argument(
         "--total",

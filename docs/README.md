@@ -1,7 +1,8 @@
 # MESA Core documentation
 
 These guides describe the checked-out V4 implementation and V3 compatibility
-surface. Package version is 0.7.1; v0.8.0 is pending release verification.
+surface. Package version is 0.8.0; publication is owner-approved with the
+[documented certification limitations](release-notes-v0.8.0.md).
 Production status is `NO-GO` under the existing release policy.
 
 | Journey | Guide |
@@ -21,7 +22,7 @@ Production status is `NO-GO` under the existing release policy.
 | External projects | [Ecosystem](ecosystem.md) |
 | Upgrade safely | [Migration to v0.8.0](migration-v0.8.0.md) |
 | Extend and verify | [Contributing](../CONTRIBUTING.md), [testing](testing.md), [CI](ci-assurance.md) |
-| Release readiness | [Release procedure](release.md), [candidate notes](release-notes-v0.8.0.md) |
+| Release readiness | [Release procedure](release.md), [release notes](release-notes-v0.8.0.md) |
 | Local control panel | [Control panel](Mesa_Control_Panel.md), [dashboard](../mesa_dashboard/README.md) |
 | Notebook experimentation | [Colab](colab_kurulum_rehberi.md) |
 

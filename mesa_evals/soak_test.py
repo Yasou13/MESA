@@ -2481,7 +2481,7 @@ async def run_soak(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="MESA v0.7.1 — Profile A: Safe Core 24H Soak Test (Stability Certification)",
+        description="MESA v0.8.0 — Profile A: Safe Core 24H Soak Test (Stability Certification)",
     )
     parser.add_argument(
         "--base-url",

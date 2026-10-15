@@ -1,7 +1,7 @@
 # Release procedure
 
-V4 paket sürümü `0.7.1`; `v0.8.0` hazırlanacak sürüm hedefidir ve henüz
-yayınlanmış değildir. Mevcut checkout v0.7.1 sonrası değişiklikler içerir ve
+V4 paket sürümü `0.8.0`; depo sahibi bu source release için aşağıda kayıtlı
+yayın istisnasını açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı
 Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
 tag’in atanması tek başına production GO anlamına gelmez. Mevcut `v0.6.1`
@@ -114,9 +114,18 @@ Release artifact’ları şunları birlikte taşır:
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
 yapılmaz; eski storage ve v3 compatibility servisi korunur.
 
-## v0.8.0 aday durumu
+## v0.8.0 için açık yayın istisnası
 
-[Yeni aday notları](release-notes-v0.8.0.md) ve [migration](migration-v0.8.0.md)
-mevcuttur. Bu docs refresh gerçek-provider/24h soak/CI/attestation kanıtı
-yerine geçmez. İmzalama keyring’i veya mandatory evidence eksikse tag ve
-GitHub Release oluşturulmaz. Release note hazırlanmış olması yayın değildir.
+2026-10-15 tarihinde depo sahibi, eksik provider/24 saat soak ve imzalama/
+attestation kanıtları kendisine bildirildikten sonra yayını açıkça onayladı.
+Bu yalnız v0.8.0 source release yayınına ilişkin istisnadır; yukarıdaki genel
+production kapılarını PASS yapmaz veya sonraki sürümler için kaldırmaz.
+
+[Sürüm notları](release-notes-v0.8.0.md) ve [migration](migration-v0.8.0.md)
+bu sınırları taşır. Yerel GPG secret key olmadığı için v0.8.0 annotated tag'i
+imzasızdır; signed-tag preflight başarısı iddia edilmez. Tag CI metadata,
+build/SBOM ve OIDC provenance adımları ayrıca izlenir. Yayın ve artifact
+doğrulaması yalnız gerçek GitHub readback kayıtlarıyla raporlanır.
+
+Gerçek provider/model, production ölçeği, 24h soak ve resmî Profile B için yeni
+sertifikasyon sonucu yoktur. Production kararı **NO-GO** olarak kalır.

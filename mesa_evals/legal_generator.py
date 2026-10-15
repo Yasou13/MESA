@@ -362,7 +362,7 @@ def generate_legal_dataset(count: int = 200) -> list[dict]:
 def main() -> None:
     """CLI entrypoint for the Legal Golden Dataset generator."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.7.1 Phase 3A — Legal Golden Dataset Generator with Adversarial Traps",
+        description="MESA v0.8.0 Phase 3A — Legal Golden Dataset Generator with Adversarial Traps",
     )
     parser.add_argument(
         "--out",

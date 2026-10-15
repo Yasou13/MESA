@@ -4,9 +4,9 @@ MESA Core stores source-backed agent memory and retrieves scoped evidence over
 HTTP, Python clients and MCP. SQLite owns the catalog, assertions, mutation
 ledger and artifact ownership; LanceDB and Kùzu provide derived projections.
 
-The checkout has package version **0.7.1**. **v0.8.0 is a release target, not a
-published or certified release.** This development tree is a release candidate.
-Production remains `NO-GO` until the
+The package version is **0.8.0**. The repository owner approved publication
+with the limitations in the [release notes](docs/release-notes-v0.8.0.md).
+Production qualification remains at the release candidate stage: `NO-GO` until the
 [required release gates](docs/release.md) pass on the intended release commit.
 Check published versions in [GitHub Releases](https://github.com/Yasou13/MESA/releases).
 

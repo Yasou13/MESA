@@ -1,9 +1,9 @@
-# Preparing an upgrade to v0.8.0
+# Upgrading to v0.8.0
 
-v0.8.0 is a pending release target. Do not install a guessed tag or infer release
-readiness from this page. Current metadata remains 0.7.1 until required gates
-permit version preparation. This guide describes checked-out changes since
-v0.7.1, not a completed production migration.
+Package metadata is 0.8.0. Publication is owner-approved with the limitations in
+the [release notes](release-notes-v0.8.0.md); it does not certify production
+readiness. Confirm actual tags in GitHub Releases. This guide describes changes
+since v0.7.1, not a completed production migration.
 
 ## Preconditions and changed contracts
 

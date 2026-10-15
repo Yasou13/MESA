@@ -340,7 +340,7 @@ def _print_table(
     thin_divider = "─" * 75
 
     print(f"\n{divider}")
-    print("  MESA v0.7.1 — Alpha-Reranking Sweep Results")
+    print("  MESA v0.8.0 — Alpha-Reranking Sweep Results")
     print(f"  Grid Size: {len(results)} configurations")
     print(f"  Baseline (Pure Vector) Recall@5: {baseline_recall:.6f}")
     print(f"{divider}")
@@ -404,7 +404,7 @@ def _write_results(
     best = ranked[0] if ranked else None
 
     output = {
-        "mesa_version": "0.7.1",
+        "mesa_version": "0.8.0",
         "sweep_type": "alpha_reranking_ablation",
         "grid_size": len(results),
         "recall_at_k": RECALL_AT_K,
@@ -507,7 +507,7 @@ async def run_sweep(
 def main() -> None:
     """CLI entrypoint for the MESA hybrid search ablation sweep."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.7.1 — Alpha-Reranking Sweep",
+        description="MESA v0.8.0 — Alpha-Reranking Sweep",
     )
     parser.add_argument(
         "--top",

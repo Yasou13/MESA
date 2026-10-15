@@ -526,7 +526,7 @@ def enforce_guardrail(
 def main() -> None:
     """CLI entrypoint for the Legal Graph Poisoning Audit."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.7.1 — Legal Graph Poisoning Audit",
+        description="MESA v0.8.0 — Legal Graph Poisoning Audit",
     )
     parser.add_argument(
         "--db",

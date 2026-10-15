@@ -19,7 +19,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <img src="/dashboard/brand/icon-192.png" alt="MESA" width={38} height={38} style={{ borderRadius: '10px', display: 'block' }} />
           <div>
             <h2 className="text-gradient" style={{ fontSize: '1.25rem' }}>MESA Control</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px' }}>v0.7.1</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px' }}>v0.8.0</p>
           </div>
         </div>
         

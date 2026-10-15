@@ -591,7 +591,7 @@ async def run_harness(
 def main() -> None:
     """CLI entrypoint for the Recall@K evaluation harness."""
     parser = argparse.ArgumentParser(
-        description="MESA v0.7.1 — B-4: End-to-End Recall@K Harness",
+        description="MESA v0.8.0 — B-4: End-to-End Recall@K Harness",
     )
     parser.add_argument(
         "--golden",
