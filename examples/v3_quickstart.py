@@ -9,7 +9,7 @@ from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
 from mesa_client import MesaClient
 
 
-def main() -> None:
+def main() -> dict[str, str | int]:
     base = os.environ.get("MESA_BASE_URL", "http://127.0.0.1:18080")
     key = os.environ["MESA_API_KEY"]
     with httpx.Client(base_url=base, headers={"X-API-Key": key}, timeout=10) as http:
@@ -55,6 +55,7 @@ def main() -> None:
             ):
                 raise RuntimeError("No scoped raw memory returned")
             print("PROCESSED; scoped V3 raw memory found")
+            return {"session_id": session_id, "log_id": accepted.log_id}
 
 
 if __name__ == "__main__":

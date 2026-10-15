@@ -11,7 +11,7 @@
           "memory"
         ],
         "summary": "Queue memory insertion (hot path)",
-        "description": "Queue a memory record for asynchronous cold-path processing.\n\n**Hot-path architecture (v0.7.1)**: The endpoint performs a single\nasync INSERT into the ``raw_logs`` staging table and returns\nimmediately with the generated ``log_id``.\n\nAll heavy processing is consumed from the durable dispatch queue by\nthe separate worker runtime. The API process never executes it.\n\nTarget latency: **< 50ms**.",
+        "description": "Durably admit authorized V3 work and return 202 with its log ID.\n\nThe staging record and dispatch receipt precede cold-path processing.\nA separate worker or the combined runtime consumes that work outside\nthe request handler. Admission latency depends on storage and queue\nstate; acknowledgement does not prove processing completion.",
         "operationId": "insert_memory_v3_memory_insert_post",
         "requestBody": {
           "content": {
@@ -145,7 +145,7 @@
           "memory"
         ],
         "summary": "Search memory",
-        "description": "Execute a hybrid memory search via the production HybridRetriever.\n\nPerforms ranked retrieval through the full fusion pipeline:\n  1. Vector similarity (LanceDB) — cosine distance scoring.\n  2. Lexical pre-filter (FTS5) — BM25-normalised scoring.\n  3. Graph traversal (KùzuDB) — cognitive salience scoring.\n  4. Alpha-reranking fusion across all three signal sources.\n\nResults are returned in the canonical response schema:\n``{context, retrieved_nodes, metrics}``.",
+        "description": "Execute a hybrid memory search via the production HybridRetriever.\n\nPerforms ranked retrieval through the full fusion pipeline:\n  1. Vector similarity (LanceDB) — cosine distance scoring.\n  2. Lexical pre-filter (FTS5) — BM25-normalised scoring.\n  3. Graph traversal (KùzuDB) — cognitive salience scoring.\n  4. Reciprocal-rank fusion of available lane rankings, with optional\n     legacy CrossEncoder reranking when configured.\n\nResults are returned in the canonical response schema:\n``{context, retrieved_nodes, metrics, degraded_sources}``.",
         "operationId": "search_memory_v3_memory_search_post",
         "requestBody": {
           "content": {

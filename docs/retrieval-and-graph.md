@@ -24,7 +24,9 @@ ordering. Assertion exact citation +150 and same-statute +40 change assertion
 ordering. These are **not RRF score increments**. After fusion a query-dependent
 legal factor is applied: exact statute/article 1.5, same statute 1.25, competing
 statute 0.25, otherwise 1.0. A query without recognized legal citations has
-factor 1.0. Search `score` is final fused relevance; higher is better.
+factor 1.0. HTTP/SDK `final_score` is final fused relevance; higher is better.
+`rrf_score`, `legal_factor` and lane `raw_score` are separate diagnostics;
+MCP response adapters may expose a normalized `score` field.
 
 Typed ingestion identity uses a bounded alias ontology and immutable provenance.
 It improves scoped pre-rank candidate discovery, including article chunks with
@@ -58,7 +60,10 @@ are configured but non-operational until a successful embedding call.
 `GET /v4/sessions/{session_id}/context` defaults to `token_budget=2048` and
 `retrieval_mode=single`. `ContextBuilder` packs evidence once using `cl100k_base`.
 The budget applies to formatted model-visible context, not the entire HTTP
-response. Missing tokenizer fails; it does not silently substitute an estimate.
+response. If canonical BPE cannot load, the current OpenAI counting path uses
+one token per UTF-8 byte as a conservative offline upper bound, even when
+`strict=True` is passed. This may pack less evidence and is not exact cl100k
+measurement. Exceptions raised by the counting interface propagate.
 Complete graph proof must fit atomically; compact proof retains canonical
 supporting evidence and may omit optional structural details.
 

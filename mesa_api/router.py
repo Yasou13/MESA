@@ -1,41 +1,18 @@
-# MESA v0.7.1 — Phase 1: Hot Path Architecture
-# Asynchronous FastAPI router with decoupled ingestion pipeline.
-#
-# Architecture:
-#   - POST /v3/memory/insert  → durable dispatch admission (<50ms)
-#   - POST /v3/memory/search  → synchronous await on DAO retrieval
-#   - DELETE /v3/memory/purge → soft-delete ONLY — NO VACUUM, NO hard-delete
-#
-# Critical constraint:
-#   The insert endpoint MUST NOT perform any LLM validation, ECOD, or REBEL
-#   extraction on the hot path. All heavy processing is consumed by the
-#   separate durable worker runtime.
-#
-#   The purge endpoint MUST NOT trigger VACUUM or hard-delete operations.
-#   Physical removal is exclusively handled by the MaintenanceWorker.
-#   Violating this invariant causes catastrophic WAL locks under load.
-"""
-Headless FastAPI v3 API routers for the MESA memory system.
+"""Dependency-injected V3 compatibility HTTP routers.
 
-All endpoints enforce strict Pydantic V2 validation via the schemas
-in ``mesa_api.schemas``. The insert endpoint is optimised for hot-path
-latency (< 50ms) by atomically writing its staging record and durable dispatch
-receipt; the separate worker performs cold-path processing.
+Insert durably admits a staging record/dispatch receipt before processing.
+Cold-path work runs in a separate worker or a supported combined process; it
+is outside the request handler, with no universal latency guarantee.
+V3 agent/session checks are not the V4 tenant/dataset authorization contract.
+Public routes are authenticated by the application's composition dependencies.
 
-Endpoints::
-
-    POST   /v3/memory/insert  — Durable cold-path dispatch admission (< 50ms)
-    POST   /v3/memory/search  — Synchronous retrieval with latency metrics
-    DELETE /v3/memory/purge   — Soft-delete ONLY (no VACUUM, no hard-delete)
-
-Usage::
+Usage with an already constructed, authorized DAO::
 
     from mesa_api.router import create_memory_router
+    router = create_memory_router(get_dao=lambda: dao)
+    app.include_router(router, dependencies=authentication_dependencies)
 
-    router = create_memory_router(
-        dao=dao,
-    )
-    app.include_router(router)
+Provider composition uses get_embedder/get_access_control dependency factories.
 """
 
 import asyncio
@@ -97,7 +74,7 @@ def _noop_embedder(text: str) -> list[float]:
     """Placeholder embedder — returns a zero vector.
 
     In production, this should be replaced with a real embedding model
-    via ``create_memory_router(embedder=my_embed_fn)``.
+    via ``create_memory_router(get_embedder=lambda: my_embed_fn)``.
     """
     logger.warning(
         "NOOP_EMBEDDER_INVOKED | Search quality degraded — "
@@ -206,7 +183,7 @@ def create_memory_router(
             raise HTTPException(status_code=403, detail="Session access denied")
 
     # ==================================================================
-    # POST /v3/memory/insert  —  HOT PATH (< 50ms)
+    # POST /v3/memory/insert — durable admission
     # ==================================================================
 
     @router.post(
@@ -224,16 +201,12 @@ def create_memory_router(
         background_tasks: BackgroundTasks,
         dao: MemoryDAO = Depends(get_dao),
     ) -> JSONResponse:
-        """Queue a memory record for asynchronous cold-path processing.
+        """Durably admit authorized V3 work and return 202 with its log ID.
 
-        **Hot-path architecture (v0.7.1)**: The endpoint performs a single
-        async INSERT into the ``raw_logs`` staging table and returns
-        immediately with the generated ``log_id``.
-
-        All heavy processing is consumed from the durable dispatch queue by
-        the separate worker runtime. The API process never executes it.
-
-        Target latency: **< 50ms**.
+        The staging record and dispatch receipt precede cold-path processing.
+        A separate worker or the combined runtime consumes that work outside
+        the request handler. Admission latency depends on storage and queue
+        state; acknowledgement does not prove processing completion.
         """
         await require_mutation_admission(dao)
         structlog.contextvars.bind_contextvars(
@@ -404,10 +377,11 @@ def create_memory_router(
           1. Vector similarity (LanceDB) — cosine distance scoring.
           2. Lexical pre-filter (FTS5) — BM25-normalised scoring.
           3. Graph traversal (KùzuDB) — cognitive salience scoring.
-          4. Alpha-reranking fusion across all three signal sources.
+          4. Reciprocal-rank fusion of available lane rankings, with optional
+             legacy CrossEncoder reranking when configured.
 
         Results are returned in the canonical response schema:
-        ``{context, retrieved_nodes, metrics}``.
+        ``{context, retrieved_nodes, metrics, degraded_sources}``.
         """
         structlog.contextvars.bind_contextvars(
             agent_id=payload.agent_id,

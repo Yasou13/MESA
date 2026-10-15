@@ -1,7 +1,8 @@
 """Async executor-backed LanceDB projection storage.
 
 SQLite/MemoryDAO owns canonical mutation and source ownership. VectorEngine
-requires explicit scope and a compatible full embedding-space identity;
+permits legacy/provider calls without full scope or identity. Canonical V4
+callers must supply explicit scope and compatible full embedding-space identity;
 agent_id alone is not the V4 tenant authorization boundary. Tables retain
 dimension-specific physical layouts, while identity fences prevent mixing
 provider/model/revision/dimension/normalization spaces.
@@ -457,7 +458,7 @@ class VectorEngine:
 
         Args:
             node_id: UUID linking to nodes.id in the SQLite graph.
-            agent_id: Tenant isolation key (mandatory).
+            agent_id: Legacy agent partition key; V4 tenant/dataset authorization is owned by DAO (mandatory).
             embedding: Float32 embedding vector.
             content_hash: Optional SHA-256 of source content for dedup.
         """
@@ -693,7 +694,7 @@ class VectorEngine:
         tables and filters by ``agent_id`` in the WHERE clause.
 
         Args:
-            agent_id: Tenant isolation key (used in WHERE filter).
+            agent_id: Legacy agent partition key; V4 tenant/dataset authorization is owned by DAO (used in WHERE filter).
             node_ids: List of node IDs to check.
 
         Returns:
@@ -785,7 +786,7 @@ class VectorEngine:
         Args:
             query_vector: The query embedding (float32).
             limit: Maximum number of nearest neighbors to return.
-            agent_id: If provided, filters results to this tenant only.
+            agent_id: If provided, restricts the legacy agent partition. V4 tenant/dataset authorization is enforced by canonical DAO callers.
             allowed_node_ids: If provided, restricts candidates before ANN ranking.
             include_expired: If True, includes soft-deleted records.
 

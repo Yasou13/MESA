@@ -12,6 +12,11 @@ The current documentation refresh aligns entry points, API examples, provider
 defaults, configuration, ecosystem boundaries and limitations; removes unsourced
 showcase metrics/PASS output; and adds scoped neutral V3 and provider-required V4 examples.
 
+Independent review corrected conservative offline tokenizer counting, low-level
+vector versus canonical authorization, V3 router descriptions and smoke checks
+under Python optimization. Dashboard build dependency lock patches address two
+detected HIGH advisories; audit/build proof remains separate from production gates.
+
 See [CHANGELOG](../CHANGELOG.md) Unreleased for the detailed implementation
 history, [migration](migration-v0.8.0.md) for forward schema/representation
 requirements, and [release policy](release.md) for immutable signed tagging,

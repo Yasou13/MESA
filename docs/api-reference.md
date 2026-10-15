@@ -182,8 +182,10 @@ canonical context içine alınmaz.
 
 Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
 `valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
-yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. Search sonucu `score`
-alanı fused relevance skorudur; daha yüksek değer daha iyi eşleşmedir.
+yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. HTTP ve Python SDK search sonucundaki `final_score` fused relevance skorudur;
+daha yüksek değer daha iyi eşleşmedir. `rrf_score`, `legal_factor` ve
+`raw_score` ayrı alanlardır; MCP adapterları kendi response şemasında
+`score` adıyla normalize edebilir.
 Her sonuçtaki `retrieval_provenance.origins`, sonuca katkı veren
 `vector`, `bm25`, `assertion` ve `graph` lane'lerini bildirir. Graph katkısı
 varsa aynı nesne bounded `graph_hop_count`, canonical seed entity kimliği ve
@@ -192,9 +194,11 @@ SQLite ile uzlaştırılmış `graph_path_assertion_ids` alanlarını da taşır
 Context çıktısındaki retrieved session logları ve canonical memory, açıkça
 `UNTRUSTED_MEMORY_EVIDENCE` içinde JSON evidence kayıtları olarak render edilir;
 içerikler komut değil veridir. `token_budget`, yalnız bu LLM-ready formatted
-context için `cl100k_base` tokenizer ile ölçülen sert üst sınırdır. Canonical
-tokenizer kullanılamazsa endpoint tahmini bir sayaçla devam etmek yerine hata
-verir. `include_provenance` destekleyen doğrudan ContextBuilder çağrılarında
+context için normal durumda `cl100k_base` sayımıyla uygulanan üst sınırdır. Canonical
+BPE yüklenemezse mevcut OpenAI sayım yolu `strict=True` olsa da her UTF-8
+byte için bir token sayan conservative offline üst sınır kullanır. Bu sonuç
+exact cl100k ölçümü değildir ve daha az evidence sığdırabilir. Sayaçtan gelen
+exception ise ContextBuilder tarafından gizlenmez. `include_provenance` destekleyen doğrudan ContextBuilder çağrılarında
 `source_ref`, document/revision/chunk kimlikleri ve bounded evidence span ancak
 mevcutsa evidence kaydına eklenir.
 
