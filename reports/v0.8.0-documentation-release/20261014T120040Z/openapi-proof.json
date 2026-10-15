@@ -1,0 +1,7 @@
+{
+  "paths": 47,
+  "version": "0.7.1",
+  "sha256": "e389f8b25bce2a5c1db51761ba4910a4a8ae9e03906c3e366c000a613e7af605",
+  "source": "mesa_memory.api.server.app.openapi; source descriptions refreshed",
+  "startup": "NOT_STARTED; schema generation only"
+}

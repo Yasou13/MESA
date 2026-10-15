@@ -1,0 +1,38 @@
+{
+  "shard": 7,
+  "files": [
+    "tests/test_d001_d002_aggregate_state.py",
+    "tests/test_d003_d004_rollback_hash.py",
+    "tests/test_d005_d006_tenant_migration.py",
+    "tests/test_d007_d008_d009_composition_catalog.py",
+    "tests/test_d008_model_enabled_runtime_e2e.py",
+    "tests/test_d010_d011_d012_parity_bounded_hygiene.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-007.xml",
+    "tests/test_d001_d002_aggregate_state.py",
+    "tests/test_d003_d004_rollback_hash.py",
+    "tests/test_d005_d006_tenant_migration.py",
+    "tests/test_d007_d008_d009_composition_catalog.py",
+    "tests/test_d008_model_enabled_runtime_e2e.py",
+    "tests/test_d010_d011_d012_parity_bounded_hygiene.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 882.1,
+  "seconds": 16.53,
+  "counts": {
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "shard": 27,
+  "files": [
+    "tests/test_single_writer_contract.py",
+    "tests/test_soak_profile_a.py",
+    "tests/test_sol_r7_adversarial_certification.py",
+    "tests/test_sol_r7_unknown_revision_hash.py",
+    "tests/test_sqlite_engine_coverage.py",
+    "tests/test_storage_unification.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-027.xml",
+    "tests/test_single_writer_contract.py",
+    "tests/test_soak_profile_a.py",
+    "tests/test_sol_r7_adversarial_certification.py",
+    "tests/test_sol_r7_unknown_revision_hash.py",
+    "tests/test_sqlite_engine_coverage.py",
+    "tests/test_storage_unification.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 808.9,
+  "seconds": 21.04,
+  "counts": {
+    "tests": 83,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

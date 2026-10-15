@@ -1,0 +1,38 @@
+{
+  "shard": 20,
+  "files": [
+    "tests/test_principal_authorization.py",
+    "tests/test_profile_b_compose_env_parity.py",
+    "tests/test_projection_generation_contract.py",
+    "tests/test_purge_journal_contract.py",
+    "tests/test_pytest_exit_contract.py",
+    "tests/test_queue_admission_contract.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-020.xml",
+    "tests/test_principal_authorization.py",
+    "tests/test_profile_b_compose_env_parity.py",
+    "tests/test_projection_generation_contract.py",
+    "tests/test_purge_journal_contract.py",
+    "tests/test_pytest_exit_contract.py",
+    "tests/test_queue_admission_contract.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 340.7,
+  "seconds": 12.52,
+  "counts": {
+    "tests": 39,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

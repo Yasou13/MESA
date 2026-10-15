@@ -1,0 +1,38 @@
+{
+  "shard": 29,
+  "files": [
+    "tests/test_turkish_extraction.py",
+    "tests/test_typing_ratchet.py",
+    "tests/test_untrusted_memory_rendering_paths.py",
+    "tests/test_v3_cold_start_compatibility.py",
+    "tests/test_v3_orphan_reconciliation_boundaries.py",
+    "tests/test_v4_admin_cli.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-029.xml",
+    "tests/test_turkish_extraction.py",
+    "tests/test_typing_ratchet.py",
+    "tests/test_untrusted_memory_rendering_paths.py",
+    "tests/test_v3_cold_start_compatibility.py",
+    "tests/test_v3_orphan_reconciliation_boundaries.py",
+    "tests/test_v4_admin_cli.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 417.3,
+  "seconds": 23.04,
+  "counts": {
+    "tests": 57,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

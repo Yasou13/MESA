@@ -1,0 +1,38 @@
+{
+  "shard": 31,
+  "files": [
+    "tests/test_v4_closure_evidence.py",
+    "tests/test_v4_comprehensive_audit_hardening.py",
+    "tests/test_v4_context_atomic_proof_budget.py",
+    "tests/test_v4_context_jurisdiction_boundary.py",
+    "tests/test_v4_evidence_context_hardening.py",
+    "tests/test_v4_final_extraction_legal_audit.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-031.xml",
+    "tests/test_v4_closure_evidence.py",
+    "tests/test_v4_comprehensive_audit_hardening.py",
+    "tests/test_v4_context_atomic_proof_budget.py",
+    "tests/test_v4_context_jurisdiction_boundary.py",
+    "tests/test_v4_evidence_context_hardening.py",
+    "tests/test_v4_final_extraction_legal_audit.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 680.6,
+  "seconds": 13.52,
+  "counts": {
+    "tests": 32,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "shard": 3,
+  "files": [
+    "tests/test_async_lock_loop.py",
+    "tests/test_async_storage.py",
+    "tests/test_auth_configuration_contract.py",
+    "tests/test_catalog_repository_contract.py",
+    "tests/test_chaos.py",
+    "tests/test_ci_coverage_contracts.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-003.xml",
+    "tests/test_async_lock_loop.py",
+    "tests/test_async_storage.py",
+    "tests/test_auth_configuration_contract.py",
+    "tests/test_catalog_repository_contract.py",
+    "tests/test_chaos.py",
+    "tests/test_ci_coverage_contracts.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 491.3,
+  "seconds": 16.03,
+  "counts": {
+    "tests": 68,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

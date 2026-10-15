@@ -1,0 +1,38 @@
+{
+  "shard": 8,
+  "files": [
+    "tests/test_dao.py",
+    "tests/test_dao_coverage.py",
+    "tests/test_dao_extended.py",
+    "tests/test_deployment_assets.py",
+    "tests/test_dispatch_completion_contract.py",
+    "tests/test_domain_extraction.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-008.xml",
+    "tests/test_dao.py",
+    "tests/test_dao_coverage.py",
+    "tests/test_dao_extended.py",
+    "tests/test_deployment_assets.py",
+    "tests/test_dispatch_completion_contract.py",
+    "tests/test_domain_extraction.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 708.0,
+  "seconds": 48.1,
+  "counts": {
+    "tests": 126,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

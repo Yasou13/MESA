@@ -1,0 +1,66 @@
+{
+  "observed_at_utc": "2026-10-15T17:21:08.533844+00:00",
+  "checks": {
+    "docs": {
+      "command": [
+        ".venv/bin/python",
+        "scripts/check_documentation.py"
+      ],
+      "exit_code": 0,
+      "output": "{\n  \"files\": 44,\n  \"html_files\": 3,\n  \"html_asset_links\": 15,\n  \"local_links\": 98,\n  \"syntax_fences\": 58,\n  \"colab_fences\": 3,\n  \"external_urls\": \"NOT_CHECKED\",\n  \"configured_docs_builder\": \"NONE\",\n  \"errors\": []\n}\n"
+    },
+    "ruff": {
+      "command": [
+        ".venv/bin/ruff",
+        "check",
+        "."
+      ],
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    "mypy": {
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "mypy",
+        "mesa_memory",
+        "mesa_storage",
+        "mesa_workers",
+        "mesa_api",
+        "mesa_client",
+        "--ignore-missing-imports",
+        "--explicit-package-bases",
+        "--follow-imports=skip"
+      ],
+      "exit_code": 0,
+      "output": "pyproject.toml: note: unused section(s): module = ['conftest', 'mesa_evals.*', 'scripts.*', 'tests.*', 'tests.bench.*']\nSuccess: no issues found in 138 source files\n"
+    },
+    "layer": {
+      "command": [
+        ".venv/bin/python",
+        "scripts/check_layer_imports.py"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    "git-diff-whitespace": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    "wheel-import": {
+      "command": [
+        ".venv/bin/python",
+        "-I",
+        "-c",
+        "import sys,importlib.metadata,json;sys.path.insert(0,'/tmp/mesa-v080-wheel-smoke');import mesa_memory.config,mesa_api.schemas,mesa_client.client;print(json.dumps({'version':importlib.metadata.version('mesa-memory'),'paths':[x.__file__ for x in [mesa_memory.config,mesa_api.schemas,mesa_client.client]]}))"
+      ],
+      "exit_code": 0,
+      "output": "OPENAI_API_KEY not set for Claude provider. No external embedding fallback will be selected automatically; the configured embedding provider remains authoritative (magibu/embeddingmagibu-200m).\n{\"version\": \"0.7.1\", \"paths\": [\"/tmp/mesa-v080-wheel-smoke/mesa_memory/config.py\", \"/tmp/mesa-v080-wheel-smoke/mesa_api/schemas.py\", \"/tmp/mesa-v080-wheel-smoke/mesa_client/client.py\"]}\n"
+    }
+  }
+}

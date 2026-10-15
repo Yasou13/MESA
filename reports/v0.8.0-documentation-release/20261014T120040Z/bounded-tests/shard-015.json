@@ -1,0 +1,38 @@
+{
+  "shard": 15,
+  "files": [
+    "tests/test_operation_repository_contract.py",
+    "tests/test_operator_approval.py",
+    "tests/test_operator_approval_lifecycle.py",
+    "tests/test_optional_adapter_imports.py",
+    "tests/test_optional_mem0_isolation.py",
+    "tests/test_p0_canonical_correction.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-015.xml",
+    "tests/test_operation_repository_contract.py",
+    "tests/test_operator_approval.py",
+    "tests/test_operator_approval_lifecycle.py",
+    "tests/test_optional_adapter_imports.py",
+    "tests/test_optional_mem0_isolation.py",
+    "tests/test_p0_canonical_correction.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 798.5,
+  "seconds": 22.54,
+  "counts": {
+    "tests": 23,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

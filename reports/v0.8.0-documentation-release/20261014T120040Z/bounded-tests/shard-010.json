@@ -1,0 +1,38 @@
+{
+  "shard": 10,
+  "files": [
+    "tests/test_embedding_service.py",
+    "tests/test_entity_consolidation_worker.py",
+    "tests/test_external_embedding_lifespan_e2e.py",
+    "tests/test_fact_extraction_service.py",
+    "tests/test_fault_tolerance.py",
+    "tests/test_golden_smoke_set.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-010.xml",
+    "tests/test_embedding_service.py",
+    "tests/test_entity_consolidation_worker.py",
+    "tests/test_external_embedding_lifespan_e2e.py",
+    "tests/test_fact_extraction_service.py",
+    "tests/test_fault_tolerance.py",
+    "tests/test_golden_smoke_set.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 696.0,
+  "seconds": 64.13,
+  "counts": {
+    "tests": 118,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}
