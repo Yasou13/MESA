@@ -1,0 +1,34 @@
+{
+  "shard": 38,
+  "files": [
+    "tests/test_worker_dispatch_consumer.py",
+    "tests/test_worker_logging_contract.py",
+    "tests/test_worker_runtime_contract.py",
+    "tests/test_worker_supervision_contract.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-038.xml",
+    "tests/test_worker_dispatch_consumer.py",
+    "tests/test_worker_logging_contract.py",
+    "tests/test_worker_runtime_contract.py",
+    "tests/test_worker_supervision_contract.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 826.1,
+  "seconds": 6.51,
+  "counts": {
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

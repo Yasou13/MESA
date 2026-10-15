@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Documentation source-truth refresh:** Added a navigable documentation index,
+  configuration/CLI references, ingestion/retrieval/security/migration guides,
+  source-generated OpenAPI and neutral scoped examples. Model-disabled V3 smoke
+  and provider-required V4 ingestion are explicitly distinguished; v0.8.0 remains
+  pending until the existing release gates pass.
+
 - **Typed legal retrieval identity:** V4 ingestion can carry a validated,
   provenance-bound law/article/version identity. Canonical assertions persist
   the identity through fallback projection, and scoped indexed pre-rank lookup
@@ -98,6 +104,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the explicit, writer-locked `mesa-v4-rebuild adopt-provider` command.
 
 ### Security
+
+- **Dashboard build dependency patches:** Updated existing transitive `nanoid`
+  and `source-map-js` lock entries within supported ranges to address detected
+  HIGH advisories, without changing root ranges or running install scripts.
 
 - **Truthful replay boundary:** Semantic `REJECTED` mutations return
   `409 NON_REPLAYABLE` and remain terminal, while target-aware technical

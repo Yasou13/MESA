@@ -1,0 +1,38 @@
+{
+  "shard": 30,
+  "files": [
+    "tests/test_v4_adversarial_self_audit.py",
+    "tests/test_v4_api_contract.py",
+    "tests/test_v4_bounded_query_planner.py",
+    "tests/test_v4_bounded_query_planner_surface.py",
+    "tests/test_v4_catalog_ownership.py",
+    "tests/test_v4_certification_contracts.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-030.xml",
+    "tests/test_v4_adversarial_self_audit.py",
+    "tests/test_v4_api_contract.py",
+    "tests/test_v4_bounded_query_planner.py",
+    "tests/test_v4_bounded_query_planner_surface.py",
+    "tests/test_v4_catalog_ownership.py",
+    "tests/test_v4_certification_contracts.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 640.9,
+  "seconds": 15.53,
+  "counts": {
+    "tests": 130,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -3,9 +3,9 @@
 MESA iki versioned yüzey sunar:
 
 - v3, geriye uyumlu lexical-core API’dir.
-- v4, tenant/dataset yetkili full-cognitive API’dir ve yayınlanmamıştır.
+- v4, tenant/dataset yetkili versioned API’dir. Paket 0.7.1; v0.8.0 yayını henüz doğrulanmamıştır.
 
-Tüm HTTP çağrıları `X-API-Key` ister. V4 anahtarı
+Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
 OpenAPI sözleşmesinin çalışan kaynakları `mesa_api/router.py` ve
 `mesa_api/v4_router.py` dosyalarıdır.
@@ -182,8 +182,10 @@ canonical context içine alınmaz.
 
 Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
 `valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
-yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. Search sonucu `score`
-alanı fused relevance skorudur; daha yüksek değer daha iyi eşleşmedir.
+yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. HTTP ve Python SDK search sonucundaki `final_score` fused relevance skorudur;
+daha yüksek değer daha iyi eşleşmedir. `rrf_score`, `legal_factor` ve
+`raw_score` ayrı alanlardır; MCP adapterları kendi response şemasında
+`score` adıyla normalize edebilir.
 Her sonuçtaki `retrieval_provenance.origins`, sonuca katkı veren
 `vector`, `bm25`, `assertion` ve `graph` lane'lerini bildirir. Graph katkısı
 varsa aynı nesne bounded `graph_hop_count`, canonical seed entity kimliği ve
@@ -192,9 +194,11 @@ SQLite ile uzlaştırılmış `graph_path_assertion_ids` alanlarını da taşır
 Context çıktısındaki retrieved session logları ve canonical memory, açıkça
 `UNTRUSTED_MEMORY_EVIDENCE` içinde JSON evidence kayıtları olarak render edilir;
 içerikler komut değil veridir. `token_budget`, yalnız bu LLM-ready formatted
-context için `cl100k_base` tokenizer ile ölçülen sert üst sınırdır. Canonical
-tokenizer kullanılamazsa endpoint tahmini bir sayaçla devam etmek yerine hata
-verir. `include_provenance` destekleyen doğrudan ContextBuilder çağrılarında
+context için normal durumda `cl100k_base` sayımıyla uygulanan üst sınırdır. Canonical
+BPE yüklenemezse mevcut OpenAI sayım yolu `strict=True` olsa da her UTF-8
+byte için bir token sayan conservative offline üst sınır kullanır. Bu sonuç
+exact cl100k ölçümü değildir ve daha az evidence sığdırabilir. Sayaçtan gelen
+exception ise ContextBuilder tarafından gizlenmez. `include_provenance` destekleyen doğrudan ContextBuilder çağrılarında
 `source_ref`, document/revision/chunk kimlikleri ve bounded evidence span ancak
 mevcutsa evidence kaydına eklenir.
 
@@ -211,6 +215,9 @@ Pipeline run görünümü:
 QUEUED → RUNNING → EXTRACTED → VALIDATED → PROJECTING → COMMITTED
 ```
 
+Mutation terminal SDK kümesi `COMMITTED`, `REJECTED`, `DEAD_LETTER`,
+`ROLLED_BACK`, `BLOCKED` içerir; `wait_until_committed` başarısız terminalde de
+döner. Pipeline/outbox görünümünde `DLQ` kullanılabilir.
 Terminal/kurtarma durumları arasında `REJECTED`, `RETRY_PENDING`, `DLQ`,
 `ROLLING_BACK`, `ROLLED_BACK` ve `BLOCKED` bulunur. Seçili validation
 policy’sinin reddi aktif retrieval artifact’ı üretmez.
@@ -237,10 +244,13 @@ with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
         document_id="doc-a",
         revision_id="rev-1",
         chunk_id="chunk-1",
-        source_ref="contract://a",
+        title="Neutral source example",
+        source_ref="demo://source-a",
         content="Exact source text",
     )
-    committed = client.wait_until_committed(accepted["mutation_id"])
+    terminal = client.wait_until_committed(accepted["mutation_id"])
+    if terminal["state"] != "COMMITTED":
+        raise RuntimeError(terminal["state"])
 ```
 
 Çok chunk'lı revision için ilk çağrılarda `finalize_revision=False`, son
@@ -348,3 +358,38 @@ V4 metrikleri projection backlog/DLQ/stuck lease, cleanup backlog/BLOCKED,
 ownerless registry, shared artifact ve rebuild state/duration/progress,
 parity-missing, staging-byte ve rollback sayılarını kapsar. Alert kuralları
 `docs/prometheus_alerts.yml` içindedir.
+
+## İstek/SDK ayrıntıları
+
+V4 HTTP insert ve sync/async SDK insert için `title` zorunludur. `title` 1..512,
+`content` 1..32768 karakter, `source_ref` 1..2048, `evidence_span` en çok 4096,
+`idempotency_key` en çok 128 karakterdir. Dataset session üyeliğinde olmalıdır.
+HTTP `legal_identity` destekler; mevcut SDK `insert` imzası bu parametreyi
+sunmaz. Public/source ID validator farkları için çalışan OpenAPI kullanılır.
+
+Search request `session_id`, `query` gerektirir; query 1..4096 karakter,
+`limit` default 10 ve 1..50, `dataset_ids` verilirse 1..64 ve session altkümesi,
+`graph_mode` enabled/disabled'dır. ISO timestamp string'leri timezone offset
+içermelidir. `valid_from > valid_to` reddedilir. Response `session_id`,
+`dataset_ids`, `results`, optional `scope_audit`, `graph_ablation`, `vector_lane`
+taşır. Sonuç provenance'ın varlığı source truth garantisi değildir.
+
+SDK sync/async client timeout default 10s ve max_retries 3; yalnız güvenli
+network retry boundary geçerlidir. API HTTP hata yanıtları `MesaAPIError`,
+network `MesaNetworkError`, SDK schema `MesaValidationError` olur. Status
+400/401/403/404/409/413/422/429/503 endpoint'e göre değişir; OpenAPI ve contract
+testleri kaynak otoritesidir. Queue saturation/rebuild maintenance için
+Retry-After dikkate alınır. Dakikalık default 60/minute, daily default 10000
+principal bazındadır; health/metrics daily budget dışındadır.
+
+List catalog çağrıları burada açıkça belgelenmiş pagination garantisi sunmaz;
+response/schema'yı inceleyin. İlk catalog/ACL ve credential ön koşulları dahil
+çalıştırılabilir örnek [Getting started](getting-started.md) içindedir.
+
+Canonical V4 insertion requires the model-enabled combined processing consumer.
+Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
+`503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
+
+[Source-generated OpenAPI snapshot](reference/openapi.json) lists every current
+path, parameter and schema (47 paths). It is generated from app.openapi without
+starting a server; runtime security dependencies still require live tests.

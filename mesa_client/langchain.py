@@ -13,14 +13,16 @@ from mesa_client.client import MesaClient
 class MesaRetriever(BaseRetriever):
     """LangChain Retriever adapter for the MESA memory system.
 
-    Provides a seamless integration for LangChain agents to query
-    the MESA memory layer while enforcing strict tenant isolation.
+    Queries the V3 compatibility API using an operator-provisioned agent/session.
+    This adapter does not implement the V4 tenant/dataset authorization contract.
     """
 
     client: MesaClient = Field(
         description="Configured instance of the synchronous MesaClient"
     )
-    agent_id: str = Field(description="Tenant identifier enforcing row-level isolation")
+    agent_id: str = Field(
+        description="Legacy V3 agent partition; not a V4 tenant credential"
+    )
     session_id: str = Field(
         default="langchain-session",
         description="Session scope within the agent tenant",
@@ -67,7 +69,9 @@ class MesaStore(BaseStore[str, str]):
     client: MesaClient = Field(
         description="Configured instance of the synchronous MesaClient"
     )
-    agent_id: str = Field(description="Tenant identifier enforcing row-level isolation")
+    agent_id: str = Field(
+        description="Legacy V3 agent partition; not a V4 tenant credential"
+    )
     session_id: str = Field(
         default="langchain-session",
         description="Session scope within the agent tenant",

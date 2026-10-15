@@ -1,7 +1,7 @@
 # Contributing to MESA
 
-MESA v3 is the lexical-core compatibility surface. V4 is an unreleased,
-versioned full-cognitive runtime and remains `NO-GO` until its release gates
+MESA v3 is the lexical-core compatibility surface. V4 is a versioned,
+full-cognitive runtime and remains `NO-GO` until its release gates
 pass. Contributions must preserve that distinction.
 
 ## Workflow

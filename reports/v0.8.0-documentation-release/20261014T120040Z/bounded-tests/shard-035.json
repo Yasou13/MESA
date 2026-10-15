@@ -1,0 +1,38 @@
+{
+  "shard": 35,
+  "files": [
+    "tests/test_v4_retrieval_hardening_phase8.py",
+    "tests/test_v4_retrieval_hardening_phase9.py",
+    "tests/test_v4_round2_holdout.py",
+    "tests/test_v4_round2_legal_identity.py",
+    "tests/test_v4_rrf_ablation.py",
+    "tests/test_v4_sdk_contract.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-035.xml",
+    "tests/test_v4_retrieval_hardening_phase8.py",
+    "tests/test_v4_retrieval_hardening_phase9.py",
+    "tests/test_v4_round2_holdout.py",
+    "tests/test_v4_round2_legal_identity.py",
+    "tests/test_v4_rrf_ablation.py",
+    "tests/test_v4_sdk_contract.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 496.8,
+  "seconds": 13.52,
+  "counts": {
+    "tests": 37,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

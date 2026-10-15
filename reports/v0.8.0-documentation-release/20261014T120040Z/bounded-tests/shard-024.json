@@ -1,0 +1,38 @@
+{
+  "shard": 24,
+  "files": [
+    "tests/test_rebuild_preparation_contract.py",
+    "tests/test_rebuild_provider_rehearsal.py",
+    "tests/test_rebuild_replay_contract.py",
+    "tests/test_rebuild_runner_contract.py",
+    "tests/test_recovery_contract.py",
+    "tests/test_release_preflight.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-024.xml",
+    "tests/test_rebuild_preparation_contract.py",
+    "tests/test_rebuild_provider_rehearsal.py",
+    "tests/test_rebuild_replay_contract.py",
+    "tests/test_rebuild_runner_contract.py",
+    "tests/test_recovery_contract.py",
+    "tests/test_release_preflight.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 596.0,
+  "seconds": 20.04,
+  "counts": {
+    "tests": 46,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

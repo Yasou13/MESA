@@ -1,3 +1,11 @@
+"""Legacy V3/LangChain exploratory scenario, not a supported V4 quickstart.
+
+This uses caller-generated V3 sessions and requires explicit server ACL setup;
+it has not been executed in this documentation audit. Its contradiction
+heuristic is not bitemporal support, legal correctness or certification proof.
+Use examples/v4_quickstart.py and docs/getting-started.md for current Core.
+"""
+
 import sys
 import time
 import uuid
@@ -10,7 +18,7 @@ from mesa_client.langchain import MesaRetriever
 def run_legal_simulation(
     base_url: str = "http://localhost:8000", api_key: str = ""
 ) -> None:
-    """Run the legal assistant simulation as an integration test."""
+    """Run the legacy exploratory scenario with operator-provisioned V3 authorization."""
 
     agent_id = f"legal-proxy-{uuid.uuid4().hex[:8]}"
     session_id = f"case-{uuid.uuid4().hex[:8]}"
@@ -67,7 +75,7 @@ def run_legal_simulation(
     full_text = " | ".join(combined_context)
 
     # 3. Validation Criteria
-    # The output must demonstrate Bi-temporal gating (warning) OR correct resolution.
+    # This legacy output heuristic does not prove bitemporal behavior or legal truth.
     has_warning = "unconsolidated" in full_text or "warning" in full_text
     has_fact_1 = "sold" in full_text and "2024" in full_text
     has_fact_2 = "owns" in full_text and "2025" in full_text

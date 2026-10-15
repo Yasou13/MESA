@@ -1,0 +1,38 @@
+{
+  "shard": 34,
+  "files": [
+    "tests/test_v4_retrieval_hardening_phase2.py",
+    "tests/test_v4_retrieval_hardening_phase3.py",
+    "tests/test_v4_retrieval_hardening_phase4.py",
+    "tests/test_v4_retrieval_hardening_phase5.py",
+    "tests/test_v4_retrieval_hardening_phase6.py",
+    "tests/test_v4_retrieval_hardening_phase7.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-034.xml",
+    "tests/test_v4_retrieval_hardening_phase2.py",
+    "tests/test_v4_retrieval_hardening_phase3.py",
+    "tests/test_v4_retrieval_hardening_phase4.py",
+    "tests/test_v4_retrieval_hardening_phase5.py",
+    "tests/test_v4_retrieval_hardening_phase6.py",
+    "tests/test_v4_retrieval_hardening_phase7.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 412.1,
+  "seconds": 18.54,
+  "counts": {
+    "tests": 41,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

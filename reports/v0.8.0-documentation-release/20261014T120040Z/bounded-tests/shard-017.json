@@ -1,0 +1,38 @@
+{
+  "shard": 17,
+  "files": [
+    "tests/test_p0_model_disabled_truth.py",
+    "tests/test_p0_multi_memory_extraction.py",
+    "tests/test_p0_mutation_state_machine.py",
+    "tests/test_p0_projection_fencing.py",
+    "tests/test_p0_purge_fencing.py",
+    "tests/test_p0_ram_oom_safety.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-017.xml",
+    "tests/test_p0_model_disabled_truth.py",
+    "tests/test_p0_multi_memory_extraction.py",
+    "tests/test_p0_mutation_state_machine.py",
+    "tests/test_p0_projection_fencing.py",
+    "tests/test_p0_purge_fencing.py",
+    "tests/test_p0_ram_oom_safety.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 368.1,
+  "seconds": 10.02,
+  "counts": {
+    "tests": 19,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

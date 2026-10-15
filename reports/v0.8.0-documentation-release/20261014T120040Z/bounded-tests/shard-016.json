@@ -1,0 +1,38 @@
+{
+  "shard": 16,
+  "files": [
+    "tests/test_p0_config_bootstrap.py",
+    "tests/test_p0_context_builder.py",
+    "tests/test_p0_cross_agent_vector_ownership.py",
+    "tests/test_p0_embedding_contract.py",
+    "tests/test_p0_experimental_isolation.py",
+    "tests/test_p0_http_sdk_mcp_convergence.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-016.xml",
+    "tests/test_p0_config_bootstrap.py",
+    "tests/test_p0_context_builder.py",
+    "tests/test_p0_cross_agent_vector_ownership.py",
+    "tests/test_p0_embedding_contract.py",
+    "tests/test_p0_experimental_isolation.py",
+    "tests/test_p0_http_sdk_mcp_convergence.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 455.1,
+  "seconds": 5.01,
+  "counts": {
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -1,0 +1,25 @@
+[
+  {
+    "name": "optimized-smoke",
+    "command": [
+      ".venv/bin/python",
+      "-O",
+      "scripts/documentation_smoke.py"
+    ],
+    "exit_code": 0,
+    "seconds": 18.13,
+    "output": "PASS: initial real local storage, auth, schema and scoped example\nPASS: restart real local storage, auth, schema and scoped example\n"
+  },
+  {
+    "name": "optimized-negative-check",
+    "command": [
+      ".venv/bin/python",
+      "-O",
+      "-c",
+      "from scripts.documentation_smoke import require; import sys\ntry: require(False, 'negative probe')\nexcept RuntimeError: print('PASS: optimization cannot remove critical failure check')\nelse: sys.exit(1)"
+    ],
+    "exit_code": 0,
+    "seconds": 0.33,
+    "output": "PASS: optimization cannot remove critical failure check\n"
+  }
+]

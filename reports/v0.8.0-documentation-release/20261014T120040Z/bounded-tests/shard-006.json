@@ -1,0 +1,38 @@
+{
+  "shard": 6,
+  "files": [
+    "tests/test_control_approval.py",
+    "tests/test_control_client_repo.py",
+    "tests/test_control_conn_settings.py",
+    "tests/test_control_middleware.py",
+    "tests/test_control_policy.py",
+    "tests/test_crossencoder_reranking.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-006.xml",
+    "tests/test_control_approval.py",
+    "tests/test_control_client_repo.py",
+    "tests/test_control_conn_settings.py",
+    "tests/test_control_middleware.py",
+    "tests/test_control_policy.py",
+    "tests/test_crossencoder_reranking.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 516.3,
+  "seconds": 7.51,
+  "counts": {
+    "tests": 13,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

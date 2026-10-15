@@ -75,8 +75,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Simulate Pipeline Step 1: Valence
-            const ecodScore = (Math.random() * 0.08 + 0.01).toFixed(3);
-            await runStep(stepValence, 'Analiz Ediliyor...', 1200, `Geçti (ECOD: ${ecodScore})`);
+            // No model, ECOD score or actual consensus is computed.
+            await runStep(stepValence, 'Analiz Ediliyor...', 1200, 'Simülasyon aşaması tamamlandı');
 
             // Simulate Pipeline Step 2: Extraction — generate triplets
             const triplets = extractTriplets(text);
@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await runStep(stepExtraction, 'Triplet Çıkarılıyor...', 1800, `${tripletCount} Triplet Bulundu`);
 
             // Simulate Pipeline Step 3: Consensus
-            await runStep(stepConsensus, 'Çapraz Doğrulama...', 1500, 'Konsensüs Sağlandı ✓');
+            await runStep(stepConsensus, 'Çapraz Doğrulama...', 1500, 'Simülasyon — konsensüs çalıştırılmadı');
 
             // Build the graph from extracted triplets
             buildGraph(triplets);
@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ─── Intelligent Triplet Extraction (Mock REBEL) ───
+    // ─── Illustrative text heuristic (no REBEL/LLM) ───
     // Splits a complex sentence into meaningful Subject-Predicate-Object triplets
     // by detecting entity-like tokens and common Turkish/English relation patterns.
     

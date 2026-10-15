@@ -1,49 +1,16 @@
-# MESA v0.3.0 — Phase 3: Disk-backed Vector Engine (LanceDB)
-# Local-first, serverless vector storage linked to the SQLite graph layer.
-#
-# Architecture:
-#   - LanceDB disk-backed tables partitioned by embedding dimension
-#   - Mandatory node_id + agent_id row-level isolation on every record
-#   - All synchronous LanceDB I/O offloaded via asyncio.run_in_executor
-#     to prevent event loop blocking
-#   - Cosine distance metric for similarity search
-#   - Soft-delete via expired_at column for MVCC-style record management
-#   - Metrics tracking for observability
-"""
-Disk-backed vector storage engine for the MESA knowledge graph.
+"""Async executor-backed LanceDB projection storage.
 
-Wraps LanceDB's synchronous API in an async-safe executor pattern so that
-disk I/O never blocks the ``asyncio`` event loop.  Every record is linked
-to the SQLite graph via ``node_id`` (UUID foreign key) and scoped to an
-``agent_id`` for mandatory row-level tenant isolation.
+SQLite/MemoryDAO owns canonical mutation and source ownership. VectorEngine
+permits legacy/provider calls without full scope or identity. Canonical V4
+callers must supply explicit scope and compatible full embedding-space identity;
+agent_id alone is not the V4 tenant authorization boundary. Tables retain
+dimension-specific physical layouts, while identity fences prevent mixing
+provider/model/revision/dimension/normalization spaces.
 
-Schema per table::
-
-    node_id        TEXT   — UUID linking to nodes.id in SQLite
-    agent_id       TEXT   — tenant isolation key
-    embedding      VECTOR — float32 list of dimension N
-    content_hash   TEXT   — SHA-256 of source content for dedup
-    created_at     TEXT   — ISO 8601 timestamp
-    expired_at     TEXT   — soft-delete marker (NULL = active)
-
-Usage::
-
-    engine = VectorEngine("./storage/vectors.lance")
-    await engine.initialize()
-
-    await engine.upsert(
-        node_id="abc-123",
-        agent_id="agent_alpha",
-        embedding=[0.1, 0.2, ...],
-    )
-
-    results = await engine.search(
-        query_vector=[0.1, 0.2, ...],
-        limit=10,
-        agent_id="agent_alpha",
-    )
-
-    await engine.close()
+Use the public V4 API/SDK and canonical EmbeddingService for application code.
+Direct engine use is a storage-provider integration seam and requires correctly
+provisioned vectors, scope filters, lifecycle and ownership. Executor offloading
+reduces event-loop blocking; it is not a universal latency guarantee.
 """
 
 from __future__ import annotations
@@ -491,7 +458,7 @@ class VectorEngine:
 
         Args:
             node_id: UUID linking to nodes.id in the SQLite graph.
-            agent_id: Tenant isolation key (mandatory).
+            agent_id: Legacy agent partition key; V4 tenant/dataset authorization is owned by DAO (mandatory).
             embedding: Float32 embedding vector.
             content_hash: Optional SHA-256 of source content for dedup.
         """
@@ -727,7 +694,7 @@ class VectorEngine:
         tables and filters by ``agent_id`` in the WHERE clause.
 
         Args:
-            agent_id: Tenant isolation key (used in WHERE filter).
+            agent_id: Legacy agent partition key; V4 tenant/dataset authorization is owned by DAO (used in WHERE filter).
             node_ids: List of node IDs to check.
 
         Returns:
@@ -819,7 +786,7 @@ class VectorEngine:
         Args:
             query_vector: The query embedding (float32).
             limit: Maximum number of nearest neighbors to return.
-            agent_id: If provided, filters results to this tenant only.
+            agent_id: If provided, restricts the legacy agent partition. V4 tenant/dataset authorization is enforced by canonical DAO callers.
             allowed_node_ids: If provided, restricts candidates before ANN ranking.
             include_expired: If True, includes soft-deleted records.
 

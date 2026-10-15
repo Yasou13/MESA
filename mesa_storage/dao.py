@@ -1,50 +1,17 @@
-# MESA v0.7.1 — Data Access Object Layer (Epistemic Isolation)
-# Wraps aiosqlite (nodes/raw_logs), LanceDB (vectors), and KùzuDB (graph
-# edges) behind a single class that MANDATES agent_id on every method.
-#
-# Edge ownership:
-#   - KùzuDB is the Single Source of Truth for graph edges (Observed rels).
-#   - SQLite retains ownership of: nodes, raw_logs, routing_telemetry.
-#   - LanceDB retains ownership of: vector embeddings.
-#
-# Security guarantees:
-#   - Row-Level Security (RLS) simulation: every SQL query, LanceDB filter,
-#     and Cypher query hardcodes agent_id — cross-agent leakage is
-#     structurally impossible regardless of caller logic errors.
-#   - Soft-delete via `UPDATE nodes SET deleted_at = CURRENT_TIMESTAMP` —
-#     no physical DELETEs are issued; data is preserved for audit/recovery.
-#   - Parameterised queries exclusively — zero string interpolation in SQL
-#     or Cypher.
-"""
-Data Access Object for the MESA storage layer.
+"""Compatibility facade and canonical V4 storage orchestration.
 
-Enforces **mandatory epistemic isolation** by requiring ``agent_id`` as a
-non-optional, leading argument on every public method.  The ``WHERE
-agent_id = ?`` predicate is hardcoded into every raw SQL statement and
-LanceDB filter expression to provide a mathematical guarantee against
-cross-tenant data leakage.
+SQLite owns V4 catalog, assertions, mutations, source/artifact ownership and
+ordered projection outboxes. LanceDB and Kùzu are derived projections. V3
+methods retain legacy agent/session partitioning; V4 uses server-verified
+principal/tenant/workspace/dataset/session scope and explicit storage filters.
+An agent ID alone is not a tenant credential or an absolute isolation guarantee.
 
-All delete semantics are **soft-delete**: the ``deleted_at`` column on the
-``nodes`` table is stamped with ``CURRENT_TIMESTAMP`` via an ``UPDATE``
-rather than a physical ``DELETE``.
-
-Usage::
-
-    from mesa_storage.dao import MemoryDAO
-
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec)
-    await dao.insert_memory(
-        agent_id="agent_alpha",
-        node_id="abc-123",
-        entity_name="Contract §4.2",
-        content="...",
-        embedding=[0.1, 0.2, ...],
-    )
-    results = await dao.search_memory(
-        agent_id="agent_alpha",
-        query_vector=[0.1, 0.2, ...],
-    )
-    affected = await dao.purge_memory(agent_id="agent_alpha", scope="agent")
+Mutation admission, validation receipts, fenced claims, projection convergence
+and source-owned rollback have separate lifecycle states. Tombstones protect
+retrieval eligibility before secondary cleanup; supported purge/reconciliation
+paths can physically remove unowned derived artifacts. Stores do not share an
+ACID transaction. Use public authenticated API/SDK paths for applications;
+direct DAO callers must supply validated authorization and identity.
 """
 
 from __future__ import annotations

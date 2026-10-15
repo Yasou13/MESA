@@ -1,0 +1,15 @@
+{
+  "discovered": 241,
+  "initial": 215,
+  "historical": 162,
+  "maintained": 75,
+  "updated": 32,
+  "created": 18,
+  "public_docstring_files": 184,
+  "public_docstrings": 1093,
+  "individual_docstring_full_proof": "NOT_COMPLETE; explicit audit limitation",
+  "deprecated_or_relocated": 0,
+  "unreviewed_maintained_files": 0,
+  "unreviewed_method_proof": "1093 strings not individually certified (risk review completed); see public-docstring-review-status.json",
+  "counting_scope": "241 file/config/example/docstring hotspots; 184 Python files/1093 docstrings separately inventoried; current run reports excluded to avoid recursive counting"
+}

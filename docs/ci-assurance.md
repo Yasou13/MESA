@@ -28,7 +28,9 @@ assertion ID'lerini, deterministik RRF ablation değerlerini ve küçük fixture
 SQLite registry/store sayılarını içerir. Source/query içeriği, credential,
 filesystem path veya ham test output'u manifestte yer almaz.
 
-`Benchmark data quality`, release/research MESA satırlarında
+Tarihsel `Benchmark data quality` workflow’u ve karşılaştırmalı suite artık
+Core checkout’unda bulunmaz; `mesa_benchmark` ayrı sahibidir. Önceki workflow
+release/research MESA satırlarında
 `MesaV4ClientAdapter` kullanır. Legacy/internal config’ler v3 adapter ile
 uyumluluk testi yapabilir. Deterministik lane-ablation raporu vector-only,
 vector+BM25, vector+graph ve tüm-lane RRF MRR değerlerini kaydeder.
@@ -54,8 +56,10 @@ Bu kanıtlar release evidence paketine dışarıdan eklenmeden GO verilemez.
 
 ## Workflow tetikleme
 
-Core v4 dosyaları, storage şeması, retrieval veya evaluator değiştiğinde hem
-`MESA CI` hem benchmark workflow’u tetiklenir. Workflow YAML, dependency lock,
+Core checkout’unda `.github/workflows/ci.yml` ve `external-release-gates.yml`
+mevcuttur. Karşılaştırmalı benchmark workflow’u burada tetiklenmez. Release
+politikası benchmark kanıtını hâlâ ister; dış workflow/kanıt owner tarafından
+aynı commit için ilişkilendirilmeden bu kapı tamamlanmış sayılamaz. Workflow YAML, dependency lock,
 Docker/Compose ve docs değişiklikleri ilgili smoke kapılarını tetikler. Weekly
 legacy static baseline yalnız borç görünürlüğüdür ve güncel v4 blocking
 contractının yerine geçmez.

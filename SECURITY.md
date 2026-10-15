@@ -29,7 +29,7 @@ responsibility.
 
 ## V4 security boundary
 
-The unreleased v4 API resolves authorization as
+The versioned v4 API resolves authorization as
 principal → tenant → workspace → dataset → agent → server-created session.
 Agent IDs are compute/persona context and are not standalone tenant
 credentials. Purge and rollback require explicit dataset permissions.

@@ -1,6 +1,6 @@
-# MESA v0.7.1 full-cognitive architecture
+# MESA Core current V4 architecture
 
-> **Version:** 0.7.1
+> **Package version:** 0.7.1; v0.8.0 publication pending.
 
 This document is the canonical architecture for the v4 release candidate.
 Production remains `NO-GO` pending Final MVP Certification.
@@ -157,9 +157,9 @@ backlog, blocked cleanup, ownerless registry rows and shared-owner counts.
 ## Retrieval
 
 All SQL, vector and graph lanes receive the authorized dataset filter before
-ranking. V4 combines rank positions using real reciprocal rank fusion. A
-bounded legal rerank may then use jurisdiction, validity time, authority and
-assertion confidence. Entity ID is the deterministic final tie-break.
+ranking. V4 combines rank positions using real reciprocal rank fusion. Jurisdiction and validity constrain eligibility before ranking; assertion
+confidence affects assertion-lane ordering. The bounded post-RRF legal factor
+uses query statute/article identity. See [retrieval](retrieval-and-graph.md). Candidate assertion identity is the deterministic final tie-break.
 
 Responses include document, revision, chunk, evidence, assertion, pipeline and
 embedding provenance. PageRank is not a retrieval eligibility signal.
@@ -201,3 +201,7 @@ V3 storage is never converted in place. The supported sequence is:
 Production remains `NO-GO` until migration/restore, v4 Compose, crash,
 saturation, cross-tenant concurrency, benchmark and 24-hour soak gates all
 pass with production-like storage and the selected model provider.
+
+Canonical V4 insertion requires the model-enabled combined processing consumer.
+Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
+`503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.

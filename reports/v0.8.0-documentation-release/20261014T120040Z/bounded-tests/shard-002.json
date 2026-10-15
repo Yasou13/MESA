@@ -1,0 +1,38 @@
+{
+  "shard": 2,
+  "files": [
+    "tests/test_api_control_router_wiring.py",
+    "tests/test_api_key_store.py",
+    "tests/test_api_logging_contract.py",
+    "tests/test_api_router.py",
+    "tests/test_api_schemas.py",
+    "tests/test_async_client_auth_contract.py"
+  ],
+  "command": [
+    "/home/yasin/Desktop/MESA/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live_external",
+    "-o",
+    "faulthandler_timeout=90",
+    "--junitxml=/home/yasin/Desktop/MESA/reports/v0.8.0-documentation-release/20261014T120040Z/bounded-tests/shard-002.xml",
+    "tests/test_api_control_router_wiring.py",
+    "tests/test_api_key_store.py",
+    "tests/test_api_logging_contract.py",
+    "tests/test_api_router.py",
+    "tests/test_api_schemas.py",
+    "tests/test_async_client_auth_contract.py"
+  ],
+  "exit_code": 0,
+  "interruption": null,
+  "peak_rss_MiB": 402.1,
+  "seconds": 14.03,
+  "counts": {
+    "tests": 80,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

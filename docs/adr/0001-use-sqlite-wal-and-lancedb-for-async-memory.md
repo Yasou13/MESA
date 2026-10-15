@@ -1,5 +1,7 @@
 # ADR 0001: Use SQLite WAL and LanceDB for Async Memory
 
+> Current applicability: Historical V3 decision. Agent partitioning is not the current V4 tenant boundary; see ADR 0011.
+
 ## Status
 Accepted
 

@@ -1,5 +1,7 @@
 # ADR 0002: Pivot from RRF to Alpha-Reranking
 
+> Current applicability: V4 superseded by ADR 0010: true rank fusion. Historical performance claims below are not current release proof.
+
 ## Status
 Accepted
 
