@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-15
+
+Published by explicit owner approval with incomplete production certification.
+See [release notes](docs/release-notes-v0.8.0.md) for missing provider/24h soak
+evidence, the unsigned annotated tag and remaining documentation/format debt.
+
 ### Added
 
 - **Documentation source-truth refresh:** Added a navigable documentation index,
   configuration/CLI references, ingestion/retrieval/security/migration guides,
   source-generated OpenAPI and neutral scoped examples. Model-disabled V3 smoke
-  and provider-required V4 ingestion are explicitly distinguished; v0.8.0 remains
-  pending until the existing release gates pass.
+  and provider-required V4 ingestion are explicitly distinguished. Publication
+  is owner-approved; production certification remains NO-GO.
 
 - **Typed legal retrieval identity:** V4 ingestion can carry a validated,
   provenance-bound law/article/version identity. Canonical assertions persist

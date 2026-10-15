@@ -1,6 +1,6 @@
 # MESA Core current V4 architecture
 
-> **Package version:** 0.7.1; v0.8.0 publication pending.
+> **Package version:** 0.8.0; owner-approved source release, without production certification.
 
 This document is the canonical architecture for the v4 release candidate.
 Production remains `NO-GO` pending Final MVP Certification.

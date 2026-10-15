@@ -3,7 +3,7 @@
 MESA iki versioned yüzey sunar:
 
 - v3, geriye uyumlu lexical-core API’dir.
-- v4, tenant/dataset yetkili versioned API’dir. Paket 0.7.1; v0.8.0 yayını henüz doğrulanmamıştır.
+- v4, tenant/dataset yetkili versioned API’dir. Paket 0.8.0; yayın, sahibinin açık onayıyla production sertifikasyonu dışında yapılır.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
