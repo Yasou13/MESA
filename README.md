@@ -1,5 +1,11 @@
 # MESA — Memory Engine for Structured Agents
 
+[![MESA CI](https://github.com/Yasou13/MESA/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Yasou13/MESA/actions/workflows/ci.yml?query=branch%3Amain)
+[![Codecov](https://codecov.io/gh/Yasou13/MESA/graph/badge.svg)](https://codecov.io/gh/Yasou13/MESA)
+[![Release](https://img.shields.io/github/v/release/Yasou13/MESA)](https://github.com/Yasou13/MESA/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/Yasou13/MESA)](LICENSE)
+[![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+
 MESA Core stores source-backed agent memory and retrieves scoped evidence over
 HTTP, Python clients and MCP. SQLite owns the catalog, assertions, mutation
 ledger and artifact ownership; LanceDB and Kùzu provide derived projections.
@@ -9,6 +15,11 @@ with the limitations in the [release notes](docs/release-notes-v0.8.0.md).
 Production qualification remains at the release candidate stage: `NO-GO` until the
 [required release gates](docs/release.md) pass on the intended release commit.
 Check published versions in [GitHub Releases](https://github.com/Yasou13/MESA/releases).
+
+The Codecov badge reflects the latest report available on Codecov. The current
+CI workflow saves coverage reports as GitHub Actions artifacts without uploading
+them to Codecov; the [v0.8.0 CI coverage run](https://github.com/Yasou13/MESA/actions/runs/38783424143)
+measured **87%** for the core and SDK suite on Python 3.10 and 3.13.
 
 ## Getting started
 
