@@ -5741,7 +5741,7 @@ class MemoryDAO:
                     "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
                     "LEFT JOIN v4_catalog_identities c ON c.tenant_id = a.tenant_id "
                     "AND c.kind = 'dataset' AND c.physical_id = a.dataset_id "
-                    f"WHERE a.tenant_id = ? AND {assertion_status_sql} "
+                    f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) AND {assertion_status_sql} "
                     "AND m.state = 'COMMITTED' "
                     + (
                         "AND " + " AND ".join(provenance_filters)
@@ -5751,7 +5751,7 @@ class MemoryDAO:
                     + " ORDER BY a.assertion_id, a.tenant_id, m.agent_id"
                 )
                 async with db.execute(
-                    audit_query, (tenant_id, *provenance_params)
+                    audit_query, (tenant_id, *datasets, *provenance_params)
                 ) as cursor:
                     audit_rows = list(await cursor.fetchall())
 

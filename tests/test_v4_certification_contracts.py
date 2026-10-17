@@ -87,6 +87,7 @@ async def test_scope_audit_is_pre_rank_deterministic_and_scope_sensitive(tmp_pat
             certification_metadata=before_cross_tenant,
         )
         await _add(dao, 3, tenant="tenant-b", agent="agent-b", dataset="dataset-b")
+        await _add(dao, 4, tenant="tenant-a", agent="agent-a", dataset="dataset-secret")
 
         first_metadata = {}
         first = await asyncio.wait_for(
