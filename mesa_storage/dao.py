@@ -4911,7 +4911,22 @@ class MemoryDAO:
                 "version": str(producer_identity.version),
                 "dimension": int(producer_identity.dimension),
             }
-            producer_identity_metadata = producer_identity.as_dict()
+            if hasattr(producer_identity, "as_dict"):
+                producer_identity_metadata = producer_identity.as_dict()
+            else:
+                producer_identity_metadata = {
+                    "embedding_space_id": getattr(
+                        producer_identity, "embedding_space_id", ""
+                    ),
+                    "provider": getattr(producer_identity, "provider", ""),
+                    "model": getattr(producer_identity, "model", ""),
+                    "version": getattr(producer_identity, "version", ""),
+                    "dimension": getattr(producer_identity, "dimension", 0),
+                    "normalized": getattr(producer_identity, "normalized", False),
+                    "model_revision": getattr(
+                        producer_identity, "model_revision", None
+                    ),
+                }
         if expected_identity["dimension"] != actual_identity["dimension"]:
             raise ValueError(
                 "embedding dimension mismatch: expected "

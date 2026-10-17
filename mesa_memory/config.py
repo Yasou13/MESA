@@ -104,6 +104,17 @@ class EmbeddingIdentity:
             f"{self.dimension}:norm={str(self.normalized).lower()}"
         )
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "embedding_space_id": self.embedding_space_id,
+            "provider": self.provider,
+            "model": self.model,
+            "dimension": self.dimension,
+            "version": self.version,
+            "normalized": self.normalized,
+            "model_revision": self.model_revision,
+        }
+
 
 def load_runtime_profile(
     environ: Mapping[str, str] | None = None,
