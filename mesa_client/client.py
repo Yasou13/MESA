@@ -590,6 +590,7 @@ class MesaV4Client(MesaClient):
         finalize_revision: bool = True,
         supersedes_revision_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        legal_identity: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
@@ -610,6 +611,7 @@ class MesaV4Client(MesaClient):
                 "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
                 "metadata": metadata or {},
+                **({"legal_identity": legal_identity} if legal_identity is not None else {}),
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
         )
@@ -921,6 +923,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         finalize_revision: bool = True,
         supersedes_revision_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        legal_identity: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
@@ -941,6 +944,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
                 "metadata": metadata or {},
+                **({"legal_identity": legal_identity} if legal_identity is not None else {}),
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
         )
