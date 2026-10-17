@@ -306,11 +306,11 @@ class V4SearchRequest(BaseModel):
                 parsed = datetime.fromisoformat(normalized)
             except ValueError as exc:
                 raise ValueError(
-                    f"temporal value must be a valid ISO-8601 timestamp string: {value!r}"
+                    "temporal value must be a valid ISO-8601 timestamp string"
                 ) from exc
             if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
                 raise ValueError(
-                    f"temporal value must include a timezone offset (e.g. 'Z' or '+00:00'): {value!r}"
+                    "temporal value must include a timezone offset (e.g. 'Z' or '+00:00')"
                 )
             return parsed
         return value

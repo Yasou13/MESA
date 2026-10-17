@@ -757,9 +757,15 @@ async def canonical_http_exception_response(
 async def canonical_validation_exception_response(
     _request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    # Exception text includes rejected input and internal route/source details.
+    # Keep the existing string contract while identifying the field and remedy.
+    detail = "; ".join(
+        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+        for error in exc.errors()
+    )
     return JSONResponse(
         status_code=422,
-        content=_canonical_error_body(422, str(exc)),
+        content=_canonical_error_body(422, detail),
     )
 
 
