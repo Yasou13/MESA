@@ -18,8 +18,8 @@ Validates:
 
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
+
 import httpx
 import pytest
 from fastapi import Depends, FastAPI, Request
@@ -34,7 +34,10 @@ from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
-from mesa_workers.projection_worker import process_projection_outbox_once
+from mesa_workers.projection_worker import (
+    process_artifact_cleanup_once,
+    process_projection_outbox_once,
+)
 
 
 @pytest.mark.asyncio
@@ -290,6 +293,10 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
         assert "Aydinlatma" in top_res["evidence_span"] or "aydinlatma" in top_res["evidence_span"]
         assert top_res["scope_identity"]["tenant_id"] == "tenant-a"
         assert top_res["scope_identity"]["dataset_id"] == "dataset-a"
+        assert top_res["source_chunk_id"] == "chunk-10"
+        assert top_res["document_id"] == "doc-kvkk"
+        assert top_res["retrieval_provenance"]["assertion_id"] == top_res["assertion_id"]
+        assert top_res["retrieval_provenance"]["source_chunk_id"] == "chunk-10"
 
         # Check /context endpoint
         ctx_resp = await client.get(
@@ -341,6 +348,40 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
         assert b_search.status_code == 200, b_search.text
         assert len(b_search.json()["results"]) == 0
 
+        # Populate B as well, reusing A's public catalog IDs. Its physical
+        # artifacts and evidence must survive A's restart and rollback.
+        b_scope = {"tenant_id": "tenant-b", "workspace_id": "workspace-b", "dataset_id": "dataset-b"}
+        for endpoint, payload in (
+            ("documents", {"document_id": "doc-kvkk", "title": "B policy"}),
+            ("revisions", {"document_id": "doc-kvkk", "revision_id": "rev-1", "revision_number": 1, "content_sha256": "b" * 64}),
+            ("source-chunks", {"document_id": "doc-kvkk", "revision_id": "rev-1", "chunk_id": "chunk-10", "title": "B policy", "content": "Tenant B aydinlatma policy.", "source_ref": "B/policy"}),
+        ):
+            response = await client.post(f"/v4/catalog/{endpoint}", json={**b_scope, **payload})
+            assert response.status_code == 201, response.text
+        b_insert = await client.post("/v4/memory/insert", json={
+            "session_id": session_b_id, "dataset_id": "dataset-b",
+            "document_id": "doc-kvkk", "revision_id": "rev-1", "chunk_id": "chunk-10",
+            "title": "B policy", "content": "Tenant B aydinlatma policy.",
+            "source_ref": "B/policy", "evidence_span": "Tenant B aydinlatma policy.",
+        })
+        assert b_insert.status_code == 202, b_insert.text
+        mutation_b_id = b_insert.json()["mutation_id"]
+        await dao.record_mutation_extraction("agent-b", mutation_b_id, [
+            {"head": "Tenant B", "relation": "HAS", "tail": "aydinlatma policy"},
+        ])
+        await dao.set_mutation_state("agent-b", mutation_b_id, "VALIDATED")
+        for _ in range(3):
+            result = await process_projection_outbox_once(dao, worker_id="mvp-worker-b", limit=10)
+            assert result["retry_pending"] == result["dead_letter"] == 0
+        b_vector_ids = await vector.get_active_node_ids("agent-b")
+        assert len(b_vector_ids) == 1
+        b_search = await client.post("/v4/memory/search", json={"session_id": session_b_id, "query": "aydinlatma"})
+        assert b_search.status_code == 200, b_search.text
+        assert len(b_search.json()["results"]) == 1
+        b_evidence = b_search.json()["results"][0]
+        assert b_evidence["scope_identity"]["tenant_id"] == "tenant-b"
+        assert b_evidence["assertion_id"] != top_res["assertion_id"]
+
         # 5c: Cross-tenant rollback rejection
         cross_rollback = await client.post(
             f"/v4/mutations/{mutation_a_id}/rollback"
@@ -364,6 +405,32 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
         assert ablation_search.status_code == 200, ablation_search.text
         assert ablation_search.json()["graph_ablation"]["mode"] == "disabled"
 
+        # Reopen all physical stores and retrieve through the same API session.
+        await graph.close()
+        await vector.close()
+        await sql.close()
+        sql = AsyncEngine(str(sql_path), max_connections=4)
+        await sql.initialize()
+        vector = VectorEngine(
+            str(lance_path), max_workers=1,
+            embedding_service=EmbeddingService(
+                identity=identity,
+                provider_fn=lambda t: [0.125] * identity.dimension,
+                query_provider_fn=lambda t: [0.125] * identity.dimension,
+            ),
+        )
+        await vector.initialize()
+        graph = KuzuGraphProvider(str(kuzu_path), max_workers=1)
+        await graph.initialize()
+        dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+        restarted = await client.post(
+            "/v4/memory/search",
+            json={"session_id": session_a_id, "query": "aydinlatma"},
+        )
+        assert restarted.status_code == 200, restarted.text
+        assert restarted.json()["results"][0]["assertion_id"] == top_res["assertion_id"]
+        assert (await dao.reconcile_v4_projection_parity())["missing_artifacts"] == 0
+
         # 6b: Rollback of Tenant A's mutation
         rollback_resp = await client.post(
             f"/v4/mutations/{mutation_a_id}/rollback"
@@ -371,6 +438,27 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
         assert rollback_resp.status_code == 202, rollback_resp.text
         rollback_data = rollback_resp.json()
         assert rollback_data["state"] == "ROLLING_BACK"
+        for _ in range(10):
+            cleanup = await process_artifact_cleanup_once(dao, worker_id="mvp-cleanup", limit=10)
+            assert cleanup["blocked"] == cleanup["retry_pending"] == 0
+            if cleanup["claimed"] == 0:
+                break
+        assert (await dao.get_mutation_summary(mutation_a_id))["state"] == "ROLLED_BACK"
+        assert await vector.get_active_node_ids() == b_vector_ids
+        assert await graph.execute_query("MATCH (a:Assertion {agent_id: 'agent-a'}) RETURN count(a)") == [[0]]
+        assert await graph.execute_query("MATCH (e:Entity {agent_id: 'agent-a'}) RETURN count(e)") == [[0]]
+        assert await graph.execute_query("MATCH (a:Assertion {agent_id: 'agent-b'}) RETURN count(a)") == [[1]]
+        after_rollback = await client.post(
+            "/v4/memory/search",
+            json={"session_id": session_a_id, "query": "aydinlatma"},
+        )
+        assert after_rollback.status_code == 200, after_rollback.text
+        assert after_rollback.json()["results"] == []
+        current_principal_id = "principal-b"
+        preserved_b = await client.post("/v4/memory/search", json={"session_id": session_b_id, "query": "aydinlatma"})
+        assert preserved_b.status_code == 200, preserved_b.text
+        assert preserved_b.json()["results"][0]["assertion_id"] == b_evidence["assertion_id"]
+        assert (await dao.get_mutation_summary(mutation_b_id))["state"] == "COMMITTED"
 
     finally:
         await client.aclose()
