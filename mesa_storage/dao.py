@@ -5759,7 +5759,7 @@ class MemoryDAO:
                     "LEFT JOIN v4_catalog_identities c ON c.tenant_id = a.tenant_id "
                     "AND c.kind = 'dataset' AND c.physical_id = a.dataset_id "
                     f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) AND {assertion_status_sql} "
-                    "AND m.state = 'COMMITTED' "
+                    "AND m.agent_id = ? AND m.state = 'COMMITTED' "
                     + (
                         "AND " + " AND ".join(provenance_filters)
                         if provenance_filters
@@ -5768,7 +5768,7 @@ class MemoryDAO:
                     + " ORDER BY a.assertion_id, a.tenant_id, m.agent_id"
                 )
                 async with db.execute(
-                    audit_query, (tenant_id, *datasets, *provenance_params)
+                    audit_query, (tenant_id, *datasets, agent_id, *provenance_params)
                 ) as cursor:
                     audit_rows = list(await cursor.fetchall())
 
@@ -6189,12 +6189,12 @@ class MemoryDAO:
             passage_sql = (
                 "SELECT a.*, s.canonical_name AS subject_name, "
                 "o.canonical_name AS object_name, "
-                "bm25(v4_assertions_fts, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
-                "AS bm25_score FROM v4_assertions_fts "
-                "JOIN v4_assertions a ON a.rowid = v4_assertions_fts.rowid "
+                "bm25(v4_scoped_assertions_fts, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
+                "AS bm25_score FROM v4_scoped_assertions_fts "
+                "JOIN v4_assertions a ON a.rowid = v4_scoped_assertions_fts.rowid "
                 "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
                 "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-                "WHERE v4_assertions_fts MATCH ? AND a.tenant_id = ? "
+                "WHERE v4_scoped_assertions_fts MATCH ? AND a.tenant_id = ? "
                 f"AND a.dataset_id IN ({placeholders}) "
                 f"AND {assertion_status_sql} "
                 "AND EXISTS (SELECT 1 FROM memory_mutations m "
@@ -6209,6 +6209,27 @@ class MemoryDAO:
                 "ORDER BY bm25_score, a.assertion_id LIMIT ?"
             )
             async with self._sql.connection() as db:
+                # WHERE filters do not scope FTS5's corpus statistics. Build a
+                # connection-local index of the authorized corpus so foreign
+                # rows cannot change scores, rank or the pre-rank LIMIT. The
+                # temporary index is discarded when this connection closes.
+                await db.execute(
+                    "CREATE VIRTUAL TABLE temp.v4_scoped_assertions_fts USING fts5("
+                    "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
+                    "source_ref, subject_name, object_name, chunk_payload, "
+                    "tokenize='unicode61 remove_diacritics 2')"
+                )
+                await db.execute(
+                    "INSERT INTO temp.v4_scoped_assertions_fts "
+                    "(rowid, assertion_id, predicate, evidence_span, literal_value, "
+                    "source_ref, subject_name, object_name, chunk_payload) "
+                    "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
+                    "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
+                    "f.chunk_payload FROM v4_assertions_fts f "
+                    f"JOIN ({in_scope_assertion_query}) scoped "
+                    "ON scoped.assertion_id = f.assertion_id",
+                    (tenant_id, *datasets, agent_id, *provenance_params),
+                )
                 async with db.execute(
                     passage_sql,
                     (

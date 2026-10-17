@@ -71,11 +71,13 @@ async def test_scope_audit_is_pre_rank_deterministic_and_scope_sensitive(tmp_pat
         allowed = await _add(
             dao, 1, tenant="tenant-a", agent="agent-a", dataset="dataset-a"
         )
+        baseline_metadata = {}
         baseline = await dao.search_v4_memory(
             tenant_id="tenant-a",
             agent_id="agent-a",
             dataset_ids=["dataset-a"],
             query="Shared policy",
+            certification_metadata=baseline_metadata,
         )
         await _add(dao, 2, tenant="tenant-a", agent="agent-b", dataset="dataset-a")
         before_cross_tenant = {}
@@ -86,6 +88,7 @@ async def test_scope_audit_is_pre_rank_deterministic_and_scope_sensitive(tmp_pat
             query="Shared policy",
             certification_metadata=before_cross_tenant,
         )
+        assert before_cross_tenant == baseline_metadata
         await _add(dao, 3, tenant="tenant-b", agent="agent-b", dataset="dataset-b")
         await _add(dao, 4, tenant="tenant-a", agent="agent-a", dataset="dataset-secret")
 
@@ -125,9 +128,9 @@ async def test_scope_audit_is_pre_rank_deterministic_and_scope_sensitive(tmp_pat
         audit = first_metadata["scope_audit"]
         assert audit["contract_version"] == "mesa.scope-audit.v1"
         assert audit["enforcement_stage"] == "pre_rank"
-        assert audit["evaluated_candidate_count"] == 2
+        assert audit["evaluated_candidate_count"] == 1
         assert audit["eligible_candidate_count"] == 1
-        assert audit["excluded_candidate_count"] == 1
+        assert audit["excluded_candidate_count"] == 0
         assert first[0]["scope_identity"] == {
             "tenant_id": "tenant-a",
             "dataset_id": "dataset-a",
