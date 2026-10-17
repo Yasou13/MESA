@@ -21,6 +21,12 @@ class _Cursor:
     def __init__(self, rows: list[object]) -> None:
         self._rows = rows
 
+    def __await__(self):
+        async def ready():
+            return self
+
+        return ready().__await__()
+
     async def __aenter__(self) -> "_Cursor":
         return self
 
@@ -32,7 +38,7 @@ class _Cursor:
 
 
 class _Connection:
-    def execute(self, query: str, _params: object) -> _Cursor:
+    def execute(self, query: str, _params: object = ()) -> _Cursor:
         if "artifact_registry" in query:
             return _Cursor(
                 [
@@ -110,6 +116,7 @@ async def _search(dao: MemoryDAO) -> list[dict]:
 async def test_intentional_semantic_runtime_disabled_degrades() -> None:
     dao = _dao(compute_error=SemanticRuntimeDisabledError("disabled"))
     assert await _search(dao) == []
+    dao.vector_engine.search.assert_not_awaited()
 
 
 @pytest.mark.asyncio
