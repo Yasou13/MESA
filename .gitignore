@@ -197,6 +197,9 @@ mesa_control_panel.md
 # Local Profile A campaign state and captured soak-test workspaces.
 /.profile-a-state.json
 /soak_test_results_*/
+PROFILE_A_REPAIR_JOURNAL.md
+PROFILE_A_*.md
+MESA_*_release_prompt.md
 
 # Local audit and verification reports (sensitive/internal dossiers)
 /reports/
