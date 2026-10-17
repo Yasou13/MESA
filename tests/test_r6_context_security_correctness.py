@@ -1059,3 +1059,20 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
     assert len(ctx_b["canonical_memories"]) == 1
 
     await engine.close()
+
+
+def test_validate_write_payload_rejects_reserved_mesa_prefix() -> None:
+    from mesa_memory.security.input_validation import validate_write_payload
+    from mesa_storage.dao import _validate_write_payload
+
+    for fn in (validate_write_payload, _validate_write_payload):
+        with pytest.raises(
+            ValueError, match="metadata keys beginning with '_mesa_' are reserved"
+        ):
+            fn("valid content", {"_mesa_internal": "forbidden"})
+
+        with pytest.raises(
+            ValueError, match="metadata keys beginning with '_mesa_' are reserved"
+        ):
+            fn("valid content", {"nested": {"_mesa_override": 123}})
+
