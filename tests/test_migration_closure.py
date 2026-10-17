@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 import subprocess
 import sys
@@ -118,8 +119,13 @@ def _adoption_config(database: Path) -> Config:
 def test_fresh_upgrade_has_one_head_and_complete_durable_schema(tmp_path: Path) -> None:
     database = tmp_path / "fresh.db"
     config = _config(database)
+    server_logger = logging.getLogger("uvicorn.error")
+    storage_logger = logging.getLogger("MESA_Storage")
+    server_logger.disabled = storage_logger.disabled = False
     command.upgrade(config, "head")
     command.upgrade(config, "head")
+    assert not server_logger.disabled
+    assert not storage_logger.disabled
 
     connection = sqlite3.connect(database)
     assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
