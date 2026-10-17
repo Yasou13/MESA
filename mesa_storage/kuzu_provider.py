@@ -686,7 +686,13 @@ class KuzuGraphProvider(BaseGraphProvider):
                 )
                 for row in rows:
                     if row and row[0]:
-                        deleted_assertion_ids.add(str(row[0]))
+                        raw_aid = str(row[0])
+                        comp_aid = (
+                            raw_aid
+                            if raw_aid.startswith(f"{agent_id}::")
+                            else self._composite_id(agent_id, raw_aid)
+                        )
+                        deleted_assertion_ids.add(comp_aid)
             except Exception as exc:
                 logger.debug("Failed querying attached assertions during delete_nodes: %s", exc)
 

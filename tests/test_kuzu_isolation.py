@@ -474,3 +474,48 @@ class TestKuzuCacheParity:
 
         existing = await kuzu_provider.get_existing_node_ids("Entity", agent_id, [node_id])
         assert node_id in existing
+
+    @pytest.mark.asyncio
+    async def test_delete_nodes_clears_attached_assertion_cache_and_allows_reinsert(
+        self, kuzu_provider
+    ):
+        agent_id = "agent_parity"
+        node_id = "node_subject_1"
+        assertion_id = "assertion_attached_1"
+
+        await kuzu_provider.insert_node(node_id, "Subject Node", agent_id)
+        await kuzu_provider.insert_assertion(
+            agent_id=agent_id,
+            assertion_id=assertion_id,
+            subject_id=node_id,
+            object_id=None,
+            predicate="TEST_PREDICATE",
+            object_value="Object Value",
+            mutation_id="mut_1",
+        )
+        composite_assertion = kuzu_provider._composite_id(agent_id, assertion_id)
+        assert composite_assertion in kuzu_provider._known_assertions
+
+        # Deleting parent node must clear attached assertion from _known_assertions
+        await kuzu_provider.delete_nodes(
+            purge_id="purge_att", agent_id=agent_id, node_ids=[node_id]
+        )
+        assert composite_assertion not in kuzu_provider._known_assertions
+
+        # Re-inserting both node and assertion must succeed in Kùzu
+        await kuzu_provider.insert_node(node_id, "Subject Node", agent_id)
+        await kuzu_provider.insert_assertion(
+            agent_id=agent_id,
+            assertion_id=assertion_id,
+            subject_id=node_id,
+            object_id=None,
+            predicate="TEST_PREDICATE",
+            object_value="Object Value",
+            mutation_id="mut_2",
+        )
+        rows = await kuzu_provider.execute_query(
+            "MATCH (a:Assertion {agent_id: $agent_id}) WHERE a.id = $id RETURN a.id",
+            {"agent_id": agent_id, "id": composite_assertion},
+        )
+        assert len(rows) == 1
+
