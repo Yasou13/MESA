@@ -159,7 +159,7 @@ class CredentialRepository:
         return bool(cursor.rowcount)
 
     async def list_for_binding(self, binding_id: str) -> list[dict[str, Any]]:
-        """Return dashboard-safe credential summaries; token hashes stay private."""
+        """Return secret-safe credential summaries; token hashes stay private."""
         async with self._sql.connection() as db:
             db.row_factory = __import__("aiosqlite").Row
             async with db.execute(

@@ -395,7 +395,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     )
     await state.dao.initialize()
 
-    # The dashboard control plane shares the API's single SQLite storage
+    # The MCP control plane shares the API's single SQLite storage
     # owner.  It must not construct or close a second AsyncEngine lifecycle.
     state.mcp_control = ControlPlaneMiddleware(engine=state.sqlite_engine)
 

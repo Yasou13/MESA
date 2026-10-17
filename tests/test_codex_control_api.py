@@ -13,7 +13,7 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 
 @pytest.mark.asyncio
-async def test_codex_dashboard_summary_is_secret_safe_and_can_revoke(tmp_path):
+async def test_codex_control_summary_is_secret_safe_and_can_revoke(tmp_path):
     database = tmp_path / "control.sqlite"
     config = Config("mesa_storage/alembic.ini")
     config.set_main_option("sqlalchemy.url", f"sqlite+pysqlite:///{database}")

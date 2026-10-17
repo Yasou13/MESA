@@ -7,6 +7,12 @@ agent, committed-state, jurisdiction and temporal eligibility are checked
 before candidate rank contribution. Physical vector IDs and graph assertions
 must agree with canonical ownership/evidence.
 
+Scope predicates limit eligible rows; they are not evidence of statistically
+independent rankings. The lexical query calls `bm25()` on the shared
+`v4_assertions_fts` table. Do not infer complete cross-scope ranking isolation
+from a WHERE filter or from the `scope_audit` label alone; candidate/rank and
+observable diagnostic behavior require separate negative tests.
+
 | Lane | Candidate signal |
 |---|---|
 | Vector | Compatible `ASSERTION_VECTOR` semantic representation; query embedding |
@@ -84,4 +90,4 @@ queries should supply timezone-qualified `valid_at` or an interval and, when
 needed, jurisdiction. These are request patterns, not measured benchmark results.
 
 Core context packing is distinct from the independently sealed Profile B
-context and scorer in [E2E Certification](ecosystem.md).
+context and scorer in [E2E Certification](architecture-v4.md#ecosystem).

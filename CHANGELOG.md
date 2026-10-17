@@ -1,17 +1,96 @@
 # Changelog
 
 All notable changes to the MESA project will be documented in this file.
+Entries describe the named release. Old performance and architecture claims
+are historical; consult the [current guides](docs/README.md) for present behavior.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the obsolete standalone raw-log agent-ID backfill script.
+- Removed obsolete manual backup/restore, MCP spoofing, Mem0 smoke and async I/O
+  benchmark scripts from `tests/`; removed their stale collection exclusions.
+- Removed the unused dashboard/showcase frontend, its npm dependencies and build
+  configuration, and the obsolete `run_demo_rag.py` launcher. MCP control APIs
+  and operator approval CLI remain available; see [control API](docs/api-reference.md#mcp-control-api).
+
+### Fixed
+
+- `make health` now checks the running API's readiness and authenticated health
+  using `MESA_BASE_URL` and `MESA_API_KEY`, without opening local databases.
+  Unhealthy responses and connection/authentication failures return a nonzero exit.
+
+### Documentation
+
+- Consolidated 37 Markdown pages into 20 maintained guides and decision records;
+  merged overlapping guides, retired obsolete ADR files and repaired document
+  contracts and links. Release-specific exceptions remain in this changelog.
+
+- Consolidated documentation ownership and navigation; replaced the root V3
+  whitepaper with a current architecture entry point.
+- Removed obsolete Colab guidance, the retired architecture/audit/benchmark
+  documents and their archive indexes. Merged the external benchmark ownership
+  note into the ecosystem guide and repaired incoming documentation links.
+- Removed duplicated setup/recovery guidance, corrected MCP authorization and
+  rebuild/migration wording, and clarified ADR applicability. These documentation
+  changes do not certify a new release; prior tracked records remain in Git history.
+
 ## [0.8.0] - 2026-10-15
 
-Published by explicit owner approval with incomplete production certification.
-See [release notes](docs/release-notes-v0.8.0.md) for missing provider/24h soak
-evidence, the unsigned annotated tag and remaining documentation/format debt.
+<a id="v080-publication"></a>
+
+### Publication status and exceptions
+
+**Release date: 2026-10-15. Package version: 0.8.0.**
+
+The repository owner explicitly approved publication after reviewing the missing
+certification evidence. This source release does not certify production readiness.
+Actual publication and artifact status are recorded in GitHub Releases and the
+release audit; a version bump alone is not publication proof.
+
+#### Verification and known limitations
+
+- The preceding documentation PR passed both MESA CI and external release gates;
+  the version/release commit is checked independently before tagging.
+- Real model/provider boot/restart/token-cost evidence, a production-like 24-hour
+  soak and new official Profile B certification are not supplied by this release.
+- Full per-method docstring certification and the pre-existing full-tree Black
+  formatting debt remain incomplete; required scoped CI checks are preserved.
+- No local GPG signing key is available: the annotated v0.8.0 tag is unsigned.
+  Signed-tag preflight success is not claimed. Build/SBOM/OIDC provenance status
+  is verified separately and must not be inferred from publication alone.
+- Production status remains **NO-GO** until the normal certification gates pass.
+
+#### Changes
+
+The development history since v0.7.1 contains selectable validation, canonical
+embedding identity, durable offline projection rebuild, immutable revision
+activation/ownership recovery, four-lane scoped retrieval, graph runtime closure,
+atomic evidence packing, bounded opt-in query planning and typed legal identity.
+The current documentation refresh aligns entry points, API examples, provider
+defaults, configuration, ecosystem boundaries and limitations; removes unsourced
+showcase metrics/PASS output; and adds scoped neutral V3 and provider-required V4 examples.
+
+Independent review corrected conservative offline tokenizer counting, low-level
+vector versus canonical authorization, V3 router descriptions and smoke checks
+under Python optimization. Dashboard build dependency lock patches address two
+detected HIGH advisories; audit/build proof remains separate from production gates.
+
+See [CHANGELOG](CHANGELOG.md) v0.8.0 for the detailed implementation
+history, [migration](docs/RUNBOOK.md#upgrade-v080) for forward schema/representation
+requirements, and [release policy](docs/release.md) for immutable signed tagging,
+same-commit CI, provider, backup/rebuild and 24-hour soak requirements.
+
+No new model accuracy, legal correctness, official Profile B PASS, native
+MESA_Data delivery, production-size memory bound or 24-hour soak result is
+claimed. The earlier audit referred to `reports/v0.8.0-documentation-release/`;
+that evidence directory is not present in this checkout. Verify publication and
+artifact results in the release's own records; this prose is not a substitute
+for missing run output or a signed-tag verification.
 
 ### Added
 
@@ -418,7 +497,8 @@ evidence, the unsigned annotated tag and remaining documentation/format debt.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
-[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Yasou13/MESA/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Yasou13/MESA/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Yasou13/MESA/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/Yasou13/MESA/compare/v0.5.2...v0.6.1

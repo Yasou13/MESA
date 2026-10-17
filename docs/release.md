@@ -4,13 +4,13 @@ V4 paket sürümü `0.8.0`; depo sahibi bu source release için aşağıda kayı
 yayın istisnasını açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı
 Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
-tag’in atanması tek başına production GO anlamına gelmez. Mevcut `v0.6.1`
-tag/release tarihsel v3 kaydıdır.
+tag’in atanması tek başına production GO anlamına gelmez. Eski V3 tag/release kayıtları tarihsel bağlamlarıyla değerlendirilir.
 
 ## Zorunlu v4 kapıları
 
-Bir release yalnız aşağıdaki kanıtların aynı commit için mevcut olması halinde
-hazırlanabilir:
+Production GO yalnız aşağıdaki kanıtların aynı commit için mevcut olması halinde
+verilebilir. Source yayın istisnası varsa sürüme özel kaydedilir; bu kapıları
+karşılanmış yapmaz:
 
 - kilitli build, Ruff, Black ve Mypy;
 - tüm core ve benchmark contract testleri;
@@ -106,7 +106,7 @@ Release artifact’ları şunları birlikte taşır:
 - wheel/image digest ve SBOM;
 - Alembic head ve migration rehearsal sonucu;
 - backup manifest formatı ve restore doğrulaması;
-- v3→ayrı v4 rebuild/parity raporu;
+- V4 upgrade/projection rebuild/parity raporu; V3 içerik taşıma varsa ayrı ingestion doğrulaması;
 - retained backup konumu ve cutover rollback prosedürü;
 - v4 API/OpenAPI, SDK/MCP contract test sonuçları;
 - benchmark ve soak evidence.
@@ -114,18 +114,9 @@ Release artifact’ları şunları birlikte taşır:
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
 yapılmaz; eski storage ve v3 compatibility servisi korunur.
 
-## v0.8.0 için açık yayın istisnası
+## Sürüme özel yayın istisnaları
 
-2026-10-15 tarihinde depo sahibi, eksik provider/24 saat soak ve imzalama/
-attestation kanıtları kendisine bildirildikten sonra yayını açıkça onayladı.
-Bu yalnız v0.8.0 source release yayınına ilişkin istisnadır; yukarıdaki genel
-production kapılarını PASS yapmaz veya sonraki sürümler için kaldırmaz.
-
-[Sürüm notları](release-notes-v0.8.0.md) ve [migration](migration-v0.8.0.md)
-bu sınırları taşır. Yerel GPG secret key olmadığı için v0.8.0 annotated tag'i
-imzasızdır; signed-tag preflight başarısı iddia edilmez. Tag CI metadata,
-build/SBOM ve OIDC provenance adımları ayrıca izlenir. Yayın ve artifact
-doğrulaması yalnız gerçek GitHub readback kayıtlarıyla raporlanır.
-
-Gerçek provider/model, production ölçeği, 24h soak ve resmî Profile B için yeni
-sertifikasyon sonucu yoktur. Production kararı **NO-GO** olarak kalır.
+v0.8.0 source yayın onayı, imzasız tag ve eksik sertifikasyon kanıtları
+[v0.8.0 sürüm notlarında](../CHANGELOG.md#v080-publication) tutulur. Bu istisna sonraki
+sürümlere taşınmaz ve production GO sayılmaz. Bu sayfa genel prosedürü,
+sürüm notları ise o yayının durumunu tanımlar.

@@ -1,5 +1,7 @@
 # ADR 0012: MemoryDAO repository boundaries
 
+- Status: Accepted; catalog boundary implemented, subsequent extractions remain proposals.
+
 `MemoryDAO` remains the compatibility façade for existing V3/V4 callers, but
 it no longer owns the tenant/workspace/dataset hierarchy directly.
 `CatalogRepositoryPort` is the first focused boundary: it owns catalog scope

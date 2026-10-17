@@ -525,7 +525,7 @@ jobs:
           --cov-report=term-missing --cov-report=xml:coverage.xml
           --cov-report=html:htmlcov --cov-report=json:coverage.json
           -m "not optional_provider and not optional_mcp and not live_external"
-          --ignore=tests/test_mem0.py --ignore=tests/go_live_proofs --ignore=tests/bench
+          --ignore=tests/go_live_proofs --ignore=tests/bench
       - name: SDK coverage collection contract
         run: uv run python -m pytest --collect-only -q tests/test_async_client_auth_contract.py tests/test_mcp_api_boundary.py
       - uses: actions/upload-artifact@v7

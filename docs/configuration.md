@@ -45,7 +45,7 @@ uses smaller sample global and per-tenant bounds than code defaults.
 
 ## Declared MesaConfig fields
 
-Generated from field declarations during audit; regenerate/review when config changes.
+Field-declaration reference; compare it with `MesaConfig` when configuration changes.
 `required` or derived defaults are explicit. Legacy controls are present for V3;
 CrossEncoder/REBEL are not the canonical V4 ranking/extraction path.
 
@@ -162,8 +162,8 @@ to 2048; Codex binding profile caps are separate (8 memories/2500 tokens).
 `MESA_GATEWAY_ENCRYPTION_KEY` and `MESA_GATEWAY_CONTROL_DB` are operator inputs.
 
 Rebuild uses reviewed trusted/storage/work roots and full-root offline scope;
-see [runbook](v4-rebuild-runbook.md). No provider examples are live-tested pairings
-in this documentation refresh.
+see [runbook](v4-rebuild-runbook.md). Defaults and example pairings do not certify
+provider availability or quality.
 
 Canonical V4 insertion requires the model-enabled combined processing consumer.
 Model-disabled boot is topology/compatibility smoke and rejects V4 writes with

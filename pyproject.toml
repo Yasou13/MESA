@@ -274,7 +274,7 @@ disable_error_code = [
 # ---- Auxiliary packages: not part of the strict-typed core ----
 # These are CLI scripts, evaluation tooling, MCP server, and the
 # client SDK — useful but not on the critical ingestion/retrieval path.
-# Relax strict typing to avoid blocking pre-push on non-core code.
+# Relax strict typing for auxiliary packages.
 [[tool.mypy.overrides]]
 module = [
     "mesa_client.*",
