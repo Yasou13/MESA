@@ -1231,19 +1231,7 @@ async def _commit_raw_memory(
     node_id: str | None = None
 
     try:
-        try:
-            embedding = await dao.vector_engine.compute_embedding(content[:512])
-        except RuntimeError as exc:
-            # The isolated model-disabled Compose profile must never silently
-            # persist an all-zero vector or attempt a network model download.
-            # A deterministic non-zero fallback keeps the raw-memory write
-            # durable while FTS remains the primary retrieval signal.
-            logger.warning(
-                "RAW_MEMORY_USING_DETERMINISTIC_EMBEDDING | log_id=%d error=%s",
-                log_id,
-                exc,
-            )
-            embedding = _hash_embedding_sync(content[:512])
+        embedding = await dao.vector_engine.compute_embedding(content[:512])
 
         node_id = await dao.insert_memory(
             agent_id,

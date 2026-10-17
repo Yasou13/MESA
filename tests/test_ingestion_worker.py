@@ -156,6 +156,25 @@ class TestCommitLogic:
         assert kwargs["content"] == "Raw content fallback"
 
     @pytest.mark.asyncio
+    async def test_commit_raw_memory_provider_failure_raises(self):
+        mock_dao = MagicMock()
+        mock_dao.vector_engine.compute_embedding = AsyncMock(
+            side_effect=RuntimeError("Embedding provider connection refused")
+        )
+        mock_dao.insert_memory = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="Embedding provider connection refused"):
+            await _commit_raw_memory(
+                dao=mock_dao,
+                agent_id="test-agent",
+                session_id="test-session",
+                content="Raw content fallback",
+                log_id=42,
+            )
+
+        mock_dao.insert_memory.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_commit_triplets_saga_rollback_kuzudb_failure(self):
         mock_dao = MagicMock()
         mock_dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
