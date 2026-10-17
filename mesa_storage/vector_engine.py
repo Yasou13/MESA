@@ -728,8 +728,9 @@ class VectorEngine:
                 try:
                     table = self._db.open_table(table_name)
                 except (FileNotFoundError, ValueError, OSError) as exc:
-                    logger.debug("Skipping missing/unusable table %s: %s", table_name, exc)
-                    continue
+                    raise RuntimeError(
+                        f"get_existing_node_ids failed to open table {table_name}: {exc}"
+                    ) from exc
 
                 # Query for existing node_ids in batches to avoid
                 # oversized filter expressions
