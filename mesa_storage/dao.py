@@ -4260,14 +4260,41 @@ class MemoryDAO:
         artifact_id = str(cleanup["physical_artifact_id"])
         agent_id = str(cleanup["agent_id"])
         if store == "VECTOR":
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT 1 FROM v4_assertions WHERE assertion_id = ? AND status != 'RETRACTED' "
+                    "UNION ALL "
+                    "SELECT 1 FROM v4_entities WHERE entity_id = ? AND status != 'RETRACTED'",
+                    (artifact_id, artifact_id),
+                ) as cursor:
+                    if await cursor.fetchone() is not None:
+                        logger.warning("SAFETY: skipping deletion of active vector artifact %s", artifact_id)
+                        return
             await self._vec.hard_delete(artifact_id, agent_id)
         elif store == "GRAPH":
             graph = self._require_graph()
             if kind == "ASSERTION":
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT 1 FROM v4_assertions WHERE assertion_id = ? AND status != 'RETRACTED'",
+                        (artifact_id,),
+                    ) as cursor:
+                        if await cursor.fetchone() is not None:
+                            logger.warning("SAFETY: skipping deletion of active assertion graph artifact %s", artifact_id)
+                            return
                 await graph.delete_assertions(
                     agent_id=agent_id, assertion_ids=[artifact_id]
                 )
             elif kind == "ENTITY":
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT 1 FROM v4_entities WHERE entity_id = ? AND status != 'RETRACTED' "
+                        "AND EXISTS (SELECT 1 FROM v4_assertions WHERE subject_id = ? OR object_entity_id = ?)",
+                        (artifact_id, artifact_id, artifact_id),
+                    ) as cursor:
+                        if await cursor.fetchone() is not None:
+                            logger.warning("SAFETY: skipping deletion of active entity graph artifact %s", artifact_id)
+                            return
                 await graph.delete_nodes(
                     purge_id=f"rollback:{cleanup['cleanup_id']}",
                     agent_id=agent_id,
@@ -4598,26 +4625,85 @@ class MemoryDAO:
                 (tenant_id, *resolved_datasets),
             ) as cursor:
                 sql_assertions = {str(row[0]) for row in await cursor.fetchall()}
+
+            # Active assertions in other datasets of this tenant
+            async with db.execute(
+                f"SELECT assertion_id FROM v4_assertions WHERE tenant_id = ? "
+                f"AND dataset_id NOT IN ({placeholders}) AND status != 'RETRACTED'",
+                (tenant_id, *resolved_datasets),
+            ) as cursor:
+                other_dataset_assertions = {str(row[0]) for row in await cursor.fetchall()}
+
+            # Entities referenced by other datasets of this tenant
+            other_dataset_params = (
+                tenant_id,
+                *resolved_datasets,
+                tenant_id,
+                *resolved_datasets,
+            )
+            async with db.execute(
+                f"SELECT DISTINCT subject_id FROM v4_assertions WHERE tenant_id = ? "
+                f"AND dataset_id NOT IN ({placeholders}) AND status != 'RETRACTED' "
+                f"UNION "
+                f"SELECT DISTINCT object_entity_id FROM v4_assertions WHERE tenant_id = ? "
+                f"AND dataset_id NOT IN ({placeholders}) AND object_entity_id IS NOT NULL AND status != 'RETRACTED'",
+                other_dataset_params,
+            ) as cursor:
+                other_dataset_entities = {str(row[0]) for row in await cursor.fetchall()}
+
+            # Artifacts registered under other datasets
+            async with db.execute(
+                f"SELECT store_name, artifact_kind, physical_artifact_id FROM artifact_registry "
+                f"WHERE tenant_id = ? AND dataset_id NOT IN ({placeholders}) AND dataset_id IS NOT NULL AND state != 'DELETED'",
+                (tenant_id, *resolved_datasets),
+            ) as cursor:
+                other_registered = {
+                    (str(row[0]), str(row[1]), str(row[2]))
+                    for row in await cursor.fetchall()
+                }
+
+        # Exclude entities owned/referenced by other datasets
+        candidate_entities = {e for e in sql_entities if e not in other_dataset_entities}
+
         vector_entities = set(await self._vec.get_active_node_ids(agent_id))
+        # Exclude vectors belonging to other datasets
+        vector_entities = {
+            item
+            for item in vector_entities
+            if item not in other_dataset_assertions
+            and ("VECTOR", "ASSERTION_VECTOR", item) not in other_registered
+            and ("VECTOR", "ENTITY_VECTOR", item) not in other_registered
+        }
+
         graph_entities: set[str] = set()
         graph_assertions: set[str] = set()
         if self._graph is not None:
-            graph_entities = {
+            raw_graph_entities = {
                 str(row[0])
                 for row in await self._graph.execute_query(
                     "MATCH (n:Entity {agent_id: $agent_id}) RETURN n.id",
                     {"agent_id": agent_id},
                 )
             }
-            graph_assertions = {
+            graph_entities = {
+                e for e in raw_graph_entities
+                if e not in other_dataset_entities
+                and ("GRAPH", "ENTITY", e) not in other_registered
+            }
+            raw_graph_assertions = {
                 str(row[0])
                 for row in await self._graph.execute_query(
                     "MATCH (n:Assertion {agent_id: $agent_id}) RETURN n.id",
                     {"agent_id": agent_id},
                 )
             }
+            graph_assertions = {
+                a for a in raw_graph_assertions
+                if a not in other_dataset_assertions
+                and ("GRAPH", "ASSERTION", a) not in other_registered
+            }
         physical = {
-            *(("SQL", "ENTITY", item) for item in sql_entities),
+            *(("SQL", "ENTITY", item) for item in candidate_entities),
             *(("SQL", "ASSERTION", item) for item in sql_assertions),
             *(
                 (
