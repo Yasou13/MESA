@@ -433,3 +433,44 @@ class TestBidirectionalIsolation:
 
         assert a_ids == {"A2"}, f"Agent A expected {{A2}}, got {a_ids}"
         assert b_ids == {"B2"}, f"Agent B expected {{B2}}, got {b_ids}"
+
+
+class TestKuzuCacheParity:
+    """Verify in-memory cache parity with Kùzu storage across delete and transaction rollback."""
+
+    @pytest.mark.asyncio
+    async def test_insert_delete_insert_node_parity(self, kuzu_provider):
+        agent_id = "agent_parity"
+        node_id = "node_parity_1"
+
+        await kuzu_provider.insert_node(node_id, "Parity Node", agent_id)
+        existing = await kuzu_provider.get_existing_node_ids("Entity", agent_id, [node_id])
+        assert node_id in existing
+
+        await kuzu_provider.delete_nodes(purge_id="purge_1", agent_id=agent_id, node_ids=[node_id])
+        assert await kuzu_provider.verify_nodes_absent(agent_id=agent_id, node_ids=[node_id])
+
+        # Re-inserting after deletion must actually write to Kùzu (not swallowed by stale cache)
+        await kuzu_provider.insert_node(node_id, "Parity Node Reinserted", agent_id)
+        existing_after = await kuzu_provider.get_existing_node_ids("Entity", agent_id, [node_id])
+        assert node_id in existing_after
+
+    @pytest.mark.asyncio
+    async def test_transaction_rollback_and_retry_parity(self, kuzu_provider):
+        agent_id = "agent_parity"
+        node_id = "node_tx_fail_retry"
+
+        # Failed transaction must not leave stale entries in _known_nodes
+        with pytest.raises(RuntimeError):
+            async with kuzu_provider.transaction():
+                await kuzu_provider.insert_node(node_id, "Tx Fail Node", agent_id)
+                raise RuntimeError("Simulated transaction failure")
+
+        assert await kuzu_provider.verify_nodes_absent(agent_id=agent_id, node_ids=[node_id])
+
+        # Retry must succeed and persist to Kùzu
+        async with kuzu_provider.transaction():
+            await kuzu_provider.insert_node(node_id, "Tx Success Node", agent_id)
+
+        existing = await kuzu_provider.get_existing_node_ids("Entity", agent_id, [node_id])
+        assert node_id in existing
