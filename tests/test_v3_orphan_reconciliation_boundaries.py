@@ -123,3 +123,35 @@ async def test_vector_unavailable_remains_startup_fail_open_and_retriable(
         )
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_vector_engine_error_raises_and_prevents_false_invalidation(
+    tmp_path,
+) -> None:
+    """Vector engine read failure must raise RuntimeError and never falsely invalidate SQL nodes."""
+    from mesa_storage.vector_engine import VectorEngine
+
+    vec_dir = tmp_path / "vec_data"
+    vec_dir.mkdir()
+    vec = VectorEngine(str(vec_dir))
+    await vec.initialize()
+
+    # Intentionally corrupt or break table listing to simulate provider read error
+    vec._list_table_names = MagicMock(side_effect=OSError("Disk read failure"))
+
+    with pytest.raises(RuntimeError, match="failed to list tables"):
+        await vec.get_existing_node_ids("agent-a", ["node-1", "node-2"])
+
+    # Now verify dao._reconcile_orphaned_nodes() does NOT stamp invalid_at
+    dao, engine = await _dao(tmp_path, vec)
+    try:
+        await _insert_nodes(
+            engine,
+            [("node-1", "agent-a", datetime.now(timezone.utc).isoformat())],
+        )
+        await dao._reconcile_orphaned_nodes()
+        assert await _invalid_at(engine, "node-1") is None
+    finally:
+        await engine.close()
+        await vec.close()
