@@ -653,7 +653,7 @@ class MesaV4Client(MesaClient):
         mutation_id: str,
         *,
         timeout_seconds: float = 60.0,
-        poll_interval_seconds: float = 0.25,
+        poll_interval_seconds: float = 2.0,
     ) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_seconds
         while True:
@@ -986,7 +986,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         mutation_id: str,
         *,
         timeout_seconds: float = 60.0,
-        poll_interval_seconds: float = 0.25,
+        poll_interval_seconds: float = 2.0,
     ) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_seconds
         while True:

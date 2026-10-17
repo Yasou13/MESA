@@ -1,4 +1,4 @@
-"""Disposable model-disabled V3 demo; uses server-created authorized sessions."""
+"""V3 compatibility demo; requires an operational embedding/processing provider."""
 
 import os
 import time
@@ -39,7 +39,7 @@ def main() -> dict[str, str | int]:
                     break
                 if time.monotonic() >= deadline:
                     raise RuntimeError("Sample raw-memory processing timed out")
-                time.sleep(0.25)
+                time.sleep(2.0)
             if state != "processed":
                 raise RuntimeError(f"Sample failed: {state}")
             result = client.search(
