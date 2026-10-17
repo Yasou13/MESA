@@ -141,7 +141,35 @@ with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
     terminal = client.wait_until_committed(accepted["mutation_id"])
     if terminal["state"] != "COMMITTED":
         raise RuntimeError(terminal["state"])
+    result = client.search(session_id=session["session_id"], query="Exact source")
+    for hit in result["results"]:
+        print(hit["assertion_id"])
+        for source in hit.get("provenance", []):
+            print(source["source_ref"], source["dataset_id"], source["chunk_id"])
+    context = client.get_context(session_id=session["session_id"], query="Exact source")
+    print(context["context"])
+    client.end_session(session_id=session["session_id"])
 ```
+
+`accepted` is durable admission, not finished retrieval. `client.status(mutation_id)`
+exposes `state`, `failure_class`, `rejection_reason`, `pipeline_run`, `artifacts`
+and `projections`. Wait for `COMMITTED`; `REJECTED`, `DEAD_LETTER`, `BLOCKED` and
+`ROLLED_BACK` are terminal outcomes too. A wait timeout raises `MesaNetworkError`
+and leaves the mutation running. Recheck status; for an uncertain insert retry
+the same payload with an explicit, unchanged `idempotency_key`.
+
+`results=[]` on a successful search means no matching visible evidence. Provider,
+storage and authorization failures raise errors instead. Each hit's
+`assertion_id` identifies a canonical claim; `provenance` links it to the source
+and dataset/chunk. A score ranks evidence; it is not a truth probability.
+Context returns packed text in `context` and structured evidence in
+`canonical_memories`. Finish retrieval before `end_session`; closing the HTTP
+client alone does not end the server session.
+
+For async code use `async with AsyncMesaV4Client(...) as client` and `await` each
+of these methods, including polling and `end_session`. Do not run the blocking
+`MesaV4Client` inside an event loop. Async clients also support `await client.aclose()`;
+sync clients support `client.close()`.
 
 Çok chunk'lı revision için ilk çağrılarda `finalize_revision=False`, son
 çağrıda varsayılan `True` kullanılır. `search` ve `get_context` metotları
@@ -233,6 +261,35 @@ network `MesaNetworkError`, SDK schema `MesaValidationError` olur. Status
 testleri kaynak otoritesidir. Queue saturation/rebuild maintenance için
 Retry-After dikkate alınır. Dakikalık default 60/minute, daily default 10000
 principal bazındadır; health/metrics daily budget dışındadır.
+
+### Actionable errors
+
+Catch `MesaAPIError` to inspect `status_code`, `error` and `detail`. HTTP bodies
+also include `retryable`; the SDK does not automatically retry HTTP failures.
+Rejected request values and internal route paths are omitted from validation
+errors. For example, a non-string search query returns HTTP 422:
+
+```json
+{"error":"VALIDATION_ERROR","detail":"body.query: Input should be a valid string","status_code":422,"retryable":false}
+```
+
+| Response | Next step |
+|---|---|
+| 401 `UNAUTHORIZED` | Supply the issued MESA key, not the provider key |
+| 403 `ACCESS_DENIED` | Check tenant/dataset roles, agent grant and session scope |
+| 404 `NOT_FOUND` | Check the ID and credential scope; hidden objects may also return 404 |
+| 409 `SESSION_INACTIVE` | Start an authorized active session before new writes |
+| 409 `IDEMPOTENCY_CONFLICT` | Reuse the original payload with that key, or use a new key for new content |
+| 422 `VALIDATION_ERROR` | Correct the named field/format; timestamps need a timezone |
+| 503 `BACKEND_UNAVAILABLE`, detail `canonical_processing_unavailable` | Enable configured extraction/embedding in one combined owner; models-off startup cannot ingest V4 |
+| 503, detail `vector_backend_unavailable` / `graph_backend_unavailable` | Check provider credentials, embedding identity and backend readiness; an empty result is not a substitute |
+| 503, detail `queue_over_capacity` / `maintenance_pending` | Respect `Retry-After` when present and wait for capacity/maintenance |
+
+Failed background processing is reported by mutation status even when the insert
+returned 202. Inspect its failure/projection fields; an admission response or an
+empty early search does not establish successful processing. Startup
+configuration errors appear in the server terminal before readiness; see
+[configuration](configuration.md#environment-file-and-first-startup).
 
 List catalog çağrıları burada açıkça belgelenmiş pagination garantisi sunmaz;
 response/schema'yı inceleyin. İlk catalog/ACL ve credential ön koşulları dahil

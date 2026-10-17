@@ -29,7 +29,7 @@ unspecified can select a newer Python outside the tested matrix. Use
 
 SQLite (with FTS5) comes from the Python interpreter; LanceDB, PyArrow and Kùzu
 are installed as core Python dependencies. No separate database server, Docker
-container, manual SQL import or ML extra is needed for the models-disabled demo.
+container, manual SQL import or ML extra is needed for models-disabled startup.
 Native wheels depend on Python/platform availability. The isolated installation
 verified for this guide is Linux x86_64 / Python 3.10; other platforms were not
 verified in this developer-experience pass.
@@ -59,10 +59,13 @@ credentials and operational provider endpoints are separate prerequisites.
 |---|---|---|
 | Canonical V4 | `combined` / `docker-compose.v4.yml` | One process owns API, consumers and stores |
 | V3 lexical compatibility | `api-only` + `worker-only` / `docker-compose.yml` | One worker; separate from V4 storage |
-| Local model-disabled demo | `combined`, models/providers false | V3 only; V4 insertion is unavailable |
+| Local model-disabled startup | `combined`, models/providers false | Health/configuration checks; no ingestion demonstration |
 
 Choose a dedicated absolute writable storage root. Do not use the repository,
 home directory or filesystem root. V3 and V4 must not write the same root.
+Fresh combined startup initializes the databases automatically; keep SQLite,
+LanceDB, Kùzu and the policy database together under that root. The runtime has
+one owner: stop it before running offline admin or migration commands.
 The runtime does not load `.env` implicitly; the explicit dotenv precedence is
 explained in [configuration](configuration.md).
 
@@ -138,10 +141,13 @@ checks does not replace real-provider, migration/restore or soak release evidenc
 ## Local quickstart
 
 Run from the repository after `uv sync --locked --python 3.10`. This uses one
-combined process, no model loading and no external provider access. It exercises
-V3 durable raw-memory and lexical retrieval. Canonical V4 insert is unavailable
+combined process, no model loading and no external provider access. It checks
+installation, credentials and readiness. Canonical V4 insert is unavailable
 in this profile: it returns `503 canonical_processing_unavailable`. V4 needs a
 model-enabled combined consumer with reviewed extraction/embedding dependencies.
+V3 raw-memory processing also calls embeddings, so it cannot complete the
+insert/poll/search journey in this models-disabled profile. Use the V4 provider
+setup below for your first source-backed insertion and query.
 
 ### Provision before startup
 
@@ -195,46 +201,52 @@ per request. It exits nonzero for missing/invalid credentials, connection errors
 invalid responses or unhealthy status. It does not open local databases, print
 credentials or follow redirects. The default base URL is `http://127.0.0.1:8000`.
 
-### Insert, poll and search
-
-With the same environment:
-
-```bash
-.venv/bin/python -m examples.v3_quickstart
-```
-
-The V3 example starts a server-created `docs-agent` session and inserts
-“The demo archive opens at nine.” It polls raw-log status until `processed`,
-rejects `failed`/`rejected`, and searches only that authorized session. Expected
-summary: `PROCESSED; scoped V3 raw memory found`. No LLM extraction, embedding
-quality or V4 tenant guarantee is inferred from this demo.
-
 ### V4 canonical example (provider prerequisites)
 
 `examples/v4_quickstart.py` supplies required title/source/catalog IDs, freezes
 one chunk, polls the mutation and checks source-linked evidence. It requires
 `MESA_MODEL_ENABLED=true` and operational configured models/providers. Do not run
 it with the model-disabled environment above. Install the needed `ml`/`adapters`
-extras, provision reviewed provider/model/dimension settings, retain the same
-ACL and one-owner rules, and launch on loopback. Follow [configuration](configuration.md)
+extras, provision reviewed provider/model/dimension settings on a **new root**,
+retain the same ACL and one-owner rules, and launch on loopback. A concrete
+environment example is in [minimal V4 provider setup](configuration.md#minimal-v4-provider-setup).
+Follow [configuration](configuration.md)
 and [installation](getting-started.md#installation). The exact command after those prerequisites is:
 
 ```bash
 .venv/bin/python -m examples.v4_quickstart
 ```
 
-The example is a procedure, not a recorded successful provider run. It was
-**NOT EXECUTED** during this documentation reorganization. V4 API/storage behavior is additionally exercised through
-local contract tests with explicitly injected deterministic providers. Those
-fixtures are not real-model evidence. `wait_until_committed()` can return failed
-terminal states; always check `state == "COMMITTED"`.
+The example prints assertion IDs and source/dataset/chunk references after
+checking `COMMITTED` and provenance, then ends the session. The client's `with`
+block closes HTTP resources; ending a session is a separate server operation.
+`wait_until_committed()` can return failed terminal states; always check
+`state == "COMMITTED"`. A timeout does not cancel the mutation: inspect
+`client.status(mutation_id)` before deciding what to retry.
+
+Developer-experience verification on Linux/Python 3.10 used an isolated,
+non-editable locked Core install, models-disabled startup/health checks,
+and this V4 example with explicitly injected deterministic extraction/embedding.
+SQLite, LanceDB, Kùzu and background processing were real. The test limited Kùzu
+to a 64 MiB buffer pool, 256 MiB mapping and one query thread to fit the host's
+available RAM; this is test sizing, not a production capacity result. No real
+model was called. Real-provider V4 and Docker were **not verified** in this pass.
+
+For existing V3 integrations, `examples/v3_quickstart.py` remains a compatibility
+example for a runtime with operational embeddings and processing enabled; it is
+not a models-disabled example. Keep its storage separate from V4. Its polling
+uses a two-second interval to leave room under the default 60 requests/minute
+principal budget. V4 SDK polling uses the same default; faster custom polling
+must account for that shared budget.
 
 ### Restart and cleanup
 
 Stop this example's server with Ctrl-C and restart it with the same environment.
 Query the saved session/mutation while the session is active. Do not run two
-writers. End the session only after retrieval; active-session search after end
-is rejected.
+writers. End the session only after retrieval. Reads after end depend on retained
+permissions; new writes require an active session. `end_session` can return
+`status=pending` with a `finalization_id`: finalization is durable background
+work, not an HTTP client close operation.
 
 After stopping the server, retain or remove only this newly created sample root
 using your file manager. No generic database/volume removal command is provided.

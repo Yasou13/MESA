@@ -34,7 +34,7 @@ a disposable root, credentials and an authorized session before insertion.
 
 | Goal | Read |
 |---|---|
-| Try storage without model calls | [Model-disabled V3 quickstart](docs/getting-started.md) |
+| Check startup without model calls | [Model-disabled startup](docs/getting-started.md#local-quickstart) |
 | Run canonical V4 ingestion | [V4 provider prerequisites](docs/getting-started.md#v4-canonical-example-provider-prerequisites) and [installation](docs/getting-started.md#installation) |
 | Use Docker or choose providers | [Installation](docs/getting-started.md#installation), [configuration](docs/configuration.md) |
 | Connect a client | [API and SDK](docs/api-reference.md), [MCP](README_MCP.md) |
@@ -57,7 +57,8 @@ validation, not canonical extraction and embedding requirements.
 `docker-compose.v4.yml` defines the V4 single-owner topology.
 `docker-compose.yml` defines V3's separate API/worker topology. Use separate
 storage roots. Model-disabled V4 inserts return
-`503 canonical_processing_unavailable`; the V3 demo does not prove V4 ingestion.
+`503 canonical_processing_unavailable`. V3 raw-memory processing also needs
+embeddings; models-disabled startup is a health check, not an ingestion demo.
 
 ### Legacy/V3 CPU-Only REBEL Extraction
 

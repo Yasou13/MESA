@@ -56,6 +56,15 @@ def main() -> None:
             for hit in result["results"]
         ):
             raise RuntimeError("No source-linked scoped evidence returned")
+        for hit in result["results"]:
+            print("Assertion:", hit["assertion_id"])
+            for evidence in hit.get("provenance", []):
+                print(
+                    "Source:", evidence["source_ref"],
+                    "dataset:", evidence["dataset_id"],
+                    "chunk:", evidence["chunk_id"],
+                )
+        client.end_session(session_id=session["session_id"])
         print("COMMITTED; scoped evidence found")
 
 

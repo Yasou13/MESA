@@ -26,7 +26,7 @@ ADRs for decision rationale; keep measured evidence tied to its source revision.
 ## Required checks
 
 ```bash
-uv sync --locked --extra dev
+uv sync --locked --python 3.10 --extra dev
 uv run ruff check .
 uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
   --ignore-missing-imports --explicit-package-bases --follow-imports=skip
@@ -36,7 +36,7 @@ make test-local
 The complete adapter-inclusive suite is a separate installed contract:
 
 ```bash
-uv sync --locked --extra dev --extra adapters
+uv sync --locked --python 3.10 --extra dev --extra adapters
 make test-all
 ```
 
