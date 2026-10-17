@@ -11,17 +11,28 @@ release candidate / **NO-GO** until the [release gates](release.md) pass.
 
 ### Install the locked environment
 
-Use Python 3.10–3.13 (the CI matrix), `uv`, and Docker with Compose if deploying
-containers. Run from the repository:
+Use Python 3.10–3.13 (the CI matrix) and
+[uv](https://docs.astral.sh/uv/getting-started/installation/).
+Docker with Compose is needed only for containers. Run from the repository:
 
 ```bash
-uv sync --locked --extra dev
+uv sync --locked --python 3.10
 uv pip check
 ```
 
 [pyproject.toml](../pyproject.toml) declares supported dependency ranges and
 [uv.lock](../uv.lock) fixes the graph used by CI/Docker. CI pins its installer
 version in the workflow; an installed dependency range is not a model download.
+Choose `--python 3.11`, `3.12` or `3.13` if appropriate. Leaving the interpreter
+unspecified can select a newer Python outside the tested matrix. Use
+`uv sync --locked --python 3.10 --extra dev` when running developer tests.
+
+SQLite (with FTS5) comes from the Python interpreter; LanceDB, PyArrow and Kùzu
+are installed as core Python dependencies. No separate database server, Docker
+container, manual SQL import or ML extra is needed for the models-disabled demo.
+Native wheels depend on Python/platform availability. The isolated installation
+verified for this guide is Linux x86_64 / Python 3.10; other platforms were not
+verified in this developer-experience pass.
 
 | Extra | When needed |
 |---|---|
@@ -35,7 +46,7 @@ version in the workflow; an installed dependency range is not a model download.
 For a provider setup that needs both SDKs and local models:
 
 ```bash
-uv sync --locked --extra dev --extra adapters --extra ml
+uv sync --locked --python 3.10 --extra adapters --extra ml
 uv pip check
 ```
 
@@ -126,7 +137,7 @@ checks does not replace real-provider, migration/restore or soak release evidenc
 
 ## Local quickstart
 
-Run from the repository after `uv sync --locked --extra dev`. This uses one
+Run from the repository after `uv sync --locked --python 3.10`. This uses one
 combined process, no model loading and no external provider access. It exercises
 V3 durable raw-memory and lexical retrieval. Canonical V4 insert is unavailable
 in this profile: it returns `503 canonical_processing_unavailable`. V4 needs a

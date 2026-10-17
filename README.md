@@ -20,11 +20,15 @@ production certification.
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-uv sync --locked --extra dev
+uv sync --locked --python 3.10
 uv pip check
 ```
 
 Python 3.10–3.13 are the CI matrix; package metadata declares Python >=3.10.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
+The command selects a supported interpreter; substitute 3.11–3.13 if needed.
+The base install includes native storage and HTTP/SDK support; `dev`, provider
+SDKs and local model dependencies are optional extras.
 Then follow the [local quickstart](docs/getting-started.md), which provisions
 a disposable root, credentials and an authorized session before insertion.
 
