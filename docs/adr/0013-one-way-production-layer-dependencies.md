@@ -1,7 +1,10 @@
 # ADR 0013: One-way production-layer dependencies
 
-The production dependency direction is `mesa_storage` → `mesa_memory` →
-`mesa_workers` → `mesa_api`/`mesa_mcp`. Lower layers cannot import a higher
+- Status: Accepted
+
+Layers ordered from lowest to highest are `mesa_storage`, `mesa_memory`,
+`mesa_workers`, then `mesa_api`/`mesa_mcp`. Imports may point down this list:
+API/MCP → workers → memory → storage. Lower layers cannot import a higher
 layer. The API and worker startup modules are explicit composition roots and
 may assemble the complete runtime; they are the only documented exception.
 

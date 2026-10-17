@@ -1,6 +1,9 @@
 # ADR 0014: V4 closure and staged evolution
 
-- Status: Accepted
+- Status: Accepted for the rebuild boundary; the roadmap below is historical.
+- Partial supersession: [ADR 0015](0015-bounded-adaptive-query-planning.md) advances
+  bounded retrieval planning. The other future stages below are not implied
+  to be implemented. Current behavior is in [architecture](../architecture-v4.md).
 - Baseline: MESA 0.7.x at `c590188`
 - Extends: ADR 0009, ADR 0012 and ADR 0013
 
@@ -19,19 +22,11 @@ must be recovered without first establishing a reliable recovery boundary.
 
 ## Decision
 
-MESA will evolve in this order:
+The accepted rebuild boundary is independent of the historical feature order.
+The following rules remain the operational constraints; current commands and
+metadata behavior are maintained in the [rebuild runbook](../v4-rebuild-runbook.md).
 
-1. 0.7.x Closure: baseline/capability accuracy, durable projection rebuild,
-   restore/parity evidence and reversible generation cutover.
-2. Focused DAO boundaries that keep `MemoryDAO` as the compatibility façade.
-3. Ladybug storage integration.
-4. Trusted assertion and bitemporal semantics.
-5. Retrieval planner integration.
-6. MESA-Legal.
-7. Community/global memory and a hosted backend only after measured evidence
-   justifies them.
-
-The 0.7.x rebuild has the following hard boundaries:
+The rebuild has the following hard boundaries:
 
 - It is an offline runner, not an API or worker background task.
 - `MESA_V4_REBUILD_ENABLED` defaults to `false`. Enabling submission does not
@@ -40,9 +35,10 @@ The 0.7.x rebuild has the following hard boundaries:
 - Its only scope is the complete storage root. Requests for tenant- or
   dataset-scoped rebuilds fail closed until vector and graph stores are
   physically partitioned.
-- The canonical SQLite ledger is not rebuilt or mutated. The runner rebuilds
+- Canonical source/assertion content is not rebuilt. The runner rebuilds
   LanceDB and Kùzu projections from canonical ownership records and validates
-  FTS integrity on a snapshot.
+  FTS integrity on a snapshot. Current operation/generation and representation
+  metadata updates are detailed in the [rebuild runbook](../v4-rebuild-runbook.md).
 - SQLite owns durable operation state and the single active projection
   generation pointer. Cutover changes that pointer atomically. The previous
   generation and the pre-run backup are retained until an explicit operator
@@ -74,9 +70,17 @@ reviewed evidence and a 24-hour soak.
 Operators get a resumable, auditable and reversible projection recovery path,
 but the release deliberately does not offer online or scoped rebuilds. Storage
 cost temporarily increases because backups and retained generations are not
-automatically deleted. Ladybug, bitemporal queries, the retrieval planner and
-MESA-Legal remain outside 0.7.x and cannot be used to broaden advertised V4
-capabilities.
+automatically deleted. No online or scoped rebuild capability is implied.
+
+## Historical roadmap
+
+At baseline `c590188`, the proposed order was closure, focused DAO boundaries,
+Ladybug, trusted assertion/bitemporal semantics, retrieval planning, MESA-Legal,
+then community/global memory and hosted storage. This is a record of intent,
+not an implementation checklist or a requirement to implement those stages.
+[ADR 0015](0015-bounded-adaptive-query-planning.md) subsequently advanced bounded
+query planning. Other stages require their own implementation and evidence;
+current capabilities remain defined by the running API and architecture guide.
 
 ## Rollback
 

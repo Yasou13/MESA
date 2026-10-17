@@ -43,9 +43,83 @@ cgroups, psutil, then 1 GiB safe fallback; this is not an RSS guarantee.
 Queue per-tenant bounds must fit within global bounds. `.env.example` deliberately
 uses smaller sample global and per-tenant bounds than code defaults.
 
+## Minimal V4 provider setup
+
+Start with the disposable root, key and grants from the
+[quickstart](getting-started.md#provision-before-startup), with the server stopped.
+For an external OpenAI-compatible extraction + embedding setup, install
+`uv sync --locked --python 3.10 --extra adapters` (no local ML extra is needed).
+Select models supported by your endpoint. The following is an example pairing,
+not evidence of a real-provider run:
+
+```bash
+mkdir -p "$HOME/mesa-doc-demos"
+export MESA_STORAGE_ROOT="$(mktemp -d "$HOME/mesa-doc-demos/v4-XXXXXX")"
+export MESA_PRINCIPAL_ID=docs-principal
+export MESA_API_KEY="$(.venv/bin/mesa-v4-admin issue-key --principal docs-principal)"
+.venv/bin/mesa-v4-admin grant-role --principal docs-principal --tenant docs-tenant --role OWNER
+.venv/bin/mesa-v4-admin grant-agent --principal docs-principal --agent docs-agent --permission SESSION_CREATE
+export MESA_RUNTIME_PROFILE=combined
+export MESA_LOAD_DOTENV=false
+export MESA_MODEL_ENABLED=true
+export MESA_EXTERNAL_PROVIDER_ENABLED=true
+export MESA_TIER3_MODE=0
+export MESA_LLM_PROVIDER=openai_compatible
+export LLM_MODEL_NAME=gpt-4o-mini
+export LLM_BASE_URL=https://api.openai.com/v1
+export LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
+export MESA_EXTRACTION_PROVIDER=openai_compatible
+export MESA_EXTRACTION_MODEL=gpt-4o-mini
+export MESA_EMBEDDING_PROVIDER=openai_compatible
+export MESA_EXTERNAL_EMBEDDING_MODEL=text-embedding-3-small
+export MESA_EMBEDDING_BASE_URL=https://api.openai.com/v1
+export MESA_EMBEDDING_API_KEY="$LLM_API_KEY"
+export MESA_EMBEDDING_DIMENSION=1536
+export MESA_EMBEDDING_NORMALIZED=true
+export MESA_EMBEDDING_VERSION=v1
+```
+
+The commands deliberately provision a **new root** when changing the embedding
+identity from the models-disabled demo: even an empty initialized root records
+its embedding identity. Keep `MESA_API_KEY` (MESA access) separate
+from `LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Modes 1/2 need
+the validator A or A/B settings from the table below. Extraction is configured
+separately and mode 0 still calls it.
+
+`AdapterFactory` accepts `openai_compatible`, `claude`, `ollama`, `auto` and
+explicit test-only `mock`. `auto` may select a mock, so use an explicit provider
+for real work. Embeddings support local sentence-transformers (`ml` extra) or
+OpenAI-compatible endpoints (`adapters` extra); Claude/Ollama extraction does not
+automatically configure embeddings. Native Ollama extraction requires a running
+endpoint and an already available model; MESA does not provision it.
+
+The built-in `mock` adapter returns no extracted facts; it is not a source-backed
+V4 demo. Contract tests inject deterministic fact and embedding providers
+explicitly. Models-disabled startup, deterministic V4 tests and real-provider
+V4 runs are different verification levels. V3 raw-memory processing requires
+embeddings too; models-disabled boot does not demonstrate insert/search success.
+
+## Environment file and first startup
+
+The [template](../.env.example) uses a standalone `combined` owner with models
+disabled. Copy it only if needed, replace the storage path with an absolute,
+writable dedicated directory, and supply issued credentials privately. To load
+it explicitly, set `MESA_LOAD_DOTENV=true` and `MESA_DOTENV_PATH` to its absolute
+path **in the launching shell**; setting them only inside the file cannot enable
+loading. Do not load dotenv in `test-isolated`. The quickstart's exported settings
+work without creating any `.env` file.
+
+Fresh combined startup creates/migrates SQLite and initializes LanceDB/Kùzu;
+there is no manual fresh-database migration step. Keep old storage migrations
+separate: use the [upgrade procedure](RUNBOOK.md#upgrade-v080), never delete an
+existing database to resolve a startup error. Split V3 `api-only` requires its
+worker to be ready first. Startup failures occur in the server terminal before
+readiness; check the named variable, writable path or missing selected extra
+there. Do not paste secrets or entire environment files into bug reports.
+
 ## Declared MesaConfig fields
 
-Generated from field declarations during audit; regenerate/review when config changes.
+Field-declaration reference; compare it with `MesaConfig` when configuration changes.
 `required` or derived defaults are explicit. Legacy controls are present for V3;
 CrossEncoder/REBEL are not the canonical V4 ranking/extraction path.
 
@@ -162,8 +236,8 @@ to 2048; Codex binding profile caps are separate (8 memories/2500 tokens).
 `MESA_GATEWAY_ENCRYPTION_KEY` and `MESA_GATEWAY_CONTROL_DB` are operator inputs.
 
 Rebuild uses reviewed trusted/storage/work roots and full-root offline scope;
-see [runbook](v4-rebuild-runbook.md). No provider examples are live-tested pairings
-in this documentation refresh.
+see [runbook](v4-rebuild-runbook.md). Defaults and example pairings do not certify
+provider availability or quality.
 
 Canonical V4 insertion requires the model-enabled combined processing consumer.
 Model-disabled boot is topology/compatibility smoke and rejects V4 writes with

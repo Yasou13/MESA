@@ -133,7 +133,7 @@ def create_control_router(
         conn_repo=Depends(get_conn_repo),
         approval_repo=Depends(get_approval_repo),
     ):
-        """Dashboard-safe Codex state; credentials are summaries only."""
+        """Secret-safe Codex state; credentials are summaries only."""
         if get_credential_repo is None or get_codex_profile_repo is None:
             raise HTTPException(
                 status_code=503, detail="Codex control plane unavailable"

@@ -111,7 +111,7 @@ async def test_write_is_durable_pending_approval_and_idempotent(gateway) -> None
     assert fake.remember_calls == 0
 
     await middleware.approval_repo.decide_approval(
-        first["approval_id"], "APPROVED", "dashboard"
+        first["approval_id"], "APPROVED", "operator"
     )
     assert await service.process_approved_operations() == 1
     status = await service.operation_status("antigravity", first["operation_id"])
@@ -132,7 +132,7 @@ async def test_approved_operation_fails_closed_when_approval_hash_differs(
         arguments={"content": "protected", "idempotency_key": "idem-hash-mismatch"},
     )
     await middleware.approval_repo.decide_approval(
-        pending["approval_id"], "APPROVED", "dashboard"
+        pending["approval_id"], "APPROVED", "operator"
     )
     async with service._engine.transaction() as db:
         await db.execute(
@@ -159,7 +159,7 @@ async def test_operation_status_tracks_final_v4_mutation_state(gateway) -> None:
         arguments={"content": "rejectable", "idempotency_key": "idem-rejected"},
     )
     await middleware.approval_repo.decide_approval(
-        rejected["approval_id"], "APPROVED", "dashboard"
+        rejected["approval_id"], "APPROVED", "operator"
     )
     await service.process_approved_operations()
     assert (await service.operation_status("antigravity", rejected["operation_id"]))[
@@ -180,7 +180,7 @@ async def test_operation_status_tracks_final_v4_mutation_state(gateway) -> None:
         arguments={"content": "committable", "idempotency_key": "idem-committed"},
     )
     await middleware.approval_repo.decide_approval(
-        committed["approval_id"], "APPROVED", "dashboard"
+        committed["approval_id"], "APPROVED", "operator"
     )
     await service.process_approved_operations()
     fake.mutation_states["mut_gateway_2"] = "COMMITTED"

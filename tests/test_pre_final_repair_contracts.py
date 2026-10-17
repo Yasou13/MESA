@@ -37,13 +37,13 @@ def test_direct_dependency_ownership_matches_runtime_imports() -> None:
 def test_v4_docs_consistently_describe_release_candidate_no_go() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs" / "architecture-v4.md").read_text(encoding="utf-8")
-    installation = (ROOT / "docs" / "installation.md").read_text(encoding="utf-8")
+    quickstart = (ROOT / "docs" / "getting-started.md").read_text(encoding="utf-8")
     runbook = (ROOT / "docs" / "RUNBOOK.md").read_text(encoding="utf-8")
     release = (ROOT / "docs" / "release.md").read_text(encoding="utf-8")
 
     assert "V0.7.1 is the current v4 full-cognitive release" not in readme
     assert "release candidate" in readme.lower()
-    for document in (architecture, installation, runbook, release):
+    for document in (architecture, quickstart, runbook, release):
         normalized = " ".join(document.lower().split())
         assert "release candidate" in normalized
         assert "NO-GO" in document

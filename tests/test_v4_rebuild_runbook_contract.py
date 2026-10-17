@@ -12,8 +12,8 @@ def test_rebuild_runbook_records_exact_offline_control_flow() -> None:
 
     required_fragments = {
         "MESA_V4_REBUILD_ENABLED=true",
-        "MESA_EMBEDDING_VERSION=v1",
-        "MESA_EMBEDDING_DIMENSION=1536",
+        '--version "$MESA_EMBEDDING_VERSION"',
+        '--dimension "$MESA_EMBEDDING_DIMENSION"',
         "mesa-v4-admin grant-control --principal rebuild-operator",
         "/v4/operations/rebuild",
         "/v4/operations/$MESA_REBUILD_OPERATION_ID/retry",
@@ -32,6 +32,9 @@ def test_rebuild_runbook_records_exact_offline_control_flow() -> None:
         "`NO-GO`",
     }
     assert all(fragment in runbook for fragment in required_fragments)
+    # Rebuild must preserve the corpus identity, not overwrite it with sample values.
+    assert "MESA_EMBEDDING_VERSION=v1" not in runbook
+    assert "MESA_EMBEDDING_DIMENSION=1536" not in runbook
 
 
 def test_rebuild_runbook_keeps_scope_and_cleanup_fail_closed() -> None:

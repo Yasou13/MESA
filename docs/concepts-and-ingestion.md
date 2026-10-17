@@ -88,7 +88,7 @@ rollback is a conflict. Do not edit store rows or leases manually.
 
 ## Producer contract
 
-Core consumes exact content and identity; [MESA_Data](ecosystem.md) owns source
+Core consumes exact content and identity; [MESA_Data](architecture-v4.md#ecosystem) owns source
 acquisition, chunking and verified source metadata. HTTP insertion supports a
 typed `legal_identity`; the current SDK `insert` signature does not expose it.
 Use the HTTP contract for that field. Bare “MADDE 1” text is insufficient to

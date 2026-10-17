@@ -8,6 +8,7 @@ from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.errors import MCPError
 from mesa_mcp.v4_service import MesaHttpV4Service
+from mesa_memory.api import server
 from mesa_memory.api.server import _canonical_readiness_failures, app
 from mesa_memory.config import config
 
@@ -75,6 +76,41 @@ async def test_real_http_error_body_is_parsed_by_sdk_and_mcp():
         await service.v4_capability()
     assert raised.value.code == "BACKEND_UNAVAILABLE"
     assert raised.value.retryable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_fields, field, message",
+    [
+        ({"query": {"api_key": "PRIVATE_INPUT_MARKER"}}, "query", "valid string"),
+        ({"valid_at": "PRIVATE_INPUT_MARKER"}, "valid_at", "ISO-8601"),
+    ],
+)
+async def test_validation_error_is_actionable_without_echoing_rejected_input(
+    monkeypatch, invalid_fields, field, message
+):
+    # Exercise the real route/handler without opening runtime storage.
+    async def unused_dependency():
+        return None
+
+    for dependency in (server.get_api_key, server.get_dao, server.get_access_control):
+        monkeypatch.setitem(app.dependency_overrides, dependency, unused_dependency)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://mesa.test") as client:
+        response = await client.post(
+            "/v4/memory/search",
+            json={"session_id": "session-a", "query": "archive", **invalid_fields},
+        )
+
+    assert response.status_code == 422
+    assert "PRIVATE_INPUT_MARKER" not in response.text
+    assert "v4_router.py" not in response.text
+    assert response.json()["retryable"] is False
+    error = _parse_api_error(response)
+    assert error.status_code == 422
+    assert error.error == "VALIDATION_ERROR"
+    assert f"body.{field}" in error.detail
+    assert message in error.detail
 
 
 def test_readiness_uses_configured_canonical_backlog_thresholds(monkeypatch):

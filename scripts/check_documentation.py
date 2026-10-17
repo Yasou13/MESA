@@ -6,37 +6,17 @@ import ast
 import json
 import re
 import subprocess
-from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-HISTORICAL = {
-    "ARCHITECTURE.md",
-    "SOAK_TEST_REPORT_20260827.md",
-    "PROFILE_A_REPAIR_JOURNAL.md",
-    "docs/v4-final-independent-audit.md",
-}
-
-
-class AssetLinks(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.links: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        for key, value in attrs:
-            if key in {"href", "src"} and value:
-                self.links.append(value)
 
 
 def maintained(path: Path) -> bool:
     relative = path.relative_to(ROOT).as_posix()
-    return relative not in HISTORICAL and not relative.startswith(
-        ("reports/", "results/", "docs/historical_benchmarks/")
-    )
+    return not relative.startswith(("reports/", "results/", "for_mvp/"))
 
 
 def anchors(text: str) -> set[str]:
@@ -133,44 +113,10 @@ def main() -> int:
             yaml.safe_load(path.read_text())
         except yaml.YAMLError as error:
             errors.append(f"{path.relative_to(ROOT)}: YAML: {error}")
-    html_files = list((ROOT / "mesa_dashboard").glob("index.html")) + list(
-        (ROOT / "mesa_dashboard/public").rglob("*.html")
-    )
-    html_links = 0
-    for path in html_files:
-        parser = AssetLinks()
-        parser.feed(path.read_text())
-        for destination in parser.links:
-            parsed = urlsplit(destination)
-            if parsed.scheme:
-                continue
-            if destination.startswith("/dashboard/"):
-                relative = parsed.path.removeprefix("/dashboard/")
-                if not relative:
-                    continue
-                target = ROOT / "mesa_dashboard/public" / relative
-                if target.is_dir():
-                    target = target / "index.html"
-            elif parsed.path in {"/docs", "/redoc", "/openapi.json"}:
-                continue  # Runtime API routes, exercised separately.
-            elif parsed.path.startswith("/src/"):
-                target = ROOT / "mesa_dashboard" / parsed.path.lstrip("/")
-            else:
-                target = path.parent / parsed.path if parsed.path else path
-            html_links += 1
-            if not target.exists():
-                errors.append(f"{path.relative_to(ROOT)}: missing asset {destination}")
-            elif parsed.fragment and target.suffix == ".html":
-                if unquote(parsed.fragment) not in anchors(target.read_text()):
-                    errors.append(
-                        f"{path.relative_to(ROOT)}: missing HTML anchor {destination}"
-                    )
     print(
         json.dumps(
             {
                 "files": len(set(files)),
-                "html_files": len(html_files),
-                "html_asset_links": html_links,
                 "local_links": links_checked,
                 "syntax_fences": fences_checked,
                 "colab_fences": notebook_fences,

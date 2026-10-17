@@ -1252,3 +1252,119 @@ async def test_v4_non_head_rollback_returns_typed_conflict(
     )
     assert response.status_code == 409
     assert response.json() == {"detail": "NON_HEAD_ROLLBACK_CONFLICT"}
+
+
+@pytest.mark.asyncio
+async def test_v4_rollback_value_error_returns_409(
+    asgi_client: ClientFactory,
+) -> None:
+    session = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "dataset_ids": ["dataset-a"],
+        "agent_id": "agent-a",
+        "session_id": "session-a",
+        "status": "ACTIVE",
+    }
+    mutation = {
+        "mutation_id": "mutation-a",
+        "candidate_id": "candidate-a",
+        "tenant_id": "tenant-a",
+        "agent_id": "agent-a",
+        "dataset_id": "dataset-a",
+        "session_id": "session-a",
+        "pipeline_run_id": "pipeline-a",
+        "state": "COMMITTED",
+        "failure_class": None,
+        "artifacts": [],
+        "projections": [],
+    }
+    dao = MagicMock()
+    dao.get_v4_session = AsyncMock(return_value=session)
+    dao.get_mutation_summary = AsyncMock(return_value=mutation)
+    dao.request_pipeline_rollback = AsyncMock(
+        side_effect=ValueError("pipeline cannot rollback from FAILED")
+    )
+    response = await asgi_client(_app(dao, _access())).post(
+        "/v4/mutations/mutation-a/rollback"
+    )
+    assert response.status_code == 409
+    assert "pipeline cannot rollback" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_v4_source_chunk_collision_returns_409(
+    asgi_client: ClientFactory,
+) -> None:
+    dao = MagicMock()
+    dao.create_v4_source_chunk = AsyncMock(
+        side_effect=ValueError("cannot append source chunk to finalized revision in state ACTIVE")
+    )
+    response = await asgi_client(_app(dao, _access())).post(
+        "/v4/catalog/source-chunks",
+        json={
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "dataset_id": "dataset-a",
+            "document_id": "document-a",
+            "revision_id": "revision-a",
+            "chunk_id": "chunk-a",
+            "title": "Doc",
+            "content": "Body",
+            "source_ref": "ref",
+        },
+    )
+    assert response.status_code == 409
+    assert "cannot append source chunk to finalized revision" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_v4_get_context_invalid_budget_returns_422(
+    asgi_client: ClientFactory,
+) -> None:
+    session = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "dataset_ids": ["dataset-a"],
+        "agent_id": "agent-a",
+        "session_id": "session-a",
+        "status": "ACTIVE",
+    }
+    dao = MagicMock()
+    dao.get_v4_session = AsyncMock(return_value=session)
+    response = await asgi_client(_app(dao, _access())).get(
+        "/v4/sessions/session-a/context",
+        params={"token_budget": 0},
+    )
+    assert response.status_code == 422
+    assert "token_budget must be positive" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_v4_get_context_vector_backend_unavailable_returns_503(
+    asgi_client: ClientFactory, monkeypatch,
+) -> None:
+    from mesa_memory.context_builder import ContextBuilder
+    from mesa_memory.embedding.service import EmbeddingUnavailableError
+
+    session = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "dataset_ids": ["dataset-a"],
+        "agent_id": "agent-a",
+        "session_id": "session-a",
+        "status": "ACTIVE",
+    }
+    dao = MagicMock()
+    dao.get_v4_session = AsyncMock(return_value=session)
+    monkeypatch.setattr(
+        ContextBuilder,
+        "build_context",
+        AsyncMock(side_effect=EmbeddingUnavailableError("Provider offline")),
+    )
+    response = await asgi_client(_app(dao, _access())).get(
+        "/v4/sessions/session-a/context",
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "vector_backend_unavailable"
+

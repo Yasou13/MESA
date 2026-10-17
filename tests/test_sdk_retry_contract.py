@@ -8,11 +8,35 @@ import httpx
 import pytest
 
 from mesa_client.client import (
+    MesaAPIError,
     MesaNetworkError,
+    MesaV4Client,
     _async_retry,
     _parse_api_error,
     _sync_retry,
 )
+
+
+def test_wait_allows_slow_processing_without_exhausting_minute_request_budget(monkeypatch):
+    elapsed = 0.0
+    calls = 0
+
+    def sleep(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+
+    def status(_mutation_id):
+        nonlocal calls
+        calls += 1
+        if calls > 60:
+            raise MesaAPIError(429, "RATE_LIMITED", "minute budget exceeded")
+        return {"state": "COMMITTED" if elapsed >= 30 else "PENDING"}
+
+    monkeypatch.setattr("mesa_client.client.time.monotonic", lambda: elapsed)
+    monkeypatch.setattr("mesa_client.client.time.sleep", sleep)
+    with MesaV4Client() as client:
+        monkeypatch.setattr(client, "status", status)
+        assert client.wait_until_committed("mutation-a")["state"] == "COMMITTED"
 
 
 def _request(method: str = "GET") -> httpx.Request:

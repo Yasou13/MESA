@@ -191,6 +191,8 @@ def _validate_metadata_depth(value: dict[str, Any], *, depth: int) -> None:
     for key, item in value.items():
         if not isinstance(key, str):
             raise ValueError("metadata keys must be strings")
+        if key.startswith("_mesa_"):
+            raise ValueError("metadata keys beginning with '_mesa_' are reserved")
         if isinstance(item, dict):
             _validate_metadata_depth(item, depth=depth + 1)
         elif isinstance(item, list):
@@ -3870,35 +3872,21 @@ class MemoryDAO:
     async def complete_projection_outbox_batch(
         self, items: list[dict[str, Any]], *, worker_id: str, outcome: str = "APPLIED"
     ) -> int:
-        """Record fenced successful projections in a single atomic transaction."""
+        """Record fenced successful projections using the canonical fenced completion path."""
         if not items:
             return 0
         completed_count = 0
-        async with self._sql.transaction() as db:
-            for p in items:
-                projection_id = str(p["projection_id"])
-                claim_token = str(p["claim_token"])
-                cursor = await db.execute(
-                    "UPDATE projection_outbox SET state = 'COMPLETED', claim_token = NULL, claimed_by = NULL, "
-                    "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ? AND claim_token = ? AND state = 'IN_FLIGHT'",
-                    (projection_id, claim_token),
-                )
-                if cursor.rowcount == 1:
-                    completed_count += 1
-                    await db.execute(
-                        "INSERT OR IGNORE INTO projection_attempts "
-                        "(attempt_id, projection_id, attempt_number, outcome, finished_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                        (
-                            str(uuid.uuid4()),
-                            projection_id,
-                            p.get("attempt_count", 1),
-                            outcome[:120],
-                        ),
-                    )
-                    await self._advance_mutation_projection_state(
-                        db, str(p["mutation_id"])
-                    )
-            await db.commit()
+        for p in items:
+            projection_id = str(p["projection_id"])
+            claim_token = str(p["claim_token"])
+            success = await self.complete_projection_outbox(
+                projection_id,
+                worker_id=worker_id,
+                claim_token=claim_token,
+                outcome=outcome,
+            )
+            if success:
+                completed_count += 1
         return completed_count
 
     async def fail_projection_outbox(
@@ -4260,14 +4248,41 @@ class MemoryDAO:
         artifact_id = str(cleanup["physical_artifact_id"])
         agent_id = str(cleanup["agent_id"])
         if store == "VECTOR":
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT 1 FROM v4_assertions WHERE assertion_id = ? AND status != 'RETRACTED' "
+                    "UNION ALL "
+                    "SELECT 1 FROM v4_entities WHERE entity_id = ? AND status != 'RETRACTED'",
+                    (artifact_id, artifact_id),
+                ) as cursor:
+                    if await cursor.fetchone() is not None:
+                        logger.warning("SAFETY: skipping deletion of active vector artifact %s", artifact_id)
+                        return
             await self._vec.hard_delete(artifact_id, agent_id)
         elif store == "GRAPH":
             graph = self._require_graph()
             if kind == "ASSERTION":
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT 1 FROM v4_assertions WHERE assertion_id = ? AND status != 'RETRACTED'",
+                        (artifact_id,),
+                    ) as cursor:
+                        if await cursor.fetchone() is not None:
+                            logger.warning("SAFETY: skipping deletion of active assertion graph artifact %s", artifact_id)
+                            return
                 await graph.delete_assertions(
                     agent_id=agent_id, assertion_ids=[artifact_id]
                 )
             elif kind == "ENTITY":
+                async with self._sql.connection() as db:
+                    async with db.execute(
+                        "SELECT 1 FROM v4_entities WHERE entity_id = ? AND status != 'RETRACTED' "
+                        "AND EXISTS (SELECT 1 FROM v4_assertions WHERE subject_id = ? OR object_entity_id = ?)",
+                        (artifact_id, artifact_id, artifact_id),
+                    ) as cursor:
+                        if await cursor.fetchone() is not None:
+                            logger.warning("SAFETY: skipping deletion of active entity graph artifact %s", artifact_id)
+                            return
                 await graph.delete_nodes(
                     purge_id=f"rollback:{cleanup['cleanup_id']}",
                     agent_id=agent_id,
@@ -4598,26 +4613,85 @@ class MemoryDAO:
                 (tenant_id, *resolved_datasets),
             ) as cursor:
                 sql_assertions = {str(row[0]) for row in await cursor.fetchall()}
+
+            # Active assertions in other datasets of this tenant
+            async with db.execute(
+                f"SELECT assertion_id FROM v4_assertions WHERE tenant_id = ? "
+                f"AND dataset_id NOT IN ({placeholders}) AND status != 'RETRACTED'",
+                (tenant_id, *resolved_datasets),
+            ) as cursor:
+                other_dataset_assertions = {str(row[0]) for row in await cursor.fetchall()}
+
+            # Entities referenced by other datasets of this tenant
+            other_dataset_params = (
+                tenant_id,
+                *resolved_datasets,
+                tenant_id,
+                *resolved_datasets,
+            )
+            async with db.execute(
+                f"SELECT DISTINCT subject_id FROM v4_assertions WHERE tenant_id = ? "
+                f"AND dataset_id NOT IN ({placeholders}) AND status != 'RETRACTED' "
+                f"UNION "
+                f"SELECT DISTINCT object_entity_id FROM v4_assertions WHERE tenant_id = ? "
+                f"AND dataset_id NOT IN ({placeholders}) AND object_entity_id IS NOT NULL AND status != 'RETRACTED'",
+                other_dataset_params,
+            ) as cursor:
+                other_dataset_entities = {str(row[0]) for row in await cursor.fetchall()}
+
+            # Artifacts registered under other datasets
+            async with db.execute(
+                f"SELECT store_name, artifact_kind, physical_artifact_id FROM artifact_registry "
+                f"WHERE tenant_id = ? AND dataset_id NOT IN ({placeholders}) AND dataset_id IS NOT NULL AND state != 'DELETED'",
+                (tenant_id, *resolved_datasets),
+            ) as cursor:
+                other_registered = {
+                    (str(row[0]), str(row[1]), str(row[2]))
+                    for row in await cursor.fetchall()
+                }
+
+        # Exclude entities owned/referenced by other datasets
+        candidate_entities = {e for e in sql_entities if e not in other_dataset_entities}
+
         vector_entities = set(await self._vec.get_active_node_ids(agent_id))
+        # Exclude vectors belonging to other datasets
+        vector_entities = {
+            item
+            for item in vector_entities
+            if item not in other_dataset_assertions
+            and ("VECTOR", "ASSERTION_VECTOR", item) not in other_registered
+            and ("VECTOR", "ENTITY_VECTOR", item) not in other_registered
+        }
+
         graph_entities: set[str] = set()
         graph_assertions: set[str] = set()
         if self._graph is not None:
-            graph_entities = {
+            raw_graph_entities = {
                 str(row[0])
                 for row in await self._graph.execute_query(
                     "MATCH (n:Entity {agent_id: $agent_id}) RETURN n.id",
                     {"agent_id": agent_id},
                 )
             }
-            graph_assertions = {
+            graph_entities = {
+                e for e in raw_graph_entities
+                if e not in other_dataset_entities
+                and ("GRAPH", "ENTITY", e) not in other_registered
+            }
+            raw_graph_assertions = {
                 str(row[0])
                 for row in await self._graph.execute_query(
                     "MATCH (n:Assertion {agent_id: $agent_id}) RETURN n.id",
                     {"agent_id": agent_id},
                 )
             }
+            graph_assertions = {
+                a for a in raw_graph_assertions
+                if a not in other_dataset_assertions
+                and ("GRAPH", "ASSERTION", a) not in other_registered
+            }
         physical = {
-            *(("SQL", "ENTITY", item) for item in sql_entities),
+            *(("SQL", "ENTITY", item) for item in candidate_entities),
             *(("SQL", "ASSERTION", item) for item in sql_assertions),
             *(
                 (
@@ -4837,7 +4911,22 @@ class MemoryDAO:
                 "version": str(producer_identity.version),
                 "dimension": int(producer_identity.dimension),
             }
-            producer_identity_metadata = producer_identity.as_dict()
+            if hasattr(producer_identity, "as_dict"):
+                producer_identity_metadata = producer_identity.as_dict()
+            else:
+                producer_identity_metadata = {
+                    "embedding_space_id": getattr(
+                        producer_identity, "embedding_space_id", ""
+                    ),
+                    "provider": getattr(producer_identity, "provider", ""),
+                    "model": getattr(producer_identity, "model", ""),
+                    "version": getattr(producer_identity, "version", ""),
+                    "dimension": getattr(producer_identity, "dimension", 0),
+                    "normalized": getattr(producer_identity, "normalized", False),
+                    "model_revision": getattr(
+                        producer_identity, "model_revision", None
+                    ),
+                }
         if expected_identity["dimension"] != actual_identity["dimension"]:
             raise ValueError(
                 "embedding dimension mismatch: expected "
@@ -5669,8 +5758,8 @@ class MemoryDAO:
                     "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
                     "LEFT JOIN v4_catalog_identities c ON c.tenant_id = a.tenant_id "
                     "AND c.kind = 'dataset' AND c.physical_id = a.dataset_id "
-                    f"WHERE a.tenant_id = ? AND {assertion_status_sql} "
-                    "AND m.state = 'COMMITTED' "
+                    f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) AND {assertion_status_sql} "
+                    "AND m.agent_id = ? AND m.state = 'COMMITTED' "
                     + (
                         "AND " + " AND ".join(provenance_filters)
                         if provenance_filters
@@ -5679,7 +5768,7 @@ class MemoryDAO:
                     + " ORDER BY a.assertion_id, a.tenant_id, m.agent_id"
                 )
                 async with db.execute(
-                    audit_query, (tenant_id, *provenance_params)
+                    audit_query, (tenant_id, *datasets, agent_id, *provenance_params)
                 ) as cursor:
                     audit_rows = list(await cursor.fetchall())
 
@@ -6100,12 +6189,12 @@ class MemoryDAO:
             passage_sql = (
                 "SELECT a.*, s.canonical_name AS subject_name, "
                 "o.canonical_name AS object_name, "
-                "bm25(v4_assertions_fts, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
-                "AS bm25_score FROM v4_assertions_fts "
-                "JOIN v4_assertions a ON a.rowid = v4_assertions_fts.rowid "
+                "bm25(v4_scoped_assertions_fts, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
+                "AS bm25_score FROM v4_scoped_assertions_fts "
+                "JOIN v4_assertions a ON a.rowid = v4_scoped_assertions_fts.rowid "
                 "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
                 "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-                "WHERE v4_assertions_fts MATCH ? AND a.tenant_id = ? "
+                "WHERE v4_scoped_assertions_fts MATCH ? AND a.tenant_id = ? "
                 f"AND a.dataset_id IN ({placeholders}) "
                 f"AND {assertion_status_sql} "
                 "AND EXISTS (SELECT 1 FROM memory_mutations m "
@@ -6120,6 +6209,27 @@ class MemoryDAO:
                 "ORDER BY bm25_score, a.assertion_id LIMIT ?"
             )
             async with self._sql.connection() as db:
+                # WHERE filters do not scope FTS5's corpus statistics. Build a
+                # connection-local index of the authorized corpus so foreign
+                # rows cannot change scores, rank or the pre-rank LIMIT. The
+                # temporary index is discarded when this connection closes.
+                await db.execute(
+                    "CREATE VIRTUAL TABLE temp.v4_scoped_assertions_fts USING fts5("
+                    "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
+                    "source_ref, subject_name, object_name, chunk_payload, "
+                    "tokenize='unicode61 remove_diacritics 2')"
+                )
+                await db.execute(
+                    "INSERT INTO temp.v4_scoped_assertions_fts "
+                    "(rowid, assertion_id, predicate, evidence_span, literal_value, "
+                    "source_ref, subject_name, object_name, chunk_payload) "
+                    "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
+                    "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
+                    "f.chunk_payload FROM v4_assertions_fts f "
+                    f"JOIN ({in_scope_assertion_query}) scoped "
+                    "ON scoped.assertion_id = f.assertion_id",
+                    (tenant_id, *datasets, agent_id, *provenance_params),
+                )
                 async with db.execute(
                     passage_sql,
                     (
@@ -6354,14 +6464,19 @@ class MemoryDAO:
                         score -= 150.0
 
             # 7. Confidence Scaling
-            confidence = float(a_row.get("confidence") or 1.0)
+            raw_conf = a_row.get("confidence")
+            confidence = float(raw_conf) if raw_conf is not None else 1.0
             score *= max(0.5, min(1.0, confidence))
-            score = max(score, float(a_row.get("confidence") or 0.1))
+            score = max(score, float(raw_conf) if raw_conf is not None else 0.1)
 
             scored_assertions.append((score, aid, a_row))
 
         scored_assertions.sort(
-            key=lambda x: (-x[0], -float(x[2].get("confidence") or 0.0), str(x[1]))
+            key=lambda x: (
+                -x[0],
+                -float(x[2]["confidence"] if x[2].get("confidence") is not None else 0.0),
+                str(x[1]),
+            )
         )
 
         assertion_lane: list[str] = []

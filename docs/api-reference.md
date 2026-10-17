@@ -12,65 +12,27 @@ OpenAPI sözleşmesinin çalışan kaynakları `mesa_api/router.py` ve
 
 ## V4 capability
 
-`GET /v4/capability`, uyumluluk için `features` listesini korur; liste aynı
-yanıttaki değeri `true` olan `capabilities` anahtarlarından üretilir. Yanıt
-ayrıca rebuild sınırını içerik veya fiziksel path taşımadan bildirir:
+`GET /v4/capability` returns `api_version`, `features`, `capabilities` and
+`limits`. `features` contains the capability names whose values are true.
+The response depends on the configured and operational runtime; a sample
+response must not be used as a fixed feature promise.
 
-```json
-{
-  "api_version": "v4",
-  "features": [
-    "canonical_ledger",
-    "projection_outbox",
-    "idempotent_ingestion",
-    "vector_retrieval",
-    "lexical_retrieval",
-    "assertion_relational_lane",
-    "validity_interval_filtering",
-    "graph_projection"
-  ],
-  "capabilities": {
-    "canonical_ledger": true,
-    "projection_outbox": true,
-    "idempotent_ingestion": true,
-    "vector_retrieval": true,
-    "lexical_retrieval": true,
-    "assertion_relational_lane": true,
-    "validity_interval_filtering": true,
-    "graph_projection": true,
-    "graph_neighbor_retrieval": false,
-    "associative_ppr": false,
-    "bitemporal_query": false,
-    "durable_rebuild": false,
-    "human_review": false
-  },
-  "limits": {
-    "rebuild_kind": "projection",
-    "rebuild_scope": "storage_root",
-    "requires_offline_runner": true
-  }
-}
-```
+| Capability | Meaning |
+|---|---|
+| `canonical_ledger`, `projection_outbox`, `idempotent_ingestion` | Durable canonical work and projection contracts |
+| `vector_retrieval` | Operational embedding generation, not merely configured identity |
+| `lexical_retrieval`, `assertion_relational_lane` | SQLite lexical/assertion retrieval; not graph traversal |
+| `graph_projection` | Graph projection availability |
+| `graph_neighbor_retrieval` | Operational neighbor retrieval implementation |
+| `validity_interval_filtering` | Validity filtering, not bitemporal semantics |
+| `durable_rebuild` | Enabled by `MESA_V4_REBUILD_ENABLED`; still offline and full-root |
+| `associative_ppr`, `bitemporal_query`, `human_review` | Not advertised as implemented Core capabilities |
 
-`durable_rebuild` yalnız `MESA_V4_REBUILD_ENABLED=true` iken `true` olur.
-`assertion_relational_lane`, SQLite’taki yetkili assertion ilişkilerinden
-üretilen retrieval lane’idir; Kùzu neighbor traversal anlamına gelmez.
-`validity_interval_filtering`, tek bir geçerlilik aralığı filtresidir;
-bitemporal query değildir. Eski `graph_retrieval`, `temporal_filtering` ve
-`vector_search` geniş adları bu nedenle sözleşmeden kaldırılmıştır.
-`graph_neighbor_retrieval` yalnız Graph V2 provider startup sorgusunu geçmiş
-ve son retrieval sorgusunda operational kalmışsa `true` olur. Yapılandırılmış
-backend sorgu sırasında kullanılamaz hale gelirse search
-`503 graph_backend_unavailable` döndürür; programming hataları bu sınıfla
-maskelenmez.
-Yalnız projection yazma interface'ini sağlayan adapter'lar graph configured
-olabilir fakat neighbor-retrieval implementation'ı bulunmadığı için bu flag'i
-`false` bırakır; bu durumda vector/BM25/assertion lane'leri çalışmaya devam eder.
-`vector_retrieval`, embedding configuration nesnesinin varlığını değil,
-runtime'ın gerçekten embedding üretebildiğini bildirir. Custom provider'lar
-ilk başarılı embedding çağrısına kadar configured fakat non-operational kabul
-edilir; beklenen provider hataları `503 vector_backend_unavailable` olur ve
-başka bir modele sessiz fallback yapılmaz.
+Rebuild limits are `rebuild_kind=projection`, `rebuild_scope=storage_root`, and
+`requires_offline_runner=true`. A projection-only graph adapter does not supply
+neighbor retrieval. Custom embedding providers are non-operational until a
+successful embedding call. Configured backend failure is surfaced explicitly;
+see [retrieval behavior](retrieval-and-graph.md) and [troubleshooting](RUNBOOK.md#troubleshooting).
 
 ## V4 administrative rebuild operations
 
@@ -109,25 +71,10 @@ olur. Offline işletim prosedürü
 | `POST` | `/v4/catalog/source-chunks` | Dataset `WRITER` | Exact source chunk oluşturur |
 | `DELETE` | `/v4/catalog/documents/{document_id}` | Dataset `OWNER` + `PURGE` | Kaynak sahipli purge başlatır |
 
-Catalog hiyerarşisi
-`Tenant → Workspace → Dataset → Document → DocumentRevision → SourceChunk`
-şeklindedir. Revision ve chunk içerikleri immutable’dır; güncelleme yeni
-revision oluşturur.
-
-İstemcinin verdiği catalog kimlikleri tenant-kapsamlı public ID'lerdir. Yeni
-workspace, dataset, document, revision ve chunk kayıtlarının fiziksel storage
-anahtarları sunucu tarafından opaque olarak üretilir. Public resolver yalnız
-`tenant + kind + external_id` eşlemesini kabul eder; bir fiziksel anahtarın
-`external_id` alanına yazılması ona public alias yetkisi vermez. API, Python SDK
-ve MCP yanıtları catalog alanlarını yeniden public ID'lere çevirir.
-
-Revision hash alanları üç ayrı anlam taşır: `declared_content_hash`, açık
-revision oluşturma çağrısında bildirilen bütün-revision SHA-256 değeridir;
-`manifest_hash`, dondurulmuş source-chunk manifestinin hash'idir; her chunk'ın
-`content_hash` alanı yalnız o chunk içeriğine aittir. Doğrudan chunk insertion
-bütün-revision hash'i bildirmez ve revision alanı `null` kalır. Eski
-`content_hash` alanı compatibility için korunur; geçmiş değerlerin provenance'ı
-otomatik olarak caller-declared kabul edilmez.
+Catalog IDs are tenant-scoped public IDs; physical storage keys are not public
+aliases. Revision/chunk identity, finalization and the distinction between
+`declared_content_hash`, `manifest_hash` and chunk `content_hash` are defined in
+[concepts and ingestion](concepts-and-ingestion.md).
 
 ## V4 session ve memory
 
@@ -135,98 +82,41 @@ otomatik olarak caller-declared kabul edilmez.
 |---|---|---|
 | `POST` | `/v4/sessions/start` | Sunucu üretimli, dataset kapsamı değişmez session başlatır |
 | `POST` | `/v4/memory/insert` | Exact source’u kabul edip mutation ve pipeline run oluşturur |
-| `POST` | `/v4/memory/search` | Yetkili datasetlerde vector/BM25/graph RRF araması yapar |
+| `POST` | `/v4/memory/search` | Yetkili datasetlerde vector/BM25/assertion/graph RRF araması yapar |
 | `GET` | `/v4/mutations/{mutation_id}` | State, pipeline, artifact ve projection durumunu verir |
 | `POST` | `/v4/mutations/{mutation_id}/replay` | Yetkili DLQ/retry işini yeniden kuyruğa alır |
 | `POST` | `/v4/mutations/{mutation_id}/rollback` | Kaynak sahipli rollback başlatır |
 | `GET` | `/v4/sessions/{session_id}/context` | Session context ve mutation provenance’ını verir |
 | `POST` | `/v4/sessions/{session_id}/end` | Durable finalization ister ve session’ı kapatır |
 
-Context çağrısı varsayılan olarak mevcut tek-sorgulu davranışı kullanan
-`retrieval_mode=single` ile çalışır. İstemci açıkça
-`retrieval_mode=adaptive` gönderirse sunucu, yetkili session kapsamını
-değiştirmeden en fazla bir planlayıcı çağrısı ve iki ek arama ile sınırlı
-semantik sorgu genişletmeyi etkinleştirir. Ham `/v4/memory/search` davranışı
-değişmez.
+Insert derives tenant/workspace/agent from the authorized session and returns
+`202` with `mutation_id`, `candidate_id`, `pipeline_run_id` and `raw_log_id`.
+This is admission; poll status and require `COMMITTED` before assuming success.
+`wait_until_committed()` also returns failed terminal states.
 
-`POST /v4/memory/insert` tenant, workspace ve agent değerlerini istemciden
-almaz; bunları doğrulanmış session’dan türetir. İstek `session_id`,
-`dataset_id`, document/revision/chunk kimlikleri, `source_ref` ve exact
-`content` taşır. `202` yanıtı `mutation_id`, `candidate_id`,
-`pipeline_run_id` ve `raw_log_id` döndürür.
+For multiple chunks use distinct IDs/ordinals, `finalize_revision=false` until
+the last insert, then `true`. Retry the exact payload with the same body
+`idempotency_key`. Revision lifecycle, rejection/replay and rollback semantics
+are defined in [concepts and ingestion](concepts-and-ingestion.md).
 
-Yetkili dataset writer, doğrulanmış kaynak kataloğundan gelmek kaydıyla isteğe
-bağlı `legal_identity` nesnesi gönderebilir. `law_id` ve `article_id`
-zorunludur; `statute_code`, `version_id`, `paragraph_id` ve `clause_id`
-opsiyoneldir. Kanun numarası/adı/kısaltması yerleşik alias sözleşmesiyle aynı
-kanuna çözülmeli, aksi halde istek reddedilir. Bu alan serbest `metadata`
-içinden okunmaz; caller tarafından gönderilen bütün `_mesa_*` anahtarları
-atılır. Kaynağın gerçekten bildirilen kanun/maddeye ait olduğunu kanıtlama
-sorumluluğu producer/catalog katmanındadır; yalnız `MADDE 1` metninden kimlik
-türetilmez.
+The HTTP insert contract accepts optional typed `legal_identity`: `law_id` and
+`article_id` are required within that object; `statute_code`, `version_id`,
+`paragraph_id` and `clause_id` are optional. Identity must resolve consistently
+through the bounded legal aliases. Caller metadata cannot supply trusted
+`_mesa_*` fields. The producer remains responsible for source truth.
 
-Bir revision birden çok chunk içeriyorsa son chunk dışındaki insert'ler
-`finalize_revision=false`, son insert ise `finalize_revision=true` gönderir.
-Finalization source/chunk manifestini dondurur; bundan sonra aynı revision'a
-yeni chunk eklenemez ve revision yalnız manifestteki bütün chunk mutation'ları
-başarıyla tamamlanınca `ACTIVE` olur.
-Chunk mutation'ları manifest dondurulmadan önce tamamlanmışsa finalization aynı
-canonical activation bariyerini transaction içinde yeniden çalıştırır; başka
-bir mutation transition gerekmez. Tek `ACTIVE` document head ve tekrarlanan
-finalization idempotence'i korunur.
-
-Search ve context işlemleri `jurisdiction` filtresini (ör. `TR`) HTTP,
-sync/async SDK ve MCP üzerinden retrieval aşamasına taşır. Context HTTP
-çağrısında bu alan query parametresidir; kapsam dışı ülke evidence kayıtları
-canonical context içine alınmaz.
-
-Search ve context işlemleri aynı temporal sözleşmeyi paylaşır:
-`valid_at`, `valid_from` ve `valid_to`. Bu alanlar HTTP, sync/async SDK ve MCP
-yüzeylerinde ISO-8601 değerleri olarak aynen iletilir. HTTP ve Python SDK search sonucundaki `final_score` fused relevance skorudur;
-daha yüksek değer daha iyi eşleşmedir. `rrf_score`, `legal_factor` ve
-`raw_score` ayrı alanlardır; MCP adapterları kendi response şemasında
-`score` adıyla normalize edebilir.
-Her sonuçtaki `retrieval_provenance.origins`, sonuca katkı veren
-`vector`, `bm25`, `assertion` ve `graph` lane'lerini bildirir. Graph katkısı
-varsa aynı nesne bounded `graph_hop_count`, canonical seed entity kimliği ve
-SQLite ile uzlaştırılmış `graph_path_assertion_ids` alanlarını da taşır.
-
-Context çıktısındaki retrieved session logları ve canonical memory, açıkça
-`UNTRUSTED_MEMORY_EVIDENCE` içinde JSON evidence kayıtları olarak render edilir;
-içerikler komut değil veridir. `token_budget`, yalnız bu LLM-ready formatted
-context için normal durumda `cl100k_base` sayımıyla uygulanan üst sınırdır. Canonical
-BPE yüklenemezse mevcut OpenAI sayım yolu `strict=True` olsa da her UTF-8
-byte için bir token sayan conservative offline üst sınır kullanır. Bu sonuç
-exact cl100k ölçümü değildir ve daha az evidence sığdırabilir. Sayaçtan gelen
-exception ise ContextBuilder tarafından gizlenmez. `include_provenance` destekleyen doğrudan ContextBuilder çağrılarında
-`source_ref`, document/revision/chunk kimlikleri ve bounded evidence span ancak
-mevcutsa evidence kaydına eklenir.
-
-Başarılı mutation yolu:
-
-```text
-RECEIVED → EXTRACTED → VALIDATED
-         → SQL_APPLIED → VECTOR_APPLIED → GRAPH_APPLIED → COMMITTED
-```
-
-Pipeline run görünümü:
-
-```text
-QUEUED → RUNNING → EXTRACTED → VALIDATED → PROJECTING → COMMITTED
-```
-
-Mutation terminal SDK kümesi `COMMITTED`, `REJECTED`, `DEAD_LETTER`,
-`ROLLED_BACK`, `BLOCKED` içerir; `wait_until_committed` başarısız terminalde de
-döner. Pipeline/outbox görünümünde `DLQ` kullanılabilir.
-Terminal/kurtarma durumları arasında `REJECTED`, `RETRY_PENDING`, `DLQ`,
-`ROLLING_BACK`, `ROLLED_BACK` ve `BLOCKED` bulunur. Seçili validation
-policy’sinin reddi aktif retrieval artifact’ı üretmez.
-Semantic `REJECTED` mutation generic replay ile açılamaz ve yetkili replay
-isteği `409 NON_REPLAYABLE` döndürür. Aynı pipeline'daki gerçek projection veya
-cleanup failure'ları retry edilebilir; rejected child terminal ve parent
-aggregate state'i doğru kalır.
+Search and context both accept `jurisdiction`, `valid_at`, `valid_from` and
+`valid_to`. Context uses query parameters and defaults to `token_budget=2048`,
+`retrieval_mode=single`. Opt-in `adaptive` permits at most one planner call and
+two additional scoped searches. Scores, graph provenance, proof packing and
+offline token counting are defined in [retrieval and graph](retrieval-and-graph.md).
+Raw `/v4/memory/search` remains the single-query primitive.
 
 ## V4 Python SDK
+
+Bu örnek, model-enabled V4 sunucu, provision edilmiş `credential`, mevcut
+`tenant-a/workspace-a/dataset-a` kataloğu ve `agent-a` session izni varsayar.
+Bunları da kuran örnek için [Getting started](getting-started.md) kullanılır.
 
 ```python
 from mesa_client import MesaV4Client
@@ -251,7 +141,35 @@ with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
     terminal = client.wait_until_committed(accepted["mutation_id"])
     if terminal["state"] != "COMMITTED":
         raise RuntimeError(terminal["state"])
+    result = client.search(session_id=session["session_id"], query="Exact source")
+    for hit in result["results"]:
+        print(hit["assertion_id"])
+        for source in hit.get("provenance", []):
+            print(source["source_ref"], source["dataset_id"], source["chunk_id"])
+    context = client.get_context(session_id=session["session_id"], query="Exact source")
+    print(context["context"])
+    client.end_session(session_id=session["session_id"])
 ```
+
+`accepted` is durable admission, not finished retrieval. `client.status(mutation_id)`
+exposes `state`, `failure_class`, `rejection_reason`, `pipeline_run`, `artifacts`
+and `projections`. Wait for `COMMITTED`; `REJECTED`, `DEAD_LETTER`, `BLOCKED` and
+`ROLLED_BACK` are terminal outcomes too. A wait timeout raises `MesaNetworkError`
+and leaves the mutation running. Recheck status; for an uncertain insert retry
+the same payload with an explicit, unchanged `idempotency_key`.
+
+`results=[]` on a successful search means no matching visible evidence. Provider,
+storage and authorization failures raise errors instead. Each hit's
+`assertion_id` identifies a canonical claim; `provenance` links it to the source
+and dataset/chunk. A score ranks evidence; it is not a truth probability.
+Context returns packed text in `context` and structured evidence in
+`canonical_memories`. Finish retrieval before `end_session`; closing the HTTP
+client alone does not end the server session.
+
+For async code use `async with AsyncMesaV4Client(...) as client` and `await` each
+of these methods, including polling and `end_session`. Do not run the blocking
+`MesaV4Client` inside an event loop. Async clients also support `await client.aclose()`;
+sync clients support `client.close()`.
 
 Çok chunk'lı revision için ilk çağrılarda `finalize_revision=False`, son
 çağrıda varsayılan `True` kullanılır. `search` ve `get_context` metotları
@@ -280,57 +198,15 @@ olabilir. Bununla birlikte principal/session ownership, mutation ile session'ın
 tenant/workspace/dataset/agent scope eşleşmesi, dataset rolü ve açık
 `ROLLBACK` izni her çağrıda doğrulanır.
 
-Operator komutları:
+Provision keys, roles and explicit dataset permissions using the
+[operations runbook](RUNBOOK.md#credential-bootstrap); the
+[CLI reference](api-reference.md#cli) identifies admin entry points. RBAC uses its
+own schema version in the policy database, independently of Alembic migrations
+for canonical storage. Lost grants from an old database cannot be inferred or
+recreated automatically.
 
-```bash
-mesa-v4-admin issue-key --principal service-a
-mesa-v4-admin grant-role --principal service-a --tenant tenant-a --role OWNER
-mesa-v4-admin grant-agent --principal service-a --agent agent-a \
-  --permission SESSION_CREATE
-mesa-v4-admin grant-dataset-permission --principal service-a \
-  --tenant tenant-a --dataset dataset-a --permission ROLLBACK
-mesa-v4-admin revoke-role --principal service-a --tenant tenant-a --role OWNER
-mesa-v4-admin revoke-dataset-permission --principal service-a \
-  --tenant tenant-a --dataset dataset-a --permission ROLLBACK
-```
-
-RBAC policy DB, Alembic yerine kendi `rbac_schema_version` metadata tablosuyla
-v2’ye yükseltilir. Yükseltme aynı SQLite transaction içinde table-rebuild ve
-row-count doğrulaması yapar; başarısız olursa eski policy tabloları korunur.
-Tarihsel unscoped primary key daha önce iki tenant grant’ini çarpıştırdıysa,
-kaybedilen grant geri üretilemez.
-
-## `MemoryDAO` v4 sınırı
-
-`mesa_storage.dao.MemoryDAO`, v4 için SQLite karar kaynağını ve LanceDB/Kùzu
-projection’larını yönetir. Başlıca sözleşmeler:
-
-- catalog/session: `create_v4_*`, `list_v4_*`, `get_v4_session`;
-- ingestion: `record_mutation`, `record_mutation_extraction`;
-- projection: `claim_projection`, `complete_projection`,
-  `fail_projection`;
-- pipeline: `get_pipeline_run`, compare-and-swap state ve event kayıtları;
-- ownership: `memory_artifacts` ile `artifact_sources`;
-- recovery: rollback/cleanup outbox, replay ve iki yönlü reconciliation;
-- retrieval: `search_v4_memory`, zorunlu tenant/dataset filtresi ve RRF;
-- observability: `get_v4_projection_health`.
-
-Projection anahtarı `mutation_id + artifact_id` ile idempotenttir. Sıra
-SQLite → vector → graph olarak veritabanı önkoşullarıyla korunur. Kùzu karar
-kaynağı değil, SQLite assertion ledger’ının projection’ıdır.
-
-## Graph V2
-
-Entity kimliği sabit namespace ile tenant, entity type ve identity key’den
-UUID5 üretilerek hesaplanır. Identity key önce ontology/external identity’yi,
-yoksa NFKC + whitespace normalization + casefold uygulanmış canonical adı
-kullanır. Alias ve external ID aynı entity’ye bağlanır.
-
-Assertion; subject, predicate, entity object veya literal, source/evidence,
-jurisdiction, authority, confidence, temporal alanlar, mutation ve pipeline
-run provenance’ını taşır. `CONTRADICTS` ve `SUPERSEDES` assertion’lar arası
-ilişkilerdir. PageRank yalnız gözlem telemetrisidir ve artifact karantinası
-veya silme kararı veremez.
+Internal DAO ownership, projection and Graph V2 structure belong in the
+[architecture](architecture-v4.md); they are not separate public HTTP methods.
 
 ## V3 compatibility API
 
@@ -350,9 +226,13 @@ garantileriyle karıştırılmamalıdır.
 
 ## Health ve metrics
 
-- `/health`: process ve store sağlık özeti
-- `/health/init`: readiness
-- `/metrics`: Prometheus exposition
+- `/health` ve `/v3/health`: API anahtarıyla `status`, `maintenance`, `rebuild_state` özeti
+- `/health/init`: public readiness; hazırsa `200 {"status":"ready"}`, değilse `503`
+- `/metrics`: API anahtarıyla Prometheus sayaçları ve gauge'ları
+
+`/health` degraded veya maintenance durumunda da HTTP 200 dönebilir; yalnız
+HTTP kodunu başarı saymayın, `status` alanını kontrol edin. Ayrıntılı kuyruk,
+projection ve rebuild sayaçları `/metrics` üzerinden okunur.
 
 V4 metrikleri projection backlog/DLQ/stuck lease, cleanup backlog/BLOCKED,
 ownerless registry, shared artifact ve rebuild state/duration/progress,
@@ -382,6 +262,35 @@ testleri kaynak otoritesidir. Queue saturation/rebuild maintenance için
 Retry-After dikkate alınır. Dakikalık default 60/minute, daily default 10000
 principal bazındadır; health/metrics daily budget dışındadır.
 
+### Actionable errors
+
+Catch `MesaAPIError` to inspect `status_code`, `error` and `detail`. HTTP bodies
+also include `retryable`; the SDK does not automatically retry HTTP failures.
+Rejected request values and internal route paths are omitted from validation
+errors. For example, a non-string search query returns HTTP 422:
+
+```json
+{"error":"VALIDATION_ERROR","detail":"body.query: Input should be a valid string","status_code":422,"retryable":false}
+```
+
+| Response | Next step |
+|---|---|
+| 401 `UNAUTHORIZED` | Supply the issued MESA key, not the provider key |
+| 403 `ACCESS_DENIED` | Check tenant/dataset roles, agent grant and session scope |
+| 404 `NOT_FOUND` | Check the ID and credential scope; hidden objects may also return 404 |
+| 409 `SESSION_INACTIVE` | Start an authorized active session before new writes |
+| 409 `IDEMPOTENCY_CONFLICT` | Reuse the original payload with that key, or use a new key for new content |
+| 422 `VALIDATION_ERROR` | Correct the named field/format; timestamps need a timezone |
+| 503 `BACKEND_UNAVAILABLE`, detail `canonical_processing_unavailable` | Enable configured extraction/embedding in one combined owner; models-off startup cannot ingest V4 |
+| 503, detail `vector_backend_unavailable` / `graph_backend_unavailable` | Check provider credentials, embedding identity and backend readiness; an empty result is not a substitute |
+| 503, detail `queue_over_capacity` / `maintenance_pending` | Respect `Retry-After` when present and wait for capacity/maintenance |
+
+Failed background processing is reported by mutation status even when the insert
+returned 202. Inspect its failure/projection fields; an admission response or an
+empty early search does not establish successful processing. Startup
+configuration errors appear in the server terminal before readiness; see
+[configuration](configuration.md#environment-file-and-first-startup).
+
 List catalog çağrıları burada açıkça belgelenmiş pagination garantisi sunmaz;
 response/schema'yı inceleyin. İlk catalog/ACL ve credential ön koşulları dahil
 çalıştırılabilir örnek [Getting started](getting-started.md) içindedir.
@@ -390,6 +299,117 @@ Canonical V4 insertion requires the model-enabled combined processing consumer.
 Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
 `503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
 
-[Source-generated OpenAPI snapshot](reference/openapi.json) lists every current
-path, parameter and schema (47 paths). It is generated from app.openapi without
-starting a server; runtime security dependencies still require live tests.
+The [OpenAPI snapshot](reference/openapi.json) is a generated reference.
+Use the running app's `/openapi.json` and route/schema source for the exact
+checkout; do not infer snapshot freshness from this page. Generating a schema
+without server startup does not exercise authentication or runtime behavior.
+
+<a id="cli"></a>
+
+## CLI commands
+
+The entry points are declared in `pyproject.toml`. Run `.venv/bin/<command>
+--help` after the locked install. These commands do not have a universal
+`--version`; read package metadata with:
+
+```bash
+.venv/bin/python -c "from importlib.metadata import version; print(version('mesa-memory'))"
+```
+
+| Command | Scope |
+|---|---|
+| `mesa-v4-admin` | Offline credentials and ACL provisioning; defaults to `MESA_STORAGE_ROOT/rbac_policy.db` |
+| `mesa-recovery` | Trusted-root checksummed backup, validate and new-root restore |
+| `mesa-v4-rebuild` | Offline full-root projection rebuild/adoption; never an online worker |
+| `mesa-mcp` | stdio server; V3 default, explicit V4 settings supported |
+| `mesa-mcp-gateway` | Independently supervised HTTP/Streamable HTTP control gateway |
+| `mesa-antigravity-bridge` | Binding-scoped stdio bridge with encrypted write spool |
+| `mesa` | Codex/Antigravity install, doctor, profiles, credential lifecycle and operations approvals |
+
+### Admin bootstrap
+
+```bash
+.venv/bin/mesa-v4-admin --help
+.venv/bin/mesa-v4-admin grant-role --principal docs-principal --tenant docs-tenant --role OWNER
+.venv/bin/mesa-v4-admin grant-agent --principal docs-principal --agent docs-agent --permission SESSION_CREATE
+```
+
+Use these only against the intended stopped/new policy database. `issue-key`
+prints the credential once; `rotate-key --key-id` revokes/replaces it.
+`grant-control` assigns `ADMIN`. `grant-dataset-permission` explicitly assigns
+`PURGE`/`ROLLBACK`; role inheritance alone does not give those operations.
+Dataset role grants require both `--workspace` and `--dataset`. Corresponding
+`revoke-role`/`revoke-dataset-permission` remove authorization.
+
+### Recovery, rebuild and MCP
+
+Use [operations](RUNBOOK.md) and [rebuild](v4-rebuild-runbook.md) for safety,
+trusted paths, locking, status, retry/lease, exit codes and retained generations.
+Never use arbitrary raw-store cleanup as a CLI substitute.
+[MCP](../README_MCP.md) describes binding credentials, encryption and local
+operator approval. `mesa operations approve/reject` acts on durable operation
+IDs with server-side ADMIN authority; it does not bypass gateway policy.
+
+`python -m mesa_memory.runtime_entrypoint` selects the explicit runtime profile;
+there is no `mesa serve` command. `mesa-benchmark` belongs to the separate
+benchmark project and is not installed by this Core package.
+
+
+<a id="mcp-control-api"></a>
+
+## MCP control API
+
+MCP istemcilerini, bağlantıları, credential özetlerini ve onayları yönetmek için
+sunucu tarafı control API kullanılır. Kaynaklar `mesa_api/routers/control/router.py`,
+`mesa_mcp/gateway/` ve `mesa_storage/control/` dizinlerindedir.
+
+### Yetki ve erişim
+
+API prefix'i `/control/mcp`'dir. Her çağrı aktif authenticated principal ve
+server-side `ADMIN` rolü gerektirir. Loopback erişimi bu yetkiyi otomatik vermez.
+Credential özetleri plaintext token içermez. Gateway transport/binding credential
+ayrı bir yetki sınırıdır. Uzak erişimde authenticated reverse proxy kullanılır.
+
+### Mevcut route'lar
+
+| Method | `/control/mcp` altındaki path | İşlev |
+|---|---|---|
+| POST/GET | `/clients` | Client oluştur/listele |
+| GET | `/clients/{client_id}` | Client ayrıntısı |
+| PUT | `/clients/{client_id}/enabled` | Enable/disable (`enabled` query) |
+| GET | `/clients/{client_id}/bindings` | Project/dataset bindings |
+| GET | `/connections` | Aktif bağlantılar |
+| GET/POST | `/settings` | Ayarlar; POST `key` ve `value` query alanları |
+| GET/POST | `/policies` | Politika kuralları |
+| GET | `/managed-clients` | Codex/Antigravity güvenli binding/credential özeti |
+| POST | `/credentials/{credential_id}/revoke` | Credential iptali |
+| GET | `/activity`, `/activity/{call_id}` | Bounded aktivite listesi/ayrıntısı |
+| GET | `/approvals`, `/approvals/pending` | Onay listesi |
+| POST | `/approvals/{approval_id}/decide` | Yetkili karar |
+| GET | `/overview` | Aggregate durum |
+
+Canlı OpenAPI, parametre ve şemaların son kaynağıdır. Bu API bir web arayüzü
+sunmaz; kaldırılmış dashboard ve showcase uygulamalarını başlatmak gerekmez.
+
+### Gateway ve onay yaşam döngüsü
+
+Codex doğrudan HTTP MCP gateway'e; Antigravity binding-scoped stdio bridge ile
+bağlanır. Gateway policy, credential, approval ve durable operation state'ini
+saklar. Varsayılan write onayı işlem ID'siyle pending döner; uzun stdio çağrısını
+açık tutmaz. `mesa operations approve/reject` yalnız geçerli pending operation,
+aktif client/binding ve ADMIN principal için karar kaydeder. Gateway normal
+consumer'ı onaylanmış işi yürütür. Aynı idempotency key aynı operation'ı döndürür.
+
+CLI, public operation ID kullanır. Control API'nin
+`POST /control/mcp/approvals/{approval_id}/decide` yolu ise approval ID kullanır;
+bu iki kimlik birbirinin yerine geçmez. Legacy middleware yalnız approval ID
+döndürdüğünde karar control API üzerinden verilir.
+
+Credential install, doctor, rotate, disable/uninstall, protected XDG files ve
+operator CLI örnekleri [MCP rehberindedir](../README_MCP.md).
+
+### Kanıt sınırı
+
+Aktivite kaydı context yanıtının teslim edildiğini gösterebilir; modelin o
+bilgiyi gerçekten kullandığını veya cevabın doğruluğunu kanıtlamaz. İnsan
+onayı Core V4 `human_review` legal capability bayrağına eşit değildir.
