@@ -6426,14 +6426,19 @@ class MemoryDAO:
                         score -= 150.0
 
             # 7. Confidence Scaling
-            confidence = float(a_row.get("confidence") or 1.0)
+            raw_conf = a_row.get("confidence")
+            confidence = float(raw_conf) if raw_conf is not None else 1.0
             score *= max(0.5, min(1.0, confidence))
-            score = max(score, float(a_row.get("confidence") or 0.1))
+            score = max(score, float(raw_conf) if raw_conf is not None else 0.1)
 
             scored_assertions.append((score, aid, a_row))
 
         scored_assertions.sort(
-            key=lambda x: (-x[0], -float(x[2].get("confidence") or 0.0), str(x[1]))
+            key=lambda x: (
+                -x[0],
+                -float(x[2]["confidence"] if x[2].get("confidence") is not None else 0.0),
+                str(x[1]),
+            )
         )
 
         assertion_lane: list[str] = []

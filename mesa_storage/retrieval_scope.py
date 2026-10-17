@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -56,8 +57,22 @@ def compute_rrf_lane_score(
     """Calculate the RRF score contribution for a given 1-based rank in a specified lane."""
     if rank < 1:
         raise ValueError(f"rank must be >= 1, got {rank}")
+    if (
+        not isinstance(k, (int, float))
+        or math.isnan(k)
+        or math.isinf(k)
+        or k < 1
+    ):
+        raise ValueError(f"k must be >= 1 and finite, got {k}")
     w_map = weights if weights is not None else V4_RRF_LANE_WEIGHTS
     weight = w_map.get(lane, 1.0)
+    if (
+        not isinstance(weight, (int, float))
+        or math.isnan(weight)
+        or math.isinf(weight)
+        or weight < 0
+    ):
+        raise ValueError(f"lane weight must be non-negative and finite, got {weight}")
     return weight / (k + rank)
 
 
@@ -78,6 +93,17 @@ def rrf_fuse_lanes(
         List of (candidate_id, fused_rrf_score, lane_ranks_dict), sorted
         deterministically by (-fused_rrf_score, candidate_id).
     """
+    if weights is not None:
+        for lane_name, w in weights.items():
+            if (
+                not isinstance(w, (int, float))
+                or math.isnan(w)
+                or math.isinf(w)
+                or w < 0
+            ):
+                raise ValueError(
+                    f"lane weight for '{lane_name}' must be non-negative and finite, got {w}"
+                )
     scores: dict[str, float] = {}
     lane_ranks: dict[str, dict[str, int]] = {}
 

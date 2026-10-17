@@ -151,3 +151,39 @@ async def test_fts_bm25_scope_isolation_under_cross_tenant_corpus_load(tmp_path)
         assert meta_after["scope_audit"]["exclusion_audit_hash"] == meta_before["scope_audit"]["exclusion_audit_hash"]
     finally:
         await sql.close()
+
+
+@pytest.mark.asyncio
+async def test_zero_confidence_assertion_preserves_zero(tmp_path):
+    sql, _vector, _graph, dao = await _environment(tmp_path)
+    try:
+        cand = await _create_committed_mutation(
+            dao,
+            raw_log_id=1,
+            tenant_id="tenant-a",
+            agent_id="agent-a",
+            dataset_id="dataset-a",
+            chunk_id="chunk-1",
+            content="Policy with zero confidence test.",
+            subject="Policy",
+            predicate="tests",
+            object_value="Zero",
+        )
+        async with sql.transaction() as db:
+            await db.execute(
+                "UPDATE v4_assertions SET confidence = 0.0 WHERE assertion_id = ?",
+                (cand["assertion_id"],),
+            )
+            await db.commit()
+
+        results = await dao.search_v4_memory(
+            tenant_id="tenant-a",
+            agent_id="agent-a",
+            dataset_ids=["dataset-a"],
+            query="Policy zero",
+        )
+        assert len(results) == 1
+        assert results[0]["matched_assertions"][0]["confidence"] == 0.0
+    finally:
+        await sql.close()
+
