@@ -2,7 +2,7 @@
 
 Bu klasörde 12 kullanım/geliştirme rehberi ve 8 mimari karar belgesi vardır.
 Hepsini sırayla okumak gerekmez. Amacınıza göre aşağıdaki giriş noktasını seçin.
-Paket sürümü 0.8.0; V4 güncel API, V3 uyumluluk yüzeyidir.
+Paket sürümü 0.8.1; V4 güncel API, V3 uyumluluk yüzeyidir.
 
 ## Nereden başlamalıyım?
 
@@ -31,7 +31,7 @@ Paket sürümü 0.8.0; V4 güncel API, V3 uyumluluk yüzeyidir.
 - Diğer MESA projelerinin sorumlulukları: [ekosistem](architecture-v4.md#ecosystem).
 - Kapasite ve desteklenmeyen özellikler: [sınırlar](architecture-v4.md#limitations).
 - GitHub kontrollerinin kapsamı: [CI](testing.md#ci-assurance).
-- v0.8.0 yayın durumu ve istisnaları: [CHANGELOG](../CHANGELOG.md#v080-publication).
+- v0.8.1 yayın durumu ve istisnaları: [CHANGELOG](../CHANGELOG.md#v081-publication).
 
 ## Tasarım kararları ve teknik dosyalar
 

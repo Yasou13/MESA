@@ -3,7 +3,7 @@
 MESA iki versioned yüzey sunar:
 
 - v3, geriye uyumlu lexical-core API’dir.
-- v4, tenant/dataset yetkili versioned API’dir. Paket 0.8.0; yayın, sahibinin açık onayıyla production sertifikasyonu dışında yapılır.
+- v4, tenant/dataset yetkili versioned API’dir. Paket 0.8.1; yayın, sahibinin açık onayıyla production sertifikasyonu dışında yapılır.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
@@ -244,8 +244,8 @@ parity-missing, staging-byte ve rollback sayılarını kapsar. Alert kuralları
 V4 HTTP insert ve sync/async SDK insert için `title` zorunludur. `title` 1..512,
 `content` 1..32768 karakter, `source_ref` 1..2048, `evidence_span` en çok 4096,
 `idempotency_key` en çok 128 karakterdir. Dataset session üyeliğinde olmalıdır.
-HTTP `legal_identity` destekler; mevcut SDK `insert` imzası bu parametreyi
-sunmaz. Public/source ID validator farkları için çalışan OpenAPI kullanılır.
+HTTP ve sync/async SDK `insert`, opsiyonel `legal_identity` parametresini destekler.
+Public/source ID validator farkları için çalışan OpenAPI kullanılır.
 
 Search request `session_id`, `query` gerektirir; query 1..4096 karakter,
 `limit` default 10 ve 1..50, `dataset_ids` verilirse 1..64 ve session altkümesi,

@@ -252,10 +252,14 @@ audit must remain `NOT EXECUTED`, never converted to a simulated success.
 
 ## Upgrading to v0.8.0
 
-Package metadata is 0.8.0. Publication is owner-approved with the limitations in
-the [release notes](../CHANGELOG.md#v080-publication); it does not certify production
+Current package metadata is 0.8.1. Publication is owner-approved with the limitations in
+the [release notes](../CHANGELOG.md#v081-publication); it does not certify production
 readiness. Confirm actual tags in GitHub Releases. This guide describes changes
 since v0.7.1, not a completed production migration.
+
+v0.8.1 retains the v0.8.0 schema head below. It adds storage/retrieval hardening
+and developer-experience fixes; it introduces no new schema migration. The
+existing embedding identity, offline upgrade and backup requirements still apply.
 
 ### Preconditions and changed contracts
 

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-18
+
+<a id="v081-publication"></a>
+
+### Publication status
+
+The repository owner authorized this v0.8.1 source release on 2026-10-18.
+It includes the MVP hardening and developer-experience changes merged in PR #112.
+Production qualification remains **NO-GO** pending the normal release gates;
+real LLM/embedding integration and a production-like 24-hour soak are not certified.
+No local GPG signing key is available, so the annotated release tag is unsigned.
+Signed-tag preflight success is not claimed. CI, wheel/SBOM artifacts and OIDC
+attestations are verified separately for the release commit and tag.
+
 ### Removed
 
 - Removed the obsolete standalone raw-log agent-ID backfill script.
@@ -20,12 +34,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Scoped BM25 corpus statistics, pre-rank audit queries and audit metadata to
+  authorized tenant/dataset scope; unrelated data no longer influences results.
+- Protected projection completion with claim/fencing ownership checks; prevented
+  cross-dataset repair deletions and false invalidation when vector lookups fail.
+- Kept Kùzu caches consistent after delete and transaction rollback, including
+  composite assertion IDs; graph commit failures retry and cancellations roll back.
+- Surfaced vector backend and embedding failures explicitly; removed the legacy
+  raw-memory fallback to an unrelated eight-dimensional embedding.
+- Rejected reserved `_mesa_` metadata and non-finite RRF weights while preserving
+  explicit zero confidence. Mapped context, catalog chunk and rollback errors
+  to actionable API responses instead of generic server errors.
+- Added optional `legal_identity` parity to synchronous and asynchronous V4 SDK
+  insertion; slowed default status polling to fit the shared minute request budget.
+- Returned field-specific validation errors without echoing rejected input or
+  internal route paths, and retained startup error logging after migrations.
+- Corrected standalone runtime defaults and documented a minimal supported
+  Python install. Updated CI import checks, documentation contracts and SQLite
+  fault-injection test doubles.
 - `make health` now checks the running API's readiness and authenticated health
   using `MESA_BASE_URL` and `MESA_API_KEY`, without opening local databases.
   Unhealthy responses and connection/authentication failures return a nonzero exit.
 
 ### Documentation
 
+- Clarified provider prerequisites, immutable embedding identity, asynchronous
+  projection status, source evidence, session finalization and client cleanup.
+  The V4 quickstart displays assertion/source references. Models-disabled startup
+  is described as a health check; V3 ingestion still requires embeddings.
+- Verified small SQLite/LanceDB/Kùzu flows, restart, populated tenant isolation
+  and completed rollback with explicitly controlled model boundaries. These
+  checks do not establish real-model quality or production-size capacity.
 - Consolidated 37 Markdown pages into 20 maintained guides and decision records;
   merged overlapping guides, retired obsolete ADR files and repaired document
   contracts and links. Release-specific exceptions remain in this changelog.
@@ -497,7 +536,8 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
-[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Yasou13/MESA/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Yasou13/MESA/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Yasou13/MESA/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Yasou13/MESA/compare/v0.6.1...v0.7.0

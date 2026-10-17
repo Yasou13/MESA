@@ -9,10 +9,10 @@ MESA Core stores source-backed agent memory and returns scoped evidence over
 HTTP, Python clients and MCP. SQLite owns the catalog, assertions, mutation
 ledger and artifact ownership. LanceDB and Kùzu provide derived projections.
 
-Package version is **0.8.0**. V4 is the current API; V3 remains a compatibility
+Package version is **0.8.1**. V4 is the current API; V3 remains a compatibility
 surface. Production qualification remains at the release candidate stage:
 **NO-GO** until the [release gates](docs/release.md) pass for the intended commit.
-The [v0.8.0 publication exception](CHANGELOG.md#v080-publication) is separate from
+The [v0.8.1 publication status](CHANGELOG.md#v081-publication) is separate from
 production certification.
 
 ## Start here

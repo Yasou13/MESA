@@ -14,7 +14,7 @@ Start there for module ownership, storage, authorization, ingestion and recovery
 
 V4 uses SQLite as canonical authority and LanceDB/Kùzu as derived projections,
 with one combined storage owner per root. V3 is a separate compatibility surface.
-The API version (`v3`/`v4`) and package version (`0.8.0`) identify different things.
+The API version (`v3`/`v4`) and package version (`0.8.1`) identify different things.
 
 The obsolete V3 whitepaper has been removed from the working tree. Previous
 versions remain in Git history; the ADRs explain the decisions that superseded

@@ -1,6 +1,6 @@
 # Release procedure
 
-V4 paket sürümü `0.8.0`; depo sahibi bu source release için aşağıda kayıtlı
+V4 paket sürümü `0.8.1`; depo sahibi bu source release için aşağıda kayıtlı
 yayın istisnasını açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı
 Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
@@ -33,7 +33,7 @@ Temiz checkout ve release commit’inde:
 
 ```bash
 uv lock --check
-uv sync --locked --extra dev --extra mcp
+uv sync --locked --python 3.10 --extra dev --extra mcp
 uv pip check
 uv run ruff check .
 uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
@@ -115,6 +115,12 @@ Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cut
 yapılmaz; eski storage ve v3 compatibility servisi korunur.
 
 ## Sürüme özel yayın istisnaları
+
+v0.8.1 source yayını depo sahibi tarafından 18 Ekim 2026'da açıkça onaylandı.
+Yerel GPG anahtarı bulunmadığından bu yayın annotated, imzasız tag kullanır;
+signed-tag preflight başarısı iddia edilmez. Gerçek provider ve production
+sertifikasyonu bu source yayınına dahil değildir. Ayrıntılar
+[v0.8.1 sürüm notlarında](../CHANGELOG.md#v081-publication) kayıtlıdır.
 
 v0.8.0 source yayın onayı, imzasız tag ve eksik sertifikasyon kanıtları
 [v0.8.0 sürüm notlarında](../CHANGELOG.md#v080-publication) tutulur. Bu istisna sonraki
