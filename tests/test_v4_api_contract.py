@@ -1344,8 +1344,8 @@ async def test_v4_get_context_invalid_budget_returns_422(
 async def test_v4_get_context_vector_backend_unavailable_returns_503(
     asgi_client: ClientFactory, monkeypatch,
 ) -> None:
-    from mesa_memory.embedding.service import EmbeddingUnavailableError
     from mesa_memory.context_builder import ContextBuilder
+    from mesa_memory.embedding.service import EmbeddingUnavailableError
 
     session = {
         "tenant_id": "tenant-a",

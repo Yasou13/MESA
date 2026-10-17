@@ -162,7 +162,6 @@ async def test_empty_vector_candidate_scope_fails_closed_without_searching() -> 
 
 
 def test_compute_rrf_lane_score_rejects_nan_inf_negative_weights() -> None:
-    import math
     from mesa_storage.retrieval_scope import compute_rrf_lane_score, rrf_fuse_lanes
 
     with pytest.raises(ValueError, match="lane weight must be non-negative and finite"):

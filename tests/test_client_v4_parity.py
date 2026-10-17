@@ -7,6 +7,7 @@ Verifies T06c (A-15):
 """
 
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from mesa_client.client import AsyncMesaV4Client, MesaV4Client
