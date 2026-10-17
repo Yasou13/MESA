@@ -712,14 +712,14 @@ class VectorEngine:
 
         def _check() -> set[str]:
             if self._db is None:
-                return set()
+                raise RuntimeError("VectorEngine database handle is not initialized")
             try:
                 table_names = self._list_table_names()
-            except Exception:
+            except Exception as exc:
                 logger.error(
-                    "get_existing_node_ids failed to list tables", exc_info=True
+                    "get_existing_node_ids failed to list tables: %s", exc, exc_info=True
                 )
-                return set()
+                raise RuntimeError(f"get_existing_node_ids failed to list tables: {exc}") from exc
 
             found: set[str] = set()
             for table_name in table_names:
@@ -727,8 +727,10 @@ class VectorEngine:
                     continue
                 try:
                     table = self._db.open_table(table_name)
-                except (FileNotFoundError, ValueError, OSError):
-                    continue
+                except (FileNotFoundError, ValueError, OSError) as exc:
+                    raise RuntimeError(
+                        f"get_existing_node_ids failed to open table {table_name}: {exc}"
+                    ) from exc
 
                 # Query for existing node_ids in batches to avoid
                 # oversized filter expressions
@@ -754,13 +756,17 @@ class VectorEngine:
                         )
                         for row_idx in range(result.num_rows):
                             found.add(str(result.column("node_id")[row_idx]))
-                    except Exception:
-                        logger.warning(
-                            "get_existing_node_ids query failed for table=%s agent=%s",
+                    except Exception as exc:
+                        logger.error(
+                            "get_existing_node_ids query failed for table=%s agent=%s: %s",
                             table_name,
                             agent_id,
+                            exc,
                             exc_info=True,
                         )
+                        raise RuntimeError(
+                            f"get_existing_node_ids query failed for table {table_name}: {exc}"
+                        ) from exc
 
             return found
 

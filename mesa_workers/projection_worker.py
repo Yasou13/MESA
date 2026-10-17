@@ -213,7 +213,18 @@ async def process_projection_outbox_once(
     async def _handle_one(projection: dict[str, Any]) -> None:
         projection_id = str(projection["projection_id"])
         try:
-            await _apply_with_lease_heartbeat(dao, projection, worker_id)
+            graph = dao._graph
+            graph_transaction = getattr(graph, "transaction", None)
+            if (
+                projection.get("projection_name") == "GRAPH"
+                and graph is not None
+                and getattr(graph, "is_operational", False) is True
+                and callable(graph_transaction)
+            ):
+                async with graph_transaction():
+                    await _apply_with_lease_heartbeat(dao, projection, worker_id)
+            else:
+                await _apply_with_lease_heartbeat(dao, projection, worker_id)
             successful_projections.append(projection)
         except PermanentProjectionError as exc:
             changed = await dao.fail_projection_outbox(
@@ -255,24 +266,9 @@ async def process_projection_outbox_once(
     sorted_projections = sorted(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
-    if sorted_projections:
-        graph = dao._graph
-        graph_transaction = getattr(graph, "transaction", None)
-        if (
-            graph is not None
-            and getattr(graph, "is_operational", False) is True
-            and callable(graph_transaction)
-            and any(p.get("projection_name") == "GRAPH" for p in sorted_projections)
-        ):
-            async with graph_transaction():
-                await asyncio.gather(
-                    *(_handle_one(p) for p in sorted_projections),
-                    return_exceptions=True,
-                )
-        else:
-            await asyncio.gather(
-                *(_handle_one(p) for p in sorted_projections), return_exceptions=True
-            )
+    for p in sorted_projections:
+        await _handle_one(p)
+
     if successful_projections:
         result["completed"] = await dao.complete_projection_outbox_batch(
             successful_projections, worker_id=worker_id

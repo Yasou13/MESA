@@ -1,22 +1,24 @@
 # MESA MCP
 
-MESA MCP exposes MESA to local MCP clients over stdio. Antigravity uses a
+MESA MCP exposes MESA through an HTTP gateway and stdio adapters. Antigravity uses a
 small stdio bridge which connects to an independently supervised HTTP gateway;
 the bridge never imports or accesses storage backends directly.
 
 ## Prerequisites
 
-Start the MESA V4 API and then the MCP gateway. The gateway owns credentials,
+Follow [installation](docs/getting-started.md#installation) and [credential provisioning](docs/RUNBOOK.md#credential-bootstrap)
+first. For canonical writes the V4 API needs model-enabled extraction and
+embedding; the gateway does not supply missing Core providers. Start that API
+and then the MCP gateway. The gateway owns credentials,
 policy, approvals, operation state and the connection pool; the bridge owns
 only its local encrypted write spool.
 
-```bash
-MESA_RUNTIME_PROFILE=combined MESA_STORAGE_ROOT=/absolute/path/to/mesa-data \
-MESA_API_KEY=your-local-api-key MESA_PRINCIPAL_ID=local-mcp \
-.venv/bin/python -m mesa_memory.runtime_entrypoint
+The following starts only the gateway, after the API is ready. Supply a real
+protected Fernet key in `MESA_GATEWAY_ENCRYPTION_KEY` and point the control DB
+at the same deployment used by the admin CLI:
 
+```bash
 MESA_BASE_URL=http://127.0.0.1:8000 \
-MESA_GATEWAY_ENCRYPTION_KEY=fernet-key \
 MESA_GATEWAY_CONTROL_DB=/absolute/path/to/mesa-data/mesa.db \
 .venv/bin/mesa-mcp-gateway
 ```
@@ -50,7 +52,7 @@ removes the local secret; `uninstall` also removes only the MESA-managed
 project config and hook entries.
 
 Each Codex credential can access only its recorded workspace binding. The
-dashboard shows safe credential summaries and can revoke a credential, but it
+control API returns safe credential summaries and can revoke a credential, but it
 never issues or displays plaintext tokens. Codex hooks load bounded project
 memory on session start and compaction; they never write transcript content to
 memory and do not prevent a session from starting when MESA is unavailable.
@@ -61,13 +63,13 @@ the unit file is nonsecret deployment configuration.
 For systemd, copy `deploy/systemd/mcp-gateway.env.example` to
 `/etc/mesa/mcp-gateway.env`, set mode `0600`, and use the supplied
 `mesa-mcp-gateway.service`. The unit intentionally obtains all long-lived
-gateway secrets from `EnvironmentFile`; neither Codex project config nor the
-dashboard contains them.
+gateway secrets from `EnvironmentFile`; Codex project config contains no secrets.
 
-The dashboard may manage the local control plane from a loopback browser
-connection. Remote `/control/mcp/*` callers require the normal `X-API-Key`;
-deploy the dashboard behind an authenticated reverse proxy when it is not
-local-only.
+Every `/control/mcp/*` call requires an active authenticated principal and the
+server-side `ADMIN` control role, including loopback calls. Localhost
+access alone grants no control authority. Use the normal API credential and
+an authenticated reverse proxy for remote deployment; see
+[control API authorization](docs/api-reference.md#mcp-control-api).
 
 ## Operator approval
 
@@ -142,4 +144,7 @@ V4 service adapter. Provide `MESA_TENANT_ID`, `MESA_WORKSPACE_ID`,
 `MESA_DATASET_ID`, `MESA_WORKSPACE_ROOT` and an authorized binding/scope.
 The supervised gateway is the documented Codex/Antigravity path.
 
-See [configuration](docs/configuration.md), [control panel](docs/Mesa_Control_Panel.md) and [quickstart](docs/getting-started.md). Provision Core credential/ACL before server startup; the placeholder commands above require actual protected values. No automatic transcript saving or certified legal review is promised.
+See [configuration](docs/configuration.md), [control API](docs/api-reference.md#mcp-control-api)
+and [quickstart](docs/getting-started.md). The path and operation IDs above are
+examples; use the actual deployment values. No automatic transcript saving or
+certified legal review is promised.

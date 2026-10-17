@@ -306,11 +306,11 @@ class V4SearchRequest(BaseModel):
                 parsed = datetime.fromisoformat(normalized)
             except ValueError as exc:
                 raise ValueError(
-                    f"temporal value must be a valid ISO-8601 timestamp string: {value!r}"
+                    "temporal value must be a valid ISO-8601 timestamp string"
                 ) from exc
             if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
                 raise ValueError(
-                    f"temporal value must include a timezone offset (e.g. 'Z' or '+00:00'): {value!r}"
+                    "temporal value must include a timezone offset (e.g. 'Z' or '+00:00')"
                 )
             return parsed
         return value
@@ -782,21 +782,30 @@ def create_v4_router(
             required_role="WRITER",
         )
         await _require_mutation_admission(dao)
-        return await dao.create_v4_source_chunk(
-            tenant_id=payload.tenant_id,
-            dataset_id=payload.dataset_id,
-            document_id=payload.document_id,
-            revision_id=payload.revision_id,
-            chunk_id=payload.chunk_id,
-            title=payload.title,
-            content_payload=payload.content,
-            source_ref=payload.source_ref,
-            revision_number=payload.revision_number,
-            chunk_ordinal=payload.chunk_ordinal,
-            finalize_revision=payload.finalize_revision,
-            external_ref=payload.external_ref,
-            supersedes_revision_id=payload.supersedes_revision_id,
-        )
+        try:
+            return await dao.create_v4_source_chunk(
+                tenant_id=payload.tenant_id,
+                dataset_id=payload.dataset_id,
+                document_id=payload.document_id,
+                revision_id=payload.revision_id,
+                chunk_id=payload.chunk_id,
+                title=payload.title,
+                content_payload=payload.content,
+                source_ref=payload.source_ref,
+                revision_number=payload.revision_number,
+                chunk_ordinal=payload.chunk_ordinal,
+                finalize_revision=payload.finalize_revision,
+                external_ref=payload.external_ref,
+                supersedes_revision_id=payload.supersedes_revision_id,
+            )
+        except ValueError as exc:
+            msg = str(exc)
+            if any(
+                term in msg
+                for term in ("collides", "finalized", "immutable", "superseded", "belong")
+            ):
+                raise HTTPException(status_code=409, detail=msg) from exc
+            raise HTTPException(status_code=422, detail=msg) from exc
 
     @router.delete("/catalog/documents/{document_id}", status_code=202)
     async def purge_document(
@@ -1303,6 +1312,8 @@ def create_v4_router(
                 status_code=409,
                 detail="NON_HEAD_ROLLBACK_CONFLICT",
             ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.post("/mutations/{mutation_id}/replay", status_code=202)
     async def replay_mutation(
@@ -1359,6 +1370,10 @@ def create_v4_router(
         session = await _authorized_v4_session(
             request, dao, access_control, session_id, level="READ"
         )
+        if token_budget <= 0:
+            raise HTTPException(
+                status_code=422, detail="token_budget must be positive"
+            )
         if valid_from and valid_to and valid_from > valid_to:
             raise HTTPException(
                 status_code=422, detail="valid_from must not be after valid_to"
@@ -1376,19 +1391,41 @@ def create_v4_router(
                 )
             adaptive_retriever = BoundedAdaptiveQueryRetriever(dao, planner)
         builder = ContextBuilder(dao, adaptive_retriever=adaptive_retriever)
-        ctx = await builder.build_context(
-            tenant_id=str(session["tenant_id"]),
-            agent_id=agent_id,
-            dataset_ids=list(session.get("dataset_ids", [])),
-            query=query,
-            session_id=session_id,
-            token_budget=token_budget,
-            jurisdiction=jurisdiction,
-            valid_at=valid_at.isoformat() if valid_at else None,
-            valid_from=valid_from.isoformat() if valid_from else None,
-            valid_to=valid_to.isoformat() if valid_to else None,
-            retrieval_mode=retrieval_mode,
-        )
+        try:
+            ctx = await builder.build_context(
+                tenant_id=str(session["tenant_id"]),
+                agent_id=agent_id,
+                dataset_ids=list(session.get("dataset_ids", [])),
+                query=query,
+                session_id=session_id,
+                token_budget=token_budget,
+                jurisdiction=jurisdiction,
+                valid_at=valid_at.isoformat() if valid_at else None,
+                valid_from=valid_from.isoformat() if valid_from else None,
+                valid_to=valid_to.isoformat() if valid_to else None,
+                retrieval_mode=retrieval_mode,
+            )
+        except EmbeddingMigrationRequiredError:
+            raise HTTPException(
+                status_code=409,
+                detail="embedding_migration_required",
+            )
+        except (
+            VectorSearchError,
+            EmbeddingUnavailableError,
+            EmbeddingGenerationError,
+            ExternalProviderForbiddenError,
+            EmbeddingIdentityMismatchError,
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="vector_backend_unavailable",
+            )
+        except GraphSearchError:
+            raise HTTPException(
+                status_code=503,
+                detail="graph_backend_unavailable",
+            )
         mutations = await dao.list_session_mutation_summaries(
             agent_id, session_id, limit=20
         )

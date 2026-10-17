@@ -578,3 +578,78 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         )
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_repair_dataset_a_preserves_dataset_b(tmp_path) -> None:
+    """Repairing dataset A must never delete or quarantine dataset B's active artifacts."""
+    engine = AsyncEngine(str(tmp_path / "reconcile_cross.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    vector = SimpleNamespace(
+        get_active_node_ids=AsyncMock(return_value=["assertion-b-id", "orphan-a-id"]),
+        hard_delete=AsyncMock(),
+    )
+    dao = MemoryDAO(engine, vector)
+    try:
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-a",
+        )
+        await dao.ensure_v4_catalog_scope(
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            dataset_id="dataset-b",
+        )
+        entity_b = await dao.resolve_v4_entity(
+            tenant_id="tenant-a", canonical_name="Dataset B Entity"
+        )
+        async with engine.transaction() as db:
+            ds_b_pk = await dao._catalog.resolve_id_in_tx(
+                db, tenant_id="tenant-a", kind="dataset", external_id="dataset-b"
+            )
+            pipeline_run_id = "pipe-b-1"
+            mutation_id = "mut-b-1"
+            await db.execute(
+                "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, dataset_id, session_id, agent_id, state) "
+                "VALUES (?, 'tenant-a', ?, 'sess-1', 'agent-a', 'COMMITTED')",
+                (pipeline_run_id, ds_b_pk),
+            )
+            await db.execute(
+                "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, dataset_id, session_id, content_payload, state) "
+                "VALUES (?, 'cand-1', 'tenant-a', 'agent-a', ?, 'sess-1', 'test payload', 'COMMITTED')",
+                (mutation_id, ds_b_pk),
+            )
+            await db.execute(
+                "INSERT INTO v4_assertions (assertion_id, tenant_id, dataset_id, subject_id, predicate, literal_value, "
+                "source_ref, document_id, revision_id, chunk_id, mutation_id, pipeline_run_id, status) "
+                "VALUES ('assertion-b-id', 'tenant-a', ?, ?, 'OWNS', 'val', 'src-b', 'doc-1', 'rev-1', 'chunk-1', ?, ?, 'ACTIVE')",
+                (ds_b_pk, entity_b["entity_id"], mutation_id, pipeline_run_id),
+            )
+            await db.execute(
+                "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, dataset_id, store_name, artifact_kind, physical_artifact_id, state) "
+                "VALUES ('reg-b-1', 'tenant-a', 'agent-a', ?, 'VECTOR', 'ASSERTION_VECTOR', 'assertion-b-id', 'ACTIVE')",
+                (ds_b_pk,),
+            )
+            await db.commit()
+
+        # Reconcile dataset-a with repair=True
+        report = await dao.reconcile_v4_bidirectional(
+            tenant_id="tenant-a",
+            agent_id="agent-a",
+            dataset_ids=["dataset-a"],
+            repair=True,
+        )
+        # assertion-b-id must NOT be considered an orphan or enqueued
+        assert report["cleanup_enqueued"] == 1  # Only orphan-a-id
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT r.physical_artifact_id FROM artifact_cleanup_outbox c "
+                "JOIN artifact_registry r ON r.registry_id = c.registry_id"
+            ) as cursor:
+                enqueued_ids = {str(row[0]) for row in await cursor.fetchall()}
+        assert "assertion-b-id" not in enqueued_ids
+        assert "orphan-a-id" in enqueued_ids
+    finally:
+        await engine.close()

@@ -2376,7 +2376,7 @@
           "mcp-control"
         ],
         "summary": "List Managed Clients",
-        "description": "Dashboard-safe Codex state; credentials are summaries only.",
+        "description": "Secret-safe Codex state; credentials are summaries only.",
         "operationId": "list_managed_clients_control_mcp_managed_clients_get",
         "responses": {
           "200": {

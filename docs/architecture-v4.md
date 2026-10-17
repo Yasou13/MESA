@@ -2,9 +2,30 @@
 
 > **Package version:** 0.8.0; owner-approved source release, without production certification.
 
-This document is the canonical architecture for the v4 release candidate.
-Production remains `NO-GO` pending Final MVP Certification.
-`ARCHITECTURE.md` and v3 ADRs remain historical compatibility records.
+This document owns the current V4 design; production qualification remains
+release candidate / `NO-GO` under the [release policy](release.md).
+The root [architecture entry point](../ARCHITECTURE.md) links here. The obsolete
+V3 whitepaper is available in Git history; see the
+[ADR index](adr/README.md) for decision applicability.
+
+## Module ownership
+
+| Module | Responsibility |
+|---|---|
+| `mesa_storage` | Canonical SQLite, catalog repositories, ownership, retrieval and projection providers |
+| `mesa_memory` | Runtime configuration, extraction/validation, embedding, context, security and rebuild orchestration |
+| `mesa_workers` | Durable ingestion, projection and maintenance consumers |
+| `mesa_api` | HTTP schemas, authorized V3/V4 routes and control API |
+| `mesa_client` | Sync/async HTTP clients and optional integrations |
+| `mesa_mcp` | MCP service adapters, gateway, bindings and client lifecycle |
+| `mesa_evals` | Local diagnostics and deterministic retrieval contract tooling |
+
+Higher layers may depend on lower layers: API/MCP → workers → memory → storage.
+Runtime composition roots are explicit exceptions; the source guard is
+[`check_layer_imports.py`](../scripts/check_layer_imports.py). `MemoryDAO`
+remains the compatibility façade; catalog transactions have a focused repository
+boundary. See ADRs [0012](adr/0012-memory-dao-repository-boundaries.md) and
+[0013](adr/0013-one-way-production-layer-dependencies.md).
 
 ## Runtime boundary
 
@@ -62,8 +83,8 @@ extraction and embedding versions. Authorization fields are never read from
 free-form metadata.
 
 An authenticated dataset writer may additionally supply the typed
-`legal_identity` object (`law_id`, `statute_code`, `article_id`, and optional
-version/paragraph/clause identifiers). MESA validates it against the bounded
+`legal_identity` object (required `law_id` and `article_id`; optional
+`statute_code` and version/paragraph/clause identifiers). MESA validates it against the bounded
 legal alias ontology, binds it to the immutable mutation provenance and stores
 it on canonical assertions. Reserved `_mesa_*` keys in caller metadata are
 always discarded, so free-form metadata cannot opt into legal ranking. The
@@ -86,6 +107,10 @@ Failure/recovery states are `RETRY_PENDING`, `DLQ`, `ROLLING_BACK`,
 `ROLLED_BACK` and `BLOCKED`. State changes use compare-and-swap and append an
 event. Claims use a random fencing token, bounded lease, heartbeat and bounded
 retry. A worker that loses its token cannot finalize the claim.
+
+These are pipeline states; client-facing mutation states are listed in
+[concepts and ingestion](concepts-and-ingestion.md). `COMMITTED` is the success
+state; receiving an admission response alone does not establish completion.
 
 Projection prerequisites are enforced in the database:
 
@@ -115,6 +140,10 @@ the Unicode NFKC, whitespace-normalized and case-folded canonical name.
 Resolution order is ontology/external ID, registered alias, canonical name,
 then create. Collisions produce a deterministic redirect; historical rows are
 retained.
+
+Canonical SQLite connections use WAL and `synchronous=FULL` by default;
+weaker synchronization is restricted to the explicit test profile. This does
+not create a transaction spanning SQLite, LanceDB and Kùzu.
 
 SQLite is authoritative for `v4_entities` and immutable `v4_assertions`.
 Kùzu is an idempotent projection. Assertions include subject, predicate,
@@ -150,9 +179,12 @@ Reconciliation is bidirectional:
 - physical artifact without registry/ownership: quarantine it in the registry
   and enqueue cleanup.
 
-`/health` exposes projection backlog, dead letter, stuck leases, cleanup
-backlog, blocked cleanup, ownerless registry rows and shared-owner counts.
-`/metrics` exports the same content-free aggregate gauges.
+Authenticated `/health` (and `/v3/health`) returns the aggregate fields
+`status`, `maintenance` and `rebuild_state`. `/health/init` reports readiness
+and fails with HTTP 503 when required stores, workers or backlog checks fail.
+Projection backlog, dead letter, stuck leases, cleanup backlog, blocked cleanup,
+ownerless registry rows and shared-owner counts are aggregate gauges at `/metrics`;
+they are not individual fields in the public `/health` response.
 
 ## Retrieval
 
@@ -189,14 +221,16 @@ generation, recursive planning, decomposition or reranking.
 
 ## Migration and release
 
-V3 storage is never converted in place. The supported sequence is:
+V3 and V4 use separate storage roots. Moving V3 content into V4 requires an
+explicit source/catalog mapping and ingestion through the V4 contract; there
+is no general automatic V3-to-V4 converter documented here. The offline
+projection runner rebuilds derived stores from an existing V4 canonical ledger,
+not a new ledger from raw V3 data.
 
-1. stop writers and create a manifest/checksummed backup;
-2. restore or copy into a new empty staging root;
-3. rebuild v4 SQLite/vector/graph artifacts from raw sources;
-4. run parity and authorization checks;
-5. atomically cut over to the staged root;
-6. retain the previous root for explicit rollback.
+For V4 upgrades use [migration](RUNBOOK.md#upgrade-v080),
+[backup/restore](RUNBOOK.md#6-backup-restore-ve-v4-rebuild) and the
+[projection rebuild procedure](v4-rebuild-runbook.md). Keep the prior root and
+matching code/config for rollback.
 
 Production remains `NO-GO` until migration/restore, v4 Compose, crash,
 saturation, cross-tenant concurrency, benchmark and 24-hour soak gates all
@@ -205,3 +239,86 @@ pass with production-like storage and the selected model provider.
 Canonical V4 insertion requires the model-enabled combined processing consumer.
 Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
 `503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
+
+<a id="ecosystem"></a>
+
+## Ecosystem and ownership
+
+| Project | Ownership | Core release implication |
+|---|---|---|
+| MESA Core | Runtime, catalog/mutations, projections, scoped retrieval, SDK/MCP | This repository's package and GitHub release only |
+| MESA_Data | Source acquisition, metadata/identity, revisions/chunking, native publisher | Producer must satisfy Core ingestion and provenance contracts |
+| MESA_E2E_Certification | Freeze, official TEST, sealed answer context, scorer and verdict | Independent certification; Core unit tests cannot change its verdict |
+| mesa_benchmark | Comparative methodology, runner, external datasets/judges | Core `mesa_evals` is historical diagnostics plus deterministic RRF contract tooling |
+| MESA_Law | Legal product/integration work outside Core | No Core legal-advice or legal-certification guarantee |
+| mesa-model-tests | Independent DEV model qualification | Model quality and pending human review are separate from Core release |
+
+The source consumer contract is [concepts and ingestion](concepts-and-ingestion.md)
+and [API](api-reference.md). Supply exact content, immutable revision/chunk IDs,
+source references and verified legal identity where appropriate. Core validates
+schema/alias consistency and linkage; it does not fetch official laws or establish
+that producer metadata is legally correct. SDK insertion currently lacks the HTTP
+`legal_identity` parameter; use reviewed HTTP payloads for this contract.
+
+Comparative benchmark methodology lives in the external `mesa_benchmark`
+project's `docs/METHODOLOGY.md`. Core retains
+[`tests/test_v4_rrf_ablation.py`](../tests/test_v4_rrf_ablation.py) and
+[`mesa_evals/v4_rrf_ablation.py`](../mesa_evals/v4_rrf_ablation.py) for deterministic
+retrieval contracts; these are not comparative model-quality measurements.
+
+Official certification is owned and executed outside Core. A Core documentation
+edit or unit-test result cannot change a sealed certification verdict. External
+repository commit IDs and measured outcomes belong in dated evidence records,
+not this ownership map.
+
+Core `ContextBuilder` budget/provenance behavior and Profile B's independently
+sealed Top-5/context/scorer settings are distinct contracts. A successful Core
+DEV example proves the exercised path only, not native ecosystem delivery or
+model accuracy. Provider pairing quality requires its own measured evidence.
+
+
+<a id="limitations"></a>
+
+## Performance and limitations
+
+No v0.8.0 throughput, recall, accuracy, latency or 10–20 GB corpus-capacity result
+has been measured in this documentation release. A unit/fixture smoke is not a
+production soak, and bounded graph traversal does not guarantee complete recall.
+
+Historical benchmark and audit documents have been retired from the working
+tree. Earlier reports in Git history describe their own fixtures and revisions,
+not current capacity or a completed 24-hour release gate. Use
+[release requirements](release.md) to evaluate evidence for a specific commit;
+missing raw results or run artifacts are unavailable evidence.
+
+`VectorEngine` maintenance defaults to 128 mutations and cleans old versions
+older than seven days. Compaction, deduplication and executor cleanup mitigate
+growth; they do not establish bounded long-soak RSS for every workload. Watch
+fragments, version metadata, RSS, disk, mutation latency and maintenance failure
+counts. Retained projection generations/backups are not automatically deleted.
+
+Queue admission defaults are 50,000 pending records / 2 GiB, with tenant-aware
+bounds and bounded in-flight/retry capacity. They are safety limits, not tested
+throughput commitments. See [configuration](configuration.md). SQL writers are
+serialized; one combined owner is required per storage root. Advisory local
+locking is not a distributed/NFS coordinator.
+
+### Compatibility evidence
+
+| Area | Source of support/configuration | Evidence needed |
+|---|---|---|
+| Python | `pyproject.toml`; CI matrix 3.10–3.13 | Successful jobs for the target commit |
+| OS | CI uses Ubuntu; no full OS support matrix declared | Target-platform validation |
+| Dependencies | Ranges in `pyproject.toml`, exact graph in `uv.lock` | Locked install and compatibility check |
+| Storage | SQLite FTS5, LanceDB, Kùzu | Native-store contracts plus representative capacity/recovery runs |
+| Models | Explicit provider/model identity | Real-provider behavior, quality and cost measurements |
+| Docker | Dockerfile and two Compose topologies | Image and deployment evidence for the target commit |
+
+### Unsupported or constrained
+
+Bitemporal queries, associative PPR, human legal certification, distributed
+writers/hosted storage, Ladybug backend, online or tenant/dataset-scoped rebuild,
+automatic retained-generation cleanup and guaranteed citation correctness are
+not current Core guarantees. V4 retrieval performs no answer generation.
+CrossEncoder/legacy REBEL controls concern V3 paths, not canonical V4 ranking
+or extraction. Adaptive planning is opt-in, bounded and not recursive.

@@ -1,5 +1,6 @@
 import uuid
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -630,4 +631,63 @@ async def test_failed_immediate_vector_compensation_stays_durable_until_deleted(
             )
         ).fetchone()
     assert pipeline[0] == "ROLLED_BACK"
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_batch_completion_rejects_fenced_or_wrong_worker(tmp_path):
+    """complete_projection_outbox_batch must enforce worker ownership and rollback fencing."""
+    engine = AsyncEngine(str(tmp_path / "worker_batch_fencing.db"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=MagicMock())
+    pipeline_run_id = str(uuid.uuid4())
+    mutation_id = str(uuid.uuid4())
+
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
+            "VALUES (?, 't1', 's1', 'a1', 'COMMITTED')",
+            (pipeline_run_id,),
+        )
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, pipeline_run_id, session_id, content_payload, state) "
+            "VALUES (?, 'c1', 't1', 'a1', ?, 's1', 'payload', 'STAGED')",
+            (mutation_id, pipeline_run_id),
+        )
+        await db.execute(
+            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state, retry_limit, attempt_count) "
+            "VALUES (?, ?, 'SQL', 'PENDING', 3, 0)",
+            (f"proj_{mutation_id}_SQL", mutation_id),
+        )
+        await db.commit()
+
+    claims = await dao.claim_projection_outbox(worker_id="worker_real", limit=10)
+    assert len(claims) == 1
+    claim = claims[0]
+
+    # 1. Wrong worker must be rejected
+    rejected_wrong_worker = await dao.complete_projection_outbox_batch(
+        [claim], worker_id="worker_imposter"
+    )
+    assert rejected_wrong_worker == 0
+
+    # 2. Rollback the pipeline while worker holds claim
+    await dao.request_pipeline_rollback(pipeline_run_id)
+
+    # 3. Correct worker attempts batch completion after rollback -> must be rejected by fencing
+    rejected_fenced = await dao.complete_projection_outbox_batch(
+        [claim], worker_id="worker_real"
+    )
+    assert rejected_fenced == 0
+
+    # 4. Outbox state must be CANCELLED, not COMPLETED
+    async with engine.connection() as db:
+        async with db.execute(
+            "SELECT state FROM projection_outbox WHERE projection_id = ?",
+            (claim["projection_id"],),
+        ) as cursor:
+            row = await cursor.fetchone()
+            assert row["state"] == "CANCELLED"
+
     await engine.close()

@@ -1,9 +1,14 @@
 # V4 projection rebuild runbook
 
-Bu prosedür yalnız `0.7.x Closure` içindeki storage-root-wide projection
-rebuild içindir. Canonical `mesa.db` ve FTS yeniden üretilmez veya değiştirilmez;
-LanceDB ve Kùzu projection generation'ları canonical snapshot'tan yeniden
-oluşturulur. Tenant, workspace veya dataset kapsamlı rebuild desteklenmez.
+Bu prosedür mevcut V4 storage-root-wide projection rebuild içindir; tasarım
+[ADR 0014](adr/0014-v4-closure-and-staged-evolution.md) ile başlamıştır.
+LanceDB ve Kùzu generation'ları mevcut canonical V4 snapshot'tan üretilir;
+V3 verisini dönüştürmez ve canonical source/assertion içeriğini yeniden yazmaz.
+FTS integrity snapshot üzerinde doğrulanır. SQLite operation/checkpoint ve
+active-generation kayıtları güncellenir; başarılı cutover sonrası representation
+metadata'sı da aşağıda açıklanan kuralla ilerletilir. Açık `adopt-provider`
+adımı ayrıca eksik provenance metadata'sını tamamlayabilir.
+Tenant, workspace veya dataset kapsamlı rebuild desteklenmez.
 
 ## Güvenlik sınırları ve ön koşullar
 
@@ -36,9 +41,11 @@ Flag'i combined runtime'ın açık deployment config'inde etkinleştirin:
 
 ```bash
 export MESA_V4_REBUILD_ENABLED=true
-export MESA_EMBEDDING_VERSION=v1
-export MESA_EMBEDDING_DIMENSION=1536
 ```
+
+Mevcut corpus'un doğrulanmış provider/model/version/dimension ayarlarını koruyun.
+Burada örnek bir boyut veya sürüm atayarak mevcut embedding kimliğini değiştirmeyin;
+[yapılandırma](configuration.md) ve provenance kayıtları aynı kimliği göstermelidir.
 
 Credential'ı bir kez üretin ve aynı principal'a control-plane rolü verin.
 Credential'ı shell history, log veya runbook kaydına kopyalamayın:
@@ -66,7 +73,7 @@ Her değişiklik penceresi için benzersiz, içerik taşımayan bir idempotency 
 kullanın:
 
 ```bash
-export MESA_REBUILD_IDEMPOTENCY_KEY=rehearsal-2026-08-03-a
+export MESA_REBUILD_IDEMPOTENCY_KEY="$(.venv/bin/python -c 'import uuid; print(uuid.uuid4())')"
 curl --fail-with-body -X POST \
   -H "X-API-Key: $MESA_API_KEY" \
   -H "Idempotency-Key: $MESA_REBUILD_IDEMPOTENCY_KEY" \
@@ -89,8 +96,10 @@ açık kalır. `RETRYABLE_FAILED` da maintenance admission'ını kapalı tutar.
 
 ## 3. Backlog'u drain et
 
-Combined runtime'ı henüz durdurmadan `/health`, `/health/init` ve `/metrics`
-üzerinden şu değerlerin sıfıra indiğini doğrulayın:
+Combined runtime'ı henüz durdurmadan `/health` ile özet durumu ve
+`/health/init` ile readiness'i kontrol edin. `/metrics` üzerinden sunulan
+kuyruk sayaçlarını izleyin; aşağıdaki tüm backlog koşulları offline runner'ın
+preflight kontrolünde yeniden doğrulanır:
 
 - projection backlog ve dead letter;
 - cleanup backlog ve blocked cleanup;
@@ -277,8 +286,10 @@ operation status ve health flag kapalıyken de okunabilir.
 - `mesa_v4_rebuild_staging_bytes`;
 - `mesa_v4_rebuild_rollbacks_total`.
 
-`/health` rebuild bölümünde operation ID veya filesystem path olmadan health,
-state, duration, progress ve rollback sayısını verir. `FINAL_FAILED` degraded;
+`/health` yalnız `status`, `maintenance` ve `rebuild_state` özetini verir;
+ayrı bir rebuild ayrıntı nesnesi içermez. Duration, progress ve rollback
+sayaçları `/metrics` üzerinden okunur. Operation ayrıntıları yetkili
+`/v4/operations/{operation_id}` endpoint'indedir. `FINAL_FAILED` degraded;
 aktif ve `RETRYABLE_FAILED` durumları maintenance kabul edilir.
 
 Backup, failed staging generation ve retained generation için ayrı change

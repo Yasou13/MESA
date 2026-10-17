@@ -16,13 +16,17 @@ pass. Contributions must preserve that distinction.
    changes.
 7. Open a pull request with behavior, risk, migration and test evidence.
 
-Do not modify the preserved historical reports or root `ARCHITECTURE.md` to
-describe v4. Add a current versioned document or ADR instead.
+Use the [documentation index](docs/README.md) to find the primary page for a
+contract. Update that page rather than adding a competing architecture or
+runbook. Root [ARCHITECTURE.md](ARCHITECTURE.md) is a navigation entry point.
+Remove obsolete guides once their useful content is covered by a maintained
+page, and update incoming links. Use Git history for retired documents and
+ADRs for decision rationale; keep measured evidence tied to its source revision.
 
 ## Required checks
 
 ```bash
-uv sync --locked --extra dev
+uv sync --locked --python 3.10 --extra dev
 uv run ruff check .
 uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
   --ignore-missing-imports --explicit-package-bases --follow-imports=skip
@@ -32,7 +36,7 @@ make test-local
 The complete adapter-inclusive suite is a separate installed contract:
 
 ```bash
-uv sync --locked --extra dev --extra adapters
+uv sync --locked --python 3.10 --extra dev --extra adapters
 make test-all
 ```
 

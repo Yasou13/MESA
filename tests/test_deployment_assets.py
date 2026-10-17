@@ -11,32 +11,6 @@ from mesa_memory.runtime_entrypoint import command_for_profile
 ROOT = Path(__file__).parents[1]
 
 
-def test_showcase_assets_live_under_dashboard_without_mock_console() -> None:
-    showcase = ROOT / "mesa_dashboard" / "public" / "showcase"
-    expected_assets = {
-        "index.html",
-        "scripts/showcase.js",
-        "styles/showcase.css",
-        "styles/tokens.css",
-        "visualizer/index.html",
-        "visualizer/visualizer.css",
-        "visualizer/visualizer.js",
-    }
-
-    assert not (ROOT / "demo").exists()
-    assert {
-        str(path.relative_to(showcase))
-        for path in showcase.rglob("*")
-        if path.is_file()
-    } == expected_assets
-
-    landing = (showcase / "index.html").read_text(encoding="utf-8")
-    assert 'href="/dashboard/"' in landing
-    assert "/dashboard/showcase/scripts/showcase.js" in landing
-    assert "/dashboard/showcase/visualizer/" in landing
-    assert "console/index.html" not in landing
-
-
 def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     project_metadata, separator, _ = pyproject.partition(
@@ -250,34 +224,38 @@ def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> N
     assert "apt-get upgrade -y --no-install-recommends" in dockerfile
 
 
-def test_readme_compose_quickstart_matches_the_fail_closed_compose_profile() -> None:
+def test_documented_quickstarts_match_the_fail_closed_compose_profile() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
 
-    assert "MESA_PRINCIPAL_ID" in readme
-    assert "docker compose up --build -d" in readme
-    assert "docker-compose up" not in readme
+    assert "docs/getting-started.md" in readme
+    assert "MESA_PRINCIPAL_ID" in quickstart
+    assert "docker compose up --build -d" in quickstart
+    assert "docker-compose up" not in quickstart
     assert ".kuzu/" not in readme
     assert "requirements-core.txt" not in readme
     assert "requirements-ml.txt" not in readme
-    assert "MESA_MODEL_ENABLED=false" in readme
-    assert "MESA_EXTERNAL_PROVIDER_ENABLED=false" in readme
-    assert "Safe core" in readme
-    assert "Full cognitive runtime" in readme
+    assert "MESA_MODEL_ENABLED=false" in quickstart
+    assert "MESA_EXTERNAL_PROVIDER_ENABLED=false" in quickstart
+    assert "503 canonical_processing_unavailable" in quickstart
+    assert "MESA_MODEL_ENABLED=true" in quickstart
     assert "infinite out-of-core scaling" not in readme
     assert "returns **202 Accepted** in <50ms" not in readme
     assert "gates every incoming record" not in readme
 
 
-def test_readme_public_api_examples_match_authenticated_route_contract() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+def test_documented_public_api_examples_match_authenticated_route_contract() -> None:
+    quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
+    example = (ROOT / "examples/v3_quickstart.py").read_text(encoding="utf-8")
 
     assert (
-        'curl --fail -H "X-API-Key: $MESA_API_KEY" http://localhost:8000/health'
-        in readme
+        'curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:18080/health'
+        in quickstart
     )
-    assert "/v3/memory/status/1?agent_id=analyst_1" in readme
-    assert "/v3/memory/session/start" in readme
-    assert "/v3/session/start" not in readme
+    assert "examples.v3_quickstart" in quickstart
+    assert "/v3/memory/status/{accepted.log_id}" in example
+    assert "/v3/memory/session/start" in example
+    assert "/v3/session/start" not in example
 
 
 def test_dependency_and_security_governance_assets_are_present() -> None:

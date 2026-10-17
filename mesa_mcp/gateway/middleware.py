@@ -154,7 +154,7 @@ class ControlPlaneMiddleware:
                 result = {
                     "status": "PENDING_APPROVAL",
                     "approval_id": approval_id,
-                    "message": "This operation requires manual approval from the dashboard.",
+                    "message": "This operation requires an administrator decision through the control API.",
                 }
                 await self.activity_repo.record_call_completion(
                     call_id, "PENDING_APPROVAL"

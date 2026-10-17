@@ -159,3 +159,42 @@ async def test_empty_vector_candidate_scope_fails_closed_without_searching() -> 
         await engine.close()
 
     assert query.calls == []
+
+
+def test_compute_rrf_lane_score_rejects_nan_inf_negative_weights() -> None:
+    from mesa_storage.retrieval_scope import compute_rrf_lane_score, rrf_fuse_lanes
+
+    with pytest.raises(ValueError, match="lane weight must be non-negative and finite"):
+        compute_rrf_lane_score(1, lane="vector", weights={"vector": float("nan")})
+
+    with pytest.raises(ValueError, match="lane weight must be non-negative and finite"):
+        compute_rrf_lane_score(1, lane="vector", weights={"vector": float("inf")})
+
+    with pytest.raises(ValueError, match="lane weight must be non-negative and finite"):
+        compute_rrf_lane_score(1, lane="vector", weights={"vector": -1.0})
+
+    with pytest.raises(ValueError, match="k must be >= 1 and finite"):
+        compute_rrf_lane_score(1, lane="vector", k=0)
+
+    with pytest.raises(ValueError, match="k must be >= 1 and finite"):
+        compute_rrf_lane_score(1, lane="vector", k=float("nan"))
+
+    with pytest.raises(ValueError, match="lane weight for 'vector' must be non-negative and finite"):
+        rrf_fuse_lanes({"vector": ["c1"]}, weights={"vector": float("nan")})
+
+    with pytest.raises(ValueError, match="lane weight for 'bm25' must be non-negative and finite"):
+        rrf_fuse_lanes({"bm25": ["c1"]}, weights={"bm25": float("inf")})
+
+
+def test_mesaconfig_rejects_nan_inf_rrf_weights() -> None:
+    from mesa_memory.config import MesaConfig
+
+    with pytest.raises(ValueError, match="rrf vector weight MUST be positive and finite"):
+        MesaConfig(rrf_vector_weight=float("nan"))
+
+    with pytest.raises(ValueError, match="rrf vector weight MUST be positive and finite"):
+        MesaConfig(rrf_vector_weight=float("inf"))
+
+    with pytest.raises(ValueError, match="rrf bm25 weight MUST be positive and finite"):
+        MesaConfig(rrf_bm25_weight=-0.5)
+

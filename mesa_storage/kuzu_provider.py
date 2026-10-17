@@ -269,6 +269,8 @@ class KuzuGraphProvider(BaseGraphProvider):
         self._init_lock = asyncio.Lock()
         self._known_nodes: set[str] = set()
         self._known_assertions: set[str] = set()
+        self._tx_staged_nodes: list[set[str]] = []
+        self._tx_staged_assertions: list[set[str]] = []
 
     # ------------------------------------------------------------------
     # Properties
@@ -505,6 +507,10 @@ class KuzuGraphProvider(BaseGraphProvider):
                     logger.warning("KUZU_DB_CLOSE_ERROR | error=%s", exc)
                 finally:
                     self._db = None
+            self._known_nodes.clear()
+            self._known_assertions.clear()
+            self._tx_staged_nodes.clear()
+            self._tx_staged_assertions.clear()
 
     # ------------------------------------------------------------------
     # Query execution — async wrappers
@@ -580,12 +586,26 @@ class KuzuGraphProvider(BaseGraphProvider):
         await loop.run_in_executor(
             self._executor, self._sync_execute_write, "BEGIN TRANSACTION", {}
         )
+        self._tx_staged_nodes.append(set())
+        self._tx_staged_assertions.append(set())
         try:
             yield
             await loop.run_in_executor(
                 self._executor, self._sync_execute_write, "COMMIT", {}
             )
-        except Exception:
+            staged_n = self._tx_staged_nodes.pop() if self._tx_staged_nodes else set()
+            staged_a = self._tx_staged_assertions.pop() if self._tx_staged_assertions else set()
+            if self._tx_staged_nodes:
+                self._tx_staged_nodes[-1].update(staged_n)
+                self._tx_staged_assertions[-1].update(staged_a)
+            else:
+                self._known_nodes.update(staged_n)
+                self._known_assertions.update(staged_a)
+        except BaseException:
+            if self._tx_staged_nodes:
+                self._tx_staged_nodes.pop()
+            if self._tx_staged_assertions:
+                self._tx_staged_assertions.pop()
             await loop.run_in_executor(
                 self._executor, self._sync_execute_write, "ROLLBACK", {}
             )
@@ -633,13 +653,16 @@ class KuzuGraphProvider(BaseGraphProvider):
             agent_id: Tenant isolation key (mandatory).
         """
         composite_id = self._composite_id(agent_id, node_id)
-        if composite_id in self._known_nodes:
+        if composite_id in self._known_nodes or any(composite_id in s for s in self._tx_staged_nodes):
             return
         await self.execute_write(
             self._UPSERT_NODE_CYPHER,
             {"id": composite_id, "name": name, "agent_id": agent_id},
         )
-        self._known_nodes.add(composite_id)
+        if self._tx_staged_nodes:
+            self._tx_staged_nodes[-1].add(composite_id)
+        else:
+            self._known_nodes.add(composite_id)
 
     async def delete_nodes(
         self,
@@ -652,6 +675,27 @@ class KuzuGraphProvider(BaseGraphProvider):
         if not node_ids:
             return
         composite_ids = [self._composite_id(agent_id, node_id) for node_id in node_ids]
+        # Query assertions attached to these nodes before deleting so caches stay consistent
+        deleted_assertion_ids: set[str] = set()
+        for relation_table in ("AssertionSubject", "AssertionObject"):
+            try:
+                rows = await self.execute_query(
+                    f"MATCH (a:Assertion)-[:{relation_table}]->(n:Entity {{agent_id: $agent_id}}) "
+                    "WHERE n.id IN $node_ids RETURN a.id",
+                    {"agent_id": agent_id, "node_ids": composite_ids},
+                )
+                for row in rows:
+                    if row and row[0]:
+                        raw_aid = str(row[0])
+                        comp_aid = (
+                            raw_aid
+                            if raw_aid.startswith(f"{agent_id}::")
+                            else self._composite_id(agent_id, raw_aid)
+                        )
+                        deleted_assertion_ids.add(comp_aid)
+            except Exception as exc:
+                logger.debug("Failed querying attached assertions during delete_nodes: %s", exc)
+
         # Assertions are immutable facts, but their validity depends on their
         # exact entity artifacts.  Delete every assertion attached to a
         # purged entity before deleting the entity itself; otherwise Graph V2
@@ -667,6 +711,13 @@ class KuzuGraphProvider(BaseGraphProvider):
             "WHERE n.id IN $node_ids DETACH DELETE n",
             {"agent_id": agent_id, "node_ids": composite_ids},
         )
+        self._known_nodes.difference_update(composite_ids)
+        for s in self._tx_staged_nodes:
+            s.difference_update(composite_ids)
+        if deleted_assertion_ids:
+            self._known_assertions.difference_update(deleted_assertion_ids)
+            for s in self._tx_staged_assertions:
+                s.difference_update(deleted_assertion_ids)
 
     async def get_existing_node_ids(
         self, label: str, agent_id: str, node_ids: list[str]
@@ -779,12 +830,12 @@ class KuzuGraphProvider(BaseGraphProvider):
         if (object_id is None) == (object_value is None):
             raise ValueError("assertion requires exactly one object target")
         assertion_key = self._composite_id(agent_id, assertion_id)
-        if assertion_key in self._known_assertions:
+        if assertion_key in self._known_assertions or any(assertion_key in s for s in self._tx_staged_assertions):
             return
         subject_key = self._composite_id(agent_id, subject_id)
         object_key = self._composite_id(agent_id, object_id) if object_id else None
         object_match = ", (o:Entity {id: $object_id}) " if object_key else " "
-        object_link = " CREATE (a)-[:AssertionObject]->(o)" if object_key else ""
+        object_link = " MERGE (a)-[:AssertionObject]->(o)" if object_key else ""
         query = (
             "MATCH (s:Entity {id: $subject_id})"
             + object_match
@@ -798,7 +849,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "a.status = $status, a.mutation_id = $mutation_id, "
             "a.pipeline_run_id = $pipeline_run_id, a.object_type = $object_type, "
             "a.representation_version = $representation_version "
-            "CREATE (a)-[:AssertionSubject]->(s)" + object_link
+            "MERGE (a)-[:AssertionSubject]->(s)" + object_link
         )
         parameters = {
             "assertion_id": assertion_key,
@@ -823,7 +874,10 @@ class KuzuGraphProvider(BaseGraphProvider):
         if object_key:
             parameters["object_id"] = object_key
         await self.execute_write(query, parameters)
-        self._known_assertions.add(assertion_key)
+        if self._tx_staged_assertions:
+            self._tx_staged_assertions[-1].add(assertion_key)
+        else:
+            self._known_assertions.add(assertion_key)
 
     async def link_assertions(
         self,
@@ -860,6 +914,9 @@ class KuzuGraphProvider(BaseGraphProvider):
             "WHERE a.id IN $assertion_ids DETACH DELETE a",
             {"agent_id": agent_id, "assertion_ids": composite_ids},
         )
+        self._known_assertions.difference_update(composite_ids)
+        for s in self._tx_staged_assertions:
+            s.difference_update(composite_ids)
 
     # ------------------------------------------------------------------
     # Graph traversal — spreading activation
