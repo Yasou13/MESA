@@ -210,10 +210,21 @@ async def process_projection_outbox_once(
 
     successful_projections: list[dict[str, Any]] = []
 
-    async def _handle_one(projection: dict[str, Any], in_graph_tx: bool = False) -> None:
+    async def _handle_one(projection: dict[str, Any]) -> None:
         projection_id = str(projection["projection_id"])
         try:
-            await _apply_with_lease_heartbeat(dao, projection, worker_id)
+            graph = dao._graph
+            graph_transaction = getattr(graph, "transaction", None)
+            if (
+                projection.get("projection_name") == "GRAPH"
+                and graph is not None
+                and getattr(graph, "is_operational", False) is True
+                and callable(graph_transaction)
+            ):
+                async with graph_transaction():
+                    await _apply_with_lease_heartbeat(dao, projection, worker_id)
+            else:
+                await _apply_with_lease_heartbeat(dao, projection, worker_id)
             successful_projections.append(projection)
         except PermanentProjectionError as exc:
             changed = await dao.fail_projection_outbox(
@@ -230,8 +241,6 @@ async def process_projection_outbox_once(
                 projection_id,
                 exc,
             )
-            if in_graph_tx:
-                raise
         except Exception as exc:
             changed = await dao.fail_projection_outbox(
                 projection_id,
@@ -253,31 +262,12 @@ async def process_projection_outbox_once(
                 projection_id,
                 exc,
             )
-            if in_graph_tx:
-                raise
 
     sorted_projections = sorted(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
     for p in sorted_projections:
-        lane = p.get("projection_name")
-        if lane == "GRAPH":
-            graph = dao._graph
-            graph_transaction = getattr(graph, "transaction", None)
-            if (
-                graph is not None
-                and getattr(graph, "is_operational", False) is True
-                and callable(graph_transaction)
-            ):
-                try:
-                    async with graph_transaction():
-                        await _handle_one(p, in_graph_tx=True)
-                except Exception:
-                    pass
-            else:
-                await _handle_one(p)
-        else:
-            await _handle_one(p)
+        await _handle_one(p)
 
     if successful_projections:
         result["completed"] = await dao.complete_projection_outbox_batch(

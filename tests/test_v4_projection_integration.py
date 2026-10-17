@@ -20,7 +20,8 @@ from mesa_workers.projection_worker import (
 
 
 @pytest.mark.asyncio
-async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
+@pytest.mark.parametrize("fail_graph_commit", [False, True])
+async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path, monkeypatch, fail_graph_commit) -> None:
     sql = AsyncEngine(str(tmp_path / "mesa.db"))
     identity = EmbeddingIdentity(
         provider="mock", model="projection-test", version="v1", dimension=8
@@ -66,6 +67,18 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
             [{"head": "Alice", "relation": "KNOWS", "tail": "Bob"}],
         )
         await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
+        if fail_graph_commit:
+            native_write = graph._sync_execute_write
+            failed_once = False
+
+            def fail_commit_once(query, parameters):
+                nonlocal failed_once
+                if query == "COMMIT" and not failed_once:
+                    failed_once = True
+                    raise RuntimeError("injected graph commit failure")
+                return native_write(query, parameters)
+
+            monkeypatch.setattr(graph, "_sync_execute_write", fail_commit_once)
         with patch.object(
             VectorEngine, "compute_embedding", new=AsyncMock(return_value=[0.1] * 8)
         ):
@@ -75,17 +88,21 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path) -> None:
                 "retry_pending": 0,
                 "dead_letter": 0,
             }
-            for _ in range(3):
+            for _ in range(4 if fail_graph_commit else 3):
                 single = await process_projection_outbox_once(
                     dao, worker_id="projector-a"
                 )
                 for key in result:
                     result[key] += single[key]
+                if fail_graph_commit and single["retry_pending"]:
+                    mutation = await dao.get_mutation("tenant-a", candidate["mutation_id"])
+                    assert mutation["state"] != "COMMITTED"
+                    assert await graph.execute_query("MATCH (a:Assertion) RETURN count(a)") == [[0]]
 
         assert result == {
-            "claimed": 3,
+            "claimed": 4 if fail_graph_commit else 3,
             "completed": 3,
-            "retry_pending": 0,
+            "retry_pending": int(fail_graph_commit),
             "dead_letter": 0,
         }
         mutation = await dao.get_mutation("tenant-a", candidate["mutation_id"])

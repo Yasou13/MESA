@@ -601,7 +601,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             else:
                 self._known_nodes.update(staged_n)
                 self._known_assertions.update(staged_a)
-        except Exception:
+        except BaseException:
             if self._tx_staged_nodes:
                 self._tx_staged_nodes.pop()
             if self._tx_staged_assertions:

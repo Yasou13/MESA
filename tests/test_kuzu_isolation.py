@@ -21,6 +21,7 @@ Test Scenarios:
     5. Bidirectional isolation — symmetry check (A↛B AND B↛A).
 """
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
@@ -456,15 +457,16 @@ class TestKuzuCacheParity:
         assert node_id in existing_after
 
     @pytest.mark.asyncio
-    async def test_transaction_rollback_and_retry_parity(self, kuzu_provider):
+    @pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
+    async def test_transaction_rollback_and_retry_parity(self, kuzu_provider, failure):
         agent_id = "agent_parity"
         node_id = "node_tx_fail_retry"
 
         # Failed transaction must not leave stale entries in _known_nodes
-        with pytest.raises(RuntimeError):
+        with pytest.raises(failure):
             async with kuzu_provider.transaction():
                 await kuzu_provider.insert_node(node_id, "Tx Fail Node", agent_id)
-                raise RuntimeError("Simulated transaction failure")
+                raise failure("Simulated transaction failure")
 
         assert await kuzu_provider.verify_nodes_absent(agent_id=agent_id, node_ids=[node_id])
 
