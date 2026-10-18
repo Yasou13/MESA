@@ -301,9 +301,12 @@ def test_ci_package_job_generates_locked_sbom_and_attests_tagged_artifacts() -> 
     assert "cyclonedx-py requirements" in workflow
     assert "dist/mesa-runtime.cdx.json" in workflow
     assert (
-        "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be"
+        "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8"
         in workflow
     )
+    assert "if: startsWith(github.ref, 'refs/tags/v')" in package_job
+    assert "subject-path:" in package_job
+    assert "dist/a/*.whl" in package_job
     assert "attestations: write" in workflow
     assert "id-token: write" in workflow
 
