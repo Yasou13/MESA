@@ -165,8 +165,9 @@ jobs:
       - name: Build the shipped full-cognitive runtime image for scanning
         run: docker build --pull=false --tag mesa-memory:security --target runtime --file Dockerfile .
       - name: Fail on high or critical Python dependency findings
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.70.0
           scan-type: fs
           scan-ref: .
           scanners: vuln
@@ -175,8 +176,9 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: Fail on high or critical full-cognitive image findings
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.70.0
           scan-type: image
           image-ref: mesa-memory:security
           severity: HIGH,CRITICAL
@@ -184,8 +186,9 @@ jobs:
           exit-code: "1"
       - name: Generate the full-cognitive image CycloneDX SBOM
         if: always()
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.70.0
           scan-type: image
           image-ref: mesa-memory:security
           format: cyclonedx
@@ -193,8 +196,9 @@ jobs:
           exit-code: "0"
       - name: Generate a CycloneDX SBOM from locked dependencies and image inputs
         if: always()
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.70.0
           scan-type: fs
           scan-ref: .
           format: cyclonedx
