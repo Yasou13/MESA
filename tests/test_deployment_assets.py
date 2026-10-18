@@ -209,8 +209,8 @@ def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> N
         "a58daefb915e1e03ad48f3ca4df8832065412c5c35cacb9d39f4229184de12b6"
     ) in dockerfile
     assert (
-        "ghcr.io/astral-sh/uv:0.11.30@sha256:"
-        "93b61e21202b1dab861092748e46bbd6e0e41dd84f59b9174efd2353186e1b47"
+        "ghcr.io/astral-sh/uv:0.13.1@sha256:"
+        "4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336"
     ) in dockerfile
     assert "USER mesa:mesa" in dockerfile
     assert "mesa_memory.container_health" in dockerfile
