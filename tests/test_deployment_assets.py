@@ -426,3 +426,14 @@ def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:
     )
     monkeypatch.setenv("MESA_PORT", "8123")
     assert command_for_profile()[-1] == "8123"
+
+
+def test_active_workflows_keep_the_reviewed_ci_uv_pin() -> None:
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        installs = [
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if "pip install" in line and "uv==" in line
+        ]
+        assert installs, path.name
+        assert all('"uv==0.13.1"' in line for line in installs), path.name
