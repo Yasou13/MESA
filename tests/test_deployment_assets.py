@@ -356,8 +356,12 @@ def test_ci_uses_the_trufflehog_container_tag_and_installs_adapters_for_zero_cos
 ):
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert "uses: trufflesecurity/trufflehog@v3.95.2" in workflow
-    assert "version: 3.95.2" in workflow
+    assert "uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9" in workflow
+    assert "version: 3.99.2" in workflow
+    assert "ghcr.io/trufflesecurity/trufflehog:3.99.2 --version" in workflow
+    assert 'grep -Fx "trufflehog 3.99.2"' in workflow
+    assert "extra_args: --results=verified,unknown" in workflow
+    assert "fetch-depth: 0" in workflow
     assert "uv sync --locked --extra dev --extra adapters" in workflow
 
 
