@@ -369,10 +369,11 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_shipped_images() -> 
     assert 'TRIVY_TIMEOUT: "10m"' in supply_chain
     assert (
         supply_chain.count(
-            "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
+            "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25"
         )
         == 4
     )
+    assert supply_chain.count("version: v0.70.0") == 4
     assert supply_chain.count('exit-code: "1"') == 2
     assert supply_chain.count("severity: HIGH,CRITICAL") == 2
     assert "format: cyclonedx" in supply_chain
