@@ -6,7 +6,6 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.extraction.service import (
     DeterministicFactValidator,
     FactCandidate,
-    FactExtractionError,
     FactExtractionResponse,
     FactExtractionService,
     FactExtractionUnavailableError,
