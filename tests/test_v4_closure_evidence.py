@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from scripts.capture_v4_closure_evidence import build_manifest, main
@@ -117,9 +120,39 @@ def test_ci_uploads_closure_evidence_from_v4_and_migration_jobs() -> None:
         Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
     ).read_text(encoding="utf-8")
 
-    assert workflow.count("scripts/capture_v4_closure_evidence.py") == 2
+    assert workflow.count("uv run python -m scripts.capture_v4_closure_evidence") == 2
     assert "--junit v4-contract.xml" in workflow
     assert "--junit migration-dr.xml" in workflow
     assert "v4-closure-evidence.json" in workflow
     assert "migration-dr-evidence.json" in workflow
     assert "tests/test_rebuild_provider_rehearsal.py" in workflow
+
+
+def test_evidence_module_runs_without_pythonpath(tmp_path: Path) -> None:
+    junit = tmp_path / "report.xml"
+    _junit(junit)
+    output = tmp_path / "evidence.json"
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.capture_v4_closure_evidence",
+            "--junit",
+            str(junit),
+            "--output",
+            str(output),
+        ],
+        cwd=Path(__file__).parents[1],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    manifest = json.loads(output.read_text(encoding="utf-8"))
+    assert manifest["tests"]["passed"] is True
+    assert manifest["rrf_ablation"]["query_count"] == 2
