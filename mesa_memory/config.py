@@ -529,11 +529,8 @@ class MesaConfig(BaseSettings):
             return 2
         return 0
 
-    tiebreaker_latency_threshold_ms: float = 500.0
-    bootstrap_cosine_threshold: float = 0.75
     context_window_limit: int = 8000
     lancedb_memory_limit_bytes: int = _SAFE_MODE_RAM_BYTES
-    spacy_language_model: str = "xx_ent_wiki_sm"
 
     # Dynamic limits: fraction of total RAM allocated to LanceDB (M1)
     ram_allocation_fraction: float = 0.18
@@ -545,34 +542,14 @@ class MesaConfig(BaseSettings):
         # to keep normal deployments responsive and bounded.
         return max(1, min(4, self.lancedb_memory_limit_bytes // (512 * 1024 * 1024)))
 
-    # Cross-validation lock thresholds (Module 8)
-    entity_similarity_threshold: float = 0.80
-    relation_similarity_threshold: float = 0.70
-
     # Consolidation loop parameters (Module 8)
     consolidation_batch_size: int = 20
-    hub_degree_threshold: int = 5
     consolidation_idle_timeout: int = 10
-    uncertain_zone_lower_bound: float = 0.3
-    anchor_interval: int = 3
-    human_review_max_size: int = 1000
-
-    # P0-A: Batch processing & token compression
-    max_batch_tokens: int = 6000  # MESA_MAX_BATCH_TOKENS
-    truncation_max_retries: int = 2  # MESA_TRUNCATION_MAX_RETRIES
 
     # Observability (Module 4)
     histogram_max_size: int = 10000
     metrics_admission_threshold: float = 0.8
     metrics_divergence_threshold: float = 0.5
-
-    recalibration_interval: int = 50
-    max_embedding_history: int = 500
-    drift_sigmoid_weight: float = -10.0
-    drift_ewmad_alpha: float = 0.2
-    drift_ewmad_momentum: float = 0.8
-    drift_clamp_min: float = 0.50
-    drift_clamp_max: float = 0.90
 
     # Hybrid retrieval parameters (Module 9).  V4 fuses independent
     # vector/lexical/graph rankings with Reciprocal Rank Fusion; do not add
@@ -586,10 +563,6 @@ class MesaConfig(BaseSettings):
     )
     rrf_graph_weight: float = Field(1.0, validation_alias="MESA_RRF_GRAPH_WEIGHT")
     t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
-    cold_start_min_nodes: int = 10
-    cold_start_fitness_weight: float = 0.5
-    cold_start_distance_weight: float = 0.5
-    ppr_alpha: float = 0.15
 
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this
     # flag advertises and admits the durable workflow; it never makes it online.
@@ -602,14 +575,6 @@ class MesaConfig(BaseSettings):
         15.0, validation_alias="MESA_V4_GRAPH_TIMEOUT_SECONDS"
     )
 
-    # CrossEncoder Reranking (v0.7.1)
-    crossencoder_enabled: bool = Field(
-        False, validation_alias="MESA_CROSSENCODER_ENABLED"
-    )
-    crossencoder_model: str = Field(
-        "cross-encoder/ms-marco-MiniLM-L-6-v2",
-        validation_alias="MESA_CROSSENCODER_MODEL",
-    )
     crossencoder_pool_multiplier: int = Field(
         3, validation_alias="MESA_CROSSENCODER_POOL_MULTIPLIER"
     )
