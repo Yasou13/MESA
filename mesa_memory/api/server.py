@@ -416,6 +416,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             validation_policy=validation_policy,
             extraction_llm=extraction_adapter,
             obs_layer=state.obs_layer,
+            queue_root=runtime.storage_root,
         )
         consolidation_loop_task = await state.worker_supervisor.start(
             "consolidation-loop", state.consolidation_loop.start

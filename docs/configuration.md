@@ -178,8 +178,8 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `circuit_breaker_threshold` | `MESA_CIRCUIT_BREAKER_THRESHOLD` | `10` |
 | `circuit_breaker_cooldown_sec` | `MESA_CIRCUIT_BREAKER_COOLDOWN` | `60.0` |
 | `storage_path` | `MESA_STORAGE_PATH` | `derived from cwd; runtime requires explicit storage root` |
-| `human_review_queue_path` | `MESA_HUMAN_REVIEW_QUEUE_PATH` | `''` |
-| `dead_letter_queue_path` | `MESA_DEAD_LETTER_QUEUE_PATH` | `''` |
+| `human_review_queue_path` | `MESA_HUMAN_REVIEW_QUEUE_PATH` | `'' (server puts this file under MESA_STORAGE_ROOT; variable applies only outside the server)` |
+| `dead_letter_queue_path` | `MESA_DEAD_LETTER_QUEUE_PATH` | `'' (server puts this file under MESA_STORAGE_ROOT; variable applies only outside the server)` |
 | `queue_max_pending_records` | `MESA_QUEUE_MAX_PENDING_RECORDS` | `50000` |
 | `queue_max_pending_bytes` | `MESA_QUEUE_MAX_PENDING_BYTES` | `2147483648` |
 | `queue_max_pending_records_per_tenant` | `MESA_QUEUE_MAX_PENDING_RECORDS_PER_TENANT` | `50000` |
