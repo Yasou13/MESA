@@ -936,11 +936,13 @@ class ConsolidationLoop:
                 facts = await self.fact_extraction_service.extract_facts_from_record(
                     record
                 )
-                await self.dao.record_mutation_extraction(
+                persisted = await self.dao.record_mutation_extraction(
                     str(record["agent_id"]),
                     str(record["mutation_id"]),
                     self._canonical_triplets(facts),
                 )
+                if persisted is False:
+                    raise FactExtractionError("Mutation extraction write refused")
             except FactExtractionError as exc:
                 logger.error(
                     "CANONICAL_FACT_EXTRACTION_FAILED | id=%s error=%s",

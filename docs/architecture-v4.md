@@ -105,6 +105,9 @@ Failure/recovery states are `RETRY_PENDING`, `DLQ`, `ROLLING_BACK`,
 `ROLLED_BACK` and `BLOCKED`. State changes use compare-and-swap and append an
 event. Claims use a random fencing token, bounded lease, heartbeat and bounded
 retry. A worker that loses its token cannot finalize the claim.
+V4 retries restart extraction from `RETRY_PENDING`, skip model calls after
+validation, and atomically mark the dispatch and mutation `DEAD_LETTER` and the
+raw log `failed` after five unsuccessful attempts, preserving final states.
 
 These are pipeline states; client-facing mutation states are listed in
 [concepts and ingestion](concepts-and-ingestion.md). `COMMITTED` is the success
