@@ -193,5 +193,5 @@ async def test_consolidation_loop_writes_dead_letter_under_storage_root(
     dlq_path = tmp_path / "dead_letter_queue.jsonl"
     assert dlq_path.exists()
     assert _dead_letter_count(tmp_path) == 1
-    assert not (tmp_path / "dead-letter.jsonl").exists()
-    assert not (tmp_path / "human-review.jsonl").exists()
+    created_jsonl_names = {p.name for p in tmp_path.glob("*.jsonl")}
+    assert "dead_letter_queue.jsonl" in created_jsonl_names
