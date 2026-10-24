@@ -12,7 +12,7 @@ uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
 make test-local
 ```
 
-`test-local` selects `not optional_provider and not optional_mcp and not live_external`.
+`test-local` selects `not optional_provider and not optional_mcp and not live_external and not timing`.
 For the complete installed contract environment use `dev` and `adapters`, then
 `make test-all`. Optional provider/MCP tests use mocks; live-external tests require
 explicit external enablement. Do not run official TEST or production calls as
