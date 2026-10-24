@@ -407,7 +407,6 @@ async def test_combined_runtime_wires_configured_graph_timeout(monkeypatch, tmp_
     monkeypatch.setattr(server, "load_runtime_profile", lambda: runtime)
     monkeypatch.setattr(server, "load_explicit_dotenv", MagicMock())
     monkeypatch.setattr(server, "_refresh_auth_config", MagicMock())
-    monkeypatch.setattr(server, "setup_telemetry_tracing", MagicMock())
 
     test_app = FastAPI()
     async with server.lifespan(test_app):

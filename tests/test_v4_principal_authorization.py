@@ -61,12 +61,8 @@ async def test_v4_memory_requires_principal_session_access(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="V4 gap: mutation status returns 403 rather than concealing a revoked session grant with 404",
-)
-async def test_v4_status_conceals_records_without_session_read_access(asgi_client):
+# Decision D5: status returns 403, not 404, when the owner's own READ grant is revoked.
+async def test_v4_status_returns_403_when_session_read_access_revoked(asgi_client):
     dao = MagicMock()
     dao.get_mutation_summary = AsyncMock(return_value={"session_id": "session-a"})
     dao.get_v4_session = AsyncMock(return_value={"agent_id": "agent-a"})
@@ -81,7 +77,7 @@ async def test_v4_status_conceals_records_without_session_read_access(asgi_clien
         "READ",
     )
     dao.get_pipeline_run.assert_not_awaited()
-    assert response.status_code == 404
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio

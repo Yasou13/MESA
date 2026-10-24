@@ -6,8 +6,7 @@ Defaults below are field declarations, not evidence of an operational model.
 ## Startup and precedence
 
 `MESA_RUNTIME_PROFILE` and `MESA_STORAGE_ROOT` are required by the runtime
-loader. Profiles: `api-only`, `worker-only`, `combined`, `test-isolated`. V4
-requires one combined writer; V3 split roles use a separate root.
+loader. Profiles: `combined`, `test-isolated`. V4 requires one combined writer.
 Storage aliases are tried in order ROOT, PATH, DIR, DB_PATH; a `.db` filename
 selects its parent. Reject filesystem/home/repository root. Test-isolated
 requires an absolute child of `MESA_RUNTIME_LAB_ROOT` and forbids models,
@@ -48,7 +47,7 @@ uses smaller sample global and per-tenant bounds than code defaults.
 Start with the disposable root, key and grants from the
 [quickstart](getting-started.md#provision-before-startup), with the server stopped.
 For an external OpenAI-compatible extraction + embedding setup, install
-`uv sync --locked --python 3.10 --extra adapters` (no local ML extra is needed).
+`uv sync --locked --python 3.11 --extra adapters` (no local ML extra is needed).
 Select models supported by your endpoint. The following is an example pairing,
 not evidence of a real-provider run:
 
@@ -112,8 +111,7 @@ work without creating any `.env` file.
 Fresh combined startup creates/migrates SQLite and initializes LanceDB/Kùzu;
 there is no manual fresh-database migration step. Keep old storage migrations
 separate: use the [upgrade procedure](RUNBOOK.md#upgrade-v080), never delete an
-existing database to resolve a startup error. Split V3 `api-only` requires its
-worker to be ready first. Startup failures occur in the server terminal before
+existing database to resolve a startup error. Startup failures occur in the server terminal before
 readiness; check the named variable, writable path or missing selected extra
 there. Do not paste secrets or entire environment files into bug reports.
 
@@ -121,7 +119,6 @@ there. Do not paste secrets or entire environment files into bug reports.
 
 Field-declaration reference; compare it with `MesaConfig` when configuration changes.
 `required` or derived defaults are explicit. Legacy controls are present for V3;
-CrossEncoder/REBEL are not the canonical V4 ranking/extraction path.
 
 | Python field | Environment name | Declared default |
 |---|---|---|
@@ -174,7 +171,6 @@ CrossEncoder/REBEL are not the canonical V4 ranking/extraction path.
 | `metrics_divergence_threshold` | `METRICS_DIVERGENCE_THRESHOLD` | `0.5` |
 | `recalibration_interval` | `RECALIBRATION_INTERVAL` | `50` |
 | `max_embedding_history` | `MAX_EMBEDDING_HISTORY` | `500` |
-| `ecod_anomaly_threshold` | `ECOD_ANOMALY_THRESHOLD` | `0.8` |
 | `drift_sigmoid_weight` | `DRIFT_SIGMOID_WEIGHT` | `-10.0` |
 | `drift_ewmad_alpha` | `DRIFT_EWMAD_ALPHA` | `0.2` |
 | `drift_ewmad_momentum` | `DRIFT_EWMAD_MOMENTUM` | `0.8` |
@@ -197,7 +193,6 @@ CrossEncoder/REBEL are not the canonical V4 ranking/extraction path.
 | `crossencoder_pool_multiplier` | `MESA_CROSSENCODER_POOL_MULTIPLIER` | `3` |
 | `legal_domain_mode` | `MESA_LEGAL_DOMAIN_MODE` | `False` |
 | `local_embedding_model` | `MESA_LOCAL_EMBEDDING_MODEL` | `'magibu/embeddingmagibu-200m'` |
-| `rebel_enabled` | `MESA_REBEL_ENABLED` | `False` |
 | `extraction_lang` | `MESA_EXTRACTION_LANG` | `'tr'` |
 | `zero_cost_mode` | `MESA_ZERO_COST_MODE` | `False` |
 | `ollama_url` | `MESA_OLLAMA_URL` | `'http://localhost:11434'` |

@@ -41,27 +41,8 @@ def test_test_isolated_rejects_dotenv_provider_and_storage_escape(tmp_path):
         load_runtime_profile(isolated_env(tmp_path, MESA_STORAGE_ROOT="/tmp/outside"))
 
 
-def test_api_only_and_worker_only_have_explicit_non_overlapping_roles(tmp_path):
-    api = load_runtime_profile(isolated_env(tmp_path, MESA_RUNTIME_PROFILE="api-only"))
-    worker = load_runtime_profile(
-        isolated_env(tmp_path, MESA_RUNTIME_PROFILE="worker-only")
-    )
-    assert api.profile is RuntimeProfile.API_ONLY
-    assert api.api_enabled is True and api.worker_enabled is False
-    assert worker.profile is RuntimeProfile.WORKER_ONLY
-    assert worker.api_enabled is False and worker.worker_enabled is True
 
 
-def test_api_only_can_explicitly_require_the_separate_worker_heartbeat(tmp_path):
-    api = load_runtime_profile(
-        isolated_env(
-            tmp_path,
-            MESA_RUNTIME_PROFILE="api-only",
-            MESA_REQUIRE_WORKER_READINESS="true",
-        )
-    )
-    assert api.worker_enabled is False
-    assert api.require_worker_readiness is True
 
 
 def test_test_isolated_never_reads_dotenv_without_explicit_allowance(tmp_path):
@@ -147,3 +128,9 @@ def test_test_isolated_rejects_symlink_escape_from_runtime_lab_root(tmp_path):
                 MESA_STORAGE_ROOT=str(lab_root / "storage"),
             )
         )
+
+
+def test_combined_enables_api_and_workers(tmp_path):
+    runtime = load_runtime_profile(isolated_env(tmp_path, MESA_RUNTIME_PROFILE="combined"))
+    assert runtime.profile is RuntimeProfile.COMBINED
+    assert runtime.api_enabled is True and runtime.worker_enabled is True

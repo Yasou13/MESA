@@ -10,8 +10,6 @@ os.environ["MESA_API_KEY"] = "test_key"
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
 from mesa_memory.api.server import app, get_embedder
 from mesa_memory.consolidation.loop import ConsolidationLoop
-from mesa_memory.retrieval.hybrid import HybridRetriever
-from mesa_memory.valence.core import ValenceMotor, calculate_fitness_score
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +65,7 @@ def test_server_lifespan_health_metrics(tmp_path):
                     ).status_code == 200
                     assert (
                         await client.get(
-                            "/v3/memory/session/test/context?agent_id=1",
+                            "/v4/sessions/test/context",
                             headers={"X-API-Key": "wrong"},
                         )
                     ).status_code == 401
@@ -101,96 +99,12 @@ def test_get_dao_embedder():
 
 
 # -------------------------
-# Retrieval Hybrid Tests
-# -------------------------
-
-
-@pytest.mark.asyncio
-async def test_hybrid_exceptions():
-    dao_mock = AsyncMock()
-    analyzer_mock = MagicMock()
-    embedder_mock = MagicMock()
-
-    analyzer_mock.extract_entities.return_value = ["E1", "E2"]
-    dao_mock.find_nodes_by_name.return_value = [{"id": "node1"}, {"id": "node2"}]
-    dao_mock.get_memories.return_value = [{"id": "node1"}]
-    dao_mock.count_active_memories.return_value = 100
-    dao_mock.search_memory_fts.side_effect = Exception("FTS error")
-    dao_mock.get_neighbors.side_effect = Exception("KùzuDB error")
-    dao_mock.graph_provider = AsyncMock()
-    dao_mock.graph_provider.get_cognitive_salience.side_effect = Exception(
-        "KùzuDB error"
-    )
-
-    access_mock = AsyncMock()
-    access_mock.check_access.return_value = True
-
-    retriever = HybridRetriever(
-        dao=dao_mock,
-        analyzer=analyzer_mock,
-        embedder=embedder_mock,
-        access_control=access_mock,
-    )
-    retriever.get_vector_results = AsyncMock(return_value=[])
-    retriever.get_graph_results = AsyncMock(return_value=[])
-
-    # Enable multi hop with graph traversal failure
-    res = await retriever.retrieve("query", "agent1", "session1", enable_multi_hop=True)
-    assert res["multi_hop_path"] == []
-
-    # Test get_graph_results no seeds
-    assert await retriever.get_graph_results("agent1", []) == []
-
-    # Test get_graph_results exceptions caught gracefully
-    dao_mock.find_nodes_by_name.return_value = [{"id": "seed1"}]
-    res = await retriever.get_graph_results("agent1", ["seed1"])
-    assert res == []
-
-
-def test_format_working_memory_budget():
-    retriever = HybridRetriever(
-        dao=AsyncMock(), analyzer=MagicMock(), embedder=MagicMock()
-    )
-    retriever.embedder.get_token_count = MagicMock(
-        return_value=1000
-    )  # huge token count
-
-    res = retriever.format_working_memory([{"content_payload": "test"}], max_tokens=10)
-    assert res == "Retrieved Context: None"
-
-
-# -------------------------
 # Valence Core Tests
 # -------------------------
 
 
-def test_valence_fitness():
-    assert calculate_fitness_score("test", 0) > 0
-    assert calculate_fitness_score("test", 1000) > 0
 
 
-@pytest.mark.asyncio
-async def test_valence_evaluate_errors():
-    motor = ValenceMotor(llm_adapter=MagicMock(), obs_layer=MagicMock(), storage=None)
-
-    assert await motor.evaluate({}, {"error": True}) is False
-    assert await motor.evaluate({}, {"format_violation": True}) is False
-
-    # Test storage hydration exceptions
-    storage_mock = MagicMock()
-    storage_mock.load_embedding_cache.side_effect = Exception("Load err")
-    motor_err = ValenceMotor(
-        llm_adapter=MagicMock(), obs_layer=MagicMock(), storage=storage_mock
-    )
-    assert motor_err.existing_embeddings == []
-
-    storage_mock = MagicMock()
-    del storage_mock.load_embedding_cache
-    storage_mock.get_all_embeddings.side_effect = Exception("Load err 2")
-    motor_err2 = ValenceMotor(
-        llm_adapter=MagicMock(), obs_layer=MagicMock(), storage=storage_mock
-    )
-    assert motor_err2.existing_embeddings == []
 
 
 # -------------------------

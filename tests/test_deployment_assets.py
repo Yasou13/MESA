@@ -23,32 +23,6 @@ def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
     assert '"llvmlite>=0.47.0"' in project_metadata
 
 
-def test_compose_has_isolated_api_and_worker_roles_without_host_bind_or_dotenv(
-    monkeypatch,
-) -> None:
-    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
-    assert set(compose["services"]) == {"mesa-api", "mesa-worker"}
-    for service in compose["services"].values():
-        assert "env_file" not in service
-        assert service["read_only"] is True
-        assert service["volumes"] == ["mesa-data:/var/lib/mesa"]
-        assert service["environment"]["MESA_MODEL_ENABLED"] == "false"
-        assert service["environment"]["MESA_EXTERNAL_PROVIDER_ENABLED"] == "false"
-    assert (
-        compose["services"]["mesa-api"]["environment"]["MESA_RUNTIME_PROFILE"]
-        == "api-only"
-    )
-    assert (
-        compose["services"]["mesa-api"]["environment"]["MESA_REQUIRE_WORKER_READINESS"]
-        == "true"
-    )
-    assert (
-        compose["services"]["mesa-worker"]["environment"]["MESA_RUNTIME_PROFILE"]
-        == "worker-only"
-    )
-    assert compose["services"]["mesa-api"]["depends_on"] == {
-        "mesa-worker": {"condition": "service_healthy"}
-    }
 
 
 def test_single_container_image_canary_uses_the_self_contained_runtime() -> None:
@@ -64,7 +38,6 @@ def test_single_container_image_canary_uses_the_self_contained_runtime() -> None
         if step.get("name") == "Build, inspect, and smoke the non-root image"
     )
     assert "--env MESA_RUNTIME_PROFILE=combined" in smoke_step["run"]
-    assert "--env MESA_RUNTIME_PROFILE=api-only" not in smoke_step["run"]
 
 
 def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
@@ -246,22 +219,16 @@ def test_documented_quickstarts_match_the_fail_closed_compose_profile() -> None:
 
 def test_documented_public_api_examples_match_authenticated_route_contract() -> None:
     quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
-    example = (ROOT / "examples/v3_quickstart.py").read_text(encoding="utf-8")
     v4_example = (ROOT / "examples/v4_quickstart.py").read_text(encoding="utf-8")
 
     assert (
         'curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:18080/health'
         in quickstart
     )
-    assert "examples/v3_quickstart.py" in quickstart
-    assert "not a models-disabled example" in quickstart
     assert "python -m examples.v4_quickstart" in quickstart
     assert "client.wait_until_committed(" in v4_example
     assert "client.end_session(" in v4_example
     assert 'hit.get("provenance", [])' in v4_example
-    assert "/v3/memory/status/{accepted.log_id}" in example
-    assert "/v3/memory/session/start" in example
-    assert "/v3/session/start" not in example
 
 
 def test_dependency_and_security_governance_assets_are_present() -> None:
@@ -278,7 +245,7 @@ def test_dependency_and_security_governance_assets_are_present() -> None:
 def test_ci_tests_supported_python_versions_and_enforces_full_repository_lint() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert 'python-version: ["3.10", "3.11", "3.12", "3.13"]' in workflow
+    assert 'python-version: ["3.11", "3.12", "3.13"]' in workflow
     assert "uv sync --locked --extra dev" in workflow
     assert workflow.count("uv pip check") >= 5
     assert "uv run python -m pip check" not in workflow
@@ -336,7 +303,7 @@ def test_ci_runs_the_full_coverage_suite_on_the_docker_python_version() -> None:
     coverage_job = workflow.split("  coverage:", maxsplit=1)[1].split(
         "  optional-integrations:", maxsplit=1
     )[0]
-    assert 'python-version: ["3.10", "3.13"]' in coverage_job
+    assert 'python-version: ["3.11", "3.13"]' in coverage_job
     assert "coverage-report-${{ matrix.python-version }}" in coverage_job
 
 
@@ -404,7 +371,6 @@ def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None
 
     docs_smoke = workflow.split("  docs-smoke:", maxsplit=1)[1]
     assert 'uv run python -c "from mesa_memory.runtime_entrypoint' in docs_smoke
-    assert 'uv run python -c "from mesa_memory.worker_runtime' in docs_smoke
     assert "uv run mesa-recovery --help" in docs_smoke
 
 
@@ -417,23 +383,16 @@ def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:
         entrypoint,
         "load_runtime_profile",
         lambda: SimpleNamespace(
-            profile=RuntimeProfile.WORKER_ONLY,
-            api_enabled=False,
-            load_dotenv=False,
-        ),
-    )
-    assert command_for_profile() == [sys.executable, "-m", "mesa_memory.worker_runtime"]
-    monkeypatch.setattr(
-        entrypoint,
-        "load_runtime_profile",
-        lambda: SimpleNamespace(
-            profile=RuntimeProfile.API_ONLY,
+            profile=RuntimeProfile.COMBINED,
             api_enabled=True,
             load_dotenv=False,
         ),
     )
     monkeypatch.setenv("MESA_PORT", "8123")
-    assert command_for_profile()[-1] == "8123"
+    assert command_for_profile() == [
+        sys.executable, "-m", "uvicorn", "mesa_memory.api.server:app",
+        "--host", "0.0.0.0", "--port", "8123",
+    ]
 
 
 def test_active_workflows_keep_the_reviewed_ci_uv_pin() -> None:

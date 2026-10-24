@@ -27,8 +27,6 @@ _DEFAULT_RUNTIME_LAB_ROOT = Path("/storage/mesa-lab").resolve()
 
 
 class RuntimeProfile(str, Enum):
-    API_ONLY = "api-only"
-    WORKER_ONLY = "worker-only"
     COMBINED = "combined"
     TEST_ISOLATED = "test-isolated"
 
@@ -165,8 +163,6 @@ def load_runtime_profile(
         default=False,
     )
     role_defaults = {
-        RuntimeProfile.API_ONLY: (True, False),
-        RuntimeProfile.WORKER_ONLY: (False, True),
         RuntimeProfile.COMBINED: (True, True),
         RuntimeProfile.TEST_ISOLATED: (True, False),
     }
@@ -570,12 +566,8 @@ class MesaConfig(BaseSettings):
     metrics_admission_threshold: float = 0.8
     metrics_divergence_threshold: float = 0.5
 
-    # Valence recalibration interval (Module 7)
     recalibration_interval: int = 50
     max_embedding_history: int = 500
-    ecod_anomaly_threshold: float = (
-        0.80  # MESA_ECOD_ANOMALY_THRESHOLD (0-1, normalized)
-    )
     drift_sigmoid_weight: float = -10.0
     drift_ewmad_alpha: float = 0.2
     drift_ewmad_momentum: float = 0.8
@@ -637,21 +629,8 @@ class MesaConfig(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
-    # v0.7.1 DX Patch: Optional REBEL Model
-    # Default: DISABLED.  The 1.8 GB Babelscape/rebel-large model is NOT
-    # downloaded or loaded unless explicitly opted-in via env var.
-    # Triple extraction uses the LLM zero-shot prompt (Groq/Llama-3) which
-    # supports domain-specific, language-aware extraction (e.g., Turkish
-    # legal text) without any local model overhead.
-    # Set MESA_REBEL_ENABLED=true ONLY in GPU-equipped environments where
-    # the transformer pipeline is required for English-only workloads.
-    # -----------------------------------------------------------------------
-    rebel_enabled: bool = Field(False, validation_alias="MESA_REBEL_ENABLED")
-
-    # -----------------------------------------------------------------------
     # v0.7.1 Phase 1.3: Domain-Specific Extraction Language
-    # Controls which zero-shot extraction prompt template is used when
-    # REBEL is disabled.  Supported values: "en" (English), "tr" (Turkish).
+    # Supported values: "en" (English), "tr" (Turkish).
     # Turkish mode uses a specialised legal/formal prompt optimised for
     # extracting (özne, yüklem, nesne) triplets from mevzuat, kanun, and
     # yönetmelik texts.
@@ -664,7 +643,6 @@ class MesaConfig(BaseSettings):
     # exclusively local resources:
     #   - LLM provider  → OllamaAdapter (localhost:11434)
     #   - Embeddings    → configured local EmbeddingService model (no fallback)
-    #   - REBEL         → disabled
     #   - Validation    → preserves the explicitly selected assurance mode;
     #                      Mode 2 still requires two distinct validators.
     # This mode requires Ollama to be running locally with a pulled model.
@@ -876,7 +854,6 @@ class MesaConfig(BaseSettings):
           - extraction_provider → "ollama"
           - extraction_model    → "qwen3:1.7b"
           - extraction_thinking → False
-          - rebel_enabled       → False
           - Leaves validation policy and validator identities unchanged
         """
         if not self.zero_cost_mode:
@@ -888,7 +865,7 @@ class MesaConfig(BaseSettings):
         _zcm_logger.info(
             "━━━ ZERO-COST MODE ACTIVE ━━━ "
             "Local Ollama provider selected (%s). "
-            "Embeddings: %s (local). REBEL: disabled.",
+            "Embeddings: %s (local).",
             self.ollama_url,
             self.local_embedding_model,
         )
@@ -898,7 +875,6 @@ class MesaConfig(BaseSettings):
         object.__setattr__(self, "extraction_provider", "ollama")
         object.__setattr__(self, "extraction_model", "qwen3:1.7b")
         object.__setattr__(self, "extraction_thinking", False)
-        object.__setattr__(self, "rebel_enabled", False)
         # Ensure the OLLAMA_URL env var is set for the adapter factory
         os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)
         return self

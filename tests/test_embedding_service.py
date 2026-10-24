@@ -555,26 +555,6 @@ async def test_vector_engine_routes_document_and_query_to_distinct_service_roles
 
 
 @pytest.mark.asyncio
-async def test_hybrid_retrieval_routes_search_text_to_query_embedding():
-    from mesa_memory.retrieval.hybrid import HybridRetriever
-
-    vector = SimpleNamespace(
-        compute_query_embedding=AsyncMock(return_value=[0.0, 1.0]),
-        compute_embedding=AsyncMock(side_effect=AssertionError("document route used")),
-    )
-    dao = SimpleNamespace(
-        vector_engine=vector,
-        search_memory=AsyncMock(return_value=[]),
-    )
-    retriever = object.__new__(HybridRetriever)
-    retriever.dao = dao
-
-    assert await retriever.get_vector_results("agent", "search text") == []
-    vector.compute_query_embedding.assert_awaited_once_with("search text")
-    vector.compute_embedding.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_legacy_custom_provider_functions_remain_query_compatible():
     sync_calls = []
     async_calls = []

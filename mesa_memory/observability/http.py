@@ -16,7 +16,7 @@ _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _TRACEPARENT_RE = re.compile(
     r"^(?!ff)[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$"
 )
-_QUIET_ROUTES = {"/health", "/health/init", "/metrics", "/v3/health"}
+_QUIET_ROUTES = {"/health", "/health/init", "/metrics"}
 
 
 def _header(scope: Scope, name: bytes) -> str | None:

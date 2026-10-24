@@ -158,9 +158,9 @@ ve ancak ardından cutover yapın.
 
 ### Single-writer kapasite sınırı
 
-V3 split topology’de bir storage root için yalnız bir aktif `worker-only` process çalıştırın. V4 yalnız bir `combined` owner kullanır; ayrı worker-only topology desteklenmez.
+V4 bir storage root için yalnız bir aktif `combined` owner kullanır.
 Worker başlangıcı aynı hostta advisory lock ile ikinci writer'ı reddeder;
-çoklu host/NFS için bu bir koordinasyon mekanizması değildir. API, valence ve
+çoklu host/NFS için bu bir koordinasyon mekanizması değildir. API ve
 MCP process-local cache'leri yalnız performans optimizasyonudur; doğruluk
 durumu SQLite ledger ve fenced lease'lerdedir. Yatay writer ölçekleme ancak
 paylaşımlı lease/koordinasyon servisi tasarlanıp doğrulandıktan sonra açılır.
@@ -196,13 +196,6 @@ bulunamaz. Docker `local` driver 10 MB × 5 dosya sınırı kullanır.
 
 Incident kanıtı olarak maskelenmiş log, mutation status, health/metrics anlık
 görüntüsü, image digest ve storage manifesti saklanır.
-
-## 11. V3 compatibility
-
-`docker-compose.yml` ayrı API + worker lexical-core topology’sidir. V3’teki
-telafi edici Saga, agent/session RBAC, soft-delete ve maintenance davranışı
-v4’e genellenmez. V3 sorunlarında mevcut `mesa-recovery`, worker readiness ve
-maintenance prosedürleri uygulanır; aynı storage root v4’e bağlanmaz.
 
 ## 12. Release durumu
 

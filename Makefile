@@ -9,7 +9,7 @@ install-all:
 	$(UV) sync --locked --extra dev --extra adapters
 
 dev:
-	MESA_RUNTIME_PROFILE=api-only $(UV) run python -m mesa_memory.runtime_entrypoint
+	MESA_RUNTIME_PROFILE=combined $(UV) run python -m mesa_memory.runtime_entrypoint
 
 v4-dev:
 	MESA_RUNTIME_PROFILE=combined $(UV) run python -m mesa_memory.runtime_entrypoint
@@ -33,7 +33,7 @@ check:
 	$(UV) run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client --ignore-missing-imports --explicit-package-bases --follow-imports=skip
 
 docker-up:
-	docker compose up --build -d
+	docker compose -f docker-compose.v4.yml up --build -d
 
 v4-docker-up:
 	docker compose -f docker-compose.v4.yml up --build -d

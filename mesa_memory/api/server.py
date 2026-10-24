@@ -22,7 +22,6 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from mesa_api.router import create_memory_router
 from mesa_api.routers.control.router import create_control_router
 from mesa_api.v4_router import create_v4_router
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
@@ -41,7 +40,6 @@ from mesa_memory.consolidation.loop import (
 from mesa_memory.consolidation.policy import (
     compose_validation_policy,
 )
-from mesa_memory.container_health import worker_is_ready
 from mesa_memory.embedding.service import (
     get_embedding_service as _get_embedding_service,
 )
@@ -50,7 +48,6 @@ from mesa_memory.observability.metrics import (
     ObservabilityLayer,
     update_v4_health_metrics,
 )
-from mesa_memory.observability.tracer import setup_telemetry_tracing
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
@@ -181,16 +178,14 @@ _STORAGE_BASE: Path | None = None
 _SQLITE_PATH: Path | None = None
 _VECTOR_PATH: Path | None = None
 _KUZU_PATH: Path | None = None
-_VALENCE_PATH: Path | None = None
 
 
 def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
-    global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH, _KUZU_PATH, _VALENCE_PATH
+    global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH, _KUZU_PATH
     _STORAGE_BASE = runtime.storage_root
     _SQLITE_PATH = _STORAGE_BASE / "mesa.db"
     _VECTOR_PATH = None
     _KUZU_PATH = None
-    _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
 
 
 def _configure_projection_paths(paths: ProjectionPaths) -> None:
@@ -309,17 +304,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.sqlite_engine = AsyncEngine(db_path=str(_SQLITE_PATH))
     await state.sqlite_engine.initialize()
 
-    # In the split deployment the worker owns schema changes.  Letting the
-    # API run Alembic against the same SQLite file races the worker's startup
-    # migration and, more importantly, gives the non-storage-owner process
-    # write authority over durable state.  Combined/test profiles retain the
-    # self-contained startup path.
-    if runtime.profile is not RuntimeProfile.API_ONLY:
-        await initialize_schema(state.sqlite_engine)
-    elif runtime.require_worker_readiness and not worker_is_ready(runtime.storage_root):
-        raise RuntimeError(
-            "api-only runtime requires a ready worker before opening storage"
-        )
+    await initialize_schema(state.sqlite_engine)
     generation_repository = ProjectionGenerationRepository(state.sqlite_engine)
     projection_paths = await generation_repository.resolve_active(
         storage_root=runtime.storage_root,
@@ -342,37 +327,29 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     )
     await state.vector_engine.initialize()
 
-    # Kùzu permits only one live read-write Database handle for a graph path.
-    # The worker owns that handle in api-only/worker-only deployments, so the
-    # API must neither open the graph nor create a second physical writer.
-    # Combined runtimes retain their self-contained graph lifecycle.
-    graph_provider = None
-    if runtime.profile is not RuntimeProfile.API_ONLY:
-        # Initialize KùzuDB embedded graph database (disk-backed).
-        # NOTE: Only the Database handle is created here. kuzu.Connection
-        # instances must be created per-thread to avoid file-lock contention.
-        if _KUZU_PATH is not None:
-            _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
-        # type: ignore[union-attr]
-        logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
-        from mesa_storage import kuzu_setup
+    # Initialize KùzuDB embedded graph database (disk-backed).
+    # NOTE: Only the Database handle is created here. kuzu.Connection
+    # instances must be created per-thread to avoid file-lock contention.
+    if _KUZU_PATH is not None:
+        _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # type: ignore[union-attr]
+    logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
+    from mesa_storage import kuzu_setup
 
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
-        logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
+    logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
 
-        state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
-        logger.info("KùzuDB initialised at %s", _KUZU_PATH)
-        logger.info("KUZU_DATABASE_OPENED")
+    state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
+    logger.info("KùzuDB initialised at %s", _KUZU_PATH)
+    logger.info("KUZU_DATABASE_OPENED")
 
-        # Initialize the async-safe KuzuGraphProvider for edge operations.
-        graph_provider = KuzuGraphProvider(
-            db_path=str(_KUZU_PATH),
-            search_timeout_seconds=config.v4_graph_timeout_seconds,
-        )
-        await graph_provider.initialize()
-    else:
-        logger.info("API_ONLY_GRAPH_STORE_OWNED_BY_WORKER")
+    # Initialize the async-safe KuzuGraphProvider for edge operations.
+    graph_provider = KuzuGraphProvider(
+        db_path=str(_KUZU_PATH),
+        search_timeout_seconds=config.v4_graph_timeout_seconds,
+    )
+    await graph_provider.initialize()
 
     state.graph_provider = graph_provider  # type: ignore[assignment]
 
@@ -420,10 +397,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     await _require_api_key()
 
     # Model/provider and worker startup are explicit profile decisions.
-    pagerank_task = None
     wal_task = None
-    maintenance_worker = None
-    rem_worker = None
     state.consolidation_loop = None  # type: ignore[assignment]
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
@@ -449,7 +423,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         state.background_tasks.add(consolidation_loop_task)
         logger.info("CONSOLIDATION_LOOP_STARTED")
 
-        # REM, PageRank, entity rewrite/consolidation, Valence restoration and
+        # REM, PageRank, entity rewrite/consolidation and
         # maintenance mutation loops are deliberately not part of the MVP
         # composition.  They used to mutate legacy SQL/vector/graph state
         # outside the V4 mutation ledger.  Keep them out of the supported
@@ -544,33 +518,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     await state.worker_supervisor.shutdown()
     delattr(state, "worker_supervisor")
 
-    # Stop REMCycleWorker gracefully
-    if rem_worker is not None:
-        try:
-            await rem_worker.stop()
-        except Exception as exc:
-            logger.warning("Failed to stop REMCycleWorker: %s", exc)
-        if rem_worker._task is not None:
-            rem_worker._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await rem_worker._task
-
-    # Stop MaintenanceWorker gracefully
-    if maintenance_worker is not None:
-        try:
-            await maintenance_worker.stop()
-        except Exception as exc:
-            logger.warning("Failed to stop MaintenanceWorker: %s", exc)
-        if maintenance_worker._task is not None:
-            maintenance_worker._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await maintenance_worker._task
-
-    # Cancel the PageRank worker
-    if pagerank_task is not None:
-        pagerank_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await pagerank_task
     # Cancel the WAL worker
     if wal_task is not None:
         wal_task.cancel()
@@ -580,24 +527,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     # Stop the consolidation loop before flushing state
     if hasattr(state, "consolidation_loop") and state.consolidation_loop:
         await state.consolidation_loop.stop()
-
-    # v0.7.1 FIX: Persist valence cognitive state to prevent amnesia.
-    # Without this save, the EWMAD threshold and memory count are lost
-    # on every restart, causing threshold regression.
-    try:
-        from mesa_memory.valence.core import ValenceMotor
-
-        if hasattr(state, "consolidation_loop") and state.consolidation_loop:
-            # Walk the consolidation → router → validator chain to find
-            # any ValenceMotor instance that may hold live state.
-            _router = getattr(state.consolidation_loop, "router", None)
-            _valence = getattr(_router, "valence_motor", None)
-            if _valence and isinstance(_valence, ValenceMotor):
-                _valence_save_path = str(_VALENCE_PATH)
-                await _valence.save_state(_valence_save_path)
-                logger.info("Valence state persisted to %s", _valence_save_path)
-    except Exception as exc:
-        logger.warning("Failed to persist valence state on shutdown: %s", exc)
 
     # Close KuzuGraphProvider — releases its per-instance connection
     if hasattr(state, "graph_provider") and state.graph_provider:
@@ -692,7 +621,6 @@ async def lifespan(app: FastAPI):
     _refresh_auth_config()
     _configure_runtime_paths(runtime)
     state.runtime_profile = runtime  # type: ignore[attr-defined]
-    setup_telemetry_tracing()
     assert _STORAGE_BASE is not None
     _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
     writer_lock = _acquire_runtime_writer_lock(runtime)
@@ -853,19 +781,7 @@ def get_mcp_control() -> ControlPlaneMiddleware:
 
 from mesa_memory.api.middleware import check_daily_limit
 
-# Setup v3 API Router utilizing Dependency Injection
-# Requires depends at the router level for auth and rate limits
 router_dependencies = [Depends(get_api_key), Depends(check_daily_limit)]
-memory_router = create_memory_router(
-    get_dao=get_dao,
-    get_embedder=get_embedder,
-    get_consolidation_loop=get_consolidation_loop,
-    get_access_control=get_access_control,
-    prefix="/v3/memory",
-)
-# We can't attach dependencies to the include_router directly if the router already defines some,
-# but it's simpler to inject them directly on include_router
-app.include_router(memory_router, dependencies=router_dependencies)
 v4_router = create_v4_router(
     get_dao=get_dao,
     get_access_control=get_access_control,
@@ -911,21 +827,11 @@ async def health_init():
         raise HTTPException(
             status_code=503, detail="Required workers degraded or blocked"
         )
-    if (
-        runtime is not None
-        and getattr(runtime, "require_worker_readiness", False)
-        and not worker_is_ready(runtime.storage_root)
-    ):
-        raise HTTPException(status_code=503, detail="External worker is not ready")
     graph_status = health.get("graph", {}).get("status")
-    graph_is_worker_owned = (
-        runtime is not None
-        and getattr(runtime, "profile", None) is RuntimeProfile.API_ONLY
-    )
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
-        and (graph_status in ("healthy", "not_initialized") or graph_is_worker_owned)
+        and graph_status in ("healthy", "not_initialized")
     ):
         return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")
@@ -976,8 +882,8 @@ def _canonical_readiness_failures(health: dict[str, object]) -> list[str]:
     ]
 
 
-@app.get("/v3/health", dependencies=[Depends(get_api_key)])
-async def health_v3():  # type: ignore[no-untyped-def]
+@app.get("/health", dependencies=[Depends(get_api_key)])
+async def health():  # type: ignore[no-untyped-def]
     health = await state.dao.health_check()
     rebuild = health.get("v4_rebuild") or {}
     backend_healthy = all(
@@ -994,11 +900,6 @@ async def health_v3():  # type: ignore[no-untyped-def]
         "maintenance": rebuild_status == "maintenance",
         "rebuild_state": rebuild_state,
     }
-
-
-@app.get("/health", dependencies=[Depends(get_api_key)])
-async def health():  # type: ignore[no-untyped-def]
-    return await health_v3()
 
 
 @app.get("/metrics", dependencies=[Depends(get_api_key)])

@@ -185,5 +185,5 @@ def test_d012_release_hygiene_checks():
     assert "image-ref: mesa-memory:security" in workflow
     assert "mesa-runtime-image.cdx.json" in workflow
 
-    schemas = (root / "mesa_api/schemas.py").read_text(encoding="utf-8")
-    assert "Fused relevance score (higher is better)" in schemas
+    schemas = (root / "mesa_api/v4_router.py").read_text(encoding="utf-8")
+    assert "class V4SearchRequest" in schemas

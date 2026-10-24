@@ -38,7 +38,7 @@ def _request(
         {
             "type": "http",
             "method": "POST",
-            "path": "/v3/memory/insert",
+            "path": "/v4/memory/insert",
             "headers": [(b"x-api-key", credential.encode())],
             "query_string": b"agent_id=forged-agent",
             "client": (client_host, 12345),

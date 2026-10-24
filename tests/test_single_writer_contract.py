@@ -18,7 +18,7 @@ def test_storage_root_rejects_a_second_writer(tmp_path) -> None:
     first = StorageWriterLock.acquire(tmp_path, owner="combined-runtime")
     try:
         with pytest.raises(StorageWriterLockError, match="active writer"):
-            StorageWriterLock.acquire(tmp_path, owner="worker-only-runtime")
+            StorageWriterLock.acquire(tmp_path, owner="combined-runtime")
     finally:
         first.release()
 
@@ -29,7 +29,7 @@ def test_storage_root_rejects_a_writer_from_a_second_process(tmp_path) -> None:
         "from pathlib import Path; import sys, time; "
         "from mesa_storage.writer_lock import StorageWriterLock; "
         "lock = StorageWriterLock.acquire(Path(sys.argv[1]), "
-        "owner='worker-only-runtime'); "
+        "owner='combined-runtime'); "
         "Path(sys.argv[2]).touch(); time.sleep(30)"
     )
     process = subprocess.Popen(

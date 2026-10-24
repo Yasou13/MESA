@@ -554,3 +554,130 @@ async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(
         assert lanes == {"GRAPH": "PENDING", "SQL": "DEAD_LETTER", "VECTOR": "PENDING"}
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_model_disabled_v4_record_follows_durable_lifecycle_without_novelty_rejection():
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    content = "The same source fact can be admitted again in a new document."
+    dao = SimpleNamespace(
+        get_raw_log=AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {
+                    "tenant_id": "tenant-a",
+                    "workspace_id": "workspace-a",
+                    "dataset_id": "dataset-a",
+                    "document_id": "document-a",
+                    "revision_id": "revision-a",
+                    "chunk_id": "chunk-a",
+                    "agent_id": "agent-a",
+                    "session_id": "session-a",
+                    "content": content,
+                    "metadata": {},
+                    "validation_mode": 0,
+                },
+            }
+        ),
+        # Identical historical content triggered the removed gate before D6.
+        get_memories=AsyncMock(return_value=[{"entity_name": content}] * 2),
+        update_raw_log_status=AsyncMock(),
+        record_mutation_extraction=AsyncMock(),
+        record_mutation_tier3_audit=AsyncMock(),
+        set_mutation_state=AsyncMock(),
+    )
+
+    await process_cold_path(41, "agent-a", dao, model_processing_enabled=False)
+
+    reasons = [
+        call.kwargs.get("error_reason")
+        for call in dao.update_raw_log_status.await_args_list
+    ]
+    assert "ecod_novelty_below_threshold" not in reasons
+    dao.update_raw_log_status.assert_awaited_with("agent-a", 41, "processed")
+    dao.record_mutation_extraction.assert_awaited_once()
+    assert dao.record_mutation_extraction.await_args.args[2] == []
+    dao.set_mutation_state.assert_awaited_once()
+    assert dao.set_mutation_state.await_args.args[2] == "VALIDATED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("require_tier3_validation", [False, True])
+async def test_non_v4_payload_is_rejected_as_unsupported(require_tier3_validation):
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    dao = SimpleNamespace(
+        get_raw_log=AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {"agent_id": "agent-a", "content": "A legacy payload."},
+            }
+        ),
+        update_raw_log_status=AsyncMock(),
+        insert_memory=AsyncMock(),
+        insert_edge=AsyncMock(),
+    )
+    await process_cold_path(
+        42, "agent-a", dao, model_processing_enabled=False,
+        require_tier3_validation=require_tier3_validation,
+    )
+    dao.update_raw_log_status.assert_awaited_with(
+        "agent-a",
+        42,
+        "rejected",
+        error_reason="legacy_payload_unsupported",
+    )
+    dao.insert_memory.assert_not_awaited()
+    dao.insert_edge.assert_not_awaited()
+
+
+def _v4_guard_dao(status: str, payload_overrides: dict) -> SimpleNamespace:
+    payload = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "dataset_id": "dataset-a",
+        "document_id": "document-a",
+        "revision_id": "revision-a",
+        "chunk_id": "chunk-a",
+        "agent_id": "agent-a",
+        "session_id": "session-a",
+        "content": "A V4 source passage.",
+        "metadata": {},
+        "validation_mode": 0,
+        **payload_overrides,
+    }
+    return SimpleNamespace(
+        get_raw_log=AsyncMock(return_value={"status": status, "payload": payload}),
+        update_raw_log_status=AsyncMock(),
+        record_mutation_extraction=AsyncMock(),
+        set_mutation_state=AsyncMock(),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["agent_id", "content"])
+async def test_cold_path_rejects_v4_payload_without_agent_or_content(missing):
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    dao = _v4_guard_dao("DEFERRED", {missing: ""})
+    await process_cold_path(43, "agent-a", dao, model_processing_enabled=False)
+
+    dao.update_raw_log_status.assert_awaited_once_with(
+        "agent-a", 43, "rejected", error_reason="missing_agent_id_or_content"
+    )
+    dao.record_mutation_extraction.assert_not_awaited()
+    dao.set_mutation_state.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["processed", "rejected", "processing"])
+async def test_cold_path_skips_raw_log_that_is_not_deferred(status):
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    dao = _v4_guard_dao(status, {})
+    await process_cold_path(44, "agent-a", dao, model_processing_enabled=False)
+
+    dao.update_raw_log_status.assert_not_awaited()
+    dao.record_mutation_extraction.assert_not_awaited()
+    dao.set_mutation_state.assert_not_awaited()

@@ -16,7 +16,6 @@ LAYER = {
 COMPOSITION_ROOTS = {
     "mesa_memory/api/server.py",
     "mesa_memory/runtime_entrypoint.py",
-    "mesa_memory/worker_runtime.py",
 }
 
 

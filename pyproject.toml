@@ -8,7 +8,7 @@ version = "0.8.1"
 description = "Enterprise AI agent memory engine"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "MESA Core Team"},
 ]
@@ -88,9 +88,6 @@ ml = [
     "spacy>=3.8.0",
 ]
 mcp = []
-langchain = [
-    "langchain-core>=0.2.0",
-]
 full = [
     "outlines>=1.2.0",
     "matplotlib>=3.10.0",
@@ -146,11 +143,11 @@ exclude = [
 
 [tool.black]
 line-length = 88
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
@@ -162,7 +159,7 @@ ignore = ["E501"]
 "mesa_memory/api/server.py" = ["E402"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 ignore_missing_imports = true
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
@@ -192,26 +189,22 @@ disallow_untyped_decorators = true
 # exception without a finding, owner, and removal plan in the audit record.
 #
 # Error counts at time of enforcement (210 total across 33 files):
-#   loop.py(33) > valence/core.py(12) > observability/metrics.py(11)
+#   loop.py(33) > observability/metrics.py(11)
 #   > lock.py(11) > hybrid.py(9) > adapters(~29) > extraction(~13)
 #   > writers/parsers(~13). Storage engine modules are now strict.
 
 [[tool.mypy.overrides]]
 module = [
     "mesa_memory.consolidation.loop",
-    "mesa_memory.consolidation.lock",
-    "mesa_memory.consolidation.writer",
     "mesa_memory.consolidation.parser",
     "mesa_memory.consolidation.router",
     "mesa_memory.consolidation.validator",
-    "mesa_memory.valence.*",
     "mesa_memory.observability.metrics",
     "mesa_memory.retrieval.*",
     "mesa_memory.adapter.*",
     "mesa_memory.extraction.*",
     "mesa_memory.security.rbac",
     "mesa_memory.api.server",
-    "mesa_api.router",
     "mesa_api.schemas",
     "mesa_storage.dao",
     "mesa_storage.schemas",

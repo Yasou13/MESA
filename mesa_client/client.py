@@ -13,18 +13,9 @@ from typing import Any, Callable, Literal, Optional, TypeVar
 from urllib.parse import quote
 
 import httpx
-from pydantic import ValidationError
 from typing_extensions import Self
 
-from mesa_api.schemas import (
-    ErrorResponse,
-    MemoryInsertRequest,
-    MemoryInsertResponse,
-    MemoryPurgeRequest,
-    MemoryPurgeResponse,
-    MemorySearchRequest,
-    MemorySearchResponse,
-)
+from mesa_api.schemas import ErrorResponse
 
 logger = logging.getLogger(__name__)
 
@@ -202,51 +193,6 @@ class MesaClient:
         resp = _sync_retry(_op, self.max_retries)
         return resp.json()  # type: ignore[str, Any]
 
-    def insert(self, request: MemoryInsertRequest) -> MemoryInsertResponse:
-        """POST /v3/memory/insert - Insert memory into the MESA system.
-
-        Args:
-            request: MemoryInsertRequest instance.
-        Returns:
-            MemoryInsertResponse instance.
-        """
-        try:
-            payload = request.model_dump(mode="json")
-            data = self._request("POST", "/v3/memory/insert", json=payload)
-            return MemoryInsertResponse(**data)
-        except ValidationError as e:
-            raise MesaValidationError(f"Response validation failed: {e}") from e
-
-    def search(self, request: MemorySearchRequest) -> MemorySearchResponse:
-        """POST /v3/memory/search - Search memory in the MESA system.
-
-        Args:
-            request: MemorySearchRequest instance.
-        Returns:
-            MemorySearchResponse instance.
-        """
-        try:
-            payload = request.model_dump(mode="json")
-            data = self._request("POST", "/v3/memory/search", json=payload)
-            return MemorySearchResponse(**data)
-        except ValidationError as e:
-            raise MesaValidationError(f"Response validation failed: {e}") from e
-
-    def purge(self, request: MemoryPurgeRequest) -> MemoryPurgeResponse:
-        """DELETE /v3/memory/purge - Purge (soft-delete) memory in the MESA system.
-
-        Args:
-            request: MemoryPurgeRequest instance.
-        Returns:
-            MemoryPurgeResponse instance.
-        """
-        try:
-            payload = request.model_dump(mode="json")
-            data = self._request("DELETE", "/v3/memory/purge", json=payload)
-            return MemoryPurgeResponse(**data)
-        except ValidationError as e:
-            raise MesaValidationError(f"Response validation failed: {e}") from e
-
 
 class AsyncMesaClient:
     """Asynchronous MESA API client.
@@ -311,51 +257,6 @@ class AsyncMesaClient:
 
         resp = await _async_retry(_op, self.max_retries)
         return resp.json()  # type: ignore[str, Any]
-
-    async def insert(self, request: MemoryInsertRequest) -> MemoryInsertResponse:
-        """POST /v3/memory/insert - Insert memory into the MESA system asynchronously.
-
-        Args:
-            request: MemoryInsertRequest instance.
-        Returns:
-            MemoryInsertResponse instance.
-        """
-        try:
-            payload = request.model_dump(mode="json")
-            data = await self._request("POST", "/v3/memory/insert", json=payload)
-            return MemoryInsertResponse(**data)
-        except ValidationError as e:
-            raise MesaValidationError(f"Response validation failed: {e}") from e
-
-    async def search(self, request: MemorySearchRequest) -> MemorySearchResponse:
-        """POST /v3/memory/search - Search memory in the MESA system asynchronously.
-
-        Args:
-            request: MemorySearchRequest instance.
-        Returns:
-            MemorySearchResponse instance.
-        """
-        try:
-            payload = request.model_dump(mode="json")
-            data = await self._request("POST", "/v3/memory/search", json=payload)
-            return MemorySearchResponse(**data)
-        except ValidationError as e:
-            raise MesaValidationError(f"Response validation failed: {e}") from e
-
-    async def purge(self, request: MemoryPurgeRequest) -> MemoryPurgeResponse:
-        """DELETE /v3/memory/purge - Purge (soft-delete) memory in the MESA system asynchronously.
-
-        Args:
-            request: MemoryPurgeRequest instance.
-        Returns:
-            MemoryPurgeResponse instance.
-        """
-        try:
-            payload = request.model_dump(mode="json")
-            data = await self._request("DELETE", "/v3/memory/purge", json=payload)
-            return MemoryPurgeResponse(**data)
-        except ValidationError as e:
-            raise MesaValidationError(f"Response validation failed: {e}") from e
 
 
 _V4_TERMINAL_MUTATION_STATES = frozenset(

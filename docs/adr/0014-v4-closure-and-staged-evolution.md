@@ -43,7 +43,7 @@ The rebuild has the following hard boundaries:
   generation pointer. Cutover changes that pointer atomically. The previous
   generation and the pre-run backup are retained until an explicit operator
   cleanup outside this release.
-- Combined, worker-only and rebuild runtimes acquire the same storage-root
+- Combined and rebuild runtimes acquire the same storage-root
   writer lock before opening any writable store.
 - Provider/version mismatch, path or symlink ambiguity, insufficient disk,
   parity failure and post-cutover health failure all fail closed. A failed

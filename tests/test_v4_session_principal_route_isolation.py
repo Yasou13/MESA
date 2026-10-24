@@ -201,12 +201,8 @@ async def test_v4_document_purge_requires_owner_and_explicit_permission(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="V4 gap: session owner filtering prevents an explicitly granted read-only principal from reading context",
-)
-async def test_v4_explicit_read_only_session_grant_can_read_context(
+# Decision D5: session context is readable only by its creator; non-creator gets 404.
+async def test_v4_session_context_concealed_with_404_from_non_creator(
     v4_release_env, monkeypatch
 ):
     env = v4_release_env
@@ -232,4 +228,4 @@ async def test_v4_explicit_read_only_session_grant_can_read_context(
     ended = await env.client.post(f"/v4/sessions/{env.session_id}/end")
     assert ended.status_code in {403, 404}
     response = await env.client.get(f"/v4/sessions/{env.session_id}/context")
-    assert response.status_code == 200
+    assert response.status_code == 404

@@ -388,20 +388,16 @@ class FactExtractionService:
     3. Strict structured output validation (0..N FactCandidate).
     4. Deterministic post-extraction fact validation (0 validation LLMs).
     5. Model independence (works with any BaseUniversalLLMAdapter).
-    6. Decoupled from validation policy and REBEL.
+    6. Decoupled from validation policy.
     """
 
     def __init__(
         self,
         llm: BaseUniversalLLMAdapter,
         *,
-        rebel_enabled: bool | None = None,
         extraction_lang: str = "tr",
         max_tokens: int | None = None,
     ):
-        # Retained only for call-site compatibility.  Canonical fact
-        # extraction never constructs or invokes REBEL.
-        _ = rebel_enabled
         self.llm = llm
         self.extraction_lang = extraction_lang
         self.max_tokens = (

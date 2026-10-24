@@ -7,9 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import Request
 
-from mesa_api.router import create_memory_router
 from mesa_mcp import codex_hooks
 from mesa_mcp.gateway.auth import GatewayPrincipal
 from mesa_mcp.gateway.operations import GatewayOperationService
@@ -190,34 +188,3 @@ async def test_codex_cache_fallback_preserves_untrusted_boundary(
     _assert_bounded(await codex_hooks._context(payload))
     monkeypatch.setattr(codex_hooks, "_post", AsyncMock(side_effect=OSError("offline")))
     _assert_bounded(await codex_hooks._context(payload))
-
-
-@pytest.mark.asyncio
-async def test_legacy_session_context_contains_stored_injection_as_data() -> None:
-    dao = SimpleNamespace(get_recent_logs=AsyncMock(return_value=[{"content": ATTACK}]))
-    access = SimpleNamespace(
-        check_principal_session_access=AsyncMock(return_value=True),
-        check_access=AsyncMock(return_value=True),
-    )
-
-    router = create_memory_router(
-        get_dao=lambda: dao,  # type: ignore[arg-type]
-        get_embedder=lambda: None,
-        get_access_control=lambda: access,  # type: ignore[arg-type]
-    )
-    route = next(
-        route
-        for route in router.routes
-        if getattr(route, "path", "") == "/v3/memory/session/{session_id}/context"
-    )
-    request = Request({"type": "http", "method": "GET", "path": "/"})
-    request.state.principal = SimpleNamespace(
-        principal_id="principal-1", status="active"
-    )
-    response = await route.endpoint(
-        request=request,
-        session_id="session-1",
-        agent_id="agent-1",
-        dao=dao,
-    )
-    _assert_bounded(response.context)

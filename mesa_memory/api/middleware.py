@@ -65,7 +65,7 @@ def rate_limit_exceeded_handler(
 async def check_daily_limit(request: Request) -> None:
     """Dependency to enforce a daily limit of requests using SQLite via MemoryDAO."""
     # Exclude non-API endpoints from the daily cost limit (like /health, /metrics)
-    if request.url.path in ("/health", "/health/init", "/metrics", "/v3/health"):
+    if request.url.path in ("/health", "/health/init", "/metrics"):
         return
 
     import os

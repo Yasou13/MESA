@@ -37,9 +37,7 @@ V3 remains available as the lexical-core compatibility surface and keeps its
 existing API/worker topology. V3 and v4 must not write the same physical
 storage directories concurrently.
 
-Canonical v4 fact extraction is owned by `FactExtractionService`. REBEL is not
-part of the canonical v4 extraction path; references to REBEL in historical
-architecture or V3 compatibility material describe legacy behavior only.
+Canonical v4 fact extraction is owned by `FactExtractionService`.
 
 ## Security and catalog hierarchy
 
@@ -179,7 +177,7 @@ Reconciliation is bidirectional:
 - physical artifact without registry/ownership: quarantine it in the registry
   and enqueue cleanup.
 
-Authenticated `/health` (and `/v3/health`) returns the aggregate fields
+Authenticated `/health` returns the aggregate fields
 `status`, `maintenance` and `rebuild_state`. `/health/init` reports readiness
 and fails with HTTP 503 when required stores, workers or backlog checks fail.
 Projection backlog, dead letter, stuck leases, cleanup backlog, blocked cleanup,
@@ -307,7 +305,7 @@ locking is not a distributed/NFS coordinator.
 
 | Area | Source of support/configuration | Evidence needed |
 |---|---|---|
-| Python | `pyproject.toml`; CI matrix 3.10–3.13 | Successful jobs for the target commit |
+| Python | `pyproject.toml`; CI matrix 3.11–3.13 | Successful jobs for the target commit |
 | OS | CI uses Ubuntu; no full OS support matrix declared | Target-platform validation |
 | Dependencies | Ranges in `pyproject.toml`, exact graph in `uv.lock` | Locked install and compatibility check |
 | Storage | SQLite FTS5, LanceDB, Kùzu | Native-store contracts plus representative capacity/recovery runs |
@@ -320,5 +318,4 @@ Bitemporal queries, associative PPR, human legal certification, distributed
 writers/hosted storage, Ladybug backend, online or tenant/dataset-scoped rebuild,
 automatic retained-generation cleanup and guaranteed citation correctness are
 not current Core guarantees. V4 retrieval performs no answer generation.
-CrossEncoder/legacy REBEL controls concern V3 paths, not canonical V4 ranking
-or extraction. Adaptive planning is opt-in, bounded and not recursive.
+Adaptive planning is opt-in, bounded and not recursive.

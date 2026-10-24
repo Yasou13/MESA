@@ -2,7 +2,7 @@
 """Refuse expansion of MESA's tracked progressive mypy exemptions.
 
 The script intentionally uses only the Python standard library so it can run
-on every supported CI interpreter, including Python 3.10.  Removing an entry
+on every supported CI interpreter, including Python 3.11.  Removing an entry
 or restoring a strict flag is allowed; adding a production exemption is not.
 """
 

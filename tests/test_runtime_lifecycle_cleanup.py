@@ -37,7 +37,6 @@ async def test_api_startup_failure_closes_partial_storage_and_writer_lock(
     monkeypatch.setattr(server, "load_runtime_profile", lambda: runtime)
     monkeypatch.setattr(server, "load_explicit_dotenv", MagicMock())
     monkeypatch.setattr(server, "_refresh_auth_config", MagicMock())
-    monkeypatch.setattr(server, "setup_telemetry_tracing", MagicMock())
     monkeypatch.setattr(
         server, "_acquire_runtime_writer_lock", lambda _runtime: writer_lock
     )
@@ -80,7 +79,6 @@ async def test_api_request_lifespan_failure_still_closes_storage_and_writer_lock
     monkeypatch.setattr(server, "load_runtime_profile", lambda: runtime)
     monkeypatch.setattr(server, "load_explicit_dotenv", MagicMock())
     monkeypatch.setattr(server, "_refresh_auth_config", MagicMock())
-    monkeypatch.setattr(server, "setup_telemetry_tracing", MagicMock())
     monkeypatch.setattr(
         server, "_acquire_runtime_writer_lock", lambda _runtime: writer_lock
     )

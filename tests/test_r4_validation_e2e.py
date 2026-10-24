@@ -82,7 +82,6 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 @pytest.mark.asyncio
 async def test_e2e_mode_0_deterministic_matrix(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "rebel_enabled", False)
     db_path = str(tmp_path / "test_e2e_0.db")
     engine = AsyncEngine(db_path)
     await engine.initialize()
@@ -174,7 +173,6 @@ async def test_e2e_mode_0_deterministic_matrix(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_e2e_mode_1_single_model_matrix(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "rebel_enabled", False)
     db_path = str(tmp_path / "test_e2e_1.db")
     engine = AsyncEngine(db_path)
     await engine.initialize()
@@ -267,7 +265,6 @@ async def test_e2e_mode_1_single_model_matrix(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_e2e_mode_2_dual_consensus_matrix(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "rebel_enabled", False)
     db_path = str(tmp_path / "test_e2e_2.db")
     engine = AsyncEngine(db_path)
     await engine.initialize()

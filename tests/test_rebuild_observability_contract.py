@@ -232,7 +232,7 @@ async def test_public_health_reports_rebuild_maintenance_without_ids(
         raising=False,
     )
 
-    response = await server.health_v3()
+    response = await server.health()
 
     assert response == {
         "status": "degraded",
