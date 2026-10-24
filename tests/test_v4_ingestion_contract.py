@@ -554,3 +554,75 @@ async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(
         assert lanes == {"GRAPH": "PENDING", "SQL": "DEAD_LETTER", "VECTOR": "PENDING"}
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_model_disabled_v4_record_follows_durable_lifecycle_without_novelty_rejection():
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    content = "The same source fact can be admitted again in a new document."
+    dao = SimpleNamespace(
+        get_raw_log=AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {
+                    "tenant_id": "tenant-a",
+                    "workspace_id": "workspace-a",
+                    "dataset_id": "dataset-a",
+                    "document_id": "document-a",
+                    "revision_id": "revision-a",
+                    "chunk_id": "chunk-a",
+                    "agent_id": "agent-a",
+                    "session_id": "session-a",
+                    "content": content,
+                    "metadata": {},
+                    "validation_mode": 0,
+                },
+            }
+        ),
+        # Identical historical content triggered the removed gate before D6.
+        get_memories=AsyncMock(return_value=[{"entity_name": content}] * 2),
+        update_raw_log_status=AsyncMock(),
+        record_mutation_extraction=AsyncMock(),
+        record_mutation_tier3_audit=AsyncMock(),
+        set_mutation_state=AsyncMock(),
+    )
+
+    await process_cold_path(41, "agent-a", dao, model_processing_enabled=False)
+
+    reasons = [
+        call.kwargs.get("error_reason")
+        for call in dao.update_raw_log_status.await_args_list
+    ]
+    assert "ecod_novelty_below_threshold" not in reasons
+    dao.update_raw_log_status.assert_awaited_with("agent-a", 41, "processed")
+    dao.record_mutation_extraction.assert_awaited_once()
+    assert dao.record_mutation_extraction.await_args.args[2] == []
+    dao.set_mutation_state.assert_awaited_once()
+    assert dao.set_mutation_state.await_args.args[2] == "VALIDATED"
+
+
+@pytest.mark.asyncio
+async def test_non_v4_payload_is_rejected_as_unsupported():
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    dao = SimpleNamespace(
+        get_raw_log=AsyncMock(
+            return_value={
+                "status": "DEFERRED",
+                "payload": {"agent_id": "agent-a", "content": "A legacy payload."},
+            }
+        ),
+        update_raw_log_status=AsyncMock(),
+        insert_memory=AsyncMock(),
+        insert_edge=AsyncMock(),
+    )
+    await process_cold_path(42, "agent-a", dao, model_processing_enabled=False)
+    dao.update_raw_log_status.assert_awaited_with(
+        "agent-a",
+        42,
+        "rejected",
+        error_reason="legacy_payload_unsupported",
+    )
+    dao.insert_memory.assert_not_awaited()
+    dao.insert_edge.assert_not_awaited()

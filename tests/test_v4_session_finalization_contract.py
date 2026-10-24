@@ -73,3 +73,39 @@ async def test_v4_finalization_failure_is_bounded_and_stale_fence_is_rejected(
     final = await env.dao.get_session_finalization("agent-a", env.session_id)
     assert final["state"] == "BLOCKED" and final["attempt_count"] == 3
     assert final["last_error_class"] == "ConsolidationUnavailable"
+
+
+@pytest.mark.asyncio
+async def test_finalization_processes_pending_v4_log_without_legacy_extraction(
+    v4_release_env,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from mesa_workers import ingestion_worker as worker
+
+    env = v4_release_env
+    await insert_memory(env)
+    response = await env.client.post(f"/v4/sessions/{env.session_id}/end")
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert await env.dao.get_pending_session_raw_logs("agent-a", env.session_id)
+
+    # Retain the investigation's sentinel after deleting the legacy function.
+    extraction = AsyncMock(side_effect=AssertionError("legacy extraction called"))
+    monkeypatch.setattr(worker, "_run_rebel_extraction", extraction, raising=False)
+
+    async def accept(records):
+        record = records[0]
+        await env.dao.record_mutation_extraction("agent-a", record["mutation_id"], [])
+        return {"accepted": [record["candidate_id"]], "rejected": [], "deferred": []}
+
+    loop = SimpleNamespace(run_batch=AsyncMock(side_effect=accept))
+    assert (
+        await process_session_finalization("agent-a", env.session_id, env.dao, loop)
+        == "COMPLETED"
+    )
+    extraction.assert_not_awaited()
+    loop.run_batch.assert_awaited_once()
+    assert await env.dao.get_pending_session_raw_logs("agent-a", env.session_id) == []

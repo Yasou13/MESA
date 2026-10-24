@@ -14,7 +14,7 @@ asyncio_mode = strict → every async test requires explicit @pytest.mark.asynci
 
 import importlib
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -149,149 +149,17 @@ class TestNoProductionImportsFromDeletedStorage:
         source = inspect.getsource(mod)
 
         # Must not contain a live import of StorageFacade
-        assert (
-            "from mesa_memory.storage import" not in source
-        ), f"{module_name} still imports from the deleted mesa_memory.storage package"
-        assert (
-            "import mesa_memory.storage" not in source
-        ), f"{module_name} still imports the deleted mesa_memory.storage package"
+        assert "from mesa_memory.storage import" not in source, (
+            f"{module_name} still imports from the deleted mesa_memory.storage package"
+        )
+        assert "import mesa_memory.storage" not in source, (
+            f"{module_name} still imports the deleted mesa_memory.storage package"
+        )
 
 
 # ===================================================================
 # TEST 3: Cold-path ingestion routes exclusively through MemoryDAO
 # ===================================================================
-
-
-class TestColdPathRoutesToDAO:
-    """Prove that process_cold_path calls MemoryDAO.insert_memory
-    exactly once (no triplets case) and never touches old storage."""
-
-    @pytest.mark.asyncio
-    async def test_cold_path_calls_dao_insert_memory_on_no_triplets(self):
-        """When REBEL extracts no triplets, the worker commits a raw
-        memory node via dao.insert_memory — exactly once."""
-        from mesa_workers.ingestion_worker import process_cold_path
-
-        dao = _make_mock_dao()
-        dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
-
-        # Patch REBEL to return no triplets (exercise raw-memory commit path)
-        with (
-            patch(
-                "mesa_workers.ingestion_worker._get_rebel_extractor",
-                return_value=None,
-            ),
-            patch(
-                "mesa_workers.ingestion_worker._run_llm_triplet_extraction",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            await process_cold_path(log_id=1, agent_id="test_agent", dao=dao)
-
-        # Assert: get_raw_log was called to retrieve the payload
-        dao.get_raw_log.assert_awaited_once_with("test_agent", 1)
-
-        # Assert: status was transitioned to processing
-        dao.update_raw_log_status.assert_any_await("test_agent", 1, "processing")
-
-        # Assert: insert_memory was called EXACTLY once (raw memory node)
-        assert dao.insert_memory.await_count == 1, (
-            f"Expected exactly 1 insert_memory call, "
-            f"got {dao.insert_memory.await_count}"
-        )
-
-        # Assert: status was finalized to processed
-        dao.update_raw_log_status.assert_any_await("test_agent", 1, "processed")
-
-    @pytest.mark.asyncio
-    async def test_cold_path_calls_dao_insert_memory_and_edge_with_triplets(self):
-        """When REBEL extracts triplets, the worker commits nodes + edges
-        via dao.insert_memory and dao.insert_edge."""
-        from mesa_workers.ingestion_worker import process_cold_path
-
-        dao = _make_mock_dao()
-        dao.vector_engine.compute_embedding = AsyncMock(return_value=[0.1] * 768)
-
-        fake_triplets = [
-            {"head": "EU", "relation": "mandates", "tail": "Data Protection"},
-        ]
-
-        with (
-            patch(
-                "mesa_workers.ingestion_worker._get_rebel_extractor",
-                return_value=None,
-            ),
-            patch(
-                "mesa_workers.ingestion_worker._run_llm_triplet_extraction",
-                new_callable=AsyncMock,
-                return_value=fake_triplets,
-            ),
-        ):
-            await process_cold_path(log_id=1, agent_id="test_agent", dao=dao)
-
-        # Assert: insert_memory called for head + tail = 2 calls
-        assert dao.insert_memory.await_count == 2, (
-            f"Expected 2 insert_memory calls (head + tail), "
-            f"got {dao.insert_memory.await_count}"
-        )
-
-        # Assert: insert_edge called exactly once for the triplet
-        assert (
-            dao.insert_edge.await_count == 1
-        ), f"Expected 1 insert_edge call, got {dao.insert_edge.await_count}"
-
-        # Assert: finalized
-        dao.update_raw_log_status.assert_any_await("test_agent", 1, "processed")
-
-    @pytest.mark.asyncio
-    async def test_cold_path_rejects_missing_fields(self):
-        """When payload is missing agent_id, cold-path rejects via DAO status update."""
-        from mesa_workers.ingestion_worker import process_cold_path
-
-        dao = _make_mock_dao()
-        dao.get_raw_log = AsyncMock(
-            return_value={
-                "id": 1,
-                "payload": {
-                    "agent_id": "",  # Empty — should trigger rejection
-                    "content": "Some content",
-                },
-                "status": "DEFERRED",
-                "created_at": "2026-05-30T00:00:00Z",
-            }
-        )
-
-        await process_cold_path(log_id=1, agent_id="", dao=dao)
-
-        # Assert: rejected status with error reason
-        dao.update_raw_log_status.assert_awaited_once_with(
-            "", 1, "rejected", error_reason="missing_agent_id_or_content"
-        )
-
-        # Assert: insert_memory was NEVER called (pipeline short-circuited)
-        dao.insert_memory.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_cold_path_skips_non_DEFERRED(self):
-        """If raw_log status is not 'queued', the worker skips silently."""
-        from mesa_workers.ingestion_worker import process_cold_path
-
-        dao = _make_mock_dao()
-        dao.get_raw_log = AsyncMock(
-            return_value={
-                "id": 1,
-                "payload": {"agent_id": "a", "content": "c"},
-                "status": "processed",  # Already done
-                "created_at": "2026-05-30T00:00:00Z",
-            }
-        )
-
-        await process_cold_path(log_id=1, agent_id="a", dao=dao)
-
-        # Assert: no status update, no insert
-        dao.update_raw_log_status.assert_not_awaited()
-        dao.insert_memory.assert_not_awaited()
 
 
 # ===================================================================
@@ -365,15 +233,15 @@ class TestDAODualWriteSagaIntegrity:
 
         source = inspect.getsource(MemoryDAO.insert_memory)
 
-        assert (
-            "transaction" in source
-        ), "insert_memory must use transaction() for atomic SAGA"
-        assert (
-            "DELETE FROM nodes" in source
-        ), "insert_memory must compensate a failed vector projection in SQLite"
-        assert (
-            "upsert" in source.lower()
-        ), "insert_memory must call vector upsert within the SAGA"
+        assert "transaction" in source, (
+            "insert_memory must use transaction() for atomic SAGA"
+        )
+        assert "DELETE FROM nodes" in source, (
+            "insert_memory must compensate a failed vector projection in SQLite"
+        )
+        assert "upsert" in source.lower(), (
+            "insert_memory must call vector upsert within the SAGA"
+        )
 
     def test_purge_memory_has_transaction_and_rollback(self):
         """MemoryDAO.purge_memory source must contain SAGA keywords."""
@@ -382,12 +250,12 @@ class TestDAODualWriteSagaIntegrity:
         source = inspect.getsource(MemoryDAO.purge_memory)
         rollback_source = inspect.getsource(MemoryDAO.rollback_purge)
 
-        assert (
-            "transaction" in source
-        ), "purge_memory must use transaction() for atomic SAGA"
-        assert (
-            "rollback" in rollback_source.lower()
-        ), "the durable purge contract must expose a compensating rollback"
+        assert "transaction" in source, (
+            "purge_memory must use transaction() for atomic SAGA"
+        )
+        assert "rollback" in rollback_source.lower(), (
+            "the durable purge contract must expose a compensating rollback"
+        )
 
     def test_dao_is_single_source_of_truth(self):
         """MemoryDAO must be the ONLY class with insert_memory capability
@@ -402,9 +270,9 @@ class TestDAODualWriteSagaIntegrity:
             if hasattr(obj, "insert_memory"):
                 storage_classes.append(name)
 
-        assert storage_classes == [
-            "MemoryDAO"
-        ], f"Expected only MemoryDAO to have insert_memory, found: {storage_classes}"
+        assert storage_classes == ["MemoryDAO"], (
+            f"Expected only MemoryDAO to have insert_memory, found: {storage_classes}"
+        )
 
 
 # ===================================================================

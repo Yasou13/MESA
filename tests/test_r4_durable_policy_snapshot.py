@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,7 +16,6 @@ from mesa_memory.consolidation.validator import Tier3Validator
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_workers import ingestion_worker
 from mesa_workers.ingestion_worker import process_cold_path
 
 
@@ -162,9 +161,6 @@ async def test_durable_admission_preserves_mode_across_reconfigured_processors(
     validator_b = MockAdapter(model_name="validator-b")
     embedder = MockAdapter(model_name="embedder")
     extractor = MockAdapter(model_name="extractor")
-    monkeypatch.setattr(
-        ingestion_worker, "_run_ecod_gate", AsyncMock(return_value=True)
-    )
     monkeypatch.setattr(
         AdapterFactory,
         "get_validation_adapters",
