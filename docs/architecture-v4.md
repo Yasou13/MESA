@@ -179,7 +179,7 @@ Reconciliation is bidirectional:
 - physical artifact without registry/ownership: quarantine it in the registry
   and enqueue cleanup.
 
-Authenticated `/health` (and `/v3/health`) returns the aggregate fields
+Authenticated `/health` returns the aggregate fields
 `status`, `maintenance` and `rebuild_state`. `/health/init` reports readiness
 and fails with HTTP 503 when required stores, workers or backlog checks fail.
 Projection backlog, dead letter, stuck leases, cleanup backlog, blocked cleanup,

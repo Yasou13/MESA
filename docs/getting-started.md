@@ -39,7 +39,6 @@ verified in this developer-experience pass.
 | `dev` | Local checks and development |
 | `adapters` | Provider SDK integrations |
 | `ml` | Local transformer/embedding or legacy REBEL dependencies |
-| `langchain` | Optional LangChain client integration |
 | `loadtest` | Explicit load-test work |
 | `mcp` | Compatibility extra; MCP itself is already a core dependency |
 
@@ -231,13 +230,6 @@ SQLite, LanceDB, Kùzu and background processing were real. The test limited Kù
 to a 64 MiB buffer pool, 256 MiB mapping and one query thread to fit the host's
 available RAM; this is test sizing, not a production capacity result. No real
 model was called. Real-provider V4 and Docker were **not verified** in this pass.
-
-For existing V3 integrations, `examples/v3_quickstart.py` remains a compatibility
-example for a runtime with operational embeddings and processing enabled; it is
-not a models-disabled example. Keep its storage separate from V4. Its polling
-uses a two-second interval to leave room under the default 60 requests/minute
-principal budget. V4 SDK polling uses the same default; faster custom polling
-must account for that shared budget.
 
 ### Restart and cleanup
 

@@ -21,7 +21,7 @@ separate compatibility contract.
 
 ## Network and authentication
 
-Versioned memory routes, `/health`, `/v3/health` and `/metrics` require an API
+Versioned memory routes, `/health` and `/metrics` require an API
 key. `/health/init` is a public readiness probe. OpenAPI, Swagger and Redoc are
 not protected by the memory-router authentication dependency. Configure an
 authenticated reverse proxy, TLS and access policy for nonlocal deployments.

@@ -61,16 +61,11 @@ jobs:
       - name: Dispatch, receipt, restart, finalization, and isolation flow
         run: >-
           uv run python -m pytest -q --junitxml=flow-e2e.xml
-          tests/test_durable_dispatch_contract.py
           tests/test_v4_durable_dispatch_contract.py
-          tests/test_dispatch_completion_contract.py
           tests/test_v4_dispatch_completion_contract.py
           tests/test_downstream_fence_reconciliation_contract.py
-          tests/test_session_finalization_contract.py
           tests/test_v4_session_finalization_contract.py
-          tests/test_session_principal_route_isolation.py
           tests/test_v4_session_principal_route_isolation.py
-          tests/test_principal_authorization.py
           tests/test_v4_principal_authorization.py
           tests/test_worker_runtime_contract.py | tee flow-e2e.log
       - uses: actions/upload-artifact@v7
@@ -190,11 +185,11 @@ jobs:
             sleep 2
           done
           curl --fail --silent --show-error -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
-          unauthenticated_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/v3/health)"
+          unauthenticated_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/health)"
           test "$unauthenticated_status" = "401"
           curl --fail --silent --show-error \
             -H "X-API-Key: $MESA_API_KEY" \
-            http://127.0.0.1:8000/v3/health > api-canary-health.json
+            http://127.0.0.1:8000/health > api-canary-health.json
           curl --fail --silent --show-error \
             -H "X-API-Key: $MESA_API_KEY" \
             http://127.0.0.1:8000/health/init > api-canary-readiness.json

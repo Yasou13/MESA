@@ -346,9 +346,7 @@ jobs:
       - name: Security, lifecycle, queue, and worker contracts
         run: >-
           uv run python -m pytest -q
-          tests/test_principal_authorization.py
           tests/test_v4_principal_authorization.py
-          tests/test_session_principal_route_isolation.py
           tests/test_v4_session_principal_route_isolation.py
           tests/test_v4_durable_dispatch_contract.py
           tests/test_v4_dispatch_completion_contract.py
@@ -356,7 +354,6 @@ jobs:
           tests/test_wal_claim_replay_contract.py
           tests/test_durable_dlq_contract.py
           tests/test_queue_admission_contract.py
-          tests/test_session_finalization_contract.py
           tests/test_v4_session_finalization_contract.py
           tests/test_runtime_profiles_contract.py
           tests/test_worker_runtime_contract.py

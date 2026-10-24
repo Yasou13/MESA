@@ -1,14 +1,10 @@
 # API reference
 
-MESA iki versioned yüzey sunar:
-
-- v3, geriye uyumlu lexical-core API’dir.
-- v4, tenant/dataset yetkili versioned API’dir. Paket 0.8.1; yayın, sahibinin açık onayıyla production sertifikasyonu dışında yapılır.
+MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.8.1; yayın, sahibinin açık onayıyla production sertifikasyonu dışında yapılır.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
-OpenAPI sözleşmesinin çalışan kaynakları `mesa_api/router.py` ve
-`mesa_api/v4_router.py` dosyalarıdır.
+OpenAPI sözleşmesinin çalışan kaynağı `mesa_api/v4_router.py` dosyasıdır.
 
 ## V4 capability
 
@@ -208,25 +204,9 @@ recreated automatically.
 Internal DAO ownership, projection and Graph V2 structure belong in the
 [architecture](architecture-v4.md); they are not separate public HTTP methods.
 
-## V3 compatibility API
-
-| Method | Path | İşlev |
-|---|---|---|
-| `POST` | `/v3/memory/insert` | Durable lexical-core dispatch |
-| `POST` | `/v3/memory/search` | V3 retrieval |
-| `GET` | `/v3/memory/status/{log_id}` | Raw-log iş durumu |
-| `DELETE` | `/v3/memory/purge` | V3 soft-delete akışı |
-| `POST` | `/v3/memory/session/start` | V3 session başlatma |
-| `GET` | `/v3/memory/session/{session_id}/context` | V3 context |
-| `POST` | `/v3/memory/session/{session_id}/end` | Durable finalization |
-
-V3’ün `agent_id/session_id` RBAC ve telafi edici multi-store davranışı yalnız
-uyumluluk yüzeyi içindir. V4’ün dataset güvenliği veya ledger/outbox
-garantileriyle karıştırılmamalıdır.
-
 ## Health ve metrics
 
-- `/health` ve `/v3/health`: API anahtarıyla `status`, `maintenance`, `rebuild_state` özeti
+- `/health`: API anahtarıyla `status`, `maintenance`, `rebuild_state` özeti
 - `/health/init`: public readiness; hazırsa `200 {"status":"ready"}`, değilse `503`
 - `/metrics`: API anahtarıyla Prometheus sayaçları ve gauge'ları
 
