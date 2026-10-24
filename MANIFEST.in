@@ -1,5 +1,6 @@
 include mesa_storage/alembic.ini
 recursive-include mesa_storage/alembic *
+include mesa_memory/adapter/data/cl100k_base.tiktoken
 global-exclude *.py[cod]
 global-exclude __pycache__
 prune mesa_storage/alembic/__pycache__

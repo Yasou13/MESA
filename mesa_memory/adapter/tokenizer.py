@@ -1,13 +1,26 @@
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 import tiktoken
+from tiktoken.load import load_tiktoken_bpe
 
 from mesa_memory.adapter.base import TokenBudgetExceededError
 from mesa_memory.config import config
 
 logger = logging.getLogger("MESA_Tokenizer")
 
+_CL100K_HASH = "223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7"
+_CL100K_PAT_STR = (
+    r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}++|\p{N}{1,3}+| ?[^\s\p{L}\p{N}]++[\r\n]*+|\s++$|\s*[\r\n]|\s+(?!\S)|\s"""
+)
+_CL100K_SPECIAL_TOKENS = {
+    "<|endoftext|>": 100257,
+    "<|fim_prefix|>": 100258,
+    "<|fim_middle|>": 100259,
+    "<|fim_suffix|>": 100260,
+    "<|endofprompt|>": 100276,
+}
 
 _CL100K_ENCODING: tiktoken.Encoding | None = None
 _TRANS_TOKENIZERS: dict[str, Any] = {}
@@ -26,7 +39,14 @@ def _offline_token_count(text: str) -> int:
 def _get_cl100k_encoding() -> tiktoken.Encoding:
     global _CL100K_ENCODING
     if _CL100K_ENCODING is None:
-        _CL100K_ENCODING = tiktoken.get_encoding("cl100k_base")
+        bundled_path = Path(__file__).parent / "data" / "cl100k_base.tiktoken"
+        mergeable_ranks = load_tiktoken_bpe(str(bundled_path), expected_hash=_CL100K_HASH)
+        _CL100K_ENCODING = tiktoken.Encoding(
+            name="cl100k_base",
+            pat_str=_CL100K_PAT_STR,
+            mergeable_ranks=mergeable_ranks,
+            special_tokens=_CL100K_SPECIAL_TOKENS,
+        )
     return _CL100K_ENCODING
 
 
