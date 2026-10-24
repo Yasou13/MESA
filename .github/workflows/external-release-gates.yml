@@ -153,56 +153,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 10
 
-  docker-compose:
-    needs: docker-image
-    if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.run_docker) }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Configure isolated runtime paths
-        run: |
-          echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
-          echo "MESA_COLD_PATH_TRACE_PATH=$RUNNER_TEMP/mesa-trace/cold-path.jsonl" >> "$GITHUB_ENV"
-      - name: Render, build, start, restart, and collect topology logs
-        env:
-          MESA_API_KEY: ci-non-secret-placeholder
-          MESA_PRINCIPAL_ID: ci-principal
-        run: |
-          set -euo pipefail
-          project="mesa-gates-${GITHUB_RUN_ID}"
-          trap 'docker compose -p "$project" logs --no-color > compose.log 2>&1 || true; docker compose -p "$project" down -v || true' EXIT
-          docker compose -p "$project" config --quiet
-          docker compose -p "$project" build
-          docker compose -p "$project" up -d
-          docker compose -p "$project" ps
-          for _ in $(seq 1 30); do
-            curl --fail --silent --show-error -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health && break
-            sleep 2
-          done
-          curl --fail --silent --show-error -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:8000/health
-          unauthenticated_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/health)"
-          test "$unauthenticated_status" = "401"
-          curl --fail --silent --show-error \
-            -H "X-API-Key: $MESA_API_KEY" \
-            http://127.0.0.1:8000/health > api-canary-health.json
-          curl --fail --silent --show-error \
-            -H "X-API-Key: $MESA_API_KEY" \
-            http://127.0.0.1:8000/health/init > api-canary-readiness.json
-          docker compose -p "$project" exec -T mesa-worker python -m mesa_memory.container_health
-          docker compose -p "$project" restart mesa-api mesa-worker
-          docker compose -p "$project" exec -T mesa-api test -d /var/lib/mesa/data
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: compose-logs
-          path: |
-            compose.log
-            api-canary-health.json
-            api-canary-readiness.json
-          if-no-files-found: warn
-          retention-days: 10
-
   v4-compose:
     needs: docker-image
     if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.run_docker) }}
@@ -255,6 +205,11 @@ jobs:
           curl --fail --silent --show-error \
             -H "X-API-Key: $MESA_API_KEY" \
             http://127.0.0.1:8000/health > v4-health.json
+          unauthenticated_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/health)"
+          test "$unauthenticated_status" = "401"
+          curl --fail --silent --show-error \
+            -H "X-API-Key: $MESA_API_KEY" \
+            http://127.0.0.1:8000/health/init > v4-readiness.json
           curl --fail --silent --show-error -X POST \
             -H "X-API-Key: $MESA_API_KEY" \
             -H "Content-Type: application/json" \
@@ -283,6 +238,7 @@ jobs:
           path: |
             v4-compose.log
             v4-health.json
+            v4-readiness.json
             v4-workspace.json
             v4-dataset.json
             v4-session.json
@@ -328,7 +284,7 @@ jobs:
           retention-days: 10
 
   external-gates-summary:
-    needs: [flow-e2e, performance-capacity, docker-image, docker-compose, v4-compose, docs-smoke]
+    needs: [flow-e2e, performance-capacity, docker-image, v4-compose, docs-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -338,7 +294,6 @@ jobs:
           FLOW: ${{ needs.flow-e2e.result }}
           PERF: ${{ needs.performance-capacity.result }}
           IMAGE: ${{ needs.docker-image.result }}
-          COMPOSE: ${{ needs.docker-compose.result }}
           V4_COMPOSE: ${{ needs.v4-compose.result }}
           DOCS: ${{ needs.docs-smoke.result }}
         run: |
@@ -349,8 +304,7 @@ jobs:
             echo "| FLOW-001 | flow-e2e | $FLOW | flow-logs |"
             echo "| PERF-003 | performance-capacity | $PERF | performance-capacity |"
             echo "| DOCKER-001 | docker-image | $IMAGE | docker-logs |"
-            echo "| DOCKER-003 / API canary | docker-compose | $COMPOSE | compose-logs |"
-            echo "| V4 single storage owner | v4-compose | $V4_COMPOSE | v4-compose-logs |"
+            echo "| DOCKER-003 / API canary, V4 single storage owner | v4-compose | $V4_COMPOSE | v4-compose-logs |"
             echo "| DOC-002 | docs-smoke | $DOCS | docs-smoke |"
             echo '| CI-002 | MESA CI | see CI workflow | package-report |'
             echo '| COVERAGE-001 | MESA CI coverage | see CI workflow | coverage-report |'
