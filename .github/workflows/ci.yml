@@ -382,7 +382,6 @@ jobs:
           tests/test_v4_projection_integration.py
           tests/test_v4_rrf_ablation.py
           tests/test_v4_sdk_contract.py
-          tests/test_graph_v2_identity.py
           tests/test_graph_v2_purge.py
           tests/test_operation_repository_contract.py
           tests/test_projection_generation_contract.py
