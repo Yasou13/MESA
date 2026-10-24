@@ -205,8 +205,7 @@ async def _process_cold_path_impl(
             )
 
             is_v4_pipeline = (
-                require_tier3_validation
-                or admitted_mode is not None
+                admitted_mode is not None
                 or bool(payload.get("document_id"))
             )
 

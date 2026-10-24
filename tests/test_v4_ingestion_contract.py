@@ -603,7 +603,8 @@ async def test_model_disabled_v4_record_follows_durable_lifecycle_without_novelt
 
 
 @pytest.mark.asyncio
-async def test_non_v4_payload_is_rejected_as_unsupported():
+@pytest.mark.parametrize("require_tier3_validation", [False, True])
+async def test_non_v4_payload_is_rejected_as_unsupported(require_tier3_validation):
     from mesa_workers.ingestion_worker import process_cold_path
 
     dao = SimpleNamespace(
@@ -617,7 +618,10 @@ async def test_non_v4_payload_is_rejected_as_unsupported():
         insert_memory=AsyncMock(),
         insert_edge=AsyncMock(),
     )
-    await process_cold_path(42, "agent-a", dao, model_processing_enabled=False)
+    await process_cold_path(
+        42, "agent-a", dao, model_processing_enabled=False,
+        require_tier3_validation=require_tier3_validation,
+    )
     dao.update_raw_log_status.assert_awaited_with(
         "agent-a",
         42,

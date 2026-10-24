@@ -75,6 +75,7 @@ class TestProcessColdPath:
                     "agent_id": "test-agent",
                     "session_id": "session-1",
                     "content": "The policy now permits remote work.",
+                    "validation_mode": 0,
                 },
             }
         )
@@ -116,6 +117,7 @@ class TestProcessColdPath:
                     "agent_id": "test-agent",
                     "session_id": "session-1",
                     "content": "Rejected content",
+                    "validation_mode": 0,
                 },
             }
         )
