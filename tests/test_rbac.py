@@ -1,14 +1,9 @@
 import os
 import sqlite3
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from mesa_api.router import create_memory_router
-from mesa_mcp.configuration import MCPSettings
 from mesa_memory.security.rbac import AccessControl, sanitize_cmb_content
 
 
@@ -66,66 +61,6 @@ async def test_grants_remain_isolated_between_sessions(tmp_path):
 
     assert await ac.check_access("agent_isolated", "session-a", "WRITE") is True
     assert await ac.check_access("agent_isolated", "session-b", "WRITE") is False
-
-
-@pytest.mark.asyncio
-async def test_mcp_session_write_is_denied_then_allowed_by_rbac(tmp_path):
-    """The MCP-derived session receives the same V3 WRITE gate as all callers."""
-    policy = AccessControl(policy_path=str(tmp_path / "rbac_policy.db"))
-    await policy.initialize()
-    settings = MCPSettings(MESA_WORKSPACE_ROOT=tmp_path)
-    session_id = settings.session_id_for("project-a")
-    dao = SimpleNamespace(
-        admit_raw_log=AsyncMock(return_value={"log_id": 42}),
-        rebuild_admission=SimpleNamespace(is_pending=AsyncMock(return_value=False)),
-    )
-    app = FastAPI()
-
-    @app.middleware("http")
-    async def attach_principal(request, call_next):
-        request.state.principal = SimpleNamespace(
-            principal_id="principal-mcp",
-            principal_type="SERVICE",
-            status="active",
-        )
-        return await call_next(request)
-
-    app.include_router(
-        create_memory_router(
-            get_dao=lambda: dao,  # type: ignore[return-value]
-            get_access_control=lambda: policy,  # type: ignore[return-value]
-        )
-    )
-
-    await policy.grant_principal_session_access(
-        "principal-mcp", settings.actor_id, session_id, "WRITE"
-    )
-
-    with TestClient(app, raise_server_exceptions=False) as client:
-        denied = client.post(
-            "/v3/memory/insert",
-            json={
-                "agent_id": settings.actor_id,
-                "session_id": session_id,
-                "content": "MCP write denied without a grant.",
-            },
-        )
-        assert denied.status_code == 403
-        dao.admit_raw_log.assert_not_awaited()
-
-        await policy.grant_access(settings.actor_id, session_id, "WRITE")
-        allowed = client.post(
-            "/v3/memory/insert",
-            json={
-                "agent_id": settings.actor_id,
-                "session_id": session_id,
-                "content": "MCP write accepted with a grant.",
-            },
-        )
-
-    assert allowed.status_code == 202
-    assert allowed.json()["status"] == "queued"
-    dao.admit_raw_log.assert_awaited_once()
 
 
 @pytest.mark.asyncio

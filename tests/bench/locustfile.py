@@ -38,7 +38,7 @@ class MesaLoadTestUser(HttpUser):
         }
 
         with self.client.post(
-            "/v3/memory/insert", json=payload, catch_response=True
+            "/v4/memory/insert", json=payload, catch_response=True
         ) as response:
             if response.status_code == 202:
                 response.success()
@@ -59,7 +59,7 @@ class MesaLoadTestUser(HttpUser):
         }
 
         with self.client.post(
-            "/v3/memory/search", json=payload, catch_response=True
+            "/v4/memory/search", json=payload, catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()

@@ -123,19 +123,6 @@ def pytest_unconfigure(config):
     import sys
     import threading
 
-    # 1. Shut down any initialized MESA singletons / background workers
-    try:
-        from mesa_api.router import _state
-
-        if getattr(_state, "consolidation_loop", None):
-            _state.consolidation_loop.stop()
-        if getattr(_state, "maintenance_worker", None):
-            _state.maintenance_worker.stop()
-        if getattr(_state, "rem_worker", None):
-            _state.rem_worker.stop()
-    except Exception:
-        pass
-
     # tqdm classes (including auto/notebook subclasses) each may own a daemon
     # monitor and deliberately stop it through an atexit hook. Stop exact
     # TMonitor instances explicitly so the lifecycle audit runs against a fully

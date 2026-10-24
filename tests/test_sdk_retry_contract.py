@@ -40,7 +40,7 @@ def test_wait_allows_slow_processing_without_exhausting_minute_request_budget(mo
 
 
 def _request(method: str = "GET") -> httpx.Request:
-    return httpx.Request(method, "https://mesa.test/v3/memory/search")
+    return httpx.Request(method, "https://mesa.test/v4/memory/search")
 
 
 def test_parse_api_error_preserves_structured_server_response() -> None:

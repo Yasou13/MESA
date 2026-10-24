@@ -14,16 +14,10 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from mesa_api.schemas import (
-    MemoryInsertRequest,
-    MemoryPurgeRequest,
-    MemorySearchRequest,
-)
 from mesa_client.client import (
     AsyncMesaClient,
     MesaAPIError,
     MesaClient,
-    MesaValidationError,
 )
 
 
@@ -419,62 +413,6 @@ def _response(status: int, payload: dict, *, version: str = "0.7.1") -> httpx.Re
     )
 
 
-def test_sync_sdk_requests_public_operations_and_validation() -> None:
-    client = MesaClient(base_url="http://mesa.test", api_key="key", max_retries=0)
-    client._client.request = Mock(
-        side_effect=[
-            _response(
-                202,
-                {
-                    "status": "queued",
-                    "log_id": 1,
-                    "agent_id": "agent",
-                    "processing_mode": "async",
-                },
-            ),
-            _response(200, {"context": "ctx", "retrieved_nodes": [], "metrics": {}}),
-            _response(200, {"status": "purged", "deleted_records_count": 2}),
-        ]
-    )
-    try:
-        assert (
-            client.insert(
-                MemoryInsertRequest(
-                    agent_id="agent", session_id="session", content="text"
-                )
-            ).log_id
-            == 1
-        )
-        assert (
-            client.search(
-                MemorySearchRequest(
-                    agent_id="agent", session_id="session", query="text"
-                )
-            ).context
-            == "ctx"
-        )
-        assert (
-            client.purge(
-                MemoryPurgeRequest(agent_id="agent", scope="agent", scope_id="agent")
-            ).deleted_records_count
-            == 2
-        )
-
-        client._request = Mock(return_value={})
-        with pytest.raises(MesaValidationError):
-            client.insert(
-                MemoryInsertRequest(
-                    agent_id="agent", session_id="session", content="text"
-                )
-            )
-        with pytest.raises(MesaValidationError):
-            client.purge(
-                MemoryPurgeRequest(agent_id="agent", scope="agent", scope_id="agent")
-            )
-    finally:
-        client.close()
-
-
 def test_sync_sdk_request_errors_and_context_manager() -> None:
     with MesaClient(
         base_url="http://mesa.test", api_key="key", max_retries=0
@@ -495,66 +433,19 @@ def test_sync_sdk_request_errors_and_context_manager() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_sdk_requests_public_operations_and_errors() -> None:
-    client = AsyncMesaClient(base_url="http://mesa.test", api_key="key", max_retries=0)
-    client._client.request = AsyncMock(
-        side_effect=[
-            _response(
-                202,
-                {
-                    "status": "queued",
-                    "log_id": 1,
-                    "agent_id": "agent",
-                    "processing_mode": "async",
-                },
-            ),
-            _response(200, {"context": "", "retrieved_nodes": [], "metrics": {}}),
-            _response(200, {"status": "purged", "deleted_records_count": 0}),
-            _response(
-                403, {"status_code": 403, "error": "forbidden", "detail": "denied"}
-            ),
-        ]
-    )
-    try:
-        assert (
-            await client.insert(
-                MemoryInsertRequest(
-                    agent_id="agent", session_id="session", content="text"
-                )
-            )
-        ).status == "queued"
-        assert (
-            await client.search(
-                MemorySearchRequest(
-                    agent_id="agent", session_id="session", query="text"
-                )
-            )
-        ).retrieved_nodes == []
-        assert (
-            await client.purge(
-                MemoryPurgeRequest(agent_id="agent", scope="agent", scope_id="agent")
-            )
-        ).status == "purged"
-        with pytest.raises(MesaAPIError, match="forbidden"):
-            await client._request("POST", "/forbidden")
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_async_sdk_context_manager_and_validation_error() -> None:
+async def test_async_sdk_request_errors_and_context_manager() -> None:
     async with AsyncMesaClient(
         base_url="http://mesa.test", api_key="key", max_retries=0
     ) as client:
         assert client._client.headers["X-API-Key"] == "key"
-        client._request = AsyncMock(return_value={})
-        with pytest.raises(MesaValidationError):
-            await client.insert(
-                MemoryInsertRequest(
-                    agent_id="agent", session_id="session", content="text"
-                )
-            )
-        with pytest.raises(MesaValidationError):
-            await client.purge(
-                MemoryPurgeRequest(agent_id="agent", scope="agent", scope_id="agent")
-            )
+        client._client.request = AsyncMock(
+            side_effect=[
+                _response(200, {"ok": True}, version="1.0.0"),
+                _response(
+                    403, {"status_code": 403, "error": "forbidden", "detail": "denied"}
+                ),
+            ]
+        )
+        assert await client._request("GET", "/health") == {"ok": True}
+        with pytest.raises(MesaAPIError, match="forbidden"):
+            await client._request("POST", "/forbidden")

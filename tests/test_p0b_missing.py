@@ -67,7 +67,7 @@ def test_server_lifespan_health_metrics(tmp_path):
                     ).status_code == 200
                     assert (
                         await client.get(
-                            "/v3/memory/session/test/context?agent_id=1",
+                            "/v4/sessions/test/context",
                             headers={"X-API-Key": "wrong"},
                         )
                     ).status_code == 401

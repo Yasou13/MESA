@@ -246,22 +246,16 @@ def test_documented_quickstarts_match_the_fail_closed_compose_profile() -> None:
 
 def test_documented_public_api_examples_match_authenticated_route_contract() -> None:
     quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
-    example = (ROOT / "examples/v3_quickstart.py").read_text(encoding="utf-8")
     v4_example = (ROOT / "examples/v4_quickstart.py").read_text(encoding="utf-8")
 
     assert (
         'curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:18080/health'
         in quickstart
     )
-    assert "examples/v3_quickstart.py" in quickstart
-    assert "not a models-disabled example" in quickstart
     assert "python -m examples.v4_quickstart" in quickstart
     assert "client.wait_until_committed(" in v4_example
     assert "client.end_session(" in v4_example
     assert 'hit.get("provenance", [])' in v4_example
-    assert "/v3/memory/status/{accepted.log_id}" in example
-    assert "/v3/memory/session/start" in example
-    assert "/v3/session/start" not in example
 
 
 def test_dependency_and_security_governance_assets_are_present() -> None:
