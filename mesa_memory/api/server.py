@@ -401,7 +401,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.consolidation_loop = None  # type: ignore[assignment]
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
-        effective_mode = config.effective_tier3_mode(model_enabled=True)
+        effective_mode = config.effective_tier3_mode()
         validation_policy = compose_validation_policy(effective_mode)
 
         extraction_adapter = AdapterFactory.get_extraction_adapter()

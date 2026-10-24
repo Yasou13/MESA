@@ -929,7 +929,7 @@ def create_v4_router(
                 llm_validation_enabled=policy.llm_validation_enabled,
                 validator_count=policy.validator_count,
             )
-        elif config.effective_tier3_mode(model_enabled=config.model_enabled) == 0:
+        elif config.effective_tier3_mode() == 0:
             val_cap = V4ValidationCapability(
                 mode=0,
                 policy="deterministic_only",
@@ -938,7 +938,7 @@ def create_v4_router(
             )
         else:
             val_cap = V4ValidationCapability(
-                mode=config.effective_tier3_mode(model_enabled=config.model_enabled),
+                mode=config.effective_tier3_mode(),
                 policy="not_composed",
                 llm_validation_enabled=False,
                 validator_count=0,
@@ -1158,7 +1158,7 @@ def create_v4_router(
                 validation_mode=(
                     validation_policy.mode
                     if validation_policy is not None
-                    else config.effective_tier3_mode(model_enabled=config.model_enabled)
+                    else config.effective_tier3_mode()
                 ),
                 idempotency_key=payload.idempotency_key,
                 payload_hash=payload_hash if payload.idempotency_key else None,

@@ -25,8 +25,8 @@ and `MESA_LOG_FORMAT` to json. Secrets must be injected privately.
 
 ## Providers and capacity
 
-Model and external-provider flags default false. Enabling models defaults
-validation to mode 2 unless `MESA_TIER3_MODE` explicitly selects 0/1/2; mode 2
+Model and external-provider flags default false. Validation defaults to
+mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
 needs distinct A/B validator identities. Extraction and validation are separate.
 Local identity defaults to Magibu 768-d normalized; external text-embedding-3-small
 requires setting dimension to 1536. Do not enable external flag and keep an

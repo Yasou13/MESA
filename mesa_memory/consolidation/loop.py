@@ -640,7 +640,7 @@ class ConsolidationLoop:
             self.validation_policy = SingleLLMValidationPolicy(llm_a)
         else:
             self.validation_policy = compose_validation_policy(
-                config.effective_tier3_mode(model_enabled=True)
+                config.effective_tier3_mode()
             )
 
         # Backward compatibility validator handle
