@@ -66,7 +66,6 @@ async def test_streamable_http_authenticates_initialize_and_lists_only_codex_too
             )
             assert listed.status_code == 200
             assert "mesa_recall" in listed.text
-            assert "mesa_store_memory" not in listed.text
             called = await client.post(
                 "/",
                 headers=session_headers,

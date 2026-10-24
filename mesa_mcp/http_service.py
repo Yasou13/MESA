@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 import httpx
 
-from mesa_api.schemas import MemoryInsertRequest, MemorySearchRequest
 from mesa_client.client import AsyncMesaClient, MesaAPIError, MesaNetworkError
 
 from .configuration import MCPSettings
@@ -38,98 +36,6 @@ class MesaHttpMemoryService:
         except Exception as exc:  # mapped below to keep protocol errors stable
             raise _map_exception(exc) from exc
         return response
-
-    async def create_memory(self, **kwargs: Any) -> dict[str, Any]:
-        project_id = str(kwargs["project_id"])
-        metadata = dict(kwargs["metadata"])
-        metadata.update(
-            {
-                "mesa_mcp_namespace": kwargs["namespace"],
-                "mesa_mcp_project_id": project_id,
-                "memory_type": kwargs["memory_type"],
-                "importance": kwargs["importance"],
-                "content_sha256": hashlib.sha256(
-                    kwargs["content"].encode()
-                ).hexdigest(),
-            }
-        )
-        if kwargs["source_file"]:
-            metadata["source_file"] = kwargs["source_file"]
-        if kwargs["idempotency_key"]:
-            metadata["idempotency_key"] = kwargs["idempotency_key"]
-        request = MemoryInsertRequest(
-            agent_id=self._settings.actor_id,
-            session_id=self._settings.session_id_for(project_id),
-            content=kwargs["content"],
-            metadata=metadata,
-        )
-        try:
-            accepted = await self._http_client.insert(request)
-        except Exception as exc:
-            raise _map_exception(exc) from exc
-        return {
-            "id": f"raw_{accepted.log_id}",
-            "content": request.content,
-            "memory_type": kwargs["memory_type"],
-            "project_id": project_id,
-            "status": accepted.status,
-            "created_at": None,
-            "operation": "deduplicated" if accepted.deduplicated else "created",
-        }
-
-    async def search_memories(self, **kwargs: Any) -> list[dict[str, Any]]:
-        project_id = str(kwargs["project_id"])
-        request = MemorySearchRequest(
-            agent_id=self._settings.actor_id,
-            session_id=self._settings.session_id_for(project_id),
-            query=kwargs["query"],
-            limit=kwargs["limit"],
-        )
-        try:
-            response = await self._http_client.search(request)
-        except Exception as exc:
-            raise _map_exception(exc) from exc
-        requested_types = set(kwargs["memory_types"] or ())
-        results: list[dict[str, Any]] = []
-        for node in response.retrieved_nodes:
-            # MESA's V3 result schema has no typed metadata yet.  We return
-            # unknown rather than inventing a type or silently filtering data.
-            if requested_types:
-                continue
-            score = max(0.0, min(1.0, float(node.score)))
-            if score < kwargs["min_score"]:
-                continue
-            results.append(
-                {
-                    "memory_id": node.node_id,
-                    "content": node.content_payload or node.entity_name,
-                    "memory_type": "unknown",
-                    "score": score,
-                    "semantic_score": score,
-                    "importance": None,
-                    "source": {"type": node.source},
-                }
-            )
-        return results
-
-    async def get_memory(self, **kwargs: Any) -> dict[str, Any] | None:
-        project_id = str(kwargs["project_id"])
-        try:
-            response = await self._http_client._request(
-                "GET",
-                f"/v3/memory/records/{kwargs['memory_id']}",
-                params={
-                    "agent_id": self._settings.actor_id,
-                    "session_id": self._settings.session_id_for(project_id),
-                },
-            )
-        except MesaAPIError as exc:
-            if exc.status_code == 404:
-                return None
-            raise _map_exception(exc) from exc
-        except Exception as exc:
-            raise _map_exception(exc) from exc
-        return response.get("memory")
 
 
 def _map_exception(exc: Exception) -> MCPError:

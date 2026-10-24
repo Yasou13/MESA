@@ -66,10 +66,7 @@ class ControlPlaneMiddleware:
     def _map_tool_to_operation(self, tool_name: str) -> str:
         mapping = {
             "mesa_health": "HEALTH",
-            "mesa_search_memory": "SEARCH",
-            "mesa_get_memory": "READ",
             "mesa_get_context": "CONTEXT",
-            "mesa_store_memory": "WRITE",
             "mesa_remember": "WRITE",
             "mesa_recall": "SEARCH",
             "mesa_improve": "UPDATE",

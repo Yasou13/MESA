@@ -116,4 +116,3 @@ async def test_v1_client_keeps_three_stream_values_and_mesa_tool_registration(mo
                 assert get_session_id()
                 tools = await session.list_tools()
                 assert "mesa_recall" in {tool.name for tool in tools.tools}
-                assert "mesa_store_memory" not in {tool.name for tool in tools.tools}
