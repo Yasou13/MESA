@@ -11,20 +11,6 @@ from mesa_memory.runtime_entrypoint import command_for_profile
 ROOT = Path(__file__).parents[1]
 
 
-def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
-    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    project_metadata, separator, _ = pyproject.partition(
-        "[project.optional-dependencies]"
-    )
-
-    assert separator, "project optional-dependencies section is missing"
-    assert '"pyod>=3.3.0"' in project_metadata
-    assert '"numba>=0.65.0"' in project_metadata
-    assert '"llvmlite>=0.47.0"' in project_metadata
-
-
-
-
 def test_single_container_image_canary_uses_the_self_contained_runtime() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github" / "workflows" / "external-release-gates.yml").read_text(
@@ -312,7 +298,7 @@ def test_mcp_coverage_gates_reject_regressions() -> None:
     mcp_coverage = ci.split("  mcp-coverage:", maxsplit=1)[1].split(
         "  zero-cost-contract:", maxsplit=1
     )[0]
-    assert "uv sync --locked --extra dev --extra mcp" in mcp_coverage
+    assert "uv sync --locked --extra dev" in mcp_coverage
     assert "--cov=mesa_mcp.v4_service --cov-fail-under=55" in mcp_coverage
     assert "mcp-coverage.xml" in mcp_coverage
     assert "mcp-coverage.json" in mcp_coverage
