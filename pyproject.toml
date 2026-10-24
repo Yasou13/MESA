@@ -88,9 +88,6 @@ ml = [
     "spacy>=3.8.0",
 ]
 mcp = []
-langchain = [
-    "langchain-core>=0.2.0",
-]
 full = [
     "outlines>=1.2.0",
     "matplotlib>=3.10.0",
@@ -211,7 +208,6 @@ module = [
     "mesa_memory.extraction.*",
     "mesa_memory.security.rbac",
     "mesa_memory.api.server",
-    "mesa_api.router",
     "mesa_api.schemas",
     "mesa_storage.dao",
     "mesa_storage.schemas",
