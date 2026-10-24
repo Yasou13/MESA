@@ -165,3 +165,33 @@ async def test_completion_receipt_is_durable_before_ack_and_restart_reconciles(
     reclaimed = (await restarted.aclaim(worker_id="worker-b", limit=1))[0]
     assert await restarted.areconcile_receipted_claim(reclaimed, worker_id="worker-b")
     assert await restarted.alen() == 0
+
+
+@pytest.mark.asyncio
+async def test_consolidation_loop_writes_dead_letter_under_storage_root(
+    tmp_path: Path,
+):
+    from unittest.mock import MagicMock
+
+    from mesa_memory.consolidation.loop import ConsolidationLoop
+    from mesa_memory.consolidation.policy import compose_validation_policy
+    from mesa_storage.rebuild_preparation import _dead_letter_count
+
+    loop = ConsolidationLoop(
+        dao=MagicMock(),
+        embedder=MagicMock(),
+        validation_policy=compose_validation_policy(0),
+        queue_root=tmp_path,
+    )
+    assert loop.dead_letter_queue.filepath == str(tmp_path / "dead_letter_queue.jsonl")
+    assert loop.human_review_queue.filepath == str(tmp_path / "human_review_queue.jsonl")
+
+    await loop.dead_letter_queue.aappend(
+        {"cmb_id": "candidate-dlq-1", "agent_id": "test-agent", "error": "simulated failure"}
+    )
+
+    dlq_path = tmp_path / "dead_letter_queue.jsonl"
+    assert dlq_path.exists()
+    assert _dead_letter_count(tmp_path) == 1
+    assert not (tmp_path / "dead-letter.jsonl").exists()
+    assert not (tmp_path / "human-review.jsonl").exists()

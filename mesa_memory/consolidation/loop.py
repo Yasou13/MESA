@@ -612,8 +612,8 @@ class ConsolidationLoop:
             queue_trusted_root = config.storage_path
         else:
             isolated_queue_root = Path(queue_root)
-            _hr_path = isolated_queue_root / "human-review.jsonl"
-            _dl_path = isolated_queue_root / "dead-letter.jsonl"
+            _hr_path = isolated_queue_root / "human_review_queue.jsonl"
+            _dl_path = isolated_queue_root / "dead_letter_queue.jsonl"
             queue_trusted_root = str(isolated_queue_root)
         _hr_path.parent.mkdir(parents=True, exist_ok=True)
         _dl_path.parent.mkdir(parents=True, exist_ok=True)
