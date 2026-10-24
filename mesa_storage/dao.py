@@ -40,7 +40,6 @@ from mesa_storage.repositories.catalog import CatalogRepository, CatalogReposito
 from mesa_storage.repositories.operations import (
     OperationRepository,
     OperationRepositoryPort,
-    OperationState,
     RebuildAdmissionPort,
     RebuildAdmissionReader,
 )
@@ -605,55 +604,6 @@ class MemoryDAO:
 
     async def get_system_operation(self, operation_id: str) -> dict[str, Any] | None:
         return await self._operations.get(operation_id)
-
-    async def claim_system_operation(
-        self, operation_id: str, *, runner_id: str, lease_seconds: int = 60
-    ) -> dict[str, Any]:
-        return await self._operations.claim(
-            operation_id, runner_id=runner_id, lease_seconds=lease_seconds
-        )
-
-    async def renew_system_operation(
-        self,
-        operation_id: str,
-        *,
-        runner_id: str,
-        claim_token: str,
-        fencing_token: int,
-        lease_seconds: int = 60,
-    ) -> dict[str, Any]:
-        return await self._operations.renew(
-            operation_id,
-            runner_id=runner_id,
-            claim_token=claim_token,
-            fencing_token=fencing_token,
-            lease_seconds=lease_seconds,
-        )
-
-    async def transition_system_operation(
-        self,
-        operation_id: str,
-        *,
-        to_state: OperationState | str,
-        runner_id: str,
-        claim_token: str,
-        fencing_token: int,
-        **changes: Any,
-    ) -> dict[str, Any]:
-        return await self._operations.transition(
-            operation_id,
-            to_state=to_state,
-            runner_id=runner_id,
-            claim_token=claim_token,
-            fencing_token=fencing_token,
-            **changes,
-        )
-
-    async def cancel_system_operation(self, operation_id: str) -> dict[str, Any]:
-        return await self._operations.cancel(operation_id)
-
-    async def retry_system_operation(self, operation_id: str) -> dict[str, Any]:
-        return await self._operations.retry(operation_id)
 
     async def initialize(self) -> None:
         """Initialize the DAO layer.
@@ -1773,76 +1723,6 @@ class MemoryDAO:
     # ------------------------------------------------------------------
     # v4 mutation ledger / projection outbox
     # ------------------------------------------------------------------
-
-    async def reserve_v4_idempotency(
-        self,
-        *,
-        tenant_id: str,
-        agent_id: str,
-        dataset_id: str,
-        operation_type: str,
-        idempotency_key: str,
-        payload_hash: str,
-    ) -> dict[str, Any]:
-        """Atomically reserve a V4 mutation key before any side effect.
-
-        A second delivery can only observe the reservation; it can never admit
-        another raw log while the original request is being processed.
-        """
-        async with self._sql.transaction() as db:
-            insert_cursor = await db.execute(
-                "INSERT OR IGNORE INTO v4_idempotency_receipts "
-                "(tenant_id, agent_id, dataset_id, operation_type, idempotency_key, payload_hash, state) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'PENDING')",
-                (
-                    tenant_id,
-                    agent_id,
-                    dataset_id,
-                    operation_type,
-                    idempotency_key,
-                    payload_hash,
-                ),
-            )
-            async with db.execute(
-                "SELECT * FROM v4_idempotency_receipts WHERE tenant_id = ? AND agent_id = ? "
-                "AND dataset_id = ? AND operation_type = ? AND idempotency_key = ?",
-                (tenant_id, agent_id, dataset_id, operation_type, idempotency_key),
-            ) as cursor:
-                row = await cursor.fetchone()
-            await db.commit()
-        if row is None:  # pragma: no cover - INSERT OR IGNORE guarantees a row
-            raise RuntimeError("V4 idempotency reservation did not persist")
-        result = dict(row)
-        result["reserved"] = insert_cursor.rowcount == 1
-        return result
-
-    async def complete_v4_idempotency(
-        self,
-        *,
-        tenant_id: str,
-        agent_id: str,
-        dataset_id: str,
-        operation_type: str,
-        idempotency_key: str,
-        mutation_id: str,
-        response_json: str,
-    ) -> None:
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "UPDATE v4_idempotency_receipts SET state = 'COMPLETED', mutation_id = ?, "
-                "response_json = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? "
-                "AND agent_id = ? AND dataset_id = ? AND operation_type = ? AND idempotency_key = ?",
-                (
-                    mutation_id,
-                    response_json,
-                    tenant_id,
-                    agent_id,
-                    dataset_id,
-                    operation_type,
-                    idempotency_key,
-                ),
-            )
-            await db.commit()
 
     async def admit_v4_memory(
         self,
@@ -3289,51 +3169,6 @@ class MemoryDAO:
                 purged.append(mutation_id)
         return purged
 
-    async def transition_pipeline_run(
-        self,
-        pipeline_run_id: str,
-        *,
-        to_state: str,
-        event_type: str,
-        failure_class: str | None = None,
-        event_detail: dict[str, Any] | None = None,
-    ) -> bool:
-        async with self._sql.transaction() as db:
-            aggregate_states = {
-                "RUNNING",
-                "EXTRACTED",
-                "VALIDATED",
-                "PROJECTING",
-                "COMMITTED",
-                "RETRY_PENDING",
-                "DLQ",
-            }
-            if to_state in aggregate_states:
-                await self._recompute_pipeline_state_in_tx(
-                    db,
-                    pipeline_run_id,
-                    event_type=event_type,
-                    failure_class=failure_class,
-                    event_detail=event_detail,
-                )
-                async with db.execute(
-                    "SELECT state FROM pipeline_runs WHERE pipeline_run_id = ?",
-                    (pipeline_run_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                changed = row is not None and row[0] == to_state
-            else:
-                changed = await self._transition_pipeline_run_in_tx(
-                    db,
-                    pipeline_run_id,
-                    to_state=to_state,
-                    event_type=event_type,
-                    failure_class=failure_class,
-                    event_detail=event_detail,
-                )
-            await db.commit()
-        return changed
-
     async def get_pipeline_run(self, pipeline_run_id: str) -> dict[str, Any] | None:
         async with self._sql.connection() as db:
             async with db.execute(
@@ -3956,25 +3791,6 @@ class MemoryDAO:
                         event_type="PROJECTION_FAILED",
                         failure_class=error_class[:120],
                     )
-            await db.commit()
-        return cursor.rowcount == 1
-
-    async def renew_projection_outbox_lease(
-        self,
-        projection_id: str,
-        *,
-        worker_id: str,
-        claim_token: str,
-        lease_seconds: int = 300,
-    ) -> bool:
-        if not 1 <= lease_seconds <= 3600:
-            raise ValueError("invalid projection lease")
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                "UPDATE projection_outbox SET lease_expires_at = datetime('now', ?), updated_at = CURRENT_TIMESTAMP "
-                "WHERE projection_id = ? AND state = 'IN_FLIGHT' AND claimed_by = ? AND claim_token = ?",
-                (f"+{lease_seconds} seconds", projection_id, worker_id, claim_token),
-            )
             await db.commit()
         return cursor.rowcount == 1
 
@@ -7244,49 +7060,6 @@ class MemoryDAO:
             ) as cursor:
                 return await cursor.fetchone() is not None
 
-    async def link_v4_assertions(
-        self,
-        *,
-        tenant_id: str,
-        agent_id: str,
-        source_assertion_id: str,
-        target_assertion_id: str,
-        relation_type: str,
-        mutation_id: str,
-    ) -> None:
-        """Persist a provenance-safe CONTRADICTS/SUPERSEDES assertion link."""
-        relation = relation_type.upper()
-        if relation not in {"CONTRADICTS", "SUPERSEDES"}:
-            raise ValueError("invalid assertion relation")
-        async with self._sql.transaction() as db:
-            placeholders = ",".join("?" for _ in range(2))
-            async with db.execute(
-                f"SELECT assertion_id FROM v4_assertions WHERE tenant_id = ? "
-                f"AND assertion_id IN ({placeholders})",
-                (tenant_id, source_assertion_id, target_assertion_id),
-            ) as cursor:
-                found = {str(row[0]) for row in await cursor.fetchall()}
-            if found != {source_assertion_id, target_assertion_id}:
-                raise ValueError("assertion link crosses tenant or unknown artifact")
-            await db.execute(
-                "INSERT OR IGNORE INTO v4_assertion_links "
-                "(source_assertion_id, target_assertion_id, relation_type, mutation_id) "
-                "VALUES (?, ?, ?, ?)",
-                (
-                    source_assertion_id,
-                    target_assertion_id,
-                    relation,
-                    mutation_id,
-                ),
-            )
-            await db.commit()
-        await self._require_graph().link_assertions(
-            source_assertion_id=source_assertion_id,
-            target_assertion_id=target_assertion_id,
-            agent_id=agent_id,
-            relation_type=relation,
-        )
-
     @staticmethod
     async def _advance_mutation_projection_state(db: Any, mutation_id: str) -> None:
         async with db.execute(
@@ -9081,30 +8854,6 @@ class MemoryDAO:
                 return [dict(row) for row in rows]
 
     # ==================================================================
-    # GET ALL ACTIVE AGENT IDS — unscoped (system-level query)
-    # ==================================================================
-
-    async def get_all_active_agent_ids(self) -> list[str]:
-        """Return a deduplicated list of all ``agent_id`` values in the graph.
-
-        This is a **system-level** query used by background workers
-        (PageRank, REM cycle) that need to iterate across all tenants.
-        No RLS filtering is applied — the caller is trusted.
-
-        Returns:
-            Sorted list of unique, non-null agent_id strings.
-        """
-        query = (
-            "SELECT DISTINCT agent_id FROM nodes "
-            "WHERE agent_id IS NOT NULL "
-            "ORDER BY agent_id"
-        )
-        async with self._sql.connection() as db:
-            async with db.execute(query) as cursor:
-                rows = await cursor.fetchall()
-                return [row[0] for row in rows if row[0]]
-
-    # ==================================================================
     # GET MEMORY BY ID — agent-scoped single-node lookup
     # ==================================================================
 
@@ -9749,16 +9498,6 @@ class MemoryDAO:
             )
             await db.commit()
         return cursor.rowcount == 1
-
-    async def recover_expired_session_finalizations(self) -> int:
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                "UPDATE session_finalization_journal SET state = 'RETRY_PENDING', claim_token = NULL, "
-                "claimed_by = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
-                "WHERE state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP"
-            )
-            await db.commit()
-        return cursor.rowcount
 
     async def update_raw_log_status(
         self,
@@ -10410,27 +10149,6 @@ class MemoryDAO:
                 "UPDATE dispatch_queue SET state = 'FINALIZED', claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL "
                 "WHERE queue_record_id = ? AND state = 'IN_FLIGHT' AND claim_token = ?",
                 (queue_record_id, claim_token),
-            )
-            await db.commit()
-        return cursor.rowcount == 1
-
-    async def renew_dispatch_queue_lease(
-        self,
-        queue_record_id: str,
-        *,
-        worker_id: str,
-        claim_token: str,
-        lease_seconds: int = 300,
-    ) -> bool:
-        """Extend an in-flight dispatch only when its fencing token still owns it."""
-        if not worker_id or not claim_token or not 1 <= lease_seconds <= 3600:
-            raise ValueError("invalid dispatch lease renewal")
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                "UPDATE dispatch_queue SET lease_expires_at = datetime('now', ?) "
-                "WHERE queue_record_id = ? AND state = 'IN_FLIGHT' "
-                "AND claimed_by = ? AND claim_token = ?",
-                (f"+{lease_seconds} seconds", queue_record_id, worker_id, claim_token),
             )
             await db.commit()
         return cursor.rowcount == 1
