@@ -635,17 +635,6 @@ async def lifespan(app: FastAPI):
                 writer_lock.release()
 
 
-try:
-    from fastapi.routing import _IncludedRouter
-
-    if not hasattr(_IncludedRouter, "path"):
-        _IncludedRouter.path = property(
-            lambda self: getattr(self.include_context, "prefix", "")
-            or getattr(self.original_router, "prefix", "")
-        )
-except (ImportError, AttributeError):
-    pass
-
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
 
