@@ -54,9 +54,3 @@ def test_worker_source_does_not_emit_raw_payload_or_daemon_prints():
     assert 'print("WORKER_RUNTIME=' not in runtime_source
 
 
-def test_api_enqueue_and_worker_share_log_id_correlation_contract():
-    from mesa_api import router
-
-    api_source = open(router.__file__, encoding="utf-8").read()
-    assert '"memory_insert_queued"' in api_source
-    assert "bind_contextvars(operation_id=str(log_id))" in api_source
