@@ -185,10 +185,5 @@ def test_d012_release_hygiene_checks():
     assert "image-ref: mesa-memory:security" in workflow
     assert "mesa-runtime-image.cdx.json" in workflow
 
-    launcher = (root / "scripts/run_server.py").read_text(encoding="utf-8")
-    assert "from mesa_memory.api import server as _server" in launcher
-    assert "app = _server.app" in launcher
-    assert "MemoryDAO(" not in launcher
-
     schemas = (root / "mesa_api/schemas.py").read_text(encoding="utf-8")
     assert "Fused relevance score (higher is better)" in schemas

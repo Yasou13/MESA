@@ -20,7 +20,6 @@ COPY mesa_storage ./mesa_storage
 COPY mesa_workers ./mesa_workers
 COPY mesa_api ./mesa_api
 COPY mesa_client ./mesa_client
-COPY mesa_evals ./mesa_evals
 COPY mesa_mcp ./mesa_mcp
 COPY --from=uv /uv /usr/local/bin/uv
 # The PyPI Linux torch wheel is CUDA-enabled and pulls multi-gigabyte GPU

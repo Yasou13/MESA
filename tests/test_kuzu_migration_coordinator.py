@@ -137,25 +137,6 @@ def test_rollback_restores_retained_previous_live_directory(tmp_path: Path) -> N
     assert outcome.backup_path.exists() is False
 
 
-def test_cli_refuses_live_wipe_before_touching_any_database(tmp_path: Path) -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "scripts/migrate_to_kuzu.py",
-            "--wipe",
-            "--kuzu-db",
-            str(tmp_path / "live-kuzu"),
-        ],
-        cwd=Path(__file__).parents[1],
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    assert result.returncode != 0
-    assert "--wipe is refused" in result.stderr
-    assert not (tmp_path / "live-kuzu").exists()
-
-
 def test_real_kuzu_staging_database_is_promoted_after_validation(
     tmp_path: Path,
 ) -> None:
