@@ -103,9 +103,6 @@ def create_mcp_server(
 
         # Normal execution (stdio or internal HTTP)
         handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {
-            "mesa_store_memory": adapter.store_memory,
-            "mesa_search_memory": adapter.search_memory,
-            "mesa_get_memory": adapter.get_memory,
             "mesa_get_context": adapter.get_context,
             "mesa_remember": adapter.mesa_remember,
             "mesa_recall": adapter.mesa_recall,
@@ -174,28 +171,6 @@ def _tools() -> list[types.Tool]:
             name="mesa_health",
             description="Check whether the local MESA MCP server and its MESA service are ready. Never returns credentials.",
             inputSchema={"type": "object", "properties": {}},
-        ),
-        types.Tool(
-            name="mesa_store_memory",
-            description="Store durable project knowledge such as a confirmed decision, constraint, convention, or resolved error. Do not store secrets, transient progress, or instructions for the agent.",
-            inputSchema=_store_schema(),
-        ),
-        types.Tool(
-            name="mesa_search_memory",
-            description="Search durable MESA project memories for relevant historical decisions, constraints, conventions, or resolved errors. Do not use this to search the filesystem or public documentation.",
-            inputSchema=_search_schema(),
-        ),
-        types.Tool(
-            name="mesa_get_memory",
-            description="Retrieve one MESA memory by its exact ID within the requested project. A missing or out-of-scope ID is reported as not found.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "memory_id": {"type": "string"},
-                    "project_id": {"type": "string"},
-                },
-                "required": ["memory_id"],
-            },
         ),
         types.Tool(
             name="mesa_get_context",
@@ -314,39 +289,6 @@ def _tools() -> list[types.Tool]:
             },
         ),
     ]
-
-
-def _store_schema() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "content": {"type": "string", "maxLength": 20000},
-            "project_id": {"type": "string"},
-            "memory_type": {"type": "string", "enum": sorted(MEMORY_TYPES)},
-            "importance": {"type": "number", "minimum": 0, "maximum": 1},
-            "source_file": {"type": "string"},
-            "metadata": {"type": "object"},
-            "idempotency_key": {"type": "string"},
-        },
-        "required": ["content", "memory_type"],
-    }
-
-
-def _search_schema() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "maxLength": 2000},
-            "project_id": {"type": "string"},
-            "memory_types": {
-                "type": "array",
-                "items": {"type": "string", "enum": sorted(MEMORY_TYPES)},
-            },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 20},
-            "min_score": {"type": "number", "minimum": 0, "maximum": 1},
-        },
-        "required": ["query"],
-    }
 
 
 async def _run() -> None:

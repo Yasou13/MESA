@@ -18,7 +18,7 @@ V3 whitepaper is available in Git history; see the
 | `mesa_api` | HTTP schemas, authorized V3/V4 routes and control API |
 | `mesa_client` | Sync/async HTTP clients and optional integrations |
 | `mesa_mcp` | MCP service adapters, gateway, bindings and client lifecycle |
-| `mesa_evals` | Local diagnostics and deterministic retrieval contract tooling |
+| `mesa_evals` | Local repository diagnostics and deterministic retrieval contract tooling (not packaged in wheel) |
 
 Higher layers may depend on lower layers: API/MCP → workers → memory → storage.
 Runtime composition roots are explicit exceptions; the source guard is

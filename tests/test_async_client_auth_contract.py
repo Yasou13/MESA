@@ -87,7 +87,7 @@ async def test_mcp_http_service_uses_configured_api_key_and_service_boundary(
             return None
 
         async def _request(self, method, path):
-            assert (method, path) == ("GET", "/v3/health")
+            assert (method, path) == ("GET", "/health")
             return {"status": "healthy"}
 
     monkeypatch.setattr(mcp_http_service, "AsyncMesaClient", FakeClient)

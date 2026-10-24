@@ -46,9 +46,9 @@ async def test_middleware_allow(middleware):
     async def mock_handler(args):
         return {"result": "ok"}
 
-    # mesa_search_memory defaults to ALLOW in our PolicyEngine
+    # mesa_recall defaults to ALLOW in our PolicyEngine
     result = await middleware.execute_tool(
-        "mesa_search_memory", {"query": "test"}, mock_handler
+        "mesa_recall", {"query": "test"}, mock_handler
     )
     assert result == {"result": "ok"}
 
@@ -58,9 +58,9 @@ async def test_middleware_require_approval(middleware):
     async def mock_handler(args):
         return {"result": "ok"}
 
-    # mesa_store_memory defaults to REQUIRE_APPROVAL
+    # mesa_remember defaults to REQUIRE_APPROVAL
     result = await middleware.execute_tool(
-        "mesa_store_memory", {"content": "test"}, mock_handler
+        "mesa_remember", {"content": "test"}, mock_handler
     )
     assert result.get("status") == "PENDING_APPROVAL"
     assert "approval_id" in result

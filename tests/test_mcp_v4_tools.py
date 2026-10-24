@@ -12,15 +12,6 @@ class MockMemoryService(MemoryServiceProtocol):
     async def health(self) -> dict[str, Any]:
         return {"status": "ok"}
 
-    async def create_memory(self, **kwargs) -> dict:
-        return {}
-
-    async def search_memories(self, **kwargs) -> list:
-        return []
-
-    async def get_memory(self, **kwargs) -> dict | None:
-        return None
-
 
 class MockV4Service(V4MemoryServiceProtocol):
     async def v4_remember(self, **kwargs) -> dict[str, Any]:

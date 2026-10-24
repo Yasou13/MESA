@@ -351,8 +351,7 @@ def test_ollama_and_tokenizer_contracts_with_fake_sdk(monkeypatch) -> None:
     assert adapter.get_token_count("one two") == 3
 
     encoding = SimpleNamespace(encode=lambda text: [1, 2, 3])
-    monkeypatch.setattr(tokenizer, "_CL100K_ENCODING", None)
-    monkeypatch.setattr(tokenizer.tiktoken, "get_encoding", lambda name: encoding)
+    monkeypatch.setattr(tokenizer, "_CL100K_ENCODING", encoding)
     assert tokenizer.count_tokens("text", "openai") == 3
     with pytest.raises(ValueError, match="Unknown adapter_type"):
         tokenizer.count_tokens("text", "unknown")
@@ -382,12 +381,33 @@ def test_tokenizer_openai_falls_back_when_encoding_cache_is_unavailable(
 ) -> None:
     from mesa_memory.adapter import tokenizer
 
+    monkeypatch.setattr(tokenizer, "_CL100K_ENCODING", None)
     monkeypatch.setattr(
-        tokenizer.tiktoken,
-        "get_encoding",
-        lambda _name: (_ for _ in ()).throw(OSError("offline")),
+        tokenizer,
+        "load_tiktoken_bpe",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("offline")),
     )
-    assert tokenizer.count_tokens("one two three", "openai") == 3
+    assert tokenizer.count_tokens("one two three", "openai") == len(
+        "one two three".encode("utf-8")
+    )
+
+
+def test_tokenizer_openai_offline_exact(monkeypatch) -> None:
+    import socket
+
+    from mesa_memory.adapter import tokenizer
+
+    monkeypatch.setattr(tokenizer, "_CL100K_ENCODING", None)
+
+    def _block_connect(*args, **kwargs):
+        raise OSError("Network call blocked in offline test")
+
+    monkeypatch.setattr(socket, "create_connection", _block_connect)
+    monkeypatch.setattr(socket.socket, "connect", _block_connect)
+
+    # Online tiktoken cl100k_base yields 2 tokens for "hello world" ([15339, 1917])
+    expected_tokens = 2
+    assert tokenizer.count_tokens("hello world", "openai") == expected_tokens
 
 
 def _response(status: int, payload: dict, *, version: str = "0.7.1") -> httpx.Response:

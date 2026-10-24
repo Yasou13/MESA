@@ -18,7 +18,7 @@ class PolicySimulator:
         """Dry-run the policy engine for a given tool call."""
         # Convert tool call to internal semantic action for policy evaluation
         operation = "READ"
-        if tool_name in ["mesa_store_memory", "mesa_remember", "mesa_improve"]:
+        if tool_name in ["mesa_remember", "mesa_improve"]:
             operation = "WRITE"
         elif tool_name in ["mesa_forget"]:
             operation = "DELETE"

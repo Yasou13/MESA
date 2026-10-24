@@ -237,7 +237,6 @@ async def test_mcp_adapter_preserves_canonical_context_and_write_semantics():
         {"query": "Which database?", "token_budget": 100, "jurisdiction": "TR"}
     )
     assert context["canonical_memories"] == [{"memory_id": "m1"}]
-    legacy.search_memories.assert_not_awaited()
     v4.v4_context.assert_awaited_once_with(
         dataset_id=None,
         query="Which database?",
