@@ -78,9 +78,9 @@ class StateMachineTrackingAdapter(BaseUniversalLLMAdapter):
 
 @pytest.mark.asyncio
 async def test_mode_0_state_machine_transitions(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "rebel_enabled", False)
 
     dao = MagicMock()
+    dao.record_mutation_extraction = AsyncMock()
     dao.get_agent_embeddings.return_value = []
     dao.claim_raw_log = AsyncMock(return_value={"id": 1})
     dao.get_raw_log = AsyncMock(
@@ -148,9 +148,9 @@ async def test_mode_0_state_machine_transitions(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_mode_1_cognitive_discard_transitions(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "rebel_enabled", False)
 
     dao = MagicMock()
+    dao.record_mutation_extraction = AsyncMock()
     dao.get_agent_embeddings.return_value = []
     dao.claim_raw_log = AsyncMock(return_value={"id": 2})
     dao.get_raw_log = AsyncMock(

@@ -196,8 +196,6 @@ disallow_untyped_decorators = true
 [[tool.mypy.overrides]]
 module = [
     "mesa_memory.consolidation.loop",
-    "mesa_memory.consolidation.lock",
-    "mesa_memory.consolidation.writer",
     "mesa_memory.consolidation.parser",
     "mesa_memory.consolidation.router",
     "mesa_memory.consolidation.validator",

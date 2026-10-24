@@ -141,18 +141,6 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
         lambda **_kwargs: _embedding_service(provider),
     )
 
-    # The REBEL provider boundary is deliberately unavailable: real
-    # consolidation must exercise its LLM adapter fallback without a download.
-    from mesa_memory.extraction import rebel_pipeline
-
-    rebel_pipeline._model_holder.reset()
-    monkeypatch.setattr(
-        rebel_pipeline,
-        "pipeline",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("fake REBEL unavailable")
-        ),
-    )
 
     async with server.lifespan(FastAPI()):
         assert server.state.is_ready is True

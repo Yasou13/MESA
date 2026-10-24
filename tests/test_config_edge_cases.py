@@ -101,4 +101,3 @@ def test_config_zero_cost_mode():
     assert config.extraction_provider == "ollama"
     assert config.extraction_model == "qwen3:1.7b"
     assert config.extraction_thinking is False
-    assert config.rebel_enabled is False

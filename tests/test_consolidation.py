@@ -1,13 +1,12 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import numpy as np
 import pytest
 
-from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.observability.metrics import ObservabilityLayer
-from tests.fixtures.vectors import VEC_BASE, VEC_MATCH, VEC_NEAR
+from tests.fixtures.vectors import VEC_MATCH
 
 
 def _make_mock_embedder(dim=768):
@@ -38,128 +37,6 @@ def _make_mock_dao():
     dao.purge_memory = AsyncMock(return_value=0)
     dao.get_recent_telemetry_stats = AsyncMock(return_value={})
     return dao
-
-
-@pytest.mark.asyncio
-async def test_composite_similarity_alignment():
-    embedder = MagicMock()
-
-    def _embed(text, **kwargs):
-        t = text.strip().lower()
-        if t == "match":
-            return VEC_MATCH
-        elif t == "near":
-            return VEC_NEAR
-        return VEC_BASE
-
-    embedder.embed.side_effect = _embed
-    embedder.aembed = AsyncMock(side_effect=_embed)
-
-    trip_base = {"head": "base", "relation": "base", "tail": "base"}
-    trip_match = {"head": "match", "relation": "match", "tail": "match"}
-    trip_near = {"head": "near", "relation": "near", "tail": "near"}
-
-    # VEC_MATCH cos_sim(VEC_BASE, VEC_MATCH) = 0.95 (>= 0.80 merge threshold)
-    score_match = await calculate_composite_similarity(trip_base, trip_match, embedder)
-    assert score_match >= 0.80
-
-    # VEC_NEAR cos_sim(VEC_BASE, VEC_NEAR) = 0.79 (< 0.80 merge threshold)
-    score_near = await calculate_composite_similarity(trip_base, trip_near, embedder)
-    assert score_near < 0.80
-
-
-@pytest.mark.asyncio
-async def test_consolidation_divergence_paths(tmp_path, monkeypatch):
-    from mesa_memory.config import config
-
-    monkeypatch.setattr(config, "storage_path", str(tmp_path))
-    monkeypatch.setattr(
-        config, "human_review_queue_path", str(tmp_path / "review.jsonl")
-    )
-    monkeypatch.setattr(config, "dead_letter_queue_path", str(tmp_path / "dlq.jsonl"))
-    obs = ObservabilityLayer()
-    dao = _make_mock_dao()
-
-    embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
-    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
-    embedder.EMBEDDING_DIM = 768
-
-    llm_a = MagicMock()
-    llm_b = MagicMock()
-
-    loop = ConsolidationLoop(
-        dao=dao,
-        embedder=embedder,
-        llm_a=llm_a,
-        llm_b=llm_b,
-        obs_layer=obs,
-    )
-
-    record = {
-        "cmb_id": "test-001",
-        "content_payload": "test content",
-        "source": "agent",
-    }
-
-    extraction = json.dumps(
-        {
-            "triplets": [
-                {"record_index": 0, "head": "X", "relation": "rel", "tail": "Y"}
-            ]
-        }
-    )
-    llm_a.complete.return_value = extraction
-    llm_b.complete.return_value = extraction
-    llm_a.acomplete = AsyncMock(
-        return_value=json.dumps({"decision": "STORE", "justification": "test"})
-    )
-    llm_b.acomplete = AsyncMock(
-        return_value=json.dumps({"decision": "STORE", "justification": "test"})
-    )
-
-    with patch(
-        "mesa_memory.consolidation.loop.calculate_composite_similarity",
-        return_value=0.4,
-    ):
-        await loop.run_batch([record])
-
-    # Uncertain zone: edge should be inserted with weight 0.5
-    assert dao.insert_edge.called
-    call_kwargs = dao.insert_edge.call_args
-    assert call_kwargs.kwargs.get("weight") == 0.5
-
-    dao.reset_mock()
-
-    # Hub-node scenario: high degree → human review
-    dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "hub_1"}])
-    dao.get_node_degree = AsyncMock(return_value=6)
-
-    with patch(
-        "mesa_memory.consolidation.loop.calculate_composite_similarity",
-        return_value=0.2,
-    ):
-        await loop.run_batch([record])
-
-    assert await loop.human_review_queue.alen() == 1
-    assert not dao.insert_edge.called
-
-    dao.reset_mock()
-    claimed = await loop.human_review_queue.aclaim(worker_id="test-drain")
-    assert await loop.human_review_queue.aack(claimed, worker_id="test-drain")
-
-    # Peripheral node: low degree → silent discard
-    dao.find_nodes_by_name = AsyncMock(return_value=[{"id": "periph_1"}])
-    dao.get_node_degree = AsyncMock(return_value=2)
-
-    with patch(
-        "mesa_memory.consolidation.loop.calculate_composite_similarity",
-        return_value=0.2,
-    ):
-        await loop.run_batch([record])
-
-    assert await loop.human_review_queue.alen() == 0
-    assert not dao.insert_edge.called
 
 
 @pytest.mark.asyncio
@@ -195,104 +72,10 @@ async def test_batch_processing_limit():
         obs_layer=obs,
     )
 
-    with patch(
-        "mesa_memory.consolidation.loop.calculate_composite_similarity",
-        return_value=0.9,
-    ):
-        await loop.run_batch()
+    await loop.run_batch()
 
     # When run_batch is called with no args, it queries the DAO
     dao.get_memories.assert_awaited()
-
-
-@pytest.mark.asyncio
-async def test_rebel_extraction_fallback():
-    obs = ObservabilityLayer()
-    dao = _make_mock_dao()
-
-    embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
-    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
-    embedder.EMBEDDING_DIM = 768
-
-    llm_a = MagicMock()
-    llm_b = MagicMock()
-
-    llm_a.complete.return_value = json.dumps(
-        {"head": "Alice", "relation": "likes", "tail": "Bob"}
-    )
-    llm_b.complete.return_value = json.dumps(
-        {"head": "Alice", "relation": "likes", "tail": "Bob"}
-    )
-    llm_a.acomplete = AsyncMock(
-        return_value=json.dumps({"decision": "STORE", "justification": "test"})
-    )
-    llm_b.acomplete = AsyncMock(
-        return_value=json.dumps({"decision": "STORE", "justification": "test"})
-    )
-
-    record = {"cmb_id": "r-1", "content_payload": "Alice likes Bob.", "source": "agent"}
-
-    loop_obj = ConsolidationLoop(
-        dao=dao,
-        embedder=embedder,
-        llm_a=llm_a,
-        llm_b=llm_b,
-        obs_layer=obs,
-    )
-
-    # Force Rebel Extractor to fail
-    loop_obj.rebel_extractor.extract_triplets = MagicMock(return_value=[])
-
-    with patch(
-        "mesa_memory.consolidation.loop.calculate_composite_similarity",
-        return_value=0.9,
-    ):
-        await loop_obj.run_batch([record])
-
-    # Assert single extraction LLM was called (Round 5 single-call invariant)
-    assert llm_a.complete.called
-    assert not llm_b.complete.called
-
-
-@pytest.mark.asyncio
-async def test_rebel_extraction_success():
-    obs = ObservabilityLayer()
-    dao = _make_mock_dao()
-
-    embedder = MagicMock()
-    embedder.aembed = AsyncMock(return_value=VEC_MATCH)
-    embedder.aembed_batch = AsyncMock(return_value=[VEC_MATCH])
-    embedder.EMBEDDING_DIM = 768
-
-    llm_a = MagicMock()
-    llm_b = MagicMock()
-
-    record = {"cmb_id": "r-2", "content_payload": "Alice likes Bob.", "source": "agent"}
-
-    loop_obj = ConsolidationLoop(
-        dao=dao,
-        embedder=embedder,
-        llm_a=llm_a,
-        llm_b=llm_b,
-        obs_layer=obs,
-    )
-
-    # Force Rebel Extractor to succeed
-    loop_obj.rebel_extractor.extract_triplets = MagicMock(
-        return_value=[{"head": "Alice", "relation": "likes", "tail": "Bob"}]
-    )
-
-    with patch(
-        "mesa_memory.consolidation.loop.calculate_composite_similarity",
-        return_value=0.9,
-    ):
-        await loop_obj.run_batch([record])
-
-    # Assert LLM WAS NOT called because rebel succeeded
-    assert not llm_a.complete.called
-    assert not llm_b.complete.called
-    assert dao.insert_edge.called
 
 
 @pytest.mark.asyncio

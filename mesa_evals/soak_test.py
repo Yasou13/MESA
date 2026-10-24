@@ -762,7 +762,6 @@ async def setup_soak_runtime(
         "MESA_MODEL_ENABLED": "true",
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
         "MESA_TIER3_MODE": "0",
-        "MESA_REBEL_ENABLED": "false",
         "MESA_EMBEDDING_DIMENSION": "384",
         "MESA_LLM_PROVIDER": "mock",
         "MESA_API_KEY": api_key,
@@ -781,14 +780,6 @@ async def setup_soak_runtime(
 
     server.AdapterFactory.get_adapter = staticmethod(lambda *args, **kwargs: provider)
     server._get_embedding_service = lambda **_kwargs: _make_embedding_service(provider)
-
-    from mesa_memory.extraction import rebel_pipeline
-
-    rebel_pipeline._model_holder.reset()
-    orig_pipeline = getattr(rebel_pipeline, "pipeline", None)
-    rebel_pipeline.pipeline = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        RuntimeError("fake REBEL unavailable")
-    )
 
     try:
         async with server.lifespan(server.app):
@@ -875,9 +866,6 @@ async def setup_soak_runtime(
         set_global_embedding_service(None)
         server.AdapterFactory.get_adapter = orig_get_adapter
         server._get_embedding_service = orig_embedding_service
-        if orig_pipeline is not None:
-            rebel_pipeline.pipeline = orig_pipeline
-        rebel_pipeline._model_holder.reset()
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,4 @@
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -407,18 +406,6 @@ def test_fact_candidate_mapping_to_extracted_triplet():
 
     # Empty candidates returns None (0 facts)
     assert fact_candidates_to_extracted_triplet([], record_index=0) is None
-
-
-@pytest.mark.asyncio
-async def test_rebel_not_instantiated_when_disabled():
-    with patch("mesa_memory.extraction.rebel_pipeline.RebelExtractor") as mock_rebel:
-        mock_rebel.side_effect = RuntimeError("REBEL must not be instantiated")
-
-        adapter = MockExtractionAdapter(responses=[FactExtractionResponse(facts=[])])
-        service = FactExtractionService(llm=adapter, rebel_enabled=False)
-        facts = await service.extract_facts("Normal metin")
-        assert len(facts) == 0
-        mock_rebel.assert_not_called()
 
 
 @pytest.mark.asyncio

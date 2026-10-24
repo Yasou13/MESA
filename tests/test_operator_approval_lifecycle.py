@@ -147,16 +147,7 @@ async def test_public_remember_approval_recall_survives_restart(
         "get_tier3_adapters",
         staticmethod(lambda: (provider, provider)),
     )
-    from mesa_memory.extraction import rebel_pipeline
 
-    rebel_pipeline._model_holder.reset()
-    monkeypatch.setattr(
-        rebel_pipeline,
-        "pipeline",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("deterministic REBEL boundary")
-        ),
-    )
 
     settings = MCPSettings(
         base_url="http://mesa-api",

@@ -38,14 +38,6 @@ async def test_consolidation_loop_full():
 
     # ADMIT
     loop.router.validate.return_value = {"decision": "ADMIT"}
-    loop.triplet_extractor = MagicMock()
-    loop.triplet_extractor.sort_by_salience.return_value = [
-        {"id": 1, "content": "test", "tier3_deferred": True}
-    ]
-    loop.triplet_extractor.extract_batch = AsyncMock(return_value=({}, {}))
-    loop.graph_writer = AsyncMock()
-    loop.graph_writer.prefetch_embeddings.return_value = {}
-    loop.graph_writer.commit_batch.return_value = (1, 0)
     await loop.run_batch([{"id": 1, "content": "test", "tier3_deferred": True}])
 
     # UNCERTAIN

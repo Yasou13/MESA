@@ -1,6 +1,6 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -88,6 +88,7 @@ class TrackingAdapter(BaseUniversalLLMAdapter):
 
 def make_mock_dao():
     dao = MagicMock()
+    dao.record_mutation_extraction = AsyncMock()
     dao.get_agent_embeddings.return_value = []
     dao.insert_memory = AsyncMock(return_value="node_1")
     dao.insert_edge = AsyncMock(return_value="edge_1")
@@ -102,7 +103,6 @@ def make_mock_dao():
 
 @pytest.mark.asyncio
 async def test_mode_0_extraction_runs_with_zero_validation_calls(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "rebel_enabled", False)
 
     extraction_adapter = TrackingAdapter("extraction_llm")
     embedder = TrackingAdapter("embedder")
@@ -142,7 +142,6 @@ async def test_mode_0_extraction_runs_with_zero_validation_calls(tmp_path, monke
 
 @pytest.mark.asyncio
 async def test_mode_1_extraction_and_validation_independent(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "rebel_enabled", False)
 
     extraction_adapter = TrackingAdapter("extraction_llm")
     validator_a = TrackingAdapter(
@@ -188,7 +187,6 @@ async def test_injected_policy_never_becomes_an_extraction_fallback(
     tmp_path, monkeypatch
 ):
     """A runtime-composed validator must not silently serve extraction."""
-    monkeypatch.setattr(config, "rebel_enabled", False)
 
     validator_a = TrackingAdapter("validator_a")
     embedder = TrackingAdapter("embedder")
@@ -226,7 +224,6 @@ from mesa_memory.consolidation.validator import Tier3Validator
 @pytest.mark.asyncio
 async def test_mode_2_validation_does_not_duplicate_extraction(tmp_path, monkeypatch):
     """Mode 2 uses 2 validators but extraction call count MUST remain exactly 1."""
-    monkeypatch.setattr(config, "rebel_enabled", False)
 
     extraction_adapter = TrackingAdapter("extraction_llm")
     validator_a = TrackingAdapter(
@@ -271,45 +268,6 @@ async def test_mode_2_validation_does_not_duplicate_extraction(tmp_path, monkeyp
     assert validator_b.complete_count == 1
     # Extraction was called EXACTLY ONCE (not duplicated for Mode 2)
     assert extraction_adapter.complete_count == 1
-
-
-@pytest.mark.asyncio
-async def test_rebel_disabled_guarantees_zero_rebel_instantiation(
-    tmp_path, monkeypatch
-):
-    """With MESA_REBEL_ENABLED=false, RebelExtractor is not instantiated."""
-    monkeypatch.setattr(config, "rebel_enabled", False)
-
-    with patch("mesa_memory.extraction.rebel_pipeline.RebelExtractor") as mock_rebel:
-        mock_rebel.side_effect = RuntimeError("REBEL must not be instantiated")
-
-        extraction_adapter = TrackingAdapter("extraction_llm")
-        embedder = TrackingAdapter("embedder")
-        loop = ConsolidationLoop(
-            dao=make_mock_dao(),
-            embedder=embedder,
-            validation_policy=DeterministicOnlyValidationPolicy(),
-            extraction_llm=extraction_adapter,
-            queue_root=tmp_path / "queue_rebel_disabled",
-        )
-
-        candidate = MemoryCandidate.from_raw_log(
-            raw_log_id=305,
-            agent_id="test_agent",
-            session_id="session_1",
-            content_payload="Kullanıcı PostgreSQL tercih ediyor.",
-            metadata={"_mesa_validation_mode": 0},
-            embedding_provider="openai_compatible",
-            embedding_model="text-embedding-3-small",
-            embedding_version="v1",
-            embedding_dimension=384,
-        )
-
-        outcome = await loop.run_batch([candidate.as_consolidation_record()])
-
-        assert candidate.candidate_id in outcome["accepted"]
-        assert extraction_adapter.complete_count == 1
-        mock_rebel.assert_not_called()
 
 
 def test_embedding_identity_independence():
@@ -364,9 +322,7 @@ async def test_canonical_v4_uses_single_fact_extractor_across_validation_modes(
             extraction_llm=extraction,
             queue_root=tmp_path / f"queue-{mode}",
         )
-        loop.triplet_extractor.extract_batch = AsyncMock(
-            side_effect=AssertionError("canonical V4 must not use TripletExtractor")
-        )
+
 
         outcome = await loop.run_batch([record])
 
@@ -435,15 +391,11 @@ async def test_mixed_batch_cannot_route_v4_mutation_through_legacy_extractor(
             extraction_llm=extraction,
             queue_root=tmp_path / "queue-mixed",
         )
-        legacy_extract = AsyncMock(return_value=({}, {}))
-        loop.triplet_extractor.extract_batch = legacy_extract
 
         outcome = await loop.run_batch([canonical, legacy])
 
         assert candidate.candidate_id in outcome["accepted"]
         assert extraction.complete_count == 1
-        legacy_extract.assert_awaited_once()
-        extracted_batch = legacy_extract.await_args.args[0]
-        assert [record.get("id") for record in extracted_batch] == ["legacy-1"]
+        assert not hasattr(loop, "triplet_extractor")
     finally:
         await engine.close()

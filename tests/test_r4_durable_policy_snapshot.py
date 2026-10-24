@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -83,6 +83,7 @@ async def test_durable_snapshot_mode_2_preserved_on_mode_0_server(tmp_path):
 
     # Server loop is initialized with Mode 0 (Deterministic Only)
     dao = MagicMock()
+    dao.record_mutation_extraction = AsyncMock()
     embedder = MockAdapter()
     mode_0_policy = DeterministicOnlyValidationPolicy()
 
@@ -121,6 +122,7 @@ async def test_durable_snapshot_mode_0_preserved_on_mode_2_server(tmp_path):
 
     # Server loop is initialized with Mode 2 (Dual LLM Consensus)
     dao = MagicMock()
+    dao.record_mutation_extraction = AsyncMock()
     embedder = MockAdapter()
     adapter_a = MockAdapter(model_name="val-a")
     adapter_b = MockAdapter(model_name="val-b")

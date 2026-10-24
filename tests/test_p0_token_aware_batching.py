@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from mesa_memory.config import config
-from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.policy import SingleLLMValidationPolicy
 from mesa_memory.consolidation.router import AdaptiveRouter
 
@@ -42,23 +41,3 @@ async def test_selective_llm_judge_and_token_efficiency(monkeypatch):
     small_llm.acomplete.assert_not_awaited()
     assert result["route"] == "single_model"
     assert result["decision"] is True
-
-
-def test_extraction_batches_obey_configured_token_and_record_bounds(monkeypatch):
-    monkeypatch.setattr(config, "max_batch_tokens", 40)
-    monkeypatch.setattr(config, "consolidation_batch_size", 2)
-    records = [
-        {"content_payload": "a" * 32},
-        {"content_payload": "b" * 32},
-        {"content_payload": "c" * 32},
-    ]
-
-    batches = ConsolidationLoop._partition_extraction_batch(records)
-
-    assert [len(batch) for batch in batches] == [1, 1, 1]
-    assert all(len(batch) <= config.consolidation_batch_size for batch in batches)
-    assert all(
-        sum(ConsolidationLoop._estimate_record_tokens(record) for record in batch)
-        <= config.max_batch_tokens
-        for batch in batches
-    )

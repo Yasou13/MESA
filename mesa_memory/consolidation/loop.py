@@ -1,20 +1,4 @@
-"""
-Consolidation Loop — Batch orchestrator for the MESA knowledge pipeline.
-
-All storage I/O flows exclusively through the ``MemoryDAO``'s
-agent-scoped, RLS-enforced async methods.  The Dual-LLM consensus path
-reads from ``dao.get_memories(include_consolidated=False)`` and commits
-validated entities via ``dao.insert_memory`` / ``dao.insert_edge``.
-Failed consensus records are invalidated via ``dao.invalidate_node``.
-
-Refactored into focused modules following the Single Responsibility Principle:
-
-- ``parser.py``: Prompt templates, JSON sanitization/salvage, response parsing.
-- ``extraction/triplet_extractor.py``: REBEL pipeline, LLM fallback, bisection.
-- ``validator.py``: Tier-3 LLM consensus gate (``Tier3Validator``).
-- ``writer.py``: Graph cross-validation and commit (``GraphWriter``).
-- ``loop.py`` (this file): Pure orchestrator — batch lifecycle only.
-"""
+"""Validate canonical V4 mutations and persist extracted facts through MemoryDAO."""
 
 import asyncio
 import hashlib
@@ -31,7 +15,6 @@ from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
-from mesa_memory.consolidation.lock import calculate_composite_similarity
 from mesa_memory.consolidation.parser import (  # noqa: F401
     BATCH_PROMPT_A_TEMPLATE,
     BATCH_PROMPT_B_TEMPLATE,
@@ -52,13 +35,11 @@ from mesa_memory.consolidation.policy import (
 from mesa_memory.consolidation.router import AdaptiveRouter
 from mesa_memory.consolidation.schemas import ExtractedTriplet
 from mesa_memory.consolidation.validator import Tier3ValidationError, Tier3Validator
-from mesa_memory.consolidation.writer import GraphWriter
 from mesa_memory.extraction.service import (
     FactCandidate,
     FactExtractionError,
     FactExtractionService,
 )
-from mesa_memory.extraction.triplet_extractor import TripletExtractor
 from mesa_memory.observability.metrics import ObservabilityLayer
 from mesa_storage.dao import MemoryDAO
 
@@ -593,9 +574,8 @@ class ConsolidationLoop:
     for all read/write operations.
 
     Delegates to:
-    - ``TripletExtractor``: REBEL + LLM extraction with bisection retry.
+    - ``FactExtractionService``: canonical fact extraction.
     - ``ValidationPolicy``: selected validation gate for deferred records.
-    - ``GraphWriter``: Cross-validation scoring and graph commits via DAO.
     - ``BatchResponseParser``: Response parsing and recovery.  # type: ignore[no-untyped-def]
 
     Retains ownership of:
@@ -675,39 +655,22 @@ class ConsolidationLoop:
         # ``llm_a``/``llm_b`` remain an old positional compatibility path only
         # when no policy was injected by the runtime composition boundary.
         ext_a = extraction_llm
-        ext_b = extraction_llm
         if ext_a is None and validation_policy is None and llm_a is not None:
             ext_a = llm_a
-            ext_b = llm_b or llm_a
         if ext_a is None:
             ext_a = embedder
-            ext_b = ext_a
-        if ext_b is None:
-            ext_b = ext_a
 
         self.fact_extraction_service = FactExtractionService(
             llm=ext_a,
             extraction_lang=config.extraction_lang,
         )
-        self.triplet_extractor = TripletExtractor(llm_a=ext_a, llm_b=ext_b)
         self.router = AdaptiveRouter(
             dao=dao,
             small_llm=ext_a or embedder,
             validation_policy=self.validation_policy,
             obs_layer=self.obs_layer,
         )
-        self.graph_writer = GraphWriter(  # type: ignore[no-untyped-def]
-            dao=dao,
-            embedder=embedder,
-            human_review_queue=self.human_review_queue,
-            similarity_fn=calculate_composite_similarity,
-            agent_id=agent_id,
-        )
-
     # Expose rebel_extractor for backward compatibility
-    @property
-    def rebel_extractor(self):
-        return self.triplet_extractor.rebel_extractor
 
     async def start(self):
         """Main consolidation loop — polls DAO for unconsolidated records."""
@@ -740,10 +703,6 @@ class ConsolidationLoop:
     # Backward-compatible delegation wrappers  # type: ignore[no-untyped-def]
     # -------------------------------------------------------------------
 
-    @staticmethod
-    def _build_records_block(sub_batch: list[dict]) -> str:
-        """Delegate to TripletExtractor.build_records_block."""
-        return TripletExtractor.build_records_block(sub_batch)
 
     def _parse_batch_response(
         self,
@@ -757,77 +716,11 @@ class ConsolidationLoop:
         """Delegate to BatchResponseParser.audit_coverage."""
         return BatchResponseParser.audit_coverage(response, expected_count)
 
-    async def _single_record_extract(self, record, llm, template):
-        """Delegate to TripletExtractor._single_record_extract."""
-        return await self.triplet_extractor._single_record_extract(
-            record, llm, template
-        )
-
-    async def _retry_with_bisection(
-        self, sub_batch, batch_template, fallback_template, llm, depth=0
-    ):
-        """Delegate to TripletExtractor._retry_with_bisection."""
-        return await self.triplet_extractor._retry_with_bisection(
-            sub_batch, batch_template, fallback_template, llm, depth
-        )
 
     # -------------------------------------------------------------------
     # Extraction with retry and concurrency control
     # -------------------------------------------------------------------
 
-    @retry(
-        wait=wait_exponential(
-            multiplier=1, min=config.retry_min_wait_sec, max=config.retry_max_wait_sec
-        ),
-        stop=stop_after_attempt(config.retry_max_attempts),
-    )
-    async def _extract_batch_with_retry(self, sorted_batch: list[dict]):
-        """Runs the extraction pipeline with semaphore limiting and retries."""
-        if llm_circuit_breaker.is_open:
-            raise Exception("Circuit breaker is OPEN. Failing fast.")
-        async with self._llm_semaphore:
-            try:
-                res = await self.triplet_extractor.extract_batch(sorted_batch)
-                llm_circuit_breaker.record_success()
-                return res
-            except Exception:
-                llm_circuit_breaker.record_failure()
-                raise
-
-    @staticmethod
-    def _estimate_record_tokens(record: dict[str, Any]) -> int:
-        """Return a conservative, dependency-free prompt token estimate."""
-        payload = str(record.get("content_payload", record.get("content", "")))
-        source = str(record.get("source", ""))
-        # The prompt adds delimiters and labels around each record.  Four
-        # characters per token is deliberately conservative for prose while
-        # retaining a stable fallback when a tokenizer is unavailable.
-        return max(1, (len(payload) + len(source) + 80 + 3) // 4)
-
-    @classmethod
-    def _partition_extraction_batch(
-        cls, records: list[dict[str, Any]]
-    ) -> list[list[dict[str, Any]]]:
-        """Bound extraction requests by both configured token and record limits."""
-        token_limit = max(1, int(config.max_batch_tokens))
-        record_limit = max(1, int(config.consolidation_batch_size))
-        partitions: list[list[dict[str, Any]]] = []
-        current: list[dict[str, Any]] = []
-        current_tokens = 0
-        for record in records:
-            estimated_tokens = cls._estimate_record_tokens(record)
-            if current and (
-                len(current) >= record_limit
-                or current_tokens + estimated_tokens > token_limit
-            ):
-                partitions.append(current)
-                current = []
-                current_tokens = 0
-            current.append(record)
-            current_tokens += estimated_tokens
-        if current:
-            partitions.append(current)
-        return partitions
 
     # -------------------------------------------------------------------
     # Core batch orchestrator
@@ -836,16 +729,7 @@ class ConsolidationLoop:
     async def run_batch(
         self, batch: Optional[list[dict]] = None
     ) -> dict[str, list[str]]:
-        """Process a batch of raw log records through the consolidation pipeline.
-
-        P0-A compliant flow:
-        1. Validation through the configured Mode 0/1/2 policy.
-        2. Sort by salience (high-density records at edges, LitM Layer 2).
-        3. Full extraction via ``TripletExtractor`` (REBEL → LLM → bisection).
-        4. Cross-validate and commit via ``GraphWriter`` → ``MemoryDAO``.
-
-        Cognitive validation failures are flagged via ``dao.invalidate_node``.
-        """
+        """Validate records and persist canonical V4 fact extraction."""
         if batch is None:
             batch = await self.dao.get_memories(
                 self._agent_id,
@@ -1009,129 +893,19 @@ class ConsolidationLoop:
         if not batch:
             return outcome
 
-        # V4 records are canonical SQL mutations.  Partition them before the
-        # legacy lane so one V3 compatibility record can never drag a V4
-        # mutation through TripletExtractor/GraphWriter.  ``isinstance`` also
-        # preserves the contract for production MemoryDAO specializations.
-        if isinstance(self.dao, MemoryDAO):
-            canonical_batch = [record for record in batch if record.get("mutation_id")]
-            if canonical_batch:
-                await self._run_canonical_v4_batch(canonical_batch, outcome)
-                canonical_ids = {id(record) for record in canonical_batch}
-                batch = [record for record in batch if id(record) not in canonical_ids]
-                if not batch:
-                    return outcome
+        canonical_batch = [record for record in batch if record.get("mutation_id")]
+        return await self._run_canonical_v4_batch(canonical_batch, outcome)
 
-        start_ms = time.time() * 1000
-        batch_id = f"batch_{int(start_ms)}"
-
-        # --- Phase 2: Salience-first ordering (LitM Layer 2) ---
-        sorted_batch = self.triplet_extractor.sort_by_salience(batch)
-
-        # --- Phase 3: Full extraction pipeline (Wrapped with semaphore + retries) ---
-        try:
-            indexed_a: dict[int, ExtractedTriplet] = {}
-            indexed_b: dict[int, ExtractedTriplet] = {}
-            offset = 0
-            for extraction_batch in self._partition_extraction_batch(sorted_batch):
-                partial_a, partial_b = await self._extract_batch_with_retry(
-                    extraction_batch
-                )
-                indexed_a.update(
-                    {offset + index: triplet for index, triplet in partial_a.items()}
-                )
-                indexed_b.update(
-                    {offset + index: triplet for index, triplet in partial_b.items()}
-                )
-                offset += len(extraction_batch)
-        except RetryError as exc:
-            logger.error("Extraction retries exhausted: %s", exc)
-            for record in sorted_batch:
-                await self.dead_letter_queue.aappend(
-                    {
-                        "cmb_id": record.get("cmb_id", record.get("id", "")),
-                        "agent_id": record.get("agent_id", self._agent_id),
-                        "error": "Extraction failed after retries: " + str(exc),
-                    }
-                )
-                candidate_id = str(record.get("cmb_id", record.get("id", "")))
-                if candidate_id in outcome["accepted"]:
-                    outcome["accepted"].remove(candidate_id)
-                outcome["deferred"].append(candidate_id)
-            return outcome
-        except Exception as exc:
-            logger.error("Extraction unexpected error: %s", exc)
-            for record in sorted_batch:
-                await self.dead_letter_queue.aappend(
-                    {
-                        "cmb_id": record.get("cmb_id", record.get("id", "")),
-                        "agent_id": record.get("agent_id", self._agent_id),
-                        "error": "Extraction unexpected error: " + str(exc),
-                    }
-                )
-                candidate_id = str(record.get("cmb_id", record.get("id", "")))
-                if candidate_id in outcome["accepted"]:
-                    outcome["accepted"].remove(candidate_id)
-                outcome["deferred"].append(candidate_id)
-            return outcome
-
-        # --- Phase 4: durable V4 extraction / legacy direct projection ---
-        # V4 must not write an active SQL/vector/graph artifact from this
-        # validator path.  Persist the exact extracted triplet first; the
-        # combined runtime's outbox consumer performs each projection lane
-        # only after the worker marks the mutation VALIDATED.
-        legacy_batch: list[dict] = []
-        legacy_a: dict[int, ExtractedTriplet] = {}
-        legacy_b: dict[int, ExtractedTriplet] = {}
-        for original_index, record in enumerate(sorted_batch):
-            mutation_id = record.get("mutation_id")
-            if mutation_id and type(self.dao) is MemoryDAO:
-                extracted = indexed_a.get(original_index)
-                triplets = (
-                    [
-                        self.graph_writer._to_dict(triplet)
-                        for triplet in extracted.all_triplets()
-                    ]
-                    if extracted is not None
-                    else []
-                )
-                await self.dao.record_mutation_extraction(
-                    str(record["agent_id"]), str(mutation_id), triplets
-                )
-                continue
-            legacy_index = len(legacy_batch)
-            legacy_batch.append(record)
-            if original_index in indexed_a:
-                legacy_a[legacy_index] = indexed_a[original_index]
-            if original_index in indexed_b:
-                legacy_b[legacy_index] = indexed_b[original_index]
-
-        successful_writes = 0
-        divergence_count = 0
-        if legacy_batch:
-            embedding_cache = await self.graph_writer.prefetch_embeddings(
-                legacy_batch,
-                legacy_a,
-                legacy_b,
+    @staticmethod
+    def _to_dict(triplet: ExtractedTriplet | None) -> dict:
+        """Convert an ExtractedTriplet to a plain dict, or empty sentinel."""
+        if triplet:
+            return triplet.model_dump(
+                exclude={"record_index", "additional_triplets"},
+                exclude_none=True,
+                exclude_defaults=True,
             )
-            successful_writes, divergence_count = await self.graph_writer.commit_batch(
-                legacy_batch,
-                legacy_a,
-                legacy_b,
-                embedding_cache,
-                batch_id,
-                similarity_fn=calculate_composite_similarity,
-            )
-
-        duration_ms = (time.time() * 1000) - start_ms
-        self.obs_layer.log_consolidation_batch(
-            batch_id=batch_id,
-            processed=len(batch),
-            divergences=divergence_count,
-            writes=successful_writes,
-            duration_ms=duration_ms,
-        )
-        return outcome
+        return {"head": "", "relation": "", "tail": ""}
 
     @staticmethod
     def _canonical_triplets(facts: list[FactCandidate]) -> list[dict[str, Any]]:

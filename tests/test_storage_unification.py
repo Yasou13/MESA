@@ -131,7 +131,6 @@ class TestNoProductionImportsFromDeletedStorage:
     PRODUCTION_MODULES = [
         "mesa_workers.ingestion_worker",
         "mesa_memory.consolidation.loop",
-        "mesa_memory.consolidation.writer",
         "mesa_memory.consolidation.router",
         "mesa_memory.consolidation.validator",
         "mesa_memory.valence.novelty",
