@@ -22,7 +22,6 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from mesa_api.router import create_memory_router
 from mesa_api.routers.control.router import create_control_router
 from mesa_api.v4_router import create_v4_router
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
@@ -707,6 +706,17 @@ async def lifespan(app: FastAPI):
                 writer_lock.release()
 
 
+try:
+    from fastapi.routing import _IncludedRouter
+
+    if not hasattr(_IncludedRouter, "path"):
+        _IncludedRouter.path = property(
+            lambda self: getattr(self.include_context, "prefix", "")
+            or getattr(self.original_router, "prefix", "")
+        )
+except (ImportError, AttributeError):
+    pass
+
 app = FastAPI(title="MESA API", version=__version__, lifespan=lifespan)
 
 
@@ -853,19 +863,7 @@ def get_mcp_control() -> ControlPlaneMiddleware:
 
 from mesa_memory.api.middleware import check_daily_limit
 
-# Setup v3 API Router utilizing Dependency Injection
-# Requires depends at the router level for auth and rate limits
 router_dependencies = [Depends(get_api_key), Depends(check_daily_limit)]
-memory_router = create_memory_router(
-    get_dao=get_dao,
-    get_embedder=get_embedder,
-    get_consolidation_loop=get_consolidation_loop,
-    get_access_control=get_access_control,
-    prefix="/v3/memory",
-)
-# We can't attach dependencies to the include_router directly if the router already defines some,
-# but it's simpler to inject them directly on include_router
-app.include_router(memory_router, dependencies=router_dependencies)
 v4_router = create_v4_router(
     get_dao=get_dao,
     get_access_control=get_access_control,
@@ -976,8 +974,8 @@ def _canonical_readiness_failures(health: dict[str, object]) -> list[str]:
     ]
 
 
-@app.get("/v3/health", dependencies=[Depends(get_api_key)])
-async def health_v3():  # type: ignore[no-untyped-def]
+@app.get("/health", dependencies=[Depends(get_api_key)])
+async def health():  # type: ignore[no-untyped-def]
     health = await state.dao.health_check()
     rebuild = health.get("v4_rebuild") or {}
     backend_healthy = all(
@@ -994,11 +992,6 @@ async def health_v3():  # type: ignore[no-untyped-def]
         "maintenance": rebuild_status == "maintenance",
         "rebuild_state": rebuild_state,
     }
-
-
-@app.get("/health", dependencies=[Depends(get_api_key)])
-async def health():  # type: ignore[no-untyped-def]
-    return await health_v3()
 
 
 @app.get("/metrics", dependencies=[Depends(get_api_key)])
