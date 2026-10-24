@@ -8,8 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mesa_memory.retrieval.core import QueryAnalyzer
-from mesa_memory.retrieval.hybrid import HybridRetriever
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
@@ -214,12 +212,6 @@ async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
     vec_mock.search = AsyncMock(return_value=[])
     dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec_mock)
 
-    rbac = AccessControl(policy_path=str(tmp_path / "rbac_v3.db"))
-    await rbac.initialize()
-    await rbac.grant_access("legal-agent-1", "session-legal-101", "READ")
-
-    retriever = HybridRetriever(dao=dao, analyzer=QueryAnalyzer(), access_control=rbac)
-
     # Cold start count
     count = await dao.count_active_memories(
         tenant_id="legal-agent-1", agent_id="legal-agent-1"
@@ -227,12 +219,11 @@ async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
     assert count == 1
 
     # Perform retrieval on legacy database
-    results = await retriever.retrieve(
-        "European Union AI Act",
-        agent_id="legal-agent-1",
-        session_id="session-legal-101",
+    results = await dao.search_memory_fts(
+        "legal-agent-1",
+        query="European Union AI Act",
     )
-    assert results == ["v3-node-101"]
+    assert [r["id"] for r in results] == ["v3-node-101"]
 
     await engine.close()
 
@@ -240,15 +231,11 @@ async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
     engine2 = AsyncEngine(str(v3_db))
     await engine2.initialize()
     dao2 = MemoryDAO(sqlite_engine=engine2, vector_engine=vec_mock)
-    retriever2 = HybridRetriever(
-        dao=dao2, analyzer=QueryAnalyzer(), access_control=rbac
+    results2 = await dao2.search_memory_fts(
+        "legal-agent-1",
+        query="European Union AI Act",
     )
-    results2 = await retriever2.retrieve(
-        "European Union AI Act",
-        agent_id="legal-agent-1",
-        session_id="session-legal-101",
-    )
-    assert results2 == ["v3-node-101"]
+    assert [r["id"] for r in results2] == ["v3-node-101"]
     await engine2.close()
 
     # Verify no silent V4 schema mutation occurred

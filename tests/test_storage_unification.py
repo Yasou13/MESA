@@ -137,7 +137,6 @@ class TestNoProductionImportsFromDeletedStorage:
         "mesa_memory.consolidation.validator",
         "mesa_memory.valence.novelty",
         "mesa_memory.valence.core",
-        "mesa_memory.retrieval.hybrid",
         "mesa_memory.api.server",
         "mesa_storage.dao",
     ]
@@ -350,48 +349,6 @@ class TestConsolidationLoopDAOWiring:
 
         # Assert: get_memories was called to fetch unconsolidated records
         dao.get_memories.assert_awaited()
-
-
-# ===================================================================
-# TEST 5: HybridRetriever is wired to MemoryDAO
-# ===================================================================
-
-
-class TestHybridRetrieverDAOWiring:
-    """Verify HybridRetriever accepts MemoryDAO, not StorageFacade."""
-
-    def test_constructor_accepts_dao(self):
-        """HybridRetriever.__init__ accepts a MemoryDAO 'dao' parameter."""
-        from mesa_memory.retrieval.hybrid import HybridRetriever
-
-        dao = _make_mock_dao()
-        analyzer = MagicMock()
-        embedder = MagicMock()
-
-        retriever = HybridRetriever(
-            dao=dao,
-            analyzer=analyzer,
-            embedder=embedder,
-        )
-
-        assert retriever.dao is dao
-
-    def test_constructor_has_no_storage_facade_parameter(self):
-        """HybridRetriever must NOT accept a 'storage_facade' parameter."""
-        import inspect
-
-        from mesa_memory.retrieval.hybrid import HybridRetriever
-
-        sig = inspect.signature(HybridRetriever.__init__)
-        param_names = list(sig.parameters.keys())
-
-        assert "storage_facade" not in param_names, (
-            "HybridRetriever still accepts 'storage_facade' — "
-            "split-brain not eliminated"
-        )
-        assert (
-            "dao" in param_names
-        ), "HybridRetriever must accept 'dao' (MemoryDAO) parameter"
 
 
 # ===================================================================
