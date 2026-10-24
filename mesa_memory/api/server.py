@@ -49,7 +49,6 @@ from mesa_memory.observability.metrics import (
     ObservabilityLayer,
     update_v4_health_metrics,
 )
-from mesa_memory.observability.tracer import setup_telemetry_tracing
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
@@ -661,7 +660,6 @@ async def lifespan(app: FastAPI):
     _refresh_auth_config()
     _configure_runtime_paths(runtime)
     state.runtime_profile = runtime  # type: ignore[attr-defined]
-    setup_telemetry_tracing()
     assert _STORAGE_BASE is not None
     _STORAGE_BASE.mkdir(parents=True, exist_ok=True)
     writer_lock = _acquire_runtime_writer_lock(runtime)
