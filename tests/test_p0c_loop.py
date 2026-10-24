@@ -1,6 +1,6 @@
 import os
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -9,7 +9,6 @@ from mesa_memory.consolidation.loop import (
     ConsolidationLoop,
     PersistentQueue,
 )
-from mesa_memory.valence.core import ValenceMotor
 
 
 @pytest.mark.asyncio
@@ -45,33 +44,6 @@ async def test_consolidation_loop_full():
     await loop.run_batch([{"id": 1, "content": "test", "tier3_deferred": True}])
 
 
-@pytest.mark.asyncio
-async def test_valence_evaluate_full():
-    mock_llm = MagicMock()
-    mock_llm.get_token_count.return_value = 1
-    motor = ValenceMotor(mock_llm, MagicMock(), None)
-
-    # explicit_correction
-    res = await motor.evaluate(
-        {"content_payload": "test", "resource_cost": {}}, {"explicit_correction": True}
-    )
-    assert res is True
-
-    # is_novel
-    with patch(
-        "mesa_memory.valence.core.calculate_novelty_score", new_callable=AsyncMock
-    ) as mock_novelty:
-        mock_novelty.return_value = True
-        res = await motor.evaluate({"content_payload": "test", "embedding": [0.1]}, {})
-        assert res is True
-
-        mock_novelty.return_value = False
-        res = await motor.evaluate({"content_payload": "test", "embedding": [0.1]}, {})
-        assert res == "DEFERRED"
-        mock_novelty.assert_awaited()
-
-    motor._recalibrate()
-    assert motor._records_since_recalibration == 0
 
 
 @pytest.mark.asyncio

@@ -133,8 +133,6 @@ class TestNoProductionImportsFromDeletedStorage:
         "mesa_memory.consolidation.loop",
         "mesa_memory.consolidation.router",
         "mesa_memory.consolidation.validator",
-        "mesa_memory.valence.novelty",
-        "mesa_memory.valence.core",
         "mesa_memory.api.server",
         "mesa_storage.dao",
     ]
@@ -279,19 +277,3 @@ class TestDAODualWriteSagaIntegrity:
 # ===================================================================
 
 
-class TestNoveltyModulePurity:
-    """Verify mesa_memory.valence.novelty has no storage imports."""
-
-    def test_no_storage_imports(self):
-        """novelty.py must not import from any storage module."""
-        import inspect
-
-        from mesa_memory.valence import novelty
-
-        source = inspect.getsource(novelty)
-
-        assert "mesa_memory.storage" not in source
-        assert "mesa_storage" not in source
-        assert "StorageFacade" not in source
-        assert "RawLogStorage" not in source
-        assert "VectorStorage" not in source

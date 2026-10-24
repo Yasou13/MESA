@@ -10,7 +10,6 @@ os.environ["MESA_API_KEY"] = "test_key"
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
 from mesa_memory.api.server import app, get_embedder
 from mesa_memory.consolidation.loop import ConsolidationLoop
-from mesa_memory.valence.core import ValenceMotor, calculate_fitness_score
 
 
 @pytest.fixture(autouse=True)
@@ -104,33 +103,8 @@ def test_get_dao_embedder():
 # -------------------------
 
 
-def test_valence_fitness():
-    assert calculate_fitness_score("test", 0) > 0
-    assert calculate_fitness_score("test", 1000) > 0
 
 
-@pytest.mark.asyncio
-async def test_valence_evaluate_errors():
-    motor = ValenceMotor(llm_adapter=MagicMock(), obs_layer=MagicMock(), storage=None)
-
-    assert await motor.evaluate({}, {"error": True}) is False
-    assert await motor.evaluate({}, {"format_violation": True}) is False
-
-    # Test storage hydration exceptions
-    storage_mock = MagicMock()
-    storage_mock.load_embedding_cache.side_effect = Exception("Load err")
-    motor_err = ValenceMotor(
-        llm_adapter=MagicMock(), obs_layer=MagicMock(), storage=storage_mock
-    )
-    assert motor_err.existing_embeddings == []
-
-    storage_mock = MagicMock()
-    del storage_mock.load_embedding_cache
-    storage_mock.get_all_embeddings.side_effect = Exception("Load err 2")
-    motor_err2 = ValenceMotor(
-        llm_adapter=MagicMock(), obs_layer=MagicMock(), storage=storage_mock
-    )
-    assert motor_err2.existing_embeddings == []
 
 
 # -------------------------

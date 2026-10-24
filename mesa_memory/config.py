@@ -566,7 +566,6 @@ class MesaConfig(BaseSettings):
     metrics_admission_threshold: float = 0.8
     metrics_divergence_threshold: float = 0.5
 
-    # Valence recalibration interval (Module 7)
     recalibration_interval: int = 50
     max_embedding_history: int = 500
     drift_sigmoid_weight: float = -10.0

@@ -178,16 +178,14 @@ _STORAGE_BASE: Path | None = None
 _SQLITE_PATH: Path | None = None
 _VECTOR_PATH: Path | None = None
 _KUZU_PATH: Path | None = None
-_VALENCE_PATH: Path | None = None
 
 
 def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
-    global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH, _KUZU_PATH, _VALENCE_PATH
+    global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH, _KUZU_PATH
     _STORAGE_BASE = runtime.storage_root
     _SQLITE_PATH = _STORAGE_BASE / "mesa.db"
     _VECTOR_PATH = None
     _KUZU_PATH = None
-    _VALENCE_PATH = _STORAGE_BASE / "valence_state.db"
 
 
 def _configure_projection_paths(paths: ProjectionPaths) -> None:
@@ -425,7 +423,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         state.background_tasks.add(consolidation_loop_task)
         logger.info("CONSOLIDATION_LOOP_STARTED")
 
-        # REM, PageRank, entity rewrite/consolidation, Valence restoration and
+        # REM, PageRank, entity rewrite/consolidation and
         # maintenance mutation loops are deliberately not part of the MVP
         # composition.  They used to mutate legacy SQL/vector/graph state
         # outside the V4 mutation ledger.  Keep them out of the supported
@@ -529,24 +527,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     # Stop the consolidation loop before flushing state
     if hasattr(state, "consolidation_loop") and state.consolidation_loop:
         await state.consolidation_loop.stop()
-
-    # v0.7.1 FIX: Persist valence cognitive state to prevent amnesia.
-    # Without this save, the EWMAD threshold and memory count are lost
-    # on every restart, causing threshold regression.
-    try:
-        from mesa_memory.valence.core import ValenceMotor
-
-        if hasattr(state, "consolidation_loop") and state.consolidation_loop:
-            # Walk the consolidation → router → validator chain to find
-            # any ValenceMotor instance that may hold live state.
-            _router = getattr(state.consolidation_loop, "router", None)
-            _valence = getattr(_router, "valence_motor", None)
-            if _valence and isinstance(_valence, ValenceMotor):
-                _valence_save_path = str(_VALENCE_PATH)
-                await _valence.save_state(_valence_save_path)
-                logger.info("Valence state persisted to %s", _valence_save_path)
-    except Exception as exc:
-        logger.warning("Failed to persist valence state on shutdown: %s", exc)
 
     # Close KuzuGraphProvider — releases its per-instance connection
     if hasattr(state, "graph_provider") and state.graph_provider:

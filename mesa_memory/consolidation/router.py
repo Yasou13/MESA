@@ -193,18 +193,6 @@ Output the float and NOTHING else. No explanation, no JSON, no markdown."""
         self.t_route = t_route
         self.audit_probability = audit_probability
 
-        # Valence Motor — persists adaptive novelty thresholds (EWMAD).
-        # Must be assigned here so server.py lifespan hooks can access
-        # it via getattr(router, "valence_motor") for save/load_state.
-        from mesa_memory.valence.core import ValenceMotor
-
-        _obs = obs_layer or ObservabilityLayer()
-        self.valence_motor = ValenceMotor(
-            llm_adapter=self.small_llm,
-            obs_layer=_obs,
-            storage=self.dao,
-        )
-
         # Dynamic threshold state is strictly tenant-scoped.  A noisy tenant
         # must never alter another tenant's routing cost/quality trade-off.
         # The router lives for the process lifetime.  Agent-scoped adaptive

@@ -4,7 +4,6 @@
     "mesa_memory.consolidation.parser",
     "mesa_memory.consolidation.router",
     "mesa_memory.consolidation.validator",
-    "mesa_memory.valence.*",
     "mesa_memory.observability.metrics",
     "mesa_memory.retrieval.*",
     "mesa_memory.adapter.*",

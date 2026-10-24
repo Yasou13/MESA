@@ -189,7 +189,7 @@ disallow_untyped_decorators = true
 # exception without a finding, owner, and removal plan in the audit record.
 #
 # Error counts at time of enforcement (210 total across 33 files):
-#   loop.py(33) > valence/core.py(12) > observability/metrics.py(11)
+#   loop.py(33) > observability/metrics.py(11)
 #   > lock.py(11) > hybrid.py(9) > adapters(~29) > extraction(~13)
 #   > writers/parsers(~13). Storage engine modules are now strict.
 
@@ -199,7 +199,6 @@ module = [
     "mesa_memory.consolidation.parser",
     "mesa_memory.consolidation.router",
     "mesa_memory.consolidation.validator",
-    "mesa_memory.valence.*",
     "mesa_memory.observability.metrics",
     "mesa_memory.retrieval.*",
     "mesa_memory.adapter.*",
