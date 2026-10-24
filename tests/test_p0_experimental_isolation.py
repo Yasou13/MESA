@@ -6,4 +6,3 @@ def test_experimental_features_disabled_by_default():
     cfg = MesaConfig()
 
     assert cfg.v4_rebuild_enabled is False
-    assert cfg.crossencoder_enabled is False

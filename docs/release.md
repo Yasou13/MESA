@@ -33,7 +33,7 @@ Temiz checkout ve release commit’inde:
 
 ```bash
 uv lock --check
-uv sync --locked --python 3.11 --extra dev --extra mcp
+uv sync --locked --python 3.11 --extra dev
 uv pip check
 uv run ruff check .
 uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
