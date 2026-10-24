@@ -630,3 +630,54 @@ async def test_non_v4_payload_is_rejected_as_unsupported(require_tier3_validatio
     )
     dao.insert_memory.assert_not_awaited()
     dao.insert_edge.assert_not_awaited()
+
+
+def _v4_guard_dao(status: str, payload_overrides: dict) -> SimpleNamespace:
+    payload = {
+        "tenant_id": "tenant-a",
+        "workspace_id": "workspace-a",
+        "dataset_id": "dataset-a",
+        "document_id": "document-a",
+        "revision_id": "revision-a",
+        "chunk_id": "chunk-a",
+        "agent_id": "agent-a",
+        "session_id": "session-a",
+        "content": "A V4 source passage.",
+        "metadata": {},
+        "validation_mode": 0,
+        **payload_overrides,
+    }
+    return SimpleNamespace(
+        get_raw_log=AsyncMock(return_value={"status": status, "payload": payload}),
+        update_raw_log_status=AsyncMock(),
+        record_mutation_extraction=AsyncMock(),
+        set_mutation_state=AsyncMock(),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["agent_id", "content"])
+async def test_cold_path_rejects_v4_payload_without_agent_or_content(missing):
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    dao = _v4_guard_dao("DEFERRED", {missing: ""})
+    await process_cold_path(43, "agent-a", dao, model_processing_enabled=False)
+
+    dao.update_raw_log_status.assert_awaited_once_with(
+        "agent-a", 43, "rejected", error_reason="missing_agent_id_or_content"
+    )
+    dao.record_mutation_extraction.assert_not_awaited()
+    dao.set_mutation_state.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["processed", "rejected", "processing"])
+async def test_cold_path_skips_raw_log_that_is_not_deferred(status):
+    from mesa_workers.ingestion_worker import process_cold_path
+
+    dao = _v4_guard_dao(status, {})
+    await process_cold_path(44, "agent-a", dao, model_processing_enabled=False)
+
+    dao.update_raw_log_status.assert_not_awaited()
+    dao.record_mutation_extraction.assert_not_awaited()
+    dao.set_mutation_state.assert_not_awaited()
