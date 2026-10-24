@@ -135,3 +135,50 @@ async def test_v4_dead_letter_preserves_final_mutation_and_raw_log(
     assert (await env.dao.get_raw_log("agent-a", admitted["raw_log_id"]))[
         "status"
     ] == raw_status
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stages",
+    [
+        ["VALIDATED"],
+        ["VALIDATED", "RETRY_PENDING", "PENDING"],
+        ["VALIDATED", "SQL_APPLIED"],
+        ["VALIDATED", "SQL_APPLIED", "VECTOR_APPLIED"],
+        ["VALIDATED", "SQL_APPLIED", "VECTOR_APPLIED", "GRAPH_APPLIED"],
+    ],
+)
+async def test_v4_dead_letter_keeps_validated_mutation(v4_release_env, stages):
+    # Crash after VALIDATED, before the raw-log ACK: the raw log keeps its
+    # unexpired lease, so later claims burn dispatch attempts until DEAD_LETTER.
+    env = v4_release_env
+    admitted = await insert_memory(env)
+    mutation_id = admitted["mutation_id"]
+    assert await env.dao.record_mutation_extraction("agent-a", mutation_id, [])
+    for stage in stages:
+        if stage == "PENDING":  # set only by projection milestones
+            async with env.sql.transaction() as db:
+                assert await env.dao._transition_memory_mutation_in_tx(
+                    db, mutation_id, to_state=stage
+                )
+                await db.commit()
+        else:
+            assert await env.dao.set_mutation_state("agent-a", mutation_id, stage)
+    assert await env.dao.claim_raw_log(
+        "agent-a", admitted["raw_log_id"], worker_id="crashed-worker"
+    )
+    async with env.sql.transaction() as db:
+        await db.execute("UPDATE dispatch_queue SET attempt_count = 4")
+        await db.commit()
+    (claim,) = await env.dao.claim_dispatch_queue(worker_id="worker-a", limit=1)
+    assert not await env.dao.complete_dispatch_queue(
+        claim["queue_record_id"],
+        worker_id="worker-a",
+        claim_token=claim["claim_token"],
+        outcome="processing",
+        side_effect_verified=False,
+    )
+    async with env.sql.connection() as db:
+        async with db.execute("SELECT state FROM dispatch_queue") as cursor:
+            assert (await cursor.fetchone())[0] == "DEAD_LETTER"
+    assert (await env.dao.get_mutation("agent-a", mutation_id))["state"] == stages[-1]

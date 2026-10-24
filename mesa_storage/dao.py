@@ -10127,14 +10127,10 @@ class MemoryDAO:
                     ) as mutations:
                         linked = await mutations.fetchall()
                     for mutation in linked:
+                        # Validated mutations may be projecting; leave them alone.
                         if mutation["state"] in {
                             "RECEIVED",
                             "EXTRACTED",
-                            "VALIDATED",
-                            "PENDING",
-                            "SQL_APPLIED",
-                            "VECTOR_APPLIED",
-                            "GRAPH_APPLIED",
                             "RETRY_PENDING",
                         }:
                             await self._transition_memory_mutation_in_tx(
