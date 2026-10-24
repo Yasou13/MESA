@@ -26,6 +26,7 @@ class TestProcessColdPath:
                     "revision_id": "revision-v4",
                     "chunk_id": "chunk-v4",
                     "source_ref": "mcp-tool",
+                    "validation_mode": 2,
                 },
             }
         )
