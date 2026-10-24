@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure isolated runtime path
@@ -70,7 +70,7 @@ jobs:
               Path("mesa_memory/container_health.py"),
               Path("mesa_memory/runtime_entrypoint.py"),
           ]
-          mode = FileMode(line_length=88, target_versions={TargetVersion.PY310})
+          mode = FileMode(line_length=88, target_versions={TargetVersion.PY311})
           changed = [
               str(path)
               for path in paths
@@ -101,7 +101,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: pip
       - name: Verify the pinned TruffleHog scanner version
         run: docker run --rm ghcr.io/trufflesecurity/trufflehog:3.99.2 --version 2>&1 | grep -Fx "trufflehog 3.99.2"
@@ -158,7 +158,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Install lockfile-resolved Python dependencies
         run: |
           python -m pip install "uv==0.13.1"
@@ -223,7 +223,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: pip
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev --extra mcp
@@ -253,7 +253,7 @@ jobs:
         run: echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: pip
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev --extra adapters
@@ -273,7 +273,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: pip
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev
@@ -293,7 +293,7 @@ jobs:
               Path("mesa_client"),
               Path("tests"),
           ]
-          mode = FileMode(line_length=88, target_versions={TargetVersion.PY310})
+          mode = FileMode(line_length=88, target_versions={TargetVersion.PY311})
           changed = [
               str(path)
               for root in roots
@@ -331,7 +331,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure isolated runtime path
@@ -417,7 +417,7 @@ jobs:
         run: echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: pip
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev
@@ -462,7 +462,7 @@ jobs:
         run: echo "MESA_STORAGE_ROOT=$RUNNER_TEMP/mesa-storage" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev
       - name: Build reproducible wheels
@@ -507,7 +507,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure isolated runtime path
@@ -555,7 +555,7 @@ jobs:
           echo "MESA_STORAGE_ROOT=$runtime_lab_root/storage" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: pip
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev --extra adapters --extra mcp

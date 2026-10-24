@@ -3,7 +3,7 @@
 [![MESA CI](https://github.com/Yasou13/MESA/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Yasou13/MESA/actions/workflows/ci.yml?query=branch%3Amain)
 [![Release](https://img.shields.io/github/v/release/Yasou13/MESA)](https://github.com/Yasou13/MESA/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/Yasou13/MESA)](LICENSE)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 
 MESA Core stores source-backed agent memory and returns scoped evidence over
 HTTP, Python clients and MCP. SQLite owns the catalog, assertions, mutation
@@ -20,11 +20,11 @@ production certification.
 ```bash
 git clone https://github.com/Yasou13/MESA.git
 cd MESA
-uv sync --locked --python 3.10
+uv sync --locked --python 3.11
 uv pip check
 ```
 
-Python 3.10–3.13 are the CI matrix; package metadata declares Python >=3.10.
+Python 3.11–3.13 are the CI matrix; package metadata declares Python >=3.11.
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
 The command selects a supported interpreter; substitute 3.11–3.13 if needed.
 The base install includes native storage and HTTP/SDK support; `dev`, provider

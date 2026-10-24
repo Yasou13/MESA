@@ -1,6 +1,6 @@
 # Testing and developer workflow
 
-Install the declared environment with `uv sync --locked --python 3.10 --extra dev`, then run
+Install the declared environment with `uv sync --locked --python 3.11 --extra dev`, then run
 `uv pip check`. Use [CONTRIBUTING](../CONTRIBUTING.md) and [architecture](architecture-v4.md)
 for module boundaries and documentation requirements.
 

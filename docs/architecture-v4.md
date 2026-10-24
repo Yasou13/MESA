@@ -305,7 +305,7 @@ locking is not a distributed/NFS coordinator.
 
 | Area | Source of support/configuration | Evidence needed |
 |---|---|---|
-| Python | `pyproject.toml`; CI matrix 3.10–3.13 | Successful jobs for the target commit |
+| Python | `pyproject.toml`; CI matrix 3.11–3.13 | Successful jobs for the target commit |
 | OS | CI uses Ubuntu; no full OS support matrix declared | Target-platform validation |
 | Dependencies | Ranges in `pyproject.toml`, exact graph in `uv.lock` | Locked install and compatibility check |
 | Storage | SQLite FTS5, LanceDB, Kùzu | Native-store contracts plus representative capacity/recovery runs |

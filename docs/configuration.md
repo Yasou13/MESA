@@ -47,7 +47,7 @@ uses smaller sample global and per-tenant bounds than code defaults.
 Start with the disposable root, key and grants from the
 [quickstart](getting-started.md#provision-before-startup), with the server stopped.
 For an external OpenAI-compatible extraction + embedding setup, install
-`uv sync --locked --python 3.10 --extra adapters` (no local ML extra is needed).
+`uv sync --locked --python 3.11 --extra adapters` (no local ML extra is needed).
 Select models supported by your endpoint. The following is an example pairing,
 not evidence of a real-provider run:
 

@@ -11,12 +11,12 @@ release candidate / **NO-GO** until the [release gates](release.md) pass.
 
 ### Install the locked environment
 
-Use Python 3.10–3.13 (the CI matrix) and
+Use Python 3.11–3.13 (the CI matrix) and
 [uv](https://docs.astral.sh/uv/getting-started/installation/).
 Docker with Compose is needed only for containers. Run from the repository:
 
 ```bash
-uv sync --locked --python 3.10
+uv sync --locked --python 3.11
 uv pip check
 ```
 
@@ -25,13 +25,13 @@ uv pip check
 version in the workflow; an installed dependency range is not a model download.
 Choose `--python 3.11`, `3.12` or `3.13` if appropriate. Leaving the interpreter
 unspecified can select a newer Python outside the tested matrix. Use
-`uv sync --locked --python 3.10 --extra dev` when running developer tests.
+`uv sync --locked --python 3.11 --extra dev` when running developer tests.
 
 SQLite (with FTS5) comes from the Python interpreter; LanceDB, PyArrow and Kùzu
 are installed as core Python dependencies. No separate database server, Docker
 container, manual SQL import or ML extra is needed for models-disabled startup.
 Native wheels depend on Python/platform availability. The isolated installation
-verified for this guide is Linux x86_64 / Python 3.10; other platforms were not
+verified for this guide is Linux x86_64 / Python 3.11; other platforms were not
 verified in this developer-experience pass.
 
 | Extra | When needed |
@@ -45,7 +45,7 @@ verified in this developer-experience pass.
 For a provider setup that needs both SDKs and local models:
 
 ```bash
-uv sync --locked --python 3.10 --extra adapters --extra ml
+uv sync --locked --python 3.11 --extra adapters --extra ml
 uv pip check
 ```
 
@@ -138,7 +138,7 @@ checks does not replace real-provider, migration/restore or soak release evidenc
 
 ## Local quickstart
 
-Run from the repository after `uv sync --locked --python 3.10`. This uses one
+Run from the repository after `uv sync --locked --python 3.11`. This uses one
 combined process, no model loading and no external provider access. It checks
 installation, credentials and readiness. Canonical V4 insert is unavailable
 in this profile: it returns `503 canonical_processing_unavailable`. V4 needs a
@@ -222,7 +222,7 @@ block closes HTTP resources; ending a session is a separate server operation.
 `state == "COMMITTED"`. A timeout does not cancel the mutation: inspect
 `client.status(mutation_id)` before deciding what to retry.
 
-Developer-experience verification on Linux/Python 3.10 used an isolated,
+Developer-experience verification on Linux/Python 3.11 used an isolated,
 non-editable locked Core install, models-disabled startup/health checks,
 and this V4 example with explicitly injected deterministic extraction/embedding.
 SQLite, LanceDB, Kùzu and background processing were real. The test limited Kùzu

@@ -245,7 +245,7 @@ def test_dependency_and_security_governance_assets_are_present() -> None:
 def test_ci_tests_supported_python_versions_and_enforces_full_repository_lint() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert 'python-version: ["3.10", "3.11", "3.12", "3.13"]' in workflow
+    assert 'python-version: ["3.11", "3.12", "3.13"]' in workflow
     assert "uv sync --locked --extra dev" in workflow
     assert workflow.count("uv pip check") >= 5
     assert "uv run python -m pip check" not in workflow
@@ -303,7 +303,7 @@ def test_ci_runs_the_full_coverage_suite_on_the_docker_python_version() -> None:
     coverage_job = workflow.split("  coverage:", maxsplit=1)[1].split(
         "  optional-integrations:", maxsplit=1
     )[0]
-    assert 'python-version: ["3.10", "3.13"]' in coverage_job
+    assert 'python-version: ["3.11", "3.13"]' in coverage_job
     assert "coverage-report-${{ matrix.python-version }}" in coverage_job
 
 
