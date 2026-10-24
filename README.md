@@ -49,8 +49,7 @@ admits durable work; validation and ordered projections precede `COMMITTED`.
 Retrieval combines vector, BM25, assertion and graph lanes with weighted rank
 fusion, then packs source evidence into a bounded context.
 
-`FactExtractionService` owns canonical V4 extraction. REBEL is not part of
-canonical V4 extraction. Validation can use deterministic checks (mode 0), a
+`FactExtractionService` owns canonical V4 extraction. Validation can use deterministic checks (mode 0), a
 single LLM (mode 1), or dual LLM consensus (mode 2). Mode 0 disables LLM
 validation, not canonical extraction and embedding requirements.
 
@@ -58,12 +57,6 @@ validation, not canonical extraction and embedding requirements.
 Model-disabled V4 inserts return
 `503 canonical_processing_unavailable`. V3 raw-memory processing also needs
 embeddings; models-disabled startup is a health check, not an ingestion demo.
-
-### Legacy/V3 CPU-Only REBEL Extraction
-
-REBEL is an optional V3 extraction path requiring the ML extra. Its resource
-cost and model quality need separate measurement. It does not replace the V4
-canonical extraction service.
 
 ## Operational limits
 

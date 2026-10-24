@@ -670,7 +670,6 @@ class ConsolidationLoop:
             validation_policy=self.validation_policy,
             obs_layer=self.obs_layer,
         )
-    # Expose rebel_extractor for backward compatibility
 
     async def start(self):
         """Main consolidation loop — polls DAO for unconsolidated records."""

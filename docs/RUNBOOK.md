@@ -160,7 +160,7 @@ ve ancak ardından cutover yapın.
 
 V4 bir storage root için yalnız bir aktif `combined` owner kullanır.
 Worker başlangıcı aynı hostta advisory lock ile ikinci writer'ı reddeder;
-çoklu host/NFS için bu bir koordinasyon mekanizması değildir. API, valence ve
+çoklu host/NFS için bu bir koordinasyon mekanizması değildir. API ve
 MCP process-local cache'leri yalnız performans optimizasyonudur; doğruluk
 durumu SQLite ledger ve fenced lease'lerdedir. Yatay writer ölçekleme ancak
 paylaşımlı lease/koordinasyon servisi tasarlanıp doğrulandıktan sonra açılır.

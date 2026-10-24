@@ -37,9 +37,7 @@ V3 remains available as the lexical-core compatibility surface and keeps its
 existing API/worker topology. V3 and v4 must not write the same physical
 storage directories concurrently.
 
-Canonical v4 fact extraction is owned by `FactExtractionService`. REBEL is not
-part of the canonical v4 extraction path; references to REBEL in historical
-architecture or V3 compatibility material describe legacy behavior only.
+Canonical v4 fact extraction is owned by `FactExtractionService`.
 
 ## Security and catalog hierarchy
 
@@ -320,5 +318,4 @@ Bitemporal queries, associative PPR, human legal certification, distributed
 writers/hosted storage, Ladybug backend, online or tenant/dataset-scoped rebuild,
 automatic retained-generation cleanup and guaranteed citation correctness are
 not current Core guarantees. V4 retrieval performs no answer generation.
-CrossEncoder/legacy REBEL controls concern V3 paths, not canonical V4 ranking
-or extraction. Adaptive planning is opt-in, bounded and not recursive.
+Adaptive planning is opt-in, bounded and not recursive.

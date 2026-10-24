@@ -38,7 +38,7 @@ verified in this developer-experience pass.
 |---|---|
 | `dev` | Local checks and development |
 | `adapters` | Provider SDK integrations |
-| `ml` | Local transformer/embedding or legacy REBEL dependencies |
+| `ml` | Local transformer/embedding dependencies |
 | `loadtest` | Explicit load-test work |
 | `mcp` | Compatibility extra; MCP itself is already a core dependency |
 

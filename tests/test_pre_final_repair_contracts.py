@@ -49,15 +49,11 @@ def test_v4_docs_consistently_describe_release_candidate_no_go() -> None:
         assert "NO-GO" in document
 
 
-def test_v4_rebel_documentation_names_canonical_extraction_owner() -> None:
+def test_v4_documentation_names_canonical_extraction_owner() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs" / "architecture-v4.md").read_text(encoding="utf-8")
 
     for document in (readme, architecture):
         normalized = " ".join(document.split())
         assert "FactExtractionService" in normalized
-        lowered = normalized.lower()
-        assert "rebel" in lowered
-        assert "not part of" in lowered
-        assert "canonical v4 extraction" in lowered
-    assert "Legacy/V3 CPU-Only REBEL Extraction" in readme
+        assert "canonical v4" in normalized.lower()

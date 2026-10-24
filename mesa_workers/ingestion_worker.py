@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import os
 import re
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -26,7 +24,6 @@ logger = structlog.get_logger("MESA_ColdPath")
 MAX_CONCURRENT_WORKERS = asyncio.Semaphore(100)
 MAX_TIER3_CONCURRENT = 3
 _tier3_semaphore = asyncio.Semaphore(MAX_TIER3_CONCURRENT)
-_TRACE_ROOT = Path("/storage/mesa-lab").resolve()
 _CONTEXT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
@@ -55,24 +52,6 @@ async def _await_optional_dao_call(
     if inspect.isawaitable(result):
         return await result
     return None
-
-
-def _write_cold_path_trace(message: str) -> None:
-    """Write optional diagnostics without accepting arbitrary output paths."""
-    configured = os.getenv("MESA_COLD_PATH_TRACE_PATH")
-    if configured:
-        candidate = Path(configured).resolve()
-        try:
-            candidate.relative_to(_TRACE_ROOT)
-        except ValueError:
-            logger.warning("COLD_PATH_TRACE_DISABLED | reason=path_outside_lab_root")
-            return
-        candidate.parent.mkdir(parents=True, exist_ok=True)
-    else:
-        logger.debug("COLD_PATH_TRACE_DISABLED | reason=no_explicit_lab_path")
-        return
-    with candidate.open("a", encoding="utf-8") as trace:
-        trace.write(message + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -157,33 +136,22 @@ async def _process_cold_path_impl(
                 target_agent, log_id, status, error_reason=error_reason
             )
 
-    _write_cold_path_trace(f"START {log_id}")
     try:
-        logger.info("COLD_PATH_DEBUG | Entering try block", log_id=log_id)
-        _write_cold_path_trace(f"BEFORE SEMAPHORE {log_id}")
         async with MAX_CONCURRENT_WORKERS:
-            _write_cold_path_trace(f"INSIDE SEMAPHORE {log_id}")
             # ==============================================================
             # 1. RETRIEVE PAYLOAD + STATUS GUARD
             # ==============================================================
-            logger.info("COLD_PATH_DEBUG | Starting get_raw_log", log_id=log_id)
-            _write_cold_path_trace(f"BEFORE GET_RAW_LOG {log_id}")
             if type(dao) is MemoryDAO:
                 claim = await dao.claim_raw_log(agent_id, log_id, worker_id="cold-path")
                 raw_log = claim
             else:
                 raw_log = await dao.get_raw_log(agent_id, log_id)
-            _write_cold_path_trace(f"AFTER GET_RAW_LOG {log_id}")
-            logger.info("COLD_PATH_DEBUG | Finished get_raw_log", log_id=log_id)
-            _write_cold_path_trace(f"RAW_LOG_FETCHED {log_id}")
 
             if raw_log is None:
-                _write_cold_path_trace("RETURNING NOT FOUND")
                 logger.warning("COLD_PATH_SKIP | log_id=%d reason=not_found", log_id)
                 return
 
             if claim is None and raw_log["status"] != "DEFERRED":
-                _write_cold_path_trace(f"RETURNING WRONG STATUS {raw_log['status']}")
                 logger.debug(
                     "COLD_PATH_SKIP | log_id=%d reason=status_is_%s",
                     log_id,
