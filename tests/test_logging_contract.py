@@ -178,7 +178,6 @@ def test_compose_bounds_logs_and_sets_production_defaults():
     "relative_path",
     [
         "mesa_memory/runtime_entrypoint.py",
-        "mesa_memory/worker_runtime.py",
         "mesa_memory/api/server.py",
     ],
 )

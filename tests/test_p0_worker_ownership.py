@@ -7,7 +7,6 @@ from fastapi import HTTPException
 
 from mesa_api.admission import require_mutation_admission
 from mesa_memory.api.server import _consume_combined_durable_work_once
-from mesa_memory.worker_runtime import _recover_once
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -82,13 +81,7 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
     fin2_after = await dao.get_session_finalization(agent_id, session_id_2)
     assert fin2_after["state"] == "COMPLETED"
 
-    # 3. Test _recover_once in worker_runtime
-    rec_stats = await _recover_once(engine)
-    assert "session_finalizations" in rec_stats
-    assert "raw_log_claims" in rec_stats
-    assert "wal_claims" in rec_stats
-
-    # A split/model-disabled runtime may own safe-core finalization, but it
+    # A model-disabled runtime may own safe-core finalization, but it
     # must not admit V4 work whose Tier-3/projection lifecycle cannot progress.
     unavailable = MemoryDAO(
         sqlite_engine=engine,

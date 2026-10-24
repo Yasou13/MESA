@@ -48,9 +48,3 @@ def test_worker_source_does_not_emit_raw_payload_or_daemon_prints():
     assert "RAW_LOG {raw_log}" not in ingestion_source
     assert "raw=%s" not in ingestion_source
 
-    from mesa_memory import worker_runtime
-
-    runtime_source = open(worker_runtime.__file__, encoding="utf-8").read()
-    assert 'print("WORKER_RUNTIME=' not in runtime_source
-
-

@@ -67,7 +67,6 @@ jobs:
           from black import FileMode, TargetVersion, WriteBack, format_file_in_place
 
           paths = [
-              Path("mesa_memory/worker_runtime.py"),
               Path("mesa_memory/container_health.py"),
               Path("mesa_memory/runtime_entrypoint.py"),
           ]
@@ -356,7 +355,6 @@ jobs:
           tests/test_queue_admission_contract.py
           tests/test_v4_session_finalization_contract.py
           tests/test_runtime_profiles_contract.py
-          tests/test_worker_runtime_contract.py
 
   v4-contract:
     needs: quality

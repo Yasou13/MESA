@@ -398,7 +398,6 @@ def test_docs_smoke_runs_documented_commands_in_the_locked_environment() -> None
 
     docs_smoke = workflow.split("  docs-smoke:", maxsplit=1)[1]
     assert 'uv run python -c "from mesa_memory.runtime_entrypoint' in docs_smoke
-    assert 'uv run python -c "from mesa_memory.worker_runtime' in docs_smoke
     assert "uv run mesa-recovery --help" in docs_smoke
 
 
@@ -411,23 +410,16 @@ def test_runtime_entrypoint_maps_profiles_without_shell(monkeypatch) -> None:
         entrypoint,
         "load_runtime_profile",
         lambda: SimpleNamespace(
-            profile=RuntimeProfile.WORKER_ONLY,
-            api_enabled=False,
-            load_dotenv=False,
-        ),
-    )
-    assert command_for_profile() == [sys.executable, "-m", "mesa_memory.worker_runtime"]
-    monkeypatch.setattr(
-        entrypoint,
-        "load_runtime_profile",
-        lambda: SimpleNamespace(
-            profile=RuntimeProfile.API_ONLY,
+            profile=RuntimeProfile.COMBINED,
             api_enabled=True,
             load_dotenv=False,
         ),
     )
     monkeypatch.setenv("MESA_PORT", "8123")
-    assert command_for_profile()[-1] == "8123"
+    assert command_for_profile() == [
+        sys.executable, "-m", "uvicorn", "mesa_memory.api.server:app",
+        "--host", "0.0.0.0", "--port", "8123",
+    ]
 
 
 def test_active_workflows_keep_the_reviewed_ci_uv_pin() -> None:

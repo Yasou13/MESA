@@ -27,8 +27,6 @@ _DEFAULT_RUNTIME_LAB_ROOT = Path("/storage/mesa-lab").resolve()
 
 
 class RuntimeProfile(str, Enum):
-    API_ONLY = "api-only"
-    WORKER_ONLY = "worker-only"
     COMBINED = "combined"
     TEST_ISOLATED = "test-isolated"
 
@@ -165,8 +163,6 @@ def load_runtime_profile(
         default=False,
     )
     role_defaults = {
-        RuntimeProfile.API_ONLY: (True, False),
-        RuntimeProfile.WORKER_ONLY: (False, True),
         RuntimeProfile.COMBINED: (True, True),
         RuntimeProfile.TEST_ISOLATED: (True, False),
     }

@@ -12,7 +12,6 @@ from mesa_memory.observability.logger import setup_logging
 setup_logging(role="launcher")
 
 from mesa_memory.config import (
-    RuntimeProfile,
     load_explicit_dotenv,
     load_runtime_profile,
     refresh_config_from_environment,
@@ -26,8 +25,6 @@ def command_for_profile() -> list[str]:
     load_explicit_dotenv(bootstrap)
     refresh_config_from_environment()
     runtime = load_runtime_profile()
-    if runtime.profile is RuntimeProfile.WORKER_ONLY:
-        return [sys.executable, "-m", "mesa_memory.worker_runtime"]
     if not runtime.api_enabled:
         raise RuntimeError("selected runtime profile does not expose an API process")
     port = os.environ.get("MESA_PORT", "8000")

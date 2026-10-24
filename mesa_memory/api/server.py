@@ -40,7 +40,6 @@ from mesa_memory.consolidation.loop import (
 from mesa_memory.consolidation.policy import (
     compose_validation_policy,
 )
-from mesa_memory.container_health import worker_is_ready
 from mesa_memory.embedding.service import (
     get_embedding_service as _get_embedding_service,
 )
@@ -307,17 +306,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.sqlite_engine = AsyncEngine(db_path=str(_SQLITE_PATH))
     await state.sqlite_engine.initialize()
 
-    # In the split deployment the worker owns schema changes.  Letting the
-    # API run Alembic against the same SQLite file races the worker's startup
-    # migration and, more importantly, gives the non-storage-owner process
-    # write authority over durable state.  Combined/test profiles retain the
-    # self-contained startup path.
-    if runtime.profile is not RuntimeProfile.API_ONLY:
-        await initialize_schema(state.sqlite_engine)
-    elif runtime.require_worker_readiness and not worker_is_ready(runtime.storage_root):
-        raise RuntimeError(
-            "api-only runtime requires a ready worker before opening storage"
-        )
+    await initialize_schema(state.sqlite_engine)
     generation_repository = ProjectionGenerationRepository(state.sqlite_engine)
     projection_paths = await generation_repository.resolve_active(
         storage_root=runtime.storage_root,
@@ -340,37 +329,29 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     )
     await state.vector_engine.initialize()
 
-    # Kùzu permits only one live read-write Database handle for a graph path.
-    # The worker owns that handle in api-only/worker-only deployments, so the
-    # API must neither open the graph nor create a second physical writer.
-    # Combined runtimes retain their self-contained graph lifecycle.
-    graph_provider = None
-    if runtime.profile is not RuntimeProfile.API_ONLY:
-        # Initialize KùzuDB embedded graph database (disk-backed).
-        # NOTE: Only the Database handle is created here. kuzu.Connection
-        # instances must be created per-thread to avoid file-lock contention.
-        if _KUZU_PATH is not None:
-            _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
-        # type: ignore[union-attr]
-        logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
-        from mesa_storage import kuzu_setup
+    # Initialize KùzuDB embedded graph database (disk-backed).
+    # NOTE: Only the Database handle is created here. kuzu.Connection
+    # instances must be created per-thread to avoid file-lock contention.
+    if _KUZU_PATH is not None:
+        _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # type: ignore[union-attr]
+    logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
+    from mesa_storage import kuzu_setup
 
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
-        logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
+    logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
 
-        state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
-        logger.info("KùzuDB initialised at %s", _KUZU_PATH)
-        logger.info("KUZU_DATABASE_OPENED")
+    state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
+    logger.info("KùzuDB initialised at %s", _KUZU_PATH)
+    logger.info("KUZU_DATABASE_OPENED")
 
-        # Initialize the async-safe KuzuGraphProvider for edge operations.
-        graph_provider = KuzuGraphProvider(
-            db_path=str(_KUZU_PATH),
-            search_timeout_seconds=config.v4_graph_timeout_seconds,
-        )
-        await graph_provider.initialize()
-    else:
-        logger.info("API_ONLY_GRAPH_STORE_OWNED_BY_WORKER")
+    # Initialize the async-safe KuzuGraphProvider for edge operations.
+    graph_provider = KuzuGraphProvider(
+        db_path=str(_KUZU_PATH),
+        search_timeout_seconds=config.v4_graph_timeout_seconds,
+    )
+    await graph_provider.initialize()
 
     state.graph_provider = graph_provider  # type: ignore[assignment]
 
@@ -877,21 +858,11 @@ async def health_init():
         raise HTTPException(
             status_code=503, detail="Required workers degraded or blocked"
         )
-    if (
-        runtime is not None
-        and getattr(runtime, "require_worker_readiness", False)
-        and not worker_is_ready(runtime.storage_root)
-    ):
-        raise HTTPException(status_code=503, detail="External worker is not ready")
     graph_status = health.get("graph", {}).get("status")
-    graph_is_worker_owned = (
-        runtime is not None
-        and getattr(runtime, "profile", None) is RuntimeProfile.API_ONLY
-    )
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
-        and (graph_status in ("healthy", "not_initialized") or graph_is_worker_owned)
+        and graph_status in ("healthy", "not_initialized")
     ):
         return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")
