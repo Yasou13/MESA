@@ -8,7 +8,6 @@ Proves that:
   3. No residual coupling exists between production code and the deleted
      StorageFacade / RawLogStorage / VectorStorage / NetworkXProvider.
   4. ``ConsolidationLoop`` reads/writes exclusively via MemoryDAO.
-  5. ``HybridRetriever`` is wired to MemoryDAO (not StorageFacade).
 
 asyncio_mode = strict → every async test requires explicit @pytest.mark.asyncio.
 """
