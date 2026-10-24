@@ -390,7 +390,6 @@ jobs:
           tests/test_projection_generation_contract.py
           tests/test_rebuild_observability_contract.py
           tests/test_rebuild_runner_contract.py
-          tests/test_pagerank_coverage.py
           tests/test_async_client_auth_contract.py
           tests/test_mcp_api_boundary.py
       - name: Capture content-free V4 closure evidence

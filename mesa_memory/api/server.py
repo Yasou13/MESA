@@ -419,10 +419,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     await _require_api_key()
 
     # Model/provider and worker startup are explicit profile decisions.
-    pagerank_task = None
     wal_task = None
-    maintenance_worker = None
-    rem_worker = None
     state.consolidation_loop = None  # type: ignore[assignment]
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
@@ -543,33 +540,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     await state.worker_supervisor.shutdown()
     delattr(state, "worker_supervisor")
 
-    # Stop REMCycleWorker gracefully
-    if rem_worker is not None:
-        try:
-            await rem_worker.stop()
-        except Exception as exc:
-            logger.warning("Failed to stop REMCycleWorker: %s", exc)
-        if rem_worker._task is not None:
-            rem_worker._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await rem_worker._task
-
-    # Stop MaintenanceWorker gracefully
-    if maintenance_worker is not None:
-        try:
-            await maintenance_worker.stop()
-        except Exception as exc:
-            logger.warning("Failed to stop MaintenanceWorker: %s", exc)
-        if maintenance_worker._task is not None:
-            maintenance_worker._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await maintenance_worker._task
-
-    # Cancel the PageRank worker
-    if pagerank_task is not None:
-        pagerank_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await pagerank_task
     # Cancel the WAL worker
     if wal_task is not None:
         wal_task.cancel()

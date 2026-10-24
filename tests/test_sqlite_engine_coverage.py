@@ -248,34 +248,6 @@ async def test_commit_reopen_and_uncommitted_rollback_semantics(tmp_path: Path):
     await engine2.close()
 
 
-def test_maintenance_vacuum_connection_applies_durability_policy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """The maintenance worker's independent canonical writer cannot bypass FULL."""
-    import mesa_workers.maintenance as maintenance
-
-    db_path = tmp_path / "maintenance.db"
-    with sqlite3.connect(db_path) as db:
-        db.execute("CREATE TABLE records (id INTEGER PRIMARY KEY)")
-        db.execute("INSERT INTO records VALUES (1)")
-
-    configured: list[dict[str, object]] = []
-    original = maintenance.configure_sqlite_connection
-
-    def track_configuration(connection: sqlite3.Connection, **kwargs: object) -> None:
-        configured.append(kwargs)
-        original(connection, **kwargs)
-
-    monkeypatch.setattr(maintenance, "configure_sqlite_connection", track_configuration)
-    maintenance.MaintenanceWorker._sync_vacuum(str(db_path))
-
-    assert configured == [
-        {"journal_mode": "", "busy_timeout_ms": maintenance._VACUUM_BUSY_TIMEOUT_MS}
-    ]
-    with sqlite3.connect(db_path) as db:
-        assert db.execute("PRAGMA synchronous").fetchone()[0] == 2
-
-
 def test_kuzu_migration_journal_is_full_without_journal_mode_redesign(
     tmp_path: Path,
 ) -> None:

@@ -99,9 +99,7 @@ jobs:
           uv run python -m pytest -q --junitxml=performance-capacity.xml
           tests/test_queue_admission_contract.py
           tests/test_worker_supervision_contract.py
-          tests/test_worker_runtime_contract.py
-          tests/test_pagerank_coverage.py
-          tests/test_entity_consolidation_worker.py | tee performance-capacity.log
+          tests/test_worker_runtime_contract.py | tee performance-capacity.log
       - name: Write factual bounded-capacity summary
         run: >-
           python -c "import json,xml.etree.ElementTree as e; r=e.parse('performance-capacity.xml').getroot(); print(json.dumps({'suite':'bounded-capacity','tests':int(r.attrib.get('tests',0)),'failures':int(r.attrib.get('failures',0)),'errors':int(r.attrib.get('errors',0))},sort_keys=True))" > performance-capacity.json
