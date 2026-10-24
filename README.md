@@ -55,8 +55,7 @@ single LLM (mode 1), or dual LLM consensus (mode 2). Mode 0 disables LLM
 validation, not canonical extraction and embedding requirements.
 
 `docker-compose.v4.yml` defines the V4 single-owner topology.
-`docker-compose.yml` defines V3's separate API/worker topology. Use separate
-storage roots. Model-disabled V4 inserts return
+Model-disabled V4 inserts return
 `503 canonical_processing_unavailable`. V3 raw-memory processing also needs
 embeddings; models-disabled startup is a health check, not an ingestion demo.
 

@@ -88,10 +88,7 @@ Core checkout'unda bulunmaz; sahibi `mesa_benchmark` projesidir. Core CI'daki
 küçük deterministik RRF fixture'ı karşılaştırmalı model kalitesi kanıtı değildir.
 Release için gereken dış benchmark kanıtı ayrıca aynı commit'e bağlanır.
 
-`MESA external release gates` iki deployment topology’sini ayrı test eder:
-
-- `docker-compose.yml`: v3 lexical-core API + worker;
-- `docker-compose.v4.yml`: tek combined storage owner.
+`MESA external release gates`, `docker-compose.v4.yml` ile tek combined storage owner topology’sini test eder.
 
 V4 Compose’ın CI’da model-disabled başlaması yalnız topology, health, ACL/admin
 CLI ve restart sözleşmesini kanıtlar. Gerçek full-cognitive provider davranışı

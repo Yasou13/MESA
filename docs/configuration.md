@@ -6,8 +6,7 @@ Defaults below are field declarations, not evidence of an operational model.
 ## Startup and precedence
 
 `MESA_RUNTIME_PROFILE` and `MESA_STORAGE_ROOT` are required by the runtime
-loader. Profiles: `api-only`, `worker-only`, `combined`, `test-isolated`. V4
-requires one combined writer; V3 split roles use a separate root.
+loader. Profiles: `combined`, `test-isolated`. V4 requires one combined writer.
 Storage aliases are tried in order ROOT, PATH, DIR, DB_PATH; a `.db` filename
 selects its parent. Reject filesystem/home/repository root. Test-isolated
 requires an absolute child of `MESA_RUNTIME_LAB_ROOT` and forbids models,
@@ -112,8 +111,7 @@ work without creating any `.env` file.
 Fresh combined startup creates/migrates SQLite and initializes LanceDB/Kùzu;
 there is no manual fresh-database migration step. Keep old storage migrations
 separate: use the [upgrade procedure](RUNBOOK.md#upgrade-v080), never delete an
-existing database to resolve a startup error. Split V3 `api-only` requires its
-worker to be ready first. Startup failures occur in the server terminal before
+existing database to resolve a startup error. Startup failures occur in the server terminal before
 readiness; check the named variable, writable path or missing selected extra
 there. Do not paste secrets or entire environment files into bug reports.
 

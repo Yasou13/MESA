@@ -57,7 +57,6 @@ credentials and operational provider endpoints are separate prerequisites.
 | Use | Profile / Compose file | Storage rule |
 |---|---|---|
 | Canonical V4 | `combined` / `docker-compose.v4.yml` | One process owns API, consumers and stores |
-| V3 lexical compatibility | `api-only` + `worker-only` / `docker-compose.yml` | One worker; separate from V4 storage |
 | Local model-disabled startup | `combined`, models/providers false | Health/configuration checks; no ingestion demonstration |
 
 Choose a dedicated absolute writable storage root. Do not use the repository,

@@ -23,32 +23,6 @@ def test_runtime_wheel_constrains_pyod_numba_for_supported_python() -> None:
     assert '"llvmlite>=0.47.0"' in project_metadata
 
 
-def test_compose_has_isolated_api_and_worker_roles_without_host_bind_or_dotenv(
-    monkeypatch,
-) -> None:
-    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
-    assert set(compose["services"]) == {"mesa-api", "mesa-worker"}
-    for service in compose["services"].values():
-        assert "env_file" not in service
-        assert service["read_only"] is True
-        assert service["volumes"] == ["mesa-data:/var/lib/mesa"]
-        assert service["environment"]["MESA_MODEL_ENABLED"] == "false"
-        assert service["environment"]["MESA_EXTERNAL_PROVIDER_ENABLED"] == "false"
-    assert (
-        compose["services"]["mesa-api"]["environment"]["MESA_RUNTIME_PROFILE"]
-        == "api-only"
-    )
-    assert (
-        compose["services"]["mesa-api"]["environment"]["MESA_REQUIRE_WORKER_READINESS"]
-        == "true"
-    )
-    assert (
-        compose["services"]["mesa-worker"]["environment"]["MESA_RUNTIME_PROFILE"]
-        == "worker-only"
-    )
-    assert compose["services"]["mesa-api"]["depends_on"] == {
-        "mesa-worker": {"condition": "service_healthy"}
-    }
 
 
 def test_single_container_image_canary_uses_the_self_contained_runtime() -> None:
@@ -64,7 +38,6 @@ def test_single_container_image_canary_uses_the_self_contained_runtime() -> None
         if step.get("name") == "Build, inspect, and smoke the non-root image"
     )
     assert "--env MESA_RUNTIME_PROFILE=combined" in smoke_step["run"]
-    assert "--env MESA_RUNTIME_PROFILE=api-only" not in smoke_step["run"]
 
 
 def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:

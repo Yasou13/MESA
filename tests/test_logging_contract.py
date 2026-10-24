@@ -163,8 +163,8 @@ def test_configured_log_level_filters_lower_severity_events():
 
 
 def test_compose_bounds_logs_and_sets_production_defaults():
-    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
-    runtime = compose["x-mesa-runtime"]
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.v4.yml").read_text())
+    runtime = compose["x-mesa-v4-runtime"]
     assert runtime["logging"] == {
         "driver": "local",
         "options": {"max-size": "10m", "max-file": "5"},
