@@ -612,8 +612,8 @@ class ConsolidationLoop:
             queue_trusted_root = config.storage_path
         else:
             isolated_queue_root = Path(queue_root)
-            _hr_path = isolated_queue_root / "human-review.jsonl"
-            _dl_path = isolated_queue_root / "dead-letter.jsonl"
+            _hr_path = isolated_queue_root / "human_review_queue.jsonl"
+            _dl_path = isolated_queue_root / "dead_letter_queue.jsonl"
             queue_trusted_root = str(isolated_queue_root)
         _hr_path.parent.mkdir(parents=True, exist_ok=True)
         _dl_path.parent.mkdir(parents=True, exist_ok=True)
@@ -936,11 +936,13 @@ class ConsolidationLoop:
                 facts = await self.fact_extraction_service.extract_facts_from_record(
                     record
                 )
-                await self.dao.record_mutation_extraction(
+                persisted = await self.dao.record_mutation_extraction(
                     str(record["agent_id"]),
                     str(record["mutation_id"]),
                     self._canonical_triplets(facts),
                 )
+                if persisted is False:
+                    raise FactExtractionError("Mutation extraction write refused")
             except FactExtractionError as exc:
                 logger.error(
                     "CANONICAL_FACT_EXTRACTION_FAILED | id=%s error=%s",

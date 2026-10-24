@@ -210,12 +210,6 @@ async def _process_cold_path_impl(
             )
 
             if is_v4_pipeline:
-                if effective_validation_mode > 0 and (
-                    not model_processing_enabled or consolidation_loop is None
-                ):
-                    raise RuntimeError(
-                        "LLM validation requires an active model runtime and consolidation loop"
-                    )
                 embedding_identity = configured_embedding_identity()
                 candidate = MemoryCandidate.from_raw_log(
                     raw_log_id=log_id,
@@ -248,6 +242,43 @@ async def _process_cold_path_impl(
                         dao, "record_mutation", candidate_record, raw_log_id=log_id
                     )
 
+                mutation = await _await_optional_dao_call(
+                    dao, "get_mutation", payload_agent_id, candidate.mutation_id
+                )
+                mutation_state = (
+                    mutation.get("state") if isinstance(mutation, dict) else None
+                )
+                if mutation_state in {
+                    "VALIDATED",
+                    "PENDING",
+                    "SQL_APPLIED",
+                    "VECTOR_APPLIED",
+                    "GRAPH_APPLIED",
+                    "COMMITTED",
+                }:
+                    await _transition("processed", target_agent_id=payload_agent_id)
+                    return
+                if mutation_state == "REJECTED":
+                    await _transition("rejected", target_agent_id=payload_agent_id)
+                    return
+                if mutation_state in {
+                    "DEAD_LETTER",
+                    "BLOCKED",
+                    "ROLLING_BACK",
+                    "ROLLED_BACK",
+                    "PURGING",
+                    "PURGED",
+                    "CANCELLED",
+                }:
+                    await _transition("failed", target_agent_id=payload_agent_id)
+                    return
+                if effective_validation_mode > 0 and (
+                    not model_processing_enabled or consolidation_loop is None
+                ):
+                    raise RuntimeError(
+                        "LLM validation requires an active model runtime and consolidation loop"
+                    )
+
                 if consolidation_loop is not None:
                     async with _tier3_semaphore:
                         outcome = await consolidation_loop.run_batch([candidate_record])
@@ -262,13 +293,16 @@ async def _process_cold_path_impl(
                     # Mode 0 bypasses ConsolidationLoop, which normally persists
                     # extraction and advances RECEIVED -> EXTRACTED.  Preserve the
                     # same durable lifecycle even when model extraction is disabled.
-                    await _await_optional_dao_call(
+                    persisted = await _await_optional_dao_call(
                         dao,
                         "record_mutation_extraction",
                         payload_agent_id,
                         candidate.mutation_id,
                         [],
                     )
+                    if persisted is False:
+                        await _transition("DEFERRED", target_agent_id=payload_agent_id)
+                        return
                     outcome = {
                         "accepted": [candidate.candidate_id],
                         "rejected": [],
@@ -287,7 +321,7 @@ async def _process_cold_path_impl(
                         tier3_audit,
                     )
                 if candidate.candidate_id in outcome.get("accepted", []):
-                    await _await_optional_dao_call(
+                    validated = await _await_optional_dao_call(
                         dao,
                         "set_mutation_state",
                         payload_agent_id,
@@ -295,6 +329,9 @@ async def _process_cold_path_impl(
                         "VALIDATED",
                         event_detail=event_detail,
                     )
+                    if validated is False:
+                        await _transition("DEFERRED", target_agent_id=payload_agent_id)
+                        return
                     await _transition("processed", target_agent_id=payload_agent_id)
                     logger.info(
                         "COLD_PATH_VALIDATED_AND_PROJECTED | log_id=%d candidate_id=%s mode=%d",

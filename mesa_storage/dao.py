@@ -2841,6 +2841,7 @@ class MemoryDAO:
             },
             "RETRY_PENDING": {
                 "PENDING",
+                "EXTRACTED",
                 "DEAD_LETTER",
                 "BLOCKED",
                 "REJECTED",
@@ -3360,7 +3361,7 @@ class MemoryDAO:
             metadata["_mesa_v4_projection_triplets"] = normalized
             cursor = await db.execute(
                 "UPDATE memory_mutations SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP "
-                "WHERE mutation_id = ? AND agent_id = ? AND state IN ('RECEIVED', 'EXTRACTED')",
+                "WHERE mutation_id = ? AND agent_id = ? AND state IN ('RECEIVED', 'EXTRACTED', 'RETRY_PENDING')",
                 (json.dumps(metadata, sort_keys=True), mutation_id, agent_id),
             )
             changed = (
@@ -10118,6 +10119,31 @@ class MemoryDAO:
                         "UPDATE dispatch_queue SET state = 'DEAD_LETTER', claim_token = NULL, claimed_by = NULL, "
                         "lease_expires_at = NULL, last_error_class = ? WHERE queue_record_id = ? AND claim_token = ?",
                         (outcome[:120], queue_record_id, claim_token),
+                    )
+                    async with db.execute(
+                        "SELECT mutation_id, state FROM memory_mutations "
+                        "WHERE raw_log_id = ? AND agent_id = ? AND tenant_id = ?",
+                        (row["payload_reference"], row["agent_id"], row["tenant_id"]),
+                    ) as mutations:
+                        linked = await mutations.fetchall()
+                    for mutation in linked:
+                        # Validated mutations may be projecting; leave them alone.
+                        if mutation["state"] in {
+                            "RECEIVED",
+                            "EXTRACTED",
+                            "RETRY_PENDING",
+                        }:
+                            await self._transition_memory_mutation_in_tx(
+                                db,
+                                str(mutation["mutation_id"]),
+                                to_state="DEAD_LETTER",
+                                failure_class=outcome[:120],
+                            )
+                    await db.execute(
+                        "UPDATE raw_logs SET status = 'failed', claim_token = NULL, claimed_by = NULL, "
+                        "lease_expires_at = NULL, last_error = ? WHERE id = ? AND agent_id = ? "
+                        "AND status IN ('queued', 'DEFERRED', 'processing', 'dispatched')",
+                        (outcome[:120], row["payload_reference"], row["agent_id"]),
                     )
                     await db.commit()
                     return False
