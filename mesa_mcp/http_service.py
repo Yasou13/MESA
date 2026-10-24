@@ -34,7 +34,7 @@ class MesaHttpMemoryService:
 
     async def health(self) -> dict[str, Any]:
         try:
-            response = await self._http_client._request("GET", "/v3/health")
+            response = await self._http_client._request("GET", "/health")
         except Exception as exc:  # mapped below to keep protocol errors stable
             raise _map_exception(exc) from exc
         return response
