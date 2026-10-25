@@ -5633,6 +5633,22 @@ class MemoryDAO:
             ) as cursor:
                 in_scope_assertion_rows = await cursor.fetchall()
 
+            if certification_metadata is not None:
+                incomplete_vector = False
+                if self._embedding_enabled:
+                    async with db.execute(
+                        "SELECT 1 FROM projection_outbox p "
+                        f"JOIN ({in_scope_assertion_query}) scoped "
+                        "ON scoped.mutation_id = p.mutation_id "
+                        "WHERE p.projection_name = 'VECTOR' "
+                        "AND p.state != 'COMPLETED' LIMIT 1",
+                        (tenant_id, *datasets, agent_id, *provenance_params),
+                    ) as cursor:
+                        incomplete_vector = await cursor.fetchone() is not None
+                certification_metadata["degraded_sources"] = (
+                    ["vector"] if not self._embedding_enabled or incomplete_vector else []
+                )
+
             audit_rows: list[aiosqlite.Row] = []
             if certification_metadata is not None:
                 audit_query = (
