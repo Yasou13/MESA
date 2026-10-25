@@ -470,7 +470,7 @@ def test_embedding_endpoint_overrides_llm_endpoint(fake_openai_embedding_sdk):
             {
                 "api_key": "embedding-test-key",
                 "base_url": "https://embedding.test/v1",
-                "timeout": 20.0,
+                "timeout": 60.0,
                 "max_retries": 0,
             },
         ),
@@ -479,7 +479,7 @@ def test_embedding_endpoint_overrides_llm_endpoint(fake_openai_embedding_sdk):
             {
                 "api_key": "embedding-test-key",
                 "base_url": "https://embedding.test/v1",
-                "timeout": 20.0,
+                "timeout": 60.0,
                 "max_retries": 0,
             },
         ),
@@ -505,7 +505,7 @@ def test_embedding_endpoint_preserves_llm_endpoint_fallback(
             {
                 "api_key": "legacy-llm-key",
                 "base_url": "https://legacy-llm.test/v1",
-                "timeout": 20.0,
+                "timeout": 60.0,
                 "max_retries": 0,
             }
         ]
