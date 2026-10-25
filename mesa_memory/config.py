@@ -614,6 +614,12 @@ class MesaConfig(BaseSettings):
     ollama_url: str = Field(
         "http://localhost:11434", validation_alias="MESA_OLLAMA_URL"
     )
+    ollama_timeout_seconds: float = Field(
+        300.0, validation_alias="MESA_OLLAMA_TIMEOUT_SECONDS"
+    )
+    ollama_num_ctx: int = Field(
+        8192, validation_alias="MESA_OLLAMA_NUM_CTX"
+    )
 
     # -----------------------------------------------------------------------
     # Resilience & Circuit Breaker (Phase 2.3)

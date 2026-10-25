@@ -172,6 +172,8 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `extraction_lang` | `MESA_EXTRACTION_LANG` | `'tr'` |
 | `zero_cost_mode` | `MESA_ZERO_COST_MODE` | `False` |
 | `ollama_url` | `MESA_OLLAMA_URL` | `'http://localhost:11434'` |
+| `ollama_timeout_seconds` | `MESA_OLLAMA_TIMEOUT_SECONDS` | `300.0` |
+| `ollama_num_ctx` | `MESA_OLLAMA_NUM_CTX` | `8192` |
 | `retry_max_attempts` | `MESA_RETRY_MAX_ATTEMPTS` | `5` |
 | `retry_min_wait_sec` | `MESA_RETRY_MIN_WAIT_SEC` | `2` |
 | `retry_max_wait_sec` | `MESA_RETRY_MAX_WAIT_SEC` | `60` |
