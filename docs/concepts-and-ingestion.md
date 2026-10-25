@@ -94,6 +94,7 @@ typed `legal_identity`; the current SDK `insert` signature does not expose it.
 Use the HTTP contract for that field. Bare “MADDE 1” text is insufficient to
 prove law identity. Producer metadata accuracy remains an external responsibility.
 
-Canonical V4 insertion requires the model-enabled combined processing consumer.
-Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
-`503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
+Canonical V4 insertion requires the combined processing consumer. A combined
+runtime without models stores documents and finds them with BM25; vector search
+starts when embedding is enabled (`degraded_sources` shows `vector` until then);
+503 `canonical_processing_unavailable` happens only on a non-combined profile.

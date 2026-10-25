@@ -217,6 +217,7 @@ Rebuild uses reviewed trusted/storage/work roots and full-root offline scope;
 see [runbook](v4-rebuild-runbook.md). Defaults and example pairings do not certify
 provider availability or quality.
 
-Canonical V4 insertion requires the model-enabled combined processing consumer.
-Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
-`503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
+Canonical V4 insertion requires the combined processing consumer. A combined
+runtime without models stores documents and finds them with BM25; vector search
+starts when embedding is enabled (`degraded_sources` shows `vector` until then);
+503 `canonical_processing_unavailable` happens only on a non-combined profile.
