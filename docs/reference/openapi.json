@@ -3366,6 +3366,14 @@
             "type": "array",
             "title": "Results"
           },
+          "degraded_sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Degraded Sources",
+            "default": []
+          },
           "scope_audit": {
             "anyOf": [
               {

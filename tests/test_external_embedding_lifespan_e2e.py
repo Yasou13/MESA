@@ -32,6 +32,7 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
     monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
     monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
     monkeypatch.setenv("MESA_MODEL_ENABLED", "false")
+    monkeypatch.setenv("MESA_EMBEDDING_ENABLED", "true")
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
     monkeypatch.setenv("MESA_EMBEDDING_PROVIDER", "openai_compatible")
     monkeypatch.setenv("MESA_EXTERNAL_EMBEDDING_MODEL", "external-test-model")

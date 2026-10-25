@@ -528,6 +528,7 @@ class MemoryDAO:
         "_rebuild_health",
         "_canonical_v4_writes_enabled",
         "_secondary_writes_enabled",
+        "_embedding_enabled",
         "_rrf_k",
         "_rrf_weights",
     )
@@ -540,6 +541,7 @@ class MemoryDAO:
         *,
         canonical_v4_writes_enabled: bool = True,
         secondary_writes_enabled: bool = True,
+        embedding_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
     ) -> None:
@@ -552,6 +554,7 @@ class MemoryDAO:
         self._rebuild_health = RebuildHealthReader(sqlite_engine)
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
         self._secondary_writes_enabled = secondary_writes_enabled
+        self._embedding_enabled = embedding_enabled
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
 
@@ -574,6 +577,11 @@ class MemoryDAO:
     def canonical_v4_writes_enabled(self) -> bool:
         """Whether this runtime owns an executable V4 validation/projection path."""
         return self._canonical_v4_writes_enabled
+
+    @property
+    def embedding_enabled(self) -> bool:
+        """Whether this runtime may produce or query semantic vectors."""
+        return self._embedding_enabled
 
     @property
     def graph_operational(self) -> bool:
@@ -3558,7 +3566,7 @@ class MemoryDAO:
                 "AND s.projection_name = 'SQL' AND s.state = 'COMPLETED')) "
                 "OR (p.projection_name = 'GRAPH' AND EXISTS "
                 "(SELECT 1 FROM projection_outbox v WHERE v.mutation_id = p.mutation_id "
-                "AND v.projection_name = 'VECTOR' AND v.state = 'COMPLETED'))) "
+                "AND v.projection_name = 'VECTOR' AND v.state IN ('COMPLETED', 'SKIPPED')))) "
                 "ORDER BY CASE p.projection_name WHEN 'SQL' THEN 0 WHEN 'VECTOR' THEN 1 "
                 "WHEN 'GRAPH' THEN 2 ELSE 99 END, p.created_at LIMIT ?",
                 (limit,),
@@ -3702,10 +3710,18 @@ class MemoryDAO:
                 "(attempt_id, projection_id, attempt_number, outcome, finished_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (str(uuid.uuid4()), projection_id, row["attempt_count"], outcome[:120]),
             )
+            if outcome == "SKIPPED" and (
+                row["projection_name"] != "VECTOR" or self._embedding_enabled
+            ):
+                raise ValueError("only a disabled VECTOR lane may be skipped")
             cursor = await db.execute(
-                "UPDATE projection_outbox SET state = 'COMPLETED', claim_token = NULL, claimed_by = NULL, "
+                "UPDATE projection_outbox SET state = ?, claim_token = NULL, claimed_by = NULL, "
                 "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ? AND claim_token = ?",
-                (projection_id, claim_token),
+                (
+                    "SKIPPED" if outcome == "SKIPPED" else "COMPLETED",
+                    projection_id,
+                    claim_token,
+                ),
             )
             if cursor.rowcount == 1:
                 await self._advance_mutation_projection_state(
@@ -3734,6 +3750,64 @@ class MemoryDAO:
                 completed_count += 1
         return completed_count
 
+    async def requeue_skipped_vector_projections(self) -> int:
+        """Backfill disabled VECTOR lanes under the combined runtime writer lock."""
+        producer_identity = getattr(self._vec, "embedding_identity", None)
+        async with self._sql.transaction() as db:
+            if producer_identity is not None:
+                identity_snapshot: dict[str, Any] = (
+                    producer_identity.as_dict()
+                    if hasattr(producer_identity, "as_dict")
+                    else {
+                        "embedding_space_id": str(
+                            getattr(producer_identity, "embedding_space_id", "")
+                        ),
+                        "provider": str(producer_identity.provider),
+                        "model": str(producer_identity.model),
+                        "version": str(producer_identity.version),
+                        "dimension": int(producer_identity.dimension),
+                        "normalized": bool(
+                            getattr(producer_identity, "normalized", False)
+                        ),
+                        "model_revision": getattr(
+                            producer_identity, "model_revision", None
+                        ),
+                    }
+                )
+                async with db.execute(
+                    "SELECT m.mutation_id, m.metadata_json FROM memory_mutations m "
+                    "JOIN projection_outbox p ON p.mutation_id = m.mutation_id "
+                    "WHERE p.projection_name = 'VECTOR' AND p.state = 'SKIPPED' "
+                    "AND NOT EXISTS (SELECT 1 FROM memory_artifacts a "
+                    "WHERE a.mutation_id = m.mutation_id AND a.store_name = 'VECTOR')"
+                ) as cursor:
+                    skipped_mutations = await cursor.fetchall()
+                for mutation_id, raw_metadata in skipped_mutations:
+                    metadata = json.loads(raw_metadata or "{}")
+                    metadata["_mesa_embedding_identity"] = identity_snapshot
+                    await db.execute(
+                        "UPDATE memory_mutations SET embedding_provider = ?, "
+                        "embedding_model = ?, embedding_version = ?, "
+                        "embedding_dimension = ?, metadata_json = ?, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE mutation_id = ?",
+                        (
+                            str(identity_snapshot["provider"]),
+                            str(identity_snapshot["model"]),
+                            str(identity_snapshot["version"]),
+                            int(identity_snapshot["dimension"]),
+                            json.dumps(metadata, sort_keys=True),
+                            str(mutation_id),
+                        ),
+                    )
+            cursor = await db.execute(
+                "UPDATE projection_outbox SET state = 'PENDING', attempt_count = 0, "
+                "claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL, "
+                "last_error_class = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE projection_name = 'VECTOR' AND state = 'SKIPPED'"
+            )
+            await db.commit()
+            return cursor.rowcount
+
     async def fail_projection_outbox(
         self,
         projection_id: str,
@@ -3746,7 +3820,9 @@ class MemoryDAO:
         """Fence a failed lane and move it to retry or durable DLQ."""
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT * FROM projection_outbox WHERE projection_id = ?",
+                "SELECT p.*, m.state AS mutation_state FROM projection_outbox p "
+                "JOIN memory_mutations m ON m.mutation_id = p.mutation_id "
+                "WHERE p.projection_id = ?",
                 (projection_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -3786,7 +3862,7 @@ class MemoryDAO:
                     claim_token,
                 ),
             )
-            if cursor.rowcount == 1:
+            if cursor.rowcount == 1 and row["mutation_state"] != "COMMITTED":
                 mutation_state = "DEAD_LETTER" if terminal else "RETRY_PENDING"
                 await self._transition_memory_mutation_in_tx(
                     db,
@@ -5603,6 +5679,22 @@ class MemoryDAO:
             ) as cursor:
                 in_scope_assertion_rows = await cursor.fetchall()
 
+            if certification_metadata is not None:
+                incomplete_vector = False
+                if self._embedding_enabled:
+                    async with db.execute(
+                        "SELECT 1 FROM projection_outbox p "
+                        f"JOIN ({in_scope_assertion_query}) scoped "
+                        "ON scoped.mutation_id = p.mutation_id "
+                        "WHERE p.projection_name = 'VECTOR' "
+                        "AND p.state != 'COMPLETED' LIMIT 1",
+                        (tenant_id, *datasets, agent_id, *provenance_params),
+                    ) as cursor:
+                        incomplete_vector = await cursor.fetchone() is not None
+                certification_metadata["degraded_sources"] = (
+                    ["vector"] if not self._embedding_enabled or incomplete_vector else []
+                )
+
             audit_rows: list[aiosqlite.Row] = []
             if certification_metadata is not None:
                 audit_query = (
@@ -5845,6 +5937,8 @@ class MemoryDAO:
             "physical_vector_id_count": len(allowed_vector_ids),
             "missing_vector_id_count": 0,
         }
+        if not self._embedding_enabled:
+            vector_lane_diagnostics["status"] = "semantic_runtime_disabled"
         if certification_metadata is not None:
             certification_metadata["vector_lane"] = vector_lane_diagnostics
         if vector_registry_count and not allowed_vector_registry_ids:
@@ -5862,7 +5956,7 @@ class MemoryDAO:
         vector_lane: list[str] = []
         vector_raw_distances: dict[str, float] = {}
         vector_assertions: dict[str, dict[str, Any]] = {}
-        if self._vec is not None and allowed_vector_ids:
+        if self._embedding_enabled and self._vec is not None and allowed_vector_ids:
             try:
                 searchable_vector_ids = allowed_vector_ids
                 if callable(getattr(type(self._vec), "get_existing_node_ids", None)):
@@ -7139,7 +7233,7 @@ class MemoryDAO:
         milestones: list[str] = []
         if states.get("SQL") == "COMPLETED":
             milestones.append("SQL_APPLIED")
-        if states.get("VECTOR") == "COMPLETED":
+        if states.get("VECTOR") in {"COMPLETED", "SKIPPED"}:
             milestones.append("VECTOR_APPLIED")
         if states.get("GRAPH") == "COMPLETED":
             milestones.append("GRAPH_APPLIED")

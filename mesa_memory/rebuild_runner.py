@@ -15,10 +15,12 @@ from typing import Any
 
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
+from mesa_storage import kuzu_setup
 from mesa_storage.embedding_identity import (
     EmbeddingIdentityAdoptionError,
     adopt_legacy_embedding_identity,
 )
+from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.rebuild_cutover import (
     ParityGatedActivator,
@@ -80,7 +82,9 @@ def _environment_bool(name: str, *, default: bool = False) -> bool:
 
 def _provider_runtime() -> RebuildProviderRuntime:
     external = _environment_bool("MESA_EXTERNAL_PROVIDER_ENABLED")
-    model_enabled = _environment_bool("MESA_MODEL_ENABLED")
+    embedding_enabled = _environment_bool(
+        "MESA_EMBEDDING_ENABLED", default=_environment_bool("MESA_MODEL_ENABLED")
+    )
     identity = configured_embedding_identity()
     embedding_service = EmbeddingService(
         identity=EmbeddingIdentity(
@@ -91,8 +95,8 @@ def _provider_runtime() -> RebuildProviderRuntime:
             normalized=identity.normalized,
             model_revision=identity.model_revision,
         ),
-        allow_model_loading=model_enabled,
-        external_enabled=external,
+        allow_model_loading=embedding_enabled,
+        external_enabled=external and embedding_enabled,
     )
     return RebuildProviderRuntime(
         manifest={
@@ -113,7 +117,7 @@ def _provider_runtime() -> RebuildProviderRuntime:
             "embedding_space_id": identity.embedding_space_id,
         },
         embedding_provider=None,
-        allow_model_loading=model_enabled,
+        allow_model_loading=embedding_enabled,
         local_embedding_model=config.local_embedding_model,
         embedding_service=embedding_service,
     )
@@ -336,6 +340,10 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 total=total,
             )
         else:
+            def _graph_factory(graph_path: Path) -> KuzuGraphProvider:
+                kuzu_setup.initialize_schema(str(graph_path))
+                return KuzuGraphProvider(str(graph_path))
+
             replay = await ProjectionReplayer(operations).replay(
                 preparation=preparation,
                 trusted_root=args.trusted_root,
@@ -348,6 +356,7 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 embedding_service=providers.embedding_service,
                 allow_model_loading=providers.allow_model_loading,
                 local_embedding_model=providers.local_embedding_model,
+                graph_factory=_graph_factory,
                 should_stop=stop_requested.is_set,
             )
         log_rebuild_event(

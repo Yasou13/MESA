@@ -101,6 +101,8 @@ The HTTP insert contract accepts optional typed `legal_identity`: `law_id` and
 through the bounded legal aliases. Caller metadata cannot supply trusted
 `_mesa_*` fields. The producer remains responsible for source truth.
 
+Search responses include `degraded_sources`: `["vector"]` when embedding is off or any in-scope committed record has an incomplete VECTOR lane; otherwise `[]`.
+
 Search and context both accept `jurisdiction`, `valid_at`, `valid_from` and
 `valid_to`. Context uses query parameters and defaults to `token_budget=2048`,
 `retrieval_mode=single`. Opt-in `adaptive` permits at most one planner call and
@@ -261,7 +263,7 @@ errors. For example, a non-string search query returns HTTP 422:
 | 409 `SESSION_INACTIVE` | Start an authorized active session before new writes |
 | 409 `IDEMPOTENCY_CONFLICT` | Reuse the original payload with that key, or use a new key for new content |
 | 422 `VALIDATION_ERROR` | Correct the named field/format; timestamps need a timezone |
-| 503 `BACKEND_UNAVAILABLE`, detail `canonical_processing_unavailable` | Enable configured extraction/embedding in one combined owner; models-off startup cannot ingest V4 |
+| 503 `BACKEND_UNAVAILABLE`, detail `canonical_processing_unavailable` | Run one combined owner; non-combined profiles cannot ingest V4 |
 | 503, detail `vector_backend_unavailable` / `graph_backend_unavailable` | Check provider credentials, embedding identity and backend readiness; an empty result is not a substitute |
 | 503, detail `queue_over_capacity` / `maintenance_pending` | Respect `Retry-After` when present and wait for capacity/maintenance |
 
@@ -275,9 +277,9 @@ List catalog çağrıları burada açıkça belgelenmiş pagination garantisi su
 response/schema'yı inceleyin. İlk catalog/ACL ve credential ön koşulları dahil
 çalıştırılabilir örnek [Getting started](getting-started.md) içindedir.
 
-Canonical V4 insertion requires the model-enabled combined processing consumer.
-Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
-`503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
+Canonical V4 insertion requires the combined processing consumer. With models
+off, it stores records with a `SKIPPED` VECTOR lane and finds them through BM25.
+Enabling embedding later backfills skipped lanes without hiding committed records.
 
 The [OpenAPI snapshot](reference/openapi.json) is a generated reference.
 Use the running app's `/openapi.json` and route/schema source for the exact

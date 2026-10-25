@@ -70,6 +70,8 @@ class RuntimeProfileConfig:
     api_enabled: bool
     worker_enabled: bool
     require_worker_readiness: bool
+    embedding_enabled: bool = False
+    extraction_enabled: bool = False
 
 
 NEMOTRON_EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b"
@@ -152,6 +154,16 @@ def load_runtime_profile(
     model_enabled = _parse_runtime_bool(
         values.get("MESA_MODEL_ENABLED"), name="MESA_MODEL_ENABLED", default=False
     )
+    embedding_enabled = _parse_runtime_bool(
+        values.get("MESA_EMBEDDING_ENABLED"),
+        name="MESA_EMBEDDING_ENABLED",
+        default=model_enabled,
+    )
+    extraction_enabled = _parse_runtime_bool(
+        values.get("MESA_EXTRACTION_ENABLED"),
+        name="MESA_EXTRACTION_ENABLED",
+        default=model_enabled,
+    )
     provider_enabled = _parse_runtime_bool(
         values.get("MESA_EXTERNAL_PROVIDER_ENABLED"),
         name="MESA_EXTERNAL_PROVIDER_ENABLED",
@@ -187,6 +199,8 @@ def load_runtime_profile(
             load_dotenv_flag
             or dotenv_path is not None
             or model_enabled
+            or embedding_enabled
+            or extraction_enabled
             or provider_enabled
         ):
             raise RuntimeProfileError(
@@ -212,6 +226,8 @@ def load_runtime_profile(
         api_enabled,
         worker_enabled,
         require_worker_readiness,
+        embedding_enabled,
+        extraction_enabled,
     )
 
 
@@ -613,6 +629,12 @@ class MesaConfig(BaseSettings):
     # Ollama connection URL (used by OllamaAdapter and zero-cost mode)
     ollama_url: str = Field(
         "http://localhost:11434", validation_alias="MESA_OLLAMA_URL"
+    )
+    ollama_timeout_seconds: float = Field(
+        300.0, validation_alias="MESA_OLLAMA_TIMEOUT_SECONDS"
+    )
+    ollama_num_ctx: int = Field(
+        8192, validation_alias="MESA_OLLAMA_NUM_CTX"
     )
 
     # -----------------------------------------------------------------------

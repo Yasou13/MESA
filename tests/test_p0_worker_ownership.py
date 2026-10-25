@@ -81,7 +81,7 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
     fin2_after = await dao.get_session_finalization(agent_id, session_id_2)
     assert fin2_after["state"] == "COMPLETED"
 
-    # A model-disabled runtime may own safe-core finalization, but it
+    # A runtime without a combined projection consumer may own finalization, but it
     # must not admit V4 work whose Tier-3/projection lifecycle cannot progress.
     unavailable = MemoryDAO(
         sqlite_engine=engine,

@@ -244,9 +244,9 @@ Production remains `NO-GO` until migration/restore, v4 Compose, crash,
 saturation, cross-tenant concurrency, benchmark and 24-hour soak gates all
 pass with production-like storage and the selected model provider.
 
-Canonical V4 insertion requires the model-enabled combined processing consumer.
-Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
-`503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
+Canonical V4 insertion requires the combined processing consumer. With models
+off, it stores records with a `SKIPPED` VECTOR lane and finds them through BM25.
+Enabling embedding later backfills skipped lanes without hiding committed records.
 
 <a id="ecosystem"></a>
 

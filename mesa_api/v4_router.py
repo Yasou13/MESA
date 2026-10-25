@@ -378,6 +378,7 @@ class V4SearchResponse(BaseModel):
     session_id: str
     dataset_ids: list[str]
     results: list[dict[str, Any]]
+    degraded_sources: list[str] = []
     scope_audit: V4ScopeAudit | None = None
     graph_ablation: V4GraphAblation | None = None
     vector_lane: V4VectorLaneDiagnostics | None = None

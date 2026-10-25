@@ -196,7 +196,7 @@ def test_documented_quickstarts_match_the_fail_closed_compose_profile() -> None:
     assert "requirements-ml.txt" not in readme
     assert "MESA_MODEL_ENABLED=false" in quickstart
     assert "MESA_EXTERNAL_PROVIDER_ENABLED=false" in quickstart
-    assert "503 canonical_processing_unavailable" in quickstart
+    assert "stores V4 records and finds them through BM25" in quickstart
     assert "MESA_MODEL_ENABLED=true" in quickstart
     assert "infinite out-of-core scaling" not in readme
     assert "returns **202 Accepted** in <50ms" not in readme

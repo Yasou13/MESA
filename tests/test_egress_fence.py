@@ -62,7 +62,7 @@ def test_extraction_profile_is_local_qwen_without_thinking(monkeypatch):
         adapter.complete("extract")
 
     client.generate.assert_called_once_with(
-        model="qwen3:1.7b", prompt="extract", think=False
+        model="qwen3:1.7b", prompt="extract", options={"num_ctx": 8192}, think=False
     )
 
 

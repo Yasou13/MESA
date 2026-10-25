@@ -142,6 +142,8 @@ class AdapterFactory:
                 model=selected_model or "llama3.2:3b",
                 base_url=ollama_url,
                 thinking=bool(thinking),
+                timeout_seconds=config.ollama_timeout_seconds,
+                num_ctx=config.ollama_num_ctx,
             )
 
         # ── Auto-detection waterfall ─────────────────────────────────────
@@ -224,6 +226,8 @@ class AdapterFactory:
             return OllamaAdapter(
                 model=config.llm_model_name or "qwen3:8b",
                 base_url=ollama_url,
+                timeout_seconds=config.ollama_timeout_seconds,
+                num_ctx=config.ollama_num_ctx,
             )
 
         if not getattr(config, "external_provider_enabled", False):

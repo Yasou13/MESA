@@ -214,7 +214,7 @@ def canonical_sqlite_manifest(database: Path) -> tuple[dict[str, Any], str]:
 def _backlog_counts(connection: sqlite3.Connection) -> dict[str, int]:
     queries = {
         "projection": (
-            "SELECT COUNT(*) FROM projection_outbox WHERE state != 'COMPLETED'"
+            "SELECT COUNT(*) FROM projection_outbox WHERE state NOT IN ('COMPLETED', 'SKIPPED')"
         ),
         "cleanup": (
             "SELECT COUNT(*) FROM artifact_cleanup_outbox WHERE state != 'COMPLETED'"

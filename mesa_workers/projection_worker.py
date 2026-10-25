@@ -213,6 +213,16 @@ async def process_projection_outbox_once(
     async def _handle_one(projection: dict[str, Any]) -> None:
         projection_id = str(projection["projection_id"])
         try:
+            if projection["projection_name"] == "VECTOR" and not dao.embedding_enabled:
+                result["completed"] += int(
+                    await dao.complete_projection_outbox(
+                        projection_id,
+                        worker_id=worker_id,
+                        claim_token=str(projection["claim_token"]),
+                        outcome="SKIPPED",
+                    )
+                )
+                return
             graph = dao._graph
             graph_transaction = getattr(graph, "transaction", None)
             if (
@@ -250,10 +260,7 @@ async def process_projection_outbox_once(
                 retryable=True,
             )
             if changed:
-                mutation = await dao.get_projection_mutation(
-                    str(projection["mutation_id"])
-                )
-                if mutation is not None and mutation["state"] == "DEAD_LETTER":
+                if int(projection["attempt_count"]) >= int(projection["retry_limit"]):
                     result["dead_letter"] += 1
                 else:
                     result["retry_pending"] += 1
@@ -270,7 +277,7 @@ async def process_projection_outbox_once(
         await _handle_one(p)
 
     if successful_projections:
-        result["completed"] = await dao.complete_projection_outbox_batch(
+        result["completed"] += await dao.complete_projection_outbox_batch(
             successful_projections, worker_id=worker_id
         )
     return result

@@ -57,7 +57,7 @@ credentials and operational provider endpoints are separate prerequisites.
 | Use | Profile / Compose file | Storage rule |
 |---|---|---|
 | Canonical V4 | `combined` / `docker-compose.v4.yml` | One process owns API, consumers and stores |
-| Local model-disabled startup | `combined`, models/providers false | Health/configuration checks; no ingestion demonstration |
+| Local model-disabled startup | `combined`, models/providers false | V4 storage and BM25 search without model calls |
 
 Choose a dedicated absolute writable storage root. Do not use the repository,
 home directory or filesystem root. V3 and V4 must not write the same root.
@@ -124,7 +124,7 @@ Compose publishes the API on loopback. V4 mounts its named volume under
 `/srv/mesa/v4-data` does not provision that named volume: run admin commands
 against the actual deployment's policy database, with the same credential and
 ACL scope. Do not add a second writer to the volume. Rendering Compose with
-models disabled verifies topology only.
+models disabled supports V4 storage and BM25 search.
 
 ### Upgrade and verification
 
@@ -140,12 +140,9 @@ checks does not replace real-provider, migration/restore or soak release evidenc
 
 Run from the repository after `uv sync --locked --python 3.11`. This uses one
 combined process, no model loading and no external provider access. It checks
-installation, credentials and readiness. Canonical V4 insert is unavailable
-in this profile: it returns `503 canonical_processing_unavailable`. V4 needs a
-model-enabled combined consumer with reviewed extraction/embedding dependencies.
-V3 raw-memory processing also calls embeddings, so it cannot complete the
-insert/poll/search journey in this models-disabled profile. Use the V4 provider
-setup below for your first source-backed insertion and query.
+installation, credentials and readiness. This profile stores V4 records and finds them through BM25
+without embedding or extraction calls. VECTOR lanes end `SKIPPED`; enable
+embedding later to backfill vectors at startup with the same identity.
 
 ### Provision before startup
 
@@ -202,12 +199,12 @@ credentials or follow redirects. The default base URL is `http://127.0.0.1:8000`
 ### V4 canonical example (provider prerequisites)
 
 `examples/v4_quickstart.py` supplies required title/source/catalog IDs, freezes
-one chunk, polls the mutation and checks source-linked evidence. It requires
-`MESA_MODEL_ENABLED=true` and operational configured models/providers. Do not run
-it with the model-disabled environment above. Install the needed `ml`/`adapters`
-extras, provision reviewed provider/model/dimension settings on a **new root**,
-retain the same ACL and one-owner rules, and launch on loopback. A concrete
-environment example is in [minimal V4 provider setup](configuration.md#minimal-v4-provider-setup).
+one chunk, polls the mutation and checks source-linked evidence. It works with
+the model-disabled combined environment above through BM25. For vector search
+and fact extraction, set `MESA_MODEL_ENABLED=true` (or enable each model flag
+separately), install the needed `ml`/`adapters` extras and provision reviewed
+provider/model/dimension settings. Retain the same ACL and one-owner rules.
+A concrete provider environment is in [minimal V4 provider setup](configuration.md#minimal-v4-provider-setup).
 Follow [configuration](configuration.md)
 and [installation](getting-started.md#installation). The exact command after those prerequisites is:
 
