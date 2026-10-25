@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import sqlite3
+from contextlib import AsyncExitStack
 from types import SimpleNamespace
 from typing import Any
 
@@ -10,9 +12,11 @@ import pytest
 
 from mesa_memory.api import server
 from mesa_memory.config import configured_embedding_identity
+from mesa_storage import dao as dao_module
 from tests.test_d008_model_enabled_runtime_e2e import (
     _DeterministicProvider,
     _embedding_service,
+    _wait_for_committed,
 )
 
 
@@ -21,6 +25,7 @@ class _FlakyProvider(_DeterministicProvider):
         super().__init__()
         self.fail_first = 0
         self.schema_calls = 0
+        self.fail_embeddings = 0
 
     def complete(self, prompt: str, schema: Any = None, **kwargs: Any) -> Any:
         if schema is not None:
@@ -28,6 +33,17 @@ class _FlakyProvider(_DeterministicProvider):
             if self.schema_calls <= self.fail_first:
                 raise ConnectionError("temporary provider outage")
         return super().complete(prompt, schema, **kwargs)
+
+    def embed(self, text: str, **kwargs: Any) -> list[float]:
+        if self.fail_embeddings:
+            self.fail_embeddings -= 1
+            raise ConnectionError("temporary embedding outage")
+        return super().embed(text, **kwargs)
+
+
+@pytest.fixture
+def immediate_retries(monkeypatch):
+    monkeypatch.setattr(dao_module, "_retry_delay_seconds", lambda _attempt: 0)
 
 
 @pytest.fixture
@@ -63,7 +79,8 @@ async def retry_runtime(tmp_path, monkeypatch):
         await consume(*args, **kwargs)
 
     monkeypatch.setattr(server, "_run_combined_durable_consumer", after_setup)
-    async with server.lifespan(server.app):
+    async with AsyncExitStack() as runtime:
+        await runtime.enter_async_context(server.lifespan(server.app))
         dao = server.state.dao
         await dao.ensure_v4_catalog_scope(
             tenant_id="retry-tenant", workspace_id="default", dataset_id="main"
@@ -117,14 +134,23 @@ async def retry_runtime(tmp_path, monkeypatch):
             base_url="http://test",
             headers={"X-API-Key": "retry-test-key"},
         ) as client:
-            yield SimpleNamespace(
+            env = SimpleNamespace(
                 dao=dao,
                 provider=provider,
                 start=start,
                 client=client,
                 mutation_id=admitted["response"]["mutation_id"],
                 raw_log_id=admitted["response"]["raw_log_id"],
+                session_id=session["session_id"],
             )
+
+            async def restart():
+                await runtime.aclose()
+                await runtime.enter_async_context(server.lifespan(server.app))
+                env.dao = server.state.dao
+
+            env.restart = restart
+            yield env
 
 
 async def _wait_for_dispatch(env, state):
@@ -148,7 +174,9 @@ async def _wait_for_dispatch(env, state):
 
 
 @pytest.mark.asyncio
-async def test_v4_transient_provider_failure_commits_stored_facts(retry_runtime):
+async def test_v4_transient_provider_failure_commits_stored_facts(
+    retry_runtime, immediate_retries
+):
     env = retry_runtime
     env.provider.fail_first = 1
     env.start.set()
@@ -166,7 +194,9 @@ async def test_v4_transient_provider_failure_commits_stored_facts(retry_runtime)
 
 
 @pytest.mark.asyncio
-async def test_v4_exhausted_provider_failure_is_visible_as_dead_letter(retry_runtime):
+async def test_v4_exhausted_provider_failure_is_visible_as_dead_letter(
+    retry_runtime, immediate_retries
+):
     env = retry_runtime
     env.provider.fail_first = 99
     env.start.set()
@@ -225,7 +255,7 @@ async def test_v4_validated_redelivery_finalizes_without_model_call(
     "write", ["extraction", "validation", "model_disabled_extraction"]
 )
 async def test_v4_refused_write_keeps_dispatch_retryable(
-    retry_runtime, monkeypatch, write
+    retry_runtime, monkeypatch, write, immediate_retries
 ):
     env = retry_runtime
     method_name = (
@@ -263,3 +293,217 @@ async def test_v4_refused_write_keeps_dispatch_retryable(
     env.start.set()
     _, mutation = await _wait_for_dispatch(env, "FINALIZED")
     assert mutation["state"] == "COMMITTED"
+
+
+async def _consume_once(env):
+    return await server._consume_combined_durable_work_once(
+        env.dao,
+        consolidation_loop=server.state.consolidation_loop,
+        model_processing_enabled=True,
+    )
+
+
+async def _raw_row(env):
+    async with env.dao._sql.connection() as db:
+        async with db.execute(
+            "SELECT * FROM raw_logs WHERE id = ?", (env.raw_log_id,)
+        ) as cursor:
+            return dict(await cursor.fetchone())
+
+
+async def _retry_row(env, table):
+    async with env.dao._sql.connection() as db:
+        async with db.execute(
+            f"SELECT *, unixepoch(lease_expires_at) - unixepoch('now') AS delay "
+            f"FROM {table} WHERE state = 'RETRY_PENDING'"
+        ) as cursor:
+            row = await cursor.fetchone()
+    assert row is not None
+    return dict(row)
+
+
+async def _make_retry_due(env, table):
+    # Advance the durable deadline instead of waiting real minutes in tests.
+    async with env.dao._sql.transaction() as db:
+        await db.execute(
+            f"UPDATE {table} SET lease_expires_at = datetime('now', '-1 second') "
+            "WHERE state = 'RETRY_PENDING'"
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_v4_extraction_backoff_survives_two_failures(retry_runtime):
+    env = retry_runtime
+    env.provider.fail_first = 2
+    for attempt, delay in ((1, 60), (2, 120)):
+        assert (await _consume_once(env))["dispatches"] == 1
+        row = await _retry_row(env, "dispatch_queue")
+        assert row["attempt_count"] == attempt
+        if attempt == 1:
+            await env.restart()  # the retry deadline survives reopening storage
+        # The production consumer must leave the future retry unclaimed.
+        assert (await _consume_once(env))["dispatches"] == 0
+        assert env.provider.schema_calls == attempt
+        assert delay - 1 <= row["delay"] <= delay
+        assert row["claim_token"] is None and row["claimed_by"] is None
+        await _make_retry_due(env, "dispatch_queue")
+    env.start.set()
+    dispatch, mutation = await _wait_for_dispatch(env, "FINALIZED")
+    assert dispatch["attempt_count"] == 3
+    assert env.provider.schema_calls == 3
+    assert mutation["state"] == "COMMITTED"
+    assert await env.dao.list_v4_assertions_for_mutation(env.mutation_id)
+
+
+@pytest.mark.asyncio
+async def test_v4_vector_backoff_recovers_after_provider_failure(retry_runtime):
+    env = retry_runtime
+    await _consume_once(env)  # extraction and SQL projection
+    env.provider.fail_embeddings = 1
+    await _consume_once(env)  # VECTOR provider failure
+    row = await _retry_row(env, "projection_outbox")
+    assert row["projection_name"] == "VECTOR"
+    assert row["attempt_count"] == 1
+    assert (await _consume_once(env))["projections"] == 0
+    assert 59 <= row["delay"] <= 60
+    assert (await _retry_row(env, "projection_outbox"))["attempt_count"] == 1
+    await _make_retry_due(env, "projection_outbox")
+    env.start.set()
+    mutation = await _wait_for_committed(env.dao, env.mutation_id)
+    assert mutation["state"] == "COMMITTED"
+    assert env.provider.schema_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_v4_restart_recovers_unexpired_raw_log_after_validation(
+    retry_runtime, monkeypatch
+):
+    env = retry_runtime
+    dao_type = type(env.dao)
+    transition = dao_type.transition_claimed_raw_log
+
+    async def crash_before_ack(self, *args, **kwargs):
+        if kwargs.get("status") == "processed":
+            raise asyncio.CancelledError("crash after VALIDATED, before raw-log ACK")
+        return await transition(self, *args, **kwargs)
+
+    async def hold_projection(*args, **kwargs):
+        return {"completed": 0}
+
+    with monkeypatch.context() as crash:
+        crash.setattr(server, "process_projection_outbox_once", hold_projection)
+        crash.setattr(dao_type, "transition_claimed_raw_log", crash_before_ack)
+        await _consume_once(env)
+    assert (await env.dao.get_mutation("retry-agent", env.mutation_id))[
+        "state"
+    ] == "VALIDATED"
+    raw = await _raw_row(env)
+    assert raw["status"] == "processing" and raw["claim_token"]
+    # Only the 300s dispatch lease has elapsed; the raw-log lease lasts 1800s.
+    async with env.dao._sql.transaction() as db:
+        await db.execute(
+            "UPDATE dispatch_queue SET lease_expires_at = datetime('now', '-1 second')"
+        )
+        await db.commit()
+    await env.dao.initialize()  # tools must leave live runtime claims alone
+    assert (await _raw_row(env))["status"] == "processing"
+    await env.restart()
+    raw = await _raw_row(env)
+    assert raw["status"] == "DEFERRED"
+    assert raw["claim_token"] is None and raw["claimed_by"] is None
+    assert raw["lease_expires_at"] is None
+    env.start.set()
+    dispatch, mutation = await _wait_for_dispatch(env, "FINALIZED")
+    assert mutation["state"] == "COMMITTED"
+    assert dispatch["attempt_count"] == 2
+    assert env.provider.schema_calls == 1
+    assert (await env.dao.get_raw_log("retry-agent", env.raw_log_id))[
+        "status"
+    ] == "processed"
+
+
+@pytest.mark.asyncio
+async def test_v4_extraction_dead_letter_replays_through_http(retry_runtime):
+    env = retry_runtime
+    env.provider.fail_first = 5
+    for _ in range(5):
+        await _consume_once(env)
+        await _make_retry_due(env, "dispatch_queue")
+    mutation = await env.dao.get_mutation("retry-agent", env.mutation_id)
+    assert mutation["state"] == "DEAD_LETTER"
+    assert (await env.dao.get_raw_log("retry-agent", env.raw_log_id))[
+        "status"
+    ] == "failed"
+    # A failed raw-log write must roll back the dispatch and mutation replay too.
+    async with env.dao._sql.transaction() as db:
+        await db.execute(
+            "CREATE TRIGGER fail_replay_raw_log BEFORE UPDATE OF status ON raw_logs "
+            "WHEN OLD.status = 'failed' AND NEW.status = 'DEFERRED' "
+            "BEGIN SELECT RAISE(ABORT, 'injected replay failure'); END"
+        )
+        await db.commit()
+    with pytest.raises(sqlite3.IntegrityError, match="injected replay failure"):
+        await env.dao.replay_pipeline_run(mutation["pipeline_run_id"])
+    assert (await env.dao.get_mutation("retry-agent", env.mutation_id))[
+        "state"
+    ] == "DEAD_LETTER"
+    assert (await env.dao.get_pipeline_run(mutation["pipeline_run_id"]))[
+        "state"
+    ] == "DLQ"
+    assert (await _raw_row(env))["status"] == "failed"
+    async with env.dao._sql.transaction() as db:
+        async with db.execute(
+            "SELECT state, attempt_count FROM dispatch_queue"
+        ) as cursor:
+            dispatch = await cursor.fetchone()
+        assert tuple(dispatch) == ("DEAD_LETTER", 5)
+        await db.execute("DROP TRIGGER fail_replay_raw_log")
+        await db.commit()
+    access = server.state.access_control
+    await access.grant_access("retry-agent", env.session_id, "WRITE")
+    await access.grant_principal_session_access(
+        "retry-principal", "retry-agent", env.session_id, "WRITE"
+    )
+    await access.grant_scope_role(
+        "retry-principal",
+        tenant_id="retry-tenant",
+        workspace_id="default",
+        dataset_id="main",
+        role="WRITER",
+    )
+    await access.grant_dataset_permission(
+        "retry-principal",
+        tenant_id="retry-tenant",
+        dataset_id="main",
+        permission="ROLLBACK",
+    )
+    response = await env.client.post(f"/v4/mutations/{env.mutation_id}/replay")
+    assert response.status_code == 202, response.text
+    assert (await env.dao.get_mutation("retry-agent", env.mutation_id))[
+        "state"
+    ] == "RETRY_PENDING"
+    row = await _retry_row(env, "dispatch_queue")
+    assert row["attempt_count"] == 0
+    assert row["lease_expires_at"] is None and row["last_error_class"] is None
+    assert row["claim_token"] is None and row["claimed_by"] is None
+    raw = await _raw_row(env)
+    assert raw["status"] == "DEFERRED" and raw["claim_token"] is None
+    env.start.set()
+    dispatch, mutation = await _wait_for_dispatch(env, "FINALIZED")
+    assert dispatch["attempt_count"] == 1
+    assert env.provider.schema_calls == 6
+    assert mutation["state"] == "COMMITTED"
+    assert await env.dao.list_v4_assertions_for_mutation(env.mutation_id)
+
+
+def test_retry_delay_is_exponential_and_capped():
+    assert [dao_module._retry_delay_seconds(attempt) for attempt in range(1, 8)] == [
+        60,
+        120,
+        240,
+        480,
+        900,
+        900,
+        900,
+    ]

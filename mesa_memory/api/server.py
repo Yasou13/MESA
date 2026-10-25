@@ -371,6 +371,8 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         },
     )
     await state.dao.initialize()
+    if runtime.profile is RuntimeProfile.COMBINED:
+        await state.dao.recover_processing_raw_logs()
 
     # The MCP control plane shares the API's single SQLite storage
     # owner.  It must not construct or close a second AsyncEngine lifecycle.

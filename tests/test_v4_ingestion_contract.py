@@ -317,8 +317,9 @@ async def test_combined_owner_consumes_one_dispatch_and_pending_finalization() -
 
 @pytest.mark.asyncio
 async def test_unverified_dispatch_moves_to_durable_dlq_after_five_attempts(
-    tmp_path,
+    tmp_path, monkeypatch,
 ) -> None:
+    monkeypatch.setattr("mesa_storage.dao._retry_delay_seconds", lambda _attempt: 0)
     engine = AsyncEngine(str(tmp_path / "dispatch.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
@@ -511,8 +512,9 @@ async def test_rejected_mutation_cancels_all_blocked_projection_lanes(tmp_path) 
 
 @pytest.mark.asyncio
 async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(
-    tmp_path,
+    tmp_path, monkeypatch,
 ) -> None:
+    monkeypatch.setattr("mesa_storage.dao._retry_delay_seconds", lambda _attempt: 0)
     engine = AsyncEngine(str(tmp_path / "projection-dlq.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)

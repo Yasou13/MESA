@@ -109,6 +109,12 @@ V4 retries restart extraction from `RETRY_PENDING`, skip model calls after
 validation, and atomically mark the dispatch and any not-yet-validated mutation
 `DEAD_LETTER` and the raw log `failed` after five unsuccessful attempts,
 preserving final states.
+Failed dispatch and projection attempts back off for 60, 120, 240 and 480 seconds,
+capped at 900 seconds, before becoming eligible for another claim.
+At startup, the combined runtime holds the storage writer lock and returns
+abandoned processing raw logs to `DEFERRED`, clearing their claims.
+Operator replay also resets an extraction dead letter's dispatch attempts and
+raw-log claim, making it eligible to run immediately.
 
 These are pipeline states; client-facing mutation states are listed in
 [concepts and ingestion](concepts-and-ingestion.md). `COMMITTED` is the success
