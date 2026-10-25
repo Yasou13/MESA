@@ -174,6 +174,7 @@ def embedding_runtime(tmp_path, monkeypatch):
 async def test_loopback_ollama_detects_dimension_once_and_admits_it(embedding_runtime):
     async with embedding_runtime(MESA_EMBEDDING_ENABLED="true") as env:
         assert configured_embedding_identity().dimension == 6
+        assert server.state.vector_engine.semantic_operational is True
         assert env.calls == [
             {"model": "qwen3-embedding:4b", "input": "MESA embedding dimension probe"}
         ]

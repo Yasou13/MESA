@@ -188,6 +188,7 @@ class EmbeddingService:
             if not len(vector) or not all(math.isfinite(float(x)) for x in vector):
                 raise EmbeddingGenerationError("probe returned an empty or nonfinite vector")
             self._identity = replace(self._identity, dimension=len(vector))
+            self._operational = True
         except Exception as exc:
             url = (
                 _embedding_base_url(self._identity) or "https://api.openai.com/v1"
