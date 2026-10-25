@@ -119,7 +119,7 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
     monkeypatch.setenv("MESA_TIER3_LLM_PROVIDER_B", "mock")
     monkeypatch.setenv("MESA_TIER3_LLM_MODEL_B", "terra-validator-b")
     monkeypatch.setenv("MESA_EMBEDDING_DIMENSION", "384")
-    monkeypatch.setenv("MESA_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("MESA_LLM_MODEL", "mock:test")
     monkeypatch.setenv("MESA_API_KEY", "d008-test-key")
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "d008-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")

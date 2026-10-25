@@ -154,9 +154,9 @@ def test_adapter_factory_passes_config_values(monkeypatch: pytest.MonkeyPatch) -
     assert adapter1.timeout_seconds == 180.0
     assert adapter1.num_ctx == 4096
 
-    # 2. Auto-detect with MESA_OLLAMA_URL
-    monkeypatch.setenv("MESA_OLLAMA_URL", "http://127.0.0.1:11434")
-    adapter2 = factory_mod.AdapterFactory._auto_detect()
+    # 2. Configured MESA_LLM_MODEL
+    monkeypatch.setattr(config, "llm_model", "ollama:qwen3:8b")
+    adapter2 = factory_mod.AdapterFactory.get_adapter()
     assert isinstance(adapter2, ollama_mod.OllamaAdapter)
     assert adapter2.timeout_seconds == 180.0
     assert adapter2.num_ctx == 4096

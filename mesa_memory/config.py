@@ -8,8 +8,13 @@ from typing import Any, Mapping, Optional
 
 import psutil
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.sources import (
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+)
 
 logger = logging.getLogger("MESA_Config")
 
@@ -33,6 +38,13 @@ class RuntimeProfile(str, Enum):
 
 class RuntimeProfileError(ValueError):
     """Fail-closed runtime configuration error with no secret material."""
+
+
+REMOVED_MESA_ENV_VARS: tuple[str, ...] = (
+    "MESA_LLM_PROVIDER",
+    "MESA_EXTRACTION_PROVIDER",
+    "MESA_EXTRACTION_MODEL",
+)
 
 
 def _resolve_runtime_lab_root(values: Mapping[str, str]) -> Path:
@@ -121,6 +133,12 @@ def load_runtime_profile(
 ) -> RuntimeProfileConfig:
     """Parse runtime startup configuration without searching or loading dotenv files."""
     values = os.environ if environ is None else environ
+    for removed_var in REMOVED_MESA_ENV_VARS:
+        if values.get(removed_var) is not None:
+            raise RuntimeProfileError(
+                f"'{removed_var}' has been removed. Use MESA_LLM_MODEL=provider:model "
+                "instead (e.g. MESA_LLM_MODEL=ollama:qwen3:8b or openai:gpt-4o-mini)."
+            )
     raw_profile = values.get("MESA_RUNTIME_PROFILE")
     if raw_profile is None:
         raise RuntimeProfileError("MESA_RUNTIME_PROFILE is required")
@@ -396,6 +414,22 @@ def _read_cgroup_ram_limit() -> Optional[int]:
     return None
 
 
+class MesaEnvSettingsSource(EnvSettingsSource):
+    """Ensure environment variable discovery does not fall back to unprefixed field names
+
+    when a validation_alias is explicitly declared.
+    """
+
+    def _extract_field_info(
+        self, field: FieldInfo, field_name: str
+    ) -> list[tuple[str, str, bool]]:
+        field_info = super()._extract_field_info(field, field_name)
+        if field.validation_alias:
+            case_folded = self._apply_case_sensitive(field_name)
+            field_info = [item for item in field_info if item[1] != case_folded]
+        return field_info  # type: ignore[no-any-return]
+
+
 class MesaConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=None,
@@ -404,28 +438,40 @@ class MesaConfig(BaseSettings):
         populate_by_name=True,
     )
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            MesaEnvSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
+
     llm_provider: str = "claude"
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
-    mesa_llm_provider: str = Field(
-        "openai_compatible", validation_alias="MESA_LLM_PROVIDER"
+    llm_model: str = Field("", validation_alias=AliasChoices("MESA_LLM_MODEL"))
+    llm_base_url: str | None = Field(
+        None, validation_alias=AliasChoices("MESA_LLM_BASE_URL")
     )
-    llm_base_url: str | None = Field(None, validation_alias="LLM_BASE_URL")
-    llm_api_key: str | None = Field(None, validation_alias="LLM_API_KEY")
+    llm_api_key: str | None = Field(
+        None, validation_alias=AliasChoices("MESA_LLM_API_KEY")
+    )
+    llm_timeout_seconds: float = Field(
+        60.0, validation_alias=AliasChoices("MESA_LLM_TIMEOUT_SECONDS")
+    )
     embedding_base_url: str | None = Field(
         None, validation_alias="MESA_EMBEDDING_BASE_URL"
     )
     embedding_api_key: str | None = Field(
         None, validation_alias="MESA_EMBEDDING_API_KEY"
-    )
-    llm_model_name: str | None = Field(
-        "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
-    )
-    extraction_provider: str = Field(
-        "ollama", validation_alias="MESA_EXTRACTION_PROVIDER"
-    )
-    extraction_model: str = Field(
-        "qwen3:1.7b", validation_alias="MESA_EXTRACTION_MODEL"
     )
     extraction_thinking: bool = Field(
         False, validation_alias="MESA_EXTRACTION_THINKING"
@@ -442,7 +488,6 @@ class MesaConfig(BaseSettings):
     external_embedding_model: str = Field(
         "text-embedding-3-small", validation_alias="MESA_EXTERNAL_EMBEDDING_MODEL"
     )
-    llm_timeout_seconds: float = Field(20.0, validation_alias="LLM_TIMEOUT_SECONDS")
     model_enabled: bool = Field(False, validation_alias="MESA_MODEL_ENABLED")
     tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")
     tier3_llm_provider_a: str | None = Field(
@@ -832,10 +877,7 @@ class MesaConfig(BaseSettings):
         fully local, zero-API-cost operation.
 
         Overrides:
-          - mesa_llm_provider  → "ollama"
-          - llm_model_name     → "qwen3:8b"
-          - extraction_provider → "ollama"
-          - extraction_model    → "qwen3:1.7b"
+          - llm_model           → "ollama:qwen3:8b"
           - extraction_thinking → False
           - Leaves validation policy and validator identities unchanged
         """
@@ -853,10 +895,7 @@ class MesaConfig(BaseSettings):
             self.local_embedding_model,
         )
 
-        object.__setattr__(self, "mesa_llm_provider", "ollama")
-        object.__setattr__(self, "llm_model_name", "qwen3:8b")
-        object.__setattr__(self, "extraction_provider", "ollama")
-        object.__setattr__(self, "extraction_model", "qwen3:1.7b")
+        object.__setattr__(self, "llm_model", "ollama:qwen3:8b")
         object.__setattr__(self, "extraction_thinking", False)
         # Ensure the OLLAMA_URL env var is set for the adapter factory
         os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)

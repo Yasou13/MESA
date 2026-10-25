@@ -225,7 +225,7 @@ def test_adapter_factory():
     import os
     from unittest.mock import patch
 
-    # We mocked get_adapter in the fixture, but we can test _get_llm_provider
-    with patch.dict(os.environ, {"MESA_LLM_PROVIDER": "openai_compatible"}):
-        provider = os.environ.get("MESA_LLM_PROVIDER", "openai_compatible")
-        assert provider == "openai_compatible"
+    # We mocked get_adapter in the fixture, but we can test MESA_LLM_MODEL
+    with patch.dict(os.environ, {"MESA_LLM_MODEL": "openai_compatible:my-model"}):
+        model_spec = os.environ.get("MESA_LLM_MODEL", "openai_compatible:my-model")
+        assert model_spec == "openai_compatible:my-model"

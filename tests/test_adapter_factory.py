@@ -1,10 +1,6 @@
-from unittest.mock import patch
-
 import pytest
 
-from mesa_memory.adapter.claude import ClaudeAdapter
 from mesa_memory.adapter.factory import AdapterFactory, DeterministicMockAdapter
-from mesa_memory.adapter.live import OpenAICompatibleAdapter
 
 pytestmark = pytest.mark.optional_provider
 
@@ -37,53 +33,148 @@ async def test_deterministic_mock_adapter_async():
     assert len(batch) == 1
 
 
-@patch("os.environ.get")
-@patch("mesa_memory.adapter.factory.config")
-def test_factory_auto_detect_fallback(mock_config, mock_env_get):
-    mock_env_get.return_value = None
-    mock_config.llm_api_key = "your_groq_api_key_here"
-    mock_config.anthropic_api_key = ""
-    mock_config.mesa_llm_provider = "auto"
+def test_parse_llm_spec_all_providers():
+    from mesa_memory.adapter.factory import parse_llm_spec
 
+    assert parse_llm_spec("ollama:qwen3:8b") == ("ollama", "qwen3:8b")
+    assert parse_llm_spec("openai:gpt-4o-mini") == ("openai", "gpt-4o-mini")
+    assert parse_llm_spec("openai_compatible:my-custom-model") == (
+        "openai_compatible",
+        "my-custom-model",
+    )
+    assert parse_llm_spec("anthropic:claude-sonnet-4-5") == (
+        "anthropic",
+        "claude-sonnet-4-5",
+    )
+    assert parse_llm_spec("mock:test-model") == ("mock", "test-model")
+
+
+def test_parse_llm_spec_preserves_second_colon():
+    from mesa_memory.adapter.factory import parse_llm_spec
+
+    # ollama:qwen3:8b must keep qwen3:8b as model
+    provider, model = parse_llm_spec("ollama:qwen3:8b")
+    assert provider == "ollama"
+    assert model == "qwen3:8b"
+
+    # Multiple colons preserved in model name
+    provider, model = parse_llm_spec("ollama:ns/repo:tag:extra")
+    assert provider == "ollama"
+    assert model == "ns/repo:tag:extra"
+
+
+def test_parse_llm_spec_invalid_rejected():
+    from mesa_memory.adapter.factory import parse_llm_spec
+
+    with pytest.raises(ValueError, match="MESA_LLM_MODEL is not set"):
+        parse_llm_spec("")
+
+    with pytest.raises(ValueError, match="missing ':' separator"):
+        parse_llm_spec("ollama")
+
+    with pytest.raises(ValueError, match="Unknown LLM provider 'unsupported'"):
+        parse_llm_spec("unsupported:model")
+
+    with pytest.raises(ValueError, match="Empty model in LLM spec"):
+        parse_llm_spec("ollama:")
+
+
+def test_factory_resolves_all_providers(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import mesa_memory.adapter.claude as claude_mod
+    import mesa_memory.adapter.live as live_mod
+    import mesa_memory.adapter.ollama as ollama_mod
+    from mesa_memory.adapter.claude import ClaudeAdapter
+    from mesa_memory.adapter.factory import AdapterFactory, DeterministicMockAdapter
+    from mesa_memory.adapter.live import OpenAICompatibleAdapter
+    from mesa_memory.adapter.ollama import OllamaAdapter
+    from mesa_memory.config import config
+
+    monkeypatch.setattr(ollama_mod, "ollama", SimpleNamespace(Client=MagicMock()))
+    monkeypatch.setattr(
+        claude_mod,
+        "anthropic",
+        SimpleNamespace(Anthropic=MagicMock(), AsyncAnthropic=MagicMock()),
+    )
+    monkeypatch.setattr(
+        live_mod,
+        "openai",
+        SimpleNamespace(OpenAI=MagicMock(), AsyncOpenAI=MagicMock()),
+    )
+    monkeypatch.setattr(config, "external_provider_enabled", True)
+    monkeypatch.setattr(config, "llm_api_key", "test-api-key")
+    monkeypatch.setattr(config, "llm_base_url", "https://api.openai.com/v1")
+
+    # Mock
+    monkeypatch.setattr(config, "llm_model", "mock:deterministic")
     adapter = AdapterFactory.get_adapter()
     assert isinstance(adapter, DeterministicMockAdapter)
 
+    # Ollama
+    monkeypatch.setattr(config, "llm_model", "ollama:qwen3:8b")
+    monkeypatch.setattr(config, "ollama_url", "http://127.0.0.1:11434")
+    adapter = AdapterFactory.get_adapter()
+    assert isinstance(adapter, OllamaAdapter)
+    assert adapter._model == "qwen3:8b"
 
-@patch("os.environ.get")
-@patch("mesa_memory.adapter.factory.config")
-def test_factory_auto_detect_openai(mock_config, mock_env_get):
-    def env_get_side_effect(key, default=None):
-        if key == "OPENAI_API_KEY":
-            return "sk-test-openai"
-        return default
-
-    mock_env_get.side_effect = env_get_side_effect
-    mock_config.mesa_llm_provider = "auto"
-    mock_config.llm_api_key = ""
-    mock_config.llm_base_url = None
-    mock_config.llm_model_name = None
-
+    # OpenAI (uses default base URL when base_url is None)
+    monkeypatch.setattr(config, "llm_model", "openai:gpt-4o-mini")
+    monkeypatch.setattr(config, "llm_base_url", None)
     adapter = AdapterFactory.get_adapter()
     assert isinstance(adapter, OpenAICompatibleAdapter)
+    assert adapter.model_name == "gpt-4o-mini"
+    assert adapter.base_url is None
 
+    # OpenAI-compatible (requires base URL)
+    monkeypatch.setattr(config, "llm_model", "openai_compatible:custom-model")
+    monkeypatch.setattr(config, "llm_base_url", None)
+    with pytest.raises(ValueError, match="base_url is required"):
+        AdapterFactory.get_adapter()
 
-@patch("os.environ.get")
-@patch("mesa_memory.adapter.factory.config")
-def test_factory_auto_detect_claude(mock_config, mock_env_get):
-    def env_get_side_effect(key, default=None):
-        if key == "ANTHROPIC_API_KEY":
-            return "sk-test-anthropic"
-        return default
+    monkeypatch.setattr(config, "llm_base_url", "https://custom.endpoint/v1")
+    adapter = AdapterFactory.get_adapter()
+    assert isinstance(adapter, OpenAICompatibleAdapter)
+    assert adapter.model_name == "custom-model"
+    assert adapter.base_url == "https://custom.endpoint/v1"
 
-    mock_env_get.side_effect = env_get_side_effect
-    mock_config.mesa_llm_provider = "auto"
-    mock_config.llm_api_key = ""
-    mock_config.anthropic_api_key = "sk-test-anthropic"
-
+    # Anthropic
+    monkeypatch.setattr(config, "llm_model", "anthropic:claude-sonnet-4-5")
     adapter = AdapterFactory.get_adapter()
     assert isinstance(adapter, ClaudeAdapter)
+    assert adapter.model_name == "claude-sonnet-4-5"
+
+
+def test_extraction_on_without_llm_model_fails(monkeypatch):
+    from mesa_memory.adapter.factory import AdapterFactory
+    from mesa_memory.config import config
+
+    monkeypatch.setattr(config, "llm_model", "")
+    with pytest.raises(ValueError, match="MESA_LLM_MODEL is not set"):
+        AdapterFactory.get_extraction_adapter()
+
+    with pytest.raises(ValueError, match="MESA_LLM_MODEL is not set"):
+        AdapterFactory.get_adapter()
+
+
+def test_unprefixed_llm_base_url_in_env_changes_nothing(monkeypatch):
+    from mesa_memory.adapter.factory import AdapterFactory
+    from mesa_memory.config import MesaConfig, config
+
+    monkeypatch.setenv("LLM_BASE_URL", "https://law-answering-llm.example.com/v1")
+    cfg = MesaConfig()
+    assert cfg.llm_base_url is None
+
+    monkeypatch.setattr(config, "llm_base_url", None)
+    monkeypatch.setattr(config, "llm_model", "openai_compatible:model")
+    monkeypatch.setattr(config, "llm_api_key", "test-key")
+    monkeypatch.setattr(config, "external_provider_enabled", True)
+    # Even though LLM_BASE_URL is set in environment, openai_compatible still fails because MESA_LLM_BASE_URL is unset
+    with pytest.raises(ValueError, match="base_url is required for 'openai_compatible' provider"):
+        AdapterFactory.get_adapter()
 
 
 def test_factory_invalid_provider():
-    with pytest.raises(ValueError, match="Unknown LLM provider: invalid"):
+    with pytest.raises(ValueError, match="Unknown LLM provider 'invalid'"):
         AdapterFactory.get_adapter(provider="invalid")

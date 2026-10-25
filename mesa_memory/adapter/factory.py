@@ -1,14 +1,12 @@
 """
-MESA Adapter Factory — Auto-detecting LLM provider selection.
+MESA Adapter Factory — Provider selection via MESA_LLM_MODEL=provider:model.
 
-Resolution order:
-  1. Explicit ``provider`` argument
-  2. ``MESA_LLM_PROVIDER`` env var (via config)
-  3. Auto-detection waterfall:
-       a. MESA_OLLAMA_URL set       → OllamaAdapter
-       b. OPENAI_API_KEY set        → OpenAICompatibleAdapter
-       c. ANTHROPIC_API_KEY set     → ClaudeAdapter
-       d. Fallback                  → DeterministicMockAdapter (with warning)
+Supported providers:
+  - ollama
+  - openai
+  - openai_compatible
+  - anthropic
+  - mock
 """
 
 import logging
@@ -20,6 +18,45 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.config import config
 
 logger = logging.getLogger("MESA_AdapterFactory")
+
+SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
+    "ollama",
+    "openai",
+    "openai_compatible",
+    "anthropic",
+    "mock",
+)
+
+
+def parse_llm_spec(spec: str) -> tuple[str, str]:
+    """Parse 'provider:model' string into (provider, model).
+
+    Splits at the first colon so model names containing colons (e.g. 'qwen3:8b')
+    preserve their tags.
+    """
+    if not spec or not spec.strip():
+        raise ValueError(
+            f"MESA_LLM_MODEL is not set. Set MESA_LLM_MODEL=provider:model "
+            f"(supported providers: {', '.join(SUPPORTED_LLM_PROVIDERS)})."
+        )
+    parts = spec.strip().split(":", 1)
+    if len(parts) != 2:
+        raise ValueError(
+            f"Invalid LLM spec '{spec}': missing ':' separator. Format must be 'provider:model' "
+            f"(supported providers: {', '.join(SUPPORTED_LLM_PROVIDERS)})."
+        )
+    provider = parts[0].strip().lower()
+    model = parts[1].strip()
+    if provider not in SUPPORTED_LLM_PROVIDERS:
+        raise ValueError(
+            f"Unknown LLM provider '{provider}'. Supported providers: {', '.join(SUPPORTED_LLM_PROVIDERS)}."
+        )
+    if not model:
+        raise ValueError(
+            f"Empty model in LLM spec '{spec}'. Format must be 'provider:model' "
+            f"(supported providers: {', '.join(SUPPORTED_LLM_PROVIDERS)})."
+        )
+    return provider, model
 
 
 class DeterministicMockAdapter(BaseUniversalLLMAdapter):
@@ -103,63 +140,90 @@ class AdapterFactory:
         model_name: str | None = None,
         thinking: bool | None = None,
     ) -> BaseUniversalLLMAdapter:
-        provider = provider or config.mesa_llm_provider
-        selected_model = model_name or config.llm_model_name
+        if provider is None:
+            if not config.llm_model:
+                raise ValueError(
+                    "MESA_LLM_MODEL is not set. Set MESA_LLM_MODEL=provider:model "
+                    f"(supported providers: {', '.join(SUPPORTED_LLM_PROVIDERS)})."
+                )
+            provider, default_model = parse_llm_spec(config.llm_model)
+            if model_name is None:
+                model_name = default_model
 
+        normalized_provider = provider.strip().lower()
         external_providers = {"openai_compatible", "claude", "openai", "anthropic"}
         if (
             not getattr(config, "external_provider_enabled", False)
-            and provider.lower() in external_providers
+            and normalized_provider in external_providers
         ):
             raise ValueError(
                 f"External provider '{provider}' is forbidden when MESA_EXTERNAL_PROVIDER_ENABLED=false."
             )
 
         # ── Explicit provider selection ──────────────────────────────────
-        if provider == "openai_compatible":
+        if normalized_provider == "openai_compatible":
             from mesa_memory.adapter.live import OpenAICompatibleAdapter
 
+            if not config.llm_base_url:
+                raise ValueError(
+                    "base_url is required for 'openai_compatible' provider. Set MESA_LLM_BASE_URL."
+                )
+            api_key = config.llm_api_key or os.environ.get("OPENAI_API_KEY")
             return OpenAICompatibleAdapter(
-                api_key=config.llm_api_key,
+                api_key=api_key,
                 base_url=config.llm_base_url,
-                model_name=selected_model,
+                model_name=model_name,
                 embedding_model_name=config.llm_embedding_model_name,
                 timeout_seconds=config.llm_timeout_seconds,
             )
-        elif provider == "claude":
+        elif normalized_provider == "openai":
+            from mesa_memory.adapter.live import OpenAICompatibleAdapter
+
+            api_key = config.llm_api_key or os.environ.get("OPENAI_API_KEY")
+            return OpenAICompatibleAdapter(
+                api_key=api_key,
+                base_url=config.llm_base_url,
+                model_name=model_name,
+                embedding_model_name=config.llm_embedding_model_name,
+                timeout_seconds=config.llm_timeout_seconds,
+            )
+        elif normalized_provider in {"claude", "anthropic"}:
             from mesa_memory.adapter.claude import ClaudeAdapter
 
+            api_key = config.llm_api_key or os.environ.get("ANTHROPIC_API_KEY")
             return ClaudeAdapter(
-                anthropic_api_key=config.llm_api_key,
-                model_name=selected_model,
+                anthropic_api_key=api_key,
+                model_name=model_name,
             )
-        elif provider == "ollama":
+        elif normalized_provider == "ollama":
             from mesa_memory.adapter.ollama import OllamaAdapter
 
             ollama_url = os.environ.get("MESA_OLLAMA_URL", config.ollama_url)
             AdapterFactory._require_permitted_ollama_url(ollama_url)
             return OllamaAdapter(
-                model=selected_model or "llama3.2:3b",
+                model=model_name or "llama3.2:3b",
                 base_url=ollama_url,
                 thinking=bool(thinking),
                 timeout_seconds=config.ollama_timeout_seconds,
                 num_ctx=config.ollama_num_ctx,
             )
-
-        # ── Auto-detection waterfall ─────────────────────────────────────
-        elif provider == "auto":
-            return AdapterFactory._auto_detect()
-        elif provider == "mock":
+        elif normalized_provider == "mock":
             return DeterministicMockAdapter()
 
-        raise ValueError(f"Unknown LLM provider: {provider}")
+        raise ValueError(
+            f"Unknown LLM provider '{provider}'. Supported providers: {', '.join(SUPPORTED_LLM_PROVIDERS)}."
+        )
 
     @staticmethod
     def get_extraction_adapter() -> BaseUniversalLLMAdapter:
         """Compose the frozen, model-configurable fact extraction provider."""
+        if not config.llm_model:
+            raise ValueError(
+                "MESA_LLM_MODEL is not set. Set MESA_LLM_MODEL=provider:model "
+                f"(supported providers: {', '.join(SUPPORTED_LLM_PROVIDERS)}) "
+                "to enable extraction."
+            )
         return AdapterFactory.get_adapter(
-            config.extraction_provider,
-            model_name=config.extraction_model,
             thinking=config.extraction_thinking,
         )
 
@@ -211,60 +275,3 @@ class AdapterFactory:
             AdapterFactory.get_adapter(specs[0][0], model_name=specs[0][1]),
             AdapterFactory.get_adapter(specs[1][0], model_name=specs[1][1]),
         )
-
-    @staticmethod
-    def _auto_detect() -> BaseUniversalLLMAdapter:
-        """Walk the detection waterfall and return the best available adapter."""
-
-        # 1. Ollama (zero-cost local)
-        ollama_url = os.environ.get("MESA_OLLAMA_URL")
-        if ollama_url:
-            logger.info("Auto-detected MESA_OLLAMA_URL → OllamaAdapter")
-            from mesa_memory.adapter.ollama import OllamaAdapter
-
-            AdapterFactory._require_permitted_ollama_url(ollama_url)
-            return OllamaAdapter(
-                model=config.llm_model_name or "qwen3:8b",
-                base_url=ollama_url,
-                timeout_seconds=config.ollama_timeout_seconds,
-                num_ctx=config.ollama_num_ctx,
-            )
-
-        if not getattr(config, "external_provider_enabled", False):
-            logger.info(
-                "External providers disabled; auto-detecting DeterministicMockAdapter."
-            )
-            return DeterministicMockAdapter()
-
-        # 2. OpenAI-compatible (Groq, OpenAI, Together, etc.)
-        openai_key = os.environ.get("OPENAI_API_KEY") or config.llm_api_key
-        if openai_key and openai_key not in (
-            "your_groq_api_key_here",
-            "your-secret-key",
-            "",
-        ):
-            logger.info("Auto-detected OPENAI_API_KEY → OpenAICompatibleAdapter")
-            from mesa_memory.adapter.live import OpenAICompatibleAdapter
-
-            return OpenAICompatibleAdapter(
-                api_key=openai_key,
-                base_url=config.llm_base_url,
-                model_name=config.llm_model_name,
-                embedding_model_name=config.llm_embedding_model_name,
-                timeout_seconds=config.llm_timeout_seconds,
-            )
-
-        # 3. Anthropic Claude
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or config.anthropic_api_key
-        if anthropic_key and anthropic_key not in ("", "your_anthropic_key_here"):
-            logger.info("Auto-detected ANTHROPIC_API_KEY → ClaudeAdapter")
-            from mesa_memory.adapter.claude import ClaudeAdapter
-
-            return ClaudeAdapter(anthropic_api_key=anthropic_key)
-
-        # 4. Fallback: DeterministicMockAdapter
-        logger.warning(
-            "No LLM provider credentials found. Falling back to "
-            "DeterministicMockAdapter. Set MESA_OLLAMA_URL for zero-cost mode."
-        )
-        return DeterministicMockAdapter()

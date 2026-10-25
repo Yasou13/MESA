@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from mesa_memory.config import RuntimeProfile, RuntimeProfileError, load_runtime_profile
+from mesa_memory.config import (
+    REMOVED_MESA_ENV_VARS,
+    RuntimeProfile,
+    RuntimeProfileError,
+    load_runtime_profile,
+)
 
 
 def isolated_env(tmp_path, **overrides):
@@ -164,3 +169,27 @@ def test_separate_flags_default_to_legacy_and_can_override_it(tmp_path, legacy):
         {**env, "MESA_EMBEDDING_ENABLED": "false", "MESA_EXTRACTION_ENABLED": "true"}
     )
     assert runtime.embedding_enabled is False and runtime.extraction_enabled is True
+
+
+@pytest.mark.parametrize("removed_var", REMOVED_MESA_ENV_VARS)
+def test_removed_mesa_env_vars_stop_startup_with_message(tmp_path, removed_var):
+    env = isolated_env(tmp_path, **{removed_var: "any_value"})
+    with pytest.raises(RuntimeProfileError) as exc_info:
+        load_runtime_profile(env)
+    msg = str(exc_info.value)
+    assert removed_var in msg
+    assert "MESA_LLM_MODEL" in msg
+    assert "e.g." in msg or "example" in msg.lower()
+
+
+def test_unprefixed_env_vars_never_fail_startup(tmp_path):
+    env = isolated_env(
+        tmp_path,
+        LLM_BASE_URL="https://answering.example.com",
+        LLM_API_KEY="secret-llm-key",
+        LLM_MODEL_NAME="custom-model",
+        LLM_TIMEOUT_SECONDS="45",
+    )
+    # Unprefixed names must not raise RuntimeProfileError
+    runtime = load_runtime_profile(env)
+    assert runtime is not None

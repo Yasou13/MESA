@@ -68,16 +68,12 @@ export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=true
 export MESA_EXTERNAL_PROVIDER_ENABLED=true
 export MESA_TIER3_MODE=0
-export MESA_LLM_PROVIDER=openai_compatible
-export LLM_MODEL_NAME=gpt-4o-mini
-export LLM_BASE_URL=https://api.openai.com/v1
-export LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
-export MESA_EXTRACTION_PROVIDER=openai_compatible
-export MESA_EXTRACTION_MODEL=gpt-4o-mini
+export MESA_LLM_MODEL=openai:gpt-4o-mini
+export MESA_LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
 export MESA_EMBEDDING_PROVIDER=openai_compatible
 export MESA_EXTERNAL_EMBEDDING_MODEL=text-embedding-3-small
 export MESA_EMBEDDING_BASE_URL=https://api.openai.com/v1
-export MESA_EMBEDDING_API_KEY="$LLM_API_KEY"
+export MESA_EMBEDDING_API_KEY="$MESA_LLM_API_KEY"
 export MESA_EMBEDDING_DIMENSION=1536
 export MESA_EMBEDDING_NORMALIZED=true
 export MESA_EMBEDDING_VERSION=v1
@@ -86,13 +82,12 @@ export MESA_EMBEDDING_VERSION=v1
 The commands deliberately provision a **new root** when changing the embedding
 identity from the models-disabled demo: even an empty initialized root records
 its embedding identity. Keep `MESA_API_KEY` (MESA access) separate
-from `LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Modes 1/2 need
+from `MESA_LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Modes 1/2 need
 the validator A or A/B settings from the table below. Extraction is configured
 separately and mode 0 still calls it.
 
-`AdapterFactory` accepts `openai_compatible`, `claude`, `ollama`, `auto` and
-explicit test-only `mock`. `auto` may select a mock, so use an explicit provider
-for real work. Embeddings support local sentence-transformers (`ml` extra) or
+`AdapterFactory` parses `provider:model` (`ollama`, `openai`, `openai_compatible`,
+`anthropic`, `mock`). Embeddings support local sentence-transformers (`ml` extra) or
 OpenAI-compatible endpoints (`adapters` extra); Claude/Ollama extraction does not
 automatically configure embeddings. Native Ollama extraction requires a running
 endpoint and an already available model; MESA does not provision it.
@@ -130,20 +125,17 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `llm_provider` | `LLM_PROVIDER` | `'claude'` |
 | `openai_api_key` | `OPENAI_API_KEY` | `None` |
 | `anthropic_api_key` | `ANTHROPIC_API_KEY` | `None` |
-| `mesa_llm_provider` | `MESA_LLM_PROVIDER` | `'openai_compatible'` |
-| `llm_base_url` | `LLM_BASE_URL` | `None` |
-| `llm_api_key` | `LLM_API_KEY` | `None` |
+| `llm_model` | `MESA_LLM_MODEL` | `''` |
+| `llm_base_url` | `MESA_LLM_BASE_URL` | `None` |
+| `llm_api_key` | `MESA_LLM_API_KEY` | `None` |
+| `llm_timeout_seconds` | `MESA_LLM_TIMEOUT_SECONDS` | `60.0` |
 | `embedding_base_url` | `MESA_EMBEDDING_BASE_URL` | `None` |
 | `embedding_api_key` | `MESA_EMBEDDING_API_KEY` | `None` |
-| `llm_model_name` | `LLM_MODEL_NAME` | `'llama-3.1-8b-instant'` |
-| `extraction_provider` | `MESA_EXTRACTION_PROVIDER` | `'ollama'` |
-| `extraction_model` | `MESA_EXTRACTION_MODEL` | `'qwen3:1.7b'` |
 | `extraction_thinking` | `MESA_EXTRACTION_THINKING` | `False` |
 | `extraction_max_tokens` | `MESA_EXTRACTION_MAX_TOKENS` | `4096` |
 | `llm_embedding_model_name` | `LLM_EMBEDDING_MODEL` | `'sentence-transformers/all-MiniLM-L6-v2'` |
 | `embedding_provider` | `MESA_EMBEDDING_PROVIDER` | `'openai_compatible'` |
 | `external_embedding_model` | `MESA_EXTERNAL_EMBEDDING_MODEL` | `'text-embedding-3-small'` |
-| `llm_timeout_seconds` | `LLM_TIMEOUT_SECONDS` | `20.0` |
 | `model_enabled` | `MESA_MODEL_ENABLED` | `False` |
 | `tier3_mode` | `MESA_TIER3_MODE` | `None` |
 | `tier3_llm_provider_a` | `MESA_TIER3_LLM_PROVIDER_A` | `None` |
