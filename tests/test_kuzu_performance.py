@@ -26,6 +26,8 @@ import time
 import pytest
 import pytest_asyncio
 
+pytestmark = pytest.mark.timing
+
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema
 from tests.conftest import make_test_storage_dir

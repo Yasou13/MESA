@@ -67,6 +67,11 @@ logger = logging.getLogger("MESA_DAO")
 V4_VECTOR_LANE_DIAGNOSTIC_CONTRACT_VERSION = "mesa.vector-lane.v1"
 
 
+def _retry_delay_seconds(attempt_count: int) -> int:
+    """Back off failed durable work from one minute to at most fifteen minutes."""
+    return min(60 * 2 ** (attempt_count - 1), 900)
+
+
 def _assertion_legal_identity(assertion: Mapping[str, Any]) -> dict[str, str] | None:
     """Return only canonical legal identity persisted from a trusted source."""
     source = str(assertion.get("legal_identity_source") or "")
@@ -3543,7 +3548,9 @@ class MemoryDAO:
         async with self._sql.transaction() as db:
             async with db.execute(
                 "SELECT p.projection_id FROM projection_outbox p "
-                "WHERE (p.state IN ('PENDING', 'RETRY_PENDING') "
+                "WHERE (p.state = 'PENDING' "
+                "OR (p.state = 'RETRY_PENDING' AND (p.lease_expires_at IS NULL "
+                "OR p.lease_expires_at <= CURRENT_TIMESTAMP)) "
                 "OR (p.state = 'IN_FLIGHT' AND p.lease_expires_at <= CURRENT_TIMESTAMP)) "
                 "AND (p.projection_name = 'SQL' "
                 "OR (p.projection_name = 'VECTOR' AND EXISTS "
@@ -3562,7 +3569,9 @@ class MemoryDAO:
                 cursor = await db.execute(
                     "UPDATE projection_outbox SET state = 'IN_FLIGHT', claim_token = ?, claimed_by = ?, "
                     "lease_expires_at = datetime('now', ?), attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP "
-                    "WHERE projection_id = ? AND (state IN ('PENDING', 'RETRY_PENDING') "
+                    "WHERE projection_id = ? AND (state = 'PENDING' "
+                    "OR (state = 'RETRY_PENDING' AND (lease_expires_at IS NULL "
+                    "OR lease_expires_at <= CURRENT_TIMESTAMP)) "
                     "OR (state = 'IN_FLIGHT' AND lease_expires_at <= CURRENT_TIMESTAMP))",
                     (token, worker_id, f"+{lease_seconds} seconds", projection_id),
                 )
@@ -3767,9 +3776,15 @@ class MemoryDAO:
             )
             cursor = await db.execute(
                 "UPDATE projection_outbox SET state = ?, claim_token = NULL, claimed_by = NULL, "
-                "lease_expires_at = NULL, last_error_class = ?, updated_at = CURRENT_TIMESTAMP "
+                "lease_expires_at = datetime('now', ?), last_error_class = ?, updated_at = CURRENT_TIMESTAMP "
                 "WHERE projection_id = ? AND claim_token = ?",
-                (next_state, error_class[:120], projection_id, claim_token),
+                (
+                    next_state,
+                    None if terminal else f"+{_retry_delay_seconds(int(row['attempt_count']))} seconds",
+                    error_class[:120],
+                    projection_id,
+                    claim_token,
+                ),
             )
             if cursor.rowcount == 1:
                 mutation_state = "DEAD_LETTER" if terminal else "RETRY_PENDING"
@@ -4003,6 +4018,29 @@ class MemoryDAO:
             await self._transition_pipeline_mutations_in_tx(
                 db, pipeline_run_id, to_state=replay_state
             )
+            if replay_state == "RETRY_PENDING":
+                async with db.execute(
+                    "SELECT q.queue_record_id, q.payload_reference, q.agent_id "
+                    "FROM dispatch_queue q JOIN memory_mutations m "
+                    "ON m.raw_log_id = q.payload_reference AND m.agent_id = q.agent_id "
+                    "AND m.tenant_id = q.tenant_id "
+                    "WHERE m.pipeline_run_id = ? AND m.state = 'RETRY_PENDING' "
+                    "AND q.state = 'DEAD_LETTER'",
+                    (pipeline_run_id,),
+                ) as dispatch_cursor:
+                    dispatches = await dispatch_cursor.fetchall()
+                for dispatch in dispatches:
+                    await db.execute(
+                        "UPDATE dispatch_queue SET state = 'RETRY_PENDING', attempt_count = 0, "
+                        "claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL, "
+                        "last_error_class = NULL WHERE queue_record_id = ? AND state = 'DEAD_LETTER'",
+                        (dispatch["queue_record_id"],),
+                    )
+                    await db.execute(
+                        "UPDATE raw_logs SET status = 'DEFERRED', claim_token = NULL, "
+                        "claimed_by = NULL, lease_expires_at = NULL WHERE id = ? AND agent_id = ?",
+                        (dispatch["payload_reference"], dispatch["agent_id"]),
+                    )
             async with db.execute(
                 "SELECT state FROM pipeline_runs WHERE pipeline_run_id = ?",
                 (pipeline_run_id,),
@@ -9616,6 +9654,16 @@ class MemoryDAO:
             await db.commit()
         return cursor.rowcount
 
+    async def recover_processing_raw_logs(self) -> int:
+        """Release abandoned raw-log claims after the runtime takes the writer lock."""
+        async with self._sql.transaction() as db:
+            cursor = await db.execute(
+                "UPDATE raw_logs SET status = 'DEFERRED', claim_token = NULL, "
+                "claimed_by = NULL, lease_expires_at = NULL WHERE status = 'processing'"
+            )
+            await db.commit()
+        return cursor.rowcount
+
     async def claim_lancedb_wal_entries(
         self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300
     ) -> list[dict[str, Any]]:
@@ -10059,7 +10107,9 @@ class MemoryDAO:
         token = str(uuid.uuid4())
         async with self._sql.transaction() as db:
             async with db.execute(
-                "SELECT queue_record_id FROM dispatch_queue WHERE state IN ('ENQUEUED', 'RETRY_PENDING') "
+                "SELECT queue_record_id FROM dispatch_queue WHERE state = 'ENQUEUED' "
+                "OR (state = 'RETRY_PENDING' AND (lease_expires_at IS NULL "
+                "OR lease_expires_at <= CURRENT_TIMESTAMP)) "
                 "OR (state = 'IN_FLIGHT' AND lease_expires_at <= CURRENT_TIMESTAMP) ORDER BY created_at LIMIT ?",
                 (limit,),
             ) as cursor:
@@ -10069,7 +10119,9 @@ class MemoryDAO:
                 cursor = await db.execute(
                     "UPDATE dispatch_queue SET state = 'IN_FLIGHT', claimed_by = ?, claim_token = ?, "
                     "lease_expires_at = datetime('now', ?), attempt_count = attempt_count + 1 "
-                    "WHERE queue_record_id = ? AND (state IN ('ENQUEUED', 'RETRY_PENDING') "
+                    "WHERE queue_record_id = ? AND (state = 'ENQUEUED' "
+                    "OR (state = 'RETRY_PENDING' AND (lease_expires_at IS NULL "
+                    "OR lease_expires_at <= CURRENT_TIMESTAMP)) "
                     "OR (state = 'IN_FLIGHT' AND lease_expires_at <= CURRENT_TIMESTAMP))",
                     (worker_id, token, f"+{lease_seconds} seconds", queue_id),
                 )
@@ -10149,8 +10201,13 @@ class MemoryDAO:
                     return False
                 await db.execute(
                     "UPDATE dispatch_queue SET state = 'RETRY_PENDING', claim_token = NULL, claimed_by = NULL, "
-                    "lease_expires_at = NULL, last_error_class = ? WHERE queue_record_id = ? AND claim_token = ?",
-                    (outcome[:120], queue_record_id, claim_token),
+                    "lease_expires_at = datetime('now', ?), last_error_class = ? WHERE queue_record_id = ? AND claim_token = ?",
+                    (
+                        f"+{_retry_delay_seconds(int(row['attempt_count']))} seconds",
+                        outcome[:120],
+                        queue_record_id,
+                        claim_token,
+                    ),
                 )
                 await db.commit()
                 return False

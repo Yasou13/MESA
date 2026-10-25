@@ -6,7 +6,6 @@ from mesa_memory.adapter.base import BaseUniversalLLMAdapter
 from mesa_memory.extraction.service import (
     DeterministicFactValidator,
     FactCandidate,
-    FactExtractionError,
     FactExtractionResponse,
     FactExtractionService,
     FactExtractionUnavailableError,
@@ -262,8 +261,8 @@ async def test_fact_extraction_bounded_retry_failure():
     )
     service = FactExtractionService(llm=adapter)
 
-    with pytest.raises(FactExtractionError):
-        await service.extract_facts("Test metni")
+    facts = await service.extract_facts("Test metni")
+    assert facts == []
 
     # Exactly 2 calls: bounded retry reached, no 3rd call
     assert adapter.complete_count == 2
@@ -369,8 +368,23 @@ async def test_extreme_fact_fanout_is_rejected_by_the_structured_contract():
     ]
     adapter = MockExtractionAdapter(responses=[{"facts": facts}, {"facts": facts}])
 
-    with pytest.raises(FactExtractionError):
-        await FactExtractionService(llm=adapter).extract_facts("source")
+    assert await FactExtractionService(llm=adapter).extract_facts("source") == []
+
+    assert adapter.complete_count == 2
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_on_correction_retry_raises_unavailable():
+    adapter = MockExtractionAdapter(
+        responses=[
+            ValueError("Malformed JSON"),
+            ConnectionError("ollama disconnected"),
+        ]
+    )
+    service = FactExtractionService(llm=adapter)
+
+    with pytest.raises(FactExtractionUnavailableError, match="provider is unavailable"):
+        await service.extract_facts("Test metni")
 
     assert adapter.complete_count == 2
 

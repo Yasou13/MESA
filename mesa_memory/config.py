@@ -515,18 +515,14 @@ class MesaConfig(BaseSettings):
             raise ValueError(f"MESA_TIER3_MODE must be 0, 1, or 2; got {v_int}")
         return v_int
 
-    def effective_tier3_mode(self, *, model_enabled: bool | None = None) -> int:
+    def effective_tier3_mode(self) -> int:
         """Resolve the effective validation mode.
 
         If explicitly set: returns 0, 1, or 2.
-        If unset (None):
-          - when model_enabled is True: returns 2 (backward-compatible dual validation)
-          - when model_enabled is False (or unspecified): returns 0 (no validators composed)
+        If unset (None): returns 0 (validation is opt-in).
         """
         if self.tier3_mode is not None:
             return self.tier3_mode
-        if model_enabled is True:
-            return 2
         return 0
 
     context_window_limit: int = 8000

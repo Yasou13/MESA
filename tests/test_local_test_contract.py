@@ -3,7 +3,7 @@
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-LOCAL_MARKERS = "not optional_provider and not optional_mcp and not live_external"
+LOCAL_MARKERS = "not optional_provider and not optional_mcp and not live_external and not timing"
 
 
 def test_makefile_separates_local_and_complete_suites() -> None:

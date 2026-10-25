@@ -105,9 +105,10 @@ async def _admit(
 
 @pytest.mark.asyncio
 async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
-    tmp_path,
+    tmp_path, monkeypatch,
 ) -> None:
     """A pending old-space admission cannot be embedded after a new-space restart."""
+    monkeypatch.setattr("mesa_storage.dao._retry_delay_seconds", lambda _attempt: 0)
     trusted = tmp_path / "trusted"
     storage = trusted / "storage"
     work = trusted / "work"

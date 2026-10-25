@@ -20,7 +20,7 @@ zero-cost-dev:
 test: test-local
 
 test-local:
-	$(UV) run pytest -q -m "not optional_provider and not optional_mcp and not live_external"
+	$(UV) run pytest -q -m "not optional_provider and not optional_mcp and not live_external and not timing"
 
 test-all:
 	$(UV) run pytest -q

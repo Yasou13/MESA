@@ -22,6 +22,7 @@ from mesa_workers.projection_worker import (
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail_graph_commit", [False, True])
 async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path, monkeypatch, fail_graph_commit) -> None:
+    monkeypatch.setattr("mesa_storage.dao._retry_delay_seconds", lambda _attempt: 0)
     sql = AsyncEngine(str(tmp_path / "mesa.db"))
     identity = EmbeddingIdentity(
         provider="mock", model="projection-test", version="v1", dimension=8

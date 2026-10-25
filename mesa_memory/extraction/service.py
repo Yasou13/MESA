@@ -515,12 +515,10 @@ class FactExtractionService:
                     raise FactExtractionUnavailableError(
                         f"Fact extraction provider is unavailable: {unwrapped}"
                     ) from second_exc
-                logger.error(
+                logger.warning(
                     "Structured extraction correction retry failed: %s", second_exc
                 )
-                raise FactExtractionError(
-                    f"Fact extraction failed after schema correction retry: {second_exc}"
-                ) from second_exc
+                return []
 
         # Deterministic fact validation & deduplication
         valid_facts = self.validator.deduplicate_and_canonicalize(

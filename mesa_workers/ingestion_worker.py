@@ -201,7 +201,7 @@ async def _process_cold_path_impl(
             effective_validation_mode = (
                 admitted_mode
                 if admitted_mode is not None
-                else config.effective_tier3_mode(model_enabled=model_processing_enabled)
+                else config.effective_tier3_mode()
             )
 
             is_v4_pipeline = (

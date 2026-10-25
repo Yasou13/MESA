@@ -371,6 +371,8 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         },
     )
     await state.dao.initialize()
+    if runtime.profile is RuntimeProfile.COMBINED:
+        await state.dao.recover_processing_raw_logs()
 
     # The MCP control plane shares the API's single SQLite storage
     # owner.  It must not construct or close a second AsyncEngine lifecycle.
@@ -401,7 +403,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.consolidation_loop = None  # type: ignore[assignment]
     if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
-        effective_mode = config.effective_tier3_mode(model_enabled=True)
+        effective_mode = config.effective_tier3_mode()
         validation_policy = compose_validation_policy(effective_mode)
 
         extraction_adapter = AdapterFactory.get_extraction_adapter()
