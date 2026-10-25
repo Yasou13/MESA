@@ -1,6 +1,6 @@
 import asyncio
 import functools
-from typing import Optional, Type, Union
+from typing import Any, Optional, Type, Union
 
 try:
     import ollama
@@ -19,6 +19,8 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         embedding_model: str = "nomic-embed-text",
         base_url: Optional[str] = None,
         thinking: bool = False,
+        timeout_seconds: float = 300.0,
+        num_ctx: int = 8192,
     ):
         if ollama is None:
             raise RuntimeError("OllamaAdapter requires mesa-memory[adapters]")
@@ -26,18 +28,31 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         self._embedding_model = embedding_model
         self.base_url = base_url  # type: ignore[no-untyped-def]
         self._thinking = thinking
-        self._ollama_client = (
-            ollama.Client(host=base_url) if base_url else ollama.Client()
-        )
+        self.timeout_seconds = timeout_seconds
+        self._timeout_seconds = timeout_seconds
+        self.num_ctx = num_ctx
+        self._num_ctx = num_ctx
+        client_kwargs: dict[str, Any] = {"timeout": timeout_seconds}
+        if base_url:
+            client_kwargs["host"] = base_url
+        self._ollama_client = ollama.Client(**client_kwargs)
 
     def complete(
-        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs
+        self, prompt: str, schema: Optional[Type[BaseModel]] = None, **kwargs: Any
     ) -> Union[str, BaseModel]:
+        options: dict[str, Any] = {"num_ctx": self._num_ctx}
+        if schema is not None:
+            options["temperature"] = 0
+        max_tokens = kwargs.get("max_tokens")
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+
         if schema is not None:
             response = self._ollama_client.generate(
                 model=self._model,
                 prompt=prompt,
                 format=schema.model_json_schema(),
+                options=options,
                 think=self._thinking,
             )
             try:
@@ -54,6 +69,7 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         response = self._ollama_client.generate(
             model=self._model,  # type: ignore[no-untyped-def]
             prompt=prompt,
+            options=options,
             think=self._thinking,
         )
         return response["response"]
