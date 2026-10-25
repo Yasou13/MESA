@@ -3752,7 +3752,51 @@ class MemoryDAO:
 
     async def requeue_skipped_vector_projections(self) -> int:
         """Backfill disabled VECTOR lanes under the combined runtime writer lock."""
+        producer_identity = getattr(self._vec, "embedding_identity", None)
         async with self._sql.transaction() as db:
+            if producer_identity is not None:
+                identity_snapshot = (
+                    producer_identity.as_dict()
+                    if hasattr(producer_identity, "as_dict")
+                    else {
+                        "embedding_space_id": str(
+                            getattr(producer_identity, "embedding_space_id", "")
+                        ),
+                        "provider": str(producer_identity.provider),
+                        "model": str(producer_identity.model),
+                        "version": str(producer_identity.version),
+                        "dimension": int(producer_identity.dimension),
+                        "normalized": bool(
+                            getattr(producer_identity, "normalized", False)
+                        ),
+                        "model_revision": getattr(
+                            producer_identity, "model_revision", None
+                        ),
+                    }
+                )
+                async with db.execute(
+                    "SELECT m.mutation_id, m.metadata_json FROM memory_mutations m "
+                    "JOIN projection_outbox p ON p.mutation_id = m.mutation_id "
+                    "WHERE p.projection_name = 'VECTOR' AND p.state = 'SKIPPED'"
+                ) as cursor:
+                    skipped_mutations = await cursor.fetchall()
+                for mutation_id, raw_metadata in skipped_mutations:
+                    metadata = json.loads(raw_metadata or "{}")
+                    metadata["_mesa_embedding_identity"] = identity_snapshot
+                    await db.execute(
+                        "UPDATE memory_mutations SET embedding_provider = ?, "
+                        "embedding_model = ?, embedding_version = ?, "
+                        "embedding_dimension = ?, metadata_json = ?, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE mutation_id = ?",
+                        (
+                            str(identity_snapshot["provider"]),
+                            str(identity_snapshot["model"]),
+                            str(identity_snapshot["version"]),
+                            int(identity_snapshot["dimension"]),
+                            json.dumps(metadata, sort_keys=True),
+                            str(mutation_id),
+                        ),
+                    )
             cursor = await db.execute(
                 "UPDATE projection_outbox SET state = 'PENDING', attempt_count = 0, "
                 "claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL, "

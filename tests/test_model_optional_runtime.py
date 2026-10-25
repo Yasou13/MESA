@@ -288,3 +288,210 @@ async def test_rebuild_preparation_excludes_skipped_outbox_rows(model_runtime):
             server.state.runtime_profile.storage_root / "mesa.db"
         ) as db:
             assert _backlog_counts(db)["projection"] == 0
+
+
+@pytest.mark.asyncio
+async def test_identity_change_rebuild_allows_skipped_vector_backfill(
+    tmp_path, monkeypatch, model_runtime
+):
+    import argparse
+    import hashlib
+
+    from mesa_memory import rebuild_runner
+    from mesa_storage.projection_generations import (
+        ProjectionGenerationIdentityMismatchError,
+    )
+    from mesa_storage.repositories.operations import OperationRepository
+    from mesa_storage.sqlite_engine import AsyncEngine
+
+    async with model_runtime(
+        MESA_EMBEDDING_VERSION="v1", MESA_V4_REBUILD_ENABLED=True
+    ) as env:
+        await _insert(env)
+        await _consume(env, 3)
+        await _assert_committed(env)
+        assert (await _lanes(env))["VECTOR"] == "SKIPPED"
+
+        storage_root = server.state.runtime_profile.storage_root
+        with pytest.raises(ProjectionGenerationIdentityMismatchError, match="differs"):
+            await env.restart(
+                MESA_EMBEDDING_ENABLED=True, MESA_EMBEDDING_VERSION="v2"
+            )
+
+        sql = AsyncEngine(str(storage_root / "mesa.db"))
+        await sql.initialize()
+        try:
+            operations = OperationRepository(sql)
+            submitted = await operations.submit(
+                requested_by_principal_id="model-principal",
+                idempotency_key="r6-identity-rebuild-backfill",
+                payload_hash=hashlib.sha256(b"r6-identity-rebuild").hexdigest(),
+            )
+            operation_id = str(submitted["operation_id"])
+        finally:
+            await sql.close()
+
+        work_root = tmp_path / "rebuild-work"
+        work_root.mkdir()
+        monkeypatch.setattr(
+            rebuild_runner,
+            "EmbeddingService",
+            lambda **kw: _embedding_service(env.provider),
+        )
+        rc = await rebuild_runner.run_rebuild(
+            argparse.Namespace(
+                trusted_root=tmp_path,
+                storage_root=storage_root,
+                work_root=work_root,
+                operation_id=operation_id,
+                batch_size=100,
+                lease_seconds=300,
+            )
+        )
+        assert rc == rebuild_runner.EXIT_OK
+
+        await env.restart(MESA_EMBEDDING_ENABLED=True, MESA_EMBEDDING_VERSION="v2")
+        assert (await _lanes(env))["VECTOR"] == "PENDING"
+        await _consume(env)
+        assert (await _lanes(env))["VECTOR"] == "COMPLETED"
+        await _assert_committed(env)
+        result = await _search(env)
+        assert result["vector_lane"]["search_executed"] is True
+        assert result["degraded_sources"] == []
+
+        vector_ids = await env.dao._vec.get_active_node_ids("model-agent")
+        assert len(vector_ids) == 1
+        await env.dao._vec.hard_delete(sorted(vector_ids)[0], "model-agent")
+        repaired = await env.dao.reconcile_v4_projection_parity(repair=True)
+        assert repaired["missing_artifacts"] == 1
+        assert repaired["requeued_lanes"] == 1
+        await _consume(env)
+        assert (await env.dao.reconcile_v4_projection_parity())["missing_artifacts"] == 0
+        await _assert_committed(env)
+
+
+@pytest.mark.asyncio
+async def test_external_openai_compatible_provider_makes_zero_embedding_calls_when_disabled(
+    tmp_path, monkeypatch
+):
+    from fastapi import FastAPI
+
+    from mesa_memory.config import config
+    from mesa_memory.embedding import service as embedding_service_mod
+
+    original_config = {
+        field: getattr(config, field)
+        for field in (
+            "external_provider_enabled",
+            "embedding_provider",
+            "external_embedding_model",
+            "embedding_dimension",
+            "embedding_version",
+            "embedding_model_revision",
+            "embedding_normalized",
+        )
+    }
+    calls: list[tuple[str, str]] = []
+
+    class CountingExternalTransport:
+        def __init__(self, identity) -> None:
+            self.identity = identity
+
+        def embed_document(self, text: str) -> list[float]:
+            calls.append(("document", text))
+            return [1.0, 0.0, 0.0, 0.0]
+
+        async def aembed_document(self, text: str) -> list[float]:
+            calls.append(("document", text))
+            return [1.0, 0.0, 0.0, 0.0]
+
+        def embed_query(self, text: str) -> list[float]:
+            calls.append(("query", text))
+            return [1.0, 0.0, 0.0, 0.0]
+
+        async def aembed_query(self, text: str) -> list[float]:
+            calls.append(("query", text))
+            return [1.0, 0.0, 0.0, 0.0]
+
+    for key, value in {
+        "MESA_RUNTIME_PROFILE": "combined",
+        "MESA_STORAGE_ROOT": str(tmp_path / "external-disabled-storage"),
+        "MESA_LOAD_DOTENV": "false",
+        "MESA_MODEL_ENABLED": "false",
+        "MESA_EMBEDDING_ENABLED": "false",
+        "MESA_EXTRACTION_ENABLED": "false",
+        "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
+        "MESA_EMBEDDING_PROVIDER": "openai_compatible",
+        "MESA_EXTERNAL_EMBEDDING_MODEL": "external-test-model",
+        "MESA_EMBEDDING_DIMENSION": "4",
+        "MESA_EMBEDDING_VERSION": "v1",
+        "MESA_EMBEDDING_NORMALIZED": "true",
+        "LLM_API_KEY": "test-only-key",
+        "MESA_API_KEY": "model-test-key",
+        "MESA_PRINCIPAL_ID": "model-principal",
+        "MESA_PRINCIPAL_STATUS": "active",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    monkeypatch.setattr(
+        embedding_service_mod,
+        "_OpenAICompatibleEmbeddingBackend",
+        CountingExternalTransport,
+    )
+
+    async def hold_polling(*args, **kwargs):
+        import asyncio
+
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(server, "_run_combined_durable_consumer", hold_polling)
+
+    try:
+        async with server.lifespan(FastAPI()):
+            dao = server.state.dao
+            await dao.ensure_v4_catalog_scope(
+                tenant_id="model-tenant", workspace_id="default", dataset_id="main"
+            )
+            access = server.state.access_control
+            await access.grant_principal_permission(
+                "model-principal", "model-agent", "SESSION_CREATE"
+            )
+            await access.grant_scope_role(
+                "model-principal",
+                tenant_id="model-tenant",
+                workspace_id="default",
+                dataset_id="main",
+                role="WRITER",
+            )
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=server.app),
+                base_url="http://test",
+                headers={"X-API-Key": "model-test-key"},
+            ) as client:
+                started = await client.post(
+                    "/v4/sessions/start",
+                    json={
+                        "tenant_id": "model-tenant",
+                        "workspace_id": "default",
+                        "dataset_ids": ["main"],
+                        "agent_id": "model-agent",
+                    },
+                )
+                assert started.status_code == 201, started.text
+                env = SimpleNamespace(
+                    dao=dao,
+                    client=client,
+                    session_id=started.json()["session_id"],
+                )
+                await _insert(env)
+                await _consume(env, 3)
+                await _assert_committed(env)
+                assert (await _lanes(env))["VECTOR"] == "SKIPPED"
+                result = await _search(env)
+                assert result["vector_lane"]["status"] == "semantic_runtime_disabled"
+                assert result["degraded_sources"] == ["vector"]
+                assert calls == []
+    finally:
+        embedding_service_mod.set_global_embedding_service(None)
+        for field, value in original_config.items():
+            object.__setattr__(config, field, value)

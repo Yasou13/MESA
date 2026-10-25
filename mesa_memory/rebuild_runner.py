@@ -15,10 +15,12 @@ from typing import Any
 
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
+from mesa_storage import kuzu_setup
 from mesa_storage.embedding_identity import (
     EmbeddingIdentityAdoptionError,
     adopt_legacy_embedding_identity,
 )
+from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.rebuild_cutover import (
     ParityGatedActivator,
@@ -338,6 +340,10 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 total=total,
             )
         else:
+            def _graph_factory(graph_path: Path) -> KuzuGraphProvider:
+                kuzu_setup.initialize_schema(str(graph_path))
+                return KuzuGraphProvider(str(graph_path))
+
             replay = await ProjectionReplayer(operations).replay(
                 preparation=preparation,
                 trusted_root=args.trusted_root,
@@ -350,6 +356,7 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 embedding_service=providers.embedding_service,
                 allow_model_loading=providers.allow_model_loading,
                 local_embedding_model=providers.local_embedding_model,
+                graph_factory=_graph_factory,
                 should_stop=stop_requested.is_set,
             )
         log_rebuild_event(

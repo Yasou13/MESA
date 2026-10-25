@@ -145,9 +145,21 @@ def test_separate_flags_default_to_legacy_and_can_override_it(tmp_path, legacy):
     env = isolated_env(
         tmp_path, MESA_RUNTIME_PROFILE="combined", MESA_MODEL_ENABLED=legacy
     )
+    legacy_bool = legacy == "true"
     runtime = load_runtime_profile(env)
-    assert runtime.embedding_enabled is (legacy == "true")
-    assert runtime.extraction_enabled is (legacy == "true")
+    assert runtime.embedding_enabled is legacy_bool
+    assert runtime.extraction_enabled is legacy_bool
+    override_str = "false" if legacy_bool else "true"
+    runtime_embed_only = load_runtime_profile(
+        {**env, "MESA_EMBEDDING_ENABLED": override_str}
+    )
+    assert runtime_embed_only.embedding_enabled is (not legacy_bool)
+    assert runtime_embed_only.extraction_enabled is legacy_bool
+    runtime_extract_only = load_runtime_profile(
+        {**env, "MESA_EXTRACTION_ENABLED": override_str}
+    )
+    assert runtime_extract_only.embedding_enabled is legacy_bool
+    assert runtime_extract_only.extraction_enabled is (not legacy_bool)
     runtime = load_runtime_profile(
         {**env, "MESA_EMBEDDING_ENABLED": "false", "MESA_EXTRACTION_ENABLED": "true"}
     )
