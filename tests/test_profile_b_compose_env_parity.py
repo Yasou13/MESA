@@ -25,8 +25,7 @@ REQUIRED_PROFILE_B_ENV_KEYS = {
     "MESA_LLM_API_KEY",
     "MESA_LLM_TIMEOUT_SECONDS",
     "MESA_EXTERNAL_PROVIDER_ENABLED",
-    "MESA_EMBEDDING_PROVIDER",
-    "MESA_EXTERNAL_EMBEDDING_MODEL",
+    "MESA_EMBEDDING_MODEL",
     "MESA_EMBEDDING_BASE_URL",
     "MESA_EMBEDDING_API_KEY",
     "MESA_EMBEDDING_DIMENSION",
@@ -66,8 +65,7 @@ def test_effective_compose_config_forwards_profile_b_environment() -> None:
         "MESA_LLM_BASE_URL": "https://integrate.api.nvidia.com/v1",
         "MESA_LLM_API_KEY": "test-llm-secret-sentinel",
         "MESA_LLM_TIMEOUT_SECONDS": "25",
-        "MESA_EMBEDDING_PROVIDER": "openai_compatible",
-        "MESA_EXTERNAL_EMBEDDING_MODEL": "nvidia/nemotron-3-embed-1b",
+        "MESA_EMBEDDING_MODEL": "openai_compatible:nvidia/nemotron-3-embed-1b",
         "MESA_EMBEDDING_DIMENSION": "2048",
         "MESA_EMBEDDING_VERSION": "nemotron-qpass-v1",
         "MESA_EMBEDDING_NORMALIZED": "true",
@@ -97,8 +95,7 @@ def test_effective_compose_config_forwards_profile_b_environment() -> None:
     assert container_env["MESA_LLM_TIMEOUT_SECONDS"] == "25"
     assert container_env["MESA_LLM_API_KEY"] == "test-llm-secret-sentinel"
 
-    assert container_env["MESA_EMBEDDING_PROVIDER"] == "openai_compatible"
-    assert container_env["MESA_EXTERNAL_EMBEDDING_MODEL"] == "nvidia/nemotron-3-embed-1b"
+    assert container_env["MESA_EMBEDDING_MODEL"] == "openai_compatible:nvidia/nemotron-3-embed-1b"
     assert container_env["MESA_EMBEDDING_DIMENSION"] == "2048"
     assert container_env["MESA_EMBEDDING_VERSION"] == "nemotron-qpass-v1"
     assert container_env["MESA_EMBEDDING_NORMALIZED"] == "true"
@@ -111,13 +108,12 @@ def test_effective_compose_config_forwards_profile_b_environment() -> None:
     assert container_env["MESA_EXTRACTION_MAX_TOKENS"] == "4096"
 
     # Container-inside config parsing smoke test
-    cfg = MesaConfig(**container_env)
+    cfg = MesaConfig(**{key: value for key, value in container_env.items() if value is not None})
     assert cfg.llm_model == "openai_compatible:openai/gpt-oss-20b"
     assert cfg.llm_base_url == "https://integrate.api.nvidia.com/v1"
     assert cfg.llm_timeout_seconds == 25.0
     assert cfg.llm_api_key == "test-llm-secret-sentinel"
-    assert cfg.embedding_provider == "openai_compatible"
-    assert cfg.external_embedding_model == "nvidia/nemotron-3-embed-1b"
+    assert cfg.embedding_model == "openai_compatible:nvidia/nemotron-3-embed-1b"
     assert cfg.embedding_dimension == 2048
     assert cfg.embedding_version == "nemotron-qpass-v1"
     assert cfg.embedding_normalized is True
@@ -161,7 +157,7 @@ def test_effective_compose_config_defaults_match_mesaconfig_contract() -> None:
     assert container_env["MESA_EXTRACTION_LANG"] == "tr"
 
     # Container-inside config smoke
-    cfg = MesaConfig(**container_env)
+    cfg = MesaConfig(**{key: value for key, value in container_env.items() if value is not None})
     assert cfg.llm_model == ""
     assert cfg.llm_timeout_seconds == 60.0
     assert cfg.embedding_version == "v1"

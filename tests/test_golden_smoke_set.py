@@ -358,7 +358,7 @@ GOLDEN_EXTRACTION_CASES = [
     {
         "id": "ext_30",
         "category": "config",
-        "text": "MESA_EMBEDDING_DIMENSION=768 ve MESA_LOCAL_EMBEDDING_MODEL=magibu/embeddingmagibu-200m.",
+        "text": "MESA_EMBEDDING_DIMENSION=768 ve MESA_EMBEDDING_MODEL=local:magibu/embeddingmagibu-200m.",
         "expected_facts_count": 2,
         "facts": [
             {
@@ -367,9 +367,9 @@ GOLDEN_EXTRACTION_CASES = [
                 "object": "768",
             },
             {
-                "subject": "MESA_LOCAL_EMBEDDING_MODEL",
+                "subject": "MESA_EMBEDDING_MODEL",
                 "predicate": "AYARLANDI",
-                "object": "magibu/embeddingmagibu-200m",
+                "object": "local:magibu/embeddingmagibu-200m",
             },
         ],
     },
