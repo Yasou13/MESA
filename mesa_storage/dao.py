@@ -3777,7 +3777,9 @@ class MemoryDAO:
                 async with db.execute(
                     "SELECT m.mutation_id, m.metadata_json FROM memory_mutations m "
                     "JOIN projection_outbox p ON p.mutation_id = m.mutation_id "
-                    "WHERE p.projection_name = 'VECTOR' AND p.state = 'SKIPPED'"
+                    "WHERE p.projection_name = 'VECTOR' AND p.state = 'SKIPPED' "
+                    "AND NOT EXISTS (SELECT 1 FROM memory_artifacts a "
+                    "WHERE a.mutation_id = m.mutation_id AND a.store_name = 'VECTOR')"
                 ) as cursor:
                     skipped_mutations = await cursor.fetchall()
                 for mutation_id, raw_metadata in skipped_mutations:

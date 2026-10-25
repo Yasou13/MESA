@@ -495,3 +495,49 @@ async def test_external_openai_compatible_provider_makes_zero_embedding_calls_wh
         embedding_service_mod.set_global_embedding_service(None)
         for field, value in original_config.items():
             object.__setattr__(config, field, value)
+
+
+@pytest.mark.asyncio
+async def test_backfill_keeps_identity_of_skipped_mutation_with_vectors(model_runtime):
+    async with model_runtime(MESA_EMBEDDING_ENABLED=True) as env:
+        await _insert(env)
+        await _consume(env, 3)
+        await _assert_committed(env)
+        # A committed record with vectors reaches a SKIPPED VECTOR lane: parity
+        # repair requeues the lane, then the runtime restarts with embedding off.
+        vector_ids = await env.dao._vec.get_active_node_ids("model-agent")
+        await env.dao._vec.hard_delete(sorted(vector_ids)[0], "model-agent")
+        assert (await env.dao.reconcile_v4_projection_parity(repair=True))[
+            "requeued_lanes"
+        ] == 1
+        await env.restart(MESA_EMBEDDING_ENABLED=False)
+        await _consume(env)
+        assert (await _lanes(env))["VECTOR"] == "SKIPPED"
+        await _assert_committed(env)
+
+        async def identity():
+            async with env.dao._sql.connection() as db:
+                async with db.execute(
+                    "SELECT embedding_version, metadata_json FROM memory_mutations "
+                    "WHERE mutation_id = ?",
+                    (env.mutation_id,),
+                ) as cursor:
+                    return tuple(await cursor.fetchone())
+
+        async with env.dao._sql.transaction() as db:
+            await db.execute(
+                "UPDATE memory_mutations SET embedding_version = 'v0' "
+                "WHERE mutation_id = ?",
+                (env.mutation_id,),
+            )
+            await db.commit()
+        before = await identity()
+
+        await env.restart(MESA_EMBEDDING_ENABLED=True)
+        assert await identity() == before
+        assert (await _lanes(env))["VECTOR"] == "PENDING"
+        await _consume(env)
+        # The durable identity still differs, so the lane fails closed.
+        assert (await _lanes(env))["VECTOR"] == "RETRY_PENDING"
+        await _assert_committed(env)
+        assert (await _search(env))["degraded_sources"] == ["vector"]
