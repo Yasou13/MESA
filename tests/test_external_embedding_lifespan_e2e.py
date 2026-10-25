@@ -20,8 +20,7 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
         field: getattr(config, field)
         for field in (
             "external_provider_enabled",
-            "embedding_provider",
-            "external_embedding_model",
+            "embedding_model",
             "embedding_dimension",
             "embedding_version",
             "embedding_model_revision",
@@ -34,8 +33,7 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
     monkeypatch.setenv("MESA_MODEL_ENABLED", "false")
     monkeypatch.setenv("MESA_EMBEDDING_ENABLED", "true")
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
-    monkeypatch.setenv("MESA_EMBEDDING_PROVIDER", "openai_compatible")
-    monkeypatch.setenv("MESA_EXTERNAL_EMBEDDING_MODEL", "external-test-model")
+    monkeypatch.setenv("MESA_EMBEDDING_MODEL", "openai_compatible:external-test-model")
     monkeypatch.setenv("MESA_EMBEDDING_DIMENSION", "4")
     monkeypatch.setenv("MESA_EMBEDDING_VERSION", "v9")
     monkeypatch.setenv("MESA_EMBEDDING_MODEL_REVISION", "revision-42")

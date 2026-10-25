@@ -316,6 +316,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     embedding_service = _get_embedding_service(
         allow_model_loading=runtime.embedding_enabled,
         force_refresh=True,
+        detect_dimension=(runtime.embedding_enabled and "MESA_EMBEDDING_DIMENSION" not in os.environ),
     )
     await generation_repository.assert_active_embedding_identity(
         embedding_service.identity().as_dict()

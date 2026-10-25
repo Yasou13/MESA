@@ -384,10 +384,12 @@ async def test_rolled_back_generation_can_be_restaged_by_same_operation_retry(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("artifact_kind", ["ASSERTION_VECTOR", "ENTITY_VECTOR"])
 async def test_active_generation_fences_same_dimension_different_embedding_space(
     tmp_path: Path,
+    artifact_kind: str,
 ) -> None:
-    generations, _operations, _storage, _database = _repositories(tmp_path)
+    generations, _operations, _storage, database = _repositories(tmp_path)
     space_a = {
         "embedding_space_id": "provider-a:model-a:rev-a:768:norm=true",
         "provider": "provider-a",
@@ -406,6 +408,13 @@ async def test_active_generation_fences_same_dimension_different_embedding_space
     }
 
     await generations.assert_active_embedding_identity(space_a)
+    with sqlite3.connect(database) as db:
+        db.execute(
+            "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
+            "store_name, artifact_kind, physical_artifact_id) "
+            "VALUES ('vector-a', 'tenant-a', 'agent-a', 'VECTOR', ?, 'vector-a')",
+            (artifact_kind,),
+        )
     with pytest.raises(
         ProjectionGenerationIdentityMismatchError, match="rebuild is required"
     ):
@@ -436,6 +445,12 @@ async def test_restart_keeps_old_generation_active_when_new_embedding_rebuild_is
         "normalized": True,
     }
     await generations.assert_active_embedding_identity(old_space)
+    with sqlite3.connect(database) as db:
+        db.execute(
+            "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
+            "store_name, artifact_kind, physical_artifact_id) VALUES "
+            "('vector-a', 'tenant-a', 'agent-a', 'VECTOR', 'ASSERTION_VECTOR', 'vector-a')"
+        )
     with pytest.raises(
         ProjectionGenerationIdentityMismatchError, match="rebuild is required"
     ):

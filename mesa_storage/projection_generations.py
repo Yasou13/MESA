@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -315,18 +316,20 @@ class ProjectionGenerationRepository:
                 raise ProjectionGenerationIdentityMismatchError(
                     "active embedding manifest is invalid"
                 ) from exc
-            if not manifest:
+            differs = {key: manifest.get(key) for key in required} != {
+                key: identity[key] for key in required
+            }
+            if differs:
                 cursor = await db.execute(
-                    "SELECT COUNT(*) FROM artifact_registry r JOIN artifact_sources s "
-                    "ON s.registry_id = r.registry_id AND s.state = 'ACTIVE' "
-                    "WHERE r.store_name = 'VECTOR' AND r.artifact_kind = 'ENTITY_VECTOR' "
+                    "SELECT COUNT(*) FROM artifact_registry r "
+                    "WHERE r.store_name = 'VECTOR' "
                     "AND r.state = 'ACTIVE'"
                 )
                 row = await cursor.fetchone()
                 has_vectors = bool(row and int(row[0]) > 0)
                 if has_vectors:
                     raise ProjectionGenerationIdentityMismatchError(
-                        "active vector generation has no full embedding identity; rebuild is required"
+                        "active embedding space differs from configured identity; rebuild is required"
                     )
                 manifest = dict(identity)
                 await db.execute(
@@ -335,13 +338,11 @@ class ProjectionGenerationRepository:
                     (_provider_manifest(manifest), active["active_generation_id"]),
                 )
                 await db.commit()
-                return
-            if {key: manifest.get(key) for key in required} != {
-                key: identity[key] for key in required
-            }:
-                raise ProjectionGenerationIdentityMismatchError(
-                    "active embedding space differs from configured identity; rebuild is required"
+                logging.getLogger(__name__).info(
+                    "Adopted embedding identity %s for vector-free generation %s",
+                    identity["embedding_space_id"], active["active_generation_id"],
                 )
+                return
             await db.commit()
 
     async def create_staging(

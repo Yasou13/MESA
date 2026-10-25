@@ -178,7 +178,8 @@ def test_removed_mesa_env_vars_stop_startup_with_message(tmp_path, removed_var):
         load_runtime_profile(env)
     msg = str(exc_info.value)
     assert removed_var in msg
-    assert "MESA_LLM_MODEL" in msg
+    replacement = "MESA_EMBEDDING_MODEL" if "EMBEDDING" in removed_var else "MESA_LLM_MODEL"
+    assert replacement in msg
     assert "e.g." in msg or "example" in msg.lower()
 
 

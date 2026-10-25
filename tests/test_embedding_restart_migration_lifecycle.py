@@ -364,6 +364,13 @@ async def test_restart_fences_same_dimension_different_embedding_spaces(
     second = EmbeddingIdentity(provider="local-b", model="model-b", dimension=768)
     try:
         await generations.assert_active_embedding_identity(first.as_dict())
+        async with sql.transaction() as db:
+            await db.execute(
+                "INSERT INTO artifact_registry (registry_id, tenant_id, agent_id, "
+                "store_name, artifact_kind, physical_artifact_id) VALUES "
+                "('vector-a', 'tenant-a', 'agent-a', 'VECTOR', 'ASSERTION_VECTOR', 'vector-a')"
+            )
+            await db.commit()
         with pytest.raises(ProjectionGenerationIdentityMismatchError, match="differs"):
             await generations.assert_active_embedding_identity(second.as_dict())
     finally:

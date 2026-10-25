@@ -44,6 +44,9 @@ REMOVED_MESA_ENV_VARS: tuple[str, ...] = (
     "MESA_LLM_PROVIDER",
     "MESA_EXTRACTION_PROVIDER",
     "MESA_EXTRACTION_MODEL",
+    "MESA_EMBEDDING_PROVIDER",
+    "MESA_EXTERNAL_EMBEDDING_MODEL",
+    "MESA_LOCAL_EMBEDDING_MODEL",
 )
 
 
@@ -135,9 +138,14 @@ def load_runtime_profile(
     values = os.environ if environ is None else environ
     for removed_var in REMOVED_MESA_ENV_VARS:
         if values.get(removed_var) is not None:
+            replacement = (
+                "MESA_EMBEDDING_MODEL=ollama:qwen3-embedding:4b"
+                if "EMBEDDING" in removed_var
+                else "MESA_LLM_MODEL=ollama:qwen3:8b"
+            )
             raise RuntimeProfileError(
-                f"'{removed_var}' has been removed. Use MESA_LLM_MODEL=provider:model "
-                "instead (e.g. MESA_LLM_MODEL=ollama:qwen3:8b or openai:gpt-4o-mini)."
+                f"'{removed_var}' has been removed. Use provider:model instead "
+                f"(e.g. {replacement})."
             )
     raw_profile = values.get("MESA_RUNTIME_PROFILE")
     if raw_profile is None:
@@ -482,11 +490,8 @@ class MesaConfig(BaseSettings):
     llm_embedding_model_name: str = Field(
         "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
-    embedding_provider: str = Field(
-        "openai_compatible", validation_alias="MESA_EMBEDDING_PROVIDER"
-    )
-    external_embedding_model: str = Field(
-        "text-embedding-3-small", validation_alias="MESA_EXTERNAL_EMBEDDING_MODEL"
+    embedding_model: str = Field(
+        "local:magibu/embeddingmagibu-200m", validation_alias="MESA_EMBEDDING_MODEL"
     )
     model_enabled: bool = Field(False, validation_alias="MESA_MODEL_ENABLED")
     tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")
@@ -505,7 +510,7 @@ class MesaConfig(BaseSettings):
     external_provider_enabled: bool = Field(
         False, validation_alias="MESA_EXTERNAL_PROVIDER_ENABLED"
     )
-    embedding_dimension: int = Field(768, validation_alias="MESA_EMBEDDING_DIMENSION")
+    embedding_dimension: int = Field(768, gt=0, validation_alias="MESA_EMBEDDING_DIMENSION")
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )
@@ -644,11 +649,10 @@ class MesaConfig(BaseSettings):
     # -----------------------------------------------------------------------
     legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
 
-    # Default MVP embedding model (Magibu 768d normalized)
-    local_embedding_model: str = Field(
-        "magibu/embeddingmagibu-200m",
-        validation_alias="MESA_LOCAL_EMBEDDING_MODEL",
-    )
+    @property
+    def local_embedding_model(self) -> str:
+        """Model component for legacy local-adapter callers; no separate setting."""
+        return self.embedding_model.split(":", 1)[-1].strip()
 
     # -----------------------------------------------------------------------
     # v0.7.1 Phase 1.3: Domain-Specific Extraction Language
@@ -781,11 +785,13 @@ class MesaConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validate_nemotron_embedding_contract(self) -> "MesaConfig":
-        if not self.external_provider_enabled or not uses_nemotron_asymmetric_profile(
-            self.embedding_provider, self.external_embedding_model
-        ):
+        provider, _, model = self.embedding_model.partition(":")
+        if not uses_nemotron_asymmetric_profile(provider, model):
             return self
-        if self.embedding_dimension != NEMOTRON_EMBEDDING_DIMENSION:
+        if (
+            "embedding_dimension" in self.model_fields_set
+            and self.embedding_dimension != NEMOTRON_EMBEDDING_DIMENSION
+        ):
             raise ValueError(
                 f"{NEMOTRON_EMBEDDING_MODEL} requires "
                 f"MESA_EMBEDDING_DIMENSION={NEMOTRON_EMBEDDING_DIMENSION}"
@@ -807,7 +813,7 @@ class MesaConfig(BaseSettings):
                 "OPENAI_API_KEY not set for Claude provider. "
                 "No external embedding fallback will be selected automatically; "
                 "the configured embedding provider remains authoritative (%s).",
-                self.local_embedding_model,
+                self.embedding_model,
             )
         return self
 
@@ -892,7 +898,7 @@ class MesaConfig(BaseSettings):
             "Local Ollama provider selected (%s). "
             "Embeddings: %s (local).",
             self.ollama_url,
-            self.local_embedding_model,
+            self.embedding_model,
         )
 
         object.__setattr__(self, "llm_model", "ollama:qwen3:8b")
@@ -967,21 +973,31 @@ def configured_embedding_identity(
     environ: Mapping[str, str] | None = None,
 ) -> EmbeddingIdentity:
     """Return the provider identity shared by admission, worker and rebuild."""
-    values = os.environ if environ is None else environ
-    external = _parse_runtime_bool(
-        values.get("MESA_EXTERNAL_PROVIDER_ENABLED"),
-        name="MESA_EXTERNAL_PROVIDER_ENABLED",
-        default=False,
-    )
+    provider, model = parse_embedding_spec(config.embedding_model)
     return EmbeddingIdentity(
-        provider=config.embedding_provider if external else "local",
-        model=(
-            config.external_embedding_model
-            if external
-            else config.local_embedding_model
-        ),
+        provider=provider,
+        model=model,
         version=config.embedding_version,
         dimension=config.embedding_dimension,
         normalized=config.embedding_normalized,
         model_revision=config.embedding_model_revision,
+    )
+
+
+def parse_embedding_spec(spec: str) -> tuple[str, str]:
+    """Reuse the LLM parser for shared providers and add the local backend."""
+    from mesa_memory.adapter.factory import parse_llm_spec
+
+    provider, separator, model = spec.strip().partition(":")
+    if provider.strip().lower() == "local" and separator and model.strip():
+        return "local", model.strip()
+    try:
+        provider, model = parse_llm_spec(spec)
+        if provider in {"ollama", "openai", "openai_compatible"}:
+            return provider, model
+    except ValueError:
+        pass
+    raise ValueError(
+        "MESA_EMBEDDING_MODEL must be provider:model with a nonempty model; "
+        "supported providers: local, ollama, openai, openai_compatible."
     )

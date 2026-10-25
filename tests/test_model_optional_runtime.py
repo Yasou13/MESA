@@ -111,6 +111,7 @@ def model_runtime(tmp_path, monkeypatch):
                 )
 
             env.restart = restart
+            env.stop = stack.aclose
             yield env
 
     return runtime
@@ -298,9 +299,6 @@ async def test_identity_change_rebuild_allows_skipped_vector_backfill(
     import hashlib
 
     from mesa_memory import rebuild_runner
-    from mesa_storage.projection_generations import (
-        ProjectionGenerationIdentityMismatchError,
-    )
     from mesa_storage.repositories.operations import OperationRepository
     from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -313,11 +311,12 @@ async def test_identity_change_rebuild_allows_skipped_vector_backfill(
         assert (await _lanes(env))["VECTOR"] == "SKIPPED"
 
         storage_root = server.state.runtime_profile.storage_root
-        with pytest.raises(ProjectionGenerationIdentityMismatchError, match="differs"):
-            await env.restart(
-                MESA_EMBEDDING_ENABLED=True, MESA_EMBEDDING_VERSION="v2"
-            )
+        # A vector-free generation now adopts the new identity without a rebuild.
+        await env.restart(MESA_EMBEDDING_ENABLED=False, MESA_EMBEDDING_VERSION="v2")
+        assert (await _lanes(env))["VECTOR"] == "SKIPPED"
+        await _assert_committed(env)
 
+        await env.stop()  # Offline rebuild needs the combined writer lock released.
         sql = AsyncEngine(str(storage_root / "mesa.db"))
         await sql.initialize()
         try:
@@ -335,7 +334,7 @@ async def test_identity_change_rebuild_allows_skipped_vector_backfill(
         work_root.mkdir()
         monkeypatch.setattr(
             rebuild_runner,
-            "EmbeddingService",
+            "get_embedding_service",
             lambda **kw: _embedding_service(env.provider),
         )
         rc = await rebuild_runner.run_rebuild(
@@ -383,8 +382,7 @@ async def test_external_openai_compatible_provider_makes_zero_embedding_calls_wh
         field: getattr(config, field)
         for field in (
             "external_provider_enabled",
-            "embedding_provider",
-            "external_embedding_model",
+            "embedding_model",
             "embedding_dimension",
             "embedding_version",
             "embedding_model_revision",
@@ -421,8 +419,7 @@ async def test_external_openai_compatible_provider_makes_zero_embedding_calls_wh
         "MESA_EMBEDDING_ENABLED": "false",
         "MESA_EXTRACTION_ENABLED": "false",
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
-        "MESA_EMBEDDING_PROVIDER": "openai_compatible",
-        "MESA_EXTERNAL_EMBEDDING_MODEL": "external-test-model",
+        "MESA_EMBEDDING_MODEL": "openai_compatible:external-test-model",
         "MESA_EMBEDDING_DIMENSION": "4",
         "MESA_EMBEDDING_VERSION": "v1",
         "MESA_EMBEDDING_NORMALIZED": "true",

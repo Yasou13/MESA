@@ -454,11 +454,26 @@ def test_nemotron_environment_contract_rejects_legacy_dimension():
     with pytest.raises(ValueError, match="MESA_EMBEDDING_DIMENSION=2048"):
         MesaConfig(
             external_provider_enabled=True,
-            embedding_provider="openai_compatible",
-            external_embedding_model=NEMOTRON_EMBEDDING_MODEL,
+            embedding_model=f"openai_compatible:{NEMOTRON_EMBEDDING_MODEL}",
             embedding_dimension=768,
             embedding_version=NEMOTRON_EMBEDDING_VERSION,
         )
+
+
+def test_nemotron_probe_detects_dimension_and_keeps_passage_profile(fake_openai_embedding_sdk):
+    service = get_embedding_service(
+        identity=_nemotron_identity(dimension=768),
+        detect_dimension=True,
+        external_enabled=True,
+        force_refresh=True,
+    )
+    assert service.dimension == NEMOTRON_EMBEDDING_DIMENSION
+    assert config.embedding_dimension == NEMOTRON_EMBEDDING_DIMENSION
+    assert fake_openai_embedding_sdk["sync_calls"] == [{
+        "model": NEMOTRON_EMBEDDING_MODEL,
+        "input": "MESA embedding dimension probe",
+        "extra_body": {"input_type": "passage", "truncate": "END"},
+    }]
 
 
 def test_embedding_endpoint_overrides_llm_endpoint(fake_openai_embedding_sdk):
@@ -604,6 +619,12 @@ async def test_restart_fences_legacy_nemotron_request_semantics() -> None:
 
     class Connection:
         async def execute(self, _query):
+            if "artifact_registry" in _query:
+                class VectorCursor:
+                    async def fetchone(self):
+                        return (1,)  # Existing vectors must fence legacy Nemotron semantics.
+
+                return VectorCursor()
             return Cursor()
 
         async def commit(self):
@@ -631,8 +652,7 @@ def test_configured_external_embedding_uses_the_production_factory(monkeypatch):
     from mesa_memory.config import config
 
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
-    monkeypatch.setattr(config, "embedding_provider", "openai_compatible")
-    monkeypatch.setattr(config, "external_embedding_model", "configured-model")
+    monkeypatch.setattr(config, "embedding_model", "openai_compatible:configured-model")
     monkeypatch.setattr(config, "embedding_dimension", 4)
     constructed = []
 
