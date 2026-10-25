@@ -3755,7 +3755,7 @@ class MemoryDAO:
         producer_identity = getattr(self._vec, "embedding_identity", None)
         async with self._sql.transaction() as db:
             if producer_identity is not None:
-                identity_snapshot = (
+                identity_snapshot: dict[str, Any] = (
                     producer_identity.as_dict()
                     if hasattr(producer_identity, "as_dict")
                     else {
