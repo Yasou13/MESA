@@ -80,7 +80,9 @@ def _environment_bool(name: str, *, default: bool = False) -> bool:
 
 def _provider_runtime() -> RebuildProviderRuntime:
     external = _environment_bool("MESA_EXTERNAL_PROVIDER_ENABLED")
-    model_enabled = _environment_bool("MESA_MODEL_ENABLED")
+    embedding_enabled = _environment_bool(
+        "MESA_EMBEDDING_ENABLED", default=_environment_bool("MESA_MODEL_ENABLED")
+    )
     identity = configured_embedding_identity()
     embedding_service = EmbeddingService(
         identity=EmbeddingIdentity(
@@ -91,8 +93,8 @@ def _provider_runtime() -> RebuildProviderRuntime:
             normalized=identity.normalized,
             model_revision=identity.model_revision,
         ),
-        allow_model_loading=model_enabled,
-        external_enabled=external,
+        allow_model_loading=embedding_enabled,
+        external_enabled=external and embedding_enabled,
     )
     return RebuildProviderRuntime(
         manifest={
@@ -113,7 +115,7 @@ def _provider_runtime() -> RebuildProviderRuntime:
             "embedding_space_id": identity.embedding_space_id,
         },
         embedding_provider=None,
-        allow_model_loading=model_enabled,
+        allow_model_loading=embedding_enabled,
         local_embedding_model=config.local_embedding_model,
         embedding_service=embedding_service,
     )

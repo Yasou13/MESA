@@ -41,10 +41,6 @@ def test_test_isolated_rejects_dotenv_provider_and_storage_escape(tmp_path):
         load_runtime_profile(isolated_env(tmp_path, MESA_STORAGE_ROOT="/tmp/outside"))
 
 
-
-
-
-
 def test_test_isolated_never_reads_dotenv_without_explicit_allowance(tmp_path):
     env = isolated_env(tmp_path)
     profile = load_runtime_profile(env)
@@ -131,6 +127,28 @@ def test_test_isolated_rejects_symlink_escape_from_runtime_lab_root(tmp_path):
 
 
 def test_combined_enables_api_and_workers(tmp_path):
-    runtime = load_runtime_profile(isolated_env(tmp_path, MESA_RUNTIME_PROFILE="combined"))
+    runtime = load_runtime_profile(
+        isolated_env(tmp_path, MESA_RUNTIME_PROFILE="combined")
+    )
     assert runtime.profile is RuntimeProfile.COMBINED
     assert runtime.api_enabled is True and runtime.worker_enabled is True
+
+
+@pytest.mark.parametrize("flag", ["MESA_EMBEDDING_ENABLED", "MESA_EXTRACTION_ENABLED"])
+def test_test_isolated_forbids_separate_model_flags(tmp_path, flag):
+    with pytest.raises(RuntimeProfileError):
+        load_runtime_profile(isolated_env(tmp_path, **{flag: "true"}))
+
+
+@pytest.mark.parametrize("legacy", ["true", "false"])
+def test_separate_flags_default_to_legacy_and_can_override_it(tmp_path, legacy):
+    env = isolated_env(
+        tmp_path, MESA_RUNTIME_PROFILE="combined", MESA_MODEL_ENABLED=legacy
+    )
+    runtime = load_runtime_profile(env)
+    assert runtime.embedding_enabled is (legacy == "true")
+    assert runtime.extraction_enabled is (legacy == "true")
+    runtime = load_runtime_profile(
+        {**env, "MESA_EMBEDDING_ENABLED": "false", "MESA_EXTRACTION_ENABLED": "true"}
+    )
+    assert runtime.embedding_enabled is False and runtime.extraction_enabled is True

@@ -314,7 +314,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     state.projection_generation_id = projection_paths.generation_id  # type: ignore[attr-defined]
 
     embedding_service = _get_embedding_service(
-        allow_model_loading=runtime.model_enabled,
+        allow_model_loading=runtime.embedding_enabled,
         force_refresh=True,
     )
     await generation_repository.assert_active_embedding_identity(
@@ -358,9 +358,8 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         sqlite_engine=state.sqlite_engine,
         vector_engine=state.vector_engine,
         graph_provider=graph_provider,
-        canonical_v4_writes_enabled=(
-            runtime.profile is RuntimeProfile.COMBINED and runtime.model_enabled
-        ),
+        canonical_v4_writes_enabled=(runtime.profile is RuntimeProfile.COMBINED),
+        embedding_enabled=runtime.embedding_enabled,
         secondary_writes_enabled=runtime.profile is RuntimeProfile.COMBINED,
         rrf_k=config.rrf_k,
         rrf_weights={
@@ -373,6 +372,8 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     await state.dao.initialize()
     if runtime.profile is RuntimeProfile.COMBINED:
         await state.dao.recover_processing_raw_logs()
+        if runtime.embedding_enabled:
+            await state.dao.requeue_skipped_vector_projections()
 
     # The MCP control plane shares the API's single SQLite storage
     # owner.  It must not construct or close a second AsyncEngine lifecycle.
@@ -401,7 +402,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     # Model/provider and worker startup are explicit profile decisions.
     wal_task = None
     state.consolidation_loop = None  # type: ignore[assignment]
-    if runtime.worker_enabled and runtime.model_enabled:  # type: ignore[assignment]
+    if runtime.worker_enabled and runtime.extraction_enabled:  # type: ignore[assignment]
         logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
         effective_mode = config.effective_tier3_mode()
         validation_policy = compose_validation_policy(effective_mode)
@@ -502,7 +503,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             lambda: _run_combined_durable_consumer(
                 state.dao,
                 consolidation_loop=state.consolidation_loop,
-                model_processing_enabled=runtime.model_enabled,
+                model_processing_enabled=runtime.extraction_enabled,
             ),
         )
         state.background_tasks.add(combined_task)
@@ -746,7 +747,7 @@ def get_embedding_service():
 def get_embedder():
     """Dependency injection for the embedder function (backward compatibility)."""
     runtime = getattr(state, "runtime_profile", None)
-    if runtime is not None and not runtime.model_enabled:
+    if runtime is not None and not runtime.embedding_enabled:
         return lambda _text: [0.0] * 8
     try:
         return _get_embedding_service().embed_document
