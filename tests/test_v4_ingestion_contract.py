@@ -683,3 +683,82 @@ async def test_cold_path_skips_raw_log_that_is_not_deferred(status):
     dao.update_raw_log_status.assert_not_awaited()
     dao.record_mutation_extraction.assert_not_awaited()
     dao.set_mutation_state.assert_not_awaited()
+
+
+from tests.v4_release_helpers import v4_release_env as v4_release_env
+
+
+@pytest.mark.asyncio
+async def test_reused_revision_number_returns_409(v4_release_env):
+    env = v4_release_env
+    # 1. Insert r1 of a document (default revision_number=1)
+    res1 = await env.client.post(
+        "/v4/memory/insert",
+        json={
+            "session_id": env.session_id,
+            "dataset_id": "dataset-a",
+            "document_id": "doc-rev-dup",
+            "revision_id": "rev-dup-1",
+            "chunk_id": "chunk-dup-1",
+            "title": "Document Dup",
+            "source_ref": "ref-1",
+            "content": "Revision 1 content",
+            "idempotency_key": "insert-r1",
+        },
+    )
+    assert res1.status_code == 202, res1.text
+
+    # 2. Insert r2 (new revision ID) with no revision_number (defaults to 1) -> 409
+    res2_no_num = await env.client.post(
+        "/v4/memory/insert",
+        json={
+            "session_id": env.session_id,
+            "dataset_id": "dataset-a",
+            "document_id": "doc-rev-dup",
+            "revision_id": "rev-dup-2",
+            "chunk_id": "chunk-dup-2",
+            "title": "Document Dup",
+            "source_ref": "ref-2",
+            "content": "Revision 2 without revision_number",
+            "idempotency_key": "insert-r2-no-num",
+        },
+    )
+    assert res2_no_num.status_code == 409, res2_no_num.text
+    assert "revision number already used" in res2_no_num.json()["detail"].lower()
+
+    # 3. Same with explicit duplicate number (revision_number=1) -> 409
+    res3_dup_num = await env.client.post(
+        "/v4/memory/insert",
+        json={
+            "session_id": env.session_id,
+            "dataset_id": "dataset-a",
+            "document_id": "doc-rev-dup",
+            "revision_id": "rev-dup-3",
+            "revision_number": 1,
+            "chunk_id": "chunk-dup-3",
+            "title": "Document Dup",
+            "source_ref": "ref-3",
+            "content": "Revision 3 with explicit duplicate revision_number 1",
+            "idempotency_key": "insert-r3-dup-num",
+        },
+    )
+    assert res3_dup_num.status_code == 409, res3_dup_num.text
+    assert "revision number already used" in res3_dup_num.json()["detail"].lower()
+
+    # 4. r2 with revision_number=2 -> 202
+    res4_valid = await env.client.post(
+        "/v4/memory/insert",
+        json={
+            "session_id": env.session_id,
+            "dataset_id": "dataset-a",
+            "document_id": "doc-rev-dup",
+            "revision_id": "rev-dup-4",
+            "revision_number": 2,
+            "chunk_id": "chunk-dup-4",
+            "title": "Document Dup",
+            "source_ref": "ref-4",
+            "content": "Revision 4 with revision_number 2",
+            "idempotency_key": "insert-r4-valid",
+        },
+    )
+    assert res4_valid.status_code == 202, res4_valid.text

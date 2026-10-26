@@ -1975,6 +1975,14 @@ class MemoryDAO:
                         supersedes_revision_id,
                     ),
                 )
+                async with db.execute(
+                    "SELECT 1 FROM document_revisions WHERE revision_id = ?",
+                    (revision_id,),
+                ) as cursor:
+                    if await cursor.fetchone() is None:
+                        raise ValueError(
+                            "revision number already used for this document"
+                        )
                 if existing_revision is not None and (
                     existing_revision["revision_number"] != revision_number
                     or existing_revision["supersedes_revision_id"]
