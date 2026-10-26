@@ -14,8 +14,9 @@ import functools
 import hashlib
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Literal, Sequence
+from urllib.parse import urlparse
 
 from mesa_memory.config import (
     NEMOTRON_EMBEDDING_DIMENSION,
@@ -126,6 +127,7 @@ class EmbeddingService:
         async_query_provider_fn: Callable[[str], Any] | None = None,
         allow_model_loading: bool = True,
         external_enabled: bool | None = None,
+        detect_dimension: bool = False,
     ) -> None:
         if identity is not None:
             self._identity = identity
@@ -159,13 +161,48 @@ class EmbeddingService:
 
         # Validate external provider egress fence
         self._validate_egress_fence()
-        self._validate_known_identity_contract()
+        if not detect_dimension:
+            self._validate_known_identity_contract()
 
         # Initialize backend if needed
         self._init_backend()
+        if detect_dimension:
+            self._detect_dimension()
+            self._validate_known_identity_contract()
+
+    def _detect_dimension(self) -> None:
+        """Probe once before vector storage is opened or an identity is persisted."""
+        try:
+            text = "MESA embedding dimension probe"
+            if self._provider_fn is not None:
+                vector = self._provider_fn(text)
+            elif self._local_model is not None:
+                vector = self._local_model.encode(
+                    text, normalize_embeddings=self._identity.normalized,
+                    show_progress_bar=False,
+                )
+            elif self._is_mock:
+                vector = _deterministic_mock_vector(text, self.dimension)
+            else:
+                raise EmbeddingUnavailableError("embedding backend is unavailable")
+            if not len(vector) or not all(math.isfinite(float(x)) for x in vector):
+                raise EmbeddingGenerationError("probe returned an empty or nonfinite vector")
+            self._identity = replace(self._identity, dimension=len(vector))
+            self._operational = True
+        except Exception as exc:
+            url = (
+                _embedding_base_url(self._identity) or "https://api.openai.com/v1"
+                if self._identity.provider.lower() in {"ollama", "openai", "openai_compatible"}
+                else "local model cache"
+            )
+            raise EmbeddingUnavailableError(
+                f"Cannot detect embedding dimension for {self._identity.provider}:"
+                f"{self._identity.model} at {url}; embedding probe failed: {exc}"
+            ) from exc
 
     def _validate_egress_fence(self) -> None:
         """Enforce external provider egress fence."""
+        _require_permitted_ollama_embedding_url(self._identity, self._external_enabled)
         external_providers = {
             "openai",
             "openai_compatible",
@@ -489,6 +526,29 @@ class EmbeddingService:
         )
 
 
+def _embedding_base_url(identity: EmbeddingIdentity) -> str | None:
+    if config.embedding_base_url:
+        return config.embedding_base_url
+    if identity.provider.lower() == "ollama":
+        return config.ollama_url.rstrip("/") + "/v1"
+    return config.llm_base_url
+
+
+def _require_permitted_ollama_embedding_url(
+    identity: EmbeddingIdentity, external_enabled: bool
+) -> None:
+    if identity.provider.lower() != "ollama" or external_enabled:
+        return
+    parsed = urlparse(_embedding_base_url(identity) or "")
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+        "localhost", "127.0.0.1", "::1",
+    }:
+        raise ValueError(
+            "Remote Ollama embedding is forbidden when "
+            "MESA_EXTERNAL_PROVIDER_ENABLED=false. Use a loopback URL."
+        )
+
+
 class _OpenAICompatibleEmbeddingBackend:
     """Narrow OpenAI-compatible embedding transport, separate from LLM adapters."""
 
@@ -503,16 +563,16 @@ class _OpenAICompatibleEmbeddingBackend:
             getattr(config, "embedding_api_key", None)
             or getattr(config, "llm_api_key", None)
             or getattr(config, "openai_api_key", None)
+            or ("ollama" if identity.provider.lower() == "ollama" else None)
         )
         if not api_key:
             raise EmbeddingCompositionError(
                 "OpenAI-compatible embedding configuration requires "
-                "MESA_EMBEDDING_API_KEY or LLM_API_KEY"
+                "MESA_EMBEDDING_API_KEY or MESA_LLM_API_KEY"
             )
         options = {
             "api_key": api_key,
-            "base_url": getattr(config, "embedding_base_url", None)
-            or getattr(config, "llm_base_url", None),
+            "base_url": _embedding_base_url(identity),
             "timeout": float(getattr(config, "llm_timeout_seconds", 20.0)),
             "max_retries": 0,
         }
@@ -589,7 +649,7 @@ def _compose_external_backend(
     Callable[[str], Any],
 ]:
     """Compose a real, explicit external embedding transport at startup."""
-    if identity.provider.lower() not in {"openai", "openai_compatible"}:
+    if identity.provider.lower() not in {"ollama", "openai", "openai_compatible"}:
         raise EmbeddingCompositionError(
             f"External embedding provider '{identity.provider}' is unsupported"
         )
@@ -612,6 +672,7 @@ def get_embedding_service(
     allow_model_loading: bool = True,
     force_refresh: bool = False,
     external_enabled: bool | None = None,
+    detect_dimension: bool = False,
     external_backend_factory: (
         Callable[
             [EmbeddingIdentity],
@@ -638,12 +699,13 @@ def get_embedding_service(
             if external_enabled is None
             else external_enabled
         )
+        _require_permitted_ollama_embedding_url(identity, effective_external_enabled)
         provider_fn: Callable[[str], list[float]] | None = None
         async_provider_fn: Callable[[str], Any] | None = None
         query_provider_fn: Callable[[str], list[float]] | None = None
         async_query_provider_fn: Callable[[str], Any] | None = None
-        if identity.provider.lower() in {"openai", "openai_compatible"}:
-            if not effective_external_enabled:
+        if identity.provider.lower() in {"ollama", "openai", "openai_compatible"}:
+            if identity.provider.lower() != "ollama" and not effective_external_enabled:
                 raise ExternalProviderForbiddenError(
                     "External embedding provider is forbidden when "
                     "MESA_EXTERNAL_PROVIDER_ENABLED=false."
@@ -666,7 +728,10 @@ def get_embedding_service(
             async_query_provider_fn=async_query_provider_fn,
             allow_model_loading=allow_model_loading,
             external_enabled=effective_external_enabled,
+            detect_dimension=detect_dimension,
         )
+        if detect_dimension:
+            config.embedding_dimension = _GLOBAL_EMBEDDING_SERVICE.dimension
     return _GLOBAL_EMBEDDING_SERVICE
 
 

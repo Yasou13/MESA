@@ -166,34 +166,24 @@ def test_adapter_factory_resolves_all_supported_provider_paths(monkeypatch) -> N
     monkeypatch.setattr(claude, "ClaudeAdapter", FakeAdapter)
     monkeypatch.setattr(ollama, "OllamaAdapter", FakeAdapter)
     monkeypatch.setattr(factory.config, "llm_api_key", "configured-key")
-    monkeypatch.setattr(factory.config, "anthropic_api_key", "anthropic-key")
     monkeypatch.setattr(factory.config, "llm_base_url", "http://provider")
-    monkeypatch.setattr(factory.config, "llm_model_name", "model")
     monkeypatch.setattr(factory.config, "external_provider_enabled", True)
 
     assert isinstance(
-        factory.AdapterFactory.get_adapter("openai_compatible"), FakeAdapter
+        factory.AdapterFactory.get_adapter("openai_compatible", model_name="m"), FakeAdapter
     )
-    assert isinstance(factory.AdapterFactory.get_adapter("claude"), FakeAdapter)
-    assert isinstance(factory.AdapterFactory.get_adapter("ollama"), FakeAdapter)
+    assert isinstance(
+        factory.AdapterFactory.get_adapter("openai", model_name="m"), FakeAdapter
+    )
+    assert isinstance(factory.AdapterFactory.get_adapter("claude", model_name="m"), FakeAdapter)
+    assert isinstance(factory.AdapterFactory.get_adapter("anthropic", model_name="m"), FakeAdapter)
+    assert isinstance(factory.AdapterFactory.get_adapter("ollama", model_name="m"), FakeAdapter)
     assert isinstance(
         factory.AdapterFactory.get_adapter("mock"), factory.DeterministicMockAdapter
     )
 
-    monkeypatch.setenv("MESA_OLLAMA_URL", "http://ollama")
-    assert isinstance(factory.AdapterFactory.get_adapter("auto"), FakeAdapter)
-    monkeypatch.delenv("MESA_OLLAMA_URL")
-    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
-    assert isinstance(factory.AdapterFactory.get_adapter("auto"), FakeAdapter)
-    monkeypatch.delenv("OPENAI_API_KEY")
-    monkeypatch.setattr(factory.config, "llm_api_key", "")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
-    assert isinstance(factory.AdapterFactory.get_adapter("auto"), FakeAdapter)
-    monkeypatch.delenv("ANTHROPIC_API_KEY")
-    monkeypatch.setattr(factory.config, "anthropic_api_key", "")
-    assert isinstance(
-        factory.AdapterFactory.get_adapter("auto"), factory.DeterministicMockAdapter
-    )
+    monkeypatch.setattr(factory.config, "llm_model", "openai:gpt-4o")
+    assert isinstance(factory.AdapterFactory.get_adapter(), FakeAdapter)
 
     with pytest.raises(ValueError, match="Unknown LLM provider"):
         factory.AdapterFactory.get_adapter("unsupported")

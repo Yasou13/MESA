@@ -89,15 +89,12 @@ def test_config_claude_no_key():
     _ = MesaConfig(
         llm_provider="claude",
         openai_api_key=None,
-        mesa_llm_provider="openai_compatible",
+        llm_model="openai_compatible:my-model",
     )
     # Triggers warning block in validate_embedding_fallback
 
 
 def test_config_zero_cost_mode():
-    config = MesaConfig(zero_cost_mode=True, mesa_llm_provider="openai_compatible")
-    assert config.mesa_llm_provider == "ollama"
-    assert config.llm_model_name == "qwen3:8b"
-    assert config.extraction_provider == "ollama"
-    assert config.extraction_model == "qwen3:1.7b"
+    config = MesaConfig(zero_cost_mode=True, llm_model="openai_compatible:my-model")
+    assert config.llm_model == "ollama:qwen3:8b"
     assert config.extraction_thinking is False

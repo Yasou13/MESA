@@ -34,7 +34,7 @@ def test_v4_rebuild_feature_flag_is_disabled_by_default_and_explicitly_enabled(
     assert MesaConfig(_env_file=None).v4_rebuild_enabled is True
 
 
-def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode():
+def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode(monkeypatch):
     identity = configured_embedding_identity(
         {"MESA_EXTERNAL_PROVIDER_ENABLED": "false"}
     )
@@ -48,8 +48,11 @@ def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode():
     external_identity = configured_embedding_identity(
         {"MESA_EXTERNAL_PROVIDER_ENABLED": "true"}
     )
-    assert external_identity.provider == config.embedding_provider
-    assert external_identity.model == config.external_embedding_model
+    assert external_identity == identity  # Egress permission never selects a model.
+    monkeypatch.setattr(config, "embedding_model", "openai_compatible:configured-model")
+    selected = configured_embedding_identity({"MESA_EXTERNAL_PROVIDER_ENABLED": "false"})
+    assert selected.provider == "openai_compatible"
+    assert selected.model == "configured-model"
 
 
 def test_v4_graph_timeout_config_default_and_env_override(monkeypatch):

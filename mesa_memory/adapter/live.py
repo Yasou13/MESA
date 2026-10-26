@@ -42,14 +42,14 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
             raise RuntimeError("OpenAICompatibleAdapter requires mesa-memory[adapters]")
         self.api_key = api_key
         self.base_url = base_url
-        self.model_name = model_name or "llama-3.1-8b-instant"
+        self.model_name = model_name or ""
         self.embedding_model_name = embedding_model_name or "text-embedding-3-small"
         self.timeout_seconds = float(timeout_seconds)
 
         if not api_key:
             raise ValueError(
                 "API key is required for OpenAICompatibleAdapter. "
-                "Set LLM_API_KEY or OPENAI_API_KEY environment variable."
+                "Set MESA_LLM_API_KEY or OPENAI_API_KEY environment variable."
             )
 
         if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:

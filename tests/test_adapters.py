@@ -9,6 +9,12 @@ from mesa_memory.adapter.ollama import OllamaAdapter
 
 pytestmark = pytest.mark.optional_provider
 
+try:
+    import anthropic  # noqa: F401
+    import ollama  # noqa: F401
+except ImportError:
+    pytest.skip("mesa-memory[adapters] extra not installed", allow_module_level=True)
+
 
 class DummySchema(BaseModel):
     decision: str
@@ -241,16 +247,12 @@ def test_adapter_factory_ollama_explicit():
     assert isinstance(adapter, OllamaAdapter)
 
 
-@patch("os.environ.get")
-def test_adapter_factory_auto_detect_zero_cost(mock_env_get):
+def test_adapter_factory_auto_detect_zero_cost(monkeypatch):
     from mesa_memory.adapter.factory import AdapterFactory
     from mesa_memory.adapter.ollama import OllamaAdapter
+    from mesa_memory.config import config
 
-    def env_get_side_effect(key, default=None):
-        if key == "MESA_OLLAMA_URL":
-            return "http://localhost:11434"
-        return default
-
-    mock_env_get.side_effect = env_get_side_effect
-    adapter = AdapterFactory.get_adapter(provider="auto")
+    monkeypatch.setattr(config, "llm_model", "ollama:qwen3:8b")
+    monkeypatch.setenv("MESA_OLLAMA_URL", "http://localhost:11434")
+    adapter = AdapterFactory.get_adapter()
     assert isinstance(adapter, OllamaAdapter)

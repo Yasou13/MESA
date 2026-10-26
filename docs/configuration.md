@@ -68,34 +68,46 @@ export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=true
 export MESA_EXTERNAL_PROVIDER_ENABLED=true
 export MESA_TIER3_MODE=0
-export MESA_LLM_PROVIDER=openai_compatible
-export LLM_MODEL_NAME=gpt-4o-mini
-export LLM_BASE_URL=https://api.openai.com/v1
-export LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
-export MESA_EXTRACTION_PROVIDER=openai_compatible
-export MESA_EXTRACTION_MODEL=gpt-4o-mini
-export MESA_EMBEDDING_PROVIDER=openai_compatible
-export MESA_EXTERNAL_EMBEDDING_MODEL=text-embedding-3-small
+export MESA_LLM_MODEL=openai:gpt-4o-mini
+export MESA_LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
+export MESA_EMBEDDING_MODEL=openai:text-embedding-3-small
 export MESA_EMBEDDING_BASE_URL=https://api.openai.com/v1
-export MESA_EMBEDDING_API_KEY="$LLM_API_KEY"
+export MESA_EMBEDDING_API_KEY="$MESA_LLM_API_KEY"
 export MESA_EMBEDDING_DIMENSION=1536
 export MESA_EMBEDDING_NORMALIZED=true
 export MESA_EMBEDDING_VERSION=v1
 ```
 
-The commands deliberately provision a **new root** when changing the embedding
-identity from the models-disabled demo: even an empty initialized root records
-its embedding identity. Keep `MESA_API_KEY` (MESA access) separate
-from `LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Modes 1/2 need
+A root without active vector artifacts adopts a changed embedding identity at
+startup and backfills skipped VECTOR lanes. A root with active vectors requires
+an explicit rebuild before changing identity. Keep `MESA_API_KEY` (MESA access) separate
+from `MESA_LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Modes 1/2 need
 the validator A or A/B settings from the table below. Extraction is configured
 separately and mode 0 still calls it.
 
-`AdapterFactory` accepts `openai_compatible`, `claude`, `ollama`, `auto` and
-explicit test-only `mock`. `auto` may select a mock, so use an explicit provider
-for real work. Embeddings support local sentence-transformers (`ml` extra) or
+`AdapterFactory` parses `provider:model` (`ollama`, `openai`, `openai_compatible`,
+`anthropic`, `mock`). Embeddings support local sentence-transformers (`ml` extra) or
 OpenAI-compatible endpoints (`adapters` extra); Claude/Ollama extraction does not
 automatically configure embeddings. Native Ollama extraction requires a running
 endpoint and an already available model; MESA does not provision it.
+
+Select embeddings with `MESA_EMBEDDING_MODEL=provider:model`: `local:...`,
+`ollama:qwen3-embedding:4b`, `openai:text-embedding-3-small`, or
+`openai_compatible:nvidia/nemotron-3-embed-1b`. The second colon stays in the
+model name. `MESA_EMBEDDING_BASE_URL` overrides the endpoint; Ollama otherwise
+uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server. Without
+`MESA_EXTERNAL_PROVIDER_ENABLED=true`, Ollama must use a loopback URL; OpenAI
+and OpenAI-compatible providers require the flag. Endpoint/key settings retain
+the `MESA_LLM_BASE_URL` / `MESA_LLM_API_KEY` fallbacks for those providers.
+
+With embedding enabled and `MESA_EMBEDDING_DIMENSION` unset, the server and
+rebuild runner embed one probe at startup and use its length for storage and
+admission. Probe failure stops startup and names the model and URL. Setting the
+dimension explicitly skips the probe; embedding disabled with no dimension
+keeps 768 and makes no embedding requests. The removed embedding provider,
+external-model and local-model variables stop runtime startup with the
+replacement setting. Nemotron still requires `MESA_EMBEDDING_VERSION=nemotron-qpass-v1`
+and 2048 dimensions (explicit or detected).
 
 The built-in `mock` adapter returns no extracted facts; it is not a source-backed
 V4 demo. Contract tests inject deterministic fact and embedding providers
@@ -130,20 +142,16 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `llm_provider` | `LLM_PROVIDER` | `'claude'` |
 | `openai_api_key` | `OPENAI_API_KEY` | `None` |
 | `anthropic_api_key` | `ANTHROPIC_API_KEY` | `None` |
-| `mesa_llm_provider` | `MESA_LLM_PROVIDER` | `'openai_compatible'` |
-| `llm_base_url` | `LLM_BASE_URL` | `None` |
-| `llm_api_key` | `LLM_API_KEY` | `None` |
+| `llm_model` | `MESA_LLM_MODEL` | `''` |
+| `llm_base_url` | `MESA_LLM_BASE_URL` | `None` |
+| `llm_api_key` | `MESA_LLM_API_KEY` | `None` |
+| `llm_timeout_seconds` | `MESA_LLM_TIMEOUT_SECONDS` | `60.0` |
 | `embedding_base_url` | `MESA_EMBEDDING_BASE_URL` | `None` |
 | `embedding_api_key` | `MESA_EMBEDDING_API_KEY` | `None` |
-| `llm_model_name` | `LLM_MODEL_NAME` | `'llama-3.1-8b-instant'` |
-| `extraction_provider` | `MESA_EXTRACTION_PROVIDER` | `'ollama'` |
-| `extraction_model` | `MESA_EXTRACTION_MODEL` | `'qwen3:1.7b'` |
 | `extraction_thinking` | `MESA_EXTRACTION_THINKING` | `False` |
 | `extraction_max_tokens` | `MESA_EXTRACTION_MAX_TOKENS` | `4096` |
 | `llm_embedding_model_name` | `LLM_EMBEDDING_MODEL` | `'sentence-transformers/all-MiniLM-L6-v2'` |
-| `embedding_provider` | `MESA_EMBEDDING_PROVIDER` | `'openai_compatible'` |
-| `external_embedding_model` | `MESA_EXTERNAL_EMBEDDING_MODEL` | `'text-embedding-3-small'` |
-| `llm_timeout_seconds` | `LLM_TIMEOUT_SECONDS` | `20.0` |
+| `embedding_model` | `MESA_EMBEDDING_MODEL` | `'local:magibu/embeddingmagibu-200m'` |
 | `model_enabled` | `MESA_MODEL_ENABLED` | `False` |
 | `tier3_mode` | `MESA_TIER3_MODE` | `None` |
 | `tier3_llm_provider_a` | `MESA_TIER3_LLM_PROVIDER_A` | `None` |
@@ -151,7 +159,7 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `tier3_llm_provider_b` | `MESA_TIER3_LLM_PROVIDER_B` | `None` |
 | `tier3_llm_model_name_b` | `MESA_TIER3_LLM_MODEL_B` | `None` |
 | `external_provider_enabled` | `MESA_EXTERNAL_PROVIDER_ENABLED` | `False` |
-| `embedding_dimension` | `MESA_EMBEDDING_DIMENSION` | `768` |
+| `embedding_dimension` | `MESA_EMBEDDING_DIMENSION` | detected at startup when enabled and unset; otherwise `768` |
 | `embedding_version` | `MESA_EMBEDDING_VERSION` | `'v1'` |
 | `embedding_model_revision` | `MESA_EMBEDDING_MODEL_REVISION` | `None` |
 | `embedding_normalized` | `MESA_EMBEDDING_NORMALIZED` | `True` |
@@ -173,7 +181,6 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `v4_graph_timeout_seconds` | `MESA_V4_GRAPH_TIMEOUT_SECONDS` | `15.0` |
 | `crossencoder_pool_multiplier` | `MESA_CROSSENCODER_POOL_MULTIPLIER` | `3` |
 | `legal_domain_mode` | `MESA_LEGAL_DOMAIN_MODE` | `False` |
-| `local_embedding_model` | `MESA_LOCAL_EMBEDDING_MODEL` | `'magibu/embeddingmagibu-200m'` |
 | `extraction_lang` | `MESA_EXTRACTION_LANG` | `'tr'` |
 | `zero_cost_mode` | `MESA_ZERO_COST_MODE` | `False` |
 | `ollama_url` | `MESA_OLLAMA_URL` | `'http://localhost:11434'` |
@@ -217,6 +224,7 @@ Rebuild uses reviewed trusted/storage/work roots and full-root offline scope;
 see [runbook](v4-rebuild-runbook.md). Defaults and example pairings do not certify
 provider availability or quality.
 
-Canonical V4 insertion requires the model-enabled combined processing consumer.
-Model-disabled boot is topology/compatibility smoke and rejects V4 writes with
-`503 canonical_processing_unavailable`; it is not a V4 insert/search demonstration.
+Canonical V4 insertion requires the combined processing consumer. A combined
+runtime without models stores documents and finds them with BM25; vector search
+starts when embedding is enabled (`degraded_sources` shows `vector` until then);
+503 `canonical_processing_unavailable` happens only on a non-combined profile.

@@ -54,9 +54,10 @@ single LLM (mode 1), or dual LLM consensus (mode 2). Mode 0 disables LLM
 validation, not canonical extraction and embedding requirements.
 
 `docker-compose.v4.yml` defines the V4 single-owner topology.
-Model-disabled V4 inserts return
-`503 canonical_processing_unavailable`. V3 raw-memory processing also needs
-embeddings; models-disabled startup is a health check, not an ingestion demo.
+A combined runtime without models stores documents and finds them with BM25;
+vector search starts when embedding is enabled (`degraded_sources` shows `vector`
+until then); 503 `canonical_processing_unavailable` happens only on a
+non-combined profile.
 
 ## Operational limits
 

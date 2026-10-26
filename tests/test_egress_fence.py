@@ -46,8 +46,7 @@ def test_egress_fence_rejects_remote_ollama(monkeypatch):
 
 def test_extraction_profile_is_local_qwen_without_thinking(monkeypatch):
     monkeypatch.setattr(config, "external_provider_enabled", False)
-    monkeypatch.setattr(config, "extraction_provider", "ollama")
-    monkeypatch.setattr(config, "extraction_model", "qwen3:1.7b")
+    monkeypatch.setattr(config, "llm_model", "ollama:qwen3:1.7b")
     monkeypatch.setattr(config, "extraction_thinking", False)
     monkeypatch.setattr(config, "ollama_url", "http://127.0.0.1:11434")
     monkeypatch.delenv("MESA_OLLAMA_URL", raising=False)

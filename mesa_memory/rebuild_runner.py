@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mesa_memory.config import config, configured_embedding_identity
-from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
+from mesa_memory.config import config, refresh_config_from_environment
+from mesa_memory.embedding.service import EmbeddingService, get_embedding_service
 from mesa_storage import kuzu_setup
 from mesa_storage.embedding_identity import (
     EmbeddingIdentityAdoptionError,
@@ -81,33 +81,21 @@ def _environment_bool(name: str, *, default: bool = False) -> bool:
 
 
 def _provider_runtime() -> RebuildProviderRuntime:
+    refresh_config_from_environment()
     external = _environment_bool("MESA_EXTERNAL_PROVIDER_ENABLED")
     embedding_enabled = _environment_bool(
         "MESA_EMBEDDING_ENABLED", default=_environment_bool("MESA_MODEL_ENABLED")
     )
-    identity = configured_embedding_identity()
-    embedding_service = EmbeddingService(
-        identity=EmbeddingIdentity(
-            provider=identity.provider,
-            model=identity.model,
-            dimension=identity.dimension,
-            version=identity.version,
-            normalized=identity.normalized,
-            model_revision=identity.model_revision,
-        ),
+    embedding_service = get_embedding_service(
         allow_model_loading=embedding_enabled,
-        external_enabled=external and embedding_enabled,
+        external_enabled=external,
+        force_refresh=True,
+        detect_dimension=(embedding_enabled and "MESA_EMBEDDING_DIMENSION" not in os.environ),
     )
+    identity = embedding_service.identity()
     return RebuildProviderRuntime(
         manifest={
-            **EmbeddingIdentity(
-                provider=identity.provider,
-                model=identity.model,
-                dimension=identity.dimension,
-                version=identity.version,
-                normalized=identity.normalized,
-                model_revision=identity.model_revision,
-            ).as_dict(),
+            **identity.as_dict(),
             "embedding_provider": identity.provider,
             "embedding_model": identity.model,
             "embedding_version": identity.version,

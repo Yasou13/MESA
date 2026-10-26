@@ -128,7 +128,7 @@ async def test_public_remember_approval_recall_survives_restart(
     monkeypatch.setenv("MESA_MODEL_ENABLED", "true")
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
     monkeypatch.setenv("MESA_EMBEDDING_DIMENSION", "384")
-    monkeypatch.setenv("MESA_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("MESA_LLM_MODEL", "mock:test")
     monkeypatch.setenv("MESA_API_KEY", "operator-lifecycle-key")
     monkeypatch.setenv("MESA_PRINCIPAL_ID", "api-principal")
     monkeypatch.setenv("MESA_PRINCIPAL_STATUS", "active")

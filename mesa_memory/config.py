@@ -8,8 +8,13 @@ from typing import Any, Mapping, Optional
 
 import psutil
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.sources import (
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+)
 
 logger = logging.getLogger("MESA_Config")
 
@@ -33,6 +38,16 @@ class RuntimeProfile(str, Enum):
 
 class RuntimeProfileError(ValueError):
     """Fail-closed runtime configuration error with no secret material."""
+
+
+REMOVED_MESA_ENV_VARS: tuple[str, ...] = (
+    "MESA_LLM_PROVIDER",
+    "MESA_EXTRACTION_PROVIDER",
+    "MESA_EXTRACTION_MODEL",
+    "MESA_EMBEDDING_PROVIDER",
+    "MESA_EXTERNAL_EMBEDDING_MODEL",
+    "MESA_LOCAL_EMBEDDING_MODEL",
+)
 
 
 def _resolve_runtime_lab_root(values: Mapping[str, str]) -> Path:
@@ -121,6 +136,17 @@ def load_runtime_profile(
 ) -> RuntimeProfileConfig:
     """Parse runtime startup configuration without searching or loading dotenv files."""
     values = os.environ if environ is None else environ
+    for removed_var in REMOVED_MESA_ENV_VARS:
+        if values.get(removed_var) is not None:
+            replacement = (
+                "MESA_EMBEDDING_MODEL=ollama:qwen3-embedding:4b"
+                if "EMBEDDING" in removed_var
+                else "MESA_LLM_MODEL=ollama:qwen3:8b"
+            )
+            raise RuntimeProfileError(
+                f"'{removed_var}' has been removed. Use provider:model instead "
+                f"(e.g. {replacement})."
+            )
     raw_profile = values.get("MESA_RUNTIME_PROFILE")
     if raw_profile is None:
         raise RuntimeProfileError("MESA_RUNTIME_PROFILE is required")
@@ -396,6 +422,22 @@ def _read_cgroup_ram_limit() -> Optional[int]:
     return None
 
 
+class MesaEnvSettingsSource(EnvSettingsSource):
+    """Ensure environment variable discovery does not fall back to unprefixed field names
+
+    when a validation_alias is explicitly declared.
+    """
+
+    def _extract_field_info(
+        self, field: FieldInfo, field_name: str
+    ) -> list[tuple[str, str, bool]]:
+        field_info = super()._extract_field_info(field, field_name)
+        if field.validation_alias:
+            case_folded = self._apply_case_sensitive(field_name)
+            field_info = [item for item in field_info if item[1] != case_folded]
+        return field_info  # type: ignore[no-any-return]
+
+
 class MesaConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=None,
@@ -404,28 +446,40 @@ class MesaConfig(BaseSettings):
         populate_by_name=True,
     )
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            MesaEnvSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
+
     llm_provider: str = "claude"
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
-    mesa_llm_provider: str = Field(
-        "openai_compatible", validation_alias="MESA_LLM_PROVIDER"
+    llm_model: str = Field("", validation_alias=AliasChoices("MESA_LLM_MODEL"))
+    llm_base_url: str | None = Field(
+        None, validation_alias=AliasChoices("MESA_LLM_BASE_URL")
     )
-    llm_base_url: str | None = Field(None, validation_alias="LLM_BASE_URL")
-    llm_api_key: str | None = Field(None, validation_alias="LLM_API_KEY")
+    llm_api_key: str | None = Field(
+        None, validation_alias=AliasChoices("MESA_LLM_API_KEY")
+    )
+    llm_timeout_seconds: float = Field(
+        60.0, validation_alias=AliasChoices("MESA_LLM_TIMEOUT_SECONDS")
+    )
     embedding_base_url: str | None = Field(
         None, validation_alias="MESA_EMBEDDING_BASE_URL"
     )
     embedding_api_key: str | None = Field(
         None, validation_alias="MESA_EMBEDDING_API_KEY"
-    )
-    llm_model_name: str | None = Field(
-        "llama-3.1-8b-instant", validation_alias="LLM_MODEL_NAME"
-    )
-    extraction_provider: str = Field(
-        "ollama", validation_alias="MESA_EXTRACTION_PROVIDER"
-    )
-    extraction_model: str = Field(
-        "qwen3:1.7b", validation_alias="MESA_EXTRACTION_MODEL"
     )
     extraction_thinking: bool = Field(
         False, validation_alias="MESA_EXTRACTION_THINKING"
@@ -436,13 +490,9 @@ class MesaConfig(BaseSettings):
     llm_embedding_model_name: str = Field(
         "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
-    embedding_provider: str = Field(
-        "openai_compatible", validation_alias="MESA_EMBEDDING_PROVIDER"
+    embedding_model: str = Field(
+        "local:magibu/embeddingmagibu-200m", validation_alias="MESA_EMBEDDING_MODEL"
     )
-    external_embedding_model: str = Field(
-        "text-embedding-3-small", validation_alias="MESA_EXTERNAL_EMBEDDING_MODEL"
-    )
-    llm_timeout_seconds: float = Field(20.0, validation_alias="LLM_TIMEOUT_SECONDS")
     model_enabled: bool = Field(False, validation_alias="MESA_MODEL_ENABLED")
     tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")
     tier3_llm_provider_a: str | None = Field(
@@ -460,7 +510,7 @@ class MesaConfig(BaseSettings):
     external_provider_enabled: bool = Field(
         False, validation_alias="MESA_EXTERNAL_PROVIDER_ENABLED"
     )
-    embedding_dimension: int = Field(768, validation_alias="MESA_EMBEDDING_DIMENSION")
+    embedding_dimension: int = Field(768, gt=0, validation_alias="MESA_EMBEDDING_DIMENSION")
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )
@@ -599,11 +649,10 @@ class MesaConfig(BaseSettings):
     # -----------------------------------------------------------------------
     legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
 
-    # Default MVP embedding model (Magibu 768d normalized)
-    local_embedding_model: str = Field(
-        "magibu/embeddingmagibu-200m",
-        validation_alias="MESA_LOCAL_EMBEDDING_MODEL",
-    )
+    @property
+    def local_embedding_model(self) -> str:
+        """Model component for legacy local-adapter callers; no separate setting."""
+        return self.embedding_model.split(":", 1)[-1].strip()
 
     # -----------------------------------------------------------------------
     # v0.7.1 Phase 1.3: Domain-Specific Extraction Language
@@ -736,11 +785,13 @@ class MesaConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validate_nemotron_embedding_contract(self) -> "MesaConfig":
-        if not self.external_provider_enabled or not uses_nemotron_asymmetric_profile(
-            self.embedding_provider, self.external_embedding_model
-        ):
+        provider, _, model = self.embedding_model.partition(":")
+        if not uses_nemotron_asymmetric_profile(provider, model):
             return self
-        if self.embedding_dimension != NEMOTRON_EMBEDDING_DIMENSION:
+        if (
+            "embedding_dimension" in self.model_fields_set
+            and self.embedding_dimension != NEMOTRON_EMBEDDING_DIMENSION
+        ):
             raise ValueError(
                 f"{NEMOTRON_EMBEDDING_MODEL} requires "
                 f"MESA_EMBEDDING_DIMENSION={NEMOTRON_EMBEDDING_DIMENSION}"
@@ -762,7 +813,7 @@ class MesaConfig(BaseSettings):
                 "OPENAI_API_KEY not set for Claude provider. "
                 "No external embedding fallback will be selected automatically; "
                 "the configured embedding provider remains authoritative (%s).",
-                self.local_embedding_model,
+                self.embedding_model,
             )
         return self
 
@@ -832,10 +883,7 @@ class MesaConfig(BaseSettings):
         fully local, zero-API-cost operation.
 
         Overrides:
-          - mesa_llm_provider  → "ollama"
-          - llm_model_name     → "qwen3:8b"
-          - extraction_provider → "ollama"
-          - extraction_model    → "qwen3:1.7b"
+          - llm_model           → "ollama:qwen3:8b"
           - extraction_thinking → False
           - Leaves validation policy and validator identities unchanged
         """
@@ -850,13 +898,10 @@ class MesaConfig(BaseSettings):
             "Local Ollama provider selected (%s). "
             "Embeddings: %s (local).",
             self.ollama_url,
-            self.local_embedding_model,
+            self.embedding_model,
         )
 
-        object.__setattr__(self, "mesa_llm_provider", "ollama")
-        object.__setattr__(self, "llm_model_name", "qwen3:8b")
-        object.__setattr__(self, "extraction_provider", "ollama")
-        object.__setattr__(self, "extraction_model", "qwen3:1.7b")
+        object.__setattr__(self, "llm_model", "ollama:qwen3:8b")
         object.__setattr__(self, "extraction_thinking", False)
         # Ensure the OLLAMA_URL env var is set for the adapter factory
         os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)
@@ -928,21 +973,31 @@ def configured_embedding_identity(
     environ: Mapping[str, str] | None = None,
 ) -> EmbeddingIdentity:
     """Return the provider identity shared by admission, worker and rebuild."""
-    values = os.environ if environ is None else environ
-    external = _parse_runtime_bool(
-        values.get("MESA_EXTERNAL_PROVIDER_ENABLED"),
-        name="MESA_EXTERNAL_PROVIDER_ENABLED",
-        default=False,
-    )
+    provider, model = parse_embedding_spec(config.embedding_model)
     return EmbeddingIdentity(
-        provider=config.embedding_provider if external else "local",
-        model=(
-            config.external_embedding_model
-            if external
-            else config.local_embedding_model
-        ),
+        provider=provider,
+        model=model,
         version=config.embedding_version,
         dimension=config.embedding_dimension,
         normalized=config.embedding_normalized,
         model_revision=config.embedding_model_revision,
+    )
+
+
+def parse_embedding_spec(spec: str) -> tuple[str, str]:
+    """Reuse the LLM parser for shared providers and add the local backend."""
+    from mesa_memory.adapter.factory import parse_llm_spec
+
+    provider, separator, model = spec.strip().partition(":")
+    if provider.strip().lower() == "local" and separator and model.strip():
+        return "local", model.strip()
+    try:
+        provider, model = parse_llm_spec(spec)
+        if provider in {"ollama", "openai", "openai_compatible"}:
+            return provider, model
+    except ValueError:
+        pass
+    raise ValueError(
+        "MESA_EMBEDDING_MODEL must be provider:model with a nonempty model; "
+        "supported providers: local, ollama, openai, openai_compatible."
     )

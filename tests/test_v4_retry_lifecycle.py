@@ -57,7 +57,7 @@ async def retry_runtime(tmp_path, monkeypatch):
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
         "MESA_TIER3_MODE": "0",
         "MESA_EMBEDDING_DIMENSION": "384",
-        "MESA_LLM_PROVIDER": "mock",
+        "MESA_LLM_MODEL": "mock:test",
         "MESA_API_KEY": "retry-test-key",
         "MESA_PRINCIPAL_ID": "retry-principal",
         "MESA_PRINCIPAL_STATUS": "active",

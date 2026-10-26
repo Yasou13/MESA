@@ -18,7 +18,7 @@ async def test_d007_fresh_install_config_coherence():
     content = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
 
     assert "MESA_EMBEDDING_DIMENSION=768" in content
-    assert "MESA_LOCAL_EMBEDDING_MODEL=magibu/embeddingmagibu-200m" in content
+    assert "MESA_EMBEDDING_MODEL=local:magibu/embeddingmagibu-200m" in content
     for setting in (
         "MESA_TIER3_LLM_PROVIDER_A",
         "MESA_TIER3_LLM_MODEL_A",
