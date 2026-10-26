@@ -471,6 +471,149 @@ async def test_rebuild_works_after_purge_and_rollback(
 
 
 @pytest.mark.asyncio
+async def test_time_qualified_search_supersession_without_dates(model_runtime):
+    from datetime import datetime, timezone
+
+    async with model_runtime() as env:
+        # r1, no dates
+        res1 = await env.client.post(
+            "/v4/memory/insert",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "doc-rev-time",
+                "revision_id": "r1",
+                "chunk_id": "c1",
+                "title": "Tax Rate",
+                "source_ref": "ref-1",
+                "content": "Kira vergisi yüzde on oranındadır.",
+                "idempotency_key": "k-r1",
+            },
+        )
+        assert res1.status_code == 202
+        await _consume(env, 3)
+
+        # r2 superseding r1, no dates
+        res2 = await env.client.post(
+            "/v4/memory/insert",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "doc-rev-time",
+                "revision_id": "r2",
+                "revision_number": 2,
+                "supersedes_revision_id": "r1",
+                "chunk_id": "c2",
+                "title": "Tax Rate",
+                "source_ref": "ref-2",
+                "content": "Kira vergisi yüzde yirmi oranındadır.",
+                "idempotency_key": "k-r2",
+            },
+        )
+        assert res2.status_code == 202
+        await _consume(env, 3)
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        search_now = await env.client.post(
+            "/v4/memory/search",
+            json={
+                "session_id": env.session_id,
+                "query": "Kira vergisi yüzde",
+                "valid_at": now_iso,
+            },
+        )
+        assert search_now.status_code == 200
+        results_now = search_now.json()["results"]
+        assert len(results_now) == 1
+        assert results_now[0]["provenance"][0]["revision_id"] == "r2"
+
+        search_2000 = await env.client.post(
+            "/v4/memory/search",
+            json={
+                "session_id": env.session_id,
+                "query": "Kira vergisi yüzde",
+                "valid_at": "2000-01-01T00:00:00Z",
+            },
+        )
+        assert search_2000.status_code == 200
+        results_2000 = search_2000.json()["results"]
+        assert len(results_2000) == 1
+        assert results_2000[0]["provenance"][0]["revision_id"] == "r2"
+
+
+@pytest.mark.asyncio
+async def test_time_qualified_search_supersession_with_dates(model_runtime):
+    async with model_runtime() as env:
+        # r1 with valid_to=2020-01-01T00:00:00Z
+        res1 = await env.client.post(
+            "/v4/memory/insert",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "doc-rev-dated",
+                "revision_id": "r1-dated",
+                "chunk_id": "c1-dated",
+                "title": "Tax Rate Dated",
+                "source_ref": "ref-1-dated",
+                "content": "Kira bedeli yüzde on beş.",
+                "idempotency_key": "k-r1-dated",
+                "metadata": {"valid_to": "2020-01-01T00:00:00Z"},
+            },
+        )
+        assert res1.status_code == 202
+        await _consume(env, 3)
+
+        # r2 with valid_from=2020-01-01T00:00:00Z
+        res2 = await env.client.post(
+            "/v4/memory/insert",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "doc-rev-dated",
+                "revision_id": "r2-dated",
+                "revision_number": 2,
+                "supersedes_revision_id": "r1-dated",
+                "chunk_id": "c2-dated",
+                "title": "Tax Rate Dated",
+                "source_ref": "ref-2-dated",
+                "content": "Kira bedeli yüzde yirmi beş.",
+                "idempotency_key": "k-r2-dated",
+                "metadata": {"valid_from": "2020-01-01T00:00:00Z"},
+            },
+        )
+        assert res2.status_code == 202
+        await _consume(env, 3)
+
+        # valid_at=2019-06-01 returns r1
+        search_2019 = await env.client.post(
+            "/v4/memory/search",
+            json={
+                "session_id": env.session_id,
+                "query": "Kira bedeli yüzde",
+                "valid_at": "2019-06-01T00:00:00Z",
+            },
+        )
+        assert search_2019.status_code == 200
+        results_2019 = search_2019.json()["results"]
+        assert len(results_2019) == 1
+        assert results_2019[0]["provenance"][0]["revision_id"] == "r1-dated"
+
+        # valid_at=2021-06-01 returns r2
+        search_2021 = await env.client.post(
+            "/v4/memory/search",
+            json={
+                "session_id": env.session_id,
+                "query": "Kira bedeli yüzde",
+                "valid_at": "2021-06-01T00:00:00Z",
+            },
+        )
+        assert search_2021.status_code == 200
+        results_2021 = search_2021.json()["results"]
+        assert len(results_2021) == 1
+        assert results_2021[0]["provenance"][0]["revision_id"] == "r2-dated"
+
+
+@pytest.mark.asyncio
 async def test_external_openai_compatible_provider_makes_zero_embedding_calls_when_disabled(
     tmp_path, monkeypatch
 ):

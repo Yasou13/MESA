@@ -5618,7 +5618,7 @@ class MemoryDAO:
 
         historical_query = bool(valid_at or valid_from or valid_to)
         assertion_status_sql = (
-            "a.status IN ('ACTIVE', 'SUPERSEDED')"
+            "(a.status = 'ACTIVE' OR (a.status = 'SUPERSEDED' AND a.valid_to != ''))"
             if historical_query
             else "a.status = 'ACTIVE'"
         )
