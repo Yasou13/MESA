@@ -9469,8 +9469,14 @@ class MemoryDAO:
         recent_logs = []
         async with self._sql.connection() as db:
             async with db.execute(
-                "SELECT payload FROM raw_logs WHERE agent_id = ? "
-                "AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT ?",
+                "SELECT l.payload FROM raw_logs l WHERE l.agent_id = ? "
+                "AND json_extract(l.payload, '$.session_id') = ? "
+                "AND NOT EXISTS (SELECT 1 FROM memory_mutations m "
+                "LEFT JOIN document_revisions r ON r.revision_id = m.revision_id "
+                "WHERE m.raw_log_id = l.id AND m.agent_id = l.agent_id "
+                "AND (m.state IN ('PURGED', 'ROLLED_BACK', 'REJECTED', 'CANCELLED') "
+                "OR r.status IN ('PURGED', 'ROLLED_BACK', 'SUPERSEDED'))) "
+                "ORDER BY l.created_at DESC LIMIT ?",
                 (agent_id, session_id, limit),
             ) as cur:
                 rows = await cur.fetchall()
