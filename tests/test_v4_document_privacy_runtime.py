@@ -3,7 +3,8 @@
 import pytest
 
 from mesa_memory.api import server
-from tests.test_model_optional_runtime import _consume, model_runtime  # noqa: F401
+from tests.test_model_optional_runtime import _consume
+from tests.test_model_optional_runtime import model_runtime as model_runtime
 
 
 async def _grant_lifecycle_permissions():
