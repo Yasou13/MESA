@@ -69,7 +69,7 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
     def __init__(self):  # type: ignore[no-untyped-def]
         logger.critical(
             "DeterministicMockAdapter active — no real LLM provider detected. "
-            "Set MESA_OLLAMA_URL, OPENAI_API_KEY, or ANTHROPIC_API_KEY to "
+            "Set MESA_OLLAMA_URL or MESA_LLM_API_KEY to "
             "enable a real provider."
         )
 
@@ -168,9 +168,12 @@ class AdapterFactory:
                 raise ValueError(
                     "base_url is required for 'openai_compatible' provider. Set MESA_LLM_BASE_URL."
                 )
-            api_key = config.llm_api_key or os.environ.get("OPENAI_API_KEY")
+            if not config.llm_api_key:
+                raise ValueError(
+                    "API key is required for 'openai_compatible' provider. Set MESA_LLM_API_KEY."
+                )
             return OpenAICompatibleAdapter(
-                api_key=api_key,
+                api_key=config.llm_api_key,
                 base_url=config.llm_base_url,
                 model_name=model_name,
                 embedding_model_name=config.llm_embedding_model_name,
@@ -179,9 +182,12 @@ class AdapterFactory:
         elif normalized_provider == "openai":
             from mesa_memory.adapter.live import OpenAICompatibleAdapter
 
-            api_key = config.llm_api_key or os.environ.get("OPENAI_API_KEY")
+            if not config.llm_api_key:
+                raise ValueError(
+                    "API key is required for 'openai' provider. Set MESA_LLM_API_KEY."
+                )
             return OpenAICompatibleAdapter(
-                api_key=api_key,
+                api_key=config.llm_api_key,
                 base_url=config.llm_base_url,
                 model_name=model_name,
                 embedding_model_name=config.llm_embedding_model_name,
@@ -190,9 +196,12 @@ class AdapterFactory:
         elif normalized_provider in {"claude", "anthropic"}:
             from mesa_memory.adapter.claude import ClaudeAdapter
 
-            api_key = config.llm_api_key or os.environ.get("ANTHROPIC_API_KEY")
+            if not config.llm_api_key:
+                raise ValueError(
+                    "API key is required for 'anthropic' provider. Set MESA_LLM_API_KEY."
+                )
             return ClaudeAdapter(
-                anthropic_api_key=api_key,
+                anthropic_api_key=config.llm_api_key,
                 model_name=model_name,
             )
         elif normalized_provider == "ollama":

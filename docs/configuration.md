@@ -140,8 +140,6 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | Python field | Environment name | Declared default |
 |---|---|---|
 | `llm_provider` | `LLM_PROVIDER` | `'claude'` |
-| `openai_api_key` | `OPENAI_API_KEY` | `None` |
-| `anthropic_api_key` | `ANTHROPIC_API_KEY` | `None` |
 | `llm_model` | `MESA_LLM_MODEL` | `''` |
 | `llm_base_url` | `MESA_LLM_BASE_URL` | `None` |
 | `llm_api_key` | `MESA_LLM_API_KEY` | `None` |

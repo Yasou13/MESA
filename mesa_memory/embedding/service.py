@@ -562,7 +562,6 @@ class _OpenAICompatibleEmbeddingBackend:
         api_key = (
             getattr(config, "embedding_api_key", None)
             or getattr(config, "llm_api_key", None)
-            or getattr(config, "openai_api_key", None)
             or ("ollama" if identity.provider.lower() == "ollama" else None)
         )
         if not api_key:

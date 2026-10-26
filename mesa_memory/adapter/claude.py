@@ -102,6 +102,10 @@ class ClaudeAdapter(BaseUniversalLLMAdapter):
     ):
         if anthropic is None:
             raise RuntimeError("ClaudeAdapter requires mesa-memory[adapters]")
+        if not anthropic_api_key:
+            raise ValueError(
+                "API key is required for ClaudeAdapter. Set MESA_LLM_API_KEY."
+            )
         self.openai_api_key = openai_api_key
         self.model_name = model_name or _DEFAULT_CLAUDE_MODEL
         self._sync_anthropic = anthropic.Anthropic(api_key=anthropic_api_key)

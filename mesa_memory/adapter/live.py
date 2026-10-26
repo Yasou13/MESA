@@ -49,7 +49,7 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
         if not api_key:
             raise ValueError(
                 "API key is required for OpenAICompatibleAdapter. "
-                "Set MESA_LLM_API_KEY or OPENAI_API_KEY environment variable."
+                "Set MESA_LLM_API_KEY environment variable."
             )
 
         if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
