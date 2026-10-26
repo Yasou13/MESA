@@ -262,6 +262,7 @@ errors. For example, a non-string search query returns HTTP 422:
 | 404 `NOT_FOUND` | Check the ID and credential scope; hidden objects may also return 404 |
 | 409 `SESSION_INACTIVE` | Start an authorized active session before new writes |
 | 409 `IDEMPOTENCY_CONFLICT` | Reuse the original payload with that key, or use a new key for new content |
+| 409, detail `document is purged` | Re-using a purged document ID is not supported; use a new document ID |
 | 422 `VALIDATION_ERROR` | Correct the named field/format; timestamps need a timezone |
 | 503 `BACKEND_UNAVAILABLE`, detail `canonical_processing_unavailable` | Run one combined owner; non-combined profiles cannot ingest V4 |
 | 503, detail `vector_backend_unavailable` / `graph_backend_unavailable` | Check provider credentials, embedding identity and backend readiness; an empty result is not a substitute |

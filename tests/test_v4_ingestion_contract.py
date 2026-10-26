@@ -762,3 +762,70 @@ async def test_reused_revision_number_returns_409(v4_release_env):
         },
     )
     assert res4_valid.status_code == 202, res4_valid.text
+
+
+@pytest.mark.asyncio
+async def test_writes_to_purged_document_are_refused(v4_release_env):
+    env = v4_release_env
+
+    # Insert a document
+    res1 = await env.client.post(
+        "/v4/memory/insert",
+        json={
+            "session_id": env.session_id,
+            "dataset_id": "dataset-a",
+            "document_id": "doc-purge-test",
+            "revision_id": "rev-p-1",
+            "chunk_id": "chunk-p-1",
+            "title": "Document Purge Test",
+            "source_ref": "ref-p-1",
+            "content": "Original document content",
+            "idempotency_key": "insert-purge-test",
+        },
+    )
+    assert res1.status_code == 202, res1.text
+
+    # Purge the document
+    purge_res = await env.dao.purge_v4_document(
+        tenant_id="tenant-a",
+        dataset_id="dataset-a",
+        document_id="doc-purge-test",
+    )
+    assert purge_res["state"] == "PURGED"
+
+    # Count rows before attempting to insert into the purged document
+    async with env.sql.connection() as db:
+        async with db.execute("SELECT COUNT(*) FROM raw_logs") as cursor:
+            raw_logs_before = (await cursor.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM dispatch_queue") as cursor:
+            dispatch_before = (await cursor.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM memory_mutations") as cursor:
+            mutations_before = (await cursor.fetchone())[0]
+
+    # Attempt to insert into the purged document with a new revision
+    res_purged = await env.client.post(
+        "/v4/memory/insert",
+        json={
+            "session_id": env.session_id,
+            "dataset_id": "dataset-a",
+            "document_id": "doc-purge-test",
+            "revision_id": "rev-p-2",
+            "revision_number": 2,
+            "chunk_id": "chunk-p-2",
+            "title": "Document Purge Test",
+            "source_ref": "ref-p-2",
+            "content": "Attempted insert into purged doc",
+            "idempotency_key": "insert-into-purged",
+        },
+    )
+    assert res_purged.status_code == 409, res_purged.text
+    assert "document is purged" in res_purged.json()["detail"].lower()
+
+    # Ensure no raw log, dispatch or mutation row is created
+    async with env.sql.connection() as db:
+        async with db.execute("SELECT COUNT(*) FROM raw_logs") as cursor:
+            assert (await cursor.fetchone())[0] == raw_logs_before
+        async with db.execute("SELECT COUNT(*) FROM dispatch_queue") as cursor:
+            assert (await cursor.fetchone())[0] == dispatch_before
+        async with db.execute("SELECT COUNT(*) FROM memory_mutations") as cursor:
+            assert (await cursor.fetchone())[0] == mutations_before

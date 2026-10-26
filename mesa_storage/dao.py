@@ -1952,12 +1952,14 @@ class MemoryDAO:
                     (document_id, tenant_id, dataset_id, title),
                 )
                 async with db.execute(
-                    "SELECT tenant_id, dataset_id FROM documents WHERE document_id = ?",
+                    "SELECT tenant_id, dataset_id, status FROM documents WHERE document_id = ?",
                     (document_id,),
                 ) as cursor:
                     document = await cursor.fetchone()
-                if document is None or tuple(document) != (tenant_id, dataset_id):
+                if document is None or (document[0], document[1]) != (tenant_id, dataset_id):
                     raise ValueError("document identity collides with another dataset")
+                if document[2] == "PURGED":
+                    raise ValueError("document is purged")
                 async with db.execute(
                     "SELECT * FROM document_revisions WHERE revision_id = ?",
                     (revision_id,),
