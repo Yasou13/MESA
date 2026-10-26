@@ -309,3 +309,23 @@ async def test_ollama_override_url_is_fenced_before_backend_composition(
             MESA_EMBEDDING_BASE_URL="https://remote.example/v1",
         ):
             pass
+
+
+@pytest.mark.asyncio
+async def test_vector_free_pending_lane_follows_adopted_identity(embedding_runtime):
+    # Admitted under the old model, stopped before any vector was written.
+    async with embedding_runtime(
+        MESA_EMBEDDING_ENABLED="true", MESA_EMBEDDING_DIMENSION="6"
+    ) as env:
+        await _insert(env)
+        await _consume(env)
+        assert (await _lanes(env))["VECTOR"] == "PENDING"
+        await env.restart(MESA_EMBEDDING_MODEL="ollama:new-model:tag")
+        mutation = await env.dao.get_mutation("model-agent", env.mutation_id)
+        assert mutation["embedding_model"] == "new-model:tag"
+        await _consume(env, 3)
+        await _assert_committed(env)
+        assert (await _lanes(env))["VECTOR"] == "COMPLETED"
+        result = await _search(env)
+        assert result["vector_lane"]["search_executed"]
+        assert result["degraded_sources"] == []
