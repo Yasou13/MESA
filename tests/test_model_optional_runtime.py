@@ -397,7 +397,6 @@ async def test_rebuild_works_after_purge_and_rollback(
             },
         )
         assert res1.status_code == 202
-        mut1_id = res1.json()["mutation_id"]
 
         res2 = await env.client.post(
             "/v4/memory/insert",
