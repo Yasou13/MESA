@@ -370,6 +370,108 @@ async def test_identity_change_rebuild_allows_skipped_vector_backfill(
 
 
 @pytest.mark.asyncio
+async def test_rebuild_works_after_purge_and_rollback(
+    tmp_path, monkeypatch, model_runtime
+):
+    import argparse
+    import hashlib
+    import sqlite3
+
+    from mesa_memory import rebuild_runner
+    from mesa_storage.repositories.operations import OperationRepository
+    from mesa_storage.sqlite_engine import AsyncEngine
+
+    async with model_runtime(MESA_V4_REBUILD_ENABLED=True) as env:
+        res1 = await env.client.post(
+            "/v4/memory/insert",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "doc-purge",
+                "revision_id": "rev-purge",
+                "chunk_id": "chunk-purge",
+                "title": "Doc to purge",
+                "source_ref": "ref-purge",
+                "content": "This document will be purged.",
+                "idempotency_key": "key-purge",
+            },
+        )
+        assert res1.status_code == 202
+        mut1_id = res1.json()["mutation_id"]
+
+        res2 = await env.client.post(
+            "/v4/memory/insert",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "doc-rollback",
+                "revision_id": "rev-rollback",
+                "chunk_id": "chunk-rollback",
+                "title": "Doc to rollback",
+                "source_ref": "ref-rollback",
+                "content": "This document will be rolled back.",
+                "idempotency_key": "key-rollback",
+            },
+        )
+        assert res2.status_code == 202
+        mut2_id = res2.json()["mutation_id"]
+
+        await _consume(env, 3)
+
+        purge_res = await env.dao.purge_v4_document(
+            tenant_id="model-tenant",
+            dataset_id="main",
+            document_id="doc-purge",
+        )
+        assert purge_res["state"] == "PURGED"
+
+        mut2 = await env.dao.get_mutation("model-agent", mut2_id)
+        rb_res = await env.dao.request_pipeline_rollback(mut2["pipeline_run_id"])
+        assert rb_res["pipeline_run_id"] == mut2["pipeline_run_id"]
+
+        await _consume(env, 5)
+
+        storage_root = server.state.runtime_profile.storage_root
+
+        with sqlite3.connect(storage_root / "mesa.db") as db:
+            assert _backlog_counts(db)["projection"] == 0
+
+        await env.stop()
+
+        sql = AsyncEngine(str(storage_root / "mesa.db"))
+        await sql.initialize()
+        try:
+            operations = OperationRepository(sql)
+            submitted = await operations.submit(
+                requested_by_principal_id="model-principal",
+                idempotency_key="r8-purge-rollback-rebuild",
+                payload_hash=hashlib.sha256(b"r8-rebuild").hexdigest(),
+            )
+            operation_id = str(submitted["operation_id"])
+        finally:
+            await sql.close()
+
+        work_root = tmp_path / "rebuild-work"
+        work_root.mkdir()
+        monkeypatch.setattr(
+            rebuild_runner,
+            "get_embedding_service",
+            lambda **kw: _embedding_service(env.provider),
+        )
+        rc = await rebuild_runner.run_rebuild(
+            argparse.Namespace(
+                trusted_root=tmp_path,
+                storage_root=storage_root,
+                work_root=work_root,
+                operation_id=operation_id,
+                batch_size=100,
+                lease_seconds=300,
+            )
+        )
+        assert rc == rebuild_runner.EXIT_OK
+
+
+@pytest.mark.asyncio
 async def test_external_openai_compatible_provider_makes_zero_embedding_calls_when_disabled(
     tmp_path, monkeypatch
 ):
