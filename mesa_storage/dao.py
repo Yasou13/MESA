@@ -1348,8 +1348,68 @@ class MemoryDAO:
                     f"WHERE mutation_id IN ({placeholders})",
                     purged_mutation_ids,
                 )
+            # Erase every admission, including already-terminal mutations.
+            # Cleanup uses artifact IDs/ownership, never these source payloads.
+            async with db.execute(
+                "SELECT mutation_id, raw_log_id, agent_id, metadata_json "
+                "FROM memory_mutations WHERE dataset_id = ? AND document_id = ?",
+                (dataset_id, document_id),
+            ) as cursor:
+                admissions = await cursor.fetchall()
+            for admission in admissions:
+                metadata = json.loads(admission["metadata_json"] or "{}")
+                # Keep engine-owned identity/policy audit, dropping caller text
+                # and durable extracted facts (which include source spans).
+                retained_metadata = json.dumps(
+                    {
+                        key: value
+                        for key, value in metadata.items()
+                        if key.startswith("_mesa_")
+                        and key != "_mesa_v4_projection_triplets"
+                    },
+                    sort_keys=True,
+                )
+                await db.execute(
+                    "UPDATE raw_logs SET payload = json_set(payload, "
+                    "'$.content', '', '$.evidence_span', '', '$.metadata', json(?)) "
+                    "WHERE id = ? AND agent_id = ?",
+                    (retained_metadata, admission["raw_log_id"], admission["agent_id"]),
+                )
+                await db.execute(
+                    "UPDATE memory_mutations SET content_payload = '', evidence_span = '', "
+                    "metadata_json = ? WHERE mutation_id = ?",
+                    (retained_metadata, admission["mutation_id"]),
+                )
             await db.execute(
-                "UPDATE documents SET status = 'PURGED' WHERE document_id = ?",
+                "UPDATE source_chunks SET content_payload = '' WHERE revision_id IN "
+                "(SELECT revision_id FROM document_revisions WHERE document_id = ?)",
+                (document_id,),
+            )
+            await db.execute(
+                "UPDATE artifact_sources SET evidence_span = '' "
+                "WHERE dataset_id = ? AND document_id = ?",
+                (dataset_id, document_id),
+            )
+            await db.execute(
+                "UPDATE memory_artifacts SET metadata_json = json_remove(metadata_json, "
+                "'$.fact_text', '$.source_span', '$.predicate', '$.entity_name', '$.supersedes') "
+                "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations "
+                "WHERE dataset_id = ? AND document_id = ?)",
+                (dataset_id, document_id),
+            )
+            await db.execute(
+                "UPDATE artifact_registry SET metadata_json = json_remove(metadata_json, "
+                "'$.fact_text', '$.source_span', '$.predicate', '$.entity_name', '$.supersedes') "
+                "WHERE EXISTS (SELECT 1 FROM artifact_sources own "
+                "WHERE own.registry_id = artifact_registry.registry_id "
+                "AND own.dataset_id = ? AND own.document_id = ?) "
+                "AND NOT EXISTS (SELECT 1 FROM artifact_sources other "
+                "WHERE other.registry_id = artifact_registry.registry_id "
+                "AND other.state = 'ACTIVE' AND other.document_id IS NOT ?)",
+                (dataset_id, document_id, document_id),
+            )
+            await db.execute(
+                "UPDATE documents SET status = 'PURGED', title = '' WHERE document_id = ?",
                 (document_id,),
             )
             await db.execute(
@@ -1357,9 +1417,17 @@ class MemoryDAO:
                 (document_id,),
             )
             await db.execute(
-                "UPDATE v4_assertions SET status = 'RETRACTED' "
-                "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ?",
-                (tenant_id, dataset_id, document_id),
+                "UPDATE v4_assertions SET status = 'RETRACTED', evidence_span = '', "
+                "predicate = '', literal_value = CASE WHEN literal_value IS NULL "
+                "THEN NULL ELSE '' END, jurisdiction = '', authority_level = '' "
+                "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM artifact_registry r "
+                "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                "WHERE r.tenant_id = v4_assertions.tenant_id "
+                "AND r.store_name = 'SQL' AND r.artifact_kind = 'ASSERTION' "
+                "AND r.physical_artifact_id = v4_assertions.assertion_id "
+                "AND s.state = 'ACTIVE' AND s.document_id IS NOT ?)",
+                (tenant_id, dataset_id, document_id, document_id),
             )
             await db.commit()
 

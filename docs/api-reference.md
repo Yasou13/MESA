@@ -67,6 +67,8 @@ olur. Offline işletim prosedürü
 | `POST` | `/v4/catalog/source-chunks` | Dataset `WRITER` | Exact source chunk oluşturur |
 | `DELETE` | `/v4/catalog/documents/{document_id}` | Dataset `OWNER` + `PURGE` | Kaynak sahipli purge başlatır |
 
+Document purge erases its source and extracted text while retaining identifiers and hashes; shared assertion/entity text remains while another document still owns it.
+
 Catalog IDs are tenant-scoped public IDs; physical storage keys are not public
 aliases. Revision/chunk identity, finalization and the distinction between
 `declared_content_hash`, `manifest_hash` and chunk `content_hash` are defined in
