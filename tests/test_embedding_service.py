@@ -727,12 +727,12 @@ async def test_vector_engine_prefers_canonical_embedding_service_over_legacy_pro
 
 
 def test_openai_embedding_backend_rejects_outside_openai_api_key(monkeypatch, fake_openai_embedding_sdk):
+    from mesa_memory.config import config
     from mesa_memory.embedding.service import (
         EmbeddingCompositionError,
         EmbeddingIdentity,
         _OpenAICompatibleEmbeddingBackend,
     )
-    from mesa_memory.config import config
 
     monkeypatch.setattr(config, "embedding_api_key", None)
     monkeypatch.setattr(config, "llm_api_key", None)
