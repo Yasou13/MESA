@@ -1364,6 +1364,14 @@ class MemoryDAO:
                 admissions = await cursor.fetchall()
             for admission in admissions:
                 metadata = json.loads(admission["metadata_json"] or "{}")
+                audit = metadata.get("_mesa_tier3_audit")
+                if isinstance(audit, dict) and isinstance(
+                    audit.get("justifications"), dict
+                ):
+                    # Validator justifications may quote the source text.
+                    audit["justifications"] = dict.fromkeys(
+                        audit["justifications"], ""
+                    )
                 # Keep engine-owned identity/policy audit, dropping caller text
                 # and durable extracted facts (which include source spans).
                 retained_metadata = json.dumps(
@@ -1386,6 +1394,14 @@ class MemoryDAO:
                     "metadata_json = ? WHERE mutation_id = ?",
                     (retained_metadata, admission["mutation_id"]),
                 )
+            await db.execute(
+                "UPDATE pipeline_run_events SET detail_json = json_set(detail_json, "
+                "'$.tier3.justifications', json('{}')) "
+                "WHERE json_type(detail_json, '$.tier3.justifications') IS NOT NULL "
+                "AND pipeline_run_id IN (SELECT pipeline_run_id FROM memory_mutations "
+                "WHERE dataset_id = ? AND document_id = ?)",
+                (dataset_id, document_id),
+            )
             await db.execute(
                 "UPDATE source_chunks SET content_payload = '' WHERE revision_id IN "
                 "(SELECT revision_id FROM document_revisions WHERE document_id = ?)",

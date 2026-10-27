@@ -389,3 +389,54 @@ async def test_purge_leaves_no_text_in_raw_storage_files(model_runtime, extracti
         assert "Other durable memory." in await _context(env)
         await env.stop()
         assert _raw_file_hits(storage, marker) == {}
+
+
+@pytest.mark.asyncio
+async def test_purge_erases_validator_justifications(model_runtime):
+    # Opt-in validation (modes 1/2) stores model justifications that may quote
+    # the source; the worker writes them to mutation metadata and run events.
+    marker = "JUSTIFICATIONPRIVACYMARKER"
+    async with model_runtime(MESA_EMBEDDING_ENABLED=True) as env:
+        await _grant_lifecycle_permissions()
+        mutation_id = await _insert_document(env, content=f"{marker} durable memory.")
+        await _consume(env, 3)
+        audit = {
+            "route": "dual",
+            "route_reason": "policy",
+            "decisions": {"primary": "STORE", "secondary": "STORE"},
+            "justifications": {
+                "primary": f"Quotes {marker} from the source.",
+                "secondary": f"Also {marker}.",
+            },
+            "models": {"primary": "validator-a", "secondary": "validator-b"},
+            "prompt_version": "v1",
+            "reason": "tier3_accepted",
+            "accepted": True,
+        }
+        assert await env.dao.record_mutation_tier3_audit(
+            "model-agent", mutation_id, audit
+        )
+        mutation = await env.dao.get_mutation("model-agent", mutation_id)
+        async with env.dao._sql.transaction() as db:
+            await db.execute(
+                "INSERT INTO pipeline_run_events (event_id, pipeline_run_id, "
+                "from_state, to_state, event_type, detail_json) "
+                "VALUES ('tier3-event', ?, 'RUNNING', 'RUNNING', 'MUTATION', ?)",
+                (mutation["pipeline_run_id"], json.dumps({"tier3": audit})),
+            )
+            await db.commit()
+        database = server.state.runtime_profile.storage_root / "mesa.db"
+        assert _sqlite_text_hits(database, marker)
+        await _purge_document(env, "privacy")
+        assert _sqlite_text_hits(database, marker) == {}
+        async with env.dao._sql.connection() as db:
+            row = await (
+                await db.execute(
+                    "SELECT metadata_json FROM memory_mutations WHERE mutation_id = ?",
+                    (mutation_id,),
+                )
+            ).fetchone()
+        kept = json.loads(row[0])["_mesa_tier3_audit"]
+        assert kept["decisions"] == audit["decisions"]
+        assert kept["models"] == audit["models"]
+        assert kept["justifications"] == {"primary": "", "secondary": ""}
