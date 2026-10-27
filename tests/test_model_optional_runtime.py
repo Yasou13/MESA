@@ -783,3 +783,20 @@ async def test_backfill_keeps_identity_of_skipped_mutation_with_vectors(model_ru
         assert (await _lanes(env))["VECTOR"] == "RETRY_PENDING"
         await _assert_committed(env)
         assert (await _search(env))["degraded_sources"] == ["vector"]
+
+
+@pytest.mark.asyncio
+async def test_adaptive_retrieval_makes_no_llm_call_when_extraction_is_off(
+    model_runtime,
+):
+    async with model_runtime(MESA_EXTRACTION_ENABLED=False) as env:
+        completions_before = env.provider.completions
+        response = await env.client.get(
+            f"/v4/sessions/{env.session_id}/context",
+            params={"query": "weak query", "retrieval_mode": "adaptive"},
+        )
+        assert response.status_code == 200, response.text
+        assert env.provider.completions == completions_before
+        diagnostics = response.json().get("context_diagnostics", {})
+        assert diagnostics.get("planner_status") == "planner_unavailable_fallback_single"
+

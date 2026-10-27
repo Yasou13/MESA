@@ -793,6 +793,9 @@ v4_router = create_v4_router(
     get_composed_validation_policy=lambda: getattr(
         getattr(state, "consolidation_loop", None), "validation_policy", None
     ),
+    get_extraction_enabled=lambda: bool(
+        getattr(getattr(state, "runtime_profile", None), "extraction_enabled", False)
+    ),
 )
 app.include_router(v4_router, dependencies=router_dependencies)
 app.include_router(
