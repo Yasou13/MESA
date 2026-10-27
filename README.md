@@ -15,7 +15,17 @@ remains at the release candidate stage:
 The [v0.8.1 publication status](CHANGELOG.md#v081-publication) is separate from
 production certification.
 
-## Start here
+## Quickstart
+
+```bash
+pip install git+https://github.com/Yasou13/MESA.git
+mesa start
+# In another shell:
+mesa add document.txt --source file://document.txt
+mesa search "your query"
+```
+
+## Start here (from source)
 
 ```bash
 git clone https://github.com/Yasou13/MESA.git

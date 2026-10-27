@@ -23,6 +23,37 @@ MESA_GATEWAY_CONTROL_DB=/absolute/path/to/mesa-data/mesa.db \
 .venv/bin/mesa-mcp-gateway
 ```
 
+## Connecting Claude Desktop and MCP clients (`mesa mcp-config`)
+
+After running `mesa start`, generate the ready-to-paste MCP server configuration block from your provisioned credentials:
+
+```bash
+mesa mcp-config
+```
+
+This prints a configuration block using the provisioned credentials and the absolute path to `mesa-mcp`:
+
+```json
+{
+  "mcpServers": {
+    "mesa": {
+      "command": "/absolute/path/to/mesa-mcp",
+      "env": {
+        "MESA_BASE_URL": "http://127.0.0.1:8000",
+        "MESA_API_KEY": "...",
+        "MESA_TENANT_ID": "local",
+        "MESA_WORKSPACE_ID": "default",
+        "MESA_DATASET_ID": "default",
+        "MESA_ACTOR_ID": "local-agent"
+      }
+    }
+  }
+}
+```
+
+Add this configuration to your Claude Desktop configuration file (`claude_desktop_config.json`) to connect Claude directly to MESA.
+
+
 ## Codex direct HTTP integration
 
 Codex connects directly to the durable gateway at `http://127.0.0.1:8765/mcp`.

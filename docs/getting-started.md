@@ -144,7 +144,23 @@ installation, credentials and readiness. This profile stores V4 records and find
 without embedding or extraction calls. VECTOR lanes end `SKIPPED`; enable
 embedding later to backfill vectors at startup with the same identity.
 
-### Provision before startup
+### Automatic local bootstrap (`mesa start`)
+
+For standard local usage, `mesa start` provisions local storage (`~/.mesa/data`), initializes credentials (`~/.mesa/credentials.json`), sets model-disabled defaults, and starts the loopback server:
+
+```bash
+mesa start
+```
+
+In another terminal, add and search documents immediately without manually exporting credentials:
+
+```bash
+mesa add notes.txt --source file://notes.txt
+mesa search "notes"
+mesa status
+```
+
+### Provision before startup (manual)
 
 Choose a disposable location on a disk with sufficient free space. The example
 uses a unique child under `~/mesa-doc-demos`; do not reuse user storage.
