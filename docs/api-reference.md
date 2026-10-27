@@ -103,7 +103,7 @@ The HTTP insert contract accepts optional typed `legal_identity`: `law_id` and
 through the bounded legal aliases. Caller metadata cannot supply trusted
 `_mesa_*` fields. The producer remains responsible for source truth.
 
-Search responses include `degraded_sources`: `["vector"]` when embedding is off or any in-scope committed record has an incomplete VECTOR lane; otherwise `[]`.
+Search responses include `degraded_sources`: `vector` when embedding is off or any in-scope committed record has an incomplete VECTOR lane, and `graph` under the same rule for GRAPH or `MESA_GRAPH_ENABLED=false`; otherwise `[]`.
 
 Search and context both accept `jurisdiction`, `valid_at`, `valid_from` and
 `valid_to`. Context uses query parameters and defaults to `token_budget=2048`,

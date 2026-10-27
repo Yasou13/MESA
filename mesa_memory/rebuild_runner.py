@@ -96,6 +96,7 @@ def _provider_runtime() -> RebuildProviderRuntime:
     return RebuildProviderRuntime(
         manifest={
             **identity.as_dict(),
+            "graph_enabled": _environment_bool("MESA_GRAPH_ENABLED", default=True),
             "embedding_provider": identity.provider,
             "embedding_model": identity.model,
             "embedding_version": identity.version,
@@ -314,8 +315,16 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             state=str(preparation.operation["state"]),
             generation=preparation.target_generation_id,
         )
+        graph_enabled = providers.manifest.get("graph_enabled", True)
+        generation_graph_enabled = json.loads(
+            preparation.generation.get("provider_manifest_json") or "{}"
+        ).get("graph_enabled", True)
+        if graph_enabled != generation_graph_enabled:
+            raise ValueError("graph setting differs from the prepared generation")
         if recovering_cutover:
-            counts = ProjectionSnapshot(preparation.backup_root / "mesa.db").counts()
+            counts = ProjectionSnapshot(
+                preparation.backup_root / "mesa.db", graph_enabled=graph_enabled
+            ).counts()
             total = sum(counts.values())
             if total != int(claimed["progress_total"]):
                 raise RebuildPreparationError(

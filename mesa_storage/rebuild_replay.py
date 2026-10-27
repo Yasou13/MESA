@@ -217,8 +217,9 @@ _QUERIES = {
 class ProjectionSnapshot:
     """Bounded read model over one immutable backup SQLite snapshot."""
 
-    def __init__(self, database: Path) -> None:
+    def __init__(self, database: Path, *, graph_enabled: bool = True) -> None:
         self._database = database
+        self.graph_enabled = graph_enabled
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(f"file:{self._database}?mode=ro", uri=True)
@@ -322,6 +323,8 @@ class ProjectionSnapshot:
                 lane: int(
                     connection.execute(f"SELECT COUNT(*) FROM ({query})").fetchone()[0]
                 )
+                if self.graph_enabled or lane == "vector"
+                else 0
                 for lane, query in _QUERIES.items()
             }
         finally:
@@ -523,7 +526,10 @@ class ProjectionReplayer:
             != preparation.source_manifest["canonical_sha256"]
         ):
             raise RebuildSourceChangedError("rebuild source snapshot changed")
-        snapshot = ProjectionSnapshot(preparation.backup_root / "mesa.db")
+        snapshot = ProjectionSnapshot(
+            preparation.backup_root / "mesa.db",
+            graph_enabled=provider_manifest.get("graph_enabled", True),
+        )
         snapshot.validate_ownership()
         expected_provider = _validate_provider(snapshot, provider_manifest)
         counts = snapshot.counts()
@@ -563,8 +569,10 @@ class ProjectionReplayer:
                 local_embedding_model=local_embedding_model,
             )
         )
-        graph: GraphReplayTarget
-        if graph_factory is None:
+        graph: GraphReplayTarget | None = None
+        if not snapshot.graph_enabled:
+            pass
+        elif graph_factory is None:
             from mesa_storage import kuzu_setup
 
             kuzu_setup.initialize_schema_artifact(str(paths.graph_path))
@@ -576,12 +584,16 @@ class ProjectionReplayer:
                 raise RebuildReplayError(
                     "vector target does not match staging generation"
                 )
-            if Path(graph.db_path).resolve(strict=False) != paths.graph_path:
+            if (
+                graph is not None
+                and Path(graph.db_path).resolve(strict=False) != paths.graph_path
+            ):
                 raise RebuildReplayError(
                     "graph target does not match staging generation"
                 )
             await vector.initialize()
-            await graph.initialize()
+            if graph is not None:
+                await graph.initialize()
             for lane in _LANES:
                 while offsets[lane] < counts[lane]:
                     if should_stop is not None and should_stop():
@@ -638,7 +650,8 @@ class ProjectionReplayer:
                 checkpoint=checkpoint,
             )
         finally:
-            await graph.close()
+            if graph is not None:
+                await graph.close()
             await vector.close()
         return RebuildReplayResult(
             operation=operation,
@@ -653,7 +666,7 @@ class ProjectionReplayer:
         rows: list[dict[str, Any]],
         *,
         vector: VectorReplayTarget,
-        graph: GraphReplayTarget,
+        graph: GraphReplayTarget | None,
         expected_provider: tuple[str, str, str, int] | None,
     ) -> None:
         if lane == "vector":
@@ -684,6 +697,8 @@ class ProjectionReplayer:
                     for row, embedding in zip(rows, embeddings)
                 ]
             )
+        elif graph is None:
+            raise RebuildReplayError("graph replay target is disabled")
         elif lane == "graph_entity":
             for row in rows:
                 await graph.insert_node(

@@ -328,29 +328,31 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     )
     await state.vector_engine.initialize()
 
-    # Initialize KùzuDB embedded graph database (disk-backed).
-    # NOTE: Only the Database handle is created here. kuzu.Connection
-    # instances must be created per-thread to avoid file-lock contention.
-    if _KUZU_PATH is not None:
-        _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # type: ignore[union-attr]
-    logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
-    from mesa_storage import kuzu_setup
+    graph_provider = None
+    if runtime.graph_enabled:
+        # Initialize KùzuDB embedded graph database (disk-backed).
+        # NOTE: Only the Database handle is created here. kuzu.Connection
+        # instances must be created per-thread to avoid file-lock contention.
+        if _KUZU_PATH is not None:
+            _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # type: ignore[union-attr]
+        logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
+        from mesa_storage import kuzu_setup
 
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
-    logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
+        logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
 
-    state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
-    logger.info("KùzuDB initialised at %s", _KUZU_PATH)
-    logger.info("KUZU_DATABASE_OPENED")
+        state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
+        logger.info("KùzuDB initialised at %s", _KUZU_PATH)
+        logger.info("KUZU_DATABASE_OPENED")
 
-    # Initialize the async-safe KuzuGraphProvider for edge operations.
-    graph_provider = KuzuGraphProvider(
-        db_path=str(_KUZU_PATH),
-        search_timeout_seconds=config.v4_graph_timeout_seconds,
-    )
-    await graph_provider.initialize()
+        # Initialize the async-safe KuzuGraphProvider for edge operations.
+        graph_provider = KuzuGraphProvider(
+            db_path=str(_KUZU_PATH),
+            search_timeout_seconds=config.v4_graph_timeout_seconds,
+        )
+        await graph_provider.initialize()
 
     state.graph_provider = graph_provider  # type: ignore[assignment]
 
@@ -361,6 +363,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         graph_provider=graph_provider,
         canonical_v4_writes_enabled=(runtime.profile is RuntimeProfile.COMBINED),
         embedding_enabled=runtime.embedding_enabled,
+        graph_enabled=runtime.graph_enabled,
         secondary_writes_enabled=runtime.profile is RuntimeProfile.COMBINED,
         rrf_k=config.rrf_k,
         rrf_weights={
@@ -376,6 +379,8 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         await state.dao.recover_in_flight_projection_and_dispatch()
         if runtime.embedding_enabled:
             await state.dao.requeue_skipped_vector_projections()
+        if runtime.graph_enabled:
+            await state.dao.requeue_skipped_vector_projections(projection_name="GRAPH")
 
     # The MCP control plane shares the API's single SQLite storage
     # owner.  It must not construct or close a second AsyncEngine lifecycle.

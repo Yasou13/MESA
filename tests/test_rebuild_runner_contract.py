@@ -386,7 +386,7 @@ def test_cli_resumes_ready_cutover_without_replaying_projections(
     monkeypatch.setattr(
         runner,
         "ProjectionSnapshot",
-        lambda _path: SimpleNamespace(
+        lambda _path, *, graph_enabled: SimpleNamespace(
             counts=lambda: {
                 "vector": 1,
                 "graph_entity": 1,

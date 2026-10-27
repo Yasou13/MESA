@@ -963,7 +963,8 @@ def create_v4_router(
                 if isinstance(vector_available, bool)
                 else False
             ),
-            graph_projection=canonical_writes_available,
+            graph_projection=canonical_writes_available
+            and dao.graph_enabled is not False,
             graph_neighbor_retrieval=(
                 graph_available if isinstance(graph_available, bool) else False
             ),
