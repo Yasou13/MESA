@@ -2652,7 +2652,7 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT mutation_id, candidate_id, raw_log_id, tenant_id, "
                 "workspace_id, dataset_id, document_id, revision_id, chunk_id, "
-                "source_ref, evidence_span, state, source, pipeline_run_id, "
+                "source_ref, state, source, pipeline_run_id, "
                 "created_at, updated_at FROM memory_mutations "
                 "WHERE agent_id = ? AND session_id = ? ORDER BY created_at DESC LIMIT ?",
                 (agent_id, session_id, limit),

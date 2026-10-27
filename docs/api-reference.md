@@ -163,7 +163,7 @@ storage and authorization failures raise errors instead. Each hit's
 `assertion_id` identifies a canonical claim; `provenance` links it to the source
 and dataset/chunk. A score ranks evidence; it is not a truth probability.
 Context returns packed text in `context` and structured evidence in
-`canonical_memories`. Finish retrieval before `end_session`; closing the HTTP
+`canonical_memories`; `mutations` holds bounded receipts (IDs and states) without raw evidence spans. Finish retrieval before `end_session`; closing the HTTP
 client alone does not end the server session.
 
 For async code use `async with AsyncMesaV4Client(...) as client` and `await` each

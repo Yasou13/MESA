@@ -442,3 +442,34 @@ async def test_purge_erases_validator_justifications(model_runtime):
         assert kept["decisions"] == audit["decisions"]
         assert kept["models"] == audit["models"]
         assert kept["justifications"] == {"primary": "", "secondary": ""}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["supersede", "rollback"])
+async def test_context_response_drops_evidence_spans_from_mutations(
+    model_runtime, action
+):
+    async with model_runtime() as env:
+        await _grant_lifecycle_permissions()
+        span_1 = "SPAN_REV_1_SECRET_TEXT"
+        mutation_id = await _insert_document(env, evidence_span=span_1)
+        await _consume(env, 3)
+
+        if action == "supersede":
+            span_2 = "SPAN_REV_2_NEW_TEXT"
+            await _insert_document(env, revision=2, evidence_span=span_2)
+            await _consume(env, 6)
+        elif action == "rollback":
+            resp = await env.client.post(f"/v4/mutations/{mutation_id}/rollback")
+            assert resp.status_code == 202
+
+        resp = await env.client.get(f"/v4/sessions/{env.session_id}/context")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # No old span anywhere in the whole response
+        assert span_1 not in resp.text
+        # And specifically, mutations list has no evidence_span field
+        for mut in data.get("mutations", []):
+            assert "evidence_span" not in mut
+
