@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import re
+import sqlite3
 import unicodedata
 import uuid
 from collections import Counter
@@ -1335,6 +1336,14 @@ class MemoryDAO:
                     str(row[0]) for row in await cursor.fetchall() if row[0]
                 ]
 
+            # Earlier FTS5 secure-delete has false integrity failures (fixed
+            # in SQLite 3.46.1). Rebuild those indexes after erasure instead.
+            if sqlite3.sqlite_version_info >= (3, 46, 1):
+                for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
+                    await db.execute(
+                        f"INSERT INTO {fts_table}({fts_table}, rank) "
+                        "VALUES('secure-delete', 1)"
+                    )
             purged_mutation_ids = await self._purge_mutations_in_tx(
                 db,
                 where_sql="dataset_id = ? AND document_id = ?",
@@ -1348,8 +1357,84 @@ class MemoryDAO:
                     f"WHERE mutation_id IN ({placeholders})",
                     purged_mutation_ids,
                 )
+            # Erase every admission, including already-terminal mutations.
+            # Cleanup uses artifact IDs/ownership, never these source payloads.
+            async with db.execute(
+                "SELECT mutation_id, raw_log_id, agent_id, metadata_json "
+                "FROM memory_mutations WHERE dataset_id = ? AND document_id = ?",
+                (dataset_id, document_id),
+            ) as cursor:
+                admissions = await cursor.fetchall()
+            for admission in admissions:
+                metadata = json.loads(admission["metadata_json"] or "{}")
+                audit = metadata.get("_mesa_tier3_audit")
+                if isinstance(audit, dict) and isinstance(
+                    audit.get("justifications"), dict
+                ):
+                    # Validator justifications may quote the source text.
+                    audit["justifications"] = dict.fromkeys(
+                        audit["justifications"], ""
+                    )
+                # Keep engine-owned identity/policy audit, dropping caller text
+                # and durable extracted facts (which include source spans).
+                retained_metadata = json.dumps(
+                    {
+                        key: value
+                        for key, value in metadata.items()
+                        if key.startswith("_mesa_")
+                        and key != "_mesa_v4_projection_triplets"
+                    },
+                    sort_keys=True,
+                )
+                await db.execute(
+                    "UPDATE raw_logs SET payload = json_set(payload, "
+                    "'$.content', '', '$.evidence_span', '', '$.metadata', json(?)) "
+                    "WHERE id = ? AND agent_id = ?",
+                    (retained_metadata, admission["raw_log_id"], admission["agent_id"]),
+                )
+                await db.execute(
+                    "UPDATE memory_mutations SET content_payload = '', evidence_span = '', "
+                    "metadata_json = ? WHERE mutation_id = ?",
+                    (retained_metadata, admission["mutation_id"]),
+                )
             await db.execute(
-                "UPDATE documents SET status = 'PURGED' WHERE document_id = ?",
+                "UPDATE pipeline_run_events SET detail_json = json_set(detail_json, "
+                "'$.tier3.justifications', json('{}')) "
+                "WHERE json_type(detail_json, '$.tier3.justifications') IS NOT NULL "
+                "AND pipeline_run_id IN (SELECT pipeline_run_id FROM memory_mutations "
+                "WHERE dataset_id = ? AND document_id = ?)",
+                (dataset_id, document_id),
+            )
+            await db.execute(
+                "UPDATE source_chunks SET content_payload = '' WHERE revision_id IN "
+                "(SELECT revision_id FROM document_revisions WHERE document_id = ?)",
+                (document_id,),
+            )
+            await db.execute(
+                "UPDATE artifact_sources SET evidence_span = '' "
+                "WHERE dataset_id = ? AND document_id = ?",
+                (dataset_id, document_id),
+            )
+            await db.execute(
+                "UPDATE memory_artifacts SET metadata_json = json_remove(metadata_json, "
+                "'$.fact_text', '$.source_span', '$.predicate', '$.entity_name', '$.supersedes') "
+                "WHERE mutation_id IN (SELECT mutation_id FROM memory_mutations "
+                "WHERE dataset_id = ? AND document_id = ?)",
+                (dataset_id, document_id),
+            )
+            await db.execute(
+                "UPDATE artifact_registry SET metadata_json = json_remove(metadata_json, "
+                "'$.fact_text', '$.source_span', '$.predicate', '$.entity_name', '$.supersedes') "
+                "WHERE EXISTS (SELECT 1 FROM artifact_sources own "
+                "WHERE own.registry_id = artifact_registry.registry_id "
+                "AND own.dataset_id = ? AND own.document_id = ?) "
+                "AND NOT EXISTS (SELECT 1 FROM artifact_sources other "
+                "WHERE other.registry_id = artifact_registry.registry_id "
+                "AND other.state = 'ACTIVE' AND other.document_id IS NOT ?)",
+                (dataset_id, document_id, document_id),
+            )
+            await db.execute(
+                "UPDATE documents SET status = 'PURGED', title = '' WHERE document_id = ?",
                 (document_id,),
             )
             await db.execute(
@@ -1357,10 +1442,24 @@ class MemoryDAO:
                 (document_id,),
             )
             await db.execute(
-                "UPDATE v4_assertions SET status = 'RETRACTED' "
-                "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ?",
-                (tenant_id, dataset_id, document_id),
+                "UPDATE v4_assertions SET status = 'RETRACTED', evidence_span = '', "
+                "predicate = '', literal_value = CASE WHEN literal_value IS NULL "
+                "THEN NULL ELSE '' END, jurisdiction = '', authority_level = '' "
+                "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM artifact_registry r "
+                "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                "WHERE r.tenant_id = v4_assertions.tenant_id "
+                "AND r.store_name = 'SQL' AND r.artifact_kind = 'ASSERTION' "
+                "AND r.physical_artifact_id = v4_assertions.assertion_id "
+                "AND s.state = 'ACTIVE' AND s.document_id IS NOT ?)",
+                (tenant_id, dataset_id, document_id, document_id),
             )
+            if sqlite3.sqlite_version_info < (3, 46, 1):
+                # ponytail: full index work on old SQLite; upgrade for secure-delete.
+                for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
+                    await db.execute(
+                        f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                    )
             await db.commit()
 
         outcomes = []
@@ -1374,6 +1473,8 @@ class MemoryDAO:
             raise PurgeRetryPendingError(
                 "document is purge-fenced but artifact cleanup remains pending"
             ) from rollback_errors[0]
+        # Old page images in the WAL still hold the erased text.
+        await self._sql.checkpoint("TRUNCATE")
         return {
             "document_id": external_document_id,
             "pipeline_runs": outcomes,
@@ -1952,12 +2053,14 @@ class MemoryDAO:
                     (document_id, tenant_id, dataset_id, title),
                 )
                 async with db.execute(
-                    "SELECT tenant_id, dataset_id FROM documents WHERE document_id = ?",
+                    "SELECT tenant_id, dataset_id, status FROM documents WHERE document_id = ?",
                     (document_id,),
                 ) as cursor:
                     document = await cursor.fetchone()
-                if document is None or tuple(document) != (tenant_id, dataset_id):
+                if document is None or (document[0], document[1]) != (tenant_id, dataset_id):
                     raise ValueError("document identity collides with another dataset")
+                if document[2] == "PURGED":
+                    raise ValueError("document is purged")
                 async with db.execute(
                     "SELECT * FROM document_revisions WHERE revision_id = ?",
                     (revision_id,),
@@ -1975,6 +2078,14 @@ class MemoryDAO:
                         supersedes_revision_id,
                     ),
                 )
+                async with db.execute(
+                    "SELECT 1 FROM document_revisions WHERE revision_id = ?",
+                    (revision_id,),
+                ) as cursor:
+                    if await cursor.fetchone() is None:
+                        raise ValueError(
+                            "revision number already used for this document"
+                        )
                 if existing_revision is not None and (
                     existing_revision["revision_number"] != revision_number
                     or existing_revision["supersedes_revision_id"]
@@ -4253,6 +4364,12 @@ class MemoryDAO:
                         "WHERE subject_id = ? OR object_entity_id = ?)",
                         (artifact_id, artifact_id, artifact_id),
                     )
+                if sqlite3.sqlite_version_info < (3, 46, 1):
+                    # Cleanup can remove entity text after the purge transaction.
+                    for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
+                        await db.execute(
+                            f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                        )
                 await db.commit()
 
     async def finish_artifact_cleanup(
@@ -5608,7 +5725,7 @@ class MemoryDAO:
 
         historical_query = bool(valid_at or valid_from or valid_to)
         assertion_status_sql = (
-            "a.status IN ('ACTIVE', 'SUPERSEDED')"
+            "(a.status = 'ACTIVE' OR (a.status = 'SUPERSEDED' AND a.valid_to != ''))"
             if historical_query
             else "a.status = 'ACTIVE'"
         )
@@ -9459,8 +9576,14 @@ class MemoryDAO:
         recent_logs = []
         async with self._sql.connection() as db:
             async with db.execute(
-                "SELECT payload FROM raw_logs WHERE agent_id = ? "
-                "AND json_extract(payload, '$.session_id') = ? ORDER BY created_at DESC LIMIT ?",
+                "SELECT l.payload FROM raw_logs l WHERE l.agent_id = ? "
+                "AND json_extract(l.payload, '$.session_id') = ? "
+                "AND NOT EXISTS (SELECT 1 FROM memory_mutations m "
+                "LEFT JOIN document_revisions r ON r.revision_id = m.revision_id "
+                "WHERE m.raw_log_id = l.id AND m.agent_id = l.agent_id "
+                "AND (m.state IN ('PURGED', 'ROLLED_BACK', 'REJECTED', 'CANCELLED') "
+                "OR r.status IN ('PURGED', 'ROLLED_BACK', 'SUPERSEDED'))) "
+                "ORDER BY l.created_at DESC LIMIT ?",
                 (agent_id, session_id, limit),
             ) as cur:
                 rows = await cur.fetchall()

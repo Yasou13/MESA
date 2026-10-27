@@ -175,6 +175,44 @@ def test_unprefixed_llm_base_url_in_env_changes_nothing(monkeypatch):
         AdapterFactory.get_adapter()
 
 
+def test_openai_provider_fails_when_mesa_llm_api_key_unset_even_if_outside_openai_api_key_is_set(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import mesa_memory.adapter.claude as claude_mod
+    import mesa_memory.adapter.live as live_mod
+    from mesa_memory.adapter.factory import AdapterFactory
+    from mesa_memory.config import config
+
+    mock_openai = MagicMock()
+    mock_anthropic = MagicMock()
+    monkeypatch.setattr(live_mod, "openai", SimpleNamespace(OpenAI=mock_openai, AsyncOpenAI=MagicMock()))
+    monkeypatch.setattr(claude_mod, "anthropic", SimpleNamespace(Anthropic=mock_anthropic, AsyncAnthropic=MagicMock()))
+    monkeypatch.setattr(config, "external_provider_enabled", True)
+    monkeypatch.setattr(config, "llm_api_key", None)
+    monkeypatch.setenv("OPENAI_API_KEY", "outside-openai-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "outside-anthropic-secret")
+
+    # openai:
+    monkeypatch.setattr(config, "llm_model", "openai:gpt-4o-mini")
+    with pytest.raises(ValueError, match="MESA_LLM_API_KEY"):
+        AdapterFactory.get_adapter()
+    mock_openai.assert_not_called()
+
+    # anthropic:
+    monkeypatch.setattr(config, "llm_model", "anthropic:claude-sonnet-4-5")
+    with pytest.raises(ValueError, match="MESA_LLM_API_KEY"):
+        AdapterFactory.get_adapter()
+    mock_anthropic.assert_not_called()
+
+    # openai_compatible:
+    monkeypatch.setattr(config, "llm_model", "openai_compatible:custom-model")
+    monkeypatch.setattr(config, "llm_base_url", "https://custom.endpoint/v1")
+    with pytest.raises(ValueError, match="MESA_LLM_API_KEY"):
+        AdapterFactory.get_adapter()
+    mock_openai.assert_not_called()
+
+
 def test_factory_invalid_provider():
     with pytest.raises(ValueError, match="Unknown LLM provider 'invalid'"):
         AdapterFactory.get_adapter(provider="invalid")

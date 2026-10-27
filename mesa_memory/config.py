@@ -463,8 +463,6 @@ class MesaConfig(BaseSettings):
         )
 
     llm_provider: str = "claude"
-    openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
     llm_model: str = Field("", validation_alias=AliasChoices("MESA_LLM_MODEL"))
     llm_base_url: str | None = Field(
         None, validation_alias=AliasChoices("MESA_LLM_BASE_URL")
@@ -801,19 +799,6 @@ class MesaConfig(BaseSettings):
                 f"{NEMOTRON_EMBEDDING_MODEL} requires "
                 f"MESA_EMBEDDING_VERSION={NEMOTRON_EMBEDDING_VERSION} so corrected "
                 "query/passage vectors cannot reuse the legacy embedding space"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_embedding_fallback(self) -> "MesaConfig":
-        if self.llm_provider.lower() == "claude" and not self.openai_api_key:
-            import logging
-
-            logging.getLogger("MESA_Config").warning(
-                "OPENAI_API_KEY not set for Claude provider. "
-                "No external embedding fallback will be selected automatically; "
-                "the configured embedding provider remains authoritative (%s).",
-                self.embedding_model,
             )
         return self
 

@@ -41,6 +41,8 @@ model will ignore malicious instructions. Review consumers, tool authority and
 output handling. API bounds and source-file containment checks reduce abuse;
 they do not establish document truth or a legal opinion.
 
+Document purge erases its source and extracted text while retaining identifiers and hashes; shared assertion/entity text remains while another document still owns it.
+
 Avoid query/source content, credentials, raw model output and claim tokens in
 logs. IDs and aggregate diagnostics still reveal operational metadata and need
 access/retention policy. Historical reports may contain deployment details;

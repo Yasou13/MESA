@@ -78,7 +78,7 @@ that chunk. Direct insertion does not establish a whole-revision hash.
 ## Correction, purge and rollback
 
 Supersession retains historical assertions. A time-qualified query can include
-eligible superseded evidence; an unqualified query uses active evidence.
+eligible superseded evidence, which requires explicit producer validity dates (`valid_from` / `valid_to`); without them, superseded evidence is not returned. An unqualified query uses active evidence.
 Rollback removes source ownership; shared artifacts remain while another active
 source owns them. Tombstones precede secondary cleanup; failure stays `BLOCKED`.
 Purge requires dataset `OWNER` plus explicit `PURGE`; replay/rollback require

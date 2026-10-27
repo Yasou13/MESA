@@ -86,12 +86,11 @@ def test_read_cgroup_ram_limit_file_not_found():
 
 
 def test_config_claude_no_key():
-    _ = MesaConfig(
+    cfg = MesaConfig(
         llm_provider="claude",
-        openai_api_key=None,
         llm_model="openai_compatible:my-model",
     )
-    # Triggers warning block in validate_embedding_fallback
+    assert cfg.llm_provider == "claude"
 
 
 def test_config_zero_cost_mode():

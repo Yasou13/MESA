@@ -121,6 +121,8 @@ _PRAGMA_INIT: list[str] = [
     "PRAGMA foreign_keys=ON;",
     "PRAGMA busy_timeout=5000;",
     "PRAGMA temp_store=MEMORY;",
+    # Purge must not leave deleted text in free page space (D20).
+    "PRAGMA secure_delete=ON;",
 ]
 
 # ---------------------------------------------------------------------------

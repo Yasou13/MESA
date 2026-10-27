@@ -67,6 +67,8 @@ olur. Offline işletim prosedürü
 | `POST` | `/v4/catalog/source-chunks` | Dataset `WRITER` | Exact source chunk oluşturur |
 | `DELETE` | `/v4/catalog/documents/{document_id}` | Dataset `OWNER` + `PURGE` | Kaynak sahipli purge başlatır |
 
+Document purge erases its source and extracted text while retaining identifiers and hashes; shared assertion/entity text remains while another document still owns it.
+
 Catalog IDs are tenant-scoped public IDs; physical storage keys are not public
 aliases. Revision/chunk identity, finalization and the distinction between
 `declared_content_hash`, `manifest_hash` and chunk `content_hash` are defined in
@@ -262,6 +264,7 @@ errors. For example, a non-string search query returns HTTP 422:
 | 404 `NOT_FOUND` | Check the ID and credential scope; hidden objects may also return 404 |
 | 409 `SESSION_INACTIVE` | Start an authorized active session before new writes |
 | 409 `IDEMPOTENCY_CONFLICT` | Reuse the original payload with that key, or use a new key for new content |
+| 409, detail `document is purged` | Re-using a purged document ID is not supported; use a new document ID |
 | 422 `VALIDATION_ERROR` | Correct the named field/format; timestamps need a timezone |
 | 503 `BACKEND_UNAVAILABLE`, detail `canonical_processing_unavailable` | Run one combined owner; non-combined profiles cannot ingest V4 |
 | 503, detail `vector_backend_unavailable` / `graph_backend_unavailable` | Check provider credentials, embedding identity and backend readiness; an empty result is not a substitute |
