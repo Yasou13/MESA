@@ -115,6 +115,25 @@ def test_typed_result_prefers_chunk_text_over_evidence_span():
         "memory_id": "mem-1",
         "document_id": "doc-1",
         "chunk_id": "chunk-1",
+        "chunk_text": "full chunk text from chunk_text",
+        "evidence_span": "12:51",
+        "provenance": [
+            {
+                "chunk_id": "chunk-1",
+                "evidence_span": "12:51",
+                "literal_value": "15 gün",
+            }
+        ],
+    }
+    typed = _typed_result(item)
+    assert typed["content"] == "full chunk text from chunk_text"
+
+
+def test_typed_result_prefers_evidence_span_over_literal_value():
+    item = {
+        "memory_id": "mem-1",
+        "document_id": "doc-1",
+        "chunk_id": "chunk-1",
         "evidence_span": "12:51",
         "provenance": [
             {
@@ -125,7 +144,7 @@ def test_typed_result_prefers_chunk_text_over_evidence_span():
         ],
     }
     typed = _typed_result(item)
-    assert typed["content"] == "full chunk text from literal_value"
+    assert typed["content"] == "12:51"
 
 
 @pytest.mark.asyncio
