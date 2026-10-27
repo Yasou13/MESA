@@ -9888,6 +9888,25 @@ class MemoryDAO:
             await db.commit()
         return cursor.rowcount
 
+    async def recover_in_flight_projection_and_dispatch(self) -> dict[str, int]:
+        """Release abandoned in-flight projection and dispatch claims after writer lock."""
+        async with self._sql.transaction() as db:
+            p_cursor = await db.execute(
+                "UPDATE projection_outbox SET state = 'RETRY_PENDING', claim_token = NULL, "
+                "claimed_by = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE state = 'IN_FLIGHT'"
+            )
+            d_cursor = await db.execute(
+                "UPDATE dispatch_queue SET state = 'RETRY_PENDING', claim_token = NULL, "
+                "claimed_by = NULL, lease_expires_at = NULL "
+                "WHERE state = 'IN_FLIGHT'"
+            )
+            await db.commit()
+        return {
+            "projection_outbox": p_cursor.rowcount,
+            "dispatch_queue": d_cursor.rowcount,
+        }
+
     async def claim_lancedb_wal_entries(
         self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300
     ) -> list[dict[str, Any]]:

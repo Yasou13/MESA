@@ -373,6 +373,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     await state.dao.initialize()
     if runtime.profile is RuntimeProfile.COMBINED:
         await state.dao.recover_processing_raw_logs()
+        await state.dao.recover_in_flight_projection_and_dispatch()
         if runtime.embedding_enabled:
             await state.dao.requeue_skipped_vector_projections()
 

@@ -800,3 +800,67 @@ async def test_adaptive_retrieval_makes_no_llm_call_when_extraction_is_off(
         diagnostics = response.json().get("context_diagnostics", {})
         assert diagnostics.get("planner_status") == "planner_unavailable_fallback_single"
 
+
+@pytest.mark.asyncio
+async def test_restart_resumes_in_flight_projection_and_dispatch_at_once(
+    model_runtime,
+):
+    async with model_runtime(MESA_EMBEDDING_ENABLED=True) as env:
+        await _insert(env)
+        await _consume(env, 1)
+
+        claimed_projections = await env.dao.claim_projection_outbox(
+            worker_id="combined-runtime", limit=10, lease_seconds=300
+        )
+        assert len(claimed_projections) >= 1
+        assert claimed_projections[0]["state"] == "IN_FLIGHT"
+
+        resp2 = await env.client.post(
+            "/v4/memory/insert",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "model-doc-2",
+                "revision_id": "model-rev-2",
+                "chunk_id": "model-chunk-2",
+                "title": "Durable memory 2",
+                "source_ref": "model-test",
+                "content": "Second document text.",
+                "idempotency_key": "model-insert-2",
+            },
+        )
+        assert resp2.status_code == 202
+        claimed_dispatches = await env.dao.claim_dispatch_queue(
+            worker_id="combined-runtime", limit=10, lease_seconds=300
+        )
+        assert len(claimed_dispatches) >= 1
+        assert claimed_dispatches[0]["state"] == "IN_FLIGHT"
+
+        await env.restart(MESA_EMBEDDING_ENABLED=True)
+
+        async with env.dao._sql.connection() as db:
+            p_row = await (
+                await db.execute(
+                    "SELECT state, claimed_by, lease_expires_at FROM projection_outbox WHERE projection_id = ?",
+                    (claimed_projections[0]["projection_id"],),
+                )
+            ).fetchone()
+            d_row = await (
+                await db.execute(
+                    "SELECT state, claimed_by, lease_expires_at FROM dispatch_queue WHERE queue_record_id = ?",
+                    (claimed_dispatches[0]["queue_record_id"],),
+                )
+            ).fetchone()
+        assert p_row["state"] == "RETRY_PENDING"
+        assert p_row["claimed_by"] is None
+        assert p_row["lease_expires_at"] is None
+        assert d_row["state"] == "RETRY_PENDING"
+        assert d_row["claimed_by"] is None
+        assert d_row["lease_expires_at"] is None
+
+        # Work resumes at once and records commit without waiting for 300s lease
+        await _consume(env, 6)
+        mutation1 = await env.dao.get_mutation("model-agent", env.mutation_id)
+        assert mutation1["state"] == "COMMITTED"
+
+
