@@ -241,6 +241,22 @@ using your file manager. No generic database/volume removal command is provided.
 If the port is occupied choose another loopback port and set `MESA_BASE_URL`
 for the example accordingly.
 
+<a id="python-sdk"></a>
+
+## Python SDK
+
+For local scripting, rapid prototyping, and agent applications, the high-level `Mesa` client provides a clean interface with automatic credential discovery and catalog session handling:
+
+```python
+from mesa_client import Mesa
+
+mesa = Mesa()
+mesa.add(open("kira.txt").read(), source="file://kira.txt")
+print(mesa.context("kira ne zaman ödenir?"))
+```
+
+`Mesa()` automatically discovers connection settings and API keys from environment variables (`MESA_BASE_URL`, `MESA_API_KEY`) or from `<MESA_HOME or ~/.mesa>/credentials.json` provisioned by `mesa start`. On first use, it ensures the configured workspace and dataset exist, starts a session, and reuses it for subsequent additions, searches, and context retrieval.
+
 <a id="using-mesa-with-your-llm"></a>
 
 ## Using MESA with your LLM

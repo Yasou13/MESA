@@ -4,6 +4,7 @@ from .client import (
     RECOMMENDED_SYSTEM_PROMPT,
     AsyncMesaClient,
     AsyncMesaV4Client,
+    Mesa,
     MesaAPIError,
     MesaClient,
     MesaClientError,
@@ -13,6 +14,7 @@ from .client import (
 )
 
 __all__ = [
+    "Mesa",
     "MesaClient",
     "AsyncMesaClient",
     "MesaV4Client",
