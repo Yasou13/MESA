@@ -240,3 +240,30 @@ After stopping the server, retain or remove only this newly created sample root
 using your file manager. No generic database/volume removal command is provided.
 If the port is occupied choose another loopback port and set `MESA_BASE_URL`
 for the example accordingly.
+
+<a id="using-mesa-with-your-llm"></a>
+
+## Using MESA with your LLM
+
+When connecting an external language model to answer questions from MESA memory,
+supply a system prompt that enforces untrusted data boundaries and precise source citations.
+`mesa_client` exports `RECOMMENDED_SYSTEM_PROMPT` for this purpose:
+
+```python
+from mesa_client import AsyncMesaV4Client, RECOMMENDED_SYSTEM_PROMPT
+
+# System prompt for answering LLMs:
+system_prompt = RECOMMENDED_SYSTEM_PROMPT
+
+# Retrieved memory context goes into the prompt/message:
+async with AsyncMesaV4Client(base_url="http://127.0.0.1:8000", api_key=api_key) as client:
+    bundle = await client.get_context(session_id=session_id, query="What is the policy?")
+    user_message = f"{bundle['context']}\n\nQuestion: What is the policy?"
+```
+
+The context returned in `bundle["context"]` is deterministically wrapped in
+`<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>`. The prompt instructs
+the model to treat everything within those tags strictly as data, never follow
+instructions contained within them, cite document and revision IDs for every claim,
+and decline to answer if the evidence is insufficient.
+

@@ -13,6 +13,8 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
+from mesa_client import RECOMMENDED_SYSTEM_PROMPT
+
 from .adapter import MesaMCPAdapter
 from .configuration import MCPSettings
 from .errors import MCPError
@@ -33,7 +35,7 @@ def create_mcp_server(
     v4_service: V4MemoryServiceProtocol | None = None,
 ) -> Server:
     """Create an MCP server with injectable MESA services for testability."""
-    app = Server("mesa-memory")
+    app = Server("mesa-memory", instructions=RECOMMENDED_SYSTEM_PROMPT)
     # Kept on the server only for process-lifecycle ownership.  Tool handlers
     # still depend on the injected adapters, which keeps tests isolated.
     app._mesa_service = service  # type: ignore[attr-defined]

@@ -1,6 +1,7 @@
 """MESA Client SDK"""
 
 from .client import (
+    RECOMMENDED_SYSTEM_PROMPT,
     AsyncMesaClient,
     AsyncMesaV4Client,
     MesaAPIError,
@@ -20,4 +21,5 @@ __all__ = [
     "MesaAPIError",
     "MesaNetworkError",
     "MesaValidationError",
+    "RECOMMENDED_SYSTEM_PROMPT",
 ]
