@@ -33,6 +33,10 @@ credentials additionally bind a client/workspace. Gateway encrypted approvals
 and bridge spools are separate from canonical memory storage. Protect the
 Fernet key and local XDG environment files; do not reuse a shared gateway token.
 
+Approvals and the control-plane audit belong to the HTTP MCP gateway. Direct
+`mesa-mcp` stdio creates no local database and relies on the MCP client's tool
+approval and the MESA API key's grants for access to Core.
+
 ## Untrusted data and logs
 
 Exact source content remains data. Context uses `UNTRUSTED_MEMORY_EVIDENCE`
