@@ -348,3 +348,44 @@ async def test_purge_preserves_assertion_owned_by_another_document(model_runtime
             )
         assert after == before
         assert assertion_id in {row["node_id"] for row in _vector_rows(env.dao)}
+
+
+def _raw_file_hits(root, marker):
+    """Count the marker in raw file bytes (free pages, WAL, FTS segments)."""
+    needles = (marker.encode(), marker.lower().encode())
+    hits = {}
+    for path in root.rglob("*"):
+        # Kuzu keeps deleted strings in its own file; tracked for the owner.
+        if not path.is_file() or path.name.startswith("kuzu_db"):
+            continue
+        count = sum(path.read_bytes().count(needle) for needle in needles)
+        if count:
+            hits[str(path.relative_to(root))] = count
+    return hits
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extraction", [False, True])
+async def test_purge_leaves_no_text_in_raw_storage_files(model_runtime, extraction):
+    marker = "RAWBYTESPRIVACYMARKER"
+    async with model_runtime(
+        MESA_EMBEDDING_ENABLED=True, MESA_EXTRACTION_ENABLED=extraction
+    ) as env:
+        await _grant_lifecycle_permissions()
+        await _insert_document(
+            env,
+            content=f"{marker} durable memory.",
+            evidence_span=marker,
+            title=f"Private {marker}",
+            metadata={"source_note": marker},
+        )
+        await _insert_document(env, document="survivor", content="Other durable memory.")
+        await _consume(env, 6)
+        storage = server.state.runtime_profile.storage_root
+        assert _raw_file_hits(storage, marker)
+        await _purge_document(env, "privacy")
+        # mesa.db, mesa.db-wal, LanceDB files and JSONL queues while running.
+        assert _raw_file_hits(storage, marker) == {}
+        assert "Other durable memory." in await _context(env)
+        await env.stop()
+        assert _raw_file_hits(storage, marker) == {}

@@ -1335,6 +1335,12 @@ class MemoryDAO:
                     str(row[0]) for row in await cursor.fetchall() if row[0]
                 ]
 
+            # FTS5 deletes otherwise only add tombstones and keep old tokens.
+            for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
+                await db.execute(
+                    f"INSERT INTO {fts_table}({fts_table}, rank) "
+                    "VALUES('secure-delete', 1)"
+                )
             purged_mutation_ids = await self._purge_mutations_in_tx(
                 db,
                 where_sql="dataset_id = ? AND document_id = ?",
@@ -1442,6 +1448,8 @@ class MemoryDAO:
             raise PurgeRetryPendingError(
                 "document is purge-fenced but artifact cleanup remains pending"
             ) from rollback_errors[0]
+        # Old page images in the WAL still hold the erased text.
+        await self._sql.checkpoint("TRUNCATE")
         return {
             "document_id": external_document_id,
             "pipeline_runs": outcomes,
