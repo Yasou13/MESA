@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import re
+import sqlite3
 import unicodedata
 import uuid
 from collections import Counter
@@ -1335,12 +1336,14 @@ class MemoryDAO:
                     str(row[0]) for row in await cursor.fetchall() if row[0]
                 ]
 
-            # FTS5 deletes otherwise only add tombstones and keep old tokens.
-            for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
-                await db.execute(
-                    f"INSERT INTO {fts_table}({fts_table}, rank) "
-                    "VALUES('secure-delete', 1)"
-                )
+            # Earlier FTS5 secure-delete has false integrity failures (fixed
+            # in SQLite 3.46.1). Rebuild those indexes after erasure instead.
+            if sqlite3.sqlite_version_info >= (3, 46, 1):
+                for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
+                    await db.execute(
+                        f"INSERT INTO {fts_table}({fts_table}, rank) "
+                        "VALUES('secure-delete', 1)"
+                    )
             purged_mutation_ids = await self._purge_mutations_in_tx(
                 db,
                 where_sql="dataset_id = ? AND document_id = ?",
@@ -1451,6 +1454,12 @@ class MemoryDAO:
                 "AND s.state = 'ACTIVE' AND s.document_id IS NOT ?)",
                 (tenant_id, dataset_id, document_id, document_id),
             )
+            if sqlite3.sqlite_version_info < (3, 46, 1):
+                # ponytail: full index work on old SQLite; upgrade for secure-delete.
+                for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
+                    await db.execute(
+                        f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                    )
             await db.commit()
 
         outcomes = []
@@ -4355,6 +4364,12 @@ class MemoryDAO:
                         "WHERE subject_id = ? OR object_entity_id = ?)",
                         (artifact_id, artifact_id, artifact_id),
                     )
+                if sqlite3.sqlite_version_info < (3, 46, 1):
+                    # Cleanup can remove entity text after the purge transaction.
+                    for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
+                        await db.execute(
+                            f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                        )
                 await db.commit()
 
     async def finish_artifact_cleanup(

@@ -164,6 +164,8 @@ async def _purge_document(env, document):
     assert response.status_code == 202, response.text
     await _consume(env, 20)
     async with env.dao._sql.connection() as db:
+        integrity = await (await db.execute("PRAGMA integrity_check")).fetchall()
+        assert [tuple(row) for row in integrity] == [("ok",)]
         assert (
             await (
                 await db.execute(
