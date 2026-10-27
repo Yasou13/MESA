@@ -37,7 +37,7 @@ async def test_purge_removes_assertions_attached_to_purged_entity(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_graph_v2_preserves_literal_assertion_value(tmp_path) -> None:
+async def test_graph_v2_keeps_literal_structure_without_text(tmp_path) -> None:
     graph_path = tmp_path / "literal-graph"
     initialize_schema_artifact(str(graph_path))
     provider = KuzuGraphProvider(str(graph_path), max_workers=1)
@@ -53,12 +53,13 @@ async def test_graph_v2_preserves_literal_assertion_value(tmp_path) -> None:
             predicate="KANUN_NUMARASI",
             mutation_id="mutation-1",
             source_ref="resmi-gazete",
+            evidence_span="KVKK is law 6698",
         )
         rows = await provider.execute_query(
             "MATCH (a:Assertion {agent_id: $agent_id}) "
-            "RETURN a.predicate, a.object_value",
+            "RETURN a.predicate, a.object_value, a.source_ref, a.evidence_span",
             {"agent_id": "tenant-a"},
         )
-        assert rows == [["KANUN_NUMARASI", "6698"]]
+        assert rows == [["KANUN_NUMARASI", "", "", ""]]
     finally:
         await provider.close()

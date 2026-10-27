@@ -47,6 +47,14 @@ they do not establish document truth or a legal opinion.
 
 Document purge erases its source and extracted text while retaining identifiers and hashes; shared assertion/entity text remains while another document still owns it.
 
+Kùzu keeps graph structure and entity names; assertion evidence, literal values
+and source references stay in SQLite. Graph ranking reads evidence from the
+authorized SQLite assertion map. Existing stores need one offline projection
+rebuild to create a fresh active graph with those text fields empty (see the
+[rebuild runbook](v4-rebuild-runbook.md)). Retained generations and rebuild backups still
+contain historical bytes; retire those copies under your retention policy
+after verifying the new generation. Purge cannot erase independent backups.
+
 Avoid query/source content, credentials, raw model output and claim tokens in
 logs. IDs and aggregate diagnostics still reveal operational metadata and need
 access/retention policy. Historical reports may contain deployment details;

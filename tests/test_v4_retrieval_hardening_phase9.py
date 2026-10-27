@@ -155,6 +155,14 @@ async def _ingest_test_assertion(
     return s_id, o_id, a_id
 
 
+async def _assertion_evidence(sql):
+    async with sql.connection() as db:
+        rows = await (await db.execute(
+            "SELECT assertion_id, evidence_span FROM v4_assertions"
+        )).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
 # ---------------------------------------------------------------------------
 # Test Cases (1 to 10)
 # ---------------------------------------------------------------------------
@@ -184,6 +192,7 @@ async def test_p9_1_correct_seed_useful_path(tmp_path):
             evidence_span="Temerrüt kural olarak ihtar gerektirir",
         )
         hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[s1],
             allowed_entity_ids={s1, o1, o2},
@@ -235,6 +244,7 @@ async def test_p9_2_wrong_seed_does_not_dominate(tmp_path):
 
         seed_scores = {g_seed: 1.0, b_seed: 0.1}
         hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[g_seed, b_seed],
             allowed_entity_ids={g_seed, g_mid, g_target, b_seed, b_target},
@@ -288,6 +298,7 @@ async def test_p9_3_hop1_irrelevant_vs_hop2_relevant(tmp_path):
         )
 
         hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[seed],
             allowed_entity_ids={seed, irr_target, bridge, rel_target},
@@ -364,6 +375,7 @@ async def test_p9_4_multiple_support_paths(tmp_path):
         )
 
         hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[s],
             allowed_entity_ids={s, a_mid, b_mid, c_mid, m_target, s_target},
@@ -411,6 +423,7 @@ async def test_p9_5_direction_sensitive_relation(tmp_path):
 
         # Searching forward from Alice: only Aurora should be returned as outgoing object
         forward_hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[alice],
             allowed_entity_ids={alice, aurora, bob},
@@ -424,6 +437,7 @@ async def test_p9_5_direction_sensitive_relation(tmp_path):
 
         # Searching with direction='any': forward hit receives top directional weight
         any_hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[alice],
             allowed_entity_ids={alice, aurora, bob},
@@ -462,6 +476,7 @@ async def test_p9_6_scoped_graph(tmp_path):
 
         # GhostNode is NOT in allowed_entity_ids (e.g. deleted or out of scope)
         hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[s],
             allowed_entity_ids={s, target},  # GhostNode excluded!
@@ -473,6 +488,7 @@ async def test_p9_6_scoped_graph(tmp_path):
 
         # a2 is NOT in allowed_assertion_ids (e.g. superseded or expired)
         hits_filtered_assertion = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[s],
             allowed_entity_ids={s, mid, target},
@@ -543,6 +559,7 @@ async def test_p9_7_limit_best_candidate_not_dropped(tmp_path):
 
         # Query with small limit=5
         hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[s],
             allowed_entity_ids=allowed_entities,
@@ -702,6 +719,7 @@ async def test_p9_10_harmful_graph_candidate_detected(tmp_path):
         )
 
         hits = await graph.search_v4_graph(
+            assertion_evidence=await _assertion_evidence(sql),
             agent_id="test-agent",
             seed_entity_ids=[seed],
             allowed_entity_ids={seed, tbk_target, ttk_target, weak_target},

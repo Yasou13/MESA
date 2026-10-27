@@ -357,8 +357,7 @@ def _raw_file_hits(root, marker):
     needles = (marker.encode(), marker.lower().encode())
     hits = {}
     for path in root.rglob("*"):
-        # Kuzu keeps deleted strings in its own file; tracked for the owner.
-        if not path.is_file() or path.name.startswith("kuzu_db"):
+        if not path.is_file():
             continue
         count = sum(path.read_bytes().count(needle) for needle in needles)
         if count:
@@ -386,7 +385,7 @@ async def test_purge_leaves_no_text_in_raw_storage_files(model_runtime, extracti
         storage = server.state.runtime_profile.storage_root
         assert _raw_file_hits(storage, marker)
         await _purge_document(env, "privacy")
-        # mesa.db, mesa.db-wal, LanceDB files and JSONL queues while running.
+        # SQLite, LanceDB, Kuzu and JSONL queues while running.
         assert _raw_file_hits(storage, marker) == {}
         assert "Other durable memory." in await _context(env)
         await env.stop()

@@ -191,6 +191,7 @@ class BaseGraphProvider(abc.ABC):
         seed_entity_ids: list[str],
         allowed_entity_ids: set[str],
         allowed_assertion_ids: set[str],
+        assertion_evidence: Mapping[str, str] | None = None,
         max_hops: int = 2,
         limit: int = 50,
         query: str | None = None,
@@ -826,7 +827,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         object_type: str = "LEGACY",
         representation_version: str = "legacy-v0",
     ) -> None:
-        """Idempotently persist one provenance-preserving Graph V2 assertion."""
+        """Persist Graph V2 structure; evidence and literal text stay in SQLite."""
         if (object_id is None) == (object_value is None):
             raise ValueError("assertion requires exactly one object target")
         assertion_key = self._composite_id(agent_id, assertion_id)
@@ -854,11 +855,11 @@ class KuzuGraphProvider(BaseGraphProvider):
         parameters = {
             "assertion_id": assertion_key,
             "subject_id": subject_key,
-            "object_value": object_value,
+            "object_value": "",
             "agent_id": agent_id,
             "predicate": predicate,
-            "source_ref": source_ref,
-            "evidence_span": evidence_span,
+            "source_ref": "",
+            "evidence_span": "",
             "jurisdiction": jurisdiction,
             "authority_level": authority_level,
             "valid_from": valid_from,
@@ -1128,6 +1129,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         seed_entity_ids: list[str],
         allowed_entity_ids: set[str],
         allowed_assertion_ids: set[str],
+        assertion_evidence: Mapping[str, str] | None = None,
         max_hops: int = 2,
         limit: int = 50,
         query: str | None = None,
@@ -1171,6 +1173,7 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         allowed_entity_set = set(allowed_entity_ids)
         allowed_assertion_set = set(allowed_assertion_ids)
+        evidence_by_id = assertion_evidence or {}
 
         # Tokenize query and detect legal context for predicate relevance
         query_tokens: list[str] = []
@@ -1218,7 +1221,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             )
 
             for row in rows_hop1:
-                if len(row) < 9:
+                if len(row) < 8:
                     continue
                 s_id = str(row[0])
                 t_id = str(row[1])
@@ -1226,9 +1229,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                 a_id = str(row[3])
                 predicate = str(row[4] or "")
                 conf = float(row[5] if row[5] is not None else 1.0)
-                ev_span = str(row[6] or "")
-                jur = str(row[7] or "")
-                dir_tag = str(row[8] or "forward")
+                ev_span = evidence_by_id.get(a_id, "")
+                jur = str(row[6] or "")
+                dir_tag = str(row[7] or "forward")
 
                 if t_id not in allowed_entity_set or a_id not in allowed_assertion_set:
                     continue
@@ -1311,7 +1314,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 )
 
                 for row in rows_hop2:
-                    if len(row) < 9:
+                    if len(row) < 8:
                         continue
                     mid_id = str(row[0])
                     t_id = str(row[1])
@@ -1319,9 +1322,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                     a2_id = str(row[3])
                     predicate2 = str(row[4] or "")
                     conf2 = float(row[5] if row[5] is not None else 1.0)
-                    ev_span2 = str(row[6] or "")
-                    jur2 = str(row[7] or "")
-                    dir2 = str(row[8] or "forward")
+                    ev_span2 = evidence_by_id.get(a2_id, "")
+                    jur2 = str(row[6] or "")
+                    dir2 = str(row[7] or "forward")
 
                     if t_id not in allowed_entity_set or a2_id not in allowed_assertion_set:
                         continue
@@ -1413,7 +1416,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                 )
 
                 for row in rows_hop3:
-                    if len(row) < 9:
+                    if len(row) < 8:
                         continue
                     mid_id = str(row[0])
                     t_id = str(row[1])
@@ -1421,9 +1424,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                     a3_id = str(row[3])
                     predicate3 = str(row[4] or "")
                     conf3 = float(row[5] if row[5] is not None else 1.0)
-                    ev_span3 = str(row[6] or "")
-                    jur3 = str(row[7] or "")
-                    dir3 = str(row[8] or "forward")
+                    ev_span3 = evidence_by_id.get(a3_id, "")
+                    jur3 = str(row[6] or "")
+                    dir3 = str(row[7] or "forward")
 
                     if t_id not in allowed_entity_set or a3_id not in allowed_assertion_set:
                         continue
@@ -1598,7 +1601,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND a.agent_id = $agent_id "
             "  AND dst.agent_id = $agent_id "
             "  AND dst.id <> src.id "
-            "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.evidence_span, a.jurisdiction, 'forward' AS direction "
+            "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.jurisdiction, 'forward' AS direction "
             "LIMIT $limit"
         )
         q_reverse = (
@@ -1608,7 +1611,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND a.agent_id = $agent_id "
             "  AND dst.agent_id = $agent_id "
             "  AND dst.id <> src.id "
-            "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.evidence_span, a.jurisdiction, 'reverse' AS direction "
+            "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.jurisdiction, 'reverse' AS direction "
             "LIMIT $limit"
         )
 

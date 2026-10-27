@@ -5540,12 +5540,12 @@ class MemoryDAO:
                 assertion_id=assertion_id,
                 subject_id=subject_id,
                 object_id=object_id,
-                object_value=literal_value,
+                object_value="" if literal_value is not None else None,
                 agent_id=agent_id,
                 predicate=str(assertion["predicate"]),
                 mutation_id=str(mutation["mutation_id"]),
-                source_ref=str(assertion["source_ref"]),
-                evidence_span=str(assertion["evidence_span"] or ""),
+                source_ref="",
+                evidence_span="",
                 jurisdiction=str(assertion["jurisdiction"] or ""),
                 authority_level=str(assertion["authority_level"] or ""),
                 valid_from=str(assertion["valid_from"] or ""),
@@ -6655,6 +6655,10 @@ class MemoryDAO:
                     seed_entity_ids=graph_seed_ids[:20],
                     allowed_entity_ids=allowed_entity_ids,
                     allowed_assertion_ids=allowed_graph_assertion_ids,
+                    assertion_evidence={
+                        aid: str(assertion.get("evidence_span") or "")
+                        for aid, assertion in in_scope_assertions.items()
+                    },
                     max_hops=3,
                     limit=min(500, max(limit * 10, 50)),
                     query=query,

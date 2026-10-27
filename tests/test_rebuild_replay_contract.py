@@ -395,7 +395,9 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
         "SUPERSEDED",
         "ACTIVE",
     ]
-    assert graph.assertions[0]["source_ref"] == "source-a"
+    assert graph.assertions[0]["source_ref"] == ""
+    assert all(item["evidence_span"] == "" for item in graph.assertions)
+    assert all(item["object_value"] in (None, "") for item in graph.assertions)
     assert graph.links == [
         {
             "source_assertion_id": "assertion-2",
