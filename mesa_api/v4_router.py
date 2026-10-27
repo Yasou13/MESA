@@ -45,6 +45,7 @@ from mesa_storage.dao import (
 )
 from mesa_storage.kuzu_provider import GraphSearchError
 from mesa_storage.legal_identity import canonicalize_trusted_legal_identity
+from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.repositories.operations import (
     OperationActiveConflictError,
     OperationIdempotencyConflictError,
@@ -773,7 +774,7 @@ def create_v4_router(
                     document_id=document_id,
                 )
             }
-        except ValueError as exc:
+        except CatalogIdentityNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.post("/catalog/source-chunks", status_code=201)

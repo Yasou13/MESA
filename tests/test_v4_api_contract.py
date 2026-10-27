@@ -1393,3 +1393,22 @@ async def test_v4_list_revisions_unknown_document_returns_404(
     assert "Unknown document" in response.json()["detail"]
 
 
+@pytest.mark.asyncio
+async def test_v4_list_revisions_storage_value_error_is_not_404(
+    asgi_client: ClientFactory,
+) -> None:
+    # aiosqlite raises a plain ValueError for a closed connection; that is a
+    # storage failure, not an unknown document.
+    dao = MagicMock()
+    dao.list_v4_revisions = AsyncMock(side_effect=ValueError("Connection closed"))
+    client = asgi_client(_app(dao, _access()))
+    response = await client.get(
+        "/v4/catalog/revisions",
+        params={
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "dataset_id": "dataset-a",
+            "document_id": "known-doc",
+        },
+    )
+    assert response.status_code == 500
