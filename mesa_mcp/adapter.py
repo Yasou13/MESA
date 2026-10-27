@@ -5,11 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from mesa_memory.security.input_validation import validate_write_payload
-from mesa_memory.security.untrusted_memory import (
-    TAG_CLOSE,
-    TAG_OPEN,
-    render_untrusted_memory,
-)
+from mesa_memory.security.untrusted_memory import render_untrusted_memory
 
 from .configuration import MCPSettings
 from .errors import MCPError
@@ -157,12 +153,10 @@ class MesaMCPAdapter:
         wrapped_results = []
         for item in raw_results:
             chunk_text = str(item.get("content") or "")
-            if chunk_text.startswith(TAG_OPEN) and chunk_text.endswith(TAG_CLOSE):
-                wrapped = chunk_text
-            else:
-                wrapped = render_untrusted_memory(
-                    [("Retrieved Memory", [{"content": chunk_text}])]
-                )
+            # Stored text is always wrapped, even when it already looks like one.
+            wrapped = render_untrusted_memory(
+                [("Retrieved Memory", [{"content": chunk_text}])]
+            )
             wrapped_results.append(
                 {
                     "memory_id": item.get("memory_id") or item.get("chunk_id"),
