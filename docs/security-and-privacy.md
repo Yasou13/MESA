@@ -55,6 +55,14 @@ rebuild to create a fresh active graph with those text fields empty (see the
 contain historical bytes; retire those copies under your retention policy
 after verifying the new generation. Purge cannot erase independent backups.
 
+Known v0.9 limitation: Kùzu may write leftover process memory into unused
+parts of its file. The offline rebuild reads every assertion from SQLite, so a
+new graph file can contain fragments of live documents' text in such unused
+bytes (seen in 2 of 6 test rebuilds; not seen in normal projection). Kùzu never
+overwrites them, so text of a document purged after that rebuild can stay
+recoverable from the graph file. If a purge must leave no copy at all, run
+another offline rebuild after the purge and retire the older generation.
+
 Avoid query/source content, credentials, raw model output and claim tokens in
 logs. IDs and aggregate diagnostics still reveal operational metadata and need
 access/retention policy. Historical reports may contain deployment details;
