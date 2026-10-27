@@ -759,13 +759,16 @@ def create_v4_router(
             dataset_ids=[dataset_id],
             required_role="READER",
         )
-        return {
-            "revisions": await dao.list_v4_revisions(
-                tenant_id=tenant_id,
-                dataset_id=dataset_id,
-                document_id=document_id,
-            )
-        }
+        try:
+            return {
+                "revisions": await dao.list_v4_revisions(
+                    tenant_id=tenant_id,
+                    dataset_id=dataset_id,
+                    document_id=document_id,
+                )
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.post("/catalog/source-chunks", status_code=201)
     async def create_source_chunk(
