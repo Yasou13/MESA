@@ -170,14 +170,14 @@ async def test_extraction_type_scope_and_source_survive_real_outbox(
             ).fetchall()
         assert {row[0] for row in rows} == expected_entities
         graph_assertions = await graph.execute_query(
-            "MATCH (a:Assertion) RETURN a.predicate, a.object_type, a.object_value", {}
+            "MATCH (a:Assertion) RETURN a.predicate, a.object_type, a.object_value, "
+            "a.source_ref, a.evidence_span", {}
         )
         assert len(graph_assertions) == len(_MATRIX)
-        for pred, kind, value in graph_assertions:
-            expected_value, _, expected_kind = _MATRIX[int(pred.split("_")[1])]
+        for pred, kind, value, source_ref, evidence_span in graph_assertions:
+            _, _, expected_kind = _MATRIX[int(pred.split("_")[1])]
             assert kind == expected_kind
-            if kind != "ENTITY":
-                assert value == expected_value
+            assert value == source_ref == evidence_span == ""
     finally:
         await graph.close()
         await vector.close()

@@ -373,6 +373,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     await state.dao.initialize()
     if runtime.profile is RuntimeProfile.COMBINED:
         await state.dao.recover_processing_raw_logs()
+        await state.dao.recover_in_flight_projection_and_dispatch()
         if runtime.embedding_enabled:
             await state.dao.requeue_skipped_vector_projections()
 
@@ -792,6 +793,9 @@ v4_router = create_v4_router(
     get_access_control=get_access_control,
     get_composed_validation_policy=lambda: getattr(
         getattr(state, "consolidation_loop", None), "validation_policy", None
+    ),
+    get_extraction_enabled=lambda: bool(
+        getattr(getattr(state, "runtime_profile", None), "extraction_enabled", False)
     ),
 )
 app.include_router(v4_router, dependencies=router_dependencies)

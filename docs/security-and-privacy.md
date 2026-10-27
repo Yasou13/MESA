@@ -33,6 +33,10 @@ credentials additionally bind a client/workspace. Gateway encrypted approvals
 and bridge spools are separate from canonical memory storage. Protect the
 Fernet key and local XDG environment files; do not reuse a shared gateway token.
 
+Approvals and the control-plane audit belong to the HTTP MCP gateway. Direct
+`mesa-mcp` stdio creates no local database and relies on the MCP client's tool
+approval and the MESA API key's grants for access to Core.
+
 ## Untrusted data and logs
 
 Exact source content remains data. Context uses `UNTRUSTED_MEMORY_EVIDENCE`
@@ -42,6 +46,22 @@ output handling. API bounds and source-file containment checks reduce abuse;
 they do not establish document truth or a legal opinion.
 
 Document purge erases its source and extracted text while retaining identifiers and hashes; shared assertion/entity text remains while another document still owns it.
+
+Kùzu keeps graph structure and entity names; assertion evidence, literal values
+and source references stay in SQLite. Graph ranking reads evidence from the
+authorized SQLite assertion map. Existing stores need one offline projection
+rebuild to create a fresh active graph with those text fields empty (see the
+[rebuild runbook](v4-rebuild-runbook.md)). Retained generations and rebuild backups still
+contain historical bytes; retire those copies under your retention policy
+after verifying the new generation. Purge cannot erase independent backups.
+
+Known v0.9 limitation: Kùzu may write leftover process memory into unused
+parts of its file. The offline rebuild reads every assertion from SQLite, so a
+new graph file can contain fragments of live documents' text in such unused
+bytes (seen in 2 of 6 test rebuilds; not seen in normal projection). Kùzu never
+overwrites them, so text of a document purged after that rebuild can stay
+recoverable from the graph file. If a purge must leave no copy at all, run
+another offline rebuild after the purge and retire the older generation.
 
 Avoid query/source content, credentials, raw model output and claim tokens in
 logs. IDs and aggregate diagnostics still reveal operational metadata and need

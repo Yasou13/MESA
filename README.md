@@ -38,6 +38,7 @@ a disposable root, credentials and an authorized session before insertion.
 | Run canonical V4 ingestion | [V4 provider prerequisites](docs/getting-started.md#v4-canonical-example-provider-prerequisites) and [installation](docs/getting-started.md#installation) |
 | Use Docker or choose providers | [Installation](docs/getting-started.md#installation), [configuration](docs/configuration.md) |
 | Connect a client | [API and SDK](docs/api-reference.md), [MCP](README_MCP.md) |
+| Use MESA with your LLM | [Prompting and context](docs/getting-started.md#using-mesa-with-your-llm) |
 | Understand or change the system | [Architecture](ARCHITECTURE.md), [contributing](CONTRIBUTING.md) |
 | Find any other guide | [Documentation index](docs/README.md) |
 

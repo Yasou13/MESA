@@ -172,6 +172,7 @@ async def test_p8_long_phrase_does_not_create_entity_node(tmp_path):
         ass = assertions[0]
         assert ass["object_entity_id"] is None
         assert ass["literal_value"] == long_sentence
+        assert ass["evidence_span"] == long_sentence
         assert ass["object_type"] == "LITERAL"
         assert ass["representation_version"] == "assertion-v1"
 
@@ -179,9 +180,11 @@ async def test_p8_long_phrase_does_not_create_entity_node(tmp_path):
         inserted_names = [name for _, name, _ in mock_graph.inserted_nodes]
         assert "BorçlarKanunu" in inserted_names
         assert long_sentence not in inserted_names
-        # Graph assertion received literal_value as object_value
+        # Graph keeps the literal type/structure; its text remains in SQLite.
         assert len(mock_graph.inserted_assertions) == 1
-        assert mock_graph.inserted_assertions[0]["object_value"] == long_sentence
+        assert mock_graph.inserted_assertions[0]["object_value"] == ""
+        assert mock_graph.inserted_assertions[0]["source_ref"] == ""
+        assert mock_graph.inserted_assertions[0]["evidence_span"] == ""
         assert mock_graph.inserted_assertions[0]["object_id"] is None
         assert mock_graph.inserted_assertions[0]["object_type"] == "LITERAL"
     finally:

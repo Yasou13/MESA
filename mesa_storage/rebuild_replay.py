@@ -701,16 +701,12 @@ class ProjectionReplayer:
                         if row["object_entity_id"] is not None
                         else None
                     ),
-                    object_value=(
-                        str(row["literal_value"])
-                        if row["literal_value"] is not None
-                        else None
-                    ),
+                    object_value="" if row["literal_value"] is not None else None,
                     agent_id=str(row["agent_id"]),
                     predicate=str(row["predicate"]),
                     mutation_id=str(row["mutation_id"]),
-                    source_ref=str(row["source_ref"]),
-                    evidence_span=str(row["evidence_span"]),
+                    source_ref="",
+                    evidence_span="",
                     jurisdiction=str(row["jurisdiction"]),
                     authority_level=str(row["authority_level"]),
                     valid_from=str(row["valid_from"]),

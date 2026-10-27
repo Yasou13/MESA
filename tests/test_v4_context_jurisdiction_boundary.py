@@ -136,12 +136,15 @@ async def test_jurisdiction_reaches_sqlite_and_formatted_context(
             assert "country-TR" in result["context"]
             assert "country-DE" not in result["context"]
             assert "country-US" not in result["context"]
-            assert len(result["canonical_memories"]) == 1
-            assert {
-                p["jurisdiction"]
-                for memory in result["canonical_memories"]
-                for p in memory["provenance"]
-            } == {"TR"}
+            if surface != "mcp":
+                assert len(result["canonical_memories"]) == 1
+                assert {
+                    p["jurisdiction"]
+                    for memory in result["canonical_memories"]
+                    for p in memory["provenance"]
+                } == {"TR"}
+            else:
+                assert "canonical_memories" not in result
     finally:
         await engine.close()
 

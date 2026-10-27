@@ -169,7 +169,7 @@ def _snapshot(path: Path) -> GraphSnapshot:
                     for row in _rows(
                         connection,
                         "MATCH (a:Assertion) RETURN a.id, a.agent_id, a.predicate, "
-                        "a.object_value, a.source_ref, a.evidence_span, "
+                        "'' AS object_value, '' AS source_ref, '' AS evidence_span, "
                         "a.jurisdiction, a.authority_level, a.valid_from, a.valid_to, "
                         "a.observed_at, a.confidence, a.status, a.mutation_id, "
                         "a.pipeline_run_id, a.object_type, a.representation_version "
@@ -184,7 +184,7 @@ def _snapshot(path: Path) -> GraphSnapshot:
                 for row in _rows(
                     connection,
                     "MATCH (a:Assertion) RETURN a.id, a.agent_id, a.predicate, "
-                    "a.object_value, a.source_ref, a.evidence_span, "
+                    "'' AS object_value, '' AS source_ref, '' AS evidence_span, "
                     "a.jurisdiction, a.authority_level, a.valid_from, a.valid_to, "
                     "a.observed_at, a.confidence, a.status, a.mutation_id, "
                     "a.pipeline_run_id ORDER BY a.id",
@@ -284,6 +284,8 @@ def _load_snapshot(path: Path, snapshot: GraphSnapshot) -> None:
         )
         for assertion_row in snapshot.assertions:
             params = dict(zip(assertion_fields, assertion_row))
+            for field in ("object_value", "source_ref", "evidence_span"):
+                params[field] = ""
             connection.execute(
                 "CREATE (:Assertion {id: $id, agent_id: $agent_id, "
                 "predicate: $predicate, object_value: $object_value, "

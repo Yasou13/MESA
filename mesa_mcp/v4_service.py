@@ -13,6 +13,18 @@ from .configuration import MCPSettings
 from .errors import MCPError
 
 
+class RecallResults(list):
+    """List of recall results that retains degraded_sources metadata."""
+
+    def __init__(
+        self,
+        items: list[dict[str, Any]],
+        degraded_sources: list[str] | None = None,
+    ) -> None:
+        super().__init__(items)
+        self.degraded_sources = list(degraded_sources or [])
+
+
 class MesaHttpV4Service:
     """Use MESA's V4 public API; this class never imports a storage backend."""
 
@@ -219,7 +231,9 @@ class MesaHttpV4Service:
             "idempotency_key": kwargs.get("idempotency_key"),
         }
         try:
-            return await client.insert(session_id=session_id, **insert_arguments)
+            receipt = await client.insert(session_id=session_id, **insert_arguments)
+            receipt["document_id"] = document_id
+            return receipt
         except MesaAPIError as exc:
             if not self._is_inactive_session_conflict(exc):
                 raise _map_exception(exc) from exc
@@ -238,7 +252,9 @@ class MesaHttpV4Service:
                 actor_id=actor_id,
             )
             try:
-                return await client.insert(session_id=session_id, **insert_arguments)
+                receipt = await client.insert(session_id=session_id, **insert_arguments)
+                receipt["document_id"] = document_id
+                return receipt
             except Exception as retry_exc:
                 raise _map_exception(retry_exc) from retry_exc
         except Exception as exc:
@@ -302,7 +318,10 @@ class MesaHttpV4Service:
                 raise _map_exception(retry_exc) from retry_exc
         except Exception as exc:
             raise _map_exception(exc) from exc
-        return [_typed_result(item) for item in resp.get("results", [])]
+        return RecallResults(
+            [_typed_result(item) for item in resp.get("results", [])],
+            degraded_sources=resp.get("degraded_sources", []),
+        )
 
     async def v4_context(self, **kwargs: Any) -> dict[str, Any]:
         """Build context through the canonical V4 ContextBuilder endpoint."""
@@ -507,10 +526,14 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         "chunk_id": item.get("source_chunk_id")
         or item.get("chunk_id")
         or primary_assertion.get("chunk_id"),
-        "content": item.get("content")
+        "content": item.get("chunk_text")
+        or item.get("content")
+        or primary_assertion.get("chunk_text")
+        or primary_assertion.get("content")
+        or primary_assertion.get("literal_value")
+        or primary_assertion.get("fact_text")
         or item.get("evidence_span")
         or primary_assertion.get("evidence_span")
-        or primary_assertion.get("fact_text")
         or " ".join(
             str(value)
             for value in (

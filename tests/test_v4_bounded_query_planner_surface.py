@@ -147,7 +147,7 @@ async def test_mcp_context_rejects_non_string_retrieval_mode() -> None:
 async def test_legacy_mcp_context_does_not_silently_claim_adaptive_mode() -> None:
     adapter = MesaMCPAdapter(
         AsyncMock(),
-        MCPSettings(api_key="test", use_v4=False),
+        MCPSettings(api_key="test"),
     )
 
     with pytest.raises(MCPError) as raised:

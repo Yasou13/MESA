@@ -1368,3 +1368,47 @@ async def test_v4_get_context_vector_backend_unavailable_returns_503(
     assert response.status_code == 503
     assert response.json()["detail"] == "vector_backend_unavailable"
 
+
+@pytest.mark.asyncio
+async def test_v4_list_revisions_unknown_document_returns_404(
+    asgi_client: ClientFactory,
+) -> None:
+    from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
+
+    dao = MagicMock()
+    dao.list_v4_revisions = AsyncMock(
+        side_effect=CatalogIdentityNotFoundError("Unknown document: unknown-doc")
+    )
+    client = asgi_client(_app(dao, _access()))
+    response = await client.get(
+        "/v4/catalog/revisions",
+        params={
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "dataset_id": "dataset-a",
+            "document_id": "unknown-doc",
+        },
+    )
+    assert response.status_code == 404
+    assert "Unknown document" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_v4_list_revisions_storage_value_error_is_not_404(
+    asgi_client: ClientFactory,
+) -> None:
+    # aiosqlite raises a plain ValueError for a closed connection; that is a
+    # storage failure, not an unknown document.
+    dao = MagicMock()
+    dao.list_v4_revisions = AsyncMock(side_effect=ValueError("Connection closed"))
+    client = asgi_client(_app(dao, _access()))
+    response = await client.get(
+        "/v4/catalog/revisions",
+        params={
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "dataset_id": "dataset-a",
+            "document_id": "known-doc",
+        },
+    )
+    assert response.status_code == 500

@@ -163,7 +163,7 @@ storage and authorization failures raise errors instead. Each hit's
 `assertion_id` identifies a canonical claim; `provenance` links it to the source
 and dataset/chunk. A score ranks evidence; it is not a truth probability.
 Context returns packed text in `context` and structured evidence in
-`canonical_memories`. Finish retrieval before `end_session`; closing the HTTP
+`canonical_memories`; `mutations` holds bounded receipts (IDs and states) without raw evidence spans. Finish retrieval before `end_session`; closing the HTTP
 client alone does not end the server session.
 
 For async code use `async with AsyncMesaV4Client(...) as client` and `await` each
@@ -306,7 +306,7 @@ The entry points are declared in `pyproject.toml`. Run `.venv/bin/<command>
 | `mesa-v4-admin` | Offline credentials and ACL provisioning; defaults to `MESA_STORAGE_ROOT/rbac_policy.db` |
 | `mesa-recovery` | Trusted-root checksummed backup, validate and new-root restore |
 | `mesa-v4-rebuild` | Offline full-root projection rebuild/adoption; never an online worker |
-| `mesa-mcp` | stdio server; V3 default, explicit V4 settings supported |
+| `mesa-mcp` | Direct V4 stdio server; client tool approval and API key grants, no local control-plane database |
 | `mesa-mcp-gateway` | Independently supervised HTTP/Streamable HTTP control gateway |
 | `mesa-antigravity-bridge` | Binding-scoped stdio bridge with encrypted write spool |
 | `mesa` | Codex/Antigravity install, doctor, profiles, credential lifecycle and operations approvals |

@@ -13,10 +13,11 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
+from mesa_client import RECOMMENDED_SYSTEM_PROMPT
+
 from .adapter import MesaMCPAdapter
 from .configuration import MCPSettings
 from .errors import MCPError
-from .gateway.middleware import ControlPlaneMiddleware
 from .http_service import MesaHttpMemoryService
 from .security import MEMORY_TYPES
 from .service import MemoryServiceProtocol, V4MemoryServiceProtocol
@@ -33,13 +34,12 @@ def create_mcp_server(
     v4_service: V4MemoryServiceProtocol | None = None,
 ) -> Server:
     """Create an MCP server with injectable MESA services for testability."""
-    app = Server("mesa-memory")
+    app = Server("mesa-memory", instructions=RECOMMENDED_SYSTEM_PROMPT)
     # Kept on the server only for process-lifecycle ownership.  Tool handlers
     # still depend on the injected adapters, which keeps tests isolated.
     app._mesa_service = service  # type: ignore[attr-defined]
     app._mesa_v4_service = v4_service  # type: ignore[attr-defined]
     adapter = MesaMCPAdapter(service, settings, v4_service)
-    middleware = ControlPlaneMiddleware()
 
     @app.list_tools()  # type: ignore[untyped-decorator]
     async def list_tools() -> list[types.Tool]:
@@ -101,7 +101,7 @@ def create_mcp_server(
                     ],
                 )
 
-        # Normal execution (stdio or internal HTTP)
+        # Direct stdio relies on client approval and the Core API key's grants.
         handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {
             "mesa_get_context": adapter.get_context,
             "mesa_remember": adapter.mesa_remember,
@@ -113,9 +113,7 @@ def create_mcp_server(
             if name == "mesa_health":
                 result = await adapter.health()
             elif name in handlers:
-                result = await middleware.execute_tool(
-                    name, arguments or {}, handlers[name]
-                )
+                result = await handlers[name](arguments or {})
             else:
                 raise MCPError("NOT_FOUND", "unknown MCP tool")
         except MCPError as exc:
@@ -157,7 +155,7 @@ def create_application() -> tuple[Server, MCPSettings]:
     settings = MCPSettings()
     logging.basicConfig(stream=sys.stderr, level=settings.log_level)
 
-    v4_svc = MesaHttpV4Service(settings) if settings.use_v4 else None
+    v4_svc = MesaHttpV4Service(settings)
 
     return (
         create_mcp_server(MesaHttpMemoryService(settings), settings, v4_svc),

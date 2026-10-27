@@ -2652,7 +2652,7 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT mutation_id, candidate_id, raw_log_id, tenant_id, "
                 "workspace_id, dataset_id, document_id, revision_id, chunk_id, "
-                "source_ref, evidence_span, state, source, pipeline_run_id, "
+                "source_ref, state, source, pipeline_run_id, "
                 "created_at, updated_at FROM memory_mutations "
                 "WHERE agent_id = ? AND session_id = ? ORDER BY created_at DESC LIMIT ?",
                 (agent_id, session_id, limit),
@@ -5540,12 +5540,12 @@ class MemoryDAO:
                 assertion_id=assertion_id,
                 subject_id=subject_id,
                 object_id=object_id,
-                object_value=literal_value,
+                object_value="" if literal_value is not None else None,
                 agent_id=agent_id,
                 predicate=str(assertion["predicate"]),
                 mutation_id=str(mutation["mutation_id"]),
-                source_ref=str(assertion["source_ref"]),
-                evidence_span=str(assertion["evidence_span"] or ""),
+                source_ref="",
+                evidence_span="",
                 jurisdiction=str(assertion["jurisdiction"] or ""),
                 authority_level=str(assertion["authority_level"] or ""),
                 valid_from=str(assertion["valid_from"] or ""),
@@ -6655,6 +6655,10 @@ class MemoryDAO:
                     seed_entity_ids=graph_seed_ids[:20],
                     allowed_entity_ids=allowed_entity_ids,
                     allowed_assertion_ids=allowed_graph_assertion_ids,
+                    assertion_evidence={
+                        aid: str(assertion.get("evidence_span") or "")
+                        for aid, assertion in in_scope_assertions.items()
+                    },
                     max_hops=3,
                     limit=min(500, max(limit * 10, 50)),
                     query=query,
@@ -9887,6 +9891,25 @@ class MemoryDAO:
             )
             await db.commit()
         return cursor.rowcount
+
+    async def recover_in_flight_projection_and_dispatch(self) -> dict[str, int]:
+        """Release abandoned in-flight projection and dispatch claims after writer lock."""
+        async with self._sql.transaction() as db:
+            p_cursor = await db.execute(
+                "UPDATE projection_outbox SET state = 'RETRY_PENDING', claim_token = NULL, "
+                "claimed_by = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE state = 'IN_FLIGHT'"
+            )
+            d_cursor = await db.execute(
+                "UPDATE dispatch_queue SET state = 'RETRY_PENDING', claim_token = NULL, "
+                "claimed_by = NULL, lease_expires_at = NULL "
+                "WHERE state = 'IN_FLIGHT'"
+            )
+            await db.commit()
+        return {
+            "projection_outbox": p_cursor.rowcount,
+            "dispatch_queue": d_cursor.rowcount,
+        }
 
     async def claim_lancedb_wal_entries(
         self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300

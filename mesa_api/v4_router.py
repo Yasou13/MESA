@@ -45,6 +45,7 @@ from mesa_storage.dao import (
 )
 from mesa_storage.kuzu_provider import GraphSearchError
 from mesa_storage.legal_identity import canonicalize_trusted_legal_identity
+from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.repositories.operations import (
     OperationActiveConflictError,
     OperationIdempotencyConflictError,
@@ -546,6 +547,7 @@ def create_v4_router(
     *,
     get_access_control: Callable[[], AccessControl],
     get_composed_validation_policy: Callable[[], ValidationPolicy | None] | None = None,
+    get_extraction_enabled: Callable[[], bool] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/v4", tags=["v4-full-cognitive"])
 
@@ -555,6 +557,11 @@ def create_v4_router(
             if get_composed_validation_policy is not None
             else None
         )
+
+    def is_extraction_enabled() -> bool:
+        if get_extraction_enabled is not None:
+            return bool(get_extraction_enabled())
+        return True
 
     @router.post("/catalog/workspaces", status_code=201)
     async def create_workspace(
@@ -759,13 +766,16 @@ def create_v4_router(
             dataset_ids=[dataset_id],
             required_role="READER",
         )
-        return {
-            "revisions": await dao.list_v4_revisions(
-                tenant_id=tenant_id,
-                dataset_id=dataset_id,
-                document_id=document_id,
-            )
-        }
+        try:
+            return {
+                "revisions": await dao.list_v4_revisions(
+                    tenant_id=tenant_id,
+                    dataset_id=dataset_id,
+                    document_id=document_id,
+                )
+            }
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.post("/catalog/source-chunks", status_code=201)
     async def create_source_chunk(
@@ -1383,13 +1393,14 @@ def create_v4_router(
         adaptive_retriever = None
         if retrieval_mode == "adaptive":
             planner = None
-            try:
-                planner = BoundedQueryPlanner(AdapterFactory.get_adapter())
-            except Exception as exc:
-                logger.warning(
-                    "QUERY_PLANNER_COMPOSITION_UNAVAILABLE | exception_type=%s",
-                    type(exc).__name__,
-                )
+            if is_extraction_enabled():
+                try:
+                    planner = BoundedQueryPlanner(AdapterFactory.get_adapter())
+                except Exception as exc:
+                    logger.warning(
+                        "QUERY_PLANNER_COMPOSITION_UNAVAILABLE | exception_type=%s",
+                        type(exc).__name__,
+                    )
             adaptive_retriever = BoundedAdaptiveQueryRetriever(dao, planner)
         builder = ContextBuilder(dao, adaptive_retriever=adaptive_retriever)
         try:

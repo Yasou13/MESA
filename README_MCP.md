@@ -73,7 +73,12 @@ an authenticated reverse proxy for remote deployment; see
 
 ## Operator approval
 
-Approval and rejection are local control-plane operations. Grant the operator
+Approvals and the control-plane audit are HTTP gateway features. The direct
+`mesa-mcp` stdio server executes tools using the MCP client's tool approval and
+the MESA API key's grants; it creates no local database and works from any
+working directory. Its `bridge` transport still forwards calls to the gateway.
+
+Approval and rejection are local gateway control-plane operations. Grant the operator
 the existing server-side `ADMIN` control role, then point the CLI at the same
 gateway and RBAC databases used by the running MESA services:
 
@@ -139,7 +144,7 @@ With the same protected environment used by Antigravity:
 
 Use MCP Inspector or Antigravity to initialize the process and call
 `mesa_health`. Do not run it in a terminal expecting human-readable stdout:
-stdio is a JSON-RPC protocol stream. `mesa_mcp.server` defaults to V3; an explicit `MESA_USE_V4=true` selects its
+stdio is a JSON-RPC protocol stream. `mesa_mcp.server` uses its
 V4 service adapter. Provide `MESA_TENANT_ID`, `MESA_WORKSPACE_ID`,
 `MESA_DATASET_ID`, `MESA_WORKSPACE_ROOT` and an authorized binding/scope.
 The supervised gateway is the documented Codex/Antigravity path.
