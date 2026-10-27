@@ -925,6 +925,26 @@ class MemoryDAO:
                     )
             return rows
 
+    async def list_v4_revision_mutations(
+        self, *, tenant_id: str, dataset_id: str, revision_id: str
+    ) -> dict[int, str]:
+        """Read durable chunk admissions for a scoped document upload retry."""
+        async with self._sql.connection() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            revision_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="revision", external_id=revision_id
+            )
+            async with db.execute(
+                "SELECT c.ordinal, m.mutation_id FROM memory_mutations m "
+                "JOIN source_chunks c ON c.chunk_id = m.chunk_id "
+                "WHERE m.tenant_id = ? AND m.dataset_id = ? AND m.revision_id = ? "
+                "ORDER BY c.ordinal",
+                (tenant_id, dataset_id, revision_id),
+            ) as cursor:
+                return {int(row[0]): str(row[1]) for row in await cursor.fetchall()}
+
     async def create_v4_source_chunk(
         self,
         *,

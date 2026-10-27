@@ -8,6 +8,7 @@ authorized against a verified principal-to-agent-to-session binding.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from datetime import datetime
@@ -22,6 +23,7 @@ from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
+from mesa_memory.document_chunking import chunk_document
 from mesa_memory.embedding.service import (
     EmbeddingGenerationError,
     EmbeddingIdentityMismatchError,
@@ -266,6 +268,38 @@ class V4MemoryInsertRequest(BaseModel):
     def validate_write_boundary(self) -> "V4MemoryInsertRequest":
         validate_write_payload(self.content, self.metadata)
         return self
+
+
+class V4DocumentIngestRequest(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    session_id: PublicIdentifier
+    dataset_id: PublicIdentifier
+    document_id: SourceIdentifier
+    title: str = Field(min_length=1, max_length=512)
+    source_ref: str = Field(min_length=1, max_length=2048)
+    content: str = Field(min_length=1)
+    metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_write_boundary(self) -> "V4DocumentIngestRequest":
+        if len(self.content.encode("utf-8")) > 5_000_000:
+            raise HTTPException(
+                status_code=413, detail="document exceeds 5,000,000 UTF-8 bytes"
+            )
+        if not self.content.strip():
+            raise ValueError("content must not be empty")
+        validate_write_payload(self.content, self.metadata)
+        return self
+
+
+class V4DocumentIngestResponse(BaseModel):
+    document_id: str
+    revision_id: str
+    revision_number: int
+    chunk_count: int
+    mutation_ids: list[str]
+    duplicate: bool
 
 
 class V4SearchRequest(BaseModel):
@@ -550,6 +584,8 @@ def create_v4_router(
     get_extraction_enabled: Callable[[], bool] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/v4", tags=["v4-full-cognitive"])
+    # ponytail: serialize document uploads; use per-document locks if throughput requires it.
+    document_admission_lock = asyncio.Lock()
 
     def current_validation_policy() -> ValidationPolicy | None:
         return (
@@ -1191,6 +1227,99 @@ def create_v4_router(
         if admission["outcome"] == "DUPLICATE":
             response["duplicate"] = True
         return response
+
+    @router.post("/documents", response_model=V4DocumentIngestResponse, status_code=202)
+    async def ingest_document(
+        request: Request,
+        payload: V4DocumentIngestRequest,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        session = await _authorized_v4_session(
+            request, dao, access_control, payload.session_id, level="WRITE"
+        )
+        if payload.dataset_id not in session["dataset_ids"]:
+            raise HTTPException(
+                status_code=403, detail="Dataset is outside session scope"
+            )
+        await _require_mutation_admission(dao, require_projection_consumer=True)
+        content_hash = hashlib.sha256(payload.content.encode("utf-8")).hexdigest()
+        revision_id = (
+            "rev-"
+            + hashlib.sha256(
+                (payload.document_id + "\n" + content_hash).encode("utf-8")
+            ).hexdigest()[:32]
+        )
+        chunks = chunk_document(payload.content)
+        scope = {
+            "tenant_id": str(session["tenant_id"]),
+            "dataset_id": payload.dataset_id,
+        }
+        async with document_admission_lock:
+            try:
+                document = await dao.create_v4_document(
+                    **scope, document_id=payload.document_id, title=payload.title
+                )
+                if document["status"] == "PURGED":
+                    raise ValueError("document is purged")
+                revisions = await dao.list_v4_revisions(
+                    **scope, document_id=payload.document_id
+                )
+                revision = next(
+                    (r for r in revisions if r["revision_id"] == revision_id), None
+                )
+                if revision is None:
+                    active = next(
+                        (r for r in revisions if r["status"] == "ACTIVE"), None
+                    )
+                    revision = await dao.create_v4_revision(
+                        **scope,
+                        document_id=payload.document_id,
+                        revision_id=revision_id,
+                        revision_number=max(
+                            (r["revision_number"] for r in revisions), default=0
+                        )
+                        + 1,
+                        content_hash=content_hash,
+                        supersedes_revision_id=active["revision_id"]
+                        if active
+                        else None,
+                    )
+                admitted = await dao.list_v4_revision_mutations(
+                    **scope, revision_id=revision_id
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            duplicate = len(admitted) == len(chunks)
+            for ordinal, chunk in enumerate(chunks):
+                if ordinal in admitted:
+                    continue
+                chunk_id = f"{revision_id}-c{ordinal:05d}"
+                response = await insert_memory(
+                    request,
+                    V4MemoryInsertRequest(
+                        **payload.model_dump(exclude={"content"}),
+                        content=chunk,
+                        revision_id=revision_id,
+                        chunk_id=chunk_id,
+                        revision_number=revision["revision_number"],
+                        chunk_ordinal=ordinal,
+                        supersedes_revision_id=revision["supersedes_revision_id"],
+                        finalize_revision=ordinal == len(chunks) - 1,
+                        idempotency_key=chunk_id,
+                    ),
+                    dao,
+                    access_control,
+                )
+                admitted[ordinal] = response["mutation_id"]
+            return {
+                "document_id": payload.document_id,
+                "revision_id": revision_id,
+                "revision_number": revision["revision_number"],
+                "chunk_count": len(chunks),
+                "mutation_ids": [admitted[i] for i in range(len(chunks))],
+                "duplicate": duplicate,
+            }
 
     @router.post("/memory/search", response_model=V4SearchResponse)
     async def search_memory(

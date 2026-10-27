@@ -1014,6 +1014,52 @@
         ]
       }
     },
+    "/v4/documents": {
+      "post": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Ingest Document",
+        "operationId": "ingest_document_v4_documents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V4DocumentIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentIngestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
     "/v4/memory/search": {
       "post": {
         "tags": [
@@ -2626,6 +2672,101 @@
           "dataset_id"
         ],
         "title": "V4DatasetRequest"
+      },
+      "V4DocumentIngestRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Session Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Dataset Id"
+          },
+          "document_id": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "source_ref": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Source Ref"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "dataset_id",
+          "document_id",
+          "title",
+          "source_ref",
+          "content"
+        ],
+        "title": "V4DocumentIngestRequest"
+      },
+      "V4DocumentIngestResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "mutation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Mutation Ids"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "title": "Duplicate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "revision_id",
+          "revision_number",
+          "chunk_count",
+          "mutation_ids",
+          "duplicate"
+        ],
+        "title": "V4DocumentIngestResponse"
       },
       "V4DocumentRequest": {
         "properties": {
