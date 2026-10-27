@@ -157,7 +157,7 @@ def create_application() -> tuple[Server, MCPSettings]:
     settings = MCPSettings()
     logging.basicConfig(stream=sys.stderr, level=settings.log_level)
 
-    v4_svc = MesaHttpV4Service(settings) if settings.use_v4 else None
+    v4_svc = MesaHttpV4Service(settings)
 
     return (
         create_mcp_server(MesaHttpMemoryService(settings), settings, v4_svc),

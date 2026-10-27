@@ -212,7 +212,7 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 ## MCP and operator variables
 
 `mesa_mcp/configuration.py` owns separate `MCPSettings`; see [MCP](../README_MCP.md).
-V3 stdio defaults to `MESA_USE_V4=false`; direct V4 requires explicit tenant,
+MCP stdio uses V4; direct V4 requires explicit tenant,
 workspace and dataset settings plus workspace root and binding authorization.
 MCP general context defaults to 2500 tokens/max8000; Core HTTP context defaults
 to 2048; Codex binding profile caps are separate (8 memories/2500 tokens).

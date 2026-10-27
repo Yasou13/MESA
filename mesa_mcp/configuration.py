@@ -26,7 +26,6 @@ class MCPSettings(BaseSettings):
     search_min_score: float = Field(default=0.0, alias="MESA_MIN_SCORE")
 
     # V4 Configuration
-    use_v4: bool = Field(default=False, alias="MESA_USE_V4")
     default_tenant_id: str = Field(default="default", alias="MESA_TENANT_ID")
     default_workspace_id: str = Field(default="default", alias="MESA_WORKSPACE_ID")
     default_dataset_id: str = Field(default="default", alias="MESA_DATASET_ID")

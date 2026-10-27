@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from mesa_memory.security.input_validation import validate_write_payload
+from mesa_memory.security.untrusted_memory import (
+    TAG_CLOSE,
+    TAG_OPEN,
+    render_untrusted_memory,
+)
 
 from .configuration import MCPSettings
 from .errors import MCPError
@@ -83,7 +88,21 @@ class MesaMCPAdapter:
         }
         if retrieval_mode == "adaptive":
             context_arguments["retrieval_mode"] = retrieval_mode
-        return await self._v4_service.v4_context(**context_arguments)
+        raw = await self._v4_service.v4_context(**context_arguments)
+        return {
+            key: raw[key]
+            for key in (
+                "tenant_id",
+                "workspace_id",
+                "dataset_ids",
+                "agent_id",
+                "session_id",
+                "context",
+                "context_status",
+                "estimated_token_count",
+            )
+            if key in raw
+        }
 
     async def mesa_remember(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self._v4_service:
@@ -119,7 +138,7 @@ class MesaMCPAdapter:
             raise MCPError("UNIMPLEMENTED", "V4 service is not enabled")
         dataset_id = arguments.get("dataset_id")
         query = _required_string(arguments, "query", max_length=_MAX_QUERY_LENGTH)
-        results = await self._v4_service.v4_recall(
+        raw = await self._v4_service.v4_recall(
             dataset_id=dataset_id,
             query=query,
             limit=arguments.get("limit"),
@@ -128,7 +147,36 @@ class MesaMCPAdapter:
             valid_from=arguments.get("valid_from"),
             valid_to=arguments.get("valid_to"),
         )
-        return {"results": results, "total": len(results)}
+        if isinstance(raw, dict):
+            raw_results = raw.get("results", [])
+            degraded_sources = list(raw.get("degraded_sources", []))
+        else:
+            raw_results = raw
+            degraded_sources = list(getattr(raw, "degraded_sources", []))
+
+        wrapped_results = []
+        for item in raw_results:
+            chunk_text = str(item.get("content") or "")
+            if chunk_text.startswith(TAG_OPEN) and chunk_text.endswith(TAG_CLOSE):
+                wrapped = chunk_text
+            else:
+                wrapped = render_untrusted_memory(
+                    [("Retrieved Memory", [{"content": chunk_text}])]
+                )
+            wrapped_results.append(
+                {
+                    "memory_id": item.get("memory_id") or item.get("chunk_id"),
+                    "document_id": item.get("document_id"),
+                    "chunk_id": item.get("chunk_id"),
+                    "score": item.get("score", 0.0),
+                    "content": wrapped,
+                }
+            )
+        return {
+            "results": wrapped_results,
+            "total": len(wrapped_results),
+            "degraded_sources": degraded_sources,
+        }
 
     async def mesa_improve(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self._v4_service:

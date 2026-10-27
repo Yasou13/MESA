@@ -236,7 +236,8 @@ async def test_mcp_adapter_preserves_canonical_context_and_write_semantics():
     context = await adapter.get_context(
         {"query": "Which database?", "token_budget": 100, "jurisdiction": "TR"}
     )
-    assert context["canonical_memories"] == [{"memory_id": "m1"}]
+    assert context["context"] == "Database PostgreSQL"
+    assert "canonical_memories" not in context
     v4.v4_context.assert_awaited_once_with(
         dataset_id=None,
         query="Which database?",
