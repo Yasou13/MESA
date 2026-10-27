@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-@dataclass(frozen=True)
+@dataclass
 class MCPError(Exception):
     code: str
     message: str

@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -6,10 +8,12 @@ pytest.importorskip("mcp")
 
 import mcp.types as types
 
+from mesa_client.client import MesaAPIError
 from mesa_mcp.adapter import MesaMCPAdapter
 from mesa_mcp.configuration import MCPSettings
 from mesa_mcp.errors import MCPError
 from mesa_mcp.server import MESA_BASE_URL, _tools, create_mcp_server
+from mesa_mcp.v4_service import MesaHttpV4Service
 
 pytestmark = pytest.mark.optional_mcp
 
@@ -109,3 +113,42 @@ async def test_context_without_v4_service_raises_unimplemented(
         await adapter.get_context(
             {"query": "service conventions", "token_budget": 15}
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "expected_code"),
+    [
+        (403, "ACCESS_DENIED"),
+        (401, "UNAUTHORIZED"),
+        (400, "INVALID_ARGUMENT"),
+    ],
+)
+async def test_mcp_session_start_errors_reach_agent_not_internal_error(
+    tmp_path: Path, status_code: int, expected_code: str
+) -> None:
+    settings = MCPSettings(MESA_WORKSPACE_ROOT=tmp_path, use_v4=True)
+    v4_svc = MesaHttpV4Service(settings)
+    mock_client = AsyncMock()
+    mock_client.start_session.side_effect = MesaAPIError(
+        status_code, "ERR", f"Error {status_code}"
+    )
+    v4_svc._http_client = mock_client
+
+    server = create_mcp_server(FakeMemoryService(), settings, v4_svc)
+    handler = server.request_handlers[types.CallToolRequest]
+    res = await handler(
+        types.CallToolRequest(
+            params=types.CallToolRequestParams(
+                name="mesa_recall",
+                arguments={"query": "test query", "dataset_id": "test_ds"},
+            )
+        )
+    )
+    payload = json.loads(res.root.content[0].text)
+    assert payload["error"]["code"] != "INTERNAL_ERROR"
+    if status_code == 401:
+        assert payload["error"]["code"] in ("UNAUTHORIZED", "ACCESS_DENIED")
+    else:
+        assert payload["error"]["code"] == expected_code
+
