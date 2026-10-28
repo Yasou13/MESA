@@ -44,7 +44,7 @@ mesa.add(open("document.txt").read(), source="file://document.txt")
 print(mesa.context("your query"))
 ```
 
-`Mesa()` discovers local credentials automatically from `~/.mesa/credentials.json` or `MESA_API_KEY`.
+`Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
 
 ## Connect MCP clients
 
@@ -94,7 +94,7 @@ docker compose -f docker-compose.v4.yml exec -T mesa-v4 mesa add - --source file
 docker compose -f docker-compose.v4.yml exec mesa-v4 mesa search "your query"
 ```
 
-No variables are required; models and external providers default off. The image includes `adapters`; build with `--build-arg MESA_EXTRAS=ml,adapters` to add local sentence-transformers. Ollama defaults to `http://host.docker.internal:11434` (the Docker host).
+No variables are required; models and external providers default off. If you set `MESA_API_KEY` and `MESA_PRINCIPAL_ID` for existing HTTP clients, the server accepts that key too, and the `mesa` commands inside the container use it first; add `-e MESA_API_KEY=` after `exec` to use the local credentials instead. The image includes `adapters`; build with `--build-arg MESA_EXTRAS=ml,adapters` to add local sentence-transformers. Ollama defaults to `http://host.docker.internal:11434` (the Docker host).
 
 ## Google Colab
 

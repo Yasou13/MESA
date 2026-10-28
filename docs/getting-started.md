@@ -55,7 +55,7 @@ mesa.add(open("document.txt").read(), source="file://document.txt")
 print(mesa.context("your query"))
 ```
 
-`Mesa()` discovers local credentials automatically from `~/.mesa/credentials.json` or `MESA_API_KEY`.
+`Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
 
 ### 4. Connect MCP clients
 
@@ -114,7 +114,8 @@ off. The image runs `mesa start --host 0.0.0.0` as a non-root user; Compose
 publishes only `127.0.0.1:8000`. Credentials retain a loopback base URL for CLI
 use inside the container. The named volume keeps data and credentials on
 restart. `MESA_API_KEY` and `MESA_PRINCIPAL_ID` are optional for existing
-bootstrap setups. Ollama defaults to `http://host.docker.internal:11434`,
+bootstrap setups; when set, the `mesa` commands inside the container use that
+key first, so add `-e MESA_API_KEY=` after `exec` to use the local credentials. Ollama defaults to `http://host.docker.internal:11434`,
 which reaches the Docker host. The default image includes `adapters`; add
 sentence-transformers with
 `docker compose -f docker-compose.v4.yml build --build-arg MESA_EXTRAS=ml,adapters`.
