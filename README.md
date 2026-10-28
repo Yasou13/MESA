@@ -12,7 +12,7 @@ Package version: **0.9.0**. V4 is the current API. Production qualification rema
 ## Installation
 
 ```bash
-pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"
+pip install "mesa-memory[adapters]"
 ```
 
 Supported on Linux and macOS natively. On Windows, run via Docker or WSL.
