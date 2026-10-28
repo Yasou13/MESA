@@ -62,6 +62,7 @@ bytes (seen in 2 of 6 test rebuilds; not seen in normal projection). Kùzu never
 overwrites them, so text of a document purged after that rebuild can stay
 recoverable from the graph file. If a purge must leave no copy at all, run
 another offline rebuild after the purge and retire the older generation.
+Strict erasure setups can set `MESA_GRAPH_ENABLED=false` to keep Kùzu closed and prevent new graph files; retire any existing graph files and retained copies under the retention policy.
 
 Avoid query/source content, credentials, raw model output and claim tokens in
 logs. IDs and aggregate diagnostics still reveal operational metadata and need

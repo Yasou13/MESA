@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol, cast
@@ -126,23 +127,26 @@ class ProjectionParityVerifier:
         if not 1 <= parity_limit <= 10_000 or not 1 <= smoke_limit <= 100:
             raise ValueError("invalid projection verification bounds")
         vector = vector_factory(paths.vector_path)
-        graph = graph_factory(paths.graph_path)
+        graph = graph_factory(paths.graph_path) if snapshot.graph_enabled else None
         try:
             if Path(vector.uri).resolve(strict=False) != paths.vector_path:
                 raise RebuildVerificationError(
                     "vector verification target is not active"
                 )
-            if Path(graph.db_path).resolve(strict=False) != paths.graph_path:
+            if (
+                graph is not None
+                and Path(graph.db_path).resolve(strict=False) != paths.graph_path
+            ):
                 raise RebuildVerificationError(
                     "graph verification target is not active"
                 )
             await vector.initialize()
-            await graph.initialize()
+            if graph is not None:
+                await graph.initialize()
             vector_health = await vector.health_check()
-            graph_health = await graph.health_check()
-            if (
-                vector_health.get("status") != "healthy"
-                or graph_health.get("status") != "healthy"
+            graph_health = await graph.health_check() if graph is not None else {}
+            if vector_health.get("status") != "healthy" or (
+                graph is not None and graph_health.get("status") != "healthy"
             ):
                 raise RebuildVerificationError("projection provider health failed")
 
@@ -151,16 +155,28 @@ class ProjectionParityVerifier:
             if any(count < 0 for count in vector_counts.values()):
                 raise RebuildVerificationError("vector count probe failed")
             actual_vector = sum(vector_counts.values())
-            actual_graph_entities = _count_row(
-                await graph.execute_query("MATCH (n:Entity) RETURN COUNT(n)")
-            )
-            actual_graph_assertions = _count_row(
-                await graph.execute_query("MATCH (n:Assertion) RETURN COUNT(n)")
-            )
-            actual_graph_links = _count_row(
-                await graph.execute_query(
-                    "MATCH (:Assertion)-[r:AssertionLink]->(:Assertion) RETURN COUNT(r)"
+            actual_graph_entities = (
+                _count_row(
+                    await graph.execute_query("MATCH (n:Entity) RETURN COUNT(n)")
                 )
+                if graph is not None
+                else 0
+            )
+            actual_graph_assertions = (
+                _count_row(
+                    await graph.execute_query("MATCH (n:Assertion) RETURN COUNT(n)")
+                )
+                if graph is not None
+                else 0
+            )
+            actual_graph_links = (
+                _count_row(
+                    await graph.execute_query(
+                        "MATCH (:Assertion)-[r:AssertionLink]->(:Assertion) RETURN COUNT(r)"
+                    )
+                )
+                if graph is not None
+                else 0
             )
 
             missing_ids = 0
@@ -183,6 +199,10 @@ class ProjectionParityVerifier:
                                 agent_id, identifiers
                             )
                         else:
+                            if graph is None:
+                                raise RebuildVerificationError(
+                                    "graph verification is disabled"
+                                )
                             label = "Entity" if lane == "graph_entity" else "Assertion"
                             found = await graph.get_existing_node_ids(
                                 label, agent_id, identifiers
@@ -287,7 +307,8 @@ class ProjectionParityVerifier:
                 raise ProjectionParityError(report)
             return report
         finally:
-            await graph.close()
+            if graph is not None:
+                await graph.close()
             await vector.close()
 
 
@@ -329,7 +350,13 @@ class ParityGatedActivator:
             trusted_root=trusted_root,
             runtime_fencing_token=preparation.runtime_fencing_token,
         )
-        snapshot = ProjectionSnapshot(preparation.backup_root / "mesa.db")
+        manifest = json.loads(
+            preparation.generation.get("provider_manifest_json") or "{}"
+        )
+        snapshot = ProjectionSnapshot(
+            preparation.backup_root / "mesa.db",
+            graph_enabled=manifest.get("graph_enabled", True),
+        )
         if should_stop is not None and should_stop():
             await self._record_failure(
                 operation,

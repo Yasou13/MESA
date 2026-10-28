@@ -213,7 +213,9 @@ async def process_projection_outbox_once(
     async def _handle_one(projection: dict[str, Any]) -> None:
         projection_id = str(projection["projection_id"])
         try:
-            if projection["projection_name"] == "VECTOR" and not dao.embedding_enabled:
+            if (
+                projection["projection_name"] == "VECTOR" and not dao.embedding_enabled
+            ) or (projection["projection_name"] == "GRAPH" and not dao.graph_enabled):
                 result["completed"] += int(
                     await dao.complete_projection_outbox(
                         projection_id,

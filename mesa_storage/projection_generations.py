@@ -569,19 +569,20 @@ class ProjectionGenerationRepository:
     async def mark_assertion_vector_representation(
         self, generation_id: str, *, representation_version: str
     ) -> int:
-        """Publish the representation identity after verified cutover.
+        """Publish projection readiness after verified cutover.
 
         Rebuild writes every active assertion vector using the current payload
         contract. The registry marker is advanced only while that generation
         is the active runtime target, so old and partially rebuilt vectors stay
-        ineligible for semantic retrieval.
+        ineligible for semantic retrieval. Omitted graph projections reuse
+        SKIPPED readiness and startup backfill after post-cutover checks pass.
         """
         generation = _identifier(generation_id, label="generation id")
         if representation_version != V4_VECTOR_REPRESENTATION_VERSION:
             raise ValueError("assertion vector representation version is unsupported")
         async with self._sql.transaction() as db:
             cursor = await db.execute(
-                "SELECT g.lifecycle_state FROM projection_runtime r "
+                "SELECT g.lifecycle_state, g.provider_manifest_json FROM projection_runtime r "
                 "JOIN projection_generations g "
                 "ON g.generation_id = r.active_generation_id "
                 "WHERE r.runtime_id = 1 AND r.active_generation_id = ?",
@@ -604,6 +605,16 @@ class ProjectionGenerationRepository:
                 (representation_version,),
             )
             updated = int(cursor.rowcount)
+            if (
+                json.loads(active["provider_manifest_json"] or "{}").get(
+                    "graph_enabled", True
+                )
+                is False
+            ):
+                await db.execute(
+                    "UPDATE projection_outbox SET state = 'SKIPPED', updated_at = CURRENT_TIMESTAMP "
+                    "WHERE projection_name = 'GRAPH' AND state = 'COMPLETED'"
+                )
             await db.commit()
         return updated
 

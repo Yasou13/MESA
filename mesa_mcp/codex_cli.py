@@ -53,6 +53,11 @@ def main() -> None:
 
         main_for_args(args)
         return
+    if args.group in ("start", "add", "search", "delete", "status", "mcp-config"):
+        from .local_cli import handle_local_command
+
+        handle_local_command(args)
+        return
     if args.command == "hook":
         from . import codex_hooks
 
@@ -69,6 +74,9 @@ def main() -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mesa", description="MESA local tools")
     commands = parser.add_subparsers(dest="group", required=True)
+    from .local_cli import register_local_commands
+
+    register_local_commands(commands)
     operations = commands.add_parser(
         "operations", help="approve or reject durable operations"
     )
@@ -617,3 +625,7 @@ async def _verify_gateway_credential(gateway_url: str, token: str) -> None:
         ) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
+
+
+if __name__ == "__main__":
+    main()

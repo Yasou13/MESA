@@ -7,8 +7,12 @@ Strictly relies on Pydantic V2 schemas from the core API to ensure type safety.
 """
 
 import asyncio
+import hashlib
+import json
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Any, Callable, Literal, Optional, TypeVar
 from urllib.parse import quote
 
@@ -633,6 +637,30 @@ class MesaV4Client(MesaClient):
             params=params,
         )
 
+    def add_document(
+        self,
+        *,
+        session_id: str,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        source_ref: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Ingest a whole document through server-side chunking (D29)."""
+        payload: dict[str, Any] = {
+            "session_id": session_id,
+            "dataset_id": dataset_id,
+            "document_id": document_id,
+            "title": title,
+            "source_ref": source_ref,
+            "content": content,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return self._request("POST", "/v4/documents", json=payload)
+
 
 class AsyncMesaV4Client(AsyncMesaClient):
     """Async counterpart of :class:`MesaV4Client`."""
@@ -965,3 +993,176 @@ class AsyncMesaV4Client(AsyncMesaClient):
             f"/v4/sessions/{session_id}/context",
             params=params,
         )
+
+    async def add_document(
+        self,
+        *,
+        session_id: str,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        source_ref: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Ingest a whole document through server-side chunking (D29)."""
+        payload: dict[str, Any] = {
+            "session_id": session_id,
+            "dataset_id": dataset_id,
+            "document_id": document_id,
+            "title": title,
+            "source_ref": source_ref,
+            "content": content,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return await self._request("POST", "/v4/documents", json=payload)
+
+
+class Mesa:
+    """Convenience SDK entrypoint for fast local use and scripting (D30).
+
+    Example::
+
+        from mesa_client import Mesa
+        mesa = Mesa()
+        mesa.add(open("kira.txt").read(), source="file://kira.txt")
+        print(mesa.context("kira ne zaman ödenir?"))
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        dataset_id: str | None = None,
+    ) -> None:
+        home_raw = os.environ.get("MESA_HOME")
+        home = Path(home_raw).expanduser() if home_raw else Path.home() / ".mesa"
+        creds_path = home / "credentials.json"
+        creds: dict[str, Any] = {}
+        if creds_path.is_file():
+            try:
+                with creds_path.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        creds = data
+            except Exception:
+                creds = {}
+
+        self.base_url = (
+            base_url
+            or os.environ.get("MESA_BASE_URL")
+            or str(creds.get("base_url") or "")
+            or "http://127.0.0.1:8000"
+        )
+        resolved_key = (
+            api_key
+            or os.environ.get("MESA_API_KEY")
+            or str(creds.get("api_key") or "")
+        )
+        if not resolved_key:
+            raise MesaClientError(
+                "No MESA API key found. Run 'mesa start' to create a local instance and credentials, "
+                "or set MESA_API_KEY."
+            )
+        self.api_key = resolved_key
+        self.tenant_id = str(creds.get("tenant_id") or os.environ.get("MESA_TENANT_ID") or "local")
+        self.workspace_id = str(creds.get("workspace_id") or os.environ.get("MESA_WORKSPACE_ID") or "default")
+        self.dataset_id = (
+            dataset_id
+            or os.environ.get("MESA_DATASET_ID")
+            or str(creds.get("dataset_id") or "")
+            or "default"
+        )
+        self.agent_id = str(creds.get("agent_id") or os.environ.get("MESA_AGENT_ID") or "local-agent")
+
+        self._client = MesaV4Client(base_url=self.base_url, api_key=self.api_key)
+        self._session_id: str | None = None
+
+    def _ensure_session(self) -> str:
+        if self._session_id is not None:
+            return self._session_id
+        try:
+            self._client.create_workspace(
+                tenant_id=self.tenant_id,
+                workspace_id=self.workspace_id,
+            )
+        except MesaAPIError as exc:
+            if exc.status_code != 409:
+                raise
+        try:
+            self._client.create_dataset(
+                tenant_id=self.tenant_id,
+                workspace_id=self.workspace_id,
+                dataset_id=self.dataset_id,
+            )
+        except MesaAPIError as exc:
+            if exc.status_code != 409:
+                raise
+        resp = self._client.start_session(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_ids=[self.dataset_id],
+            agent_id=self.agent_id,
+        )
+        self._session_id = str(resp["session_id"])
+        return self._session_id
+
+    def add(
+        self,
+        text: str,
+        *,
+        source: str,
+        title: str | None = None,
+        document_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest a document with server-side chunking (D29)."""
+        doc_id = document_id or f"doc-{hashlib.sha256(source.encode('utf-8')).hexdigest()[:32]}"
+        doc_title = title if title is not None else source
+        session_id = self._ensure_session()
+        return self._client.add_document(
+            session_id=session_id,
+            dataset_id=self.dataset_id,
+            document_id=doc_id,
+            title=doc_title,
+            source_ref=source,
+            content=text,
+        )
+
+    def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Search memory within the active dataset session."""
+        session_id = self._ensure_session()
+        resp = self._client.search(session_id=session_id, query=query, limit=limit)
+        if isinstance(resp, dict):
+            return list(resp.get("results", []))
+        return list(resp)
+
+    def context(self, query: str, max_tokens: int = 2000) -> str:
+        """Return the wrapped context evidence for the given query."""
+        session_id = self._ensure_session()
+        resp = self._client.get_context(
+            session_id=session_id,
+            query=query,
+            token_budget=max_tokens,
+        )
+        return str(resp.get("context", ""))
+
+    def delete(self, document_id: str) -> dict[str, Any]:
+        """Purge a document from the catalog."""
+        return self._client.purge_document(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+        )
+
+    def close(self) -> None:
+        """Close the underlying client."""
+        self._client.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+

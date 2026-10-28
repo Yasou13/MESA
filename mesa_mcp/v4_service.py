@@ -527,13 +527,15 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         or item.get("chunk_id")
         or primary_assertion.get("chunk_id"),
         "content": item.get("chunk_text")
-        or item.get("content")
         or primary_assertion.get("chunk_text")
+        or item.get("content")
         or primary_assertion.get("content")
-        or primary_assertion.get("literal_value")
-        or primary_assertion.get("fact_text")
         or item.get("evidence_span")
         or primary_assertion.get("evidence_span")
+        or item.get("fact_text")
+        or primary_assertion.get("fact_text")
+        or item.get("literal_value")
+        or primary_assertion.get("literal_value")
         or " ".join(
             str(value)
             for value in (

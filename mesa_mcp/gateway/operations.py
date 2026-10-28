@@ -490,6 +490,26 @@ class GatewayOperationService:
         self._recall_cache.put(key, result, ttl_seconds=45.0)
         return {**result, "cache_status": "MISS"}
 
+    @staticmethod
+    def _format_gateway_memory(memory: dict[str, Any]) -> dict[str, Any]:
+        raw_content = str(memory.get("content") or "")
+        wrapped = render_untrusted_memory(
+            [("Retrieved Memory", [{"content": raw_content}])]
+        )
+        formatted: dict[str, Any] = {
+            "memory_id": memory.get("memory_id") or memory.get("chunk_id"),
+            "document_id": memory.get("document_id"),
+            "chunk_id": memory.get("chunk_id"),
+            "score": memory.get("score", 0.0),
+            "content": wrapped,
+        }
+        if "provenance" in memory:
+            # Assertion rows hold stored text; keep only their IDs (D23).
+            formatted["provenance"] = _provenance_ids(memory["provenance"])
+        if "memory_type" in memory:
+            formatted["memory_type"] = memory["memory_type"]
+        return formatted
+
     async def _fetch_recall(
         self,
         binding: dict[str, Any],
@@ -518,7 +538,12 @@ class GatewayOperationService:
                 if memory.get("memory_type") in include_types
             ]
         if mode != "context":
-            return {"status": "SUCCESS", "memories": memories, "total": len(memories)}
+            wrapped_memories = [self._format_gateway_memory(m) for m in memories]
+            return {
+                "status": "SUCCESS",
+                "memories": wrapped_memories,
+                "total": len(wrapped_memories),
+            }
         seen: set[str] = set()
         packed: list[dict[str, Any]] = []
         remaining = token_budget * 4
@@ -531,10 +556,11 @@ class GatewayOperationService:
             packed.append(memory)
             remaining -= len(content)
         context_text = render_untrusted_memory([("Retrieved Project Memories", packed)])
+        wrapped_packed = [self._format_gateway_memory(m) for m in packed]
         return {
             "status": "SUCCESS",
             "context_text": context_text,
-            "memories": packed,
+            "memories": wrapped_packed,
             "estimated_tokens": (token_budget * 4 - remaining + 3) // 4,
             "truncated": len(packed) < len(memories),
         }
@@ -821,6 +847,19 @@ def _validate_write_arguments(arguments: dict[str, Any]) -> None:
         validate_write_payload(content, metadata)
     except ValueError as exc:
         raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
+
+
+def _provenance_ids(value: Any) -> Any:
+    """Keep only identifier fields of recall provenance."""
+    if isinstance(value, list):
+        return [_provenance_ids(item) for item in value if isinstance(item, dict)]
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: item if key.endswith(("_id", "_ids")) else _provenance_ids(item)
+        for key, item in value.items()
+        if key.endswith(("_id", "_ids")) or isinstance(item, (dict, list))
+    }
 
 
 def _remember_provenance(payload: dict[str, Any]) -> dict[str, Any]:

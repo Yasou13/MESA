@@ -33,6 +33,16 @@ needs distinct A/B validator identities. Extraction and validation are separate.
 them through BM25. Disabled VECTOR lanes end `SKIPPED`; enabling embedding later
 backfills them at startup using the same embedding identity. Backfill failures
 leave committed records searchable.
+
+`MESA_GRAPH_ENABLED` defaults to `true`, independently of the model flags.
+Set it to `false` to avoid opening Kùzu in the runtime and offline rebuild
+runner. GRAPH lanes end `SKIPPED`, BM25 and enabled vector search still work,
+search reports `graph` in `degraded_sources`, and capability reports no graph.
+Enabling it again backfills skipped GRAPH lanes at combined startup. A rebuild
+with graph disabled also marks previously completed GRAPH lanes `SKIPPED` at
+cutover so the new generation can be backfilled later. Existing graph files and
+retained generations are not erased by changing this flag.
+
 Local identity defaults to Magibu 768-d normalized; external text-embedding-3-small
 requires setting dimension to 1536. Do not enable external flag and keep an
 unrelated dimension. Nemotron-3 profile requires 2048 and `nemotron-qpass-v1`,

@@ -530,6 +530,7 @@ class MemoryDAO:
         "_canonical_v4_writes_enabled",
         "_secondary_writes_enabled",
         "_embedding_enabled",
+        "_graph_enabled",
         "_rrf_k",
         "_rrf_weights",
     )
@@ -543,6 +544,7 @@ class MemoryDAO:
         canonical_v4_writes_enabled: bool = True,
         secondary_writes_enabled: bool = True,
         embedding_enabled: bool = True,
+        graph_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
     ) -> None:
@@ -556,6 +558,7 @@ class MemoryDAO:
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
         self._secondary_writes_enabled = secondary_writes_enabled
         self._embedding_enabled = embedding_enabled
+        self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
 
@@ -583,6 +586,11 @@ class MemoryDAO:
     def embedding_enabled(self) -> bool:
         """Whether this runtime may produce or query semantic vectors."""
         return self._embedding_enabled
+
+    @property
+    def graph_enabled(self) -> bool:
+        """Whether this runtime may open, project or search the graph."""
+        return self._graph_enabled
 
     @property
     def graph_operational(self) -> bool:
@@ -924,6 +932,26 @@ class MemoryDAO:
                         )
                     )
             return rows
+
+    async def list_v4_revision_mutations(
+        self, *, tenant_id: str, dataset_id: str, revision_id: str
+    ) -> dict[int, str]:
+        """Read durable chunk admissions for a scoped document upload retry."""
+        async with self._sql.connection() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            revision_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="revision", external_id=revision_id
+            )
+            async with db.execute(
+                "SELECT c.ordinal, m.mutation_id FROM memory_mutations m "
+                "JOIN source_chunks c ON c.chunk_id = m.chunk_id "
+                "WHERE m.tenant_id = ? AND m.dataset_id = ? AND m.revision_id = ? "
+                "ORDER BY c.ordinal",
+                (tenant_id, dataset_id, revision_id),
+            ) as cursor:
+                return {int(row[0]): str(row[1]) for row in await cursor.fetchall()}
 
     async def create_v4_source_chunk(
         self,
@@ -3821,10 +3849,11 @@ class MemoryDAO:
                 "(attempt_id, projection_id, attempt_number, outcome, finished_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (str(uuid.uuid4()), projection_id, row["attempt_count"], outcome[:120]),
             )
-            if outcome == "SKIPPED" and (
-                row["projection_name"] != "VECTOR" or self._embedding_enabled
+            if outcome == "SKIPPED" and not (
+                (row["projection_name"] == "VECTOR" and not self._embedding_enabled)
+                or (row["projection_name"] == "GRAPH" and not self._graph_enabled)
             ):
-                raise ValueError("only a disabled VECTOR lane may be skipped")
+                raise ValueError("only a disabled VECTOR or GRAPH lane may be skipped")
             cursor = await db.execute(
                 "UPDATE projection_outbox SET state = ?, claim_token = NULL, claimed_by = NULL, "
                 "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ? AND claim_token = ?",
@@ -3861,14 +3890,22 @@ class MemoryDAO:
                 completed_count += 1
         return completed_count
 
-    async def requeue_skipped_vector_projections(self) -> int:
-        """Backfill disabled VECTOR lanes under the combined runtime writer lock.
+    async def requeue_skipped_vector_projections(
+        self, *, projection_name: str = "VECTOR"
+    ) -> int:
+        """Backfill a disabled lane under the combined runtime writer lock.
 
         Every mutation whose VECTOR lane is unfinished and that has no vector
         artifact takes the active producer identity, so a vector-free store that
         adopted a new embedding model does not strand its pending lanes.
         """
-        producer_identity = getattr(self._vec, "embedding_identity", None)
+        if projection_name not in {"VECTOR", "GRAPH"}:
+            raise ValueError("only VECTOR and GRAPH lanes can be backfilled")
+        producer_identity = (
+            getattr(self._vec, "embedding_identity", None)
+            if projection_name == "VECTOR"
+            else None
+        )
         async with self._sql.transaction() as db:
             if producer_identity is not None:
                 identity_snapshot: dict[str, Any] = (
@@ -3921,7 +3958,8 @@ class MemoryDAO:
                 "UPDATE projection_outbox SET state = 'PENDING', attempt_count = 0, "
                 "claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL, "
                 "last_error_class = NULL, updated_at = CURRENT_TIMESTAMP "
-                "WHERE projection_name = 'VECTOR' AND state = 'SKIPPED'"
+                "WHERE projection_name = ? AND state = 'SKIPPED'",
+                (projection_name,),
             )
             await db.commit()
             return cursor.rowcount
@@ -5706,6 +5744,7 @@ class MemoryDAO:
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
+        graph_enabled = graph_enabled and self._graph_enabled
         if (
             not tenant_id
             or not dataset_ids
@@ -5804,20 +5843,25 @@ class MemoryDAO:
                 in_scope_assertion_rows = await cursor.fetchall()
 
             if certification_metadata is not None:
-                incomplete_vector = False
-                if self._embedding_enabled:
-                    async with db.execute(
-                        "SELECT 1 FROM projection_outbox p "
-                        f"JOIN ({in_scope_assertion_query}) scoped "
-                        "ON scoped.mutation_id = p.mutation_id "
-                        "WHERE p.projection_name = 'VECTOR' "
-                        "AND p.state != 'COMPLETED' LIMIT 1",
-                        (tenant_id, *datasets, agent_id, *provenance_params),
-                    ) as cursor:
-                        incomplete_vector = await cursor.fetchone() is not None
-                certification_metadata["degraded_sources"] = (
-                    ["vector"] if not self._embedding_enabled or incomplete_vector else []
-                )
+                degraded_sources = []
+                for lane, enabled in (
+                    ("VECTOR", self._embedding_enabled),
+                    ("GRAPH", self._graph_enabled),
+                ):
+                    incomplete = False
+                    if enabled:
+                        async with db.execute(
+                            "SELECT 1 FROM projection_outbox p "
+                            f"JOIN ({in_scope_assertion_query}) scoped "
+                            "ON scoped.mutation_id = p.mutation_id "
+                            "WHERE p.projection_name = ? "
+                            "AND p.state != 'COMPLETED' LIMIT 1",
+                            (tenant_id, *datasets, agent_id, *provenance_params, lane),
+                        ) as cursor:
+                            incomplete = await cursor.fetchone() is not None
+                    if not enabled or incomplete:
+                        degraded_sources.append(lane.lower())
+                certification_metadata["degraded_sources"] = degraded_sources
 
             audit_rows: list[aiosqlite.Row] = []
             if certification_metadata is not None:
@@ -7363,7 +7407,7 @@ class MemoryDAO:
             milestones.append("SQL_APPLIED")
         if states.get("VECTOR") in {"COMPLETED", "SKIPPED"}:
             milestones.append("VECTOR_APPLIED")
-        if states.get("GRAPH") == "COMPLETED":
+        if states.get("GRAPH") in {"COMPLETED", "SKIPPED"}:
             milestones.append("GRAPH_APPLIED")
         if len(milestones) == 3:
             milestones.append("COMMITTED")

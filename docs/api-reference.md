@@ -103,7 +103,7 @@ The HTTP insert contract accepts optional typed `legal_identity`: `law_id` and
 through the bounded legal aliases. Caller metadata cannot supply trusted
 `_mesa_*` fields. The producer remains responsible for source truth.
 
-Search responses include `degraded_sources`: `["vector"]` when embedding is off or any in-scope committed record has an incomplete VECTOR lane; otherwise `[]`.
+Search responses include `degraded_sources`: `vector` when embedding is off or any in-scope committed record has an incomplete VECTOR lane, and `graph` under the same rule for GRAPH or `MESA_GRAPH_ENABLED=false`; otherwise `[]`.
 
 Search and context both accept `jurisdiction`, `valid_at`, `valid_from` and
 `valid_to`. Context uses query parameters and defaults to `token_budget=2048`,
@@ -245,6 +245,33 @@ network `MesaNetworkError`, SDK schema `MesaValidationError` olur. Status
 testleri kaynak otoritesidir. Queue saturation/rebuild maintenance için
 Retry-After dikkate alınır. Dakikalık default 60/minute, daily default 10000
 principal bazındadır; health/metrics daily budget dışındadır.
+
+### Whole documents: `POST /v4/documents`
+
+Send `session_id`, `dataset_id`, `document_id`, `title`, `source_ref`, `content`
+and optional `metadata`. The session requires WRITE access to the dataset and
+the runtime must own the combined consumer, just as for `/v4/memory/insert`.
+The server splits content into consecutive slices of at most 512 cl100k tokens,
+preferring blank lines, then sentence ends, then hard cuts. Joining the slices
+reproduces the input exactly, including whitespace.
+
+HTTP 202 returns `document_id`, `revision_id`, `revision_number`, `chunk_count`,
+`mutation_ids` and `duplicate`. It means admission; poll each mutation until
+`COMMITTED` before relying on the new revision in search. A changed document
+gets the next revision number and supersedes the active revision when all its
+chunks commit. Repeating the same document and content returns its existing IDs
+with `duplicate: true`, including for a previously superseded revision. It
+creates no new work. Retrying an interrupted upload resumes its missing chunks.
+
+Revision IDs are `rev-` plus the first 32 hex characters of
+`sha256(document_id + "\n" + sha256(content))`, with the inner hash represented
+as lowercase hex and strings encoded as UTF-8. Chunk IDs append `-c` and a
+zero-based five-digit ordinal. Per-chunk idempotency keys are these chunk IDs.
+
+Errors: 409 `document is purged`; 413 for content over 5,000,000 UTF-8 bytes;
+422 for empty or whitespace-only content. Secrets and metadata use the same
+validation and errors as `/v4/memory/insert`. Queue and maintenance failures
+use the existing admission errors below.
 
 ### Actionable errors
 

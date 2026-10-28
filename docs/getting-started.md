@@ -144,7 +144,23 @@ installation, credentials and readiness. This profile stores V4 records and find
 without embedding or extraction calls. VECTOR lanes end `SKIPPED`; enable
 embedding later to backfill vectors at startup with the same identity.
 
-### Provision before startup
+### Automatic local bootstrap (`mesa start`)
+
+For standard local usage, `mesa start` provisions local storage (`~/.mesa/data`), initializes credentials (`~/.mesa/credentials.json`), sets model-disabled defaults, and starts the loopback server:
+
+```bash
+mesa start
+```
+
+In another terminal, add and search documents immediately without manually exporting credentials:
+
+```bash
+mesa add notes.txt --source file://notes.txt
+mesa search "notes"
+mesa status
+```
+
+### Provision before startup (manual)
 
 Choose a disposable location on a disk with sufficient free space. The example
 uses a unique child under `~/mesa-doc-demos`; do not reuse user storage.
@@ -240,6 +256,22 @@ After stopping the server, retain or remove only this newly created sample root
 using your file manager. No generic database/volume removal command is provided.
 If the port is occupied choose another loopback port and set `MESA_BASE_URL`
 for the example accordingly.
+
+<a id="python-sdk"></a>
+
+## Python SDK
+
+For local scripting, rapid prototyping, and agent applications, the high-level `Mesa` client provides a clean interface with automatic credential discovery and catalog session handling:
+
+```python
+from mesa_client import Mesa
+
+mesa = Mesa()
+mesa.add(open("kira.txt").read(), source="file://kira.txt")
+print(mesa.context("kira ne zaman ödenir?"))
+```
+
+`Mesa()` automatically discovers connection settings and API keys from environment variables (`MESA_BASE_URL`, `MESA_API_KEY`) or from `<MESA_HOME or ~/.mesa>/credentials.json` provisioned by `mesa start`. On first use, it ensures the configured workspace and dataset exist, starts a session, and reuses it for subsequent additions, searches, and context retrieval.
 
 <a id="using-mesa-with-your-llm"></a>
 

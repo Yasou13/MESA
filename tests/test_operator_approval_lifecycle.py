@@ -276,7 +276,7 @@ async def test_public_remember_approval_recall_survives_restart(
                     memory["memory_id"] for memory in recall["memories"]
                 } == remembered_ids
                 assert any(
-                    memory["content"] == "MESA operator approval survives a restart."
+                    "MESA operator approval survives a restart." in memory["content"]
                     for memory in recall["memories"]
                 ), recall
                 assert {

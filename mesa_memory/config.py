@@ -87,6 +87,7 @@ class RuntimeProfileConfig:
     require_worker_readiness: bool
     embedding_enabled: bool = False
     extraction_enabled: bool = False
+    graph_enabled: bool = True
 
 
 NEMOTRON_EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b"
@@ -190,6 +191,9 @@ def load_runtime_profile(
         name="MESA_EXTRACTION_ENABLED",
         default=model_enabled,
     )
+    graph_enabled = _parse_runtime_bool(
+        values.get("MESA_GRAPH_ENABLED"), name="MESA_GRAPH_ENABLED", default=True
+    )
     provider_enabled = _parse_runtime_bool(
         values.get("MESA_EXTERNAL_PROVIDER_ENABLED"),
         name="MESA_EXTERNAL_PROVIDER_ENABLED",
@@ -254,6 +258,7 @@ def load_runtime_profile(
         require_worker_readiness,
         embedding_enabled,
         extraction_enabled,
+        graph_enabled,
     )
 
 
