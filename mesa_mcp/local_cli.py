@@ -55,6 +55,13 @@ async def provision_credentials(
                 await key_store.initialize()
                 verified = await key_store.verify(api_key)
                 if verified is not None:
+                    base_url = f"http://127.0.0.1:{port}"
+                    if creds.get("base_url") != base_url:
+                        # Started on another port: keep the key, point clients here.
+                        creds["base_url"] = base_url
+                        fd = os.open(creds_path, os.O_WRONLY | os.O_TRUNC, 0o600)
+                        with open(fd, "w", encoding="utf-8") as f:
+                            json.dump(creds, f, indent=2)
                     print(f"Using existing active credentials from {creds_path}")
                     return creds
         except Exception:

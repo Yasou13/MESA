@@ -85,6 +85,13 @@ async def test_provision_credentials_lifecycle(tmp_path, capsys):
     assert "Using existing active credentials" in captured2.out
     assert creds["api_key"] not in captured2.out
 
+    # 3. A start on another port keeps the key and points clients at the new port
+    creds3 = await provision_credentials(home, storage_root, port=8901)
+    stored = json.loads(creds_path.read_text())
+    assert creds3["api_key"] == stored["api_key"] == creds["api_key"]
+    assert creds3["base_url"] == stored["base_url"] == "http://127.0.0.1:8901"
+    assert stat.S_IMODE(os.stat(creds_path).st_mode) == 0o600
+
 
 def test_start_command_windows_check(monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "win32")
