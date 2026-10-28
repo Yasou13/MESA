@@ -283,6 +283,10 @@ class EmbeddingService:
                         self._identity.model,
                         exc,
                     )
+            except ImportError as exc:
+                raise EmbeddingCompositionError(
+                    'Local embedding support requires: pip install "mesa-memory[ml]"'
+                ) from exc
             except Exception as exc:
                 logger.warning(
                     "EMBEDDING_BACKEND_INIT_FAILED | model=%s provider=%s error=%s",
@@ -556,8 +560,9 @@ class _OpenAICompatibleEmbeddingBackend:
         try:
             import openai
         except ImportError as exc:
+            label = "Ollama" if identity.provider.lower() == "ollama" else "OpenAI-compatible"
             raise EmbeddingCompositionError(
-                "OpenAI-compatible embedding support is not installed"
+                f'{label} embedding support requires: pip install "mesa-memory[adapters]"'
             ) from exc
         api_key = (
             getattr(config, "embedding_api_key", None)
