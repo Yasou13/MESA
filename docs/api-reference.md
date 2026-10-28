@@ -260,8 +260,10 @@ HTTP 202 returns `document_id`, `revision_id`, `revision_number`, `chunk_count`,
 `COMMITTED` before relying on the new revision in search. A changed document
 gets the next revision number and supersedes the active revision when all its
 chunks commit. Repeating the same document and content returns its existing IDs
-with `duplicate: true`, including for a previously superseded revision. It
-creates no new work. Retrying an interrupted upload resumes its missing chunks.
+with `duplicate: true` for an ACTIVE revision, using its stored chunk count and
+mutation IDs without rechunking. Retrying an interrupted PENDING upload resumes
+its missing chunks. Other matching revisions return 409 `content equals revision
+<n> (<status>); restoring an earlier revision is not supported in v0.9`.
 
 Revision IDs are `rev-` plus the first 32 hex characters of
 `sha256(document_id + "\n" + sha256(content))`, with the inner hash represented

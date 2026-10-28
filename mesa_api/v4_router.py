@@ -1251,7 +1251,6 @@ def create_v4_router(
                 (payload.document_id + "\n" + content_hash).encode("utf-8")
             ).hexdigest()[:32]
         )
-        chunks = chunk_document(payload.content)
         scope = {
             "tenant_id": str(session["tenant_id"]),
             "dataset_id": payload.dataset_id,
@@ -1286,11 +1285,27 @@ def create_v4_router(
                         if active
                         else None,
                     )
+                if revision["status"] not in {"ACTIVE", "PENDING"}:
+                    raise ValueError(
+                        f"content equals revision {revision['revision_number']} "
+                        f"({revision['status']}); restoring an earlier revision "
+                        "is not supported in v0.9"
+                    )
                 admitted = await dao.list_v4_revision_mutations(
                     **scope, revision_id=revision_id
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
+            if revision["status"] == "ACTIVE":
+                return {
+                    "document_id": payload.document_id,
+                    "revision_id": revision_id,
+                    "revision_number": revision["revision_number"],
+                    "chunk_count": len(admitted),
+                    "mutation_ids": [admitted[i] for i in sorted(admitted)],
+                    "duplicate": True,
+                }
+            chunks = chunk_document(payload.content)
             duplicate = len(admitted) == len(chunks)
             for ordinal, chunk in enumerate(chunks):
                 if ordinal in admitted:

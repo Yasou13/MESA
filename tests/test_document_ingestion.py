@@ -1,5 +1,6 @@
 """D29 document contract through the real combined runtime."""
 
+import argparse
 import asyncio
 import hashlib
 import importlib.util
@@ -126,10 +127,50 @@ async def test_changed_document_supersedes_active_revision(model_runtime):
         assert {
             a["revision_id"] for r in search.json()["results"] for a in r["provenance"]
         } == {second["revision_id"]}
-        assert await _add(env, "Durable memory has the old rule.") == {
-            **first,
-            "duplicate": True,
+        before = {
+            t: await _rows(env, t)
+            for t in (
+                "memory_mutations", "source_chunks", "document_revisions",
+                "raw_logs", "projection_outbox",
+            )
         }
+        response = await env.client.post(
+            "/v4/documents", json=_payload(env, "Durable memory has the old rule.")
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == (
+            "content equals revision 1 (SUPERSEDED); "
+            "restoring an earlier revision is not supported in v0.9"
+        )
+        assert before == {t: await _rows(env, t) for t in before}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed_chunk_count", [False, True])
+async def test_active_document_returns_stored_admissions_without_rechunking(
+    model_runtime, monkeypatch, changed_chunk_count
+):
+    async with model_runtime() as env:
+        content = "Durable memory. " * 600
+        first = await _add(env, content)
+        await _consume(env, first["chunk_count"] + 2)
+        assert (await _rows(env, "document_revisions"))[0]["status"] == "ACTIVE"
+        before = {
+            t: await _rows(env, t)
+            for t in (
+                "memory_mutations", "source_chunks", "document_revisions",
+                "raw_logs", "projection_outbox",
+            )
+        }
+
+        def changed_chunker(text):
+            if changed_chunk_count:
+                return [text[:100], text[100:]]
+            pytest.fail("An ACTIVE revision must not be chunked again")
+
+        monkeypatch.setattr("mesa_api.v4_router.chunk_document", changed_chunker)
+        assert await _add(env, content) == {**first, "duplicate": True}
+        assert before == {t: await _rows(env, t) for t in before}
 
 
 @pytest.mark.asyncio
@@ -266,6 +307,8 @@ async def test_flash_sdk_against_real_document_endpoint(
     import uvicorn
 
     from mesa_client import AsyncMesaV4Client, Mesa, MesaV4Client
+    from mesa_client.client import MesaAPIError
+    from mesa_mcp.local_cli import add_command
     from mesa_memory.api import server
 
     async with model_runtime() as env:
@@ -342,6 +385,34 @@ async def test_flash_sdk_against_real_document_endpoint(
                         mesa.context, "kira"
                     )
                     assert mesa._session_id == session_id
+                    await asyncio.to_thread(
+                        mesa.add, content + " Yeni kural.", source="file://kira.txt"
+                    )
+                    await _consume(env, 3)
+                    detail = (
+                        "content equals revision 1 (SUPERSEDED); "
+                        "restoring an earlier revision is not supported in v0.9"
+                    )
+                    with pytest.raises(MesaAPIError) as error:
+                        await asyncio.to_thread(
+                            mesa.add, content, source="file://kira.txt"
+                        )
+                    assert error.value.status_code == 409
+                    assert error.value.detail == detail
+                    monkeypatch.setenv("MESA_BASE_URL", base_url)
+                    monkeypatch.setenv("MESA_API_KEY", "model-test-key")
+                    monkeypatch.setenv("MESA_DATASET_ID", "main")
+                    document_file = tmp_path / "kira.txt"
+                    document_file.write_text(content)
+                    with pytest.raises(MesaAPIError) as cli_error:
+                        await asyncio.to_thread(
+                            add_command,
+                            argparse.Namespace(
+                                file=str(document_file), source="file://kira.txt",
+                                title=None, json=False,
+                            ),
+                        )
+                    assert cli_error.value.detail == detail
                     assert (await asyncio.to_thread(mesa.delete, first["document_id"]))[
                         "state"
                     ] == "PURGED"
