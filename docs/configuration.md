@@ -117,7 +117,7 @@ uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server.
 An endpoint is considered **local** when its scheme is `http` or `https` and its host is `localhost`, `127.0.0.1`, `::1`, or `host.docker.internal`.
 
 - With `MESA_EXTERNAL_PROVIDER_ENABLED=false` (default):
-  - `ollama` and `openai_compatible` (for both LLM extraction and embedding) are allowed on local endpoints (e.g. Ollama on `127.0.0.1:11434`, or vLLM on `127.0.0.1:8000/v1`) and forbidden on non-local/remote endpoints.
+  - `ollama` and `openai_compatible` (for both LLM extraction and embedding) are allowed on local endpoints (e.g. Ollama on `127.0.0.1:11434`, or vLLM on `127.0.0.1:8001/v1`; MESA itself uses port 8000) and forbidden on non-local/remote endpoints.
   - `openai_compatible` on a local endpoint requires no API key (the client sends `local` automatically).
   - External cloud providers (`openai`, `claude`, `anthropic`, `hosted`) remain strictly forbidden regardless of endpoint URL.
 - With `MESA_EXTERNAL_PROVIDER_ENABLED=true`:

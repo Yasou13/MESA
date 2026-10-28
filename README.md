@@ -66,7 +66,7 @@ MESA_LLM_MODEL=ollama:qwen2.5:7b
 MESA_EMBEDDING_MODEL=ollama:bge-m3
 ```
 
-Local `openai_compatible` servers (such as vLLM on `http://127.0.0.1:8000/v1`) are also allowed with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on loopback and require no API key (D31). For cloud model providers (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and provide the required API keys.
+Local `openai_compatible` servers (such as vLLM started with `--port 8001`, at `MESA_LLM_BASE_URL=http://127.0.0.1:8001/v1`; MESA itself uses port 8000) are also allowed with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on a local endpoint (`localhost`, `127.0.0.1`, `::1`, `host.docker.internal`) and require no API key (D31). For cloud model providers (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and provide the required API keys.
 
 ## Graph toggle
 
