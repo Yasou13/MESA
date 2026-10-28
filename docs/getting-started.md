@@ -1,6 +1,6 @@
 # Installation and first run
 
-This guide covers getting started with MESA as a new user, from installation to querying evidence, followed by advanced operator provisioning and production runtime profiles.
+This guide covers getting started with MESA as a new user, from installation to querying evidence, followed by advanced operator provisioning and production runtime profiles. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](release.md) pass for the intended commit.
 
 <a id="installation"></a>
 

@@ -7,7 +7,7 @@
 
 MESA is an LLM-independent, source-linked memory engine for AI applications. It stores documents with exact provenance (document, revision, passage) and returns verifiable, scoped evidence over HTTP, Python SDK, and MCP. MESA returns evidence; it never writes the final answer or hallucinates sources.
 
-Package version: **0.9.0**.
+Package version: **0.9.0**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
 
 ## Installation
 
@@ -56,7 +56,7 @@ mesa mcp-config
 
 ## Internal models (optional)
 
-Models stay off by default. Documents are stored and found through BM25 lexical search without any model running.
+Models stay off by default. Documents are stored and found through BM25 lexical search without any model running. `FactExtractionService` owns canonical V4 extraction when models are enabled.
 
 To enable semantic vector search and fact extraction with local Ollama, add to `~/.mesa/.env`:
 
@@ -97,6 +97,14 @@ docker compose -f docker-compose.v4.yml exec mesa mesa search "your query"
 
 Run MESA with GPU-accelerated Ollama in Colab:
 [Colab Quickstart](https://github.com/Yasou13/MESA/blob/main/examples/colab_quickstart.ipynb)
+
+## Development
+
+```bash
+uv sync --locked --python 3.11
+```
+
+See [testing](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for local tests, and [docs/testing.md](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for test markers.
 
 ## Documentation
 
