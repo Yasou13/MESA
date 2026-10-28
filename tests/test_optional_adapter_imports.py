@@ -112,10 +112,14 @@ def block_st(name, *args, **kwargs):
     return real_import(name, *args, **kwargs)
 
 builtins.__import__ = block_st
-from mesa_memory.embedding.service import EmbeddingService, EmbeddingIdentity, EmbeddingCompositionError
+from mesa_memory.embedding.service import get_embedding_service, EmbeddingIdentity, EmbeddingCompositionError
 
 try:
-    EmbeddingService(identity=EmbeddingIdentity(provider="local", model="all-MiniLM-L6-v2", dimension=384))
+    get_embedding_service(
+        identity=EmbeddingIdentity(provider="local", model="all-MiniLM-L6-v2", dimension=384),
+        allow_model_loading=True,
+        force_refresh=True,
+    )
 except EmbeddingCompositionError as exc:
     assert 'pip install "mesa-memory[ml]"' in str(exc), f"Wrong message: {exc}"
 else:

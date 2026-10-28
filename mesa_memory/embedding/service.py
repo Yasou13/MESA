@@ -172,6 +172,10 @@ class EmbeddingService:
 
     def _detect_dimension(self) -> None:
         """Probe once before vector storage is opened or an identity is persisted."""
+        if getattr(self, "_missing_st_error", None) is not None:
+            raise EmbeddingCompositionError(
+                'Local embedding support requires: pip install "mesa-memory[ml]"'
+            ) from self._missing_st_error
         try:
             text = "MESA embedding dimension probe"
             if self._provider_fn is not None:
@@ -284,9 +288,15 @@ class EmbeddingService:
                         exc,
                     )
             except ImportError as exc:
-                raise EmbeddingCompositionError(
-                    'Local embedding support requires: pip install "mesa-memory[ml]"'
-                ) from exc
+                logger.warning(
+                    "EMBEDDING_BACKEND_INIT_FAILED | model=%s provider=%s error=%s",
+                    self._identity.model,
+                    self._identity.provider,
+                    exc,
+                )
+                self._local_model = None
+                self._operational = False
+                self._missing_st_error = exc
             except Exception as exc:
                 logger.warning(
                     "EMBEDDING_BACKEND_INIT_FAILED | model=%s provider=%s error=%s",
@@ -734,6 +744,13 @@ def get_embedding_service(
             external_enabled=effective_external_enabled,
             detect_dimension=detect_dimension,
         )
+        if (
+            allow_model_loading
+            and getattr(_GLOBAL_EMBEDDING_SERVICE, "_missing_st_error", None) is not None
+        ):
+            raise EmbeddingCompositionError(
+                'Local embedding support requires: pip install "mesa-memory[ml]"'
+            ) from _GLOBAL_EMBEDDING_SERVICE._missing_st_error
         if detect_dimension:
             config.embedding_dimension = _GLOBAL_EMBEDDING_SERVICE.dimension
     return _GLOBAL_EMBEDDING_SERVICE
