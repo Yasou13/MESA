@@ -191,6 +191,25 @@ def test_documented_quickstarts_match_the_fail_closed_compose_profile() -> None:
     assert "gates every incoming record" not in readme
 
 
+def test_documented_install_lines_use_published_pypi_package() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
+    colab = (ROOT / "examples/colab_quickstart.ipynb").read_text(encoding="utf-8")
+
+    assert 'pip install "mesa-memory[adapters]"' in readme
+    assert "git+https://github.com/Yasou13/MESA" not in readme
+
+    assert 'pip install "mesa-memory[adapters]"' in quickstart
+    assert (
+        'The development version can be installed directly from git: '
+        '`pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"`.'
+        in quickstart
+    )
+
+    assert '!pip install \\"mesa-memory[adapters]\\"' in colab
+    assert "git+https://github.com/Yasou13/MESA" not in colab
+
+
 def test_documented_public_api_examples_match_authenticated_route_contract() -> None:
     quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
     v4_example = (ROOT / "examples/v4_quickstart.py").read_text(encoding="utf-8")

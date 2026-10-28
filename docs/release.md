@@ -123,7 +123,7 @@ git tag v0.9.0
 git push origin v0.9.0
 ```
 
-Yayın tamamlandıktan sonra `README.md` dosyasındaki kurulum satırı `pip install "mesa-memory[adapters]"` olarak değiştirilir.
+`README.md` dosyasındaki kurulum satırı bu release commit'inde `pip install "mesa-memory[adapters]"` olarak tamamlanmıştır.
 
 ## Sürüme özel yayın istisnaları
 

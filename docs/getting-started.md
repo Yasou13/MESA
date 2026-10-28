@@ -6,13 +6,15 @@ This guide covers getting started with MESA as a new user, from installation to 
 
 ## Installation
 
-Install MESA with the adapters extra directly from GitHub (D34):
+Install MESA with the adapters extra:
 
 ```bash
-pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"
+pip install "mesa-memory[adapters]"
 ```
 
 Supported natively on Linux and macOS. On Windows, use Docker or WSL.
+
+The development version can be installed directly from git: `pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"`.
 
 Or install from source with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
