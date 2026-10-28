@@ -372,3 +372,71 @@ def test_chunking_never_treats_a_period_inside_a_number_as_a_sentence_end():
             chunk[-30:],
             following[:30],
         )
+
+
+def test_chunking_never_cuts_after_abbreviation_or_list_number():
+    import re
+
+    from mesa_memory.document_chunking import chunk_document
+
+    abbrevs = {
+        "md",
+        "mad",
+        "bkz",
+        "vb",
+        "vs",
+        "sy",
+        "sf",
+        "no",
+        "yarg",
+        "hd",
+        "cgk",
+        "hgk",
+        "av",
+        "dr",
+        "prof",
+        "doç",
+        "yrd",
+        "ltd",
+        "şti",
+    }
+    text = " ".join(
+        f"Madde {n}- (1) Kiracı, kira bedelini TBK m. 314 ve 6098 sayılı Kanun "
+        f"md. {300 + n} uyarınca her ayın beşinci gününe kadar öder. (2) Yarg. 3. HD, "
+        f"12.03.2019 tarih ve 2018/1234 E. sayılı kararında (bkz. s. {40 + n}) bu "
+        "süreyi kesin kabul etmiştir. (3) Aşağıdaki hâllerde kiraya veren ihtar "
+        "gönderir: 1. Kira bedelinin ödenmemesi, 2. Yan giderlerin ödenmemesi, "
+        "3. Taşınmazın özenle kullanılmaması. (4) Bu madde hükümleri, Av. Dr. Ahmet "
+        f"Yılmaz'ın görüşü dikkate alınarak md. {n}/2 ile birlikte uygulanır."
+        for n in range(1, 13)
+    )
+    chunks = chunk_document(text)
+    assert "".join(chunks) == text
+    assert len(chunks) > 1
+    for chunk in chunks[:-1]:
+        stripped = chunk.rstrip()
+        assert stripped.endswith((".", "!", "?")), stripped[-30:]
+        if stripped.endswith("."):
+            before = stripped[:-1]
+            m = re.search(r"([^\W_]+)$", before)
+            if m:
+                w = m.group(1)
+                assert not w.isdigit(), f"Cut after digits: {stripped[-30:]}"
+                assert not (len(w) == 1 and w.isalpha()), f"Cut after single letter: {stripped[-30:]}"
+                norm = w.replace("İ", "i").replace("I", "ı").lower()
+                assert norm not in abbrevs, f"Cut after abbreviation: {stripped[-30:]}"
+
+
+def test_chunking_falls_back_to_unfiltered_sentence_ends_when_none_remain():
+    from mesa_memory.document_chunking import chunk_document
+
+    # Repeated text where every period is preceded by an abbreviation or list number.
+    unit = "Bu fıkra hükmü genel kurul kararı uyarınca uygulanır bkz. "
+    text = unit * 80
+    chunks = chunk_document(text)
+    assert "".join(chunks) == text
+    assert len(chunks) > 1
+    for chunk in chunks[:-1]:
+        # Must cut at one of the sentence ends rather than mid-word hard cut
+        assert chunk.endswith("bkz. "), f"Expected cut at sentence end, got {chunk[-30:]!r}"
+
