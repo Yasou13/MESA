@@ -35,8 +35,13 @@ _TRAILING_WORD = re.compile(r"([^\W_]+)$")
 def _is_sentence_end(prefix: str, m: re.Match) -> bool:
     if prefix[m.start()] in "!?":
         return True
-    before = prefix[: m.start()]
-    w_match = _TRAILING_WORD.search(before)
+    # Look only at the text just before the period; scanning the whole window
+    # for every candidate doubled the time to chunk a 5 MB document.
+    lookback = max(0, m.start() - 64)
+    w_match = _TRAILING_WORD.search(prefix, lookback, m.start())
+    if w_match and w_match.start() == lookback > 0:
+        # The word may be longer than the look-back: read it whole.
+        w_match = _TRAILING_WORD.search(prefix, 0, m.start())
     if not w_match:
         return True
     w = w_match.group(1)
