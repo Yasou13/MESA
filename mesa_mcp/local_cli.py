@@ -352,6 +352,16 @@ def handle_local_command(args: argparse.Namespace) -> None:
     }
     handler = handlers.get(args.group)
     if handler:
-        handler(args)
+        from mesa_client.client import MesaAPIError, MesaClientError
+
+        try:
+            handler(args)
+        except MesaAPIError as exc:
+            # Show the server's detail as is (e.g. the D33 409), not a traceback.
+            sys.stderr.write(f"Error {exc.status_code}: {exc.detail}\n")
+            sys.exit(1)
+        except MesaClientError as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            sys.exit(1)
     else:
         raise ValueError(f"Unknown local command: {args.group}")

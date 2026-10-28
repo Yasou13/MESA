@@ -309,3 +309,28 @@ def test_cli_search_prints_real_search_result_fields(capsys):
     out, _ = capsys.readouterr()
     assert "score: 0.049 | doc-kira" in out
     assert "beşinci gününe kadar öder." in out
+
+
+def test_cli_add_prints_server_conflict_detail_without_traceback(tmp_path, capsys):
+    from mesa_client.client import MesaAPIError
+    from mesa_mcp.local_cli import handle_local_command
+
+    detail = (
+        "content equals revision 1 (SUPERSEDED); "
+        "restoring an earlier revision is not supported in v0.9"
+    )
+    document = tmp_path / "a.txt"
+    document.write_text("A")
+    mock_mesa = MagicMock()
+    mock_mesa.add.side_effect = MesaAPIError(409, "CONFLICT", detail)
+    with patch("mesa_client.Mesa", return_value=mock_mesa):
+        with pytest.raises(SystemExit) as exit_info:
+            handle_local_command(
+                argparse.Namespace(
+                    group="add", file=str(document), source="file://a.txt",
+                    title=None, json=False,
+                )
+            )
+    assert exit_info.value.code == 1
+    _, err = capsys.readouterr()
+    assert err == f"Error 409: {detail}\n"
