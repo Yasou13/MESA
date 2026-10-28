@@ -84,6 +84,9 @@ async def test_mcp_health_exposes_truthful_v4_capability_without_rebuild_tool(
 
     health = await adapter.health()
 
+    from mesa_mcp import __version__
+
+    assert health["server_version"] == __version__ == "0.9.0"
     assert health["v4_capability"] == {
         "api_version": "v4",
         "capabilities": {"durable_rebuild": True},

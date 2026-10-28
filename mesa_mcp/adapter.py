@@ -7,6 +7,7 @@ from typing import Any
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.untrusted_memory import render_untrusted_memory
 
+from . import __version__
 from .configuration import MCPSettings
 from .errors import MCPError
 from .security import MEMORY_TYPES
@@ -31,7 +32,7 @@ class MesaMCPAdapter:
         health = await self._service.health()
         response = {
             "status": health.get("status", "healthy"),
-            "server_version": "0.1.0",
+            "server_version": __version__,
             "mesa": health,
             "transport": "stdio",
         }
