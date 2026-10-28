@@ -54,9 +54,11 @@ def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
         "MESA_OLLAMA_URL",
     } <= set(environment)
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "--extra ml --extra adapters" in dockerfile
+    assert "ARG MESA_EXTRAS=adapters" in dockerfile
+    assert dockerfile.count("ARG MESA_EXTRAS") == 3
+    assert '--extra "${MESA_EXTRAS}"' in dockerfile
     assert "find /wheels -maxdepth 1 -name 'mesa_memory-*.whl'" in dockerfile
-    assert '"${wheel}[ml,adapters]"' in dockerfile
+    assert '"${wheel}[${MESA_EXTRAS}]"' in dockerfile
 
 
 def test_profile_b_rendered_compose_environment_parity() -> None:
@@ -156,7 +158,10 @@ def test_dockerfile_uses_exact_base_nonroot_health_and_bounded_entrypoint() -> N
     ) in dockerfile
     assert "USER mesa:mesa" in dockerfile
     assert "mesa_memory.container_health" in dockerfile
-    assert 'ENTRYPOINT ["python", "-m", "mesa_memory.runtime_entrypoint"]' in dockerfile
+    assert 'ENTRYPOINT ["mesa", "start", "--host", "0.0.0.0"]' in dockerfile
+    assert "MESA_HOME=/var/lib/mesa" in dockerfile
+    assert "MESA_STORAGE_ROOT=/var/lib/mesa/data" in dockerfile
+    assert 'VOLUME ["/var/lib/mesa"]' in dockerfile
     assert "COPY . ." not in dockerfile
     assert "MESA_MODEL_ENABLED=false" in dockerfile
     assert "uv.lock" in dockerfile
@@ -309,6 +314,7 @@ def test_ci_supply_chain_gate_scans_locked_dependencies_and_shipped_images() -> 
 
     assert "uv sync --locked --extra dev" in supply_chain
     assert "docker build --pull=false --tag mesa-memory:security" in supply_chain
+    assert "--build-arg MESA_EXTRAS=ml,adapters" in supply_chain
     assert 'TRIVY_TIMEOUT: "10m"' in supply_chain
     assert (
         supply_chain.count(

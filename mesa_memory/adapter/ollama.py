@@ -23,7 +23,9 @@ class OllamaAdapter(BaseUniversalLLMAdapter):
         num_ctx: int = 8192,
     ):
         if ollama is None:
-            raise RuntimeError("OllamaAdapter requires mesa-memory[adapters]")
+            raise RuntimeError(
+                'Ollama LLM support requires: pip install "mesa-memory[adapters]"'
+            )
         self._model = model
         self._embedding_model = embedding_model
         self.base_url = base_url  # type: ignore[no-untyped-def]

@@ -2,7 +2,7 @@
 
 Bu klasörde 12 kullanım/geliştirme rehberi ve 8 mimari karar belgesi vardır.
 Hepsini sırayla okumak gerekmez. Amacınıza göre aşağıdaki giriş noktasını seçin.
-Paket sürümü 0.8.1; V4 güncel API, V3 uyumluluk yüzeyidir.
+Paket sürümü 0.9.0; V4 güncel API'dir.
 
 ## Nereden başlamalıyım?
 

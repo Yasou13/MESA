@@ -1,5 +1,6 @@
 """D29 document contract through the real combined runtime."""
 
+import argparse
 import asyncio
 import hashlib
 import importlib.util
@@ -126,10 +127,50 @@ async def test_changed_document_supersedes_active_revision(model_runtime):
         assert {
             a["revision_id"] for r in search.json()["results"] for a in r["provenance"]
         } == {second["revision_id"]}
-        assert await _add(env, "Durable memory has the old rule.") == {
-            **first,
-            "duplicate": True,
+        before = {
+            t: await _rows(env, t)
+            for t in (
+                "memory_mutations", "source_chunks", "document_revisions",
+                "raw_logs", "projection_outbox",
+            )
         }
+        response = await env.client.post(
+            "/v4/documents", json=_payload(env, "Durable memory has the old rule.")
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == (
+            "content equals revision 1 (SUPERSEDED); "
+            "restoring an earlier revision is not supported in v0.9"
+        )
+        assert before == {t: await _rows(env, t) for t in before}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed_chunk_count", [False, True])
+async def test_active_document_returns_stored_admissions_without_rechunking(
+    model_runtime, monkeypatch, changed_chunk_count
+):
+    async with model_runtime() as env:
+        content = "Durable memory. " * 600
+        first = await _add(env, content)
+        await _consume(env, first["chunk_count"] + 2)
+        assert (await _rows(env, "document_revisions"))[0]["status"] == "ACTIVE"
+        before = {
+            t: await _rows(env, t)
+            for t in (
+                "memory_mutations", "source_chunks", "document_revisions",
+                "raw_logs", "projection_outbox",
+            )
+        }
+
+        def changed_chunker(text):
+            if changed_chunk_count:
+                return [text[:100], text[100:]]
+            pytest.fail("An ACTIVE revision must not be chunked again")
+
+        monkeypatch.setattr("mesa_api.v4_router.chunk_document", changed_chunker)
+        assert await _add(env, content) == {**first, "duplicate": True}
+        assert before == {t: await _rows(env, t) for t in before}
 
 
 @pytest.mark.asyncio
@@ -266,6 +307,8 @@ async def test_flash_sdk_against_real_document_endpoint(
     import uvicorn
 
     from mesa_client import AsyncMesaV4Client, Mesa, MesaV4Client
+    from mesa_client.client import MesaAPIError
+    from mesa_mcp.local_cli import add_command
     from mesa_memory.api import server
 
     async with model_runtime() as env:
@@ -342,6 +385,34 @@ async def test_flash_sdk_against_real_document_endpoint(
                         mesa.context, "kira"
                     )
                     assert mesa._session_id == session_id
+                    await asyncio.to_thread(
+                        mesa.add, content + " Yeni kural.", source="file://kira.txt"
+                    )
+                    await _consume(env, 3)
+                    detail = (
+                        "content equals revision 1 (SUPERSEDED); "
+                        "restoring an earlier revision is not supported in v0.9"
+                    )
+                    with pytest.raises(MesaAPIError) as error:
+                        await asyncio.to_thread(
+                            mesa.add, content, source="file://kira.txt"
+                        )
+                    assert error.value.status_code == 409
+                    assert error.value.detail == detail
+                    monkeypatch.setenv("MESA_BASE_URL", base_url)
+                    monkeypatch.setenv("MESA_API_KEY", "model-test-key")
+                    monkeypatch.setenv("MESA_DATASET_ID", "main")
+                    document_file = tmp_path / "kira.txt"
+                    document_file.write_text(content)
+                    with pytest.raises(MesaAPIError) as cli_error:
+                        await asyncio.to_thread(
+                            add_command,
+                            argparse.Namespace(
+                                file=str(document_file), source="file://kira.txt",
+                                title=None, json=False,
+                            ),
+                        )
+                    assert cli_error.value.detail == detail
                     assert (await asyncio.to_thread(mesa.delete, first["document_id"]))[
                         "state"
                     ] == "PURGED"
@@ -372,3 +443,71 @@ def test_chunking_never_treats_a_period_inside_a_number_as_a_sentence_end():
             chunk[-30:],
             following[:30],
         )
+
+
+def test_chunking_never_cuts_after_abbreviation_or_list_number():
+    import re
+
+    from mesa_memory.document_chunking import chunk_document
+
+    abbrevs = {
+        "md",
+        "mad",
+        "bkz",
+        "vb",
+        "vs",
+        "sy",
+        "sf",
+        "no",
+        "yarg",
+        "hd",
+        "cgk",
+        "hgk",
+        "av",
+        "dr",
+        "prof",
+        "doç",
+        "yrd",
+        "ltd",
+        "şti",
+    }
+    text = " ".join(
+        f"Madde {n}- (1) Kiracı, kira bedelini TBK m. 314 ve 6098 sayılı Kanun "
+        f"md. {300 + n} uyarınca her ayın beşinci gününe kadar öder. (2) Yarg. 3. HD, "
+        f"12.03.2019 tarih ve 2018/1234 E. sayılı kararında (bkz. s. {40 + n}) bu "
+        "süreyi kesin kabul etmiştir. (3) Aşağıdaki hâllerde kiraya veren ihtar "
+        "gönderir: 1. Kira bedelinin ödenmemesi, 2. Yan giderlerin ödenmemesi, "
+        "3. Taşınmazın özenle kullanılmaması. (4) Bu madde hükümleri, Av. Dr. Ahmet "
+        f"Yılmaz'ın görüşü dikkate alınarak md. {n}/2 ile birlikte uygulanır."
+        for n in range(1, 13)
+    )
+    chunks = chunk_document(text)
+    assert "".join(chunks) == text
+    assert len(chunks) > 1
+    for chunk in chunks[:-1]:
+        stripped = chunk.rstrip()
+        assert stripped.endswith((".", "!", "?")), stripped[-30:]
+        if stripped.endswith("."):
+            before = stripped[:-1]
+            m = re.search(r"([^\W_]+)$", before)
+            if m:
+                w = m.group(1)
+                assert not w.isdigit(), f"Cut after digits: {stripped[-30:]}"
+                assert not (len(w) == 1 and w.isalpha()), f"Cut after single letter: {stripped[-30:]}"
+                norm = w.replace("İ", "i").replace("I", "ı").lower()
+                assert norm not in abbrevs, f"Cut after abbreviation: {stripped[-30:]}"
+
+
+def test_chunking_falls_back_to_unfiltered_sentence_ends_when_none_remain():
+    from mesa_memory.document_chunking import chunk_document
+
+    # Repeated text where every period is preceded by an abbreviation or list number.
+    unit = "Bu fıkra hükmü genel kurul kararı uyarınca uygulanır bkz. "
+    text = unit * 80
+    chunks = chunk_document(text)
+    assert "".join(chunks) == text
+    assert len(chunks) > 1
+    for chunk in chunks[:-1]:
+        # Must cut at one of the sentence ends rather than mid-word hard cut
+        assert chunk.endswith("bkz. "), f"Expected cut at sentence end, got {chunk[-30:]!r}"
+

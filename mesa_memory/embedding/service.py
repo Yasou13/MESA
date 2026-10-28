@@ -16,8 +16,8 @@ import logging
 import math
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Literal, Sequence
-from urllib.parse import urlparse
 
+from mesa_memory.adapter.endpoints import is_local_endpoint
 from mesa_memory.config import (
     NEMOTRON_EMBEDDING_DIMENSION,
     NEMOTRON_EMBEDDING_MODEL,
@@ -172,6 +172,10 @@ class EmbeddingService:
 
     def _detect_dimension(self) -> None:
         """Probe once before vector storage is opened or an identity is persisted."""
+        if getattr(self, "_missing_st_error", None) is not None:
+            raise EmbeddingCompositionError(
+                'Local embedding support requires: pip install "mesa-memory[ml]"'
+            ) from self._missing_st_error
         try:
             text = "MESA embedding dimension probe"
             if self._provider_fn is not None:
@@ -202,22 +206,7 @@ class EmbeddingService:
 
     def _validate_egress_fence(self) -> None:
         """Enforce external provider egress fence."""
-        _require_permitted_ollama_embedding_url(self._identity, self._external_enabled)
-        external_providers = {
-            "openai",
-            "openai_compatible",
-            "claude",
-            "anthropic",
-            "hosted",
-        }
-        if (
-            not self._external_enabled
-            and self._identity.provider.lower() in external_providers
-        ):
-            raise ExternalProviderForbiddenError(
-                f"External embedding provider '{self._identity.provider}' is forbidden "
-                "when MESA_EXTERNAL_PROVIDER_ENABLED=false."
-            )
+        _require_permitted_embedding_provider(self._identity, self._external_enabled)
 
     def _validate_known_identity_contract(self) -> None:
         """Fail closed on known asymmetric model identity misconfiguration."""
@@ -283,6 +272,16 @@ class EmbeddingService:
                         self._identity.model,
                         exc,
                     )
+            except ImportError as exc:
+                logger.warning(
+                    "EMBEDDING_BACKEND_INIT_FAILED | model=%s provider=%s error=%s",
+                    self._identity.model,
+                    self._identity.provider,
+                    exc,
+                )
+                self._local_model = None
+                self._operational = False
+                self._missing_st_error = exc
             except Exception as exc:
                 logger.warning(
                     "EMBEDDING_BACKEND_INIT_FAILED | model=%s provider=%s error=%s",
@@ -534,18 +533,24 @@ def _embedding_base_url(identity: EmbeddingIdentity) -> str | None:
     return config.llm_base_url
 
 
-def _require_permitted_ollama_embedding_url(
+def _require_permitted_embedding_provider(
     identity: EmbeddingIdentity, external_enabled: bool
 ) -> None:
-    if identity.provider.lower() != "ollama" or external_enabled:
+    if external_enabled:
         return
-    parsed = urlparse(_embedding_base_url(identity) or "")
-    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
-        "localhost", "127.0.0.1", "::1",
-    }:
+    provider = identity.provider.lower()
+    local = is_local_endpoint(_embedding_base_url(identity) or "")
+    if provider == "ollama" and not local:
         raise ValueError(
             "Remote Ollama embedding is forbidden when "
-            "MESA_EXTERNAL_PROVIDER_ENABLED=false. Use a loopback URL."
+            "MESA_EXTERNAL_PROVIDER_ENABLED=false. Use a local endpoint."
+        )
+    if provider in {"openai", "openai_compatible", "claude", "anthropic", "hosted"} and not (
+        provider == "openai_compatible" and local
+    ):
+        raise ExternalProviderForbiddenError(
+            f"External embedding provider '{identity.provider}' is forbidden "
+            "when MESA_EXTERNAL_PROVIDER_ENABLED=false."
         )
 
 
@@ -556,13 +561,18 @@ class _OpenAICompatibleEmbeddingBackend:
         try:
             import openai
         except ImportError as exc:
+            label = "Ollama" if identity.provider.lower() == "ollama" else "OpenAI-compatible"
             raise EmbeddingCompositionError(
-                "OpenAI-compatible embedding support is not installed"
+                f'{label} embedding support requires: pip install "mesa-memory[adapters]"'
             ) from exc
         api_key = (
             getattr(config, "embedding_api_key", None)
             or getattr(config, "llm_api_key", None)
             or ("ollama" if identity.provider.lower() == "ollama" else None)
+            or (
+                "local" if identity.provider.lower() == "openai_compatible"
+                and is_local_endpoint(_embedding_base_url(identity) or "") else None
+            )
         )
         if not api_key:
             raise EmbeddingCompositionError(
@@ -698,17 +708,12 @@ def get_embedding_service(
             if external_enabled is None
             else external_enabled
         )
-        _require_permitted_ollama_embedding_url(identity, effective_external_enabled)
+        _require_permitted_embedding_provider(identity, effective_external_enabled)
         provider_fn: Callable[[str], list[float]] | None = None
         async_provider_fn: Callable[[str], Any] | None = None
         query_provider_fn: Callable[[str], list[float]] | None = None
         async_query_provider_fn: Callable[[str], Any] | None = None
         if identity.provider.lower() in {"ollama", "openai", "openai_compatible"}:
-            if identity.provider.lower() != "ollama" and not effective_external_enabled:
-                raise ExternalProviderForbiddenError(
-                    "External embedding provider is forbidden when "
-                    "MESA_EXTERNAL_PROVIDER_ENABLED=false."
-                )
             if external_backend_factory is not None:
                 # Preserve the legacy two-callable custom factory contract.
                 provider_fn, async_provider_fn = external_backend_factory(identity)
@@ -729,6 +734,13 @@ def get_embedding_service(
             external_enabled=effective_external_enabled,
             detect_dimension=detect_dimension,
         )
+        if (
+            allow_model_loading
+            and getattr(_GLOBAL_EMBEDDING_SERVICE, "_missing_st_error", None) is not None
+        ):
+            raise EmbeddingCompositionError(
+                'Local embedding support requires: pip install "mesa-memory[ml]"'
+            ) from _GLOBAL_EMBEDDING_SERVICE._missing_st_error
         if detect_dimension:
             config.embedding_dimension = _GLOBAL_EMBEDDING_SERVICE.dimension
     return _GLOBAL_EMBEDDING_SERVICE

@@ -1,7 +1,8 @@
 # Release procedure
 
-V4 paket sürümü `0.8.1`; depo sahibi bu source release için aşağıda kayıtlı
-yayın istisnasını açıkça onayladı. Production qualification halen
+V4 paket sürümü `0.9.0`; henüz yayımlanmadı, yayın aşağıdaki “Yayınlama”
+adımlarıyla depo sahibinindir. Aşağıda kayıtlı yayın istisnasını depo sahibi
+v0.8.1 source release için açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı
 Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
 tag’in atanması tek başına production GO anlamına gelmez. Eski V3 tag/release kayıtları tarihsel bağlamlarıyla değerlendirilir.
@@ -46,10 +47,6 @@ uv build --wheel
 Compose sözleşmeleri:
 
 ```bash
-MESA_API_KEY=release-placeholder \
-MESA_PRINCIPAL_ID=release-principal \
-MESA_MODEL_ENABLED=false \
-MESA_EXTERNAL_PROVIDER_ENABLED=false \
 docker compose -f docker-compose.v4.yml config --quiet
 ```
 
@@ -113,6 +110,20 @@ Release artifact’ları şunları birlikte taşır:
 
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
 yapılmaz; eski storage ve v3 compatibility servisi korunur.
+
+## Yayınlama (yalnızca depo sahibi)
+
+PyPI yayını ve sürüm etiketleme adımları:
+
+```bash
+uv build
+uvx twine check dist/*
+uv publish
+git tag v0.9.0
+git push origin v0.9.0
+```
+
+Yayın tamamlandıktan sonra `README.md` dosyasındaki kurulum satırı `pip install "mesa-memory[adapters]"` olarak değiştirilir.
 
 ## Sürüme özel yayın istisnaları
 

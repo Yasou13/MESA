@@ -164,7 +164,7 @@ jobs:
           python -m pip install "uv==0.13.1"
           uv sync --locked --extra dev
       - name: Build the shipped full-cognitive runtime image for scanning
-        run: docker build --pull=false --tag mesa-memory:security --target runtime --file Dockerfile .
+        run: docker build --pull=false --tag mesa-memory:security --build-arg MESA_EXTRAS=ml,adapters --target runtime --file Dockerfile .
       - name: Fail on high or critical Python dependency findings
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

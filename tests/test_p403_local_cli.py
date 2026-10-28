@@ -85,6 +85,13 @@ async def test_provision_credentials_lifecycle(tmp_path, capsys):
     assert "Using existing active credentials" in captured2.out
     assert creds["api_key"] not in captured2.out
 
+    # 3. A start on another port keeps the key and points clients at the new port
+    creds3 = await provision_credentials(home, storage_root, port=8901)
+    stored = json.loads(creds_path.read_text())
+    assert creds3["api_key"] == stored["api_key"] == creds["api_key"]
+    assert creds3["base_url"] == stored["base_url"] == "http://127.0.0.1:8901"
+    assert stat.S_IMODE(os.stat(creds_path).st_mode) == 0o600
+
 
 def test_start_command_windows_check(monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "win32")
@@ -93,6 +100,23 @@ def test_start_command_windows_check(monkeypatch, capsys):
     assert exc.value.code == 1
     out, _ = capsys.readouterr()
     assert "MESA runs on Linux and macOS; on Windows use Docker or WSL" in out
+
+
+@pytest.mark.parametrize("host", [None, "0.0.0.0", "::1"])
+def test_start_host_reaches_uvicorn_but_credentials_stay_loopback(tmp_path, monkeypatch, host):
+    home = tmp_path / "home"
+    storage = tmp_path / "storage"
+    arguments = ["start", "--home", str(home), "--storage-root", str(storage), "--port", "8123"]
+    if host is not None:
+        arguments += ["--host", host]
+    args = codex_cli._parser().parse_args(arguments)
+    assert args.host == (host or "127.0.0.1")
+    with patch("uvicorn.run") as run:
+        start_command(args)
+    assert run.call_args.kwargs["host"] == (host or "127.0.0.1")
+    assert run.call_args.kwargs["port"] == 8123
+    creds = json.loads((home / "credentials.json").read_text())
+    assert creds["base_url"] == "http://127.0.0.1:8123"
 
 
 def test_mcp_config_output(tmp_path, monkeypatch, capsys):
@@ -292,3 +316,28 @@ def test_cli_search_prints_real_search_result_fields(capsys):
     out, _ = capsys.readouterr()
     assert "score: 0.049 | doc-kira" in out
     assert "beşinci gününe kadar öder." in out
+
+
+def test_cli_add_prints_server_conflict_detail_without_traceback(tmp_path, capsys):
+    from mesa_client.client import MesaAPIError
+    from mesa_mcp.local_cli import handle_local_command
+
+    detail = (
+        "content equals revision 1 (SUPERSEDED); "
+        "restoring an earlier revision is not supported in v0.9"
+    )
+    document = tmp_path / "a.txt"
+    document.write_text("A")
+    mock_mesa = MagicMock()
+    mock_mesa.add.side_effect = MesaAPIError(409, "CONFLICT", detail)
+    with patch("mesa_client.Mesa", return_value=mock_mesa):
+        with pytest.raises(SystemExit) as exit_info:
+            handle_local_command(
+                argparse.Namespace(
+                    group="add", file=str(document), source="file://a.txt",
+                    title=None, json=False,
+                )
+            )
+    assert exit_info.value.code == 1
+    _, err = capsys.readouterr()
+    assert err == f"Error 409: {detail}\n"

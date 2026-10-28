@@ -1,5 +1,5 @@
 """
-MESA v0.8.1 Client SDK
+MESA v0.9.0 Client SDK
 
 A robust, type-safe Python client for the MESA memory system.
 Provides both synchronous and asynchronous implementations utilizing httpx.
@@ -47,11 +47,18 @@ class MesaClientError(Exception):
 class MesaAPIError(MesaClientError):
     """Exception raised when the MESA API returns an error response."""
 
-    def __init__(self, status_code: int, error: str, detail: str):
+    def __init__(
+        self,
+        status_code: int,
+        error: str,
+        detail: str,
+        retry_after: float | None = None,
+    ):
         super().__init__(f"{status_code} {error}: {detail}")
         self.status_code = status_code
         self.error = error
         self.detail = detail
+        self.retry_after = retry_after
 
 
 class MesaNetworkError(MesaClientError):
@@ -66,15 +73,65 @@ class MesaValidationError(MesaClientError):
     pass
 
 
+_RETRYABLE_503_DETAILS = frozenset(
+    {"canonical_processing_unavailable", "maintenance_pending"}
+)
+
+
+def _is_retryable_503(response: httpx.Response) -> bool:
+    if response.status_code != 503:
+        return False
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            detail = data.get("detail")
+            if detail in _RETRYABLE_503_DETAILS:
+                return True
+            error = data.get("error")
+            if error in _RETRYABLE_503_DETAILS:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _retry_after_seconds(response: httpx.Response, default: float = 5.0) -> float:
+    raw = response.headers.get("Retry-After")
+    if raw is not None:
+        try:
+            val = float(raw)
+            return max(0.0, min(val, 10.0))
+        except (ValueError, TypeError):
+            pass
+    return max(0.0, min(default, 10.0))
+
+
 def _parse_api_error(response: httpx.Response) -> MesaAPIError:
     """Parses an API error response and converts it into a MesaAPIError."""
+    retry_after: float | None = None
+    raw_retry = response.headers.get("Retry-After")
+    if raw_retry is not None:
+        try:
+            retry_after = max(0.0, min(float(raw_retry), 10.0))
+        except (ValueError, TypeError):
+            pass
     try:
         data = response.json()
         error_resp = ErrorResponse(**data)
-        return MesaAPIError(error_resp.status_code, error_resp.error, error_resp.detail)
+        return MesaAPIError(
+            error_resp.status_code,
+            error_resp.error,
+            error_resp.detail,
+            retry_after=retry_after,
+        )
     except Exception:
         # Fallback if the error format does not match ErrorResponse schema
-        return MesaAPIError(response.status_code, "UnknownError", response.text)
+        return MesaAPIError(
+            response.status_code,
+            "UnknownError",
+            response.text,
+            retry_after=retry_after,
+        )
 
 
 def _sync_retry(
@@ -83,12 +140,32 @@ def _sync_retry(
     base_delay: float = 0.5,
 ) -> httpx.Response:
     """Retry logic for synchronous HTTP operations."""
-    attempt = 0
+    network_attempt = 0
+    service_attempt = 0
+    max_503_attempts = 3
     while True:
         try:
-            return operation()
+            response = operation()
+            if _is_retryable_503(response):
+                service_attempt += 1
+                if service_attempt < max_503_attempts:
+                    delay = _retry_after_seconds(response)
+                    time.sleep(delay)
+                    continue
+            if 400 <= response.status_code < 600:
+                raise _parse_api_error(response)
+            return response
+        except MesaAPIError as e:
+            if e.status_code == 503 and e.detail in _RETRYABLE_503_DETAILS:
+                service_attempt += 1
+                if service_attempt < max_503_attempts:
+                    delay = e.retry_after if e.retry_after is not None else 5.0
+                    delay = max(0.0, min(delay, 10.0))
+                    time.sleep(delay)
+                    continue
+            raise
         except (httpx.TimeoutException, httpx.NetworkError) as e:
-            attempt += 1
+            network_attempt += 1
 
             # Unsafe retry prevention (R-18)
             method = (
@@ -104,11 +181,11 @@ def _sync_retry(
                     f"Refusing to retry non-idempotent {method} request: {e}"
                 ) from e
 
-            if attempt >= max_retries:
+            if network_attempt >= max_retries:
                 raise MesaNetworkError(
                     f"Max retries ({max_retries}) exceeded. Last error: {e}"
                 ) from e
-            time.sleep(base_delay * (2 ** (attempt - 1)))
+            time.sleep(base_delay * (2 ** (network_attempt - 1)))
 
 
 async def _async_retry(
@@ -117,12 +194,32 @@ async def _async_retry(
     base_delay: float = 0.5,
 ) -> httpx.Response:
     """Retry logic for asynchronous HTTP operations."""
-    attempt = 0
+    network_attempt = 0
+    service_attempt = 0
+    max_503_attempts = 3
     while True:
         try:
-            return await operation()  # type: ignore[no-any-return]
+            response = await operation()  # type: ignore[no-any-return]
+            if _is_retryable_503(response):
+                service_attempt += 1
+                if service_attempt < max_503_attempts:
+                    delay = _retry_after_seconds(response)
+                    await asyncio.sleep(delay)
+                    continue
+            if 400 <= response.status_code < 600:
+                raise _parse_api_error(response)
+            return response
+        except MesaAPIError as e:
+            if e.status_code == 503 and e.detail in _RETRYABLE_503_DETAILS:
+                service_attempt += 1
+                if service_attempt < max_503_attempts:
+                    delay = e.retry_after if e.retry_after is not None else 5.0
+                    delay = max(0.0, min(delay, 10.0))
+                    await asyncio.sleep(delay)
+                    continue
+            raise
         except (httpx.TimeoutException, httpx.NetworkError) as e:
-            attempt += 1
+            network_attempt += 1
 
             # Unsafe retry prevention (R-18)
             method = (
@@ -138,11 +235,11 @@ async def _async_retry(
                     f"Refusing to retry non-idempotent {method} request: {e}"
                 ) from e
 
-            if attempt >= max_retries:
+            if network_attempt >= max_retries:
                 raise MesaNetworkError(
                     f"Max retries ({max_retries}) exceeded. Last error: {e}"
                 ) from e
-            await asyncio.sleep(base_delay * (2 ** (attempt - 1)))
+            await asyncio.sleep(base_delay * (2 ** (network_attempt - 1)))
 
 
 class MesaClient:
@@ -161,7 +258,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.8.1"}
+        headers = {"User-Agent": "mesa-client/v0.9.0"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -226,7 +323,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.8.1"}
+        headers = {"User-Agent": "mesa-client/v0.9.0"}
         if api_key:
             headers["X-API-Key"] = api_key
 

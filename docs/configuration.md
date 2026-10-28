@@ -18,7 +18,12 @@ this can change profile/storage/provider flags, so review the file before enabli
 environment in direct programmatic configuration. Unaliased fields use their
 uppercase field name; comments mentioning MESA_* do not create aliases.
 
-`MESA_API_KEY` bootstrap or an existing active registry key is needed at startup.
+`mesa start` and the Docker image provision an active local registry key and
+credentials automatically; no bootstrap variables are needed in local mode.
+`mesa start --host` controls the bind address (default `127.0.0.1`); the
+credentials' client URL always uses `127.0.0.1`. The Docker image binds
+`0.0.0.0` internally, while Compose publishes only to the host's loopback.
+The direct runtime launcher requires `MESA_API_KEY` bootstrap or an existing active registry key at startup.
 A bootstrap key requires the server-authored `MESA_PRINCIPAL_ID`; use offline
 admin provisioning for ACL. `MESA_PORT` defaults to 8000; `MESA_LOG_LEVEL` to INFO
 and `MESA_LOG_FORMAT` to json. Secrets must be injected privately.
@@ -105,10 +110,31 @@ Select embeddings with `MESA_EMBEDDING_MODEL=provider:model`: `local:...`,
 `ollama:qwen3-embedding:4b`, `openai:text-embedding-3-small`, or
 `openai_compatible:nvidia/nemotron-3-embed-1b`. The second colon stays in the
 model name. `MESA_EMBEDDING_BASE_URL` overrides the endpoint; Ollama otherwise
-uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server. Without
-`MESA_EXTERNAL_PROVIDER_ENABLED=true`, Ollama must use a loopback URL; OpenAI
-and OpenAI-compatible providers require the flag. Endpoint/key settings retain
-the `MESA_LLM_BASE_URL` / `MESA_LLM_API_KEY` fallbacks for those providers.
+uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server.
+
+### Local model servers and external providers (D31)
+
+An endpoint is considered **local** when its scheme is `http` or `https` and its host is `localhost`, `127.0.0.1`, `::1`, or `host.docker.internal`.
+
+- With `MESA_EXTERNAL_PROVIDER_ENABLED=false` (default):
+  - `ollama` and `openai_compatible` (for both LLM extraction and embedding) are allowed on local endpoints (e.g. Ollama on `127.0.0.1:11434`, or vLLM on `127.0.0.1:8001/v1`; MESA itself uses port 8000) and forbidden on non-local/remote endpoints.
+  - `openai_compatible` on a local endpoint requires no API key (the client sends `local` automatically).
+  - External cloud providers (`openai`, `claude`, `anthropic`, `hosted`) remain strictly forbidden regardless of endpoint URL.
+- With `MESA_EXTERNAL_PROVIDER_ENABLED=true`:
+  - Remote and cloud provider endpoints are allowed. Cloud providers and remote
+    `openai_compatible` endpoints require configured API keys (`MESA_LLM_API_KEY`,
+    `MESA_EMBEDDING_API_KEY`); local `openai_compatible` endpoints still default
+    to `local`, and Ollama keeps its existing key-free behavior.
+
+### Missing optional packages (P5-01)
+
+If an optional provider or model extra is selected but not installed, server startup halts with a clear one-line installation command:
+- Ollama LLM, Ollama embedding, or OpenAI-compatible embedding:
+  `pip install "mesa-memory[adapters]"`
+- Local transformer embedding (`sentence-transformers`):
+  `pip install "mesa-memory[ml]"`
+
+Endpoint/key settings retain the `MESA_LLM_BASE_URL` / `MESA_LLM_API_KEY` fallbacks for those providers.
 
 With embedding enabled and `MESA_EMBEDDING_DIMENSION` unset, the server and
 rebuild runner embed one probe at startup and use its length for storage and

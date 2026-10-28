@@ -55,6 +55,13 @@ async def provision_credentials(
                 await key_store.initialize()
                 verified = await key_store.verify(api_key)
                 if verified is not None:
+                    base_url = f"http://127.0.0.1:{port}"
+                    if creds.get("base_url") != base_url:
+                        # Started on another port: keep the key, point clients here.
+                        creds["base_url"] = base_url
+                        fd = os.open(creds_path, os.O_WRONLY | os.O_TRUNC, 0o600)
+                        with open(fd, "w", encoding="utf-8") as f:
+                            json.dump(creds, f, indent=2)
                     print(f"Using existing active credentials from {creds_path}")
                     return creds
         except Exception:
@@ -130,7 +137,10 @@ def start_command(args: argparse.Namespace) -> None:
 
     import uvicorn
 
-    uvicorn.run("mesa_memory.api.server:app", host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run(
+        "mesa_memory.api.server:app", host=getattr(args, "host", "127.0.0.1"),
+        port=port, log_level="info",
+    )
 
 
 def add_command(args: argparse.Namespace) -> None:
@@ -303,6 +313,7 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
         "start", help="start the local MESA server"
     )
     start_parser.add_argument("--port", type=int, default=None, help="port to bind (default: 8000)")
+    start_parser.add_argument("--host", default="127.0.0.1", help="host to bind (default: 127.0.0.1)")
     start_parser.add_argument("--home", type=Path, default=None, help="MESA home directory (default: ~/.mesa)")
     start_parser.add_argument("--storage-root", type=Path, default=None, help="storage root directory")
 
@@ -348,6 +359,16 @@ def handle_local_command(args: argparse.Namespace) -> None:
     }
     handler = handlers.get(args.group)
     if handler:
-        handler(args)
+        from mesa_client.client import MesaAPIError, MesaClientError
+
+        try:
+            handler(args)
+        except MesaAPIError as exc:
+            # Show the server's detail as is (e.g. the D33 409), not a traceback.
+            sys.stderr.write(f"Error {exc.status_code}: {exc.detail}\n")
+            sys.exit(1)
+        except MesaClientError as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            sys.exit(1)
     else:
         raise ValueError(f"Unknown local command: {args.group}")

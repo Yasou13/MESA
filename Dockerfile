@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
 ARG PYTHON_IMAGE=python:3.13.12-slim-bookworm@sha256:a58daefb915e1e03ad48f3ca4df8832065412c5c35cacb9d39f4229184de12b6
+ARG MESA_EXTRAS=adapters
 FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS uv
 
 FROM ${PYTHON_IMAGE} AS python-base
@@ -12,6 +13,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 FROM python-base AS builder
+ARG MESA_EXTRAS
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /build
 COPY pyproject.toml uv.lock README.md LICENSE ./
@@ -25,7 +27,7 @@ COPY --from=uv /uv /usr/local/bin/uv
 # The PyPI Linux torch wheel is CUDA-enabled and pulls multi-gigabyte GPU
 # libraries. Runtime images are CPU-only, so use the matching CPU build and
 # remove GPU-only transitive requirements from the exported lock set.
-RUN uv export --quiet --frozen --no-dev --no-hashes --extra ml --extra adapters --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
+RUN uv export --quiet --frozen --no-dev --no-hashes --extra "${MESA_EXTRAS}" --no-emit-project --output-file=/tmp/requirements.txt >/dev/null \
     && sed -i '/^nvidia-/d; /^triton==/d' /tmp/requirements.txt \
     && python -m pip wheel --no-cache-dir --retries 5 --timeout 120 \
       --extra-index-url https://download.pytorch.org/whl/cpu \
@@ -33,19 +35,22 @@ RUN uv export --quiet --frozen --no-dev --no-hashes --extra ml --extra adapters 
     && python -m pip wheel --no-cache-dir --no-deps --wheel-dir=/wheels .
 
 FROM python-base AS runtime
+ARG MESA_EXTRAS
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     MESA_LOAD_DOTENV=false \
     MESA_MODEL_ENABLED=false \
     MESA_EXTERNAL_PROVIDER_ENABLED=false \
+    MESA_HOME=/var/lib/mesa \
+    MESA_STORAGE_ROOT=/var/lib/mesa/data \
     MESA_PORT=8000
 RUN groupadd --system mesa && useradd --system --gid mesa --home-dir /nonexistent --shell /usr/sbin/nologin mesa \
     && mkdir -p /var/lib/mesa && chown mesa:mesa /var/lib/mesa
 COPY --from=builder /wheels /wheels
 RUN wheel="$(find /wheels -maxdepth 1 -name 'mesa_memory-*.whl' -print -quit)" \
     && test -n "$wheel" \
-    && python -m pip install --no-cache-dir --no-index --find-links=/wheels "${wheel}[ml,adapters]" \
+    && python -m pip install --no-cache-dir --no-index --find-links=/wheels "${wheel}[${MESA_EXTRAS}]" \
     && rm -rf /wheels
 USER mesa:mesa
 WORKDIR /var/lib/mesa
@@ -53,4 +58,4 @@ VOLUME ["/var/lib/mesa"]
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-m", "mesa_memory.container_health"]
-ENTRYPOINT ["python", "-m", "mesa_memory.runtime_entrypoint"]
+ENTRYPOINT ["mesa", "start", "--host", "0.0.0.0"]

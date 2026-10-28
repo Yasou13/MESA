@@ -1,15 +1,153 @@
 # Installation and first run
 
-This guide owns dependency installation, deployment choices and the executable
-local quickstart. Configure providers in [configuration](configuration.md) and
-use [operations](RUNBOOK.md) for recovery. V4 production qualification remains
-release candidate / **NO-GO** until the [release gates](release.md) pass.
+This guide covers getting started with MESA as a new user, from installation to querying evidence, followed by advanced operator provisioning and production runtime profiles. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](release.md) pass for the intended commit.
 
 <a id="installation"></a>
 
-## Installation and deployment
+## Installation
 
-### Install the locked environment
+Install MESA with the adapters extra directly from GitHub (D34):
+
+```bash
+pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"
+```
+
+Supported natively on Linux and macOS. On Windows, use Docker or WSL.
+
+Or install from source with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
+```bash
+git clone https://github.com/Yasou13/MESA.git
+cd MESA
+uv sync --locked --python 3.11
+uv pip check
+```
+
+## Quickstart
+
+### 1. Start the server
+
+For standard local usage, `mesa start` automatically provisions local storage (`~/.mesa/data`), writes credentials (`~/.mesa/credentials.json`), sets model-disabled defaults, and starts the loopback server on `http://127.0.0.1:8000`:
+
+```bash
+mesa start
+```
+
+### 2. Add and search documents
+
+In another terminal, add and search documents immediately without manual credential configuration:
+
+```bash
+mesa add document.txt --source file://document.txt
+mesa search "your query"
+mesa status
+```
+
+### 3. Python SDK
+
+Use the high-level `Mesa` client to ingest documents and query evidence contexts:
+
+```python
+from mesa_client import Mesa
+
+mesa = Mesa()
+mesa.add(open("document.txt").read(), source="file://document.txt")
+print(mesa.context("your query"))
+```
+
+`Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
+
+### 4. Connect MCP clients
+
+Connect Claude Desktop or any MCP client by generating a ready-to-paste configuration block:
+
+```bash
+mesa mcp-config
+```
+
+### 5. Internal models (optional)
+
+Models stay off by default. Documents are stored and found through BM25 lexical search without any model running.
+
+To enable semantic vector search and fact extraction with local Ollama, add to `~/.mesa/.env`:
+
+```bash
+MESA_MODEL_ENABLED=true
+MESA_LLM_MODEL=ollama:qwen2.5:7b
+MESA_EMBEDDING_MODEL=ollama:bge-m3
+```
+
+Under decision D31, local `openai_compatible` servers (e.g. vLLM started with `--port 8001`, at `http://127.0.0.1:8001/v1`, since MESA itself uses port 8000) are also permitted with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on a local endpoint and require no API key. For external cloud APIs (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and supply the required API keys.
+
+Missing extras raise clear, actionable installation messages:
+- Ollama LLM, Ollama embedding, or OpenAI-compatible embedding → `pip install "mesa-memory[adapters]"`
+- Local embedding (`sentence-transformers`) → `pip install "mesa-memory[ml]"`
+
+### 6. Graph toggle
+
+To run without the Kùzu graph database, set:
+
+```bash
+MESA_GRAPH_ENABLED=false
+```
+
+GRAPH lanes end `SKIPPED`, and turning the flag back on later backfills the graph at startup.
+
+### 7. Docker
+
+Run MESA in a single-user local container (D32):
+
+```bash
+docker compose -f docker-compose.v4.yml up --build -d
+```
+
+Credentials are written to `/var/lib/mesa/credentials.json` in the container volume:
+
+```bash
+docker compose -f docker-compose.v4.yml exec mesa-v4 cat /var/lib/mesa/credentials.json
+docker compose -f docker-compose.v4.yml exec -T mesa-v4 mesa add - --source file://document.txt < document.txt
+docker compose -f docker-compose.v4.yml exec mesa-v4 mesa search "your query"
+```
+
+No environment variables are required: models and external providers default
+off. The image runs `mesa start --host 0.0.0.0` as a non-root user; Compose
+publishes only `127.0.0.1:8000`. Credentials retain a loopback base URL for CLI
+use inside the container. The named volume keeps data and credentials on
+restart. `MESA_API_KEY` and `MESA_PRINCIPAL_ID` are optional for existing
+bootstrap setups; when set, the `mesa` commands inside the container use that
+key first, so add `-e MESA_API_KEY=` after `exec` to use the local credentials. Ollama defaults to `http://host.docker.internal:11434`,
+which reaches the Docker host. The default image includes `adapters`; add
+sentence-transformers with
+`docker compose -f docker-compose.v4.yml build --build-arg MESA_EXTRAS=ml,adapters`.
+
+### 8. Google Colab
+
+Run MESA with GPU-accelerated Ollama in Google Colab:
+[Colab Quickstart](../examples/colab_quickstart.ipynb)
+
+<a id="using-mesa-with-your-llm"></a>
+
+## Using MESA with your LLM
+
+When connecting an external language model to answer questions from MESA memory, supply a system prompt that enforces untrusted data boundaries and precise source citations. `mesa_client` exports `RECOMMENDED_SYSTEM_PROMPT` for this purpose:
+
+```python
+from mesa_client import AsyncMesaV4Client, RECOMMENDED_SYSTEM_PROMPT
+
+# System prompt for answering LLMs:
+system_prompt = RECOMMENDED_SYSTEM_PROMPT
+
+# Retrieved memory context goes into the prompt/message:
+async with AsyncMesaV4Client(base_url="http://127.0.0.1:8000", api_key=api_key) as client:
+    bundle = await client.get_context(session_id=session_id, query="What is the policy?")
+    user_message = f"{bundle['context']}\n\nQuestion: What is the policy?"
+```
+
+The context returned in `bundle["context"]` is deterministically wrapped in `<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>`. The prompt instructs the model to treat everything within those tags strictly as data, never follow instructions contained within them, cite document and revision IDs for every claim, and decline to answer if the evidence is insufficient.
+
+---
+
+## Advanced Operator & Production Profiles
 
 Use Python 3.11–3.13 (the CI matrix) and
 [uv](https://docs.astral.sh/uv/getting-started/installation/).
@@ -102,9 +240,10 @@ require the grants shown in the quickstart.
 
 ### Compose
 
-Provide `MESA_API_KEY` and `MESA_PRINCIPAL_ID` privately before either topology.
-V4 also requires explicit `MESA_MODEL_ENABLED` and
-`MESA_EXTERNAL_PROVIDER_ENABLED` values, plus the provider configuration above:
+V4 provisions local credentials automatically, with models and external
+providers off. Existing deployments may supply `MESA_API_KEY` and
+`MESA_PRINCIPAL_ID` privately. For model-enabled operation, set the model flags
+and provider configuration above:
 
 ```bash
 docker compose -f docker-compose.v4.yml config --quiet
