@@ -5,7 +5,9 @@ import re
 from mesa_memory.adapter.tokenizer import count_tokens
 
 _PARAGRAPH_END = re.compile(r"(?:\r?\n[ \t]*){2,}")
-_SENTENCE_END = re.compile(r"[.!?](?:\s+|$)")
+# Whitespace must follow inside the window: "12." at the window's edge may be
+# the start of "12.03.2019", not a sentence end.
+_SENTENCE_END = re.compile(r"[.!?]\s+")
 
 
 def chunk_document(content: str) -> list[str]:

@@ -348,3 +348,27 @@ async def test_flash_sdk_against_real_document_endpoint(
             finally:
                 web.should_exit = True
                 await task
+
+
+def test_chunking_never_treats_a_period_inside_a_number_as_a_sentence_end():
+    from mesa_memory.document_chunking import chunk_document
+
+    text = " ".join(
+        f"Madde {n}- (1) Kiracı, kira bedelini TBK m. 314 ve 6098 sayılı Kanun "
+        f"md. {300 + n} uyarınca her ayın beşinci gününe kadar öder. (2) Yarg. 3. HD, "
+        f"12.03.2019 tarih ve 2018/1234 E. sayılı kararında (bkz. s. {40 + n}) bu "
+        "süreyi kesin kabul etmiştir. (3) Aşağıdaki hâllerde kiraya veren ihtar "
+        "gönderir: 1. Kira bedelinin ödenmemesi, 2. Yan giderlerin ödenmemesi, "
+        "3. Taşınmazın özenle kullanılmaması. (4) Bu madde hükümleri, Av. Dr. Ahmet "
+        f"Yılmaz'ın görüşü dikkate alınarak md. {n}/2 ile birlikte uygulanır."
+        for n in range(1, 13)
+    )
+    chunks = chunk_document(text)
+    assert "".join(chunks) == text
+    for chunk, following in zip(chunks, chunks[1:]):
+        # A cut right after punctuation is a sentence end only when whitespace
+        # follows it in the text; "12.|03.2019" is not.
+        assert not (chunk[-1] in ".!?" and not following[0].isspace()), (
+            chunk[-30:],
+            following[:30],
+        )
