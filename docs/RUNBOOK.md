@@ -245,7 +245,7 @@ audit must remain `NOT EXECUTED`, never converted to a simulated success.
 
 ## Upgrading to v0.8.0
 
-Current package metadata is 0.8.1. Publication is owner-approved with the limitations in
+Current package metadata is 0.9.0 (unreleased). The v0.8.1 publication was owner-approved with the limitations in
 the [release notes](../CHANGELOG.md#v081-publication); it does not certify production
 readiness. Confirm actual tags in GitHub Releases. This guide describes changes
 since v0.7.1, not a completed production migration.
