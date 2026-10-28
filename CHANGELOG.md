@@ -7,7 +7,26 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - Unreleased
+
+### Added
+
+- Local CLI with subcommands `start`, `add`, `search`, `delete`, `status`, and `mcp-config` for standalone single-user operation.
+- Python SDK `Mesa` client with zero-config local defaults reading `~/.mesa/credentials.json`.
+- Lossless document ingestion endpoint `POST /v4/documents` with deterministic chunking, duplicate detection, and revision tracking.
+- Configurable graph switch (`MESA_GRAPH_ENABLED=false`) enabling lightweight operation without KùzuDB and skipping graph lanes.
+- Unified model provider configuration via `MESA_LLM_MODEL` and `MESA_EMBEDDING_MODEL` using `provider:model` syntax.
+- Local Docker operation running `mesa start` with shared volume credentials.
+
+### Changed
+
+- Document purge completely erases stored source and assertion text for privacy compliance while keeping audit state and hashes.
+
+### Fixed
+
+- Retry backoff, dead-letter recovery and queue replay fixes preventing records from hanging indefinitely in `RETRY_PENDING`.
+- Admission 503 transient startup window retry in SDK and clear actionable installation messages for missing extras (`[adapters]`, `[ml]`).
+- Turkish abbreviation and list numbering handling in document chunker to prevent splitting mid-citation.
 
 ## [0.8.1] - 2026-10-18
 
@@ -536,7 +555,8 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
-[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Yasou13/MESA/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Yasou13/MESA/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Yasou13/MESA/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Yasou13/MESA/compare/v0.7.0...v0.7.1

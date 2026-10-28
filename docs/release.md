@@ -1,6 +1,6 @@
 # Release procedure
 
-V4 paket sürümü `0.8.1`; depo sahibi bu source release için aşağıda kayıtlı
+V4 paket sürümü `0.9.0`; depo sahibi bu source release için aşağıda kayıtlı
 yayın istisnasını açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı
 Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
@@ -113,6 +113,20 @@ Release artifact’ları şunları birlikte taşır:
 
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
 yapılmaz; eski storage ve v3 compatibility servisi korunur.
+
+## Yayınlama (yalnızca depo sahibi)
+
+PyPI yayını ve sürüm etiketleme adımları:
+
+```bash
+uv build
+uvx twine check dist/*
+uv publish
+git tag v0.9.0
+git push origin v0.9.0
+```
+
+Yayın tamamlandıktan sonra `README.md` dosyasındaki kurulum satırı `pip install "mesa-memory[adapters]"` olarak değiştirilir.
 
 ## Sürüme özel yayın istisnaları
 
