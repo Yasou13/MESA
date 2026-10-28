@@ -12,9 +12,9 @@ Supported providers:
 import logging
 import os
 from typing import Optional
-from urllib.parse import urlparse
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
+from mesa_memory.adapter.endpoints import is_local_endpoint
 from mesa_memory.config import config
 
 logger = logging.getLogger("MESA_AdapterFactory")
@@ -120,15 +120,10 @@ class DeterministicMockAdapter(BaseUniversalLLMAdapter):
 class AdapterFactory:
     @staticmethod
     def _require_permitted_ollama_url(url: str) -> None:
-        """Treat Ollama as local only when its endpoint is actually loopback."""
+        """Fence Ollama to D31 local endpoints unless external access is enabled."""
         if getattr(config, "external_provider_enabled", False):
             return
-        parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
-            "localhost",
-            "127.0.0.1",
-            "::1",
-        }:
+        if not is_local_endpoint(url):
             raise ValueError(
                 "Remote Ollama is forbidden when MESA_EXTERNAL_PROVIDER_ENABLED=false."
             )
@@ -151,10 +146,14 @@ class AdapterFactory:
                 model_name = default_model
 
         normalized_provider = provider.strip().lower()
-        external_providers = {"openai_compatible", "claude", "openai", "anthropic"}
+        external_providers = {"openai_compatible", "claude", "openai", "anthropic", "hosted"}
         if (
             not getattr(config, "external_provider_enabled", False)
             and normalized_provider in external_providers
+            and not (
+                normalized_provider == "openai_compatible"
+                and is_local_endpoint(config.llm_base_url or "")
+            )
         ):
             raise ValueError(
                 f"External provider '{provider}' is forbidden when MESA_EXTERNAL_PROVIDER_ENABLED=false."
@@ -168,12 +167,15 @@ class AdapterFactory:
                 raise ValueError(
                     "base_url is required for 'openai_compatible' provider. Set MESA_LLM_BASE_URL."
                 )
-            if not config.llm_api_key:
+            api_key = config.llm_api_key or (
+                "local" if is_local_endpoint(config.llm_base_url) else None
+            )
+            if not api_key:
                 raise ValueError(
                     "API key is required for 'openai_compatible' provider. Set MESA_LLM_API_KEY."
                 )
             return OpenAICompatibleAdapter(
-                api_key=config.llm_api_key,
+                api_key=api_key,
                 base_url=config.llm_base_url,
                 model_name=model_name,
                 embedding_model_name=config.llm_embedding_model_name,

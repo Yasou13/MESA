@@ -116,7 +116,10 @@ An endpoint is considered **local** when its scheme is `http` or `https` and its
   - `openai_compatible` on a local endpoint requires no API key (the client sends `local` automatically).
   - External cloud providers (`openai`, `claude`, `anthropic`, `hosted`) remain strictly forbidden regardless of endpoint URL.
 - With `MESA_EXTERNAL_PROVIDER_ENABLED=true`:
-  - Remote and cloud provider endpoints are allowed and require valid API keys (`MESA_LLM_API_KEY`, `MESA_EMBEDDING_API_KEY`).
+  - Remote and cloud provider endpoints are allowed. Cloud providers and remote
+    `openai_compatible` endpoints require configured API keys (`MESA_LLM_API_KEY`,
+    `MESA_EMBEDDING_API_KEY`); local `openai_compatible` endpoints still default
+    to `local`, and Ollama keeps its existing key-free behavior.
 
 ### Missing optional packages (P5-01)
 

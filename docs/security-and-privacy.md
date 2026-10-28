@@ -74,6 +74,17 @@ calls; local model provisioning/download and browser fonts are separate network
 concerns. `MESA_ZERO_COST_MODE` is provider selection, not a complete air-gap or
 exfiltration guarantee. Preserve validation assurance when selecting local models.
 
+With the external switch off, `ollama` and `openai_compatible` (LLM and
+embedding) can use only HTTP(S) URLs whose host is `localhost`, `127.0.0.1`,
+`::1` or `host.docker.internal`. The last name means the Docker host, allowing
+a container to reach its host's model server. Other hosts, including private
+LAN addresses, are blocked. The same rule checks the effective embedding URL,
+including `MESA_EMBEDDING_BASE_URL` overrides and `MESA_LLM_BASE_URL` fallback.
+Local `openai_compatible` endpoints need no API key; clients send `local` when
+none is configured. `openai`, `claude`, `anthropic` and `hosted` remain blocked
+regardless of URL. Enabling external providers permits remote model endpoints;
+remote OpenAI-compatible endpoints still require a configured provider key.
+
 ## Responsible reporting and supply chain
 
 Follow [SECURITY.md](../SECURITY.md) for private reporting. CI checks secrets,
