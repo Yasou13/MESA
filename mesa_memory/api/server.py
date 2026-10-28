@@ -842,7 +842,7 @@ async def health_init():
             status_code=503, detail="Required workers degraded or blocked"
         )
     graph_status = health.get("graph", {}).get("status")
-    graph_disabled = runtime is not None and not runtime.graph_enabled
+    graph_disabled = getattr(runtime, "graph_enabled", True) is False
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
