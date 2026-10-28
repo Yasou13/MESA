@@ -2,91 +2,111 @@
 
 [![MESA CI](https://github.com/Yasou13/MESA/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Yasou13/MESA/actions/workflows/ci.yml?query=branch%3Amain)
 [![Release](https://img.shields.io/github/v/release/Yasou13/MESA)](https://github.com/Yasou13/MESA/releases/latest)
-[![License: MIT](https://img.shields.io/github/license/Yasou13/MESA)](LICENSE)
-[![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![License: MIT](https://img.shields.io/github/license/Yasou13/MESA)](https://github.com/Yasou13/MESA/blob/main/LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://github.com/Yasou13/MESA/blob/main/pyproject.toml)
 
-MESA Core stores source-backed agent memory and returns scoped evidence over
-HTTP, Python clients and MCP. SQLite owns the catalog, assertions, mutation
-ledger and artifact ownership. LanceDB and Kùzu provide derived projections.
+MESA is an LLM-independent, source-linked memory engine for AI applications. It stores documents with exact provenance (document, revision, passage) and returns verifiable, scoped evidence over HTTP, Python SDK, and MCP. MESA returns evidence; it never writes the final answer or hallucinates sources.
 
-Package version is **0.8.1**. V4 is the current API. Production qualification
-remains at the release candidate stage:
-**NO-GO** until the [release gates](docs/release.md) pass for the intended commit.
-The [v0.8.1 publication status](CHANGELOG.md#v081-publication) is separate from
-production certification.
+Package version: **0.9.0**.
 
-## Quickstart
+## Installation
 
 ```bash
-pip install git+https://github.com/Yasou13/MESA.git
+pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"
+```
+
+Supported on Linux and macOS natively. On Windows, run via Docker or WSL.
+
+## Start the server
+
+```bash
 mesa start
-# In another shell:
+```
+
+Starts the local server on `http://127.0.0.1:8000`, initializes storage at `~/.mesa/data`, and creates credentials at `~/.mesa/credentials.json` (mode 0600).
+
+## Add and search documents
+
+In another terminal, add and search documents immediately:
+
+```bash
 mesa add document.txt --source file://document.txt
 mesa search "your query"
 ```
 
-## Start here (from source)
+## Python SDK
 
-```bash
-git clone https://github.com/Yasou13/MESA.git
-cd MESA
-uv sync --locked --python 3.11
-uv pip check
+```python
+from mesa_client import Mesa
+
+mesa = Mesa()
+mesa.add(open("document.txt").read(), source="file://document.txt")
+print(mesa.context("your query"))
 ```
 
-Python 3.11–3.13 are the CI matrix; package metadata declares Python >=3.11.
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
-The command selects a supported interpreter; substitute 3.11–3.13 if needed.
-The base install includes native storage and HTTP/SDK support; `dev`, provider
-SDKs and local model dependencies are optional extras.
-Then follow the [local quickstart](docs/getting-started.md), which provisions
-a disposable root, credentials and an authorized session before insertion.
+`Mesa()` discovers local credentials automatically from `~/.mesa/credentials.json` or `MESA_API_KEY`.
 
-| Goal | Read |
-|---|---|
-| Check startup without model calls | [Model-disabled startup](docs/getting-started.md#local-quickstart) |
-| Run canonical V4 ingestion | [V4 provider prerequisites](docs/getting-started.md#v4-canonical-example-provider-prerequisites) and [installation](docs/getting-started.md#installation) |
-| Use Docker or choose providers | [Installation](docs/getting-started.md#installation), [configuration](docs/configuration.md) |
-| Connect a client | [API and SDK](docs/api-reference.md), [MCP](README_MCP.md) |
-| Use MESA with your LLM | [Prompting and context](docs/getting-started.md#using-mesa-with-your-llm) |
-| Understand or change the system | [Architecture](ARCHITECTURE.md), [contributing](CONTRIBUTING.md) |
-| Find any other guide | [Documentation index](docs/README.md) |
+## Connect MCP clients
 
-## Runtime model
+Generate a ready-to-paste configuration block for Claude Desktop or any MCP client:
 
-V4 runs one `combined` storage owner per root. An authenticated session binds
-a principal, tenant, workspace, agent and immutable dataset set. Insertion
-admits durable work; validation and ordered projections precede `COMMITTED`.
-Retrieval combines vector, BM25, assertion and graph lanes with weighted rank
-fusion, then packs source evidence into a bounded context.
+```bash
+mesa mcp-config
+```
 
-`FactExtractionService` owns canonical V4 extraction. Validation can use deterministic checks (mode 0), a
-single LLM (mode 1), or dual LLM consensus (mode 2). Mode 0 disables LLM
-validation, not canonical extraction and embedding requirements.
+## Internal models (optional)
 
-`docker-compose.v4.yml` defines the V4 single-owner topology.
-A combined runtime without models stores documents and finds them with BM25;
-vector search starts when embedding is enabled (`degraded_sources` shows `vector`
-until then); 503 `canonical_processing_unavailable` happens only on a
-non-combined profile.
+Models stay off by default. Documents are stored and found through BM25 lexical search without any model running.
 
-## Operational limits
+To enable semantic vector search and fact extraction with local Ollama, add to `~/.mesa/.env`:
 
-`GET /v4/capability` reports runtime capabilities. Embedded storage requires a
-single writer and workload-specific capacity testing. Projection rebuild is
-offline, full-root and disabled by default. Historical benchmarks and audits
-are not current production measurements. Evidence linkage and model consensus
-do not establish source truth or legal correctness.
+```bash
+MESA_MODEL_ENABLED=true
+MESA_LLM_MODEL=ollama:qwen2.5:7b
+MESA_EMBEDDING_MODEL=ollama:bge-m3
+```
 
-See [limitations](docs/architecture-v4.md#limitations),
-[operations](docs/RUNBOOK.md), [security](docs/security-and-privacy.md) and
-[vulnerability reporting](SECURITY.md).
+Local `openai_compatible` servers (such as vLLM on `http://127.0.0.1:8000/v1`) are also allowed with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on loopback and require no API key (D31). For cloud model providers (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and provide the required API keys.
 
-## Development
+## Graph toggle
 
-Use [testing](docs/testing.md) for focused checks, optional dependencies and
-document validation. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+To run without the Kùzu graph database, set:
+
+```bash
+MESA_GRAPH_ENABLED=false
+```
+
+GRAPH lanes end `SKIPPED`, and turning the flag back on later backfills the graph at startup.
+
+## Docker
+
+Run MESA in a single-user local container (D32):
+
+```bash
+docker compose -f docker-compose.v4.yml up -d
+```
+
+Credentials are written to `/var/lib/mesa/credentials.json` in the container volume:
+
+```bash
+docker compose -f docker-compose.v4.yml exec mesa cat /var/lib/mesa/credentials.json
+docker compose -f docker-compose.v4.yml exec mesa mesa search "your query"
+```
+
+## Google Colab
+
+Run MESA with GPU-accelerated Ollama in Colab:
+[Colab Quickstart](https://github.com/Yasou13/MESA/blob/main/examples/colab_quickstart.ipynb)
+
+## Documentation
+
+- [Getting Started Guide](https://github.com/Yasou13/MESA/blob/main/docs/getting-started.md)
+- [Configuration Reference](https://github.com/Yasou13/MESA/blob/main/docs/configuration.md)
+- [API Reference](https://github.com/Yasou13/MESA/blob/main/docs/api-reference.md)
+- [MCP Integration Guide](https://github.com/Yasou13/MESA/blob/main/README_MCP.md)
+- [Architecture](https://github.com/Yasou13/MESA/blob/main/ARCHITECTURE.md)
+- [Documentation Index](https://github.com/Yasou13/MESA/blob/main/docs/README.md)
 
 ## License
 
-[MIT](LICENSE).
+[MIT](https://github.com/Yasou13/MESA/blob/main/LICENSE).

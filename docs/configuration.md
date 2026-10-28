@@ -105,10 +105,28 @@ Select embeddings with `MESA_EMBEDDING_MODEL=provider:model`: `local:...`,
 `ollama:qwen3-embedding:4b`, `openai:text-embedding-3-small`, or
 `openai_compatible:nvidia/nemotron-3-embed-1b`. The second colon stays in the
 model name. `MESA_EMBEDDING_BASE_URL` overrides the endpoint; Ollama otherwise
-uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server. Without
-`MESA_EXTERNAL_PROVIDER_ENABLED=true`, Ollama must use a loopback URL; OpenAI
-and OpenAI-compatible providers require the flag. Endpoint/key settings retain
-the `MESA_LLM_BASE_URL` / `MESA_LLM_API_KEY` fallbacks for those providers.
+uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server.
+
+### Local model servers and external providers (D31)
+
+An endpoint is considered **local** when its scheme is `http` or `https` and its host is `localhost`, `127.0.0.1`, `::1`, or `host.docker.internal`.
+
+- With `MESA_EXTERNAL_PROVIDER_ENABLED=false` (default):
+  - `ollama` and `openai_compatible` (for both LLM extraction and embedding) are allowed on local endpoints (e.g. Ollama on `127.0.0.1:11434`, or vLLM on `127.0.0.1:8000/v1`) and forbidden on non-local/remote endpoints.
+  - `openai_compatible` on a local endpoint requires no API key (the client sends `local` automatically).
+  - External cloud providers (`openai`, `claude`, `anthropic`, `hosted`) remain strictly forbidden regardless of endpoint URL.
+- With `MESA_EXTERNAL_PROVIDER_ENABLED=true`:
+  - Remote and cloud provider endpoints are allowed and require valid API keys (`MESA_LLM_API_KEY`, `MESA_EMBEDDING_API_KEY`).
+
+### Missing optional packages (P5-01)
+
+If an optional provider or model extra is selected but not installed, server startup halts with a clear one-line installation command:
+- Ollama LLM, Ollama embedding, or OpenAI-compatible embedding:
+  `pip install "mesa-memory[adapters]"`
+- Local transformer embedding (`sentence-transformers`):
+  `pip install "mesa-memory[ml]"`
+
+Endpoint/key settings retain the `MESA_LLM_BASE_URL` / `MESA_LLM_API_KEY` fallbacks for those providers.
 
 With embedding enabled and `MESA_EMBEDDING_DIMENSION` unset, the server and
 rebuild runner embed one probe at startup and use its length for storage and
