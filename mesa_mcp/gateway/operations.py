@@ -504,7 +504,8 @@ class GatewayOperationService:
             "content": wrapped,
         }
         if "provenance" in memory:
-            formatted["provenance"] = memory["provenance"]
+            # Assertion rows hold stored text; keep only their IDs (D23).
+            formatted["provenance"] = _provenance_ids(memory["provenance"])
         if "memory_type" in memory:
             formatted["memory_type"] = memory["memory_type"]
         return formatted
@@ -846,6 +847,19 @@ def _validate_write_arguments(arguments: dict[str, Any]) -> None:
         validate_write_payload(content, metadata)
     except ValueError as exc:
         raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
+
+
+def _provenance_ids(value: Any) -> Any:
+    """Keep only identifier fields of recall provenance."""
+    if isinstance(value, list):
+        return [_provenance_ids(item) for item in value if isinstance(item, dict)]
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: item if key.endswith(("_id", "_ids")) else _provenance_ids(item)
+        for key, item in value.items()
+        if key.endswith(("_id", "_ids")) or isinstance(item, (dict, list))
+    }
 
 
 def _remember_provenance(payload: dict[str, Any]) -> dict[str, Any]:

@@ -166,3 +166,48 @@ async def test_gateway_recall_context_mode_wraps_memory_content(gateway_service)
     assert TAG_CLOSE in mem["content"]
     assert "Raw stored evidence sentence from backend." in mem["content"]
     assert mem["content"] != "Raw stored evidence sentence from backend."
+
+
+class FakeV4WithAssertionProvenance(FakeV4ForGateway):
+    async def v4_recall(self, **_kwargs: Any) -> list[dict[str, Any]]:
+        return [
+            {
+                "memory_id": "mem-1",
+                "document_id": "doc-1",
+                "chunk_id": "chunk-1",
+                "content": "Kira bedeli her ayın beşinci günü ödenir.",
+                "memory_type": "decision",
+                "score": 0.88,
+                # _typed_result keeps whole assertion rows, which hold stored text.
+                "provenance": {
+                    "entity_id": "ent-1",
+                    "assertions": [
+                        {
+                            "assertion_id": "mem-1",
+                            "evidence_span": "Kira bedeli her ayın beşinci günü ödenir.",
+                            "literal_value": "beşinci gün",
+                        }
+                    ],
+                },
+            }
+        ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["direct", "context"])
+async def test_gateway_recall_keeps_stored_text_out_of_memory_fields(
+    gateway_service, mode
+):
+    service, connection_id = gateway_service
+    service._v4 = FakeV4WithAssertionProvenance()
+    res = await service.call_tool(
+        client_id="antigravity",
+        connection_id=connection_id,
+        tool_name="mesa_recall",
+        arguments={"query": "kira", "mode": mode},
+    )
+    assert res["status"] == "SUCCESS"
+    mem = res["memories"][0]
+    assert "Kira bedeli her ayın beşinci günü ödenir." in mem["content"]
+    outside_wrapper = {key: value for key, value in mem.items() if key != "content"}
+    assert "beşinci" not in repr(outside_wrapper)
