@@ -46,10 +46,6 @@ uv build --wheel
 Compose sözleşmeleri:
 
 ```bash
-MESA_API_KEY=release-placeholder \
-MESA_PRINCIPAL_ID=release-principal \
-MESA_MODEL_ENABLED=false \
-MESA_EXTERNAL_PROVIDER_ENABLED=false \
 docker compose -f docker-compose.v4.yml config --quiet
 ```
 

@@ -18,7 +18,12 @@ this can change profile/storage/provider flags, so review the file before enabli
 environment in direct programmatic configuration. Unaliased fields use their
 uppercase field name; comments mentioning MESA_* do not create aliases.
 
-`MESA_API_KEY` bootstrap or an existing active registry key is needed at startup.
+`mesa start` and the Docker image provision an active local registry key and
+credentials automatically; no bootstrap variables are needed in local mode.
+`mesa start --host` controls the bind address (default `127.0.0.1`); the
+credentials' client URL always uses `127.0.0.1`. The Docker image binds
+`0.0.0.0` internally, while Compose publishes only to the host's loopback.
+The direct runtime launcher requires `MESA_API_KEY` bootstrap or an existing active registry key at startup.
 A bootstrap key requires the server-authored `MESA_PRINCIPAL_ID`; use offline
 admin provisioning for ACL. `MESA_PORT` defaults to 8000; `MESA_LOG_LEVEL` to INFO
 and `MESA_LOG_FORMAT` to json. Secrets must be injected privately.

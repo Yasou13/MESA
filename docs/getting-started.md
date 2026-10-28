@@ -104,9 +104,20 @@ docker compose -f docker-compose.v4.yml up --build -d
 Credentials are written to `/var/lib/mesa/credentials.json` in the container volume:
 
 ```bash
-docker compose -f docker-compose.v4.yml exec mesa cat /var/lib/mesa/credentials.json
-docker compose -f docker-compose.v4.yml exec mesa mesa search "your query"
+docker compose -f docker-compose.v4.yml exec mesa-v4 cat /var/lib/mesa/credentials.json
+docker compose -f docker-compose.v4.yml exec -T mesa-v4 mesa add - --source file://document.txt < document.txt
+docker compose -f docker-compose.v4.yml exec mesa-v4 mesa search "your query"
 ```
+
+No environment variables are required: models and external providers default
+off. The image runs `mesa start --host 0.0.0.0` as a non-root user; Compose
+publishes only `127.0.0.1:8000`. Credentials retain a loopback base URL for CLI
+use inside the container. The named volume keeps data and credentials on
+restart. `MESA_API_KEY` and `MESA_PRINCIPAL_ID` are optional for existing
+bootstrap setups. Ollama defaults to `http://host.docker.internal:11434`,
+which reaches the Docker host. The default image includes `adapters`; add
+sentence-transformers with
+`docker compose -f docker-compose.v4.yml build --build-arg MESA_EXTRAS=ml,adapters`.
 
 ### 8. Google Colab
 
@@ -228,9 +239,10 @@ require the grants shown in the quickstart.
 
 ### Compose
 
-Provide `MESA_API_KEY` and `MESA_PRINCIPAL_ID` privately before either topology.
-V4 also requires explicit `MESA_MODEL_ENABLED` and
-`MESA_EXTERNAL_PROVIDER_ENABLED` values, plus the provider configuration above:
+V4 provisions local credentials automatically, with models and external
+providers off. Existing deployments may supply `MESA_API_KEY` and
+`MESA_PRINCIPAL_ID` privately. For model-enabled operation, set the model flags
+and provider configuration above:
 
 ```bash
 docker compose -f docker-compose.v4.yml config --quiet

@@ -83,15 +83,18 @@ GRAPH lanes end `SKIPPED`, and turning the flag back on later backfills the grap
 Run MESA in a single-user local container (D32):
 
 ```bash
-docker compose -f docker-compose.v4.yml up -d
+docker compose -f docker-compose.v4.yml up --build -d
 ```
 
 Credentials are written to `/var/lib/mesa/credentials.json` in the container volume:
 
 ```bash
-docker compose -f docker-compose.v4.yml exec mesa cat /var/lib/mesa/credentials.json
-docker compose -f docker-compose.v4.yml exec mesa mesa search "your query"
+docker compose -f docker-compose.v4.yml exec mesa-v4 cat /var/lib/mesa/credentials.json
+docker compose -f docker-compose.v4.yml exec -T mesa-v4 mesa add - --source file://document.txt < document.txt
+docker compose -f docker-compose.v4.yml exec mesa-v4 mesa search "your query"
 ```
+
+No variables are required; models and external providers default off. The image includes `adapters`; build with `--build-arg MESA_EXTRAS=ml,adapters` to add local sentence-transformers. Ollama defaults to `http://host.docker.internal:11434` (the Docker host).
 
 ## Google Colab
 

@@ -95,6 +95,23 @@ def test_start_command_windows_check(monkeypatch, capsys):
     assert "MESA runs on Linux and macOS; on Windows use Docker or WSL" in out
 
 
+@pytest.mark.parametrize("host", [None, "0.0.0.0", "::1"])
+def test_start_host_reaches_uvicorn_but_credentials_stay_loopback(tmp_path, monkeypatch, host):
+    home = tmp_path / "home"
+    storage = tmp_path / "storage"
+    arguments = ["start", "--home", str(home), "--storage-root", str(storage), "--port", "8123"]
+    if host is not None:
+        arguments += ["--host", host]
+    args = codex_cli._parser().parse_args(arguments)
+    assert args.host == (host or "127.0.0.1")
+    with patch("uvicorn.run") as run:
+        start_command(args)
+    assert run.call_args.kwargs["host"] == (host or "127.0.0.1")
+    assert run.call_args.kwargs["port"] == 8123
+    creds = json.loads((home / "credentials.json").read_text())
+    assert creds["base_url"] == "http://127.0.0.1:8123"
+
+
 def test_mcp_config_output(tmp_path, monkeypatch, capsys):
     home = tmp_path / "home"
     home.mkdir()

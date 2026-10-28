@@ -131,17 +131,14 @@ def test_effective_compose_config_defaults_match_mesaconfig_contract() -> None:
         pytest.skip("docker binary unavailable in this environment")
 
     minimal_env = {
-        "MESA_API_KEY": "test-mesa-api-key",
-        "MESA_PRINCIPAL_ID": "test-principal-id",
-        "MESA_MODEL_ENABLED": "true",
-        "MESA_EXTERNAL_PROVIDER_ENABLED": "false",
+        key: value for key, value in os.environ.items() if not key.startswith("MESA_")
     }
 
-    cmd = ["docker", "compose", "-f", str(COMPOSE_V4_PATH), "config"]
+    cmd = ["docker", "compose", "--env-file", "/dev/null", "-f", str(COMPOSE_V4_PATH), "config"]
     res = subprocess.run(
         cmd,
         cwd=str(ROOT),
-        env={**os.environ, **minimal_env},
+        env=minimal_env,
         capture_output=True,
         text=True,
         check=True,
@@ -150,6 +147,19 @@ def test_effective_compose_config_defaults_match_mesaconfig_contract() -> None:
     container_env = rendered["services"]["mesa-v4"]["environment"]
 
     # Verify defaults
+    assert container_env["MESA_API_KEY"] == container_env["MESA_PRINCIPAL_ID"] == ""
+    for flag in ("MESA_MODEL_ENABLED", "MESA_EMBEDDING_ENABLED", "MESA_EXTRACTION_ENABLED", "MESA_EXTERNAL_PROVIDER_ENABLED"):
+        assert container_env[flag] == "false"
+    assert container_env["MESA_OLLAMA_URL"] == "http://host.docker.internal:11434"
+    service = rendered["services"]["mesa-v4"]
+    assert service["image"] == "mesa-memory:0.9.0"
+    assert service["read_only"] is True
+    assert service["ports"][0]["host_ip"] == "127.0.0.1"
+    assert "host.docker.internal:host-gateway" in {
+        host.replace("=", ":", 1) for host in service["extra_hosts"]
+    }
+    assert any(v["target"] == "/var/lib/mesa" and not v.get("read_only", False) for v in service["volumes"])
+    assert service["tmpfs"]
     assert container_env["MESA_LLM_MODEL"] == ""
     assert container_env["MESA_LLM_TIMEOUT_SECONDS"] == "60"
     assert container_env["MESA_EMBEDDING_VERSION"] == "v1"

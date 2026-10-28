@@ -130,7 +130,10 @@ def start_command(args: argparse.Namespace) -> None:
 
     import uvicorn
 
-    uvicorn.run("mesa_memory.api.server:app", host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run(
+        "mesa_memory.api.server:app", host=getattr(args, "host", "127.0.0.1"),
+        port=port, log_level="info",
+    )
 
 
 def add_command(args: argparse.Namespace) -> None:
@@ -303,6 +306,7 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
         "start", help="start the local MESA server"
     )
     start_parser.add_argument("--port", type=int, default=None, help="port to bind (default: 8000)")
+    start_parser.add_argument("--host", default="127.0.0.1", help="host to bind (default: 127.0.0.1)")
     start_parser.add_argument("--home", type=Path, default=None, help="MESA home directory (default: ~/.mesa)")
     start_parser.add_argument("--storage-root", type=Path, default=None, help="storage root directory")
 
