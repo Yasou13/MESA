@@ -1,7 +1,8 @@
 # Release procedure
 
-V4 paket sürümü `0.9.0`; depo sahibi bu source release için aşağıda kayıtlı
-yayın istisnasını açıkça onayladı. Production qualification halen
+V4 paket sürümü `0.9.0`; henüz yayımlanmadı, yayın aşağıdaki “Yayınlama”
+adımlarıyla depo sahibinindir. Aşağıda kayıtlı yayın istisnasını depo sahibi
+v0.8.1 source release için açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı
 Final MVP Certification tamamlanana kadar `NO-GO`dur. Sürüm numarası veya
 tag’in atanması tek başına production GO anlamına gelmez. Eski V3 tag/release kayıtları tarihsel bağlamlarıyla değerlendirilir.
