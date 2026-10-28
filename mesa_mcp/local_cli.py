@@ -177,9 +177,10 @@ def search_command(args: argparse.Namespace) -> None:
             print("No matching memories found.")
             return
         for i, item in enumerate(results, start=1):
-            score = item.get("score", 0.0)
+            # /v4/memory/search returns final_score and evidence_span.
+            score = item.get("final_score", item.get("score", 0.0))
             doc_id = item.get("document_id") or item.get("chunk_id") or "unknown"
-            content = (item.get("content") or "").strip()
+            content = (item.get("evidence_span") or item.get("content") or "").strip()
             print(f"[{i}] score: {score:.3f} | {doc_id}")
             if content:
                 for line in content.splitlines():

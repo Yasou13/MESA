@@ -273,3 +273,22 @@ def test_real_server_answers_health_init(tmp_path, monkeypatch):
     finally:
         srv.should_exit = True
         t.join(timeout=3.0)
+
+
+def test_cli_search_prints_real_search_result_fields(capsys):
+    # Shape returned by POST /v4/memory/search: no "score" or "content" keys.
+    mock_mesa = MagicMock()
+    mock_mesa.search.return_value = [
+        {
+            "document_id": "doc-kira",
+            "source_chunk_id": "rev-1-c00000",
+            "final_score": 0.0492,
+            "rrf_score": 0.0492,
+            "evidence_span": "Kiracı kira bedelini her ayın beşinci gününe kadar öder.",
+        }
+    ]
+    with patch("mesa_client.Mesa", return_value=mock_mesa):
+        search_command(argparse.Namespace(query="kira", limit=5, json=False))
+    out, _ = capsys.readouterr()
+    assert "score: 0.049 | doc-kira" in out
+    assert "beşinci gününe kadar öder." in out
