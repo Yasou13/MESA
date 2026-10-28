@@ -73,6 +73,14 @@ async def test_graph_disabled_capability_is_truthful(model_runtime):
 
 
 @pytest.mark.asyncio
+async def test_graph_disabled_runtime_is_ready(model_runtime):
+    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+        response = await env.client.get("/health/init")
+        assert response.status_code == 200, response.text
+        assert response.json() == {"status": "ready"}
+
+
+@pytest.mark.asyncio
 async def test_restart_backfills_skipped_graph_without_hiding_records(model_runtime):
     async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
         await _insert(env)

@@ -842,10 +842,14 @@ async def health_init():
             status_code=503, detail="Required workers degraded or blocked"
         )
     graph_status = health.get("graph", {}).get("status")
+    graph_disabled = runtime is not None and not runtime.graph_enabled
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
-        and graph_status in ("healthy", "not_initialized")
+        and (
+            graph_status in ("healthy", "not_initialized")
+            or (graph_disabled and "graph" not in health)
+        )
     ):
         return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")
