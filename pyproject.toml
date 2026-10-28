@@ -16,7 +16,7 @@ keywords = ["ai", "memory", "agents", "knowledge-graph", "llm", "cognitive"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "Topic :: Scientific/Engineering :: AI",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 dependencies = [
