@@ -19,12 +19,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import unicodedata
 import uuid
-from collections import Counter
-from collections.abc import Mapping
+from collections import Counter, OrderedDict
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 from urllib.parse import urlsplit, urlunsplit
@@ -533,6 +535,10 @@ class MemoryDAO:
         "_graph_enabled",
         "_rrf_k",
         "_rrf_weights",
+        "_search_scope_cache_enabled",
+        "_search_scope_cache",
+        "_search_cache_db",
+        "_search_data_version",
     )
 
     def __init__(
@@ -561,6 +567,14 @@ class MemoryDAO:
         self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
+        self._search_scope_cache_enabled = os.environ.get(
+            "MESA_SEARCH_SCOPE_CACHE", "true"
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        self._search_scope_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = (
+            OrderedDict()
+        )
+        self._search_cache_db: aiosqlite.Connection | None = None
+        self._search_data_version: int | None = None
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
@@ -923,13 +937,13 @@ class MemoryDAO:
                 rows = [dict(row) for row in await cursor.fetchall()]
             for row in rows:
                 if row["supersedes_revision_id"]:
-                    row["supersedes_revision_id"] = (
-                        await self._catalog.external_id_in_tx(
-                            db,
-                            tenant_id=tenant_id,
-                            kind="revision",
-                            physical_id=str(row["supersedes_revision_id"]),
-                        )
+                    row[
+                        "supersedes_revision_id"
+                    ] = await self._catalog.external_id_in_tx(
+                        db,
+                        tenant_id=tenant_id,
+                        kind="revision",
+                        physical_id=str(row["supersedes_revision_id"]),
                     )
             return rows
 
@@ -1400,9 +1414,7 @@ class MemoryDAO:
                     audit.get("justifications"), dict
                 ):
                     # Validator justifications may quote the source text.
-                    audit["justifications"] = dict.fromkeys(
-                        audit["justifications"], ""
-                    )
+                    audit["justifications"] = dict.fromkeys(audit["justifications"], "")
                 # Keep engine-owned identity/policy audit, dropping caller text
                 # and durable extracted facts (which include source spans).
                 retained_metadata = json.dumps(
@@ -2085,7 +2097,10 @@ class MemoryDAO:
                     (document_id,),
                 ) as cursor:
                     document = await cursor.fetchone()
-                if document is None or (document[0], document[1]) != (tenant_id, dataset_id):
+                if document is None or (document[0], document[1]) != (
+                    tenant_id,
+                    dataset_id,
+                ):
                     raise ValueError("document identity collides with another dataset")
                 if document[2] == "PURGED":
                     raise ValueError("document is purged")
@@ -4026,7 +4041,9 @@ class MemoryDAO:
                 "WHERE projection_id = ? AND claim_token = ?",
                 (
                     next_state,
-                    None if terminal else f"+{_retry_delay_seconds(int(row['attempt_count']))} seconds",
+                    None
+                    if terminal
+                    else f"+{_retry_delay_seconds(int(row['attempt_count']))} seconds",
                     error_class[:120],
                     projection_id,
                     claim_token,
@@ -4357,7 +4374,10 @@ class MemoryDAO:
                     (artifact_id, artifact_id),
                 ) as cursor:
                     if await cursor.fetchone() is not None:
-                        logger.warning("SAFETY: skipping deletion of active vector artifact %s", artifact_id)
+                        logger.warning(
+                            "SAFETY: skipping deletion of active vector artifact %s",
+                            artifact_id,
+                        )
                         return
             await self._vec.hard_delete(artifact_id, agent_id)
         elif store == "GRAPH":
@@ -4369,7 +4389,10 @@ class MemoryDAO:
                         (artifact_id,),
                     ) as cursor:
                         if await cursor.fetchone() is not None:
-                            logger.warning("SAFETY: skipping deletion of active assertion graph artifact %s", artifact_id)
+                            logger.warning(
+                                "SAFETY: skipping deletion of active assertion graph artifact %s",
+                                artifact_id,
+                            )
                             return
                 await graph.delete_assertions(
                     agent_id=agent_id, assertion_ids=[artifact_id]
@@ -4382,7 +4405,10 @@ class MemoryDAO:
                         (artifact_id, artifact_id, artifact_id),
                     ) as cursor:
                         if await cursor.fetchone() is not None:
-                            logger.warning("SAFETY: skipping deletion of active entity graph artifact %s", artifact_id)
+                            logger.warning(
+                                "SAFETY: skipping deletion of active entity graph artifact %s",
+                                artifact_id,
+                            )
                             return
                 await graph.delete_nodes(
                     purge_id=f"rollback:{cleanup['cleanup_id']}",
@@ -4453,7 +4479,9 @@ class MemoryDAO:
             next_state = (
                 "BLOCKED"
                 if terminal
-                else "RETRY_PENDING" if error_class else "COMPLETED"
+                else "RETRY_PENDING"
+                if error_class
+                else "COMPLETED"
             )
             cursor = await db.execute(
                 "UPDATE artifact_cleanup_outbox SET state = ?, claim_token = NULL, "
@@ -4727,7 +4755,9 @@ class MemoryDAO:
                 f"AND dataset_id NOT IN ({placeholders}) AND status != 'RETRACTED'",
                 (tenant_id, *resolved_datasets),
             ) as cursor:
-                other_dataset_assertions = {str(row[0]) for row in await cursor.fetchall()}
+                other_dataset_assertions = {
+                    str(row[0]) for row in await cursor.fetchall()
+                }
 
             # Entities referenced by other datasets of this tenant
             other_dataset_params = (
@@ -4744,7 +4774,9 @@ class MemoryDAO:
                 f"AND dataset_id NOT IN ({placeholders}) AND object_entity_id IS NOT NULL AND status != 'RETRACTED'",
                 other_dataset_params,
             ) as cursor:
-                other_dataset_entities = {str(row[0]) for row in await cursor.fetchall()}
+                other_dataset_entities = {
+                    str(row[0]) for row in await cursor.fetchall()
+                }
 
             # Artifacts registered under other datasets
             async with db.execute(
@@ -4758,7 +4790,9 @@ class MemoryDAO:
                 }
 
         # Exclude entities owned/referenced by other datasets
-        candidate_entities = {e for e in sql_entities if e not in other_dataset_entities}
+        candidate_entities = {
+            e for e in sql_entities if e not in other_dataset_entities
+        }
 
         vector_entities = set(await self._vec.get_active_node_ids(agent_id))
         # Exclude vectors belonging to other datasets
@@ -4781,7 +4815,8 @@ class MemoryDAO:
                 )
             }
             graph_entities = {
-                e for e in raw_graph_entities
+                e
+                for e in raw_graph_entities
                 if e not in other_dataset_entities
                 and ("GRAPH", "ENTITY", e) not in other_registered
             }
@@ -4793,7 +4828,8 @@ class MemoryDAO:
                 )
             }
             graph_assertions = {
-                a for a in raw_graph_assertions
+                a
+                for a in raw_graph_assertions
                 if a not in other_dataset_assertions
                 and ("GRAPH", "ASSERTION", a) not in other_registered
             }
@@ -5756,6 +5792,118 @@ class MemoryDAO:
         request_principal_id: str | None = None,
         certification_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        """Reuse only version-valid authorized scope data, never query results."""
+        kwargs: dict[str, Any] = dict(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            dataset_ids=dataset_ids,
+            query=query,
+            limit=limit,
+            jurisdiction=jurisdiction,
+            valid_at=valid_at,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            rrf_k=rrf_k,
+            rrf_weights=rrf_weights,
+            graph_enabled=graph_enabled,
+            request_principal_id=request_principal_id,
+            certification_metadata=certification_metadata,
+        )
+        if not self._search_scope_cache_enabled:
+            return await self._search_v4_memory_uncached(**kwargs)
+        async with self._sql.search_connection() as db:
+            if self._search_cache_db is not db:
+                self._search_scope_cache.clear()
+                self._search_data_version = None
+                self._search_cache_db = db
+            previous_tables = {
+                scope["fts_table"] for scope in self._search_scope_cache.values()
+            }
+            try:
+                await db.execute("BEGIN")
+                # Pin the WAL read snapshot before comparing the connection-local
+                # version. A concurrent commit cannot mix old FTS with new rows.
+                async with db.execute(
+                    "SELECT rootpage FROM main.sqlite_master LIMIT 1"
+                ) as cursor:
+                    await cursor.fetchone()
+                async with db.execute("PRAGMA data_version") as cursor:
+                    version = int((await cursor.fetchone())[0])
+                if version != self._search_data_version:
+                    await self._clear_search_scope_cache(db)
+                    self._search_data_version = version
+                key = (
+                    tenant_id,
+                    tuple(sorted(set(dataset_ids))),
+                    agent_id,
+                    jurisdiction,
+                    valid_at,
+                    valid_from,
+                    valid_to,
+                )
+                scope = self._search_scope_cache.get(key)
+                if scope is None:
+                    if len(self._search_scope_cache) == 4:
+                        _old_key, old_scope = self._search_scope_cache.popitem(
+                            last=False
+                        )
+                        await db.execute(
+                            f"DROP TABLE IF EXISTS temp.{old_scope['fts_table']}"
+                        )
+                    scope = {
+                        "fts_table": "v4_scoped_assertions_fts_" + uuid.uuid4().hex
+                    }
+                    self._search_scope_cache[key] = scope
+                self._search_scope_cache.move_to_end(key)
+                result = await self._search_v4_memory_uncached(
+                    **kwargs, _search_db=db, _scope=scope
+                )
+                await db.commit()  # Only TEMP can be written on this connection.
+                return result
+            except BaseException:
+                await db.rollback()
+                # Rollback can restore tables evicted earlier in this search.
+                for table in previous_tables:
+                    await db.execute(f"DROP TABLE IF EXISTS temp.{table}")
+                await self._clear_search_scope_cache(db)
+                self._search_data_version = None
+                raise
+
+    async def _clear_search_scope_cache(self, db: aiosqlite.Connection) -> None:
+        for scope in self._search_scope_cache.values():
+            await db.execute(f"DROP TABLE IF EXISTS temp.{scope['fts_table']}")
+        self._search_scope_cache.clear()
+
+    @asynccontextmanager
+    async def _search_read_connection(
+        self, retained: aiosqlite.Connection | None
+    ) -> AsyncIterator[aiosqlite.Connection]:
+        if retained is not None:
+            yield retained
+        else:
+            async with self._sql.connection() as db:
+                yield db
+
+    async def _search_v4_memory_uncached(
+        self,
+        *,
+        tenant_id: str,
+        agent_id: str,
+        dataset_ids: list[str],
+        query: str,
+        limit: int = 10,
+        jurisdiction: str | None = None,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        rrf_k: int | None = None,
+        rrf_weights: Mapping[str, float] | None = None,
+        graph_enabled: bool = True,
+        request_principal_id: str | None = None,
+        certification_metadata: dict[str, Any] | None = None,
+        _search_db: aiosqlite.Connection | None = None,
+        _scope: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
         graph_enabled = graph_enabled and self._graph_enabled
@@ -5772,6 +5920,9 @@ class MemoryDAO:
             rrf_weights if rrf_weights is not None else self._rrf_weights
         )
 
+        scope = _scope if _scope is not None else {}
+        scoped_fts = scope.get("fts_table", "v4_scoped_assertions_fts")
+        text_features = scope.setdefault("text_features", {})
         legal_resolver = LegalEntityResolver()
         legal_citations = legal_resolver.extract_citations(query)
         target_statutes = {c.statute_code for c in legal_citations}
@@ -5806,36 +5957,45 @@ class MemoryDAO:
             )
             provenance_params.append(valid_to)
 
-        async with self._sql.connection() as db:
-            datasets = sorted(
-                {
-                    await self._catalog.resolve_id_in_tx(
-                        db,
-                        tenant_id=tenant_id,
-                        kind="dataset",
-                        external_id=dataset_id,
-                    )
-                    for dataset_id in dataset_ids
-                }
-            )
+        async with self._search_read_connection(_search_db) as db:
+            if "datasets" in scope:
+                datasets = scope["datasets"]
+            else:
+                datasets = sorted(
+                    {
+                        await self._catalog.resolve_id_in_tx(
+                            db,
+                            tenant_id=tenant_id,
+                            kind="dataset",
+                            external_id=dataset_id,
+                        )
+                        for dataset_id in dataset_ids
+                    }
+                )
+                scope["datasets"] = datasets
             placeholders = ",".join("?" for _ in datasets)
-            async with db.execute(
-                "SELECT DISTINCT r.artifact_kind, r.physical_artifact_id, "
-                "r.metadata_json, r.registry_id FROM artifact_registry r "
-                "JOIN artifact_sources s ON s.registry_id = r.registry_id "
-                "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
-                "LEFT JOIN v4_entities e ON r.artifact_kind = 'ENTITY' "
-                "AND e.entity_id = r.physical_artifact_id "
-                f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
-                "AND m.agent_id = ? AND m.state = 'COMMITTED' "
-                "AND (r.artifact_kind != 'ASSERTION_VECTOR' OR r.agent_id = ?) "
-                "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
-                "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR') "
-                "AND (r.artifact_kind = 'ASSERTION_VECTOR' OR "
-                "(e.tenant_id = r.tenant_id AND e.status = 'ACTIVE'))",
-                (tenant_id, *datasets, agent_id, agent_id),
-            ) as cursor:
-                artifact_rows = await cursor.fetchall()
+            if "artifact_rows" in scope:
+                artifact_rows = scope["artifact_rows"]
+            else:
+                async with db.execute(
+                    "SELECT DISTINCT r.artifact_kind, r.physical_artifact_id, "
+                    "r.metadata_json, r.registry_id FROM artifact_registry r "
+                    "JOIN artifact_sources s ON s.registry_id = r.registry_id "
+                    "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
+                    "LEFT JOIN v4_entities e ON r.artifact_kind = 'ENTITY' "
+                    "AND e.entity_id = r.physical_artifact_id "
+                    f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
+                    "AND m.agent_id = ? AND m.state = 'COMMITTED' "
+                    "AND (r.artifact_kind != 'ASSERTION_VECTOR' OR r.agent_id = ?) "
+                    "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
+                    "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR') "
+                    "AND (r.artifact_kind = 'ASSERTION_VECTOR' OR "
+                    "(e.tenant_id = r.tenant_id AND e.status = 'ACTIVE'))",
+                    (tenant_id, *datasets, agent_id, agent_id),
+                ) as cursor:
+                    artifact_rows = await cursor.fetchall()
+
+                scope["artifact_rows"] = artifact_rows
 
             # Pre-filter in-scope assertions before rank contribution in ANY lane
             in_scope_assertion_query = (
@@ -5850,56 +6010,77 @@ class MemoryDAO:
                     else ""
                 )
             )
-            async with db.execute(
-                in_scope_assertion_query,
-                (tenant_id, *datasets, agent_id, *provenance_params),
-            ) as cursor:
-                in_scope_assertion_rows = await cursor.fetchall()
+            if "assertion_rows" in scope:
+                in_scope_assertion_rows = scope["assertion_rows"]
+            else:
+                async with db.execute(
+                    in_scope_assertion_query,
+                    (tenant_id, *datasets, agent_id, *provenance_params),
+                ) as cursor:
+                    in_scope_assertion_rows = await cursor.fetchall()
+
+                scope["assertion_rows"] = in_scope_assertion_rows
 
             if certification_metadata is not None:
-                degraded_sources = []
-                for lane, enabled in (
-                    ("VECTOR", self._embedding_enabled),
-                    ("GRAPH", self._graph_enabled),
-                ):
-                    incomplete = False
-                    if enabled:
-                        async with db.execute(
-                            "SELECT 1 FROM projection_outbox p "
-                            f"JOIN ({in_scope_assertion_query}) scoped "
-                            "ON scoped.mutation_id = p.mutation_id "
-                            "WHERE p.projection_name = ? "
-                            "AND p.state != 'COMPLETED' LIMIT 1",
-                            (tenant_id, *datasets, agent_id, *provenance_params, lane),
-                        ) as cursor:
-                            incomplete = await cursor.fetchone() is not None
-                    if not enabled or incomplete:
-                        degraded_sources.append(lane.lower())
-                certification_metadata["degraded_sources"] = degraded_sources
+                if "degraded_sources" in scope:
+                    degraded_sources = scope["degraded_sources"]
+                else:
+                    degraded_sources = []
+                    for lane, enabled in (
+                        ("VECTOR", self._embedding_enabled),
+                        ("GRAPH", self._graph_enabled),
+                    ):
+                        incomplete = False
+                        if enabled:
+                            async with db.execute(
+                                "SELECT 1 FROM projection_outbox p "
+                                f"JOIN ({in_scope_assertion_query}) scoped "
+                                "ON scoped.mutation_id = p.mutation_id "
+                                "WHERE p.projection_name = ? "
+                                "AND p.state != 'COMPLETED' LIMIT 1",
+                                (
+                                    tenant_id,
+                                    *datasets,
+                                    agent_id,
+                                    *provenance_params,
+                                    lane,
+                                ),
+                            ) as cursor:
+                                incomplete = await cursor.fetchone() is not None
+                        if not enabled or incomplete:
+                            degraded_sources.append(lane.lower())
+                    scope["degraded_sources"] = degraded_sources
+                certification_metadata["degraded_sources"] = list(degraded_sources)
 
             audit_rows: list[aiosqlite.Row] = []
             if certification_metadata is not None:
-                audit_query = (
-                    "SELECT a.assertion_id, a.tenant_id, a.dataset_id, "
-                    "COALESCE(c.external_id, '') AS external_dataset_id, "
-                    "m.agent_id, a.jurisdiction, a.status, a.valid_from, a.valid_to "
-                    "FROM v4_assertions a "
-                    "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
-                    "LEFT JOIN v4_catalog_identities c ON c.tenant_id = a.tenant_id "
-                    "AND c.kind = 'dataset' AND c.physical_id = a.dataset_id "
-                    f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) AND {assertion_status_sql} "
-                    "AND m.agent_id = ? AND m.state = 'COMMITTED' "
-                    + (
-                        "AND " + " AND ".join(provenance_filters)
-                        if provenance_filters
-                        else ""
+                if "audit_rows" in scope:
+                    audit_rows = scope["audit_rows"]
+                else:
+                    audit_query = (
+                        "SELECT a.assertion_id, a.tenant_id, a.dataset_id, "
+                        "COALESCE(c.external_id, '') AS external_dataset_id, "
+                        "m.agent_id, a.jurisdiction, a.status, a.valid_from, a.valid_to "
+                        "FROM v4_assertions a "
+                        "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                        "LEFT JOIN v4_catalog_identities c ON c.tenant_id = a.tenant_id "
+                        "AND c.kind = 'dataset' AND c.physical_id = a.dataset_id "
+                        f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) AND {assertion_status_sql} "
+                        "AND m.agent_id = ? AND m.state = 'COMMITTED' "
+                        + (
+                            "AND " + " AND ".join(provenance_filters)
+                            if provenance_filters
+                            else ""
+                        )
+                        + " ORDER BY a.assertion_id, a.tenant_id, m.agent_id"
                     )
-                    + " ORDER BY a.assertion_id, a.tenant_id, m.agent_id"
-                )
-                async with db.execute(
-                    audit_query, (tenant_id, *datasets, agent_id, *provenance_params)
-                ) as cursor:
-                    audit_rows = list(await cursor.fetchall())
+                    async with db.execute(
+                        audit_query,
+                        (tenant_id, *datasets, agent_id, *provenance_params),
+                    ) as cursor:
+                        audit_rows = list(await cursor.fetchall())
+
+                    scope["audit_rows"] = audit_rows
 
         if certification_metadata is not None:
             requested_scope = {
@@ -5925,28 +6106,32 @@ class MemoryDAO:
                     "rrf_weights": dict(effective_weights),
                 }
             )
-            audit_decisions = []
-            eligible_count = 0
-            for row in audit_rows:
-                eligible = (
-                    str(row["tenant_id"]) == tenant_id
-                    and str(row["dataset_id"]) in datasets
-                    and str(row["agent_id"]) == agent_id
-                )
-                eligible_count += int(eligible)
-                audit_decisions.append(
-                    {
-                        "assertion_id": str(row["assertion_id"]),
-                        "tenant_id": str(row["tenant_id"]),
-                        "dataset_id": str(row["external_dataset_id"]),
-                        "agent_id": str(row["agent_id"]),
-                        "jurisdiction": str(row["jurisdiction"] or ""),
-                        "status": str(row["status"]),
-                        "valid_from": str(row["valid_from"] or ""),
-                        "valid_to": str(row["valid_to"] or ""),
-                        "eligible": eligible,
-                    }
-                )
+            if "audit_decisions" in scope:
+                audit_decisions, eligible_count = scope["audit_decisions"]
+            else:
+                audit_decisions = []
+                eligible_count = 0
+                for row in audit_rows:
+                    eligible = (
+                        str(row["tenant_id"]) == tenant_id
+                        and str(row["dataset_id"]) in datasets
+                        and str(row["agent_id"]) == agent_id
+                    )
+                    eligible_count += int(eligible)
+                    audit_decisions.append(
+                        {
+                            "assertion_id": str(row["assertion_id"]),
+                            "tenant_id": str(row["tenant_id"]),
+                            "dataset_id": str(row["external_dataset_id"]),
+                            "agent_id": str(row["agent_id"]),
+                            "jurisdiction": str(row["jurisdiction"] or ""),
+                            "status": str(row["status"]),
+                            "valid_from": str(row["valid_from"] or ""),
+                            "valid_to": str(row["valid_to"] or ""),
+                            "eligible": eligible,
+                        }
+                    )
+                scope["audit_decisions"] = (audit_decisions, eligible_count)
             certification_metadata.update(
                 {
                     "scope_audit": {
@@ -6018,9 +6203,11 @@ class MemoryDAO:
                 "embedding_space_id": artifact_metadata["embedding_space_id"],
                 "embedding_dimension": artifact_metadata["embedding_dimension"],
             }
-        in_scope_assertions = {
-            str(row["assertion_id"]): dict(row) for row in in_scope_assertion_rows
-        }
+        if "assertions" not in scope:
+            scope["assertions"] = {
+                str(row["assertion_id"]): dict(row) for row in in_scope_assertion_rows
+            }
+        in_scope_assertions = scope["assertions"]
         in_scope_assertion_ids = set(in_scope_assertions)
         typed_legal_candidate_ids: set[str] = set()
         if legal_citations:
@@ -6051,7 +6238,7 @@ class MemoryDAO:
                 + " ORDER BY a.statute_code, a.article_id, a.legal_version_id, "
                 "a.assertion_id LIMIT ?"
             )
-            async with self._sql.connection() as db:
+            async with self._search_read_connection(_search_db) as db:
                 async with db.execute(
                     typed_candidate_query,
                     (
@@ -6187,7 +6374,7 @@ class MemoryDAO:
                         )
                 if ranked_assertion_ids:
                     vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
-                    async with self._sql.connection() as db:
+                    async with self._search_read_connection(_search_db) as db:
                         async with db.execute(
                             "SELECT * FROM v4_assertions "
                             f"WHERE assertion_id IN ({vector_placeholders})",
@@ -6320,12 +6507,12 @@ class MemoryDAO:
             passage_sql = (
                 "SELECT a.*, s.canonical_name AS subject_name, "
                 "o.canonical_name AS object_name, "
-                "bm25(v4_scoped_assertions_fts, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
-                "AS bm25_score FROM v4_scoped_assertions_fts "
-                "JOIN v4_assertions a ON a.rowid = v4_scoped_assertions_fts.rowid "
+                f"bm25({scoped_fts}, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
+                f"AS bm25_score FROM {scoped_fts} "
+                f"JOIN v4_assertions a ON a.rowid = {scoped_fts}.rowid "
                 "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
                 "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-                "WHERE v4_scoped_assertions_fts MATCH ? AND a.tenant_id = ? "
+                f"WHERE {scoped_fts} MATCH ? AND a.tenant_id = ? "
                 f"AND a.dataset_id IN ({placeholders}) "
                 f"AND {assertion_status_sql} "
                 "AND EXISTS (SELECT 1 FROM memory_mutations m "
@@ -6339,28 +6526,30 @@ class MemoryDAO:
                 + " "
                 "ORDER BY bm25_score, a.assertion_id LIMIT ?"
             )
-            async with self._sql.connection() as db:
-                # WHERE filters do not scope FTS5's corpus statistics. Build a
-                # connection-local index of the authorized corpus so foreign
-                # rows cannot change scores, rank or the pre-rank LIMIT. The
-                # temporary index is discarded when this connection closes.
-                await db.execute(
-                    "CREATE VIRTUAL TABLE temp.v4_scoped_assertions_fts USING fts5("
-                    "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
-                    "source_ref, subject_name, object_name, chunk_payload, "
-                    "tokenize='unicode61 remove_diacritics 2')"
-                )
-                await db.execute(
-                    "INSERT INTO temp.v4_scoped_assertions_fts "
-                    "(rowid, assertion_id, predicate, evidence_span, literal_value, "
-                    "source_ref, subject_name, object_name, chunk_payload) "
-                    "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
-                    "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
-                    "f.chunk_payload FROM v4_assertions_fts f "
-                    f"JOIN ({in_scope_assertion_query}) scoped "
-                    "ON scoped.assertion_id = f.assertion_id",
-                    (tenant_id, *datasets, agent_id, *provenance_params),
-                )
+            async with self._search_read_connection(_search_db) as db:
+                if not scope.get("fts_built"):
+                    # WHERE filters do not scope FTS5's corpus statistics. Build a
+                    # connection-local index of the authorized corpus so foreign
+                    # rows cannot change scores, rank or the pre-rank LIMIT. The
+                    # cache retains it only for this scope and main data_version.
+                    await db.execute(
+                        f"CREATE VIRTUAL TABLE temp.{scoped_fts} USING fts5("
+                        "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
+                        "source_ref, subject_name, object_name, chunk_payload, "
+                        "tokenize='unicode61 remove_diacritics 2')"
+                    )
+                    await db.execute(
+                        f"INSERT INTO temp.{scoped_fts} "
+                        "(rowid, assertion_id, predicate, evidence_span, literal_value, "
+                        "source_ref, subject_name, object_name, chunk_payload) "
+                        "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
+                        "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
+                        "f.chunk_payload FROM v4_assertions_fts f "
+                        f"JOIN ({in_scope_assertion_query}) scoped "
+                        "ON scoped.assertion_id = f.assertion_id",
+                        (tenant_id, *datasets, agent_id, *provenance_params),
+                    )
+                    scope["fts_built"] = True
                 async with db.execute(
                     passage_sql,
                     (
@@ -6391,13 +6580,20 @@ class MemoryDAO:
             scored_passage_candidates: list[tuple[float, str, dict[str, Any]]] = []
             for p_row in passage_candidate_rows:
                 aid = str(p_row["assertion_id"])
-                p_raw_text = (
-                    f"{p_row.get('subject_name') or ''} {p_row.get('source_ref') or ''} "
-                    f"{p_row.get('document_id') or ''} "
-                    f"{p_row.get('literal_value') or ''} {p_row.get('evidence_span') or ''} "
-                    f"{p_row.get('predicate') or ''} {p_row.get('object_name') or ''}"
+                features = text_features.setdefault(
+                    (aid, p_row.get("subject_name"), p_row.get("object_name")), {}
                 )
-                p_text = _normalize_identity_text(p_raw_text)
+                if "passage_text" not in features:
+                    p_raw_text = (
+                        f"{p_row.get('subject_name') or ''} {p_row.get('source_ref') or ''} "
+                        f"{p_row.get('document_id') or ''} "
+                        f"{p_row.get('literal_value') or ''} {p_row.get('evidence_span') or ''} "
+                        f"{p_row.get('predicate') or ''} {p_row.get('object_name') or ''}"
+                    )
+                    features["passage_raw_text"] = p_raw_text
+                    features["passage_text"] = _normalize_identity_text(p_raw_text)
+                p_raw_text = features["passage_raw_text"]
+                p_text = features["passage_text"]
                 # SQLite BM25 is lower-is-better (usually negative).  Preserve
                 # it verbatim for observability while using its negation as a
                 # small relevance component in the combined lexical order.
@@ -6432,7 +6628,11 @@ class MemoryDAO:
                             ):
                                 p_score += 40.0
                     else:
-                        row_citations = legal_resolver.extract_citations(p_raw_text)
+                        if "passage_citations" not in features:
+                            features["passage_citations"] = (
+                                legal_resolver.extract_citations(p_raw_text)
+                            )
+                        row_citations = features["passage_citations"]
                         row_identities = {
                             (c.statute_code, c.article) for c in row_citations
                         }
@@ -6472,7 +6672,7 @@ class MemoryDAO:
             ]
             if clean_fts_tokens:
                 expression = " OR ".join(f'"{t}"' for t in clean_fts_tokens)
-                async with self._sql.connection() as db:
+                async with self._search_read_connection(_search_db) as db:
                     async with db.execute(
                         build_v4_lexical_query(dataset_count=len(datasets)),
                         (
@@ -6507,14 +6707,37 @@ class MemoryDAO:
                 continue
 
             score = 0.0
-            pred_raw = str(a_row.get("predicate") or "").lower()
-            pred_norm = _normalize_identity_text(pred_raw)
-            s_name_norm = _normalize_identity_text(str(a_row.get("subject_name") or ""))
-            o_name_norm = _normalize_identity_text(str(a_row.get("object_name") or ""))
-            lit_norm = _normalize_identity_text(str(a_row.get("literal_value") or ""))
-            ev_norm = _normalize_identity_text(str(a_row.get("evidence_span") or ""))
-            combined_text = (
-                f"{pred_norm} {s_name_norm} {o_name_norm} {lit_norm} {ev_norm}"
+            features = text_features.setdefault(
+                (aid, a_row.get("subject_name"), a_row.get("object_name")), {}
+            )
+            if "assertion_text" not in features:
+                pred_raw = str(a_row.get("predicate") or "").lower()
+                pred_norm = _normalize_identity_text(pred_raw)
+                s_name_norm = _normalize_identity_text(
+                    str(a_row.get("subject_name") or "")
+                )
+                o_name_norm = _normalize_identity_text(
+                    str(a_row.get("object_name") or "")
+                )
+                lit_norm = _normalize_identity_text(
+                    str(a_row.get("literal_value") or "")
+                )
+                ev_norm = _normalize_identity_text(
+                    str(a_row.get("evidence_span") or "")
+                )
+                combined_text = (
+                    f"{pred_norm} {s_name_norm} {o_name_norm} {lit_norm} {ev_norm}"
+                )
+                features["assertion_text"] = (
+                    pred_norm,
+                    s_name_norm,
+                    o_name_norm,
+                    lit_norm,
+                    ev_norm,
+                    combined_text,
+                )
+            pred_norm, s_name_norm, o_name_norm, lit_norm, ev_norm, combined_text = (
+                features["assertion_text"]
             )
 
             # 1. Predicate Match
@@ -6562,19 +6785,23 @@ class MemoryDAO:
                         elif typed_identity["statute_code"] == citation.statute_code:
                             score += 40.0
                 else:
-                    row_citations = legal_resolver.extract_citations(
-                        " ".join(
-                            str(a_row.get(field) or "")
-                            for field in (
-                                "predicate",
-                                "subject_name",
-                                "object_name",
-                                "literal_value",
-                                "evidence_span",
-                                "source_ref",
+                    if "assertion_citations" not in features:
+                        features["assertion_citations"] = (
+                            legal_resolver.extract_citations(
+                                " ".join(
+                                    str(a_row.get(field) or "")
+                                    for field in (
+                                        "predicate",
+                                        "subject_name",
+                                        "object_name",
+                                        "literal_value",
+                                        "evidence_span",
+                                        "source_ref",
+                                    )
+                                )
                             )
                         )
-                    )
+                    row_citations = features["assertion_citations"]
                     row_identities = {
                         (c.statute_code, c.article) for c in row_citations
                     }
@@ -6605,7 +6832,9 @@ class MemoryDAO:
         scored_assertions.sort(
             key=lambda x: (
                 -x[0],
-                -float(x[2]["confidence"] if x[2].get("confidence") is not None else 0.0),
+                -float(
+                    x[2]["confidence"] if x[2].get("confidence") is not None else 0.0
+                ),
                 str(x[1]),
             )
         )
@@ -6644,8 +6873,10 @@ class MemoryDAO:
                     if c.article:
                         legal_entity_names.add(f"{c.statute_code} {c.article}")
                         legal_entity_names.add(f"{c.statute_code} m.{c.article}")
-                norm_legal_names = {_normalize_identity_text(n) for n in legal_entity_names}
-                async with self._sql.connection() as db:
+                norm_legal_names = {
+                    _normalize_identity_text(n) for n in legal_entity_names
+                }
+                async with self._search_read_connection(_search_db) as db:
                     placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
                     async with db.execute(
                         f"SELECT entity_id, normalized_name FROM v4_entities "
@@ -6661,7 +6892,7 @@ class MemoryDAO:
             # 2. Query text direct entity matches in allowed_entity_ids
             if allowed_entity_ids:
                 clean_query_norm = _normalize_identity_text(query).strip()
-                async with self._sql.connection() as db:
+                async with self._search_read_connection(_search_db) as db:
                     placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
                     async with db.execute(
                         f"SELECT entity_id, normalized_name FROM v4_entities "
@@ -6703,7 +6934,9 @@ class MemoryDAO:
             for hit_id in lexical_entity_lane[:8]:
                 seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
 
-            graph_seed_ids = sorted(seed_scores, key=lambda sid: (-seed_scores[sid], sid))
+            graph_seed_ids = sorted(
+                seed_scores, key=lambda sid: (-seed_scores[sid], sid)
+            )
         else:
             graph_seed_ids = []
 
@@ -6952,7 +7185,7 @@ class MemoryDAO:
         cand_entity_names: dict[str, str] = {}
         if cand_entity_ids:
             ce_placeholders = ",".join("?" for _ in cand_entity_ids)
-            async with self._sql.connection() as db:
+            async with self._search_read_connection(_search_db) as db:
                 async with db.execute(
                     f"SELECT entity_id, canonical_name FROM v4_entities "
                     f"WHERE tenant_id = ? AND entity_id IN ({ce_placeholders})",
@@ -7013,9 +7246,16 @@ class MemoryDAO:
                 if eid and eid in cand_entity_names:
                     cand_texts.append(cand_entity_names[eid])
 
-                candidate_citations = legal_resolver.extract_citations(
-                    " ".join(cand_texts)
+                citation_key = (
+                    "candidate_citations",
+                    cand["assertion_id"],
+                    tuple(cand_texts),
                 )
+                if citation_key not in text_features:
+                    text_features[citation_key] = legal_resolver.extract_citations(
+                        " ".join(cand_texts)
+                    )
+                candidate_citations = text_features[citation_key]
                 candidate_identities = {
                     (c.statute_code, c.article) for c in candidate_citations
                 }
@@ -7056,7 +7296,7 @@ class MemoryDAO:
         entities: dict[str, dict[str, Any]] = {}
         if needed_entity_ids:
             entity_placeholders = ",".join("?" for _ in needed_entity_ids)
-            async with self._sql.connection() as db:
+            async with self._search_read_connection(_search_db) as db:
                 async with db.execute(
                     f"SELECT * FROM v4_entities WHERE tenant_id = ? "
                     f"AND status = 'ACTIVE' AND entity_id IN ({entity_placeholders})",
@@ -7127,7 +7367,7 @@ class MemoryDAO:
             }
         )
         metadata_by_mutation: dict[str, dict[str, Any]] = {}
-        async with self._sql.connection() as db:
+        async with self._search_read_connection(_search_db) as db:
             if mutation_ids:
                 mutation_placeholders = ",".join("?" for _ in mutation_ids)
                 async with db.execute(
