@@ -23,7 +23,7 @@ from mesa_storage.repositories.operations import OperationRepositoryPort
 from mesa_storage.sqlite_engine import configure_sqlite_connection
 from mesa_storage.writer_lock import StorageWriterLock
 
-REBUILD_ALEMBIC_HEAD = "d5e6f7a8b9c0"
+REBUILD_ALEMBIC_HEAD = "e6f7a8b9c0d1"
 _ADMIN_TABLES = frozenset(
     {
         "system_operations",

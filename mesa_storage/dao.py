@@ -3115,6 +3115,8 @@ class MemoryDAO:
             (revision_id,),
         ) as cursor:
             child_states = [r[0] for r in await cursor.fetchall()]
+        if not child_states or any(s != "COMMITTED" for s in child_states):
+            return
         async with db.execute(
             "SELECT COUNT(*) FROM source_chunks WHERE revision_id = ?",
             (revision_id,),
@@ -3128,12 +3130,7 @@ class MemoryDAO:
             (revision_id,),
         ) as cursor:
             missing_work = int((await cursor.fetchone())[0])
-        if (
-            not child_states
-            or manifest_size < 1
-            or any(s != "COMMITTED" for s in child_states)
-            or missing_work > 0
-        ):
+        if manifest_size < 1 or missing_work > 0:
             return
 
         valid_from = ""
@@ -7459,8 +7456,6 @@ class MemoryDAO:
                 return
             current_state = state
             current_index = state_index
-            if current_state == "COMMITTED":
-                await MemoryDAO._activate_committed_revision_in_tx(db, mutation_id)
         async with db.execute(
             "SELECT pipeline_run_id FROM memory_mutations WHERE mutation_id = ?",
             (mutation_id,),
