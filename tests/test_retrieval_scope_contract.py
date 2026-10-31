@@ -198,3 +198,35 @@ def test_mesaconfig_rejects_nan_inf_rrf_weights() -> None:
     with pytest.raises(ValueError, match="rrf bm25 weight MUST be positive and finite"):
         MesaConfig(rrf_bm25_weight=-0.5)
 
+
+def test_mesaconfig_accepts_zero_rrf_lane_weight() -> None:
+    from mesa_memory.config import MesaConfig
+    from mesa_storage.retrieval_scope import rrf_fuse_lanes
+
+    cfg = MesaConfig(
+        rrf_vector_weight=0.0,
+        rrf_bm25_weight=0.0,
+        rrf_assertion_weight=0.0,
+        rrf_graph_weight=0.0,
+    )
+    assert cfg.rrf_vector_weight == 0.0
+    assert cfg.rrf_bm25_weight == 0.0
+    assert cfg.rrf_assertion_weight == 0.0
+    assert cfg.rrf_graph_weight == 0.0
+
+    with pytest.raises(ValueError, match="rrf vector weight MUST be positive and finite"):
+        MesaConfig(rrf_vector_weight=-0.01)
+    with pytest.raises(ValueError, match="rrf bm25 weight MUST be positive and finite"):
+        MesaConfig(rrf_bm25_weight=float("nan"))
+    with pytest.raises(ValueError, match="rrf graph weight MUST be positive and finite"):
+        MesaConfig(rrf_graph_weight=float("inf"))
+
+    lanes = {
+        "vector": ["c1", "c2"],
+        "bm25": ["c2", "c1"],
+    }
+    fused_zero_vector = rrf_fuse_lanes(lanes, weights={"vector": 0.0, "bm25": 1.0})
+    fused_only_bm25 = rrf_fuse_lanes({"bm25": ["c2", "c1"]}, weights={"bm25": 1.0})
+    assert [c[0] for c in fused_zero_vector] == [c[0] for c in fused_only_bm25]
+
+
