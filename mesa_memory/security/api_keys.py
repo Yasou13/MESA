@@ -7,6 +7,7 @@ salted scrypt digest; it never stores a recoverable API secret.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import os
@@ -139,7 +140,7 @@ class APIKeyStore:
         expires_at: str | None,
     ) -> None:
         salt = os.urandom(16)
-        digest = self._digest(secret, salt)
+        digest = await asyncio.to_thread(self._digest, secret, salt)
         statement = "INSERT OR REPLACE" if replace else "INSERT"
         async with self._connect() as db:
             await db.execute(
@@ -179,7 +180,7 @@ class APIKeyStore:
             return None
         salt = base64.b64decode(row["salt_b64"])
         expected = base64.b64decode(row["digest_b64"])
-        actual = self._digest(secret, salt)
+        actual = await asyncio.to_thread(self._digest, secret, salt)
         if not secrets.compare_digest(expected, actual):
             return None
         return VerifiedAPIKey(
@@ -215,7 +216,7 @@ class APIKeyStore:
         replacement_secret = secrets.token_urlsafe(32)
         replacement_expiry = _expiry_timestamp(DEFAULT_API_KEY_TTL_SECONDS)
         salt = os.urandom(16)
-        digest = self._digest(replacement_secret, salt)
+        digest = await asyncio.to_thread(self._digest, replacement_secret, salt)
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")

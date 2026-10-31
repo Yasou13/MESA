@@ -57,3 +57,44 @@ async def test_api_key_expiry_and_failed_rotation_preserve_the_active_key(
         )
         await db.commit()
     assert await store.verify(original) is None
+
+
+@pytest.mark.asyncio
+async def test_scrypt_runs_off_event_loop(tmp_path) -> None:
+    import asyncio
+    import threading
+    import time
+
+    store = APIKeyStore(str(tmp_path / "rbac.db"))
+    await store.initialize()
+    key = await store.issue_key(principal_id="principal-test")
+
+    ticks_during_digest = 0
+    in_digest = threading.Event()
+    digest_finished = threading.Event()
+
+    orig_digest = store._digest
+
+    def slow_digest(secret: str, salt: bytes) -> bytes:
+        in_digest.set()
+        time.sleep(0.05)
+        digest_finished.set()
+        return orig_digest(secret, salt)
+
+    store._digest = slow_digest  # type: ignore[assignment]
+
+    async def ticker():
+        nonlocal ticks_during_digest
+        while not digest_finished.is_set():
+            if in_digest.is_set():
+                ticks_during_digest += 1
+            await asyncio.sleep(0.005)
+
+    ticker_task = asyncio.create_task(ticker())
+    verified = await store.verify(key)
+    await ticker_task
+
+    assert verified is not None
+    assert verified.principal_id == "principal-test"
+    assert ticks_during_digest > 0, "Event loop was blocked during scrypt digest"
+
