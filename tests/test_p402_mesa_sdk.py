@@ -475,3 +475,29 @@ async def test_async_wait_raises_immediately_on_chunk_failure(fake_server):
         await client.aclose()
 
 
+def test_mesa_sdk_delete_by_source(fake_server):
+    url, logs = fake_server
+    source = "file://sozlesme.txt"
+    expected_doc_id = f"doc-{hashlib.sha256(source.encode('utf-8')).hexdigest()[:32]}"
+    with Mesa(base_url=url, api_key="test-key", dataset_id="legal") as mesa:
+        res = mesa.delete(source=source)
+        assert res["status"] == "purged"
+        assert any(
+            log["method"] == "DELETE" and expected_doc_id in log["path"]
+            for log in logs
+        )
+
+
+def test_mesa_sdk_delete_validation(fake_server):
+    url, logs = fake_server
+    with Mesa(base_url=url, api_key="test-key", dataset_id="legal") as mesa:
+        # Neither document_id nor source
+        with pytest.raises((MesaClientError, ValueError)):
+            mesa.delete()
+
+        # Both document_id and source
+        with pytest.raises((MesaClientError, ValueError)):
+            mesa.delete(document_id="doc-123", source="file://sozlesme.txt")
+
+
+

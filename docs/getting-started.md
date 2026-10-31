@@ -45,7 +45,7 @@ mesa search "your query"
 mesa status
 ```
 
-By default, `mesa add` waits for all chunks to commit and the revision to become active, printing `searchable` when complete (pass `--no-wait` to return immediately).
+By default, `mesa add` waits for all chunks to commit and the revision to become active, printing `searchable` when complete (pass `--no-wait` to return immediately). To delete an ingested document, run `mesa delete <document_id>` or `mesa delete --source <ref>`.
 
 ### 3. Python SDK
 

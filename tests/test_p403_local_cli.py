@@ -287,6 +287,11 @@ def test_codex_cli_parser_routes_to_local_commands():
     assert args_delete.group == "delete"
     assert args_delete.document_id == "doc-123"
 
+    args_delete_source = parser.parse_args(["delete", "--source", "file://doc.txt"])
+    assert args_delete_source.group == "delete"
+    assert args_delete_source.document_id is None
+    assert args_delete_source.source == "file://doc.txt"
+
     args_status = parser.parse_args(["status", "--json"])
     assert args_status.group == "status"
     assert args_status.json is True
@@ -410,4 +415,52 @@ def test_cli_add_prints_mutation_failure_without_traceback(tmp_path, capsys):
     assert exit_info.value.code == 1
     _, err = capsys.readouterr()
     assert err == f"Error: {msg}\n"
+
+
+def test_cli_delete_by_source(capsys):
+    from mesa_mcp import codex_cli
+    from mesa_mcp.local_cli import delete_command
+
+    mock_mesa = MagicMock()
+    mock_mesa.delete.return_value = {"status": "purged", "document_id": "doc-derived-123"}
+    with patch("mesa_client.Mesa", return_value=mock_mesa):
+        parser = codex_cli._parser()
+        args = parser.parse_args(["delete", "--source", "file://doc.txt"])
+        delete_command(args)
+        out, _ = capsys.readouterr()
+        mock_mesa.delete.assert_called_once_with(document_id=None, source="file://doc.txt")
+        assert "Purged document doc-derived-123" in out
+
+
+def test_cli_delete_requires_exactly_one_of_id_or_source(capsys):
+    from mesa_mcp.local_cli import handle_local_command
+
+    # 1. Neither
+    with pytest.raises(SystemExit) as exc_info:
+        handle_local_command(
+            argparse.Namespace(
+                group="delete",
+                document_id=None,
+                source=None,
+                json=False,
+            )
+        )
+    assert exc_info.value.code == 1
+    _, err = capsys.readouterr()
+    assert "Exactly one" in err
+
+    # 2. Both
+    with pytest.raises(SystemExit) as exc_info:
+        handle_local_command(
+            argparse.Namespace(
+                group="delete",
+                document_id="doc-1",
+                source="file://doc.txt",
+                json=False,
+            )
+        )
+    assert exc_info.value.code == 1
+    _, err = capsys.readouterr()
+    assert "Exactly one" in err
+
 

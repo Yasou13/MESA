@@ -67,7 +67,7 @@ class MesaNetworkError(MesaClientError):
     pass
 
 
-class MesaValidationError(MesaClientError):
+class MesaValidationError(MesaClientError, ValueError):
     """Exception raised when Pydantic validation fails for request or response payloads."""
 
     pass
@@ -1320,6 +1320,10 @@ class AsyncMesaV4Client(AsyncMesaClient):
             await asyncio.sleep(poll_interval_seconds)
 
 
+def _document_id_from_source(source: str) -> str:
+    return f"doc-{hashlib.sha256(source.encode('utf-8')).hexdigest()[:32]}"
+
+
 class Mesa:
     """Convenience SDK entrypoint for fast local use and scripting (D30).
 
@@ -1421,7 +1425,7 @@ class Mesa:
         deadline: float | None = None,
     ) -> dict[str, Any]:
         """Ingest a document with server-side chunking (D29)."""
-        doc_id = document_id or f"doc-{hashlib.sha256(source.encode('utf-8')).hexdigest()[:32]}"
+        doc_id = document_id or _document_id_from_source(source)
         doc_title = title if title is not None else source
         session_id = self._ensure_session()
         total_timeout = deadline if deadline is not None else timeout
@@ -1472,13 +1476,29 @@ class Mesa:
         )
         return str(resp.get("context", ""))
 
-    def delete(self, document_id: str) -> dict[str, Any]:
+    def delete(
+        self,
+        document_id: str | None = None,
+        *,
+        source: str | None = None,
+    ) -> dict[str, Any]:
         """Purge a document from the catalog."""
+        if (document_id is None and source is None) or (
+            document_id is not None and source is not None
+        ):
+            raise MesaValidationError(
+                "Exactly one of document_id or source is required"
+            )
+        doc_id = (
+            document_id
+            if document_id is not None
+            else _document_id_from_source(source)  # type: ignore[arg-type]
+        )
         return self._client.purge_document(
             tenant_id=self.tenant_id,
             workspace_id=self.workspace_id,
             dataset_id=self.dataset_id,
-            document_id=document_id,
+            document_id=doc_id,
         )
 
     def close(self) -> None:
