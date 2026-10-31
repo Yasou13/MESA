@@ -3844,10 +3844,21 @@ class MemoryDAO:
                         mutation_id_str
                     )
                 return False
+            started_at = (
+                row["updated_at"]
+                if row["updated_at"] is not None
+                else row["created_at"]
+            )
             await db.execute(
                 "INSERT OR IGNORE INTO projection_attempts "
-                "(attempt_id, projection_id, attempt_number, outcome, finished_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                (str(uuid.uuid4()), projection_id, row["attempt_count"], outcome[:120]),
+                "(attempt_id, projection_id, attempt_number, outcome, started_at, finished_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                (
+                    str(uuid.uuid4()),
+                    projection_id,
+                    row["attempt_count"],
+                    outcome[:120],
+                    started_at,
+                ),
             )
             if outcome == "SKIPPED" and not (
                 (row["projection_name"] == "VECTOR" and not self._embedding_enabled)
@@ -3994,16 +4005,22 @@ class MemoryDAO:
                 row["retry_limit"]
             )
             next_state = "DEAD_LETTER" if terminal else "RETRY_PENDING"
+            started_at = (
+                row["updated_at"]
+                if row["updated_at"] is not None
+                else row["created_at"]
+            )
             await db.execute(
                 "INSERT OR IGNORE INTO projection_attempts "
-                "(attempt_id, projection_id, attempt_number, outcome, error_class, finished_at) "
-                "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                "(attempt_id, projection_id, attempt_number, outcome, error_class, started_at, finished_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (
                     str(uuid.uuid4()),
                     projection_id,
                     row["attempt_count"],
                     next_state,
                     error_class[:120],
+                    started_at,
                 ),
             )
             cursor = await db.execute(

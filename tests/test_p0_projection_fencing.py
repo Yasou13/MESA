@@ -691,3 +691,109 @@ async def test_worker_batch_completion_rejects_fenced_or_wrong_worker(tmp_path):
             assert row["state"] == "CANCELLED"
 
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_projection_attempt_started_at_is_claim_time(tmp_path):
+    """complete_projection_outbox and fail_projection_outbox must record claim time as started_at."""
+    engine = AsyncEngine(str(tmp_path / "attempt_timing.db"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=MagicMock())
+    pipeline_run_id = str(uuid.uuid4())
+    mutation_id = str(uuid.uuid4())
+    proj_id = f"proj_{mutation_id}_SQL"
+
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
+            "VALUES (?, 't1', 's1', 'a1', 'COMMITTED')",
+            (pipeline_run_id,),
+        )
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, pipeline_run_id, session_id, content_payload, state) "
+            "VALUES (?, 'c1', 't1', 'a1', ?, 's1', 'payload', 'STAGED')",
+            (mutation_id, pipeline_run_id),
+        )
+        await db.execute(
+            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state, retry_limit, attempt_count) "
+            "VALUES (?, ?, 'SQL', 'PENDING', 3, 0)",
+            (proj_id, mutation_id),
+        )
+        await db.commit()
+
+    claims = await dao.claim_projection_outbox(worker_id="worker_1", limit=1)
+    assert len(claims) == 1
+    claim = claims[0]
+
+    # Explicitly set claim updated_at to a past timestamp
+    past_claim_time = "2025-01-01 12:00:00"
+    async with engine.transaction() as db:
+        await db.execute(
+            "UPDATE projection_outbox SET updated_at = ? WHERE projection_id = ?",
+            (past_claim_time, proj_id),
+        )
+        await db.commit()
+
+    success = await dao.complete_projection_outbox(
+        proj_id, worker_id="worker_1", claim_token=claim["claim_token"], outcome="COMPLETED"
+    )
+    assert success is True
+
+    async with engine.connection() as db:
+        async with db.execute(
+            "SELECT started_at, finished_at FROM projection_attempts WHERE projection_id = ?",
+            (proj_id,),
+        ) as cursor:
+            attempt = await cursor.fetchone()
+            assert attempt is not None
+            assert attempt["started_at"] == past_claim_time
+            assert attempt["started_at"] != attempt["finished_at"]
+
+    # Test fail_projection_outbox records claim time as well
+    mutation_id_fail = str(uuid.uuid4())
+    proj_id_fail = f"proj_{mutation_id_fail}_SQL"
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, pipeline_run_id, session_id, content_payload, state) "
+            "VALUES (?, 'c2', 't1', 'a1', ?, 's1', 'payload2', 'STAGED')",
+            (mutation_id_fail, pipeline_run_id),
+        )
+        await db.execute(
+            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state, retry_limit, attempt_count) "
+            "VALUES (?, ?, 'SQL', 'PENDING', 3, 0)",
+            (proj_id_fail, mutation_id_fail),
+        )
+        await db.commit()
+
+    fail_claims = await dao.claim_projection_outbox(worker_id="worker_2", limit=1)
+    fail_claim = next(c for c in fail_claims if c["projection_id"] == proj_id_fail)
+    past_fail_claim_time = "2025-01-01 13:00:00"
+    async with engine.transaction() as db:
+        await db.execute(
+            "UPDATE projection_outbox SET updated_at = ? WHERE projection_id = ?",
+            (past_fail_claim_time, proj_id_fail),
+        )
+        await db.commit()
+
+    failed = await dao.fail_projection_outbox(
+        proj_id_fail,
+        worker_id="worker_2",
+        claim_token=fail_claim["claim_token"],
+        error_class="TransientError",
+        retryable=True,
+    )
+    assert failed is True
+
+    async with engine.connection() as db:
+        async with db.execute(
+            "SELECT started_at, finished_at FROM projection_attempts WHERE projection_id = ?",
+            (proj_id_fail,),
+        ) as cursor:
+            attempt_fail = await cursor.fetchone()
+            assert attempt_fail is not None
+            assert attempt_fail["started_at"] == past_fail_claim_time
+            assert attempt_fail["started_at"] != attempt_fail["finished_at"]
+
+    await engine.close()
+
