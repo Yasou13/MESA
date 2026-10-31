@@ -372,6 +372,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             "assertion": config.rrf_assertion_weight,
             "graph": config.rrf_graph_weight,
         },
+        search_scope_cache_enabled=config.search_scope_cache,
     )
     await state.dao.initialize()
     if runtime.profile is RuntimeProfile.COMBINED:

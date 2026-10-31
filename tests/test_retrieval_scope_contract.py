@@ -230,3 +230,27 @@ def test_mesaconfig_accepts_zero_rrf_lane_weight() -> None:
     assert [c[0] for c in fused_zero_vector] == [c[0] for c in fused_only_bm25]
 
 
+def test_mesaconfig_search_scope_cache_defaults_and_env(monkeypatch) -> None:
+    from mesa_memory.config import MesaConfig
+
+    # 1. Default is True
+    monkeypatch.delenv("MESA_SEARCH_SCOPE_CACHE", raising=False)
+    cfg = MesaConfig()
+    assert cfg.search_scope_cache is True
+
+    # 2. Env variable 'false'
+    monkeypatch.setenv("MESA_SEARCH_SCOPE_CACHE", "false")
+    cfg_off = MesaConfig()
+    assert cfg_off.search_scope_cache is False
+
+    # 3. Env variable '0'
+    monkeypatch.setenv("MESA_SEARCH_SCOPE_CACHE", "0")
+    cfg_zero = MesaConfig()
+    assert cfg_zero.search_scope_cache is False
+
+    # 4. Explicit kwarg
+    cfg_explicit = MesaConfig(search_scope_cache=False)
+    assert cfg_explicit.search_scope_cache is False
+
+
+

@@ -210,6 +210,7 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `rrf_bm25_weight` | `MESA_RRF_BM25_WEIGHT` | `1.0` |
 | `rrf_assertion_weight` | `MESA_RRF_ASSERTION_WEIGHT` | `1.0` |
 | `rrf_graph_weight` | `MESA_RRF_GRAPH_WEIGHT` | `1.0` |
+| `search_scope_cache` | `MESA_SEARCH_SCOPE_CACHE` | `True` |
 | `t_route` | `MESA_T_ROUTE` | `0.85` |
 | `v4_rebuild_enabled` | `MESA_V4_REBUILD_ENABLED` | `False` |
 | `v4_graph_timeout_seconds` | `MESA_V4_GRAPH_TIMEOUT_SECONDS` | `15.0` |

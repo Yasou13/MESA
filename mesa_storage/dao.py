@@ -19,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import sqlite3
 import unicodedata
@@ -553,6 +552,7 @@ class MemoryDAO:
         graph_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
+        search_scope_cache_enabled: bool = True,
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
@@ -567,9 +567,7 @@ class MemoryDAO:
         self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
-        self._search_scope_cache_enabled = os.environ.get(
-            "MESA_SEARCH_SCOPE_CACHE", "true"
-        ).strip().lower() not in {"0", "false", "no", "off"}
+        self._search_scope_cache_enabled = search_scope_cache_enabled
         self._search_scope_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = (
             OrderedDict()
         )

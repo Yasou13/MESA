@@ -627,6 +627,9 @@ class MesaConfig(BaseSettings):
         1.0, validation_alias="MESA_RRF_ASSERTION_WEIGHT"
     )
     rrf_graph_weight: float = Field(1.0, validation_alias="MESA_RRF_GRAPH_WEIGHT")
+    search_scope_cache: bool = Field(
+        True, validation_alias="MESA_SEARCH_SCOPE_CACHE"
+    )
     t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
 
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this
