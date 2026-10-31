@@ -6608,89 +6608,92 @@ class MemoryDAO:
                     break
 
         # Real Kùzu Graph V2 Traversal Lane
-        seed_scores: dict[str, float] = {}
-
-        # 1. Legal citation entity seeds (high relevance)
-        if legal_citations and allowed_entity_ids:
-            legal_entity_names = set(legal_resolver.extract_entities(query))
-            for c in legal_citations:
-                legal_entity_names.add(c.statute_code)
-                legal_entity_names.add(c.statute_canonical)
-                if c.article:
-                    legal_entity_names.add(f"{c.statute_code} {c.article}")
-                    legal_entity_names.add(f"{c.statute_code} m.{c.article}")
-            norm_legal_names = {_normalize_identity_text(n) for n in legal_entity_names}
-            async with self._sql.connection() as db:
-                placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
-                async with db.execute(
-                    f"SELECT entity_id, normalized_name FROM v4_entities "
-                    f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
-                    (tenant_id, *allowed_entity_ids),
-                ) as cursor:
-                    for row in await cursor.fetchall():
-                        eid = str(row["entity_id"])
-                        nname = str(row["normalized_name"] or "")
-                        if nname in norm_legal_names:
-                            seed_scores[eid] = 1.0
-
-        # 2. Query text direct entity matches in allowed_entity_ids
-        if allowed_entity_ids:
-            clean_query_norm = _normalize_identity_text(query).strip()
-            async with self._sql.connection() as db:
-                placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
-                async with db.execute(
-                    f"SELECT entity_id, normalized_name FROM v4_entities "
-                    f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
-                    (tenant_id, *allowed_entity_ids),
-                ) as cursor:
-                    for row in await cursor.fetchall():
-                        eid = str(row["entity_id"])
-                        nname = str(row["normalized_name"] or "")
-                        if nname and (
-                            nname in clean_query_norm or clean_query_norm in nname
-                        ):
-                            seed_scores[eid] = max(seed_scores.get(eid, 0.0), 0.95)
-
-        # 3. Top vector lane assertions: subjects and objects
-        for rank, aid in enumerate(vector_lane[:8], start=1):
-            cand_assertion = vector_assertions.get(aid)
-            if cand_assertion:
-                s_id = str(cand_assertion.get("subject_id") or "")
-                o_id = str(cand_assertion.get("object_entity_id") or "")
-                v_rel = max(0.4, 0.9 - 0.05 * rank)
-                if s_id in allowed_entity_ids:
-                    seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), v_rel)
-                if o_id in allowed_entity_ids:
-                    seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), v_rel * 0.9)
-
-        # 4. Top lexical evidence plus entity-name-only graph seeds.  Entity
-        # name hits are deliberately not fused as assertion evidence.
-        for rank, hit_id in enumerate(lexical_lane[:8], start=1):
-            l_rel = max(0.35, 0.85 - 0.05 * rank)
-            if hit_id in lexical_assertions:
-                ass = lexical_assertions[hit_id]
-                s_id = str(ass.get("subject_id") or "")
-                o_id = str(ass.get("object_entity_id") or "")
-                if s_id in allowed_entity_ids:
-                    seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), l_rel)
-                if o_id in allowed_entity_ids:
-                    seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), l_rel * 0.9)
-        for hit_id in lexical_entity_lane[:8]:
-            seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
-
-        graph_seed_ids = sorted(seed_scores, key=lambda sid: (-seed_scores[sid], sid))
-
         graph_lane: list[str] = []
         graph_evidence_by_candidate: dict[str, dict[str, Any]] = {}
         allowed_graph_assertion_ids = in_scope_assertion_ids
         graph_provider = self._graph
-        if (
+        effective_graph = (
             graph_enabled
             and graph_provider is not None
             and self.graph_implementation_available
-            and graph_seed_ids
-            and allowed_graph_assertion_ids
-        ):
+            and bool(allowed_graph_assertion_ids)
+        )
+        if effective_graph:
+            seed_scores: dict[str, float] = {}
+
+            # 1. Legal citation entity seeds (high relevance)
+            if legal_citations and allowed_entity_ids:
+                legal_entity_names = set(legal_resolver.extract_entities(query))
+                for c in legal_citations:
+                    legal_entity_names.add(c.statute_code)
+                    legal_entity_names.add(c.statute_canonical)
+                    if c.article:
+                        legal_entity_names.add(f"{c.statute_code} {c.article}")
+                        legal_entity_names.add(f"{c.statute_code} m.{c.article}")
+                norm_legal_names = {_normalize_identity_text(n) for n in legal_entity_names}
+                async with self._sql.connection() as db:
+                    placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
+                    async with db.execute(
+                        f"SELECT entity_id, normalized_name FROM v4_entities "
+                        f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
+                        (tenant_id, *allowed_entity_ids),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            eid = str(row["entity_id"])
+                            nname = str(row["normalized_name"] or "")
+                            if nname in norm_legal_names:
+                                seed_scores[eid] = 1.0
+
+            # 2. Query text direct entity matches in allowed_entity_ids
+            if allowed_entity_ids:
+                clean_query_norm = _normalize_identity_text(query).strip()
+                async with self._sql.connection() as db:
+                    placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
+                    async with db.execute(
+                        f"SELECT entity_id, normalized_name FROM v4_entities "
+                        f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
+                        (tenant_id, *allowed_entity_ids),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            eid = str(row["entity_id"])
+                            nname = str(row["normalized_name"] or "")
+                            if nname and (
+                                nname in clean_query_norm or clean_query_norm in nname
+                            ):
+                                seed_scores[eid] = max(seed_scores.get(eid, 0.0), 0.95)
+
+            # 3. Top vector lane assertions: subjects and objects
+            for rank, aid in enumerate(vector_lane[:8], start=1):
+                cand_assertion = vector_assertions.get(aid)
+                if cand_assertion:
+                    s_id = str(cand_assertion.get("subject_id") or "")
+                    o_id = str(cand_assertion.get("object_entity_id") or "")
+                    v_rel = max(0.4, 0.9 - 0.05 * rank)
+                    if s_id in allowed_entity_ids:
+                        seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), v_rel)
+                    if o_id in allowed_entity_ids:
+                        seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), v_rel * 0.9)
+
+            # 4. Top lexical evidence plus entity-name-only graph seeds.  Entity
+            # name hits are deliberately not fused as assertion evidence.
+            for rank, hit_id in enumerate(lexical_lane[:8], start=1):
+                l_rel = max(0.35, 0.85 - 0.05 * rank)
+                if hit_id in lexical_assertions:
+                    ass = lexical_assertions[hit_id]
+                    s_id = str(ass.get("subject_id") or "")
+                    o_id = str(ass.get("object_entity_id") or "")
+                    if s_id in allowed_entity_ids:
+                        seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), l_rel)
+                    if o_id in allowed_entity_ids:
+                        seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), l_rel * 0.9)
+            for hit_id in lexical_entity_lane[:8]:
+                seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
+
+            graph_seed_ids = sorted(seed_scores, key=lambda sid: (-seed_scores[sid], sid))
+        else:
+            graph_seed_ids = []
+
+        if effective_graph and graph_seed_ids:
             if not self.graph_operational:
                 raise GraphSearchError("configured graph backend is unavailable")
             try:
