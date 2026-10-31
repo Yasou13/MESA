@@ -6693,7 +6693,7 @@ class MemoryDAO:
         else:
             graph_seed_ids = []
 
-        if effective_graph and graph_seed_ids:
+        if effective_graph and graph_seed_ids and graph_provider is not None:
             if not self.graph_operational:
                 raise GraphSearchError("configured graph backend is unavailable")
             try:
