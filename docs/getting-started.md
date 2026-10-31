@@ -45,6 +45,8 @@ mesa search "your query"
 mesa status
 ```
 
+By default, `mesa add` waits for all chunks to commit and the revision to become active, printing `searchable` when complete (pass `--no-wait` to return immediately).
+
 ### 3. Python SDK
 
 Use the high-level `Mesa` client to ingest documents and query evidence contexts:
@@ -413,6 +415,10 @@ print(mesa.context("kira ne zaman ödenir?"))
 ```
 
 `Mesa()` automatically discovers connection settings and API keys from environment variables (`MESA_BASE_URL`, `MESA_API_KEY`) or from `<MESA_HOME or ~/.mesa>/credentials.json` provisioned by `mesa start`. On first use, it ensures the configured workspace and dataset exist, starts a session, and reuses it for subsequent additions, searches, and context retrieval.
+
+### Waiting for documents
+
+Ingesting documents is durable and chunked. By default, `mesa add` waits until all chunks of the document's revision are committed and the revision becomes `ACTIVE` (printing "searchable" on completion); use `--no-wait` to submit without waiting. In Python, `mesa.add(..., wait=True)` polls the catalog revision status once per second until it becomes active or raises on failure/timeout, guaranteeing the entire document is searchable before subsequent queries execute.
 
 <a id="using-mesa-with-your-llm"></a>
 

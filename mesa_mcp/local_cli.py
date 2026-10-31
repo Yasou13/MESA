@@ -155,9 +155,10 @@ def add_command(args: argparse.Namespace) -> None:
 
     from mesa_client import Mesa
 
+    wait = not getattr(args, "no_wait", False)
     mesa = Mesa()
     try:
-        res = mesa.add(content, source=args.source, title=args.title)
+        res = mesa.add(content, source=args.source, title=args.title, wait=wait)
     finally:
         mesa.close()
 
@@ -169,6 +170,8 @@ def add_command(args: argparse.Namespace) -> None:
         dup = res.get("duplicate", False)
         dup_str = " (duplicate)" if dup else ""
         print(f"Added document {doc_id} with {chunks} chunk(s){dup_str}")
+        if wait:
+            print("searchable")
 
 
 def search_command(args: argparse.Namespace) -> None:
@@ -324,6 +327,11 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
     add_parser.add_argument("--source", required=True, help="source reference URI (e.g. file://path)")
     add_parser.add_argument("--title", default=None, help="document title")
     add_parser.add_argument("--json", action="store_true", help="output JSON")
+    add_parser.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="do not wait for the document to become active/searchable",
+    )
 
     search_parser = subparsers.add_parser(
         "search", help="search MESA memory"
