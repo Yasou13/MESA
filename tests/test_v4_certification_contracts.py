@@ -18,7 +18,9 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 
 def test_scope_audit_is_emitted_before_canonical_fusion():
-    source = inspect.getsource(MemoryDAO.search_v4_memory)
+    entrypoint = inspect.getsource(MemoryDAO.search_v4_memory)
+    assert "self._search_v4_memory_uncached(" in entrypoint
+    source = inspect.getsource(MemoryDAO._search_v4_memory_uncached)
     assert source.index("certification_metadata.update") < source.index(
         "rrf_fuse_lanes("
     )

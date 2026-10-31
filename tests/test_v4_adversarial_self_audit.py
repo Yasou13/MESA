@@ -827,7 +827,9 @@ async def test_audit_v16_no_query_independent_legal_boost(tmp_path):
 # Attack Vector 17: Broad provenance lazy materialization bounded to Top-K
 def test_audit_v17_lazy_materialization_bounded():
     """Attack 17: Verify search_v4_memory materializes assertions only for ordered Top-K candidates."""
-    source = inspect.getsource(MemoryDAO.search_v4_memory)
+    entrypoint = inspect.getsource(MemoryDAO.search_v4_memory)
+    assert "self._search_v4_memory_uncached(" in entrypoint
+    source = inspect.getsource(MemoryDAO._search_v4_memory_uncached)
     # Check that candidates are sorted and sliced BEFORE materializing entities/assertions
     cand_sort_idx = source.find("ordered_candidates = sorted")
     mat_prov_idx = source.find("all_materialized_assertions")
