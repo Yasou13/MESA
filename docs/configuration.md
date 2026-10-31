@@ -130,7 +130,7 @@ An endpoint is considered **local** when its scheme is `http` or `https` and its
 
 If an optional provider or model extra is selected but not installed, server startup halts with a clear one-line installation command:
 - Ollama LLM, Ollama embedding, or OpenAI-compatible embedding:
-  `pip install "mesa-memory[adapters]"`
+  `pip install mesa-memory`
 - Local transformer embedding (`sentence-transformers`):
   `pip install "mesa-memory[ml]"`
 

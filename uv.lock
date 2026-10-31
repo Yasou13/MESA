@@ -2176,6 +2176,8 @@ dependencies = [
     { name = "lancedb" },
     { name = "mcp" },
     { name = "numpy" },
+    { name = "ollama" },
+    { name = "openai" },
     { name = "prometheus-client" },
     { name = "psutil" },
     { name = "pyarrow" },
@@ -2195,8 +2197,6 @@ dependencies = [
 [package.optional-dependencies]
 adapters = [
     { name = "anthropic" },
-    { name = "ollama" },
-    { name = "openai" },
 ]
 dev = [
     { name = "black" },
@@ -2243,8 +2243,8 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.30.0,<2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },
     { name = "numpy", specifier = ">=2.2.0" },
-    { name = "ollama", marker = "extra == 'adapters'", specifier = ">=0.6.1" },
-    { name = "openai", marker = "extra == 'adapters'", specifier = ">=2.36.0" },
+    { name = "ollama", specifier = ">=0.6.1" },
+    { name = "openai", specifier = ">=2.36.0" },
     { name = "prometheus-client", specifier = ">=0.20.0" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pyarrow", specifier = ">=24.0.0" },

@@ -196,18 +196,32 @@ def test_documented_install_lines_use_published_pypi_package() -> None:
     quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
     colab = (ROOT / "examples/colab_quickstart.ipynb").read_text(encoding="utf-8")
 
-    assert 'pip install "mesa-memory[adapters]"' in readme
+    assert "pip install mesa-memory" in readme
     assert "git+https://github.com/Yasou13/MESA" not in readme
 
-    assert 'pip install "mesa-memory[adapters]"' in quickstart
+    assert "pip install mesa-memory" in quickstart
     assert (
-        'The development version can be installed directly from git: '
-        '`pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"`.'
+        "The development version can be installed directly from git: "
+        '`pip install "mesa-memory @ git+https://github.com/Yasou13/MESA"`.'
         in quickstart
     )
 
-    assert '!pip install \\"mesa-memory[adapters]\\"' in colab
+    assert "!pip install mesa-memory" in colab
     assert "git+https://github.com/Yasou13/MESA" not in colab
+
+
+def test_openai_and_ollama_in_core_dependencies() -> None:
+    import tomllib
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    core_deps = data["project"]["dependencies"]
+    optional_adapters = data["project"]["optional-dependencies"]["adapters"]
+
+    assert any(dep.startswith("openai>=") for dep in core_deps)
+    assert any(dep.startswith("ollama>=") for dep in core_deps)
+    assert not any(dep.startswith("openai") for dep in optional_adapters)
+    assert not any(dep.startswith("ollama") for dep in optional_adapters)
+    assert any(dep.startswith("anthropic>=") for dep in optional_adapters)
+
 
 
 def test_documented_public_api_examples_match_authenticated_route_contract() -> None:
