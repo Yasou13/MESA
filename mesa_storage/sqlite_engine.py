@@ -228,6 +228,8 @@ class AsyncEngine:
         self._initialized = False
         self._lock = asyncio.Lock()
         self._metrics = ConnectionMetrics()
+        self._search_db: aiosqlite.Connection | None = None
+        self._search_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Properties
@@ -351,6 +353,39 @@ class AsyncEngine:
                     )
                 await self._metrics.record_close(held_ms)
             self._semaphore.release()
+
+    @asynccontextmanager
+    async def search_connection(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Serialize searches on one retained, read-only main-database connection.
+
+        The fixed extra connection has its own lock, rather than reserving a
+        writer slot in the ordinary connection semaphore. TEMP remains writable
+        for scoped FTS indexes. Engine shutdown also closes this connection.
+        """
+        async with self._search_lock:
+            if not self._initialized:
+                raise RuntimeError("SQLite engine has not been initialized")
+            if self._search_db is None:
+                db = await aiosqlite.connect(
+                    Path(self._db_path).resolve().as_uri() + "?mode=ro", uri=True
+                )
+                try:
+                    await self._apply_pragmas(db)
+                    db.row_factory = aiosqlite.Row
+                except BaseException:
+                    await db.close()
+                    raise
+                self._search_db = db
+                await self._metrics.record_open()
+            yield self._search_db
+
+    async def close_search_connection(self) -> None:
+        """Drain the current search and release its temporary indexes/thread."""
+        async with self._search_lock:
+            if self._search_db is not None:
+                await self._search_db.close()
+                self._search_db = None
+                await self._metrics.record_close(0.0)
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[aiosqlite.Connection]:
@@ -479,6 +514,7 @@ class AsyncEngine:
         Logs final connection metrics on shutdown.
         """
         async with self._lock:
+            await self.close_search_connection()
             if self._initialized:
                 logger.info(
                     "ASYNC_ENGINE_CLOSED | db=%s metrics=%s",

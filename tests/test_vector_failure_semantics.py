@@ -36,9 +36,20 @@ class _Cursor:
     async def fetchall(self) -> list[object]:
         return self._rows
 
+    async def fetchone(self) -> object | None:
+        return self._rows[0] if self._rows else None
+
 
 class _Connection:
+    async def commit(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        pass
+
     def execute(self, query: str, _params: object = ()) -> _Cursor:
+        if query == "PRAGMA data_version":
+            return _Cursor([(1,)])
         if "artifact_registry" in query:
             return _Cursor(
                 [
@@ -71,6 +82,10 @@ class _Connection:
 
 
 class _Engine:
+    @asynccontextmanager
+    async def search_connection(self):  # type: ignore[no-untyped-def]
+        yield _Connection()
+
     @asynccontextmanager
     async def connection(self):  # type: ignore[no-untyped-def]
         yield _Connection()

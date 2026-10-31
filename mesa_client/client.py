@@ -115,6 +115,7 @@ def _parse_api_error(response: httpx.Response) -> MesaAPIError:
             retry_after = max(0.0, min(float(raw_retry), 10.0))
         except (ValueError, TypeError):
             pass
+    data: Any = None
     try:
         data = response.json()
         error_resp = ErrorResponse(**data)
@@ -126,10 +127,13 @@ def _parse_api_error(response: httpx.Response) -> MesaAPIError:
         )
     except Exception:
         # Fallback if the error format does not match ErrorResponse schema
+        detail = response.text
+        if isinstance(data, dict) and "detail" in data:
+            detail = str(data["detail"])
         return MesaAPIError(
             response.status_code,
             "UnknownError",
-            response.text,
+            detail,
             retry_after=retry_after,
         )
 
@@ -744,6 +748,8 @@ class MesaV4Client(MesaClient):
         source_ref: str,
         content: str,
         metadata: dict[str, Any] | None = None,
+        deadline: float = 600.0,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """Ingest a whole document through server-side chunking (D29)."""
         payload: dict[str, Any] = {
@@ -756,7 +762,76 @@ class MesaV4Client(MesaClient):
         }
         if metadata is not None:
             payload["metadata"] = metadata
-        return self._request("POST", "/v4/documents", json=payload)
+        total_deadline = timeout if timeout is not None else deadline
+        start = time.monotonic()
+        backoff = 0.5
+        while True:
+            try:
+                return self._request("POST", "/v4/documents", json=payload)
+            except MesaAPIError as exc:
+                if (
+                    exc.status_code == 503
+                    and str(exc.detail) == "queue_over_capacity"
+                ):
+                    remaining = total_deadline - (time.monotonic() - start)
+                    if remaining <= 0:
+                        raise
+                    sleep_time = min(backoff, remaining)
+                    time.sleep(sleep_time)
+                    backoff = min(backoff * 2.0, 5.0)
+                    continue
+                raise
+
+    def wait_until_revision_active(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str,
+        timeout_seconds: float = 600.0,
+        poll_interval_seconds: float = 1.0,
+    ) -> dict[str, Any]:
+        """Poll revision status once per second until ACTIVE or terminal failure."""
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            resp = self.list_revisions(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
+            )
+            revisions = resp.get("revisions", [])
+            rev = next(
+                (r for r in revisions if r.get("revision_id") == revision_id),
+                None,
+            )
+            if rev is not None:
+                status = rev.get("status")
+                if status == "ACTIVE":
+                    return rev
+                if status in {
+                    "REJECTED",
+                    "FAILED",
+                    "CANCELLED",
+                    "ROLLED_BACK",
+                    "DEAD_LETTER",
+                    "BLOCKED",
+                    "SUPERSEDED",
+                }:
+                    raise MesaClientError(
+                        f"Revision {revision_id} entered terminal state: {status}"
+                    )
+                if status != "PENDING":
+                    raise MesaClientError(
+                        f"Revision {revision_id} entered unexpected state: {status}"
+                    )
+            if time.monotonic() >= deadline:
+                raise MesaNetworkError(
+                    f"Timed out waiting for revision {revision_id} to become ACTIVE"
+                )
+            time.sleep(poll_interval_seconds)
 
 
 class AsyncMesaV4Client(AsyncMesaClient):
@@ -1101,6 +1176,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
         source_ref: str,
         content: str,
         metadata: dict[str, Any] | None = None,
+        deadline: float = 600.0,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """Ingest a whole document through server-side chunking (D29)."""
         payload: dict[str, Any] = {
@@ -1113,7 +1190,76 @@ class AsyncMesaV4Client(AsyncMesaClient):
         }
         if metadata is not None:
             payload["metadata"] = metadata
-        return await self._request("POST", "/v4/documents", json=payload)
+        total_deadline = timeout if timeout is not None else deadline
+        start = time.monotonic()
+        backoff = 0.5
+        while True:
+            try:
+                return await self._request("POST", "/v4/documents", json=payload)
+            except MesaAPIError as exc:
+                if (
+                    exc.status_code == 503
+                    and str(exc.detail) == "queue_over_capacity"
+                ):
+                    remaining = total_deadline - (time.monotonic() - start)
+                    if remaining <= 0:
+                        raise
+                    sleep_time = min(backoff, remaining)
+                    await asyncio.sleep(sleep_time)
+                    backoff = min(backoff * 2.0, 5.0)
+                    continue
+                raise
+
+    async def wait_until_revision_active(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str,
+        timeout_seconds: float = 600.0,
+        poll_interval_seconds: float = 1.0,
+    ) -> dict[str, Any]:
+        """Poll revision status once per second until ACTIVE or terminal failure."""
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            resp = await self.list_revisions(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
+            )
+            revisions = resp.get("revisions", [])
+            rev = next(
+                (r for r in revisions if r.get("revision_id") == revision_id),
+                None,
+            )
+            if rev is not None:
+                status = rev.get("status")
+                if status == "ACTIVE":
+                    return rev
+                if status in {
+                    "REJECTED",
+                    "FAILED",
+                    "CANCELLED",
+                    "ROLLED_BACK",
+                    "DEAD_LETTER",
+                    "BLOCKED",
+                    "SUPERSEDED",
+                }:
+                    raise MesaClientError(
+                        f"Revision {revision_id} entered terminal state: {status}"
+                    )
+                if status != "PENDING":
+                    raise MesaClientError(
+                        f"Revision {revision_id} entered unexpected state: {status}"
+                    )
+            if time.monotonic() >= deadline:
+                raise MesaNetworkError(
+                    f"Timed out waiting for revision {revision_id} to become ACTIVE"
+                )
+            await asyncio.sleep(poll_interval_seconds)
 
 
 class Mesa:
@@ -1212,19 +1358,36 @@ class Mesa:
         source: str,
         title: str | None = None,
         document_id: str | None = None,
+        wait: bool = False,
+        timeout: float = 600.0,
+        deadline: float | None = None,
     ) -> dict[str, Any]:
         """Ingest a document with server-side chunking (D29)."""
         doc_id = document_id or f"doc-{hashlib.sha256(source.encode('utf-8')).hexdigest()[:32]}"
         doc_title = title if title is not None else source
         session_id = self._ensure_session()
-        return self._client.add_document(
+        total_timeout = deadline if deadline is not None else timeout
+        res = self._client.add_document(
             session_id=session_id,
             dataset_id=self.dataset_id,
             document_id=doc_id,
             title=doc_title,
             source_ref=source,
             content=text,
+            deadline=total_timeout,
         )
+        if wait:
+            rev_id = str(res["revision_id"])
+            self._client.wait_until_revision_active(
+                tenant_id=self.tenant_id,
+                workspace_id=self.workspace_id,
+                dataset_id=self.dataset_id,
+                document_id=doc_id,
+                revision_id=rev_id,
+                timeout_seconds=total_timeout,
+                poll_interval_seconds=1.0,
+            )
+        return res
 
     def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Search memory within the active dataset session."""

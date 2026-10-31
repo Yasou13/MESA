@@ -844,7 +844,7 @@ class MesaConfig(BaseSettings):
                 not isinstance(weight, (int, float))
                 or math.isnan(weight)
                 or math.isinf(weight)
-                or weight <= 0
+                or weight < 0
             ):
                 raise ValueError(f"rrf {lane} weight MUST be positive and finite, got {weight}")
         if not (0.5 < self.t_route < 0.99):

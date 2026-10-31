@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import sqlite3
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -247,3 +248,39 @@ def test_graph_flag_defaults_true_and_test_isolated_keeps_its_rule(tmp_path):
         load_runtime_profile({**isolated, "MESA_GRAPH_ENABLED": "false"}).graph_enabled
         is False
     )
+
+
+@pytest.mark.asyncio
+async def test_graph_disabled_search_skips_graph_seed_sql(model_runtime, monkeypatch):
+    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+        await _insert(env)
+        await _consume(env, 3)
+        await _assert_committed(env)
+
+        executed_statements = []
+        orig_conn = server.state.dao._sql.connection
+
+        @asynccontextmanager
+        async def tracking_conn():
+            async with orig_conn() as db:
+                orig_exec = db.execute
+
+                def tracking_exec(sql, *args, **kwargs):
+                    executed_statements.append(str(sql))
+                    return orig_exec(sql, *args, **kwargs)
+
+                monkeypatch.setattr(db, "execute", tracking_exec)
+                yield db
+
+        monkeypatch.setattr(server.state.dao._sql, "connection", tracking_conn)
+        res = await _search(env)
+        assert res["results"]
+        seed_queries = [
+            s
+            for s in executed_statements
+            if "SELECT entity_id, normalized_name FROM v4_entities" in s
+        ]
+        assert (
+            len(seed_queries) == 0
+        ), f"Expected 0 seed queries, got {len(seed_queries)}: {seed_queries}"
+

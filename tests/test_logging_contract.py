@@ -184,3 +184,33 @@ def test_compose_bounds_logs_and_sets_production_defaults():
 def test_process_entrypoints_bootstrap_before_runtime_config(relative_path: str):
     source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
     assert source.index("setup_logging") < source.index("from mesa_memory.config")
+
+
+def test_server_logging_preserves_timestamp_after_migrations(tmp_path):
+    db_file = tmp_path / "test.db"
+    script = (
+        "import asyncio\n"
+        "from pathlib import Path\n"
+        "from mesa_memory.observability.logger import setup_logging\n"
+        "import logging\n"
+        "from mesa_storage.sqlite_engine import AsyncEngine\n"
+        "from mesa_storage.schemas import initialize_schema\n\n"
+        "async def main():\n"
+        "    setup_logging(role='api')\n"
+        f"    eng = AsyncEngine(Path(r'{db_file}'))\n"
+        "    await eng.initialize()\n"
+        "    await initialize_schema(eng)\n"
+        "    logging.getLogger('MESA_Test').warning('post_migration_event')\n\n"
+        "asyncio.run(main())\n"
+    )
+    result = _run_python(script)
+    records = [
+        json.loads(line)
+        for line in result.stdout.splitlines()
+        if line.strip() and "post_migration_event" in line
+    ]
+    assert len(records) == 1
+    assert records[0]["event"] == "post_migration_event"
+    assert "timestamp" in records[0]
+    assert records[0]["timestamp"].endswith("Z")
+

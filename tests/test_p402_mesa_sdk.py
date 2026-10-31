@@ -18,6 +18,8 @@ from mesa_client import (
 
 class FakeMesaServerHandler(BaseHTTPRequestHandler):
     requests_log: list[dict[str, Any]] = []
+    documents_503_count: int = 0
+    revisions_status_sequence: list[str] = []
 
     def log_message(self, format: str, *args: Any) -> None:
         pass  # Quiet logs during test runs
@@ -51,6 +53,13 @@ class FakeMesaServerHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"session_id":"sess-12345","status":"active"}')
         elif self.path == "/v4/documents":
+            if FakeMesaServerHandler.documents_503_count > 0:
+                FakeMesaServerHandler.documents_503_count -= 1
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"detail":"queue_over_capacity"}')
+                return
             doc_id = parsed.get("document_id", "doc-test")
             self.send_response(202)
             self.send_header("Content-Type", "application/json")
@@ -97,6 +106,23 @@ class FakeMesaServerHandler(BaseHTTPRequestHandler):
                 "context_status": "OK",
             }
             self.wfile.write(json.dumps(resp).encode("utf-8"))
+        elif "/catalog/revisions" in self.path:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            status = "ACTIVE"
+            if FakeMesaServerHandler.revisions_status_sequence:
+                status = FakeMesaServerHandler.revisions_status_sequence.pop(0)
+            resp: dict[str, Any] = {
+                "revisions": [
+                    {
+                        "revision_id": "rev-test1234",
+                        "status": status,
+                        "revision_number": 1,
+                    }
+                ]
+            }
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -120,6 +146,8 @@ class FakeMesaServerHandler(BaseHTTPRequestHandler):
 @pytest.fixture
 def fake_server():
     FakeMesaServerHandler.requests_log = []
+    FakeMesaServerHandler.documents_503_count = 0
+    FakeMesaServerHandler.revisions_status_sequence = []
     server = HTTPServer(("127.0.0.1", 0), FakeMesaServerHandler)
     host, port = server.server_address
     url = f"http://{host}:{port}"
@@ -275,3 +303,92 @@ def test_mesa_sdk_first_use_and_methods(fake_server):
             log["method"] == "DELETE" and expected_doc_id in log["path"]
             for log in logs
         )
+
+
+def test_add_document_retries_queue_over_capacity(fake_server):
+    url, logs = fake_server
+    FakeMesaServerHandler.documents_503_count = 2
+    client = MesaV4Client(base_url=url, api_key="test-key")
+    try:
+        resp = client.add_document(
+            session_id="sess-abc",
+            dataset_id="default",
+            document_id="doc-retry",
+            title="Title",
+            source_ref="file://test.txt",
+            content="content",
+        )
+        assert resp["document_id"] == "doc-retry"
+        doc_logs = [log for log in logs if log["path"] == "/v4/documents"]
+        assert len(doc_logs) == 3
+    finally:
+        client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_add_document_retries_queue_over_capacity(fake_server):
+    url, logs = fake_server
+    FakeMesaServerHandler.documents_503_count = 2
+    async with AsyncMesaV4Client(base_url=url, api_key="test-key") as client:
+        resp = await client.add_document(
+            session_id="sess-abc",
+            dataset_id="default",
+            document_id="doc-async-retry",
+            title="Title",
+            source_ref="file://test.txt",
+            content="content",
+        )
+        assert resp["document_id"] == "doc-async-retry"
+        doc_logs = [log for log in logs if log["path"] == "/v4/documents"]
+        assert len(doc_logs) == 3
+
+
+def test_add_document_deadline_exceeded(fake_server):
+    from mesa_client import MesaAPIError
+
+    url, logs = fake_server
+    FakeMesaServerHandler.documents_503_count = 100
+    client = MesaV4Client(base_url=url, api_key="test-key")
+    try:
+        with pytest.raises(MesaAPIError) as exc_info:
+            client.add_document(
+                session_id="sess-abc",
+                dataset_id="default",
+                document_id="doc-timeout",
+                title="Title",
+                source_ref="file://test.txt",
+                content="content",
+                deadline=0.1,
+            )
+        assert exc_info.value.status_code == 503
+    finally:
+        client.close()
+
+
+def test_mesa_add_wait_true_polls_revision_active(fake_server):
+    url, logs = fake_server
+    FakeMesaServerHandler.revisions_status_sequence = ["PENDING", "ACTIVE"]
+    with Mesa(base_url=url, api_key="test-key", dataset_id="legal") as mesa:
+        res = mesa.add("Kira metni", source="file://kira.txt", wait=True)
+        assert res["document_id"].startswith("doc-")
+        rev_logs = [log for log in logs if "/catalog/revisions" in log["path"]]
+        assert len(rev_logs) == 2
+
+
+def test_mesa_add_wait_false_does_not_poll(fake_server):
+    url, logs = fake_server
+    with Mesa(base_url=url, api_key="test-key", dataset_id="legal") as mesa:
+        res = mesa.add("Kira metni", source="file://kira.txt", wait=False)
+        assert res["document_id"].startswith("doc-")
+        rev_logs = [log for log in logs if "/catalog/revisions" in log["path"]]
+        assert len(rev_logs) == 0
+
+
+def test_mesa_add_wait_raises_on_failed_revision(fake_server):
+    url, logs = fake_server
+    FakeMesaServerHandler.revisions_status_sequence = ["FAILED"]
+    with Mesa(base_url=url, api_key="test-key", dataset_id="legal") as mesa:
+        with pytest.raises(MesaClientError) as exc_info:
+            mesa.add("Kira metni", source="file://kira.txt", wait=True)
+        assert "FAILED" in str(exc_info.value)
+

@@ -222,6 +222,50 @@ def test_cli_add_search_delete(tmp_path, monkeypatch, capsys):
         assert "Purged document doc-test-1" in out
 
 
+def test_cli_add_waits_by_default_and_prints_searchable(tmp_path, capsys):
+    mock_mesa = MagicMock()
+    mock_mesa.add.return_value = {
+        "document_id": "doc-test-1",
+        "revision_id": "rev-1",
+        "chunk_count": 3,
+        "duplicate": False,
+    }
+    with patch("mesa_client.Mesa", return_value=mock_mesa):
+        test_file = tmp_path / "doc.txt"
+        test_file.write_text("sample content", encoding="utf-8")
+        parser = codex_cli._parser()
+        args = parser.parse_args(["add", str(test_file), "--source", "file://doc.txt"])
+        add_command(args)
+        out, _ = capsys.readouterr()
+        mock_mesa.add.assert_called_once_with(
+            "sample content", source="file://doc.txt", title=None, wait=True
+        )
+        assert "Added document doc-test-1 with 3 chunk(s)" in out
+        assert "searchable" in out
+
+
+def test_cli_add_no_wait_skips_searchable(tmp_path, capsys):
+    mock_mesa = MagicMock()
+    mock_mesa.add.return_value = {
+        "document_id": "doc-test-1",
+        "revision_id": "rev-1",
+        "chunk_count": 3,
+        "duplicate": False,
+    }
+    with patch("mesa_client.Mesa", return_value=mock_mesa):
+        test_file = tmp_path / "doc.txt"
+        test_file.write_text("sample content", encoding="utf-8")
+        parser = codex_cli._parser()
+        args = parser.parse_args(["add", str(test_file), "--source", "file://doc.txt", "--no-wait"])
+        add_command(args)
+        out, _ = capsys.readouterr()
+        mock_mesa.add.assert_called_once_with(
+            "sample content", source="file://doc.txt", title=None, wait=False
+        )
+        assert "Added document doc-test-1 with 3 chunk(s)" in out
+        assert "searchable" not in out
+
+
 def test_codex_cli_parser_routes_to_local_commands():
     parser = codex_cli._parser()
     args_start = parser.parse_args(["start", "--port", "9000"])
