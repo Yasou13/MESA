@@ -380,6 +380,18 @@ _V4_TERMINAL_MUTATION_STATES = frozenset(
     {"COMMITTED", "REJECTED", "DEAD_LETTER", "ROLLED_BACK", "BLOCKED"}
 )
 
+_TERMINAL_FAILURE_MUTATION_STATES = frozenset(
+    {
+        "REJECTED",
+        "DEAD_LETTER",
+        "BLOCKED",
+        "CANCELLED",
+        "ROLLED_BACK",
+        "PURGED",
+        "FAILED",
+    }
+)
+
 
 def _v4_control_value(value: str, *, label: str) -> str:
     if (
@@ -790,11 +802,14 @@ class MesaV4Client(MesaClient):
         dataset_id: str,
         document_id: str,
         revision_id: str,
+        mutation_ids: list[str] | None = None,
         timeout_seconds: float = 600.0,
         poll_interval_seconds: float = 1.0,
     ) -> dict[str, Any]:
         """Poll revision status once per second until ACTIVE or terminal failure."""
         deadline = time.monotonic() + timeout_seconds
+        mut_list = [str(m) for m in mutation_ids] if mutation_ids else []
+        mut_cursor = 0
         while True:
             resp = self.list_revisions(
                 tenant_id=tenant_id,
@@ -827,6 +842,26 @@ class MesaV4Client(MesaClient):
                     raise MesaClientError(
                         f"Revision {revision_id} entered unexpected state: {status}"
                     )
+                if mut_cursor < len(mut_list):
+                    mut_id = mut_list[mut_cursor]
+                    mut_resp = self.status(mut_id)
+                    mut_state = str(mut_resp.get("state", ""))
+                    if mut_state == "COMMITTED":
+                        mut_cursor += 1
+                    elif mut_state in _TERMINAL_FAILURE_MUTATION_STATES:
+                        err_class = (
+                            mut_resp.get("failure_class")
+                            or mut_resp.get("rejection_reason")
+                        )
+                        if not err_class:
+                            for proj in mut_resp.get("projections", []):
+                                if proj.get("last_error_class"):
+                                    err_class = proj["last_error_class"]
+                                    break
+                        err_class = err_class or "unknown"
+                        raise MesaClientError(
+                            f"Mutation {mut_id} entered terminal state {mut_state} with error class {err_class}"
+                        )
             if time.monotonic() >= deadline:
                 raise MesaNetworkError(
                     f"Timed out waiting for revision {revision_id} to become ACTIVE"
@@ -1218,11 +1253,14 @@ class AsyncMesaV4Client(AsyncMesaClient):
         dataset_id: str,
         document_id: str,
         revision_id: str,
+        mutation_ids: list[str] | None = None,
         timeout_seconds: float = 600.0,
         poll_interval_seconds: float = 1.0,
     ) -> dict[str, Any]:
         """Poll revision status once per second until ACTIVE or terminal failure."""
         deadline = time.monotonic() + timeout_seconds
+        mut_list = [str(m) for m in mutation_ids] if mutation_ids else []
+        mut_cursor = 0
         while True:
             resp = await self.list_revisions(
                 tenant_id=tenant_id,
@@ -1255,6 +1293,26 @@ class AsyncMesaV4Client(AsyncMesaClient):
                     raise MesaClientError(
                         f"Revision {revision_id} entered unexpected state: {status}"
                     )
+                if mut_cursor < len(mut_list):
+                    mut_id = mut_list[mut_cursor]
+                    mut_resp = await self.status(mut_id)
+                    mut_state = str(mut_resp.get("state", ""))
+                    if mut_state == "COMMITTED":
+                        mut_cursor += 1
+                    elif mut_state in _TERMINAL_FAILURE_MUTATION_STATES:
+                        err_class = (
+                            mut_resp.get("failure_class")
+                            or mut_resp.get("rejection_reason")
+                        )
+                        if not err_class:
+                            for proj in mut_resp.get("projections", []):
+                                if proj.get("last_error_class"):
+                                    err_class = proj["last_error_class"]
+                                    break
+                        err_class = err_class or "unknown"
+                        raise MesaClientError(
+                            f"Mutation {mut_id} entered terminal state {mut_state} with error class {err_class}"
+                        )
             if time.monotonic() >= deadline:
                 raise MesaNetworkError(
                     f"Timed out waiting for revision {revision_id} to become ACTIVE"
@@ -1378,12 +1436,19 @@ class Mesa:
         )
         if wait:
             rev_id = str(res["revision_id"])
+            raw_mutation_ids = res.get("mutation_ids")
+            mutation_ids = (
+                [str(m) for m in raw_mutation_ids]
+                if isinstance(raw_mutation_ids, list)
+                else None
+            )
             self._client.wait_until_revision_active(
                 tenant_id=self.tenant_id,
                 workspace_id=self.workspace_id,
                 dataset_id=self.dataset_id,
                 document_id=doc_id,
                 revision_id=rev_id,
+                mutation_ids=mutation_ids,
                 timeout_seconds=total_timeout,
                 poll_interval_seconds=1.0,
             )

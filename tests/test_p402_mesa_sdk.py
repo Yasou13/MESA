@@ -20,6 +20,7 @@ class FakeMesaServerHandler(BaseHTTPRequestHandler):
     requests_log: list[dict[str, Any]] = []
     documents_503_count: int = 0
     revisions_status_sequence: list[str] = []
+    mutations: dict[str, dict[str, Any]] = {}
 
     def log_message(self, format: str, *args: Any) -> None:
         pass  # Quiet logs during test runs
@@ -123,6 +124,23 @@ class FakeMesaServerHandler(BaseHTTPRequestHandler):
                 ]
             }
             self.wfile.write(json.dumps(resp).encode("utf-8"))
+        elif "/v4/mutations/" in self.path:
+            mut_id = self.path.split("/v4/mutations/")[-1].split("?")[0]
+            mut_info = FakeMesaServerHandler.mutations.get(
+                mut_id, {"state": "COMMITTED", "mutation_id": mut_id}
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            resp = {
+                "mutation_id": mut_id,
+                "candidate_id": f"cand-{mut_id}",
+                "state": mut_info.get("state", "COMMITTED"),
+                "failure_class": mut_info.get("failure_class"),
+                "rejection_reason": mut_info.get("rejection_reason"),
+                "projections": mut_info.get("projections", []),
+            }
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -148,6 +166,7 @@ def fake_server():
     FakeMesaServerHandler.requests_log = []
     FakeMesaServerHandler.documents_503_count = 0
     FakeMesaServerHandler.revisions_status_sequence = []
+    FakeMesaServerHandler.mutations = {}
     server = HTTPServer(("127.0.0.1", 0), FakeMesaServerHandler)
     host, port = server.server_address
     url = f"http://{host}:{port}"
@@ -391,4 +410,68 @@ def test_mesa_add_wait_raises_on_failed_revision(fake_server):
         with pytest.raises(MesaClientError) as exc_info:
             mesa.add("Kira metni", source="file://kira.txt", wait=True)
         assert "FAILED" in str(exc_info.value)
+
+
+def test_mesa_add_wait_raises_immediately_on_chunk_failure(fake_server):
+    url, logs = fake_server
+    FakeMesaServerHandler.revisions_status_sequence = ["PENDING", "PENDING"]
+    FakeMesaServerHandler.mutations = {
+        "mut-1": {"state": "DEAD_LETTER", "failure_class": "Tier3Unavailable"}
+    }
+    with Mesa(base_url=url, api_key="test-key", dataset_id="legal") as mesa:
+        with pytest.raises(MesaClientError) as exc_info:
+            mesa.add("Kira metni", source="file://kira.txt", wait=True, timeout=5.0)
+        msg = str(exc_info.value)
+        assert "mut-1" in msg
+        assert "DEAD_LETTER" in msg
+        assert "Tier3Unavailable" in msg
+
+    mut_logs = [log for log in logs if "/v4/mutations/mut-1" in log["path"]]
+    assert len(mut_logs) == 1
+
+
+def test_mesa_add_wait_advances_through_mutations(fake_server):
+    url, logs = fake_server
+    FakeMesaServerHandler.revisions_status_sequence = ["PENDING", "PENDING", "ACTIVE"]
+    FakeMesaServerHandler.mutations = {
+        "mut-1": {"state": "COMMITTED"},
+        "mut-2": {"state": "COMMITTED"},
+    }
+    with Mesa(base_url=url, api_key="test-key", dataset_id="legal") as mesa:
+        res = mesa.add("Kira metni", source="file://kira.txt", wait=True, timeout=5.0)
+        assert res["document_id"].startswith("doc-")
+
+    mut1_logs = [log for log in logs if "/v4/mutations/mut-1" in log["path"]]
+    mut2_logs = [log for log in logs if "/v4/mutations/mut-2" in log["path"]]
+    assert len(mut1_logs) == 1
+    assert len(mut2_logs) == 1
+
+
+@pytest.mark.asyncio
+async def test_async_wait_raises_immediately_on_chunk_failure(fake_server):
+    url, logs = fake_server
+    FakeMesaServerHandler.revisions_status_sequence = ["PENDING", "PENDING"]
+    FakeMesaServerHandler.mutations = {
+        "mut-1": {"state": "DEAD_LETTER", "failure_class": "Tier3Unavailable"}
+    }
+    client = AsyncMesaV4Client(base_url=url, api_key="test-key")
+    try:
+        with pytest.raises(MesaClientError) as exc_info:
+            await client.wait_until_revision_active(
+                tenant_id="local",
+                workspace_id="default",
+                dataset_id="default",
+                document_id="doc-test",
+                revision_id="rev-test1234",
+                mutation_ids=["mut-1", "mut-2"],
+                timeout_seconds=5.0,
+                poll_interval_seconds=0.01,
+            )
+        msg = str(exc_info.value)
+        assert "mut-1" in msg
+        assert "DEAD_LETTER" in msg
+        assert "Tier3Unavailable" in msg
+    finally:
+        await client.aclose()
+
 

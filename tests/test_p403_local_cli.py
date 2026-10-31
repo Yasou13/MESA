@@ -385,3 +385,29 @@ def test_cli_add_prints_server_conflict_detail_without_traceback(tmp_path, capsy
     assert exit_info.value.code == 1
     _, err = capsys.readouterr()
     assert err == f"Error 409: {detail}\n"
+
+
+def test_cli_add_prints_mutation_failure_without_traceback(tmp_path, capsys):
+    from mesa_client.client import MesaClientError
+    from mesa_mcp.local_cli import handle_local_command
+
+    msg = "Mutation mut-1 entered terminal state DEAD_LETTER with error class Tier3Unavailable"
+    document = tmp_path / "a.txt"
+    document.write_text("A")
+    mock_mesa = MagicMock()
+    mock_mesa.add.side_effect = MesaClientError(msg)
+    with patch("mesa_client.Mesa", return_value=mock_mesa):
+        with pytest.raises(SystemExit) as exit_info:
+            handle_local_command(
+                argparse.Namespace(
+                    group="add",
+                    file=str(document),
+                    source="file://a.txt",
+                    title=None,
+                    json=False,
+                )
+            )
+    assert exit_info.value.code == 1
+    _, err = capsys.readouterr()
+    assert err == f"Error: {msg}\n"
+
