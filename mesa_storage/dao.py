@@ -64,7 +64,11 @@ from mesa_storage.retrieval_scope import (
     stable_graph_path_id,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
+from mesa_storage.vector_engine import (
+    SemanticRuntimeDisabledError,
+    VectorEngine,
+    VectorSearchError,
+)
 
 logger = logging.getLogger("MESA_DAO")
 
@@ -5799,8 +5803,18 @@ class MemoryDAO:
         certification_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Reuse only version-valid authorized scope data, never query results."""
-        if not 1 <= limit <= 50:
+        _assert_valid_agent_id(agent_id)
+        if not tenant_id or not dataset_ids or not query.strip() or not 1 <= limit <= 50:
             raise ValueError("invalid v4 search scope")
+        query_vector: list[float] | None = None
+        query_error: Exception | None = None
+        if self._embedding_enabled and self._vec is not None:
+            try:
+                query_vector = await self._vec.compute_query_embedding(query)
+            except Exception as exc:
+                # Preserve degradation/error semantics: a provider error matters
+                # only if the authorized scope actually has compatible vectors.
+                query_error = exc
         kwargs: dict[str, Any] = dict(
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -5816,6 +5830,8 @@ class MemoryDAO:
             graph_enabled=graph_enabled,
             request_principal_id=request_principal_id,
             certification_metadata=certification_metadata,
+            _query_vector=query_vector,
+            _query_error=query_error,
         )
         if not self._search_scope_cache_enabled:
             if self._reranker is None:
@@ -5930,6 +5946,8 @@ class MemoryDAO:
         certification_metadata: dict[str, Any] | None = None,
         _search_db: aiosqlite.Connection | None = None,
         _scope: dict[str, Any] | None = None,
+        _query_vector: list[float] | None = None,
+        _query_error: Exception | None = None,
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
@@ -6380,9 +6398,12 @@ class MemoryDAO:
                 if not searchable_vector_ids:
                     vector_rows = []
                 else:
-                    query_vector = await self._vec.compute_query_embedding(query)
+                    if _query_error is not None:
+                        raise _query_error
+                    if _query_vector is None:
+                        raise VectorSearchError("query embedding is unavailable")
                     vector_rows = await self._vec.search(
-                        query_vector,
+                        _query_vector,
                         agent_id=agent_id,
                         allowed_node_ids=searchable_vector_ids,
                         limit=min(500, max(limit * 10, 50)),
