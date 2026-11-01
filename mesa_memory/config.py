@@ -633,6 +633,11 @@ class MesaConfig(BaseSettings):
     search_scope_cache: bool = Field(
         True, validation_alias="MESA_SEARCH_SCOPE_CACHE"
     )
+    rerank_enabled: bool = Field(False, validation_alias="MESA_RERANK_ENABLED")
+    rerank_model: str = Field(
+        "BAAI/bge-reranker-v2-m3", min_length=1, validation_alias="MESA_RERANK_MODEL"
+    )
+    rerank_depth: int = Field(50, ge=1, le=50, validation_alias="MESA_RERANK_DEPTH")
     t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
 
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this

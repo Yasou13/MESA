@@ -40,6 +40,16 @@ even after restarting or changing this setting. Active revisions are unchanged.
 If an admitted prefix fits two different plans, the retry returns 409 without
 appending chunks, because the stored text cannot identify the original plan.
 
+`MESA_RERANK_ENABLED=false` keeps the existing fused ranking and does not import
+ML packages. Enabling it requires `pip install "mesa-memory[ml]"`; startup checks
+that the package is installed, and the model loads lazily on the first search.
+`MESA_RERANK_MODEL` defaults to `BAAI/bge-reranker-v2-m3` (Apache-2.0), with
+`MESA_RERANK_DEPTH=50` (range 1–50). The scorer uses authorized full chunk texts
+after releasing the search connection, in a worker thread, then returns the
+requested number of results. Tied scores retain fused order. Results keep their
+fusion fields, including `rrf_score` and `final_score`, and add `rerank_score`.
+The first search includes model-load latency; subsequent searches reuse it.
+
 Model and external-provider flags default false. Validation defaults to
 mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
 needs distinct A/B validator identities. Extraction and validation are separate.
