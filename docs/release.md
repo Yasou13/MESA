@@ -1,6 +1,6 @@
 # Release procedure
 
-V4 paket sürümü `0.9.0`; henüz yayımlanmadı, yayın aşağıdaki “Yayınlama”
+V4 paket sürümü `0.9.1`; yayın aşağıdaki “Yayınlama”
 adımlarıyla depo sahibinindir. Aşağıda kayıtlı yayın istisnasını depo sahibi
 v0.8.1 source release için açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı

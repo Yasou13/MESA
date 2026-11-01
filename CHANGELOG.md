@@ -7,7 +7,28 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.1] - 2026-11-01
+
+This release combines Round 13 (speed) and Round 14 (retrieval quality and
+document workflow improvements), merged in PRs #137 and #140. V4 HTTP routes
+remain compatible. Production qualification remains **NO-GO** pending the
+normal certification and production-like release gates.
+
+### Added
+
+- Lossless Turkish article-aware chunking for new document revisions, controlled
+  by `MESA_CHUNKING=auto|plain` (default `auto`). Admitted chunk text pins retry
+  plans; ambiguous prefixes return HTTP 409 without appending chunks.
+- Optional lazy BGE cross-encoder reranking after fusion and outside the search
+  connection. It is off by default; enable with `MESA_RERANK_ENABLED=true` and
+  the existing `[ml]` extra. Results add `rerank_score` while preserving fusion
+  scores. Default model: `BAAI/bge-reranker-v2-m3`; depth: 50.
+- Source-based document deletion through `Mesa.delete(source=...)` and
+  `mesa delete --source <ref>`; document-ID deletion remains available.
+- Versioned, bounded search-scope caching of authorized rows and temporary
+  BM25 indexes, invalidated by SQLite commits. Configure it through
+  `MESA_SEARCH_SCOPE_CACHE` (default `true`).
+- Tag-triggered PyPI trusted publishing through GitHub Actions and OIDC.
 
 ### Changed
 
@@ -15,9 +36,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (passage MRR 0.3953 → 0.5663 with reranking off); other lane weights remain 1.0.
   The full weight/reranker matrix and model environment are recorded in the
   [retrieval guide](docs/retrieval-and-graph.md#round-14-dev-benchmark).
-- New document revisions use lossless Turkish article boundaries in automatic
-  mode. Optional BGE reranking remains off by default, and query embedding calls
-  run before acquiring the shared search connection.
+- Index ingest ledger lookups and reconcile revision activation once per commit
+  transition, reducing bookkeeping growth while preserving activation rules.
+- Run query embedding before the shared search connection, and scrypt API-key
+  verification, issuance and rotation in worker threads. Graph-disabled search
+  skips graph seed preparation.
+- Include the OpenAI and Ollama SDKs in the base installation:
+  `pip install mesa-memory`. Anthropic remains in `[adapters]`.
+- `mesa add` waits for the revision to become active by default; use `--no-wait`
+  to return after admission. SDK waiting also polls mutation status.
+- Accept zero RRF lane weights to disable a lane's contribution.
+
+### Fixed
+
+- Fail promptly on terminal chunk mutations with their ID, state and error
+  class instead of waiting for the document timeout; keep retryable states
+  pending. CLI errors remain readable and exit with status 1.
+- Retry `queue_over_capacity` during document admission within the SDK deadline.
+- Preserve timestamped runtime log handlers across Alembic migrations.
+- Record projection-attempt start times from the actual outbox claim time.
+- Preserve the missing-ML installation message when an earlier server lifespan
+  left tasks associated with a closed event loop.
+
+### Upgrade notes
+
+- Existing active revisions keep their chunks. Use `MESA_CHUNKING=plain` for
+  new revisions requiring the earlier chunking plan, and
+  `MESA_RRF_VECTOR_WEIGHT=1` to retain the earlier vector weighting.
+- The ingestion optimization adds SQLite indexes through the normal migrations.
+  Continue to follow the documented backup and single-owner upgrade procedure.
+- Benchmark results describe the frozen Turkish Tier M dev split and the
+  documented model/hardware setup; they are not general performance guarantees.
 
 ## [0.9.0] - 2026-10-28
 

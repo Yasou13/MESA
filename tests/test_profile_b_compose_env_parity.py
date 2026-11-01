@@ -152,7 +152,7 @@ def test_effective_compose_config_defaults_match_mesaconfig_contract() -> None:
         assert container_env[flag] == "false"
     assert container_env["MESA_OLLAMA_URL"] == "http://host.docker.internal:11434"
     service = rendered["services"]["mesa-v4"]
-    assert service["image"] == "mesa-memory:0.9.0"
+    assert service["image"] == "mesa-memory:0.9.1"
     assert service["read_only"] is True
     assert service["ports"][0]["host_ip"] == "127.0.0.1"
     assert "host.docker.internal:host-gateway" in {

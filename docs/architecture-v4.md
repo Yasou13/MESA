@@ -1,6 +1,6 @@
 # MESA Core current V4 architecture
 
-> **Package version:** 0.9.0 (unreleased; publishing is an owner step), without production certification.
+> **Package version:** 0.9.1, without production certification.
 
 This document owns the current V4 design; production qualification remains
 release candidate / `NO-GO` under the [release policy](release.md).
