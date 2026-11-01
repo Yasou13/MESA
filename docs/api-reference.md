@@ -1,6 +1,6 @@
 # API reference
 
-MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.0 (yayımlanmadı); yayın sahibinin adımıdır ve production sertifikasyonu içermez.
+MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.1; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
