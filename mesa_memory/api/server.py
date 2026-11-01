@@ -295,15 +295,15 @@ async def _run_combined_durable_consumer(
 async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     refresh_config_from_environment()
     state.is_ready = False
+    state.obs_layer = ObservabilityLayer()
+    state.background_tasks = set()
+    state.worker_supervisor = WorkerSupervisor(max_restarts=3)
+
     reranker = None
     if config.rerank_enabled:
         from mesa_memory.reranking import CrossEncoderReranker
 
         reranker = CrossEncoderReranker(config.rerank_model)
-
-    state.obs_layer = ObservabilityLayer()
-    state.background_tasks = set()
-    state.worker_supervisor = WorkerSupervisor(max_restarts=3)
 
     # Initialize asynchronous storage engines
     state.sqlite_engine = AsyncEngine(db_path=str(_SQLITE_PATH))

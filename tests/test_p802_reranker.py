@@ -60,6 +60,14 @@ def test_missing_ml_extra_fails_before_search(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_missing_ml_extra_stops_runtime_startup(model_runtime, monkeypatch):
+    from mesa_memory.api import server
+
+    # A previous lifespan may leave completed tasks tied to its closed loop.
+    closed_loop = asyncio.new_event_loop()
+    stale_task = closed_loop.create_future()
+    stale_task.cancel()
+    closed_loop.close()
+    monkeypatch.setattr(server.state, "background_tasks", {stale_task}, raising=False)
     original = importlib.util.find_spec
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: (
         None if name == "sentence_transformers" else original(name)
