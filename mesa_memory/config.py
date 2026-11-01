@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Literal, Mapping, Optional
 
 import psutil
 from dotenv import load_dotenv
@@ -613,6 +613,9 @@ class MesaConfig(BaseSettings):
 
     # Observability (Module 4)
     histogram_max_size: int = 10000
+    chunking: Literal["auto", "plain"] = Field(
+        "auto", validation_alias="MESA_CHUNKING"
+    )
     metrics_admission_threshold: float = 0.8
     metrics_divergence_threshold: float = 0.5
 

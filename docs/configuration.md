@@ -30,6 +30,16 @@ and `MESA_LOG_FORMAT` to json. Secrets must be injected privately.
 
 ## Providers and capacity
 
+`MESA_CHUNKING=auto` (default) splits new document revisions at Turkish article
+headings when at least three occur at line starts. The preamble stays separate;
+long articles use the existing paragraph/sentence splitting with a 512-token
+limit. All slices preserve the exact source text. Other documents keep the same
+plain chunks; `MESA_CHUNKING=plain` selects that plan for every document. Retrying
+a pending upload preserves the plan matching its already admitted chunk texts,
+even after restarting or changing this setting. Active revisions are unchanged.
+If an admitted prefix fits two different plans, the retry returns 409 without
+appending chunks, because the stored text cannot identify the original plan.
+
 Model and external-provider flags default false. Validation defaults to
 mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
 needs distinct A/B validator identities. Extraction and validation are separate.
