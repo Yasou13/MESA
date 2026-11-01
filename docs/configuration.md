@@ -226,11 +226,15 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `metrics_admission_threshold` | `METRICS_ADMISSION_THRESHOLD` | `0.8` |
 | `metrics_divergence_threshold` | `METRICS_DIVERGENCE_THRESHOLD` | `0.5` |
 | `rrf_k` | `MESA_RRF_K` | `60` |
-| `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `1.0` |
+| `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `8.0` |
 | `rrf_bm25_weight` | `MESA_RRF_BM25_WEIGHT` | `1.0` |
 | `rrf_assertion_weight` | `MESA_RRF_ASSERTION_WEIGHT` | `1.0` |
 | `rrf_graph_weight` | `MESA_RRF_GRAPH_WEIGHT` | `1.0` |
 | `search_scope_cache` | `MESA_SEARCH_SCOPE_CACHE` | `True` |
+| `chunking` | `MESA_CHUNKING` | `'auto'` |
+| `rerank_enabled` | `MESA_RERANK_ENABLED` | `False` |
+| `rerank_model` | `MESA_RERANK_MODEL` | `'BAAI/bge-reranker-v2-m3'` |
+| `rerank_depth` | `MESA_RERANK_DEPTH` | `50` |
 | `t_route` | `MESA_T_ROUTE` | `0.85` |
 | `v4_rebuild_enabled` | `MESA_V4_REBUILD_ENABLED` | `False` |
 | `v4_graph_timeout_seconds` | `MESA_V4_GRAPH_TIMEOUT_SECONDS` | `15.0` |

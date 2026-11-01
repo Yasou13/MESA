@@ -624,7 +624,7 @@ class MesaConfig(BaseSettings):
     # score-space weights here because scores from those lanes are not
     # comparable.
     rrf_k: int = Field(60, validation_alias="MESA_RRF_K")
-    rrf_vector_weight: float = Field(1.0, validation_alias="MESA_RRF_VECTOR_WEIGHT")
+    rrf_vector_weight: float = Field(8.0, validation_alias="MESA_RRF_VECTOR_WEIGHT")
     rrf_bm25_weight: float = Field(1.0, validation_alias="MESA_RRF_BM25_WEIGHT")
     rrf_assertion_weight: float = Field(
         1.0, validation_alias="MESA_RRF_ASSERTION_WEIGHT"

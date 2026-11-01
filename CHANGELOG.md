@@ -7,6 +7,18 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Set the runtime vector RRF weight to 8.0 from the frozen Tier M dev benchmark
+  (passage MRR 0.3953 → 0.5663 with reranking off); other lane weights remain 1.0.
+  The full weight/reranker matrix and model environment are recorded in the
+  [retrieval guide](docs/retrieval-and-graph.md#round-14-dev-benchmark).
+- New document revisions use lossless Turkish article boundaries in automatic
+  mode. Optional BGE reranking remains off by default, and query embedding calls
+  run before acquiring the shared search connection.
+
 ## [0.9.0] - 2026-10-28
 
 ### Added
