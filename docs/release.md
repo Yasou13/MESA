@@ -113,17 +113,31 @@ yapılmaz; eski storage ve v3 compatibility servisi korunur.
 
 ## Yayınlama (yalnızca depo sahibi)
 
-PyPI yayını ve sürüm etiketleme adımları:
+PyPI yayını GitHub Actions üzerinden OIDC ile token/secret kullanılmadan trusted publishing ile yapılır (D42).
+
+### Bir kerelik kurulum (depo sahibi)
+
+1. **PyPI Trusted Publisher**:
+   - PyPI hesabında `mesa-memory` projesi (veya "Add a pending publisher" sekmesi) altında GitHub publisher eklenir:
+     - Owner: `Yasou13`
+     - Repository: `MESA`
+     - Workflow name: `release.yml`
+     - Environment name: `pypi`
+2. **GitHub Environment**:
+   - `Yasou13/MESA` repository ayarlarında (`Settings > Environments`) `pypi` isimli bir environment oluşturulur.
+
+### Yayınlama adımı
+
+Sürüm kapıları geçtikten sonra etiketi oluşturup göndermek yeterlidir:
 
 ```bash
-uv build
-uvx twine check dist/*
-uv publish
-git tag v0.9.0
-git push origin v0.9.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-`README.md` dosyasındaki kurulum satırı bu release commit'inde `pip install "mesa-memory[adapters]"` olarak tamamlanmıştır.
+Tag push edildiğinde `.github/workflows/release.yml` otomatik tetiklenir, `uv build` ile paketleri üretir, `uvx twine check` ile doğrular ve `pypa/gh-action-pypi-publish` ile PyPI'a yayınlar.
+
+`README.md` dosyasındaki kurulum satırı bu release commit'inde `pip install mesa-memory` olarak tamamlanmıştır.
 
 ## Sürüme özel yayın istisnaları
 

@@ -30,6 +30,26 @@ and `MESA_LOG_FORMAT` to json. Secrets must be injected privately.
 
 ## Providers and capacity
 
+`MESA_CHUNKING=auto` (default) splits new document revisions at Turkish article
+headings when at least three occur at line starts. The preamble stays separate;
+long articles use the existing paragraph/sentence splitting with a 512-token
+limit. All slices preserve the exact source text. Other documents keep the same
+plain chunks; `MESA_CHUNKING=plain` selects that plan for every document. Retrying
+a pending upload preserves the plan matching its already admitted chunk texts,
+even after restarting or changing this setting. Active revisions are unchanged.
+If an admitted prefix fits two different plans, the retry returns 409 without
+appending chunks, because the stored text cannot identify the original plan.
+
+`MESA_RERANK_ENABLED=false` keeps the existing fused ranking and does not import
+ML packages. Enabling it requires `pip install "mesa-memory[ml]"`; startup checks
+that the package is installed, and the model loads lazily on the first search.
+`MESA_RERANK_MODEL` defaults to `BAAI/bge-reranker-v2-m3` (Apache-2.0), with
+`MESA_RERANK_DEPTH=50` (range 1–50). The scorer uses authorized full chunk texts
+after releasing the search connection, in a worker thread, then returns the
+requested number of results. Tied scores retain fused order. Results keep their
+fusion fields, including `rrf_score` and `final_score`, and add `rerank_score`.
+The first search includes model-load latency; subsequent searches reuse it.
+
 Model and external-provider flags default false. Validation defaults to
 mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
 needs distinct A/B validator identities. Extraction and validation are separate.
@@ -130,7 +150,7 @@ An endpoint is considered **local** when its scheme is `http` or `https` and its
 
 If an optional provider or model extra is selected but not installed, server startup halts with a clear one-line installation command:
 - Ollama LLM, Ollama embedding, or OpenAI-compatible embedding:
-  `pip install "mesa-memory[adapters]"`
+  `pip install mesa-memory`
 - Local transformer embedding (`sentence-transformers`):
   `pip install "mesa-memory[ml]"`
 
@@ -206,10 +226,15 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `metrics_admission_threshold` | `METRICS_ADMISSION_THRESHOLD` | `0.8` |
 | `metrics_divergence_threshold` | `METRICS_DIVERGENCE_THRESHOLD` | `0.5` |
 | `rrf_k` | `MESA_RRF_K` | `60` |
-| `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `1.0` |
+| `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `8.0` |
 | `rrf_bm25_weight` | `MESA_RRF_BM25_WEIGHT` | `1.0` |
 | `rrf_assertion_weight` | `MESA_RRF_ASSERTION_WEIGHT` | `1.0` |
 | `rrf_graph_weight` | `MESA_RRF_GRAPH_WEIGHT` | `1.0` |
+| `search_scope_cache` | `MESA_SEARCH_SCOPE_CACHE` | `True` |
+| `chunking` | `MESA_CHUNKING` | `'auto'` |
+| `rerank_enabled` | `MESA_RERANK_ENABLED` | `False` |
+| `rerank_model` | `MESA_RERANK_MODEL` | `'BAAI/bge-reranker-v2-m3'` |
+| `rerank_depth` | `MESA_RERANK_DEPTH` | `50` |
 | `t_route` | `MESA_T_ROUTE` | `0.85` |
 | `v4_rebuild_enabled` | `MESA_V4_REBUILD_ENABLED` | `False` |
 | `v4_graph_timeout_seconds` | `MESA_V4_GRAPH_TIMEOUT_SECONDS` | `15.0` |

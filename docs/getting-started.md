@@ -6,15 +6,15 @@ This guide covers getting started with MESA as a new user, from installation to 
 
 ## Installation
 
-Install MESA with the adapters extra:
+Install MESA:
 
 ```bash
-pip install "mesa-memory[adapters]"
+pip install mesa-memory
 ```
 
 Supported natively on Linux and macOS. On Windows, use Docker or WSL.
 
-The development version can be installed directly from git: `pip install "mesa-memory[adapters] @ git+https://github.com/Yasou13/MESA"`.
+The development version can be installed directly from git: `pip install "mesa-memory @ git+https://github.com/Yasou13/MESA"`.
 
 Or install from source with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
@@ -45,7 +45,7 @@ mesa search "your query"
 mesa status
 ```
 
-By default, `mesa add` waits for all chunks to commit and the revision to become active, printing `searchable` when complete (pass `--no-wait` to return immediately).
+By default, `mesa add` waits for all chunks to commit and the revision to become active, printing `searchable` when complete (pass `--no-wait` to return immediately). To delete an ingested document, run `mesa delete <document_id>` or `mesa delete --source <ref>`.
 
 ### 3. Python SDK
 
@@ -84,7 +84,7 @@ MESA_EMBEDDING_MODEL=ollama:bge-m3
 Under decision D31, local `openai_compatible` servers (e.g. vLLM started with `--port 8001`, at `http://127.0.0.1:8001/v1`, since MESA itself uses port 8000) are also permitted with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on a local endpoint and require no API key. For external cloud APIs (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and supply the required API keys.
 
 Missing extras raise clear, actionable installation messages:
-- Ollama LLM, Ollama embedding, or OpenAI-compatible embedding → `pip install "mesa-memory[adapters]"`
+- Anthropic LLM requires the adapters extra: `pip install "mesa-memory[adapters]"`
 - Local embedding (`sentence-transformers`) → `pip install "mesa-memory[ml]"`
 
 ### 6. Graph toggle

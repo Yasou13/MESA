@@ -203,16 +203,25 @@ def search_command(args: argparse.Namespace) -> None:
 def delete_command(args: argparse.Namespace) -> None:
     from mesa_client import Mesa
 
+    doc_arg = getattr(args, "document_id", None)
+    source = getattr(args, "source", None)
+    if (doc_arg is None and source is None) or (
+        doc_arg is not None and source is not None
+    ):
+        sys.stderr.write("Error: Exactly one of document_id or --source is required\n")
+        sys.exit(1)
+
     mesa = Mesa()
     try:
-        res = mesa.delete(args.document_id)
+        res = mesa.delete(document_id=doc_arg, source=source)
     finally:
         mesa.close()
 
     if getattr(args, "json", False):
         print(json.dumps(res, indent=2))
     else:
-        print(f"Purged document {args.document_id}")
+        doc_id = res.get("document_id") or doc_arg or source
+        print(f"Purged document {doc_id}")
 
 
 def status_command(args: argparse.Namespace) -> None:
@@ -343,7 +352,17 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
     delete_parser = subparsers.add_parser(
         "delete", help="purge a document from MESA"
     )
-    delete_parser.add_argument("document_id", help="document ID to purge")
+    delete_parser.add_argument(
+        "document_id",
+        nargs="?",
+        default=None,
+        help="document ID to purge",
+    )
+    delete_parser.add_argument(
+        "--source",
+        default=None,
+        help="source reference to purge",
+    )
     delete_parser.add_argument("--json", action="store_true", help="output JSON")
 
     status_parser = subparsers.add_parser(

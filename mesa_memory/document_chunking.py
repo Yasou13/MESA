@@ -30,6 +30,14 @@ _ABBREVIATIONS = frozenset({
     "şti",
 })
 _TRAILING_WORD = re.compile(r"([^\W_]+)$")
+_ARTICLE_HEADING = re.compile(
+    r"^[ \t]*(?:(?:GEÇİCİ|EK)[ \t]+)?MADDE[ \t]+\d+"
+    r"(?:/[A-ZÇĞİÖŞÜ]+)?(?:[ \t]+ila[ \t]+\d+)?[ \t]*[-–—−:]",
+    re.MULTILINE | re.IGNORECASE,
+)
+_CASE_LAW_PREAMBLE = re.compile(
+    r'^[ \t]*["“]?İçtihat Metni["”]?[ \t]*\r?$', re.MULTILINE | re.IGNORECASE
+)
 
 
 def _is_sentence_end(prefix: str, m: re.Match) -> bool:
@@ -96,4 +104,20 @@ def chunk_document(content: str) -> list[str]:
             end -= 1
         chunks.append(content[start:end])
         start = end
+    return chunks
+
+
+def chunk_legal_document(content: str) -> list[str]:
+    """Keep Turkish article headings at slice starts without changing the text."""
+    starts = [match.start() for match in _ARTICLE_HEADING.finditer(content)]
+    if len(starts) < 3 or _CASE_LAW_PREAMBLE.search(content[:starts[0]]):
+        return chunk_document(content)
+    boundaries = sorted({0, *starts, len(content)})
+    chunks = []
+    for start, end in zip(boundaries, boundaries[1:]):
+        piece = content[start:end]
+        if len(piece) <= 32768 and count_tokens(piece, "openai") <= 512:
+            chunks.append(piece)
+        else:
+            chunks.extend(chunk_document(piece))
     return chunks

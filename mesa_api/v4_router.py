@@ -23,7 +23,7 @@ from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
-from mesa_memory.document_chunking import chunk_document
+from mesa_memory.document_chunking import chunk_document, chunk_legal_document
 from mesa_memory.embedding.service import (
     EmbeddingGenerationError,
     EmbeddingIdentityMismatchError,
@@ -1305,7 +1305,44 @@ def create_v4_router(
                     "mutation_ids": [admitted[i] for i in sorted(admitted)],
                     "duplicate": True,
                 }
-            chunks = chunk_document(payload.content)
+            chunks = (
+                chunk_legal_document(payload.content)
+                if config.chunking == "auto"
+                else chunk_document(payload.content)
+            )
+            if admitted:
+                # Admissions are already scoped above. Their durable payloads,
+                # including chunks committed before a restart, pin the plan.
+                texts = {}
+                for ordinal, mutation_id in admitted.items():
+                    mutation = await dao.get_projection_mutation(mutation_id)
+                    if mutation is None:
+                        raise HTTPException(409, "admitted chunk is unavailable")
+                    texts[ordinal] = mutation["content_payload"]
+
+                def matches(plan: list[str]) -> bool:
+                    return all(
+                        ordinal < len(plan) and plan[ordinal] == text
+                        for ordinal, text in texts.items()
+                    )
+
+                alternative = (
+                    chunk_document(payload.content)
+                    if config.chunking == "auto"
+                    else chunk_legal_document(payload.content)
+                )
+                preferred_matches = matches(chunks)
+                alternative_matches = matches(alternative)
+                if preferred_matches and alternative_matches and chunks != alternative:
+                    raise HTTPException(
+                        409, "admitted chunking plan is ambiguous; no chunks appended"
+                    )
+                if not preferred_matches:
+                    if not alternative_matches:
+                        raise HTTPException(
+                            409, "admitted chunks do not match a supported chunking plan"
+                        )
+                    chunks = alternative
             duplicate = len(admitted) == len(chunks)
             for ordinal, chunk in enumerate(chunks):
                 if ordinal in admitted:

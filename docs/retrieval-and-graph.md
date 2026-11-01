@@ -7,11 +7,11 @@ agent, committed-state, jurisdiction and temporal eligibility are checked
 before candidate rank contribution. Physical vector IDs and graph assertions
 must agree with canonical ownership/evidence.
 
-Scope predicates limit eligible rows; they are not evidence of statistically
-independent rankings. The lexical query calls `bm25()` on the shared
-`v4_assertions_fts` table. Do not infer complete cross-scope ranking isolation
-from a WHERE filter or from the `scope_audit` label alone; candidate/rank and
-observable diagnostic behavior require separate negative tests.
+BM25 uses a temporary FTS5 index containing only authorized assertions, so
+out-of-scope rows do not enter its corpus statistics. The scope cache reuses
+that index only while SQLite's data version matches the pinned read snapshot.
+The `scope_audit` describes eligibility; negative tests also check rank and
+observable diagnostic isolation.
 
 | Lane | Candidate signal |
 |---|---|
@@ -21,9 +21,11 @@ observable diagnostic behavior require separate negative tests.
 | Graph | Bounded paths from legal, vector, lexical and entity-name seeds |
 
 For candidate `c`, `RRF(c) = Σ w_lane / (k + rank_lane(c))`, with ranks starting
-at 1, default `k=60`, and all four default weights `1.0`. Duplicate backend hits
-cast one vote. Ties use candidate identity. The source is
-`mesa_storage/retrieval_scope.py`; runtime overrides are in [configuration](configuration.md).
+at 1 and default `k=60`. Runtime defaults are vector weight `8.0` and the other
+three weights `1.0`, selected by the [dev benchmark](#round-14-dev-benchmark).
+Duplicate backend hits cast one vote. Ties use candidate identity. The RRF
+helper in `mesa_storage/retrieval_scope.py` uses unit weights when none are
+passed; the server passes its [configuration](configuration.md) to the DAO.
 
 Lexical exact citation +200 and same-statute +40 change the BM25/lexical lane
 ordering. Assertion exact citation +150 and same-statute +40 change assertion
@@ -33,6 +35,11 @@ statute 0.25, otherwise 1.0. A query without recognized legal citations has
 factor 1.0. HTTP/SDK `final_score` is final fused relevance; higher is better.
 `rrf_score`, `legal_factor` and lane `raw_score` are separate diagnostics;
 MCP response adapters may expose a normalized `score` field.
+
+Optional [reranking](configuration.md#providers-and-capacity) orders fused
+candidates by a cross-encoder score after the search connection is released.
+It adds `rerank_score`; `rrf_score` and `final_score` retain their fusion values.
+Equal reranker scores retain fused order. Reranking is off by default.
 
 Typed ingestion identity uses a bounded alias ontology and immutable provenance.
 It improves scoped pre-rank candidate discovery, including article chunks with
@@ -91,3 +98,64 @@ needed, jurisdiction. These are request patterns, not measured benchmark results
 
 Core context packing is distinct from the independently sealed Profile B
 context and scorer in [E2E Certification](architecture-v4.md#ecosystem).
+
+## Round 14 dev benchmark
+
+Measured on 2026-11-01 using the frozen Tier M corpus: 141 documents and 5,041
+chunks ingested through this branch's authenticated document endpoint, with
+article chunking enabled, extraction off, embeddings and graph on. Only the
+101-question dev split was evaluated (85 answerable, 16 no-answer); the test
+split was not accessed. The unmodified `mesa_eval.py` computes passage hit@5
+and MRR on answerable questions; latency covers all 101 questions. Retrieval
+limit and reranker depth are both 50, with max_length 1024 for the reranker.
+
+Embeddings use `BAAI/bge-m3` (1024 dimensions, normalized), and reranking uses
+`BAAI/bge-reranker-v2-m3`. Each row below uses the same complete store, GPU
+models and other lane weights of 1. Model revisions, package versions, source
+hashes, unrounded MRR and the selection rule are in
+[the measurement data](benchmarks/round14_dev.json).
+
+| Vector weight | Reranker | Passage hit@5 | Passage MRR | Search p50 (s) | Search p95 (s) |
+|---:|---|---:|---:|---:|---:|
+| 1 | Off | 0.5176 | 0.3953 | 1.2693 | 2.0035 |
+| 1 | On | 0.7412 | 0.6816 | 1.9548 | 2.5736 |
+| 2 | Off | 0.5765 | 0.4565 | 1.2708 | 1.9640 |
+| 2 | On | 0.7529 | 0.7055 | 1.9569 | 2.6364 |
+| 4 | Off | 0.6588 | 0.5152 | 1.2836 | 1.9469 |
+| 4 | On | 0.7765 | 0.7069 | 1.9279 | 2.6100 |
+| 8 | Off | 0.6706 | 0.5663 | 1.2849 | 1.9115 |
+| 8 | On | 0.7647 | 0.6973 | 1.9161 | 2.5360 |
+
+The default is selected from **reranker-off** MRR because reranking is off by
+default. Weight 8 has unrounded MRR 0.566347, versus 0.395339 at weight 1: a
+gain of 0.171008, exceeding the required 0.02. The runtime default
+is therefore **8.0**. Without that gain the default would stay 1; ties use the
+smaller weight. Weight 4 has the best reranker-on MRR in this sweep. Overrides
+remain available through `MESA_RRF_VECTOR_WEIGHT`. These measurements describe
+this Turkish legal corpus and these models; other corpora/models need their own
+measurements.
+
+A separate device pass at vector weight 1 measured the optional reranker:
+
+| Inference device / reranker | Passage hit@5 | Passage MRR | Search p50 (s) | Search p95 (s) |
+|---|---:|---:|---:|---:|
+| GPU / Off | 0.5176 | 0.3953 | 1.2531 | 1.9953 |
+| GPU / On | 0.7412 | 0.6816 | 1.9627 | 2.6029 |
+| CPU / On | 0.7412 | 0.6816 | 26.9158 | 33.8756 |
+
+Hardware: Colab A100-SXM4 40GB and Intel Xeon 2.20GHz CPU, with eight CPU
+threads. Python 3.13.16, Torch 2.11.0+cu130, sentence-transformers 5.7.0,
+transformers 5.21.0, NumPy 2.5.4, LanceDB 0.41.0 and Kùzu 0.11.3. These are
+compatible installed Colab packages, rather than the lockfile's exact ML pins;
+the local gate uses the locked dev environment. Both models were explicitly
+acquired before runtime startup. The device pass moves both models to CPU
+without quantization for its CPU row.
+
+Requests use the actual authenticated HTTP route through ASGI, without TCP.
+Passes run sequentially, reusing the store and caches; one first-query warmup
+is excluded from each pass (warmup values are in the data). These are descriptive
+latencies, including embedding, scoped retrieval and optional reranking, rather
+than a controlled hardware speedup claim. The benchmark store was ingested with
+the measured source commit and then reused after the search-lock change, which
+kept all 101 dev top-50 result dictionaries identical. The original frozen
+corpus and question files were read only throughout.

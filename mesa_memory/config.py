@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Literal, Mapping, Optional
 
 import psutil
 from dotenv import load_dotenv
@@ -613,6 +613,9 @@ class MesaConfig(BaseSettings):
 
     # Observability (Module 4)
     histogram_max_size: int = 10000
+    chunking: Literal["auto", "plain"] = Field(
+        "auto", validation_alias="MESA_CHUNKING"
+    )
     metrics_admission_threshold: float = 0.8
     metrics_divergence_threshold: float = 0.5
 
@@ -621,12 +624,20 @@ class MesaConfig(BaseSettings):
     # score-space weights here because scores from those lanes are not
     # comparable.
     rrf_k: int = Field(60, validation_alias="MESA_RRF_K")
-    rrf_vector_weight: float = Field(1.0, validation_alias="MESA_RRF_VECTOR_WEIGHT")
+    rrf_vector_weight: float = Field(8.0, validation_alias="MESA_RRF_VECTOR_WEIGHT")
     rrf_bm25_weight: float = Field(1.0, validation_alias="MESA_RRF_BM25_WEIGHT")
     rrf_assertion_weight: float = Field(
         1.0, validation_alias="MESA_RRF_ASSERTION_WEIGHT"
     )
     rrf_graph_weight: float = Field(1.0, validation_alias="MESA_RRF_GRAPH_WEIGHT")
+    search_scope_cache: bool = Field(
+        True, validation_alias="MESA_SEARCH_SCOPE_CACHE"
+    )
+    rerank_enabled: bool = Field(False, validation_alias="MESA_RERANK_ENABLED")
+    rerank_model: str = Field(
+        "BAAI/bge-reranker-v2-m3", min_length=1, validation_alias="MESA_RERANK_MODEL"
+    )
+    rerank_depth: int = Field(50, ge=1, le=50, validation_alias="MESA_RERANK_DEPTH")
     t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
 
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this

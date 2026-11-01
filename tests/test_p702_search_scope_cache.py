@@ -78,9 +78,7 @@ async def scope_env(tmp_path, monkeypatch):
     sql, vector, graph, dao = await _environment(tmp_path)
     await _seed(dao, 1)
     await _seed(dao, 2)
-    monkeypatch.setenv("MESA_SEARCH_SCOPE_CACHE", "false")
-    uncached = MemoryDAO(sql, vector, graph)
-    monkeypatch.setenv("MESA_SEARCH_SCOPE_CACHE", "true")
+    uncached = MemoryDAO(sql, vector, graph, search_scope_cache_enabled=False)
     try:
         yield sql, dao, uncached
     finally:
@@ -499,3 +497,11 @@ async def test_active_vector_graph_and_query_options_remain_identical(scope_env)
                 assert any(
                     "graph" in row["retrieval_provenance"]["origins"] for row in result
                 )
+
+
+def test_dao_search_scope_cache_enabled_parameter():
+    dao_enabled = MemoryDAO(None, None, None, search_scope_cache_enabled=True)  # type: ignore[arg-type]
+    assert dao_enabled._search_scope_cache_enabled is True
+    dao_disabled = MemoryDAO(None, None, None, search_scope_cache_enabled=False)  # type: ignore[arg-type]
+    assert dao_disabled._search_scope_cache_enabled is False
+

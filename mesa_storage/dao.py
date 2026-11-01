@@ -16,10 +16,11 @@ direct DAO callers must supply validated authorization and identity.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
-import os
+import math
 import re
 import sqlite3
 import unicodedata
@@ -63,7 +64,11 @@ from mesa_storage.retrieval_scope import (
     stable_graph_path_id,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.vector_engine import SemanticRuntimeDisabledError, VectorEngine
+from mesa_storage.vector_engine import (
+    SemanticRuntimeDisabledError,
+    VectorEngine,
+    VectorSearchError,
+)
 
 logger = logging.getLogger("MESA_DAO")
 
@@ -539,6 +544,8 @@ class MemoryDAO:
         "_search_scope_cache",
         "_search_cache_db",
         "_search_data_version",
+        "_reranker",
+        "_rerank_depth",
     )
 
     def __init__(
@@ -553,6 +560,9 @@ class MemoryDAO:
         graph_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
+        search_scope_cache_enabled: bool = True,
+        reranker: Any = None,
+        rerank_depth: int = 50,
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
@@ -567,14 +577,14 @@ class MemoryDAO:
         self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
-        self._search_scope_cache_enabled = os.environ.get(
-            "MESA_SEARCH_SCOPE_CACHE", "true"
-        ).strip().lower() not in {"0", "false", "no", "off"}
+        self._search_scope_cache_enabled = search_scope_cache_enabled
         self._search_scope_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = (
             OrderedDict()
         )
         self._search_cache_db: aiosqlite.Connection | None = None
         self._search_data_version: int | None = None
+        self._reranker = reranker
+        self._rerank_depth = rerank_depth
 
     @property
     def catalog(self) -> CatalogRepositoryPort:
@@ -5793,12 +5803,24 @@ class MemoryDAO:
         certification_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Reuse only version-valid authorized scope data, never query results."""
+        _assert_valid_agent_id(agent_id)
+        if not tenant_id or not dataset_ids or not query.strip() or not 1 <= limit <= 50:
+            raise ValueError("invalid v4 search scope")
+        query_vector: list[float] | None = None
+        query_error: Exception | None = None
+        if self._embedding_enabled and self._vec is not None:
+            try:
+                query_vector = await self._vec.compute_query_embedding(query)
+            except Exception as exc:
+                # Preserve degradation/error semantics: a provider error matters
+                # only if the authorized scope actually has compatible vectors.
+                query_error = exc
         kwargs: dict[str, Any] = dict(
             tenant_id=tenant_id,
             agent_id=agent_id,
             dataset_ids=dataset_ids,
             query=query,
-            limit=limit,
+            limit=max(limit, self._rerank_depth) if self._reranker is not None else limit,
             jurisdiction=jurisdiction,
             valid_at=valid_at,
             valid_from=valid_from,
@@ -5808,9 +5830,14 @@ class MemoryDAO:
             graph_enabled=graph_enabled,
             request_principal_id=request_principal_id,
             certification_metadata=certification_metadata,
+            _query_vector=query_vector,
+            _query_error=query_error,
         )
         if not self._search_scope_cache_enabled:
-            return await self._search_v4_memory_uncached(**kwargs)
+            if self._reranker is None:
+                return await self._search_v4_memory_uncached(**kwargs)
+            result = await self._search_v4_memory_uncached(**kwargs)
+            return await self._rerank_results(query, result, limit)
         async with self._sql.search_connection() as db:
             if self._search_cache_db is not db:
                 self._search_scope_cache.clear()
@@ -5859,7 +5886,6 @@ class MemoryDAO:
                     **kwargs, _search_db=db, _scope=scope
                 )
                 await db.commit()  # Only TEMP can be written on this connection.
-                return result
             except BaseException:
                 await db.rollback()
                 # Rollback can restore tables evicted earlier in this search.
@@ -5868,6 +5894,23 @@ class MemoryDAO:
                 await self._clear_search_scope_cache(db)
                 self._search_data_version = None
                 raise
+        if self._reranker is not None:
+            return await self._rerank_results(query, result, limit)
+        return result
+
+    async def _rerank_results(
+        self, query: str, results: list[dict[str, Any]], limit: int
+    ) -> list[dict[str, Any]]:
+        if not results:
+            return []
+        texts = [row.pop("_rerank_text") for row in results]
+        scores = await asyncio.to_thread(self._reranker.score, query, texts)
+        if len(scores) != len(results) or any(not math.isfinite(s) for s in scores):
+            raise RuntimeError("reranker returned invalid scores")
+        for row, score in zip(results, scores):
+            row["rerank_score"] = float(score)
+        # Python's stable sort retains fused order for tied scores.
+        return sorted(results, key=lambda row: -row["rerank_score"])[:limit]
 
     async def _clear_search_scope_cache(self, db: aiosqlite.Connection) -> None:
         for scope in self._search_scope_cache.values():
@@ -5903,6 +5946,8 @@ class MemoryDAO:
         certification_metadata: dict[str, Any] | None = None,
         _search_db: aiosqlite.Connection | None = None,
         _scope: dict[str, Any] | None = None,
+        _query_vector: list[float] | None = None,
+        _query_error: Exception | None = None,
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
@@ -6353,9 +6398,12 @@ class MemoryDAO:
                 if not searchable_vector_ids:
                     vector_rows = []
                 else:
-                    query_vector = await self._vec.compute_query_embedding(query)
+                    if _query_error is not None:
+                        raise _query_error
+                    if _query_vector is None:
+                        raise VectorSearchError("query embedding is unavailable")
                     vector_rows = await self._vec.search(
-                        query_vector,
+                        _query_vector,
                         agent_id=agent_id,
                         allowed_node_ids=searchable_vector_ids,
                         limit=min(500, max(limit * 10, 50)),
@@ -7367,15 +7415,20 @@ class MemoryDAO:
             }
         )
         metadata_by_mutation: dict[str, dict[str, Any]] = {}
+        rerank_texts: dict[str, str] = {}
         async with self._search_read_connection(_search_db) as db:
             if mutation_ids:
                 mutation_placeholders = ",".join("?" for _ in mutation_ids)
                 async with db.execute(
-                    "SELECT mutation_id, metadata_json FROM memory_mutations "
+                    "SELECT mutation_id, metadata_json"
+                    + (", content_payload" if self._reranker is not None else "")
+                    + " FROM memory_mutations "
                     f"WHERE mutation_id IN ({mutation_placeholders})",
                     mutation_ids,
                 ) as cursor:
                     for row in await cursor.fetchall():
+                        if self._reranker is not None:
+                            rerank_texts[str(row["mutation_id"])] = str(row["content_payload"])
                         try:
                             metadata = json.loads(str(row["metadata_json"] or "{}"))
                         except (TypeError, json.JSONDecodeError):
@@ -7498,6 +7551,8 @@ class MemoryDAO:
                 ],
                 "retrieval_provenance": retrieval_provenance,
             }
+            if self._reranker is not None:
+                result["_rerank_text"] = rerank_texts[str(cand_prov[0]["mutation_id"])]
             if certification_metadata is not None:
                 first_provenance = cand_prov[0]
                 result["scope_identity"] = {
