@@ -97,6 +97,18 @@ async def test_exact_slot_is_bounded_in_document_order_and_preserves_other_order
         assert [r["candidate_id"] for r in before] == [
             r["candidate_id"] for r in result
         ]
+        # An out-of-time first chunk must not teach its header to this scope.
+        async with env.dao._sql.transaction() as db:
+            await db.execute(
+                "UPDATE v4_assertions SET valid_from='2030-01-01' WHERE mutation_id=?",
+                (added["mutation_ids"][0],),
+            )
+            await db.commit()
+        historical = await env.dao.search_v4_memory(
+            tenant_id="model-tenant", agent_id="model-agent", dataset_ids=["main"],
+            query="Tebligat K. 21. madde", graph_enabled=False, valid_at="2020-01-01",
+        )
+        assert all("exact_match" not in r["retrieval_provenance"] for r in historical)
         await env.dao.purge_v4_document(
             tenant_id="model-tenant", dataset_id="main", document_id="whole-document"
         )

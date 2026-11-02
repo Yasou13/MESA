@@ -6273,20 +6273,23 @@ class MemoryDAO:
                     )
             names: dict[str, set[str]] = {}
             chunk_order: dict[str, tuple[str, str, int]] = {}
+            authorized_chunks = {str(a["chunk_id"]) for a in in_scope_assertions.values()}
+            named_revisions: set[str] = set()
             async with self._search_read_connection(_search_db) as db:
                 for offset in range(0, len(revisions), 500):
                     batch = revisions[offset : offset + 500]
                     marks = ",".join("?" for _ in batch)
                     async with db.execute(
                         "SELECT c.chunk_id,c.ordinal,c.revision_id,r.document_id,d.title,"
-                        "(SELECT f.content_payload FROM source_chunks f WHERE "
-                        "f.revision_id=c.revision_id AND f.ordinal=0) AS header "
+                        "CASE WHEN c.ordinal=0 THEN c.content_payload ELSE '' END AS header "
                         "FROM source_chunks c JOIN document_revisions r ON r.revision_id=c.revision_id "
                         "JOIN documents d ON d.document_id=r.document_id "
                         f"WHERE c.tenant_id=? AND c.revision_id IN ({marks})",
                         (tenant_id, *batch),
                     ) as cursor:
                         for row in await cursor.fetchall():
+                            if str(row["chunk_id"]) not in authorized_chunks:
+                                continue
                             revision = str(row["revision_id"])
                             chunk_order[str(row["chunk_id"])] = (
                                 str(row["document_id"]),
@@ -6294,7 +6297,7 @@ class MemoryDAO:
                                 int(row["ordinal"]),
                             )
                             laws = revision_laws.get(revision, set())
-                            if len(laws) != 1 or int(row["ordinal"]) != 0:
+                            if len(laws) != 1:
                                 continue
                             header = re.split(
                                 r"\bKanun(?:un)?\s+(?:Numarası|No\.)",
@@ -6307,7 +6310,11 @@ class MemoryDAO:
                                 if len(header) == 2
                                 else ""
                             )
-                            for name in (str(row["title"] or ""), header_name):
+                            revision_names = [header_name]
+                            if revision not in named_revisions:
+                                revision_names.append(str(row["title"] or ""))
+                                named_revisions.add(revision)
+                            for name in revision_names:
                                 if name:
                                     names.setdefault(
                                         normalize_law_name(name), set()
