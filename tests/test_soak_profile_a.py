@@ -657,8 +657,11 @@ async def test_purge_case_c_all_searches_fail_unconfirmed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embedded_soak_run_integration(tmp_path: Path) -> None:
+async def test_embedded_soak_run_integration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Run a fast 5-second in-process soak test exercising real V4 lifecycle."""
+    monkeypatch.setenv("MESA_EXTRACTION_ENABLED", "true")
     log_file = tmp_path / "soak_test_fast.jsonl"
     storage_root = tmp_path / "storage"
 

@@ -262,7 +262,9 @@ async def test_failing_backfill_keeps_committed_record_searchable(model_runtime)
 
 @pytest.mark.asyncio
 async def test_legacy_model_flag_enables_both_models(model_runtime):
-    async with model_runtime(MESA_MODEL_ENABLED=True) as env:
+    async with model_runtime(
+        MESA_MODEL_ENABLED=True, MESA_EXTRACTION_ENABLED=True
+    ) as env:
         runtime = server.state.runtime_profile
         assert getattr(runtime, "embedding_enabled", None) is True
         assert getattr(runtime, "extraction_enabled", None) is True
