@@ -38,6 +38,7 @@ from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
+    normalize_law_name,
 )
 from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
@@ -5910,7 +5911,12 @@ class MemoryDAO:
         for row, score in zip(results, scores):
             row["rerank_score"] = float(score)
         # Python's stable sort retains fused order for tied scores.
-        return sorted(results, key=lambda row: -row["rerank_score"])[:limit]
+        ordered = sorted(results, key=lambda row: -row["rerank_score"])
+        exact = sorted(
+            (row for row in ordered if "exact_match" in row["retrieval_provenance"]),
+            key=lambda row: row["retrieval_provenance"]["exact_match"]["order"],
+        )[:3]
+        return (exact + [row for row in ordered if row not in exact])[:limit]
 
     async def _clear_search_scope_cache(self, db: aiosqlite.Connection) -> None:
         for scope in self._search_scope_cache.values():
@@ -5968,10 +5974,6 @@ class MemoryDAO:
         scope = _scope if _scope is not None else {}
         scoped_fts = scope.get("fts_table", "v4_scoped_assertions_fts")
         text_features = scope.setdefault("text_features", {})
-        legal_resolver = LegalEntityResolver()
-        legal_citations = legal_resolver.extract_citations(query)
-        target_statutes = {c.statute_code for c in legal_citations}
-
         historical_query = bool(valid_at or valid_from or valid_to)
         assertion_status_sql = (
             "(a.status = 'ACTIVE' OR (a.status = 'SUPERSEDED' AND a.valid_to != ''))"
@@ -6254,6 +6256,105 @@ class MemoryDAO:
             }
         in_scope_assertions = scope["assertions"]
         in_scope_assertion_ids = set(in_scope_assertions)
+        if "legal_context" not in scope:
+            # Only authorized assertions select revisions. Header/title names and
+            # chunk ordinals share the existing data_version scope-cache lifetime.
+            revisions = sorted(
+                {str(a["revision_id"]) for a in in_scope_assertions.values()}
+            )
+            revision_laws: dict[str, set[str]] = {}
+            identities: dict[str, dict[str, str]] = {}
+            for assertion in in_scope_assertions.values():
+                identity = _assertion_legal_identity(assertion)
+                if identity:
+                    identities[str(assertion["assertion_id"])] = identity
+                    revision_laws.setdefault(str(assertion["revision_id"]), set()).add(
+                        identity["law_id"]
+                    )
+            names: dict[str, set[str]] = {}
+            chunk_order: dict[str, tuple[str, str, int]] = {}
+            async with self._search_read_connection(_search_db) as db:
+                for offset in range(0, len(revisions), 500):
+                    batch = revisions[offset : offset + 500]
+                    marks = ",".join("?" for _ in batch)
+                    async with db.execute(
+                        "SELECT c.chunk_id,c.ordinal,c.revision_id,r.document_id,d.title,"
+                        "(SELECT f.content_payload FROM source_chunks f WHERE "
+                        "f.revision_id=c.revision_id AND f.ordinal=0) AS header "
+                        "FROM source_chunks c JOIN document_revisions r ON r.revision_id=c.revision_id "
+                        "JOIN documents d ON d.document_id=r.document_id "
+                        f"WHERE c.tenant_id=? AND c.revision_id IN ({marks})",
+                        (tenant_id, *batch),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            revision = str(row["revision_id"])
+                            chunk_order[str(row["chunk_id"])] = (
+                                str(row["document_id"]),
+                                revision,
+                                int(row["ordinal"]),
+                            )
+                            laws = revision_laws.get(revision, set())
+                            if len(laws) != 1 or int(row["ordinal"]) != 0:
+                                continue
+                            header = re.split(
+                                r"\bKanun(?:un)?\s+(?:Numarası|No\.)",
+                                str(row["header"] or "")[:3000],
+                                maxsplit=1,
+                                flags=re.IGNORECASE,
+                            )
+                            header_name = (
+                                re.sub(r"\d+\s*$", "", header[0]).strip()
+                                if len(header) == 2
+                                else ""
+                            )
+                            for name in (str(row["title"] or ""), header_name):
+                                if name:
+                                    names.setdefault(
+                                        normalize_law_name(name), set()
+                                    ).update(laws)
+            scope["legal_context"] = {
+                "names": {
+                    name: next(iter(laws))
+                    for name, laws in names.items()
+                    if len(laws) == 1
+                },
+                "chunk_order": chunk_order,
+                "identities": identities,
+                "ordered_assertions": sorted(
+                    identities,
+                    key=lambda aid: (
+                        *chunk_order.get(
+                            str(in_scope_assertions[aid]["chunk_id"]),
+                            (
+                                str(in_scope_assertions[aid]["document_id"]),
+                                str(in_scope_assertions[aid]["revision_id"]),
+                                0,
+                            ),
+                        ),
+                        aid,
+                    ),
+                ),
+            }
+        legal_context = scope["legal_context"]
+        legal_resolver = LegalEntityResolver(law_names=legal_context["names"])
+        legal_citations = legal_resolver.extract_citations(query)
+        target_statutes = {c.statute_code for c in legal_citations}
+        exact_keys = {(c.statute_code, c.article) for c in legal_citations if c.article}
+        exact_ids: list[str] = []
+        seen_chunks: set[str] = set()
+        for aid in legal_context["ordered_assertions"] if exact_keys else ():
+            assertion = in_scope_assertions[aid]
+            identity = legal_context["identities"][aid]
+            chunk = str(assertion["chunk_id"])
+            if (
+                identity
+                and (identity["statute_code"], identity["article_id"]) in exact_keys
+                and chunk not in seen_chunks
+            ):
+                exact_ids.append(aid)
+                seen_chunks.add(chunk)
+                if len(exact_ids) == 3:
+                    break
         typed_legal_candidate_ids: set[str] = set()
         if legal_citations:
             identity_clauses: list[str] = []
@@ -6298,6 +6399,7 @@ class MemoryDAO:
                     typed_legal_candidate_ids = {
                         str(row["assertion_id"]) for row in await cursor.fetchall()
                     }
+        typed_legal_candidate_ids.update(exact_ids)
         in_scope_entity_ids_from_assertions = {
             str(row["subject_id"])
             for row in in_scope_assertion_rows
@@ -7151,6 +7253,9 @@ class MemoryDAO:
             "assertion": assertion_lane,
             "graph": graph_lane,
         }
+        lane_rankings["assertion"] = assertion_lane + [
+            aid for aid in exact_ids if aid not in assertion_lane
+        ]
         for candidate_id, fused_score, lane_ranks in rrf_fuse_lanes(
             lane_rankings,
             k=effective_k,
@@ -7332,6 +7437,11 @@ class MemoryDAO:
         ordered_candidates = sorted(
             candidates.values(),
             key=lambda c: (-(c["rrf_score"] * c["legal_factor"]), c["candidate_id"]),
+        )
+        exact_candidates = [candidates[aid] for aid in exact_ids if aid in candidates]
+        ordered_candidates = (
+            exact_candidates
+            + [c for c in ordered_candidates if c["candidate_id"] not in exact_ids]
         )[:limit]
 
         needed_entity_ids = sorted(
@@ -7494,6 +7604,11 @@ class MemoryDAO:
                 "lane_ranks": cand["lane_ranks"],
                 "raw_scores": cand["raw_scores"],
             }
+            if cand["candidate_id"] in exact_ids:
+                retrieval_provenance["exact_match"] = {
+                    "kind": "article",
+                    "order": exact_ids.index(cand["candidate_id"]),
+                }
             if cand["assertion_id"]:
                 retrieval_provenance["assertion_id"] = cand["assertion_id"]
             if cand["source_chunk_id"]:

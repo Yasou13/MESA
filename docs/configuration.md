@@ -52,6 +52,16 @@ TBK). Unknown law names and inconsistent number/code pairs are rejected.
 Numbered queries such as `7201 sayılı Kanunun 21. maddesi` use the existing
 typed legal candidate lane and ranking factors.
 
+An exact law-and-article query puts at most three matching chunks first, in
+document order. Other results retain their fused order (or reranked order when
+reranking is enabled). The match must exist in the authorized search scope.
+The scope cache learns law names from titles and first-chunk law headers of
+documents with trusted article identities; it never learns them from another
+tenant, dataset, agent or time scope. Names accept case and Turkish ı/i variants,
+possessive suffixes, and `K.` for `Kanunu`. The longest exact name from that scope
+takes precedence over an overlapping ontology alias. Ambiguous store names
+shared by different law numbers are ignored. No static law-name table is added.
+
 `MESA_RERANK_ENABLED=false` keeps the existing fused ranking and does not import
 ML packages. Enabling it requires `pip install "mesa-memory[ml]"`; startup checks
 that the package is installed, and the model loads lazily on the first search.

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Exact law/article matches now occupy at most three leading search positions
+  in document order, preserving the remaining order. Authorized document titles
+  and law headers provide scope-cached law names, including the `K.` abbreviation.
 - Document article plans assign the existing typed legal identity to ordinary
   articles and their continuation chunks. Generic 3–5 digit law-number
   citations use the existing retrieval lane; `MESA_LEGAL_RULES_ENABLED=false`

@@ -23,6 +23,12 @@ def normalize_turkish(text: str) -> str:
     return unicodedata.normalize("NFKC", cleaned).lower()
 
 
+def normalize_law_name(text: str) -> str:
+    """Normalize exact store names, including the conventional Kanunu abbreviation."""
+    text = normalize_turkish(text).replace("ı", "i")
+    return " ".join(re.sub(r"\bk\.(?=\W|$)", "kanunu", text).split())
+
+
 @dataclass(frozen=True)
 class LegalCitation:
     statute_code: str
@@ -260,7 +266,7 @@ def canonicalize_trusted_legal_identity(
 
 
 class LegalEntityResolver:
-    def __init__(self) -> None:
+    def __init__(self, *, law_names: Mapping[str, str] | None = None) -> None:
         self.ontology = ONTOLOGY
         self.laws = {
             "TBK",
@@ -275,6 +281,27 @@ class LegalEntityResolver:
             "Anayasa",
         }
         self.alias_to_code: dict[str, str] = {}
+        self._law_names = {
+            normalize_law_name(name): number
+            for name, number in (law_names or {}).items()
+            if name and re.fullmatch(r"[0-9]{3,5}", number)
+        }
+        name_patterns = []
+        for name in sorted(self._law_names, key=len, reverse=True):
+            escaped = re.escape(name)
+            if name.endswith("kanunu"):
+                escaped = re.escape(name[:-1]) + r"u?"
+            name_patterns.append(escaped)
+        self._scope_name_pattern = (
+            re.compile(
+                r"(?<!\w)(?P<name>" + "|".join(name_patterns) + r")"
+                r"(?:['’]?(?:nun|un|nin|in))?(?!\w)"
+                r"(?:\s*(?:(?:m\.|md\.?|madde)\s*(?P<marked>[0-9]+)"
+                r"|(?P<ordinal>[0-9]+)(?:\.|\s+(?:inci|uncu|üncü|nci|ncu|ncü))?\s+madde(?:si)?))?"
+            )
+            if name_patterns
+            else None
+        )
         for code, info in self.ontology.items():
             for alias in info["aliases"]:
                 self.alias_to_code[normalize_turkish(alias)] = code
@@ -306,6 +333,43 @@ class LegalEntityResolver:
     def extract_citations(self, text: str) -> list[LegalCitation]:
         if not text:
             return []
+        if self._scope_name_pattern is not None:
+            normalized_name_text = normalize_law_name(text)
+            matches = list(self._scope_name_pattern.finditer(normalized_name_text))
+            if matches:
+                scoped_citations = []
+                remainder = list(normalized_name_text)
+                for match in matches:
+                    name = match["name"]
+                    number = self._law_names.get(name)
+                    if number is None:
+                        number = self._law_names.get(name + "u")
+                    if number is None:
+                        continue
+                    scoped_code = next(
+                        (c for c, n in LAW_IDS.items() if n == number), number
+                    )
+                    scoped_article = match["marked"] or match["ordinal"]
+                    scoped_citations.append(
+                        LegalCitation(
+                            statute_code=scoped_code,
+                            statute_canonical=name,
+                            article=scoped_article,
+                            canonical_name=f"{scoped_code} m.{scoped_article}"
+                            if scoped_article
+                            else scoped_code,
+                            aliases=(name,),
+                        )
+                    )
+                    remainder[match.start() : match.end()] = " " * (
+                        match.end() - match.start()
+                    )
+                # A store name consumes its entire span before ontology matching,
+                # so a shorter ontology alias cannot reinterpret that same name.
+                scoped_citations.extend(
+                    LegalEntityResolver().extract_citations("".join(remainder))
+                )
+                return list(dict.fromkeys(scoped_citations))
         normalized = normalize_turkish(text)
         raw_matches: list[dict[str, Any]] = []
 
