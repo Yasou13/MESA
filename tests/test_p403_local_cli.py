@@ -373,7 +373,8 @@ def test_cli_add_prints_server_conflict_detail_without_traceback(tmp_path, capsy
 
     detail = (
         "content equals revision 1 (SUPERSEDED); "
-        "restoring an earlier revision is not supported in v0.9"
+        "restoring an earlier revision is not supported in v0.9. "
+        "Add it under a new document_id to store it again."
     )
     document = tmp_path / "a.txt"
     document.write_text("A")

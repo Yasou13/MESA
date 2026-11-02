@@ -1289,7 +1289,8 @@ def create_v4_router(
                     raise ValueError(
                         f"content equals revision {revision['revision_number']} "
                         f"({revision['status']}); restoring an earlier revision "
-                        "is not supported in v0.9"
+                        "is not supported in v0.9. Add it under a new document_id "
+                        "to store it again."
                     )
                 admitted = await dao.list_v4_revision_mutations(
                     **scope, revision_id=revision_id
@@ -1335,12 +1336,18 @@ def create_v4_router(
                 alternative_matches = matches(alternative)
                 if preferred_matches and alternative_matches and chunks != alternative:
                     raise HTTPException(
-                        409, "admitted chunking plan is ambiguous; no chunks appended"
+                        409,
+                        "admitted chunking plan is ambiguous; no chunks appended. "
+                        "Retry with the MESA_CHUNKING value used when this revision was "
+                        "first added, or add the content under a new document_id.",
                     )
                 if not preferred_matches:
                     if not alternative_matches:
                         raise HTTPException(
-                            409, "admitted chunks do not match a supported chunking plan"
+                            409,
+                            "admitted chunks do not match a supported chunking plan. "
+                            "Retry with the MESA_CHUNKING value used when this revision was "
+                            "first added, or add the content under a new document_id.",
                         )
                     chunks = alternative
             duplicate = len(admitted) == len(chunks)

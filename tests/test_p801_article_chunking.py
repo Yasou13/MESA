@@ -142,6 +142,11 @@ async def test_unknown_admitted_plan_fails_without_appending(model_runtime, monk
         monkeypatch.setattr(type(env.dao), "admit_v4_memory", original)
         response = await env.client.post("/v4/documents", json=_payload(env, text))
         assert response.status_code == 409, response.text
+        assert response.json()["detail"] == (
+            "admitted chunks do not match a supported chunking plan. "
+            "Retry with the MESA_CHUNKING value used when this revision was "
+            "first added, or add the content under a new document_id."
+        )
         assert await _rows(env, "memory_mutations") == before
 
 
@@ -172,7 +177,11 @@ async def test_ambiguous_admitted_prefix_never_silently_changes_plan(model_runti
         await env.restart(MESA_CHUNKING="auto")
         response = await env.client.post("/v4/documents", json=_payload(env, text))
         assert response.status_code == 409
-        assert "ambiguous" in response.json()["detail"]
+        assert response.json()["detail"] == (
+            "admitted chunking plan is ambiguous; no chunks appended. "
+            "Retry with the MESA_CHUNKING value used when this revision was "
+            "first added, or add the content under a new document_id."
+        )
         assert await _rows(env, "memory_mutations") == before
 
 
