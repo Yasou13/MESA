@@ -40,6 +40,18 @@ even after restarting or changing this setting. Active revisions are unchanged.
 If an admitted prefix fits two different plans, the retry returns 409 without
 appending chunks, because the stored text cannot identify the original plan.
 
+`MESA_LEGAL_RULES_ENABLED=true` enables Turkish legal rule processing. In auto
+chunking mode, ordinary article chunks inherit the document's law number from
+`metadata.law_number` or a `Kanun Numarası`, `Kanunun Numarası` or `Kanun No.`
+header in the first 3,000 characters. Continuation pieces keep that article's
+identity; preambles, GEÇİCİ/EK articles and plain plans receive none. Setting the
+switch to false disables automatic identity assignment for new chunks. Stored
+identities are immutable on resume. Any 3–5 digit law number is accepted by the
+typed identity API; known numbers retain their existing statute code (6098 →
+TBK). Unknown law names and inconsistent number/code pairs are rejected.
+Numbered queries such as `7201 sayılı Kanunun 21. maddesi` use the existing
+typed legal candidate lane and ranking factors.
+
 `MESA_RERANK_ENABLED=false` keeps the existing fused ranking and does not import
 ML packages. Enabling it requires `pip install "mesa-memory[ml]"`; startup checks
 that the package is installed, and the model loads lazily on the first search.

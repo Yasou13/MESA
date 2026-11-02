@@ -222,11 +222,17 @@ def canonicalize_trusted_legal_identity(
         raise ValueError("legal identity requires law_id and article_id")
 
     def resolve_code(reference: str) -> str | None:
-        return resolver.alias_to_code.get(normalize_turkish(reference))
+        if re.fullmatch(r"[0-9]{3,5}", reference):
+            return next(
+                (code for code, number in LAW_IDS.items() if number == reference),
+                reference,
+            )
+        code = resolver.alias_to_code.get(normalize_turkish(reference))
+        return code if code in resolver.laws else None
 
     law_code = resolve_code(law_ref)
     statute_code = resolve_code(statute_ref) if statute_ref else law_code
-    if law_code not in resolver.laws or statute_code != law_code:
+    if law_code is None or statute_code != law_code:
         raise ValueError("legal identity law aliases are unknown or inconsistent")
 
     article_match = _ARTICLE_PATTERN.fullmatch(article_ref)
@@ -238,7 +244,7 @@ def canonicalize_trusted_legal_identity(
         raise ValueError("legal identity source is not trusted")
 
     normalized: dict[str, str] = {
-        "law_id": LAW_IDS[law_code],
+        "law_id": LAW_IDS.get(law_code, law_code),
         "statute_code": law_code,
         "article_id": article_match.group("article"),
         "version_id": str(value.get("version_id") or "").strip(),
@@ -290,6 +296,12 @@ class LegalEntityResolver:
             r"(?P<art>\d+)(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?",
             re.IGNORECASE,
         )
+        self._numbered_law_pattern = re.compile(
+            r"\b(?P<number>[0-9]{3,5})\s+sayılı\s+"
+            r"(?:[^\n.;!?]{0,160}?\s+)?kanun(?:u)?(?:['’]?(?:nun|un|nın|ın))?\s+"
+            r"(?:(?:m\.|md\.?|madde)\s*(?P<marked>[0-9]+)"
+            r"|(?P<ordinal>[0-9]+)(?:\.|\s+(?:ıncı|inci|uncu|üncü|nci|ncı|ncu|ncü))?\s+madde(?:si)?)",
+        )
 
     def extract_citations(self, text: str) -> list[LegalCitation]:
         if not text:
@@ -297,8 +309,28 @@ class LegalEntityResolver:
         normalized = normalize_turkish(text)
         raw_matches: list[dict[str, Any]] = []
 
+        # Numbered statutes use the same typed candidate lane as ontology aliases.
+        numbered_matches = list(self._numbered_law_pattern.finditer(normalized))
+        for match in numbered_matches:
+            number = match.group("number")
+            code = next((code for code, n in LAW_IDS.items() if n == number), number)
+            raw_matches.append(
+                {
+                    "code": code,
+                    "article": match.group("marked") or match.group("ordinal"),
+                    "start": match.start(),
+                    "end": match.end(),
+                    "statute_match": number,
+                    "article_span": match.span("marked")
+                    if match.group("marked")
+                    else match.span("ordinal"),
+                }
+            )
+
         # Find forward matches (statute [article])
         for match in self._forward_pattern.finditer(normalized):
+            if any(m.start() <= match.start() < m.end() for m in numbered_matches):
+                continue
             statute_match = match.group("statute")
             code = self.alias_to_code.get(statute_match)
             if not code:
@@ -437,7 +469,10 @@ class LegalEntityResolver:
             if key in seen:
                 continue
             seen.add(key)
-            info = self.ontology[m["code"]]
+            info = self.ontology.get(
+                m["code"],
+                {"canonical": f"{m['code']} sayılı Kanun", "aliases": [m["code"]]},
+            )
             article = m["article"]
             citations.append(
                 LegalCitation(
@@ -446,7 +481,7 @@ class LegalEntityResolver:
                     article=article,
                     canonical_name=(
                         f"{m['code']} m.{article}"
-                        if article and m["code"] in self.laws
+                        if article and (m["code"] in self.laws or m["code"].isdigit())
                         else m["code"]
                     ),
                     aliases=tuple(info["aliases"]),

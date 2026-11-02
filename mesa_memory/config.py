@@ -616,6 +616,7 @@ class MesaConfig(BaseSettings):
     chunking: Literal["auto", "plain"] = Field(
         "auto", validation_alias="MESA_CHUNKING"
     )
+    legal_rules_enabled: bool = Field(True, validation_alias="MESA_LEGAL_RULES_ENABLED")
     metrics_admission_threshold: float = 0.8
     metrics_divergence_threshold: float = 0.5
 

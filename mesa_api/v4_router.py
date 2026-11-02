@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from datetime import datetime
 from typing import Any, Callable, Literal
 
@@ -23,7 +24,12 @@ from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
-from mesa_memory.document_chunking import chunk_document, chunk_legal_document
+from mesa_memory.document_chunking import (
+    _ARTICLE_HEADING,
+    _CASE_LAW_PREAMBLE,
+    chunk_document,
+    chunk_legal_document,
+)
 from mesa_memory.embedding.service import (
     EmbeddingGenerationError,
     EmbeddingIdentityMismatchError,
@@ -1306,6 +1312,7 @@ def create_v4_router(
                     "mutation_ids": [admitted[i] for i in sorted(admitted)],
                     "duplicate": True,
                 }
+            legal_plan = config.chunking == "auto"
             chunks = (
                 chunk_legal_document(payload.content)
                 if config.chunking == "auto"
@@ -1350,6 +1357,46 @@ def create_v4_router(
                             "first added, or add the content under a new document_id.",
                         )
                     chunks = alternative
+                    legal_plan = not legal_plan
+            identities: list[dict[str, str] | None] = [None] * len(chunks)
+            if config.legal_rules_enabled and legal_plan:
+                headings = list(_ARTICLE_HEADING.finditer(payload.content))
+                header = re.search(
+                    r"\bKanun(?:un)?\s+(?:Numarası\s*:|No\.?\s*:?)\s*([0-9]{3,5})\b",
+                    payload.content[:3000],
+                    re.IGNORECASE,
+                )
+                law_number = str(
+                    payload.metadata.get("law_number") or (header[1] if header else "")
+                )
+                if (
+                    re.fullmatch(r"[0-9]{3,5}", law_number)
+                    and len(headings) >= 3
+                    and not _CASE_LAW_PREAMBLE.search(
+                        payload.content[: headings[0].start()]
+                    )
+                ):
+                    heading_index = -1
+                    offset = 0
+                    for ordinal, chunk in enumerate(chunks):
+                        while (
+                            heading_index + 1 < len(headings)
+                            and headings[heading_index + 1].start() <= offset
+                        ):
+                            heading_index += 1
+                        if heading_index >= 0:
+                            # Special/range/suffixed articles have no ordinary article identity.
+                            ordinary = re.fullmatch(
+                                r"\s*MADDE\s+([0-9]+)\s*[-–—−:]",
+                                headings[heading_index][0],
+                                re.IGNORECASE,
+                            )
+                            if ordinary:
+                                identities[ordinal] = {
+                                    "law_id": law_number,
+                                    "article_id": ordinary[1],
+                                }
+                        offset += len(chunk)
             duplicate = len(admitted) == len(chunks)
             for ordinal, chunk in enumerate(chunks):
                 if ordinal in admitted:
@@ -1360,6 +1407,7 @@ def create_v4_router(
                     V4MemoryInsertRequest(
                         **payload.model_dump(exclude={"content"}),
                         content=chunk,
+                        legal_identity=identities[ordinal],
                         revision_id=revision_id,
                         chunk_id=chunk_id,
                         revision_number=revision["revision_number"],
