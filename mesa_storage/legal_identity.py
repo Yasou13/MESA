@@ -333,6 +333,14 @@ class LegalEntityResolver:
     def extract_citations(self, text: str) -> list[LegalCitation]:
         if not text:
             return []
+        # Mask court mentions before both store-name and ontology matching.
+        # Keep offsets and independent Constitution/article citations intact.
+        text = re.sub(
+            r"\banayasa\s+mahkemesi\w*|\baym\b",
+            lambda match: " " * len(match[0]),
+            text,
+            flags=re.IGNORECASE,
+        )
         if self._scope_name_pattern is not None:
             normalized_name_text = normalize_law_name(text)
             matches = list(self._scope_name_pattern.finditer(normalized_name_text))

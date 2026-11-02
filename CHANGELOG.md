@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Constitutional Court names (`Anayasa Mahkemesi`, its suffix forms and `AYM`)
+  no longer activate Constitution citation ranking. Separate statute citations
+  in the same query are preserved.
+
 - Exact law/article matches now occupy at most three leading search positions
   in document order, preserving the remaining order. Authorized document titles
   and law headers provide scope-cached law names, including the `K.` abbreviation.
