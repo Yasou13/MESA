@@ -189,7 +189,7 @@ def load_runtime_profile(
     extraction_enabled = _parse_runtime_bool(
         values.get("MESA_EXTRACTION_ENABLED"),
         name="MESA_EXTRACTION_ENABLED",
-        default=model_enabled,
+        default=False,
     )
     graph_enabled = _parse_runtime_bool(
         values.get("MESA_GRAPH_ENABLED"), name="MESA_GRAPH_ENABLED", default=True

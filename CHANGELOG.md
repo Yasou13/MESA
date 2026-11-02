@@ -7,6 +7,13 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Open-ended SPO fact extraction (`MESA_EXTRACTION_ENABLED`) defaults to false
+  regardless of `MESA_MODEL_ENABLED`; an explicit true still enables it (D46).
+
 ## [0.9.1] - 2026-11-01
 
 This release combines Round 13 (speed) and Round 14 (retrieval quality and

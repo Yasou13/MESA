@@ -56,14 +56,16 @@ mesa mcp-config
 
 ## Internal models (optional)
 
-Models stay off by default. Documents are stored and found through BM25 lexical search without any model running. `FactExtractionService` owns canonical V4 extraction when models are enabled.
+Models stay off by default. Documents are stored and found through BM25 lexical search without any model running. `FactExtractionService` owns canonical V4 extraction when explicitly enabled (`MESA_EXTRACTION_ENABLED=true`).
 
-To enable semantic vector search and fact extraction with local Ollama, add to `~/.mesa/.env`:
+To enable semantic vector search with local Ollama, add to `~/.mesa/.env`:
 
 ```bash
 MESA_MODEL_ENABLED=true
-MESA_LLM_MODEL=ollama:qwen2.5:7b
 MESA_EMBEDDING_MODEL=ollama:bge-m3
+# To also enable open-ended fact extraction (defaults to false):
+# MESA_EXTRACTION_ENABLED=true
+# MESA_LLM_MODEL=ollama:qwen2.5:7b
 ```
 
 Local `openai_compatible` servers (such as vLLM started with `--port 8001`, at `MESA_LLM_BASE_URL=http://127.0.0.1:8001/v1`; MESA itself uses port 8000) are also allowed with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on a local endpoint (`localhost`, `127.0.0.1`, `::1`, `host.docker.internal`) and require no API key (D31). For cloud model providers (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and provide the required API keys.

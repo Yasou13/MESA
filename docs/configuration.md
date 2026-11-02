@@ -53,8 +53,8 @@ The first search includes model-load latency; subsequent searches reuse it.
 Model and external-provider flags default false. Validation defaults to
 mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
 needs distinct A/B validator identities. Extraction and validation are separate.
-`MESA_EMBEDDING_ENABLED` and `MESA_EXTRACTION_ENABLED` each default to
-`MESA_MODEL_ENABLED`. A combined runtime accepts writes with both off and finds
+`MESA_EMBEDDING_ENABLED` defaults to `MESA_MODEL_ENABLED`; `MESA_EXTRACTION_ENABLED`
+defaults to `false` (D46). A combined runtime accepts writes with both off and finds
 them through BM25. Disabled VECTOR lanes end `SKIPPED`; enabling embedding later
 backfills them at startup using the same embedding identity. Backfill failures
 leave committed records searchable.
