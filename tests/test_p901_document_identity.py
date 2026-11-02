@@ -10,6 +10,7 @@ from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
 )
+from mesa_workers.projection_worker import _triplets
 from tests.test_document_ingestion import _add, _payload, _rows
 from tests.test_model_optional_runtime import _consume
 from tests.test_model_optional_runtime import model_runtime as model_runtime
@@ -104,6 +105,14 @@ async def test_document_plan_identity(model_runtime, flags, header, metadata, nu
                 m for m in mutations if m["mutation_id"] == assertion["mutation_id"]
             )
             identity = json.loads(mutation["metadata_json"]).get("_mesa_legal_identity")
+            projected = await env.dao.get_projection_mutation(mutation["mutation_id"])
+            fallback = _triplets(projected)[0]
+            assert (fallback["head"], fallback["relation"], fallback["tail"]) == (
+                mutation["document_id"], "madde", mutation["chunk_id"]
+            )
+            assert fallback["literal_value"] is None
+            assert assertion["predicate"] == "madde"
+            assert assertion["object_entity_id"]
             assert (assertion["law_id"] or "") == (
                 identity["law_id"] if identity else ""
             )
@@ -141,3 +150,19 @@ async def test_resume_does_not_rewrite_admitted_identity(model_runtime, monkeypa
         await _add(env, _text())
         after = {m["mutation_id"]: m for m in await _rows(env, "memory_mutations")}
         assert all(after[m["mutation_id"]]["metadata_json"] == m["metadata_json"] for m in before)
+
+
+def test_catalog_memory_fallback_keeps_article_subject():
+    record = {
+        "document_id": "catalog-law",
+        "chunk_id": "catalog-article",
+        "content_payload": "MADDE 49- Tazminat hükmü.",
+        "legal_identity": canonicalize_trusted_legal_identity({
+            "law_id": "6098", "article_id": "49", "identity_source": "catalog"
+        }),
+    }
+    triplet = _triplets(record)[0]
+    assert (triplet["head"], triplet["relation"], triplet["tail"]) == (
+        "TBK m.49", "hükmü", None
+    )
+    assert triplet["literal_value"] == record["content_payload"]

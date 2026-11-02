@@ -61,7 +61,13 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
         # and irreversibly hide later clauses even though the source chunk is
         # still durable in SQLite.
         evidence = str(record.get("evidence_span") or content)
-        if isinstance(legal_identity, dict):
+        # Automatic document identities affect typed retrieval only. Preserve
+        # the original document/chunk graph and lexical subject; the older
+        # catalog-memory fallback retains its article subject.
+        if (
+            isinstance(legal_identity, dict)
+            and legal_identity.get("identity_source") == "catalog"
+        ):
             statute_code = str(legal_identity["statute_code"])
             article_id = str(legal_identity["article_id"])
             head = f"{statute_code} m.{article_id}"

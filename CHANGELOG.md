@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Document article plans assign the existing typed legal identity to ordinary
   articles and their continuation chunks. Generic 3–5 digit law-number
   citations use the existing retrieval lane; `MESA_LEGAL_RULES_ENABLED=false`
-  disables automatic identity assignment for new chunks.
+  disables automatic identity assignment for new chunks. Document fallback
+  assertions preserve their existing document/chunk graph and lexical shape.
 - Open-ended SPO fact extraction (`MESA_EXTRACTION_ENABLED`) defaults to false
   regardless of `MESA_MODEL_ENABLED`; an explicit true still enables it (D46).
 

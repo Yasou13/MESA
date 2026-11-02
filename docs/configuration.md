@@ -50,7 +50,9 @@ identities are immutable on resume. Any 3–5 digit law number is accepted by th
 typed identity API; known numbers retain their existing statute code (6098 →
 TBK). Unknown law names and inconsistent number/code pairs are rejected.
 Numbered queries such as `7201 sayılı Kanunun 21. maddesi` use the existing
-typed legal candidate lane and ranking factors.
+typed legal candidate lane and ranking factors. Document fallback assertions
+keep their document subject, `madde` relation and chunk object; automatic
+article identity changes only the typed columns.
 
 An exact law-and-article query puts at most three matching chunks first, in
 document order. Other results retain their fused order (or reranked order when
