@@ -54,6 +54,14 @@ typed legal candidate lane and ranking factors. Document fallback assertions
 keep their document subject, `madde` relation and chunk object; automatic
 article identity changes only the typed columns.
 
+Newly admitted chunks also keep versioned citation, decision-reference, date,
+amount, duration and outcome items. Search returns them in
+`retrieval_provenance.legal_items` as `{version, items}`. Item `start`/`end`
+offsets refer to the original chunk, including when a result quotes a shorter
+extracted fact. Items remain separate from SPO facts and do not enter fusion
+scores or ranking. Disabling the switch prevents new item snapshots; existing
+snapshots remain. Purging a document erases these source quotes too.
+
 An exact law-and-article query puts at most three matching chunks first, in
 document order. Other results retain their fused order (or reranked order when
 reranking is enabled). The match must exist in the authorized search scope.

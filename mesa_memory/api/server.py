@@ -378,6 +378,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             "graph": config.rrf_graph_weight,
         },
         search_scope_cache_enabled=config.search_scope_cache,
+        legal_rules_enabled=config.legal_rules_enabled,
         reranker=reranker,
         rerank_depth=config.rerank_depth,
     )

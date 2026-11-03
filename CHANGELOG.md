@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Newly admitted chunks keep versioned Turkish legal rule items with chunk
+  offsets, returned in search provenance separately from SPO facts. They do not
+  affect ranking, and document purge erases their source quotes. The existing
+  `MESA_LEGAL_RULES_ENABLED` switch controls admission.
+
 - Constitutional Court names (`Anayasa Mahkemesi`, its suffix forms and `AYM`)
   no longer activate Constitution citation ranking. Separate statute citations
   in the same query are preserved.

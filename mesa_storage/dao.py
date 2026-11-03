@@ -34,6 +34,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import aiosqlite
 
+from mesa_storage import legal_rules
 from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
@@ -542,6 +543,7 @@ class MemoryDAO:
         "_rrf_k",
         "_rrf_weights",
         "_search_scope_cache_enabled",
+        "_legal_rules_enabled",
         "_search_scope_cache",
         "_search_cache_db",
         "_search_data_version",
@@ -562,6 +564,7 @@ class MemoryDAO:
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
         search_scope_cache_enabled: bool = True,
+        legal_rules_enabled: bool = True,
         reranker: Any = None,
         rerank_depth: int = 50,
     ) -> None:
@@ -579,6 +582,7 @@ class MemoryDAO:
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
         self._search_scope_cache_enabled = search_scope_cache_enabled
+        self._legal_rules_enabled = legal_rules_enabled
         self._search_scope_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = (
             OrderedDict()
         )
@@ -1433,7 +1437,7 @@ class MemoryDAO:
                         key: value
                         for key, value in metadata.items()
                         if key.startswith("_mesa_")
-                        and key != "_mesa_v4_projection_triplets"
+                        and key not in {"_mesa_v4_projection_triplets", "_mesa_legal_items"}
                     },
                     sort_keys=True,
                 )
@@ -1993,6 +1997,11 @@ class MemoryDAO:
             "dimension": embedding_dimension,
             "normalized": embedding_normalized,
         }
+        if self._legal_rules_enabled:
+            effective_metadata["_mesa_legal_items"] = {
+                "version": legal_rules.RULES_VERSION,
+                "items": legal_rules.extract(content_payload),
+            }
 
         raw_payload = {
             "tenant_id": tenant_id,
@@ -7532,6 +7541,7 @@ class MemoryDAO:
             }
         )
         metadata_by_mutation: dict[str, dict[str, Any]] = {}
+        legal_items_by_mutation: dict[str, dict[str, Any]] = {}
         rerank_texts: dict[str, str] = {}
         async with self._search_read_connection(_search_db) as db:
             if mutation_ids:
@@ -7551,6 +7561,9 @@ class MemoryDAO:
                         except (TypeError, json.JSONDecodeError):
                             metadata = {}
                         if isinstance(metadata, dict):
+                            item_set = metadata.get("_mesa_legal_items")
+                            if isinstance(item_set, dict):
+                                legal_items_by_mutation[str(row["mutation_id"])] = item_set
                             metadata_by_mutation[str(row["mutation_id"])] = {
                                 key: value
                                 for key, value in metadata.items()
@@ -7648,6 +7661,9 @@ class MemoryDAO:
             cand_prov = cand["materialized_provenance"]
             if not cand_prov:
                 continue
+            item_set = legal_items_by_mutation.get(str(cand_prov[0]["mutation_id"]))
+            if item_set is not None:
+                retrieval_provenance["legal_items"] = item_set
             result = {
                 "entity": entities.get(eid, {}),
                 "candidate_id": cand["candidate_id"],
