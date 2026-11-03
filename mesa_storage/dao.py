@@ -6281,6 +6281,12 @@ class MemoryDAO:
                         identity["law_id"]
                     )
             names: dict[str, set[str]] = {}
+            decisions: dict[tuple[str, str], set[str]] = {}
+            authorized_mutations: dict[str, set[str]] = {}
+            for aid, assertion in in_scope_assertions.items():
+                authorized_mutations.setdefault(
+                    str(assertion["mutation_id"]), set()
+                ).add(aid)
             chunk_order: dict[str, tuple[str, str, int]] = {}
             authorized_chunks = {str(a["chunk_id"]) for a in in_scope_assertions.values()}
             named_revisions: set[str] = set()
@@ -6290,9 +6296,11 @@ class MemoryDAO:
                     marks = ",".join("?" for _ in batch)
                     async with db.execute(
                         "SELECT c.chunk_id,c.ordinal,c.revision_id,r.document_id,d.title,"
-                        "CASE WHEN c.ordinal=0 THEN c.content_payload ELSE '' END AS header "
+                        "CASE WHEN c.ordinal=0 THEN c.content_payload ELSE '' END AS header,"
+                        "m.mutation_id,CASE WHEN c.ordinal=0 THEN m.metadata_json ELSE '{}' END AS rule_metadata "
                         "FROM source_chunks c JOIN document_revisions r ON r.revision_id=c.revision_id "
                         "JOIN documents d ON d.document_id=r.document_id "
+                        "LEFT JOIN memory_mutations m ON m.chunk_id=c.chunk_id AND m.tenant_id=c.tenant_id "
                         f"WHERE c.tenant_id=? AND c.revision_id IN ({marks})",
                         (tenant_id, *batch),
                     ) as cursor:
@@ -6305,6 +6313,37 @@ class MemoryDAO:
                                 revision,
                                 int(row["ordinal"]),
                             )
+                            # Only the authorized first chunk can teach its own
+                            # künye; later quotations and out-of-scope mutations
+                            # of the same revision cannot enter the map.
+                            mid = str(row["mutation_id"])
+                            if row["ordinal"] == 0 and mid in authorized_mutations:
+                                item_set = _decode_registry_metadata(
+                                    row["rule_metadata"]
+                                ).get("_mesa_legal_items")
+                                items = (
+                                    item_set.get("items", [])
+                                    if isinstance(item_set, dict)
+                                    else []
+                                )
+                                for item in items if isinstance(items, list) else ():
+                                    if not isinstance(item, dict):
+                                        continue
+                                    start = item.get("start")
+                                    docket = item.get("docket_no")
+                                    decision = item.get("decision_no")
+                                    if (
+                                        item.get("type") == "decision_ref"
+                                        and isinstance(start, int)
+                                        and 0 <= start < 300
+                                        and isinstance(docket, str)
+                                        and docket
+                                        and isinstance(decision, str)
+                                        and decision
+                                    ):
+                                        decisions.setdefault(
+                                            (docket, decision), set()
+                                        ).update(authorized_mutations[mid])
                             laws = revision_laws.get(revision, set())
                             if len(laws) != 1:
                                 continue
@@ -6336,8 +6375,9 @@ class MemoryDAO:
                 },
                 "chunk_order": chunk_order,
                 "identities": identities,
+                "decisions": decisions,
                 "ordered_assertions": sorted(
-                    identities,
+                    in_scope_assertions,
                     key=lambda aid: (
                         *chunk_order.get(
                             str(in_scope_assertions[aid]["chunk_id"]),
@@ -6356,18 +6396,35 @@ class MemoryDAO:
         legal_citations = legal_resolver.extract_citations(query)
         target_statutes = {c.statute_code for c in legal_citations}
         exact_keys = {(c.statute_code, c.article) for c in legal_citations if c.article}
+        decision_ids: set[str] = set()
+        for item in legal_rules.extract(query) if legal_context["decisions"] else ():
+            if item["type"] == "decision_ref":
+                decision_ids.update(
+                    legal_context["decisions"].get(
+                        (item.get("docket_no"), item.get("decision_no")), ()
+                    )
+                )
         exact_ids: list[str] = []
+        exact_kinds: dict[str, str] = {}
         seen_chunks: set[str] = set()
-        for aid in legal_context["ordered_assertions"] if exact_keys else ():
+        for aid in (
+            legal_context["ordered_assertions"] if exact_keys or decision_ids else ()
+        ):
             assertion = in_scope_assertions[aid]
-            identity = legal_context["identities"][aid]
+            identity = legal_context["identities"].get(aid)
             chunk = str(assertion["chunk_id"])
             if (
                 identity
                 and (identity["statute_code"], identity["article_id"]) in exact_keys
-                and chunk not in seen_chunks
-            ):
+                or aid in decision_ids
+            ) and chunk not in seen_chunks:
                 exact_ids.append(aid)
+                exact_kinds[aid] = (
+                    "article"
+                    if identity
+                    and (identity["statute_code"], identity["article_id"]) in exact_keys
+                    else "decision"
+                )
                 seen_chunks.add(chunk)
                 if len(exact_ids) == 3:
                     break
@@ -6415,7 +6472,9 @@ class MemoryDAO:
                     typed_legal_candidate_ids = {
                         str(row["assertion_id"]) for row in await cursor.fetchall()
                     }
-        typed_legal_candidate_ids.update(exact_ids)
+        typed_legal_candidate_ids.update(
+            aid for aid in exact_ids if exact_kinds[aid] == "article"
+        )
         in_scope_entity_ids_from_assertions = {
             str(row["subject_id"])
             for row in in_scope_assertion_rows
@@ -7626,7 +7685,7 @@ class MemoryDAO:
             }
             if cand["candidate_id"] in exact_ids:
                 retrieval_provenance["exact_match"] = {
-                    "kind": "article",
+                    "kind": exact_kinds[cand["candidate_id"]],
                     "order": exact_ids.index(cand["candidate_id"]),
                 }
             if cand["assertion_id"]:

@@ -59,12 +59,19 @@ amount, duration and outcome items. Search returns them in
 `retrieval_provenance.legal_items` as `{version, items}`. Item `start`/`end`
 offsets refer to the original chunk, including when a result quotes a shorter
 extracted fact. Items remain separate from SPO facts and do not enter fusion
-scores or ranking. Disabling the switch prevents new item snapshots; existing
+scores. Decision references can use the bounded exact-match slot below.
+Disabling the switch prevents new item snapshots; existing
 snapshots remain. Purging a document erases these source quotes too.
 
 An exact law-and-article query puts at most three matching chunks first, in
 document order. Other results retain their fused order (or reranked order when
 reranking is enabled). The match must exist in the authorized search scope.
+A query's docket and decision numbers can also match a decision's own künye:
+a stored `decision_ref` starting within the first 300 characters of chunk zero.
+Its first chunk shares the same three-chunk limit with article matches, in
+document order. Later quotations do not teach a decision's identity. The map
+uses the same tenant, dataset, agent and time scope cache as law names; an
+unmatched reference leaves result order unchanged.
 The scope cache learns law names from titles and first-chunk law headers of
 documents with trusted article identities; it never learns them from another
 tenant, dataset, agent or time scope. Names accept case and Turkish ı/i variants,

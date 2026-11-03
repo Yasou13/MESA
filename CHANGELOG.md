@@ -11,9 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Queries matching a decision's own docket/decision reference promote its
+  first chunk through the existing exact-match slot, shared with articles
+  (at most three chunks total). Only stored references beginning in the first
+  300 characters of an authorized first chunk count; later quotations do not.
+
 - Newly admitted chunks keep versioned Turkish legal rule items with chunk
-  offsets, returned in search provenance separately from SPO facts. They do not
-  affect ranking, and document purge erases their source quotes. The existing
+  offsets, returned in search provenance separately from SPO facts. Item storage
+  preserves fusion scores, and document purge erases their source quotes. The existing
   `MESA_LEGAL_RULES_ENABLED` switch controls admission.
 
 - Constitutional Court names (`Anayasa Mahkemesi`, its suffix forms and `AYM`)
