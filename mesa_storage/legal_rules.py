@@ -8,7 +8,7 @@ Extracts RULE types: citation, decision_ref, date, amount, duration, outcome.
 import re
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-RULES_VERSION = "tr-legal-rules-1"
+RULES_VERSION = "tr-legal-rules-2"
 
 # ----------------------------------------------------------------------
 # 1. Turkish number parsing
@@ -496,6 +496,8 @@ def _clean_court_chamber(raw: Optional[str]) -> Tuple[Optional[str], Optional[st
 
 
 def extract_decision_refs(text: str) -> List[Dict[str, Any]]:
+    if "/" not in text and "-" not in text:
+        return []
     items = []
     seen_spans: set[Tuple[int, int]] = set()
 
@@ -575,17 +577,19 @@ _KNOWN_ACRONYMS = {
     "TTK", "VUK", "DMK", "PVSK", "AİHS", "TBK"
 }
 
+_APOSTROPHE_STR = r"[’'\x27\u2032\u2018\u201b]"
+
 
 def _clean_law_name(header: str) -> Optional[str]:
     if not header:
         return None
     header = re.sub(r"\s+", " ", header.strip())
     header = re.sub(r"^Mülga\s+", "", header)
-    header = re.sub(r"\s*\([A-Za-zÇĞİÖŞÜçğıöşü0-9/-]+\)\s*", "", header).strip()
-    header = re.sub(r"[’'\x27\u2032\u2018\u201b][a-zçğıöşü]+$", "", header).strip()
+    header = re.sub(r"\s*\([^\)\n]{1,60}\)\s*", " ", header).strip()
+    header = re.sub(r"[’'\x27\u2032\u2018\u201b]\s*[a-zçğıöşü]+$", "", header).strip()
 
     lower = header.lower()
-    if lower.startswith("aynı ") or lower.startswith("bu ") or lower == "aynı" or lower == "bu":
+    if lower.startswith("aynı ") or lower.startswith("bu ") or lower == "aynı" or lower == "bu" or lower.startswith("anılan "):
         return None
 
     for sfx in ["nun", "nün", "nin", "nın", "unun", "ünün", "inin", "ının"]:
@@ -605,23 +609,27 @@ def _clean_law_name(header: str) -> Optional[str]:
 
 
 def _parse_articles_and_paragraphs(body_text: str) -> Tuple[Optional[str], Optional[str]]:
-    m_range = re.search(r"geçici\s+(\d+)\s+il[aâ]\s+geçici\s+(\d+)", body_text, re.IGNORECASE)
-    if m_range:
-        start_n, end_n = int(m_range.group(1)), int(m_range.group(2))
-        arts = [f"geçici {i}" for i in range(start_n, end_n + 1)]
-        return ", ".join(arts), None
+    lower = body_text.lower()
+    if "geçici" in lower:
+        m_range = re.search(r"geçici\s+(\d+)\s+il[aâ]\s+geçici\s+(\d+)", body_text, re.IGNORECASE)
+        if m_range:
+            start_n, end_n = int(m_range.group(1)), int(m_range.group(2))
+            arts = [f"geçici {i}" for i in range(start_n, end_n + 1)]
+            return ", ".join(arts), None
 
-    m_ek = re.search(r"EK-\s*II[’'\w]*\s+(\d+)\s*nci\s+madde", body_text, re.IGNORECASE)
-    if m_ek:
-        return f"EK-II {m_ek.group(1)}", None
+        m_gm = re.search(r"Geçici\s+madde\s+(\d+)", body_text, re.IGNORECASE)
+        if m_gm:
+            return f"Geçici {m_gm.group(1)}", None
 
-    m_gm = re.search(r"Geçici\s+madde\s+(\d+)", body_text, re.IGNORECASE)
-    if m_gm:
-        return f"Geçici {m_gm.group(1)}", None
+    if "il" in lower:
+        m_ila = re.search(r"\b(\d+)\s+il[aâ]\s+(\d+)\s*(?:[ıiuü]?nc[ıiuü]|\.)?\s*madde", body_text, re.IGNORECASE)
+        if m_ila:
+            return f"{m_ila.group(1)}, {m_ila.group(2)}", None
 
-    m_tbk = re.search(r"\bTBK/(\d+)\b", body_text)
-    if m_tbk:
-        return m_tbk.group(1), None
+    if "tbk" in lower:
+        m_tbk = re.search(r"\bTBK/(\d+)\b", body_text)
+        if m_tbk:
+            return m_tbk.group(1), None
 
     articles = []
     paras = []
@@ -684,169 +692,203 @@ def _parse_articles_and_paragraphs(body_text: str) -> Tuple[Optional[str], Optio
     return art_str, para_str
 
 
-_ART_ATOM_STR = (
-    r"(?:(?:[Gg]eçici\s+|[Ee]k\s+|[Mm]ükerrer\s+|[Mm]ülga\s+)?(?!\d{1,2}[./]\d{1,2}[./]\d{4})\d+(?:\.\d+)*(?:/[A-Za-zÇĞİÖŞÜçğıöşü\d-]+)?(?!\d)(?!\s+sayılı)(?!\s*t\s*a\s*r\s*i?\s*h)|"
-    r"m\.\s*\d+(?:\.\d+)*(?:/[A-Za-zÇĞİÖŞÜçğıöşü\d-]+)?|"
-    r"[“\"']?[Gg]eçici\s+madde\s+\d+[”\"']?)"
-)
-
-_ORD_TOKEN_STR = (
-    r"(?:birinci|ikinci|üçüncü|dördüncü|beşinci|altıncı|yedinci|sekizinci|dokuzuncu|onuncu|onbeşinci|\d+)"
-    r"(?:\s*(?:[ıiuü]?nc[ıiuü]|\.))?"
-)
-_MULTI_ORDINALS_STR = r"(?:" + _ORD_TOKEN_STR + r"(?:,\s*(?:ve\s+|veya\s+)?|\s+(?:ve|veya)\s+)?)+"
-
-_CIT_CLAUSE_STR = (
-    _ART_ATOM_STR + r"(?:\s*(?:[ıiuü]?nc[ıiuü]|\.))?"
-    r"(?:\s*\([a-zçğıöşü\s]+\))?"
-    r"(?:\s*maddes[a-zçğıöşü]*|\s*maddeler[a-zçğıöşü]*|\s*madde[a-zçğıöşü]*)*"
-    r"(?:\s*(?:,\s*[^,]+?ile\s+eklenen\s+ek\s+\d+\.\s+fıkrasında))?"
-    r"(?:\s*(?:'?[a-zçğıöşü]+)?\s*" + _MULTI_ORDINALS_STR + r"\s*f\s*ı\s*k\s*r\s*a[a-zçğıöşü]*(?:\s*\([a-zçğıöşü]\)\s*bendinde)?(?:\s+kapsamındaki\s+yaralama\s+fiilinin\s+üçüncü\s+fıkra)?)?"
-)
-
-_COORD_BODY_STR = (
-    r"(?:" + _CIT_CLAUSE_STR + r")"
-    r"(?:(?:,\s*|\s+(?:ve|veya|ile|ilâ|ila)\s+)(?:" + _CIT_CLAUSE_STR + r"))*"
-    r"(?:\s*(?:maddeler[a-zçğıöşü]*|maddes[a-zçğıöşü]*|madde[a-zçğıöşü]*|uyarınca|başlığı|3”))?"
-)
-
-_TITLE_WORDS_STR = r"(?:[A-ZÇĞİÖŞÜ][A-Za-zÇĞİÖŞÜçğıöşü\(\)/-]*|\d+/\d+/(?:AB|AT)|(?:ve|veya|ile|dair|hakkında|için|alan|yer|No:?))"
-_TITLE_PATTERN_STR = r"(?:" + _TITLE_WORDS_STR + r"\s+)*"
-_SINGLE_TITLE_STR = (
-    r"(?:" + _TITLE_PATTERN_STR + r"(?:Kanun[a-zçğıöşü]*|KHK[a-zçğıöşü]*|Yasa[a-zçğıöşü]*|Yönetmeli[a-zçğıöşü]*|Tebliğ[a-zçğıöşü]*|Kararname[a-zçğıöşü]*|Anayasa[a-zçğıöşü]*))"
-)
-_FULL_TITLE_STR = (
-    r"(?:"
-    r"(?:" + _SINGLE_TITLE_STR + r"\s+(?:Değişiklik|değişiklik)\s+Yapılmasına\s+(?:Dair|İlişkin)\s+(?:Kanun[a-zçğıöşü]*|Yasa[a-zçğıöşü]*))|"
-    + _SINGLE_TITLE_STR +
-    r")"
-)
-
-_APOSTROPHE_STR = r"[’'\x27\u2032\u2018\u201b]"
-
-_LEAD_DATE_CLAUSE_STR = (
+_LEAD_DATE_STR = (
     r"(?P<lead_date>"
     r"(?:\d{1,2}[./]\d{1,2}[./]\d{4}|\d{1,2}\s+(?:Ocak|Şubat|Subat|Mart|Nisan|Mayıs|Mayis|Haziran|Temmuz|Ağustos|Agustos|Eylül|Eylul|Ekim|Kasım|Kasim|Aralık|Aralik)\s+\d{4})"
-    r"\s*(?:\n\s*)?(?:t\s*a\s*r\s*i?\s*h(?:l\s*i?)?|g\s*ü\s*n(?:ü)?)\s+ve\s+"
+    r"\s*(?:\r?\n\s*)?(?:t\s*a\s*r\s*i?\s*h(?:l\s*i?)?|g\s*ü\s*n(?:ü)?)\s+ve\s+"
     r")"
 )
 
+_ACRONYMS = r"TCK|TMK|HMK|İİK|IIK|CMK|CMUK|İYUK|IYUK|TTK|VUK|DMK|PVSK|AİHS|TBK"
+_TITLE_WORD = r"(?:[A-ZÇĞİÖŞÜ][A-Za-zÇĞİÖŞÜçğıöşü0-9/-]*|ve|veya|ile|dair|hakkında|için|ilişkin)"
+_TITLE_END = r"(?:Kanun[a-zçğıöşü]*|KHK[a-zçğıöşü]*|Yasa[a-zçğıöşü]*|Yönetmeli[a-zçğıöşü]*|Tebliğ[a-zçğıöşü]*|Kararname[a-zçğıöşü]*|Anayasa[a-zçğıöşü]*)"
+
+# Law header regex
 _LAW_HEADER_STR = (
-    r"(?:" + _LEAD_DATE_CLAUSE_STR + r")?"
+    r"(?:(?:\b" + _LEAD_DATE_STR + r")|\b)"
     r"(?:"
-    r"(?:(?:Mülga\s+)?(?P<law_no>\d+)\s+sayılı\s+(?P<law_name_1>"
-    r"(?:TCK|TMK|HMK|İİK|IIK|CMK|CMUK|İYUK|IYUK|TTK|VUK|DMK|PVSK|AİHS|TBK)|"
-    + _FULL_TITLE_STR +
-    r"))|"
-    r"(?P<acronym>TCK|TMK|HMK|İİK|IIK|CMK|CMUK|İYUK|IYUK|TTK|VUK|DMK|PVSK|AİHS|TBK)(?:" + _APOSTROPHE_STR + r"[a-zçğıöşü]+)?|"
-    r"(?P<anaphoric>(?:[Aa]ynı|[Bb]u)\s+(?:Kanun[a-zçğıöşü]*|Yönetmeli[a-zçğıöşü]*|Tebliğ[a-zçğıöşü]*|Yasa[a-zçğıöşü]*))|"
-    r"(?P<law_name_2>" + _FULL_TITLE_STR + r")"
+    r"(?:(?:Mülga\s+)?(?P<law_no>\d+)\s+sayılı\s+(?P<law_title_1>(?:" + _TITLE_WORD + r"\s+){0,15}" + _TITLE_END + r"|" + _ACRONYMS + r"))|"
+    r"(?:(?:Mülga\s+)?(?P<law_no_bare>\d+)\s+sayılı\s+(?P<law_title_bare>Kanun[a-zçğıöşü]*|Yasa[a-zçğıöşü]*))|"
+    r"(?P<acronym>" + _ACRONYMS + r")\b|"
+    r"(?P<anaphoric>(?:[Aa]ynı|[Bb]u|[Aa]nılan)\s+" + _TITLE_END + r")\b|"
+    r"(?P<law_title_2>(?:" + _TITLE_WORD + r"\s+){0,15}" + _TITLE_END + r")\b|"
+    r"(?P<anaph_noun>Yönetmeliğin|Kanunun|Kararnamenin|Tebliğin)\b"
     r")"
-    r"(?:" + _APOSTROPHE_STR + r"[a-zçğıöşü]+)?"
-    r"\s*"
-    r"(?:\((?:Tebliğ\s+No:\s*|SGM-|2019/|\d+)[\w/’'-]+\)(?:" + _APOSTROPHE_STR + r"[a-zçğıöşü]+)?\s*)*"
-    r"(?:\([A-Za-zÇĞİÖŞÜçğıöşü0-9/-]+\)\s*)?"
-    r"(?:" + _APOSTROPHE_STR + r"[a-zçğıöşü]+\s*)?"
-    r"(?:(?:istinaf\s+yoluna\s+başvurulabilen\s+kararları\s+düzenleyen|paralel\s+düzenlenmeyi\s+içeren|“Mahkemelerin\s+bağımsızlığı”\s+başlıklı|\"suçlerin\s+içtimaı\"|\"suçların\s+içtimaı\"\s+bölümünde,)\s*)?"
-    r"(?:Ek\s+I[’'\w]*\s+yer\s+alan\s+|EK-\s*II[’'\w]*\s*(?:’sinin\s*)?|eklenen\s+|m\.\s*)?"
+    r"(?:\s*" + _APOSTROPHE_STR + r"\s*[a-zçğıöşü]+)?"
+    r"(?:\s*\([^\)\n]{1,60}\)){0,2}"
+    r"(?:\s*" + _APOSTROPHE_STR + r"\s*[a-zçğıöşü]+)?"
+    r"(?:\s*(?:eklenen|değiştirilen)\s+)?"
+    r"(?:\s*[\"“'][^\"”'\n]{1,80}[\"”']\s+başlıklı)?"
+    r"(?:\s*(?:Ek|EK-?)\s*[IVX\d]+(?:[’'][a-zçğıöşü]+)?(?:\s+yer\s+alan)?\s*)?"
 )
 
-_PAT_WITH_HEADER = re.compile(
-    r"\b(" + _LAW_HEADER_STR + r"(?P<body>" + _COORD_BODY_STR + r"))"
+_PAT_LAW_HEADER = re.compile(_LAW_HEADER_STR)
+
+_ART_ATOM = r"(?:(?:[Gg]eçici|[Ee]k|[Mm]ükerrer|[Mm]ülga)\s+)?\d+(?:\.\d+)*(?:/[A-Za-zÇĞİÖŞÜçğıöşü\d-]+)?"
+_ORD_WORD = (
+    r"(?:birinci|ikinci|üçüncü|dördüncü|beşinci|altıncı|yedinci|sekizinci|dokuzuncu|onuncu|onbeşinci|ilk|\d+)"
+    r"(?:\s*(?:[ıiuü]?nc[ıiuü]|\.))?"
+)
+_PARA_STR = (
+    r"(?:\s*(?:'?[a-zçğıöşü]+\s+)?" + _ORD_WORD +
+    r"(?:\s*(?:ve|veya|,)\s*" + _ORD_WORD + r"){0,3}\s*f\s*ı\s*k\s*r\s*a[a-zçğıöşü]*)"
+)
+_BENT_STR = (
+    r"(?:\s*\([a-zçğıöşü\d]\)(?:\s*(?:ve|veya|,)\s*\([a-zçğıöşü\d]\))*\s*bend[a-zçğıöşü]*|"
+    r"\s*\([a-zçğıöşü\d]\)(?:\s+(?:ve|veya)\s+\([a-zçğıöşü\d]\))?)"
 )
 
-_PAT_STANDALONE = re.compile(
-    r"\b("
-    r"(?:değişik\s+)?"
-    r"(?:" + _COORD_BODY_STR + r")"
-    r")"
+_ART_UNIT_A = (
+    _ART_ATOM + r"(?:\s*(?:[ıiuü]?nc[ıiuü]|\.))?"
+    r"(?:\s*(?:,\s*|\s+(?:ve|veya|ile|ila|ilâ)\s+)" + _ART_ATOM + r"(?:\s*(?:[ıiuü]?nc[ıiuü]|\.))?){0,10}"
+    r"\s*madde[a-zçğıöşü]*"
+    r"(?:" + _PARA_STR + r"(?:\s*(?:ve|veya|,)\s*" + _PARA_STR + r"){0,3})?"
+    r"(?:" + _BENT_STR + r")?"
+)
+
+_ART_UNIT_B = (
+    r"m\.\s*" + _ART_ATOM +
+    r"(?:\s*(?:,\s*|\s+(?:ve|veya|ile|ila|ilâ)\s+)" + _ART_ATOM + r"){0,10}"
+    r"(?:" + _PARA_STR + r")?"
+    r"(?:" + _BENT_STR + r")?"
+)
+
+_ART_UNIT_C = (
+    r"[\"“']?(?:[Gg]eçici|[Ee]k|[Mm]ülga)\s+madde\s+\d+[\"”']?"
+    r"(?:\s*(?:,\s*|\s+(?:ve|veya|ile|ila|ilâ)\s+)\d+){0,10}"
+    r"(?:" + _PARA_STR + r")?"
+    r"(?:" + _BENT_STR + r")?"
+)
+
+_ARTICLE_CLAUSE_STR = (
+    r"(?:" + _ART_UNIT_A + r"|" + _ART_UNIT_B + r"|" + _ART_UNIT_C + r")"
+    r"(?:\s+(?:ve|veya|ile)\s+(?:" + _ART_UNIT_A + r"|" + _ART_UNIT_B + r"|" + _ART_UNIT_C + r"))?"
+)
+
+_PAT_ARTICLE_CLAUSE = re.compile(r"\b(?:" + _ARTICLE_CLAUSE_STR + r")")
+
+# Short follow pattern: e.g. 'un 65/1 or 442/3 or 125.
+_PAT_SHORT_ARTICLE = re.compile(
+    r"^(?:[,\s]*" + _APOSTROPHE_STR + r"\s*[a-zçğıöşü]+)?"
+    r"(?:[,\s]+)"
+    r"(?P<art>\d{1,4})(?:/(?P<para>\d{1,2}))?"
+    r"(?:\s*(?:,\s*|\s+(?:ve|veya|ile)\s+)\d{1,4}(?:/\d{1,2})?){0,5}"
+    r"(?:\.|\b)"
 )
 
 _PAT_SLASH_SHORT = re.compile(
-    r"\b("
-    r"(?P<acronym>TCK|TMK|HMK|İİK|IIK|CMK|CMUK|İYUK|IYUK|TTK|VUK|DMK|PVSK|AİHS|TBK)/"
-    r"(?P<art>\d+)"
-    r")",
+    r"\b(?P<acronym>" + _ACRONYMS + r")/(?P<art>\d+)\b",
     re.IGNORECASE,
 )
-
 
 def extract_citations(text: str) -> List[Dict[str, Any]]:
     items = []
     seen_spans: set[Tuple[int, int]] = set()
 
-    for pat in [_PAT_WITH_HEADER, _PAT_SLASH_SHORT]:
-        for m in pat.finditer(text):
-            start, end = m.start(), m.end()
-            span_text = text[start:end]
-
-            lstrip_len = len(span_text) - len(span_text.lstrip())
-            start += lstrip_len
-            span_text = text[start:end]
-
-            rstrip_len = len(span_text) - len(span_text.rstrip(" ,."))
-            end -= rstrip_len
-            span_text = text[start:end]
-
-            if not span_text:
-                continue
-
-            span = (start, end)
-            if any(s <= span[0] and span[1] <= e for s, e in seen_spans):
-                continue
-
-            groups = m.groupdict()
-            law_no = groups.get("law_no")
-            law_name_raw = groups.get("law_name_1") or groups.get("law_name_2") or groups.get("acronym")
-            anaphoric = groups.get("anaphoric")
-
-            if anaphoric:
-                law_name = None
-                law_no = None
-            else:
-                law_name = _clean_law_name(law_name_raw) if law_name_raw else None
-
-            if not law_no:
-                teb_no_m = re.search(r"\((?:Tebliğ\s+No:\s*|SGM-)([\w/-]+)\)", span_text)
-                if teb_no_m:
-                    law_no = teb_no_m.group(1)
-                    if not law_no.startswith("SGM-") and "SGM-" in span_text:
-                        sgm_m = re.search(r"\((SGM-[\w/-]+)\)", span_text)
-                        if sgm_m:
-                            law_no = sgm_m.group(1)
-
-            body_str = groups.get("body")
-            art_str, para_str = _parse_articles_and_paragraphs(body_str if body_str else span_text)
-
-            items.append({
-                "start": start,
-                "end": end,
-                "text": span_text,
-                "type": "citation",
-                "law_no": law_no,
-                "law_name": law_name,
-                "article": art_str,
-                "paragraph": para_str,
-            })
-            seen_spans.add(span)
-
-    for m in _PAT_STANDALONE.finditer(text):
+    # 1. Slash short: TCK/141
+    for m in _PAT_SLASH_SHORT.finditer(text):
         start, end = m.start(), m.end()
-        span_text = text[start:end]
+        span = (start, end)
+        seen_spans.add(span)
+        groups = m.groupdict()
+        items.append({
+            "start": start,
+            "end": end,
+            "text": text[start:end],
+            "type": "citation",
+            "law_no": None,
+            "law_name": groups["acronym"].upper(),
+            "article": groups["art"],
+            "paragraph": None,
+        })
 
-        if not re.search(r"\b(?:madde[a-zçğıöşü]*|m\.)", span_text, re.IGNORECASE):
+    # 2. Law headers (and attached articles)
+    for m in _PAT_LAW_HEADER.finditer(text):
+        h_start, h_end = m.start(), m.end()
+
+        # Check if preceded or followed by Anayasa Mahkemesi (court, not constitution citation)
+        full_match_text = text[h_start:h_end]
+        if "Anayasa" in full_match_text:
+            lookahead = text[h_end:h_end+25].lower()
+            if lookahead.startswith(" mahkemesi") or lookahead.startswith("mahkemesi"):
+                continue
+
+        groups = m.groupdict()
+        law_no = groups.get("law_no") or groups.get("law_no_bare")
+        raw_name = (
+            groups.get("law_title_1") or
+            groups.get("law_title_bare") or
+            groups.get("acronym") or
+            groups.get("law_title_2")
+        )
+        anaphoric = groups.get("anaphoric") or groups.get("anaph_noun")
+
+        law_name = _clean_law_name(raw_name) if raw_name else None
+        if anaphoric:
+            law_name = None
+            law_no = None
+
+        # Check for Tebliğ No inside parenthetical: (Tebliğ No: 2024/53)
+        if not law_no:
+            teb_m = re.search(r"\((?:Tebliğ\s+No:\s*|Karar\s+No:\s*)([\w/-]+)\)", full_match_text)
+            if teb_m:
+                law_no = teb_m.group(1)
+
+        # Check what follows immediately after the law header
+        after_text = text[h_end:]
+        m_art = _PAT_ARTICLE_CLAUSE.match(after_text.lstrip(" ,\t\r\n"))
+
+        art_span_text = None
+        full_span_end = h_end
+
+        if m_art:
+            offset = len(after_text) - len(after_text.lstrip(" ,\t\r\n")) + m_art.end()
+            full_span_end = h_end + offset
+            art_span_text = m_art.group(0)
+        else:
+            m_short = _PAT_SHORT_ARTICLE.match(after_text)
+            if m_short:
+                # Ensure it's not a date like 12/9/2010
+                look_ahead_short = after_text[m_short.end():m_short.end()+20]
+                if not re.match(r"^\s*/\d{4}", look_ahead_short) and not re.match(r"^\s*tarih", look_ahead_short):
+                    full_span_end = h_end + m_short.end()
+                    art_span_text = m_short.group(0)
+
+        # Strip trailing punctuation from citation span
+        span_str = text[h_start:full_span_end]
+        rstrip_len = len(span_str) - len(span_str.rstrip(" ,."))
+        full_span_end -= rstrip_len
+        span_str = text[h_start:full_span_end]
+
+        if not art_span_text:
             continue
 
-        lstrip_len = len(span_text) - len(span_text.lstrip())
-        start += lstrip_len
+        art_str, para_str = _parse_articles_and_paragraphs(art_span_text)
+
+        span = (h_start, full_span_end)
+        if any(s <= span[0] and span[1] <= e for s, e in seen_spans):
+            continue
+
+        items.append({
+            "start": h_start,
+            "end": full_span_end,
+            "text": span_str,
+            "type": "citation",
+            "law_no": law_no,
+            "law_name": law_name,
+            "article": art_str,
+            "paragraph": para_str,
+        })
+        seen_spans.add(span)
+
+    # 3. Standalone article clauses
+    for m in _PAT_ARTICLE_CLAUSE.finditer(text):
+        start, end = m.start(), m.end()
         span_text = text[start:end]
 
         rstrip_len = len(span_text) - len(span_text.rstrip(" ,."))
         end -= rstrip_len
         span_text = text[start:end]
-
-        if not span_text:
-            continue
 
         span = (start, end)
         if any(s <= span[0] and span[1] <= e for s, e in seen_spans):
@@ -870,7 +912,9 @@ def extract_citations(text: str) -> List[Dict[str, Any]]:
         })
         seen_spans.add(span)
 
+    items.sort(key=lambda x: (x["start"], x["end"]))
     return items
+
 
 
 # ----------------------------------------------------------------------
@@ -920,30 +964,33 @@ def extract_all_rules(text: str) -> List[Dict[str, Any]]:
     dates = extract_dates(text)
 
     # Filter out dates inside citation or decision_ref spans, or inside amendment markers
-    ref_spans = [(it["start"], it["end"]) for it in (decision_refs + citations)]
-    amendment_marker_spans = []
-    for m in re.finditer(r"\((?:(?:Başlığı\s+ile\s+birlikte\s+)?(?:Değişik|Ek|Mülga|İptal))\b", text, re.IGNORECASE):
-        start = m.start()
-        depth = 0
-        end = -1
-        for i in range(start, len(text)):
-            if text[i] == "(":
-                depth += 1
-            elif text[i] == ")":
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-        if end != -1:
-            amendment_marker_spans.append((start, end))
+    if dates:
+        ref_spans = [(it["start"], it["end"]) for it in (decision_refs + citations)]
+        amendment_marker_spans = []
+        for m in re.finditer(r"\((?:(?:Başlığı\s+ile\s+birlikte\s+)?(?:Değişik|Ek|Mülga|İptal))\b", text, re.IGNORECASE):
+            start = m.start()
+            depth = 0
+            end = -1
+            for i in range(start, len(text)):
+                if text[i] == "(":
+                    depth += 1
+                elif text[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            if end != -1:
+                amendment_marker_spans.append((start, end))
 
-    suppressed_spans = ref_spans + amendment_marker_spans
+        suppressed_spans = ref_spans + amendment_marker_spans
 
-    valid_dates = []
-    for d in dates:
-        d_start, d_end = d["start"], d["end"]
-        if not any(s <= d_start and d_end <= e for s, e in suppressed_spans):
-            valid_dates.append(d)
+        valid_dates = []
+        for d in dates:
+            d_start, d_end = d["start"], d["end"]
+            if not any(s <= d_start and d_end <= e for s, e in suppressed_spans):
+                valid_dates.append(d)
+    else:
+        valid_dates = []
 
     candidates = decision_refs + citations + amounts + durations + outcomes + valid_dates
     candidates.sort(key=lambda x: (int(x["start"]), -int(x["end"])))
