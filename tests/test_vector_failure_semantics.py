@@ -75,6 +75,10 @@ class _Connection:
                         "assertion_id": "assertion-1",
                         "subject_id": "subject-1",
                         "object_entity_id": None,
+                        "revision_id": "revision-1",
+                        "document_id": "document-1",
+                        "chunk_id": "chunk-1",
+                        "mutation_id": "mutation-1",
                     }
                 ]
             )

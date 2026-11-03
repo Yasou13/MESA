@@ -1919,6 +1919,7 @@ class MemoryDAO:
         policy: QueueAdmissionPolicy,
         validation_mode: int,
         legal_identity: Mapping[str, Any] | None = None,
+        document_chunk: bool = False,
         embedding_space_id: str | None = None,
         embedding_model_revision: str | None = None,
         embedding_normalized: bool = True,
@@ -1970,6 +1971,8 @@ class MemoryDAO:
             for key, value in (metadata.items() if isinstance(metadata, dict) else ())
             if not str(key).startswith("_mesa_")
         }
+        if document_chunk:
+            effective_metadata["_mesa_document_chunk"] = True
         normalized_legal_identity = canonicalize_trusted_legal_identity(
             {**legal_identity, "identity_source": "verified_ingestion"}
             if legal_identity is not None
@@ -3579,6 +3582,7 @@ class MemoryDAO:
         record["legal_identity"] = canonicalize_trusted_legal_identity(
             metadata.get("_mesa_legal_identity")
         )
+        record["document_chunk"] = metadata.get("_mesa_document_chunk") is True
         record["projection_triplets"] = metadata.get("_mesa_v4_projection_triplets", [])
         return record
 

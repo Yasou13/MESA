@@ -142,6 +142,7 @@ async def test_resume_does_not_rewrite_admitted_identity(model_runtime, monkeypa
         response = await env.client.post("/v4/documents", json=_payload(env, _text()))
         assert response.status_code == 503
         before = await _rows(env, "memory_mutations")
+        assert all(json.loads(m["metadata_json"])["_mesa_document_chunk"] is True for m in before)
         assert any(
             json.loads(m["metadata_json"]).get("_mesa_legal_identity") for m in before
         )
@@ -166,3 +167,102 @@ def test_catalog_memory_fallback_keeps_article_subject():
         "TBK m.49", "hükmü", None
     )
     assert triplet["literal_value"] == record["content_payload"]
+
+
+@pytest.mark.parametrize("source", ["catalog", "verified_ingestion"])
+@pytest.mark.parametrize("document_chunk", [False, True])
+def test_fallback_origin_is_independent_of_identity_source(source, document_chunk):
+    record = {
+        "document_id": "document",
+        "chunk_id": "chunk",
+        "content_payload": "MADDE 49- Tazminat hükmü.",
+        "document_chunk": document_chunk,
+        "legal_identity": canonicalize_trusted_legal_identity({
+            "law_id": "6098", "article_id": "49", "identity_source": source
+        }),
+    }
+    triplet = _triplets(record)[0]
+    if document_chunk:
+        assert (triplet["head"], triplet["relation"], triplet["tail"]) == (
+            "document", "madde", "chunk"
+        )
+        assert triplet["literal_value"] is None
+    else:
+        assert (triplet["head"], triplet["relation"], triplet["tail"]) == (
+            "TBK m.49", "hükmü", None
+        )
+        assert triplet["literal_value"] == record["content_payload"]
+
+
+@pytest.mark.asyncio
+async def test_document_origin_marker_is_internal_and_durable(model_runtime):
+    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+        added = await _add(
+            env,
+            "Kanun Numarası: 6098\nMADDE 49- Tazminat hükmü.\n"
+            "MADDE 50- Başka hüküm.\nMADDE 51- Son hüküm.\n",
+        )
+        content = "MADDE 49- Tazminat hükmü."
+        response = await env.client.post(
+            "/v4/memory/insert?document_chunk=true&_document_chunk=true",
+            json={
+                "session_id": env.session_id,
+                "dataset_id": "main",
+                "document_id": "explicit-memory",
+                "revision_id": "explicit-revision",
+                "chunk_id": "explicit-chunk",
+                "title": "Explicit article",
+                "source_ref": "file://explicit",
+                "content": content,
+                "legal_identity": {"law_id": "6098", "article_id": "49"},
+                "metadata": {"_mesa_document_chunk": True},
+                "document_chunk": True,
+            },
+        )
+        assert response.status_code == 422
+        payload = json.loads(response.request.content)
+        payload["metadata"] = {}
+        response = await env.client.post(
+            "/v4/memory/insert?document_chunk=true&_document_chunk=true", json=payload
+        )
+        assert response.status_code == 202, response.text
+        manual_mid = response.json()["mutation_id"]
+        mutations = {m["mutation_id"]: m for m in await _rows(env, "memory_mutations")}
+        for mid in added["mutation_ids"]:
+            assert json.loads(mutations[mid]["metadata_json"])["_mesa_document_chunk"] is True
+        assert "_mesa_document_chunk" not in json.loads(mutations[manual_mid]["metadata_json"])
+        raw_mutations = {m["raw_log_id"]: m["mutation_id"] for m in mutations.values()}
+        for raw in await _rows(env, "raw_logs"):
+            payload = json.loads(raw["payload"])
+            assert payload["metadata"].get("_mesa_document_chunk", False) is (
+                raw_mutations[raw["id"]] in added["mutation_ids"]
+            )
+        await _consume(env, added["chunk_count"] + 3)
+        article_mid = next(
+            mid for mid in added["mutation_ids"]
+            if (json.loads(mutations[mid]["metadata_json"]).get("_mesa_legal_identity") or {}).get("article_id") == "49"
+        )
+        doc = await env.dao.get_projection_mutation(article_mid)
+        manual = await env.dao.get_projection_mutation(manual_mid)
+        assert doc["document_chunk"] is True
+        assert manual["document_chunk"] is False
+        assert doc["legal_identity"] == manual["legal_identity"]
+        assert "_mesa_document_chunk" not in doc["metadata"]
+        doc_fallback = _triplets(doc)[0]
+        assert (doc_fallback["head"], doc_fallback["relation"], doc_fallback["tail"]) == (
+            doc["document_id"], "madde", doc["chunk_id"]
+        )
+        manual_fallback = _triplets(manual)[0]
+        assert (manual_fallback["head"], manual_fallback["relation"], manual_fallback["tail"]) == (
+            "TBK m.49", "hükmü", None
+        )
+        assertions = {a["mutation_id"]: a for a in await _rows(env, "v4_assertions")}
+        assert assertions[article_mid]["predicate"] == "madde"
+        assert assertions[article_mid]["literal_value"] is None
+        assert assertions[manual_mid]["predicate"] == "hükmü"
+        assert assertions[manual_mid]["literal_value"] == content
+        from mesa_memory.api import server
+
+        operation = server.app.openapi()["paths"]["/v4/memory/insert"]["post"]
+        assert operation["operationId"] == "insert_memory_v4_memory_insert_post"
+        assert not any(p["name"] in {"document_chunk", "_document_chunk"} for p in operation.get("parameters", []))

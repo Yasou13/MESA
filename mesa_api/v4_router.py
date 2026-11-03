@@ -1154,12 +1154,22 @@ def create_v4_router(
             request, idempotency_key, dao, access_control
         )
 
-    @router.post("/memory/insert", status_code=202)
-    async def insert_memory(
+    @router.post("/memory/insert", status_code=202, name="insert_memory")
+    async def insert_memory_request(
         request: Request,
         payload: V4MemoryInsertRequest,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        return await insert_memory(request, payload, dao, access_control)
+
+    async def insert_memory(
+        request: Request,
+        payload: V4MemoryInsertRequest,
+        dao: MemoryDAO,
+        access_control: AccessControl,
+        *,
+        document_chunk: bool = False,
     ) -> dict:
         session = await _authorized_v4_session(
             request,
@@ -1196,6 +1206,7 @@ def create_v4_router(
                 chunk_ordinal=payload.chunk_ordinal,
                 supersedes_revision_id=payload.supersedes_revision_id,
                 metadata=payload.metadata,
+                document_chunk=document_chunk,
                 legal_identity=(
                     payload.legal_identity.model_dump(exclude_none=True)
                     if payload.legal_identity is not None
@@ -1418,6 +1429,7 @@ def create_v4_router(
                     ),
                     dao,
                     access_control,
+                    document_chunk=True,
                 )
                 admitted[ordinal] = response["mutation_id"]
             return {
