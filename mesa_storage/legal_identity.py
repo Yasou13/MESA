@@ -346,7 +346,25 @@ class LegalEntityResolver:
             matches = list(self._scope_name_pattern.finditer(normalized_name_text))
             if matches:
                 scoped_citations = []
-                remainder = list(normalized_name_text)
+                # Name normalization folds Turkish letters, expands K. and
+                # collapses whitespace. Map its spans back before masking so
+                # independent citations retain their spelling and grammar.
+                source_text = normalize_turkish(text)
+                source_spans: list[tuple[int, int]] = []
+                for piece in re.finditer(
+                    r"\s+|\bk\.(?=\W|$)|.", source_text, re.DOTALL
+                ):
+                    value = piece[0]
+                    if value.isspace():
+                        if not source_spans:
+                            continue
+                        width = 1
+                    else:
+                        width = len("kanunu") if value == "k." else 1
+                    source_spans.extend([piece.span()] * width)
+                if source_spans and source_text[-1].isspace():
+                    source_spans.pop()
+                remainder = list(source_text)
                 for match in matches:
                     name = match["name"]
                     number = self._law_names.get(name)
@@ -369,9 +387,9 @@ class LegalEntityResolver:
                             aliases=(name,),
                         )
                     )
-                    remainder[match.start() : match.end()] = " " * (
-                        match.end() - match.start()
-                    )
+                    start = source_spans[match.start()][0]
+                    end = source_spans[match.end() - 1][1]
+                    remainder[start:end] = " " * (end - start)
                 # A store name consumes its entire span before ontology matching,
                 # so a shorter ontology alias cannot reinterpret that same name.
                 scoped_citations.extend(
