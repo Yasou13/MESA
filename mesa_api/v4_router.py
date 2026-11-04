@@ -13,10 +13,19 @@ import hashlib
 import logging
 import re
 from datetime import datetime
-from typing import Any, Callable, Literal
+from typing import Annotated, Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from fastapi.exceptions import RequestValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    WrapValidator,
+    field_validator,
+    model_validator,
+)
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
@@ -1249,10 +1258,23 @@ def create_v4_router(
     @router.post("/documents", response_model=V4DocumentIngestResponse, status_code=202)
     async def ingest_document(
         request: Request,
-        payload: V4DocumentIngestRequest,
+        payload: Annotated[
+            V4DocumentIngestRequest, WrapValidator(lambda value, _handler: value)
+        ],
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
+        # Defer, rather than omit, the same model validation. The annotation
+        # retains its public schema; no payload is used before validation.
+        try:
+            payload = await asyncio.to_thread(
+                V4DocumentIngestRequest.model_validate, payload
+            )
+        except ValidationError as exc:
+            errors = exc.errors()
+            for error in errors:
+                error["loc"] = ("body", *error["loc"])
+            raise RequestValidationError(errors) from exc
         session = await _authorized_v4_session(
             request, dao, access_control, payload.session_id, level="WRITE"
         )
@@ -1325,9 +1347,9 @@ def create_v4_router(
                 }
             legal_plan = config.chunking == "auto"
             chunks = (
-                chunk_legal_document(payload.content)
+                await asyncio.to_thread(chunk_legal_document, payload.content)
                 if config.chunking == "auto"
-                else chunk_document(payload.content)
+                else await asyncio.to_thread(chunk_document, payload.content)
             )
             if admitted:
                 # Admissions are already scoped above. Their durable payloads,
@@ -1346,9 +1368,9 @@ def create_v4_router(
                     )
 
                 alternative = (
-                    chunk_document(payload.content)
+                    await asyncio.to_thread(chunk_document, payload.content)
                     if config.chunking == "auto"
-                    else chunk_legal_document(payload.content)
+                    else await asyncio.to_thread(chunk_legal_document, payload.content)
                 )
                 preferred_matches = matches(chunks)
                 alternative_matches = matches(alternative)

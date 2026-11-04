@@ -2003,7 +2003,7 @@ class MemoryDAO:
         if self._legal_rules_enabled:
             effective_metadata["_mesa_legal_items"] = {
                 "version": legal_rules.RULES_VERSION,
-                "items": legal_rules.extract(content_payload),
+                "items": await asyncio.to_thread(legal_rules.extract, content_payload),
             }
 
         raw_payload = {
@@ -6397,11 +6397,20 @@ class MemoryDAO:
             }
         legal_context = scope["legal_context"]
         legal_resolver = LegalEntityResolver(law_names=legal_context["names"])
-        legal_citations = legal_resolver.extract_citations(query)
+        # Resolver positions stay internal; outer whitespace carries no identity.
+        # Avoid retrying its boundary patterns along an empty query prefix.
+        legal_citations = await asyncio.to_thread(
+            legal_resolver.extract_citations, query.strip()
+        )
         target_statutes = {c.statute_code for c in legal_citations}
         exact_keys = {(c.statute_code, c.article) for c in legal_citations if c.article}
         decision_ids: set[str] = set()
-        for item in legal_rules.extract(query) if legal_context["decisions"] else ():
+        query_items = (
+            await asyncio.to_thread(legal_rules.extract, query)
+            if legal_context["decisions"]
+            else ()
+        )
+        for item in query_items:
             if item["type"] == "decision_ref":
                 decision_ids.update(
                     legal_context["decisions"].get(
@@ -6859,7 +6868,9 @@ class MemoryDAO:
                     else:
                         if "passage_citations" not in features:
                             features["passage_citations"] = (
-                                legal_resolver.extract_citations(p_raw_text)
+                                await asyncio.to_thread(
+                                    legal_resolver.extract_citations, p_raw_text
+                                )
                             )
                         row_citations = features["passage_citations"]
                         row_identities = {
@@ -7016,7 +7027,8 @@ class MemoryDAO:
                 else:
                     if "assertion_citations" not in features:
                         features["assertion_citations"] = (
-                            legal_resolver.extract_citations(
+                            await asyncio.to_thread(
+                                legal_resolver.extract_citations,
                                 " ".join(
                                     str(a_row.get(field) or "")
                                     for field in (
@@ -7484,7 +7496,8 @@ class MemoryDAO:
                     tuple(cand_texts),
                 )
                 if citation_key not in text_features:
-                    text_features[citation_key] = legal_resolver.extract_citations(
+                    text_features[citation_key] = await asyncio.to_thread(
+                        legal_resolver.extract_citations,
                         " ".join(cand_texts)
                     )
                 candidate_citations = text_features[citation_key]

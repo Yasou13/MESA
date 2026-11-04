@@ -7,7 +7,7 @@ from mesa_storage.legal_rules import RULES_VERSION, extract
 
 class TestLegalRulesExtractor(unittest.TestCase):
     def test_rules_version(self):
-        self.assertEqual(RULES_VERSION, "tr-legal-rules-2")
+        self.assertEqual(RULES_VERSION, "tr-legal-rules-3")
 
     def test_span_invariant(self):
         sample = (
