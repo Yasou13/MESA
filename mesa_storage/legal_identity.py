@@ -296,8 +296,8 @@ class LegalEntityResolver:
             re.compile(
                 r"(?<!\w)(?P<name>" + "|".join(name_patterns) + r")"
                 r"(?:['’]?(?:nun|un|nin|in))?(?!\w)"
-                r"(?:\s*(?:(?:m\.|md\.?|madde)\s*(?P<marked>[0-9]+)"
-                r"|(?P<ordinal>[0-9]+)(?:\.|\s+(?:inci|uncu|üncü|nci|ncu|ncü))?\s+madde(?:si)?))?"
+                r"(?:\s{0,128}+(?:(?:m\.|md\.?|madde)\s{0,128}+(?P<marked>[0-9]{1,12}+(?![0-9]))"
+                r"|(?P<ordinal>[0-9]{1,12}+(?![0-9]))(?:\.|\s{1,128}+(?:inci|uncu|üncü|nci|ncu|ncü))?\s{1,128}+madde(?:si)?))?"
             )
             if name_patterns
             else None
@@ -307,27 +307,34 @@ class LegalEntityResolver:
                 self.alias_to_code[normalize_turkish(alias)] = code
         aliases = sorted(self.alias_to_code, key=len, reverse=True)
         alias_pattern = "|".join(re.escape(alias) for alias in aliases)
+        # A legal token has at most 12 digits and each layout gap at most 128
+        # characters. Possessive runs cannot backtrack or parse a digit suffix
+        # as a different article. Long input is still scanned in full.
         self._forward_pattern = re.compile(
             rf"(?:(?<=\W)|^)(?P<statute>{alias_pattern})(?:(?=\W)|$)"
             rf"(?P<possessive>['’]n?[ıiuü]n)?"
-            rf"(?:\s*(?P<forward_art_marker>m\.|md\.?|madde))?\s*"
-            rf"(?P<art>\d+)?(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?",
+            rf"\s{{0,128}}+(?:(?P<forward_art_marker>m\.|md\.?|madde)\s{{0,128}}+)?"
+            rf"(?P<art>\d{{1,12}}+(?!\d))?(?:\.|\'[a-zçğıöşü]{{1,12}}+)?(?:\s{{0,128}}+madde(?:si)?)?",
             re.IGNORECASE,
         )
         self._reverse_pattern = re.compile(
-            rf"(?P<has_art_marker>m\.|md\.?|madde)?\s*(?P<art>\d+)(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?(?:\s+(?:uyarınca|gereğince|kapsamında|hükmü|hükmünce|düzenlemesi))?\s+(?P<statute>{alias_pattern})(?:(?=\W)|$)",
+            rf"(?P<has_art_marker>m\.|md\.?|madde)?\s{{0,128}}+(?<!\d)(?P<art>\d{{1,12}}+(?!\d))(?:\.|\'[a-zçğıöşü]{{1,12}}+)?(?:\s{{0,128}}+madde(?:si)?)?(?:\s{{1,128}}+(?:uyarınca|gereğince|kapsamında|hükmü|hükmünce|düzenlemesi))?\s{{1,128}}+(?P<statute>{alias_pattern})(?:(?=\W)|$)",
             re.IGNORECASE,
         )
         self._continued_article_pattern = re.compile(
-            r"\s*(?:(?:-|–|—|ila)\s*|(?:,|;|ve|ile)\s*(?:m\.|md\.?|madde)\s*)"
-            r"(?P<art>\d+)(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?",
+            r"\s{0,128}+(?:(?:-|–|—|ila)\s{0,128}+|(?:,|;|ve|ile)\s{0,128}+(?:m\.|md\.?|madde)\s{0,128}+)"
+            r"(?P<art>\d{1,12}+(?!\d))(?:\.|\'[a-zçğıöşü]{1,12}+)?(?:\s{0,128}+madde(?:si)?)?",
             re.IGNORECASE,
         )
         self._numbered_law_pattern = re.compile(
-            r"\b(?P<number>[0-9]{3,5})\s+sayılı\s+"
-            r"(?:[^\n.;!?]{0,160}?\s+)?kanun(?:u)?(?:['’]?(?:nun|un|nın|ın))?\s+"
-            r"(?:(?:m\.|md\.?|madde)\s*(?P<marked>[0-9]+)"
-            r"|(?P<ordinal>[0-9]+)(?:\.|\s+(?:ıncı|inci|uncu|üncü|nci|ncı|ncu|ncü))?\s+madde(?:si)?)",
+            r"\b(?P<number>[0-9]{3,5})\s{1,128}+sayılı\s{1,128}+"
+            r"(?:[^\n.;!?]{0,160}?(?<=\S)\s{1,128}+)?kanun(?:u)?(?:['’]?(?:nun|un|nın|ın))?\s{1,128}+"
+            r"(?:(?:m\.|md\.?|madde)\s{0,128}+(?P<marked>[0-9]{1,12}+(?![0-9]))"
+            r"|(?P<ordinal>[0-9]{1,12}+(?![0-9]))(?:\.|\s{1,128}+(?:ıncı|inci|uncu|üncü|nci|ncı|ncu|ncü))?\s{1,128}+madde(?:si)?)",
+        )
+        self._duration_pattern = re.compile(
+            r"\s{0,128}+(?:aylık|yıllık|günlük|haftalık|saatlik|dakikalık|"
+            r"ay|yıl|gün|hafta|saat|dakika)(?:\W|$)"
         )
 
     def extract_citations(self, text: str) -> list[LegalCitation]:
@@ -417,9 +424,21 @@ class LegalEntityResolver:
                 }
             )
 
+        # Both streams advance left to right; never re-scan numbered matches.
+        numbered_index = 0
+        article_codes: dict[tuple[int, int], set[str]] = {}
+
         # Find forward matches (statute [article])
         for match in self._forward_pattern.finditer(normalized):
-            if any(m.start() <= match.start() < m.end() for m in numbered_matches):
+            while (
+                numbered_index < len(numbered_matches)
+                and numbered_matches[numbered_index].end() <= match.start()
+            ):
+                numbered_index += 1
+            if (
+                numbered_index < len(numbered_matches)
+                and numbered_matches[numbered_index].start() <= match.start()
+            ):
                 continue
             statute_match = match.group("statute")
             code = self.alias_to_code.get(statute_match)
@@ -430,11 +449,7 @@ class LegalEntityResolver:
                 article
                 and match.group("possessive")
                 and not match.group("forward_art_marker")
-                and re.match(
-                    r"\s*(?:aylık|yıllık|günlük|haftalık|saatlik|dakikalık|"
-                    r"ay|yıl|gün|hafta|saat|dakika)(?:\W|$)",
-                    normalized[match.end() :],
-                )
+                and self._duration_pattern.match(normalized, match.end())
             ):
                 article = None
 
@@ -482,6 +497,10 @@ class LegalEntityResolver:
                     )
                     continuation_start = continued.end()
 
+        for item in raw_matches:
+            if item.get("article_span") is not None:
+                article_codes.setdefault(item["article_span"], set()).add(item["code"])
+
         # Find reverse matches ([article] statute)
         for match in self._reverse_pattern.finditer(normalized):
             statute_match = match.group("statute")
@@ -495,10 +514,7 @@ class LegalEntityResolver:
 
             # A number already attached to a preceding statute cannot also
             # become the next statute's reverse citation (TBK 117 CMK 86).
-            if any(
-                prior.get("article_span") == match.span("art") and prior["code"] != code
-                for prior in raw_matches
-            ):
+            if article_codes.get(match.span("art"), set()) - {code}:
                 continue
 
             # Guard: bare numbers before "ay" (e.g. "3 ay") are durations, NOT Anayasa citations!
@@ -524,33 +540,41 @@ class LegalEntityResolver:
         if not raw_matches:
             return []
 
-        # Semantic Deduplication:
-        # If a match with an article overlaps with or subsumes a match without an article for the same statute,
-        # keep the specific article citation (e.g. "117 TBK" -> TBK m.117, NOT both TBK and TBK m.117).
-        filtered_matches: list[dict[str, Any]] = []
-        for i, m1 in enumerate(raw_matches):
-            is_subsumed = False
-            for j, m2 in enumerate(raw_matches):
-                if i == j:
-                    continue
-                if m1["code"] != m2["code"]:
-                    continue
-                # If m1 has no article but m2 has an article and their spans overlap or touch
-                if m1["article"] is None and m2["article"] is not None:
-                    # Check overlap or containment
-                    if max(m1["start"], m2["start"]) <= min(m1["end"], m2["end"]):
-                        is_subsumed = True
-                        break
-                # If both have the same article and overlap, keep the larger span
-                if m1["article"] == m2["article"] and m1["article"] is not None:
-                    if max(m1["start"], m2["start"]) < min(m1["end"], m2["end"]):
-                        span1 = m1["end"] - m1["start"]
-                        span2 = m2["end"] - m2["start"]
-                        if span1 < span2 or (span1 == span2 and i > j):
-                            is_subsumed = True
-                            break
-            if not is_subsumed:
-                filtered_matches.append(m1)
+        # Bucket by source offset to preserve a linear sweep (no match sorting).
+        # All raw patterns have bounded spans. At any offset only matches from
+        # that fixed-size window can overlap, so the active set is bounded too.
+        # Keep the original raw order and the old strict/touching overlap rules.
+        starts: list[list[int]] = [[] for _ in range(len(normalized) + 1)]
+        for index, item in enumerate(raw_matches):
+            starts[item["start"]].append(index)
+        subsumed: set[int] = set()
+        active: list[int] = []
+        for offset, indexes in enumerate(starts):
+            if not indexes:
+                continue
+            active = [i for i in active if raw_matches[i]["end"] >= offset]
+            for index in indexes:
+                item = raw_matches[index]
+                for prior_index in active:
+                    prior = raw_matches[prior_index]
+                    if item["code"] != prior["code"]:
+                        continue
+                    if item["article"] is None and prior["article"] is not None:
+                        subsumed.add(index)
+                    elif prior["article"] is None and item["article"] is not None:
+                        subsumed.add(prior_index)
+                    elif (
+                        item["article"] is not None
+                        and item["article"] == prior["article"]
+                        and offset < prior["end"]
+                    ):
+                        priority = (item["end"] - offset, -index)
+                        prior_priority = (prior["end"] - prior["start"], -prior_index)
+                        subsumed.add(
+                            prior_index if priority > prior_priority else index
+                        )
+                active.append(index)
+        filtered_matches = [m for i, m in enumerate(raw_matches) if i not in subsumed]
 
         citations: list[LegalCitation] = []
         seen: set[tuple[str, str | None]] = set()
