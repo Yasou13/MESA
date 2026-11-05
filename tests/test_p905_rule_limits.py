@@ -14,6 +14,8 @@ from tests.test_model_optional_runtime import _consume
 from tests.test_model_optional_runtime import model_runtime as model_runtime
 
 
+# Wall-clock tests use no_cover so tracing does not consume the 200 ms budget.
+# They still run in the coverage job; functional/structural tests stay traced.
 def _timed_extract(text):
     def expired(*_):
         raise AssertionError("legal extraction exceeded 200 ms")
@@ -51,11 +53,13 @@ def _timed_extract(text):
         "open-amendments",
     ],
 )
+@pytest.mark.no_cover
 def test_opus_repros_at_maximum_insert_size(stem):
     text = (stem * (32768 // len(stem) + 1))[:32767] + "/"
     _timed_extract(text)
 
 
+@pytest.mark.no_cover
 def test_seeded_grammar_fuzz_at_api_limits():
     rng = random.Random(905)
     tokens = [
@@ -118,6 +122,7 @@ def test_bounded_lists_preserve_normal_values_and_source_spans():
         " " * 120 + "2020/1 E., 2020/2 K.\n",
     ],
 )
+@pytest.mark.no_cover
 def test_many_matches_and_unclosed_markers_remain_bounded(stem):
     _timed_extract((stem * (32768 // len(stem) + 1))[:32768])
 

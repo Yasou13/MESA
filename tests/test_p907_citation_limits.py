@@ -9,6 +9,8 @@ import pytest
 from mesa_storage.legal_identity import LegalEntityResolver
 
 
+# Wall-clock tests use no_cover so tracing does not consume the 200 ms budget.
+# They still run in the coverage job; functional/structural tests stay traced.
 def _timed_extract(resolver, text):
     def expired(*_):
         raise AssertionError("citation resolution exceeded 200 ms")
@@ -39,6 +41,7 @@ def _timed_extract(resolver, text):
     ],
 )
 @pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.no_cover
 def test_opus_repros_and_dense_matches(size, stem, scoped):
     resolver = LegalEntityResolver(
         law_names={"Tebligat Kanunu": "7201"} if scoped else None
@@ -49,15 +52,18 @@ def test_opus_repros_and_dense_matches(size, stem, scoped):
 
 @pytest.mark.parametrize("size", [4096, 32768])
 @pytest.mark.parametrize("tail", ["1 x", "1 TCK", "2020/1 E."])
+@pytest.mark.no_cover
 def test_long_internal_whitespace(size, tail):
     _timed_extract(LegalEntityResolver(), "TBK" + " " * (size - 3 - len(tail)) + tail)
 
 
+@pytest.mark.no_cover
 def test_stored_content_repro_preserves_real_citation():
     citations = _timed_extract(LegalEntityResolver(), "TCK m. 81 " + "1" * (32768 - 10))
     assert [(c.statute_code, c.article) for c in citations] == [("TCK", "81")]
 
 
+@pytest.mark.no_cover
 def test_seeded_citation_grammar_fuzz_at_api_limits():
     rng = random.Random(907)
     tokens = [
@@ -111,6 +117,7 @@ def test_seeded_citation_grammar_fuzz_at_api_limits():
                 _timed_extract(resolver, "".join(parts)[:size])
 
 
+@pytest.mark.no_cover
 def test_many_distinct_articles_and_possessive_duration_guards():
     # Exercise the match loops, including duration lookahead at every alias.
     for stem in (
@@ -148,6 +155,7 @@ def test_normal_citations_keep_order_and_overlap_semantics(text, expected):
 
 
 @pytest.mark.parametrize("text", ["1" * 32760 + " TCK", "TCK m. " + "1" * 32760])
+@pytest.mark.no_cover
 def test_overlong_digit_runs_do_not_become_partial_articles(text):
     assert all(c.article is None for c in _timed_extract(LegalEntityResolver(), text))
 
