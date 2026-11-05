@@ -6357,17 +6357,19 @@ class MemoryDAO:
                                 maxsplit=1,
                                 flags=re.IGNORECASE,
                             )
-                            header_name = (
-                                re.sub(r"\d+\s*$", "", header[0]).strip()
-                                if len(header) == 2
-                                else ""
-                            )
+                            header_name = ""
+                            if len(header) == 2:
+                                header_tail = header[0].rstrip()
+                                end = len(header_tail)
+                                while end and header_tail[end - 1].isdecimal():
+                                    end -= 1
+                                header_name = header_tail[:end].strip()
                             revision_names = [header_name]
                             if revision not in named_revisions:
                                 revision_names.append(str(row["title"] or ""))
                                 named_revisions.add(revision)
                             for name in revision_names:
-                                if name:
+                                if name and len(name) <= 200:
                                     names.setdefault(
                                         normalize_law_name(name), set()
                                     ).update(laws)
@@ -6717,6 +6719,10 @@ class MemoryDAO:
                 continue
             content_tokens.append(t)
 
+        # Keep the existing filters/order and substring matching, but bound
+        # repeated scans of API-sized candidate text.
+        scoring_content_tokens = content_tokens[:64]
+
         lexical_lane: list[str] = []
         lexical_assertions: dict[str, dict[str, Any]] = {}
         lexical_scores: dict[str, float] = {}
@@ -6839,14 +6845,16 @@ class MemoryDAO:
                 p_score = -raw_bm25
 
                 matched_tokens = 0
-                for token in content_tokens:
+                for token in scoring_content_tokens:
                     if token in p_text:
                         matched_tokens += 1
                         p_score += 10.0 + min(len(token), 10)
-                if content_tokens and matched_tokens == len(content_tokens):
+                if scoring_content_tokens and matched_tokens == len(
+                    scoring_content_tokens
+                ):
                     p_score += 50.0
 
-                clean_query = " ".join(content_tokens)
+                clean_query = " ".join(scoring_content_tokens)
                 if clean_query and clean_query in p_text:
                     p_score += 100.0
 
@@ -6932,7 +6940,7 @@ class MemoryDAO:
                                 lexical_entity_lane.append(eid)
 
         # Assertion Lane Redesign (Phase 5)
-        tokens_to_match = content_tokens if content_tokens else raw_tokens
+        tokens_to_match = (content_tokens if content_tokens else raw_tokens)[:64]
         # Reuse the scoped FTS candidate pool.  This avoids admitting rows
         # through SQLite's ASCII-only LIKE casing before Turkish-aware scoring.
         assertion_rows = passage_candidate_rows
