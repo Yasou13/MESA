@@ -1,7 +1,10 @@
 """Citation parsing must stay responsive for queries and stored API-sized text."""
 
+import json
 import random
 import signal
+import subprocess
+import sys
 import time
 
 import pytest
@@ -194,3 +197,36 @@ def test_citation_patterns_have_no_unbounded_repetitions():
     ):
         pattern = getattr(resolver, name)
         audit(_parser.parse(pattern.pattern, pattern.flags))
+
+
+@pytest.mark.no_cover
+def test_sparse_api_sized_citation_has_bounded_allocations():
+    # Run in a fresh process so earlier integration tests cannot contaminate
+    # the peak. Per-character GC-tracked objects caused CI latency spikes even
+    # with coverage paused; sparse 32 KB input should need less than 1 MB.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import json
+import tracemalloc
+from mesa_storage.legal_identity import LegalEntityResolver
+resolver = LegalEntityResolver()
+text = 'TCK m. 81 ' + ' ' * (32768 - 10)
+tracemalloc.start()
+citations = resolver.extract_citations(text)
+_, peak = tracemalloc.get_traced_memory()
+tracemalloc.stop()
+print(json.dumps({'citations': [(c.statute_code, c.article) for c in citations],
+                  'peak': peak}))
+""",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    measured = json.loads(result.stdout)
+    assert measured["citations"] == [["TCK", "81"]]
+    assert measured["peak"] < 1_000_000, measured

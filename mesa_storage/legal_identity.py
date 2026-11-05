@@ -544,9 +544,15 @@ class LegalEntityResolver:
         # All raw patterns have bounded spans. At any offset only matches from
         # that fixed-size window can overlap, so the active set is bounded too.
         # Keep the original raw order and the old strict/touching overlap rules.
-        starts: list[list[int]] = [[] for _ in range(len(normalized) + 1)]
+        # Empty per-character lists trigger thousands of GC-tracked allocations
+        # even for a single citation. Allocate buckets only where matches start.
+        starts: list[list[int] | None] = [None] * (len(normalized) + 1)
         for index, item in enumerate(raw_matches):
-            starts[item["start"]].append(index)
+            bucket = starts[item["start"]]
+            if bucket is None:
+                starts[item["start"]] = [index]
+            else:
+                bucket.append(index)
         subsumed: set[int] = set()
         active: list[int] = []
         for offset, indexes in enumerate(starts):
