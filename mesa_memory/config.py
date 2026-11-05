@@ -189,7 +189,7 @@ def load_runtime_profile(
     extraction_enabled = _parse_runtime_bool(
         values.get("MESA_EXTRACTION_ENABLED"),
         name="MESA_EXTRACTION_ENABLED",
-        default=model_enabled,
+        default=False,
     )
     graph_enabled = _parse_runtime_bool(
         values.get("MESA_GRAPH_ENABLED"), name="MESA_GRAPH_ENABLED", default=True
@@ -616,6 +616,7 @@ class MesaConfig(BaseSettings):
     chunking: Literal["auto", "plain"] = Field(
         "auto", validation_alias="MESA_CHUNKING"
     )
+    legal_rules_enabled: bool = Field(True, validation_alias="MESA_LEGAL_RULES_ENABLED")
     metrics_admission_threshold: float = 0.8
     metrics_divergence_threshold: float = 0.5
 

@@ -140,7 +140,8 @@ async def test_changed_document_supersedes_active_revision(model_runtime):
         assert response.status_code == 409, response.text
         assert response.json()["detail"] == (
             "content equals revision 1 (SUPERSEDED); "
-            "restoring an earlier revision is not supported in v0.9"
+            "restoring an earlier revision is not supported in v0.9. "
+            "Add it under a new document_id to store it again."
         )
         assert before == {t: await _rows(env, t) for t in before}
 
@@ -391,7 +392,8 @@ async def test_flash_sdk_against_real_document_endpoint(
                     await _consume(env, 3)
                     detail = (
                         "content equals revision 1 (SUPERSEDED); "
-                        "restoring an earlier revision is not supported in v0.9"
+                        "restoring an earlier revision is not supported in v0.9. "
+                        "Add it under a new document_id to store it again."
                     )
                     with pytest.raises(MesaAPIError) as error:
                         await asyncio.to_thread(

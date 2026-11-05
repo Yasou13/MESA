@@ -23,6 +23,12 @@ def normalize_turkish(text: str) -> str:
     return unicodedata.normalize("NFKC", cleaned).lower()
 
 
+def normalize_law_name(text: str) -> str:
+    """Normalize exact store names, including the conventional Kanunu abbreviation."""
+    text = normalize_turkish(text).replace("ı", "i")
+    return " ".join(re.sub(r"\bk\.(?=\W|$)", "kanunu", text).split())
+
+
 @dataclass(frozen=True)
 class LegalCitation:
     statute_code: str
@@ -222,11 +228,17 @@ def canonicalize_trusted_legal_identity(
         raise ValueError("legal identity requires law_id and article_id")
 
     def resolve_code(reference: str) -> str | None:
-        return resolver.alias_to_code.get(normalize_turkish(reference))
+        if re.fullmatch(r"[0-9]{3,5}", reference):
+            return next(
+                (code for code, number in LAW_IDS.items() if number == reference),
+                reference,
+            )
+        code = resolver.alias_to_code.get(normalize_turkish(reference))
+        return code if code in resolver.laws else None
 
     law_code = resolve_code(law_ref)
     statute_code = resolve_code(statute_ref) if statute_ref else law_code
-    if law_code not in resolver.laws or statute_code != law_code:
+    if law_code is None or statute_code != law_code:
         raise ValueError("legal identity law aliases are unknown or inconsistent")
 
     article_match = _ARTICLE_PATTERN.fullmatch(article_ref)
@@ -238,7 +250,7 @@ def canonicalize_trusted_legal_identity(
         raise ValueError("legal identity source is not trusted")
 
     normalized: dict[str, str] = {
-        "law_id": LAW_IDS[law_code],
+        "law_id": LAW_IDS.get(law_code, law_code),
         "statute_code": law_code,
         "article_id": article_match.group("article"),
         "version_id": str(value.get("version_id") or "").strip(),
@@ -254,7 +266,7 @@ def canonicalize_trusted_legal_identity(
 
 
 class LegalEntityResolver:
-    def __init__(self) -> None:
+    def __init__(self, *, law_names: Mapping[str, str] | None = None) -> None:
         self.ontology = ONTOLOGY
         self.laws = {
             "TBK",
@@ -269,36 +281,165 @@ class LegalEntityResolver:
             "Anayasa",
         }
         self.alias_to_code: dict[str, str] = {}
+        self._law_names = {
+            normalize_law_name(name): number
+            for name, number in (law_names or {}).items()
+            if name and re.fullmatch(r"[0-9]{3,5}", number)
+        }
+        name_patterns = []
+        for name in sorted(self._law_names, key=len, reverse=True):
+            escaped = re.escape(name)
+            if name.endswith("kanunu"):
+                escaped = re.escape(name[:-1]) + r"u?"
+            name_patterns.append(escaped)
+        self._scope_name_pattern = (
+            re.compile(
+                r"(?<!\w)(?P<name>" + "|".join(name_patterns) + r")"
+                r"(?:['’]?(?:nun|un|nin|in))?(?!\w)"
+                r"(?:\s{0,128}+(?:(?:m\.|md\.?|madde)\s{0,128}+(?P<marked>[0-9]{1,12}+(?![0-9]))"
+                r"|(?P<ordinal>[0-9]{1,12}+(?![0-9]))(?:\.|\s{1,128}+(?:inci|uncu|üncü|nci|ncu|ncü))?\s{1,128}+madde(?:si)?))?"
+            )
+            if name_patterns
+            else None
+        )
         for code, info in self.ontology.items():
             for alias in info["aliases"]:
                 self.alias_to_code[normalize_turkish(alias)] = code
         aliases = sorted(self.alias_to_code, key=len, reverse=True)
         alias_pattern = "|".join(re.escape(alias) for alias in aliases)
+        # A legal token has at most 12 digits and each layout gap at most 128
+        # characters. Possessive runs cannot backtrack or parse a digit suffix
+        # as a different article. Long input is still scanned in full.
         self._forward_pattern = re.compile(
             rf"(?:(?<=\W)|^)(?P<statute>{alias_pattern})(?:(?=\W)|$)"
             rf"(?P<possessive>['’]n?[ıiuü]n)?"
-            rf"(?:\s*(?P<forward_art_marker>m\.|md\.?|madde))?\s*"
-            rf"(?P<art>\d+)?(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?",
+            rf"\s{{0,128}}+(?:(?P<forward_art_marker>m\.|md\.?|madde)\s{{0,128}}+)?"
+            rf"(?P<art>\d{{1,12}}+(?!\d))?(?:\.|\'[a-zçğıöşü]{{1,12}}+)?(?:\s{{0,128}}+madde(?:si)?)?",
             re.IGNORECASE,
         )
         self._reverse_pattern = re.compile(
-            rf"(?P<has_art_marker>m\.|md\.?|madde)?\s*(?P<art>\d+)(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?(?:\s+(?:uyarınca|gereğince|kapsamında|hükmü|hükmünce|düzenlemesi))?\s+(?P<statute>{alias_pattern})(?:(?=\W)|$)",
+            rf"(?P<has_art_marker>m\.|md\.?|madde)?\s{{0,128}}+(?<!\d)(?P<art>\d{{1,12}}+(?!\d))(?:\.|\'[a-zçğıöşü]{{1,12}}+)?(?:\s{{0,128}}+madde(?:si)?)?(?:\s{{1,128}}+(?:uyarınca|gereğince|kapsamında|hükmü|hükmünce|düzenlemesi))?\s{{1,128}}+(?P<statute>{alias_pattern})(?:(?=\W)|$)",
             re.IGNORECASE,
         )
         self._continued_article_pattern = re.compile(
-            r"\s*(?:(?:-|–|—|ila)\s*|(?:,|;|ve|ile)\s*(?:m\.|md\.?|madde)\s*)"
-            r"(?P<art>\d+)(?:\.|\'[a-zçğıöşü]+)?(?:\s*madde(?:si)?)?",
+            r"\s{0,128}+(?:(?:-|–|—|ila)\s{0,128}+|(?:,|;|ve|ile)\s{0,128}+(?:m\.|md\.?|madde)\s{0,128}+)"
+            r"(?P<art>\d{1,12}+(?!\d))(?:\.|\'[a-zçğıöşü]{1,12}+)?(?:\s{0,128}+madde(?:si)?)?",
             re.IGNORECASE,
+        )
+        self._numbered_law_pattern = re.compile(
+            r"\b(?P<number>[0-9]{3,5})\s{1,128}+sayılı\s{1,128}+"
+            r"(?:[^\n.;!?]{0,160}?(?<=\S)\s{1,128}+)?kanun(?:u)?(?:['’]?(?:nun|un|nın|ın))?\s{1,128}+"
+            r"(?:(?:m\.|md\.?|madde)\s{0,128}+(?P<marked>[0-9]{1,12}+(?![0-9]))"
+            r"|(?P<ordinal>[0-9]{1,12}+(?![0-9]))(?:\.|\s{1,128}+(?:ıncı|inci|uncu|üncü|nci|ncı|ncu|ncü))?\s{1,128}+madde(?:si)?)",
+        )
+        self._duration_pattern = re.compile(
+            r"\s{0,128}+(?:aylık|yıllık|günlük|haftalık|saatlik|dakikalık|"
+            r"ay|yıl|gün|hafta|saat|dakika)(?:\W|$)"
         )
 
     def extract_citations(self, text: str) -> list[LegalCitation]:
         if not text:
             return []
+        # Mask court mentions before both store-name and ontology matching.
+        # Keep offsets and independent Constitution/article citations intact.
+        text = re.sub(
+            r"\banayasa\s+mahkemesi\w*|\baym\b",
+            lambda match: " " * len(match[0]),
+            text,
+            flags=re.IGNORECASE,
+        )
+        if self._scope_name_pattern is not None:
+            normalized_name_text = normalize_law_name(text)
+            matches = list(self._scope_name_pattern.finditer(normalized_name_text))
+            if matches:
+                scoped_citations = []
+                # Name normalization folds Turkish letters, expands K. and
+                # collapses whitespace. Map its spans back before masking so
+                # independent citations retain their spelling and grammar.
+                source_text = normalize_turkish(text)
+                source_spans: list[tuple[int, int]] = []
+                for piece in re.finditer(
+                    r"\s+|\bk\.(?=\W|$)|.", source_text, re.DOTALL
+                ):
+                    value = piece[0]
+                    if value.isspace():
+                        if not source_spans:
+                            continue
+                        width = 1
+                    else:
+                        width = len("kanunu") if value == "k." else 1
+                    source_spans.extend([piece.span()] * width)
+                if source_spans and source_text[-1].isspace():
+                    source_spans.pop()
+                remainder = list(source_text)
+                for match in matches:
+                    name = match["name"]
+                    number = self._law_names.get(name)
+                    if number is None:
+                        number = self._law_names.get(name + "u")
+                    if number is None:
+                        continue
+                    scoped_code = next(
+                        (c for c, n in LAW_IDS.items() if n == number), number
+                    )
+                    scoped_article = match["marked"] or match["ordinal"]
+                    scoped_citations.append(
+                        LegalCitation(
+                            statute_code=scoped_code,
+                            statute_canonical=name,
+                            article=scoped_article,
+                            canonical_name=f"{scoped_code} m.{scoped_article}"
+                            if scoped_article
+                            else scoped_code,
+                            aliases=(name,),
+                        )
+                    )
+                    start = source_spans[match.start()][0]
+                    end = source_spans[match.end() - 1][1]
+                    remainder[start:end] = " " * (end - start)
+                # A store name consumes its entire span before ontology matching,
+                # so a shorter ontology alias cannot reinterpret that same name.
+                scoped_citations.extend(
+                    LegalEntityResolver().extract_citations("".join(remainder))
+                )
+                return list(dict.fromkeys(scoped_citations))
         normalized = normalize_turkish(text)
         raw_matches: list[dict[str, Any]] = []
 
+        # Numbered statutes use the same typed candidate lane as ontology aliases.
+        numbered_matches = list(self._numbered_law_pattern.finditer(normalized))
+        for match in numbered_matches:
+            number = match.group("number")
+            code = next((code for code, n in LAW_IDS.items() if n == number), number)
+            raw_matches.append(
+                {
+                    "code": code,
+                    "article": match.group("marked") or match.group("ordinal"),
+                    "start": match.start(),
+                    "end": match.end(),
+                    "statute_match": number,
+                    "article_span": match.span("marked")
+                    if match.group("marked")
+                    else match.span("ordinal"),
+                }
+            )
+
+        # Both streams advance left to right; never re-scan numbered matches.
+        numbered_index = 0
+        article_codes: dict[tuple[int, int], set[str]] = {}
+
         # Find forward matches (statute [article])
         for match in self._forward_pattern.finditer(normalized):
+            while (
+                numbered_index < len(numbered_matches)
+                and numbered_matches[numbered_index].end() <= match.start()
+            ):
+                numbered_index += 1
+            if (
+                numbered_index < len(numbered_matches)
+                and numbered_matches[numbered_index].start() <= match.start()
+            ):
+                continue
             statute_match = match.group("statute")
             code = self.alias_to_code.get(statute_match)
             if not code:
@@ -308,11 +449,7 @@ class LegalEntityResolver:
                 article
                 and match.group("possessive")
                 and not match.group("forward_art_marker")
-                and re.match(
-                    r"\s*(?:aylık|yıllık|günlük|haftalık|saatlik|dakikalık|"
-                    r"ay|yıl|gün|hafta|saat|dakika)(?:\W|$)",
-                    normalized[match.end() :],
-                )
+                and self._duration_pattern.match(normalized, match.end())
             ):
                 article = None
 
@@ -360,6 +497,10 @@ class LegalEntityResolver:
                     )
                     continuation_start = continued.end()
 
+        for item in raw_matches:
+            if item.get("article_span") is not None:
+                article_codes.setdefault(item["article_span"], set()).add(item["code"])
+
         # Find reverse matches ([article] statute)
         for match in self._reverse_pattern.finditer(normalized):
             statute_match = match.group("statute")
@@ -373,10 +514,7 @@ class LegalEntityResolver:
 
             # A number already attached to a preceding statute cannot also
             # become the next statute's reverse citation (TBK 117 CMK 86).
-            if any(
-                prior.get("article_span") == match.span("art") and prior["code"] != code
-                for prior in raw_matches
-            ):
+            if article_codes.get(match.span("art"), set()) - {code}:
                 continue
 
             # Guard: bare numbers before "ay" (e.g. "3 ay") are durations, NOT Anayasa citations!
@@ -402,33 +540,47 @@ class LegalEntityResolver:
         if not raw_matches:
             return []
 
-        # Semantic Deduplication:
-        # If a match with an article overlaps with or subsumes a match without an article for the same statute,
-        # keep the specific article citation (e.g. "117 TBK" -> TBK m.117, NOT both TBK and TBK m.117).
-        filtered_matches: list[dict[str, Any]] = []
-        for i, m1 in enumerate(raw_matches):
-            is_subsumed = False
-            for j, m2 in enumerate(raw_matches):
-                if i == j:
-                    continue
-                if m1["code"] != m2["code"]:
-                    continue
-                # If m1 has no article but m2 has an article and their spans overlap or touch
-                if m1["article"] is None and m2["article"] is not None:
-                    # Check overlap or containment
-                    if max(m1["start"], m2["start"]) <= min(m1["end"], m2["end"]):
-                        is_subsumed = True
-                        break
-                # If both have the same article and overlap, keep the larger span
-                if m1["article"] == m2["article"] and m1["article"] is not None:
-                    if max(m1["start"], m2["start"]) < min(m1["end"], m2["end"]):
-                        span1 = m1["end"] - m1["start"]
-                        span2 = m2["end"] - m2["start"]
-                        if span1 < span2 or (span1 == span2 and i > j):
-                            is_subsumed = True
-                            break
-            if not is_subsumed:
-                filtered_matches.append(m1)
+        # Bucket by source offset to preserve a linear sweep (no match sorting).
+        # All raw patterns have bounded spans. At any offset only matches from
+        # that fixed-size window can overlap, so the active set is bounded too.
+        # Keep the original raw order and the old strict/touching overlap rules.
+        # Empty per-character lists trigger thousands of GC-tracked allocations
+        # even for a single citation. Allocate buckets only where matches start.
+        starts: list[list[int] | None] = [None] * (len(normalized) + 1)
+        for index, item in enumerate(raw_matches):
+            bucket = starts[item["start"]]
+            if bucket is None:
+                starts[item["start"]] = [index]
+            else:
+                bucket.append(index)
+        subsumed: set[int] = set()
+        active: list[int] = []
+        for offset, indexes in enumerate(starts):
+            if not indexes:
+                continue
+            active = [i for i in active if raw_matches[i]["end"] >= offset]
+            for index in indexes:
+                item = raw_matches[index]
+                for prior_index in active:
+                    prior = raw_matches[prior_index]
+                    if item["code"] != prior["code"]:
+                        continue
+                    if item["article"] is None and prior["article"] is not None:
+                        subsumed.add(index)
+                    elif prior["article"] is None and item["article"] is not None:
+                        subsumed.add(prior_index)
+                    elif (
+                        item["article"] is not None
+                        and item["article"] == prior["article"]
+                        and offset < prior["end"]
+                    ):
+                        priority = (item["end"] - offset, -index)
+                        prior_priority = (prior["end"] - prior["start"], -prior_index)
+                        subsumed.add(
+                            prior_index if priority > prior_priority else index
+                        )
+                active.append(index)
+        filtered_matches = [m for i, m in enumerate(raw_matches) if i not in subsumed]
 
         citations: list[LegalCitation] = []
         seen: set[tuple[str, str | None]] = set()
@@ -437,7 +589,10 @@ class LegalEntityResolver:
             if key in seen:
                 continue
             seen.add(key)
-            info = self.ontology[m["code"]]
+            info = self.ontology.get(
+                m["code"],
+                {"canonical": f"{m['code']} sayılı Kanun", "aliases": [m["code"]]},
+            )
             article = m["article"]
             citations.append(
                 LegalCitation(
@@ -446,7 +601,7 @@ class LegalEntityResolver:
                     article=article,
                     canonical_name=(
                         f"{m['code']} m.{article}"
-                        if article and m["code"] in self.laws
+                        if article and (m["code"] in self.laws or m["code"].isdigit())
                         else m["code"]
                     ),
                     aliases=tuple(info["aliases"]),

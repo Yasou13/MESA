@@ -11,11 +11,21 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from datetime import datetime
-from typing import Any, Callable, Literal
+from typing import Annotated, Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from fastapi.exceptions import RequestValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    WrapValidator,
+    field_validator,
+    model_validator,
+)
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
@@ -23,7 +33,12 @@ from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
-from mesa_memory.document_chunking import chunk_document, chunk_legal_document
+from mesa_memory.document_chunking import (
+    _ARTICLE_HEADING,
+    _CASE_LAW_PREAMBLE,
+    chunk_document,
+    chunk_legal_document,
+)
 from mesa_memory.embedding.service import (
     EmbeddingGenerationError,
     EmbeddingIdentityMismatchError,
@@ -1148,12 +1163,22 @@ def create_v4_router(
             request, idempotency_key, dao, access_control
         )
 
-    @router.post("/memory/insert", status_code=202)
-    async def insert_memory(
+    @router.post("/memory/insert", status_code=202, name="insert_memory")
+    async def insert_memory_request(
         request: Request,
         payload: V4MemoryInsertRequest,
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        return await insert_memory(request, payload, dao, access_control)
+
+    async def insert_memory(
+        request: Request,
+        payload: V4MemoryInsertRequest,
+        dao: MemoryDAO,
+        access_control: AccessControl,
+        *,
+        document_chunk: bool = False,
     ) -> dict:
         session = await _authorized_v4_session(
             request,
@@ -1190,6 +1215,7 @@ def create_v4_router(
                 chunk_ordinal=payload.chunk_ordinal,
                 supersedes_revision_id=payload.supersedes_revision_id,
                 metadata=payload.metadata,
+                document_chunk=document_chunk,
                 legal_identity=(
                     payload.legal_identity.model_dump(exclude_none=True)
                     if payload.legal_identity is not None
@@ -1232,10 +1258,23 @@ def create_v4_router(
     @router.post("/documents", response_model=V4DocumentIngestResponse, status_code=202)
     async def ingest_document(
         request: Request,
-        payload: V4DocumentIngestRequest,
+        payload: Annotated[
+            V4DocumentIngestRequest, WrapValidator(lambda value, _handler: value)
+        ],
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
+        # Defer, rather than omit, the same model validation. The annotation
+        # retains its public schema; no payload is used before validation.
+        try:
+            payload = await asyncio.to_thread(
+                V4DocumentIngestRequest.model_validate, payload
+            )
+        except ValidationError as exc:
+            errors = exc.errors()
+            for error in errors:
+                error["loc"] = ("body", *error["loc"])
+            raise RequestValidationError(errors) from exc
         session = await _authorized_v4_session(
             request, dao, access_control, payload.session_id, level="WRITE"
         )
@@ -1289,7 +1328,8 @@ def create_v4_router(
                     raise ValueError(
                         f"content equals revision {revision['revision_number']} "
                         f"({revision['status']}); restoring an earlier revision "
-                        "is not supported in v0.9"
+                        "is not supported in v0.9. Add it under a new document_id "
+                        "to store it again."
                     )
                 admitted = await dao.list_v4_revision_mutations(
                     **scope, revision_id=revision_id
@@ -1305,10 +1345,11 @@ def create_v4_router(
                     "mutation_ids": [admitted[i] for i in sorted(admitted)],
                     "duplicate": True,
                 }
+            legal_plan = config.chunking == "auto"
             chunks = (
-                chunk_legal_document(payload.content)
+                await asyncio.to_thread(chunk_legal_document, payload.content)
                 if config.chunking == "auto"
-                else chunk_document(payload.content)
+                else await asyncio.to_thread(chunk_document, payload.content)
             )
             if admitted:
                 # Admissions are already scoped above. Their durable payloads,
@@ -1327,22 +1368,68 @@ def create_v4_router(
                     )
 
                 alternative = (
-                    chunk_document(payload.content)
+                    await asyncio.to_thread(chunk_document, payload.content)
                     if config.chunking == "auto"
-                    else chunk_legal_document(payload.content)
+                    else await asyncio.to_thread(chunk_legal_document, payload.content)
                 )
                 preferred_matches = matches(chunks)
                 alternative_matches = matches(alternative)
                 if preferred_matches and alternative_matches and chunks != alternative:
                     raise HTTPException(
-                        409, "admitted chunking plan is ambiguous; no chunks appended"
+                        409,
+                        "admitted chunking plan is ambiguous; no chunks appended. "
+                        "Retry with the MESA_CHUNKING value used when this revision was "
+                        "first added, or add the content under a new document_id.",
                     )
                 if not preferred_matches:
                     if not alternative_matches:
                         raise HTTPException(
-                            409, "admitted chunks do not match a supported chunking plan"
+                            409,
+                            "admitted chunks do not match a supported chunking plan. "
+                            "Retry with the MESA_CHUNKING value used when this revision was "
+                            "first added, or add the content under a new document_id.",
                         )
                     chunks = alternative
+                    legal_plan = not legal_plan
+            identities: list[dict[str, str] | None] = [None] * len(chunks)
+            if config.legal_rules_enabled and legal_plan:
+                headings = list(_ARTICLE_HEADING.finditer(payload.content))
+                header = re.search(
+                    r"\bKanun(?:un)?\s+(?:Numarası\s*:|No\.?\s*:?)\s*([0-9]{3,5})\b",
+                    payload.content[:3000],
+                    re.IGNORECASE,
+                )
+                law_number = str(
+                    payload.metadata.get("law_number") or (header[1] if header else "")
+                )
+                if (
+                    re.fullmatch(r"[0-9]{3,5}", law_number)
+                    and len(headings) >= 3
+                    and not _CASE_LAW_PREAMBLE.search(
+                        payload.content[: headings[0].start()]
+                    )
+                ):
+                    heading_index = -1
+                    offset = 0
+                    for ordinal, chunk in enumerate(chunks):
+                        while (
+                            heading_index + 1 < len(headings)
+                            and headings[heading_index + 1].start() <= offset
+                        ):
+                            heading_index += 1
+                        if heading_index >= 0:
+                            # Special/range/suffixed articles have no ordinary article identity.
+                            ordinary = re.fullmatch(
+                                r"\s*MADDE\s+([0-9]+)\s*[-–—−:]",
+                                headings[heading_index][0],
+                                re.IGNORECASE,
+                            )
+                            if ordinary:
+                                identities[ordinal] = {
+                                    "law_id": law_number,
+                                    "article_id": ordinary[1],
+                                }
+                        offset += len(chunk)
             duplicate = len(admitted) == len(chunks)
             for ordinal, chunk in enumerate(chunks):
                 if ordinal in admitted:
@@ -1353,6 +1440,7 @@ def create_v4_router(
                     V4MemoryInsertRequest(
                         **payload.model_dump(exclude={"content"}),
                         content=chunk,
+                        legal_identity=identities[ordinal],
                         revision_id=revision_id,
                         chunk_id=chunk_id,
                         revision_number=revision["revision_number"],
@@ -1363,6 +1451,7 @@ def create_v4_router(
                     ),
                     dao,
                     access_control,
+                    document_chunk=True,
                 )
                 admitted[ordinal] = response["mutation_id"]
             return {

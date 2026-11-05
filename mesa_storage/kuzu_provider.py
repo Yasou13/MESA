@@ -1654,6 +1654,7 @@ class KuzuGraphProvider(BaseGraphProvider):
 
         # 3. Query, predicate, and evidence relevance
         pred_bonus = 0.0
+        query_tokens = list(dict.fromkeys(query_tokens))[:64]
         if query_tokens:
             for pred, ev, jur in zip(predicates, evidence_spans, jurisdictions):
                 p_norm = _normalize_text(pred)

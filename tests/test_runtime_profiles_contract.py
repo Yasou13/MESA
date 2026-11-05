@@ -153,18 +153,22 @@ def test_separate_flags_default_to_legacy_and_can_override_it(tmp_path, legacy):
     legacy_bool = legacy == "true"
     runtime = load_runtime_profile(env)
     assert runtime.embedding_enabled is legacy_bool
-    assert runtime.extraction_enabled is legacy_bool
+    assert runtime.extraction_enabled is False
     override_str = "false" if legacy_bool else "true"
     runtime_embed_only = load_runtime_profile(
         {**env, "MESA_EMBEDDING_ENABLED": override_str}
     )
     assert runtime_embed_only.embedding_enabled is (not legacy_bool)
-    assert runtime_embed_only.extraction_enabled is legacy_bool
+    assert runtime_embed_only.extraction_enabled is False
     runtime_extract_only = load_runtime_profile(
-        {**env, "MESA_EXTRACTION_ENABLED": override_str}
+        {**env, "MESA_EXTRACTION_ENABLED": "true"}
     )
     assert runtime_extract_only.embedding_enabled is legacy_bool
-    assert runtime_extract_only.extraction_enabled is (not legacy_bool)
+    assert runtime_extract_only.extraction_enabled is True
+    runtime_extract_explicit_false = load_runtime_profile(
+        {**env, "MESA_EXTRACTION_ENABLED": "false"}
+    )
+    assert runtime_extract_explicit_false.extraction_enabled is False
     runtime = load_runtime_profile(
         {**env, "MESA_EMBEDDING_ENABLED": "false", "MESA_EXTRACTION_ENABLED": "true"}
     )

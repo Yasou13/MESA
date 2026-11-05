@@ -7,6 +7,35 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Queries matching a decision's own docket/decision reference promote its
+  first chunk through the existing exact-match slot, shared with articles
+  (at most three chunks total). Only stored references beginning in the first
+  300 characters of an authorized first chunk count; later quotations do not.
+
+- Newly admitted chunks keep versioned Turkish legal rule items with chunk
+  offsets, returned in search provenance separately from SPO facts. Item storage
+  preserves fusion scores, and document purge erases their source quotes. The existing
+  `MESA_LEGAL_RULES_ENABLED` switch controls admission.
+
+- Constitutional Court names (`Anayasa Mahkemesi`, its suffix forms and `AYM`)
+  no longer activate Constitution citation ranking. Separate statute citations
+  in the same query are preserved.
+
+- Exact law/article matches now occupy at most three leading search positions
+  in document order, preserving the remaining order. Authorized document titles
+  and law headers provide scope-cached law names, including the `K.` abbreviation.
+- Document article plans assign the existing typed legal identity to ordinary
+  articles and their continuation chunks. Generic 3–5 digit law-number
+  citations use the existing retrieval lane; `MESA_LEGAL_RULES_ENABLED=false`
+  disables automatic identity assignment for new chunks. Document fallback
+  assertions preserve their existing document/chunk graph and lexical shape.
+- Open-ended SPO fact extraction (`MESA_EXTRACTION_ENABLED`) defaults to false
+  regardless of `MESA_MODEL_ENABLED`; an explicit true still enables it (D46).
+
 ## [0.9.1] - 2026-11-01
 
 This release combines Round 13 (speed) and Round 14 (retrieval quality and

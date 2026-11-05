@@ -40,6 +40,45 @@ even after restarting or changing this setting. Active revisions are unchanged.
 If an admitted prefix fits two different plans, the retry returns 409 without
 appending chunks, because the stored text cannot identify the original plan.
 
+`MESA_LEGAL_RULES_ENABLED=true` enables Turkish legal rule processing. In auto
+chunking mode, ordinary article chunks inherit the document's law number from
+`metadata.law_number` or a `Kanun Numarası`, `Kanunun Numarası` or `Kanun No.`
+header in the first 3,000 characters. Continuation pieces keep that article's
+identity; preambles, GEÇİCİ/EK articles and plain plans receive none. Setting the
+switch to false disables automatic identity assignment for new chunks. Stored
+identities are immutable on resume. Any 3–5 digit law number is accepted by the
+typed identity API; known numbers retain their existing statute code (6098 →
+TBK). Unknown law names and inconsistent number/code pairs are rejected.
+Numbered queries such as `7201 sayılı Kanunun 21. maddesi` use the existing
+typed legal candidate lane and ranking factors. Document fallback assertions
+keep their document subject, `madde` relation and chunk object; automatic
+article identity changes only the typed columns.
+
+Newly admitted chunks also keep versioned citation, decision-reference, date,
+amount, duration and outcome items. Search returns them in
+`retrieval_provenance.legal_items` as `{version, items}`. Item `start`/`end`
+offsets refer to the original chunk, including when a result quotes a shorter
+extracted fact. Items remain separate from SPO facts and do not enter fusion
+scores. Decision references can use the bounded exact-match slot below.
+Disabling the switch prevents new item snapshots; existing
+snapshots remain. Purging a document erases these source quotes too.
+
+An exact law-and-article query puts at most three matching chunks first, in
+document order. Other results retain their fused order (or reranked order when
+reranking is enabled). The match must exist in the authorized search scope.
+A query's docket and decision numbers can also match a decision's own künye:
+a stored `decision_ref` starting within the first 300 characters of chunk zero.
+Its first chunk shares the same three-chunk limit with article matches, in
+document order. Later quotations do not teach a decision's identity. The map
+uses the same tenant, dataset, agent and time scope cache as law names; an
+unmatched reference leaves result order unchanged.
+The scope cache learns law names from titles and first-chunk law headers of
+documents with trusted article identities; it never learns them from another
+tenant, dataset, agent or time scope. Names accept case and Turkish ı/i variants,
+possessive suffixes, and `K.` for `Kanunu`. The longest exact name from that scope
+takes precedence over an overlapping ontology alias. Ambiguous store names
+shared by different law numbers are ignored. No static law-name table is added.
+
 `MESA_RERANK_ENABLED=false` keeps the existing fused ranking and does not import
 ML packages. Enabling it requires `pip install "mesa-memory[ml]"`; startup checks
 that the package is installed, and the model loads lazily on the first search.
@@ -53,8 +92,8 @@ The first search includes model-load latency; subsequent searches reuse it.
 Model and external-provider flags default false. Validation defaults to
 mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
 needs distinct A/B validator identities. Extraction and validation are separate.
-`MESA_EMBEDDING_ENABLED` and `MESA_EXTRACTION_ENABLED` each default to
-`MESA_MODEL_ENABLED`. A combined runtime accepts writes with both off and finds
+`MESA_EMBEDDING_ENABLED` defaults to `MESA_MODEL_ENABLED`; `MESA_EXTRACTION_ENABLED`
+defaults to `false` (D46). A combined runtime accepts writes with both off and finds
 them through BM25. Disabled VECTOR lanes end `SKIPPED`; enabling embedding later
 backfills them at startup using the same embedding identity. Backfill failures
 leave committed records searchable.

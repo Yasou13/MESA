@@ -54,6 +54,7 @@ async def retry_runtime(tmp_path, monkeypatch):
         "MESA_STORAGE_ROOT": str(tmp_path / "storage"),
         "MESA_LOAD_DOTENV": "false",
         "MESA_MODEL_ENABLED": "true",
+        "MESA_EXTRACTION_ENABLED": "true",
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
         "MESA_TIER3_MODE": "0",
         "MESA_EMBEDDING_DIMENSION": "384",

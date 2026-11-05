@@ -34,10 +34,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 import aiosqlite
 
+from mesa_storage import legal_rules
 from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
+    normalize_law_name,
 )
 from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
@@ -541,6 +543,7 @@ class MemoryDAO:
         "_rrf_k",
         "_rrf_weights",
         "_search_scope_cache_enabled",
+        "_legal_rules_enabled",
         "_search_scope_cache",
         "_search_cache_db",
         "_search_data_version",
@@ -561,6 +564,7 @@ class MemoryDAO:
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
         search_scope_cache_enabled: bool = True,
+        legal_rules_enabled: bool = True,
         reranker: Any = None,
         rerank_depth: int = 50,
     ) -> None:
@@ -578,6 +582,7 @@ class MemoryDAO:
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
         self._search_scope_cache_enabled = search_scope_cache_enabled
+        self._legal_rules_enabled = legal_rules_enabled
         self._search_scope_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = (
             OrderedDict()
         )
@@ -1432,7 +1437,7 @@ class MemoryDAO:
                         key: value
                         for key, value in metadata.items()
                         if key.startswith("_mesa_")
-                        and key != "_mesa_v4_projection_triplets"
+                        and key not in {"_mesa_v4_projection_triplets", "_mesa_legal_items"}
                     },
                     sort_keys=True,
                 )
@@ -1914,6 +1919,7 @@ class MemoryDAO:
         policy: QueueAdmissionPolicy,
         validation_mode: int,
         legal_identity: Mapping[str, Any] | None = None,
+        document_chunk: bool = False,
         embedding_space_id: str | None = None,
         embedding_model_revision: str | None = None,
         embedding_normalized: bool = True,
@@ -1965,6 +1971,8 @@ class MemoryDAO:
             for key, value in (metadata.items() if isinstance(metadata, dict) else ())
             if not str(key).startswith("_mesa_")
         }
+        if document_chunk:
+            effective_metadata["_mesa_document_chunk"] = True
         normalized_legal_identity = canonicalize_trusted_legal_identity(
             {**legal_identity, "identity_source": "verified_ingestion"}
             if legal_identity is not None
@@ -1992,6 +2000,11 @@ class MemoryDAO:
             "dimension": embedding_dimension,
             "normalized": embedding_normalized,
         }
+        if self._legal_rules_enabled:
+            effective_metadata["_mesa_legal_items"] = {
+                "version": legal_rules.RULES_VERSION,
+                "items": await asyncio.to_thread(legal_rules.extract, content_payload),
+            }
 
         raw_payload = {
             "tenant_id": tenant_id,
@@ -3569,6 +3582,7 @@ class MemoryDAO:
         record["legal_identity"] = canonicalize_trusted_legal_identity(
             metadata.get("_mesa_legal_identity")
         )
+        record["document_chunk"] = metadata.get("_mesa_document_chunk") is True
         record["projection_triplets"] = metadata.get("_mesa_v4_projection_triplets", [])
         return record
 
@@ -5910,7 +5924,12 @@ class MemoryDAO:
         for row, score in zip(results, scores):
             row["rerank_score"] = float(score)
         # Python's stable sort retains fused order for tied scores.
-        return sorted(results, key=lambda row: -row["rerank_score"])[:limit]
+        ordered = sorted(results, key=lambda row: -row["rerank_score"])
+        exact = sorted(
+            (row for row in ordered if "exact_match" in row["retrieval_provenance"]),
+            key=lambda row: row["retrieval_provenance"]["exact_match"]["order"],
+        )[:3]
+        return (exact + [row for row in ordered if row not in exact])[:limit]
 
     async def _clear_search_scope_cache(self, db: aiosqlite.Connection) -> None:
         for scope in self._search_scope_cache.values():
@@ -5968,10 +5987,6 @@ class MemoryDAO:
         scope = _scope if _scope is not None else {}
         scoped_fts = scope.get("fts_table", "v4_scoped_assertions_fts")
         text_features = scope.setdefault("text_features", {})
-        legal_resolver = LegalEntityResolver()
-        legal_citations = legal_resolver.extract_citations(query)
-        target_statutes = {c.statute_code for c in legal_citations}
-
         historical_query = bool(valid_at or valid_from or valid_to)
         assertion_status_sql = (
             "(a.status = 'ACTIVE' OR (a.status = 'SUPERSEDED' AND a.valid_to != ''))"
@@ -6254,6 +6269,180 @@ class MemoryDAO:
             }
         in_scope_assertions = scope["assertions"]
         in_scope_assertion_ids = set(in_scope_assertions)
+        if "legal_context" not in scope:
+            # Only authorized assertions select revisions. Header/title names and
+            # chunk ordinals share the existing data_version scope-cache lifetime.
+            revisions = sorted(
+                {str(a["revision_id"]) for a in in_scope_assertions.values()}
+            )
+            revision_laws: dict[str, set[str]] = {}
+            identities: dict[str, dict[str, str]] = {}
+            for assertion in in_scope_assertions.values():
+                identity = _assertion_legal_identity(assertion)
+                if identity:
+                    identities[str(assertion["assertion_id"])] = identity
+                    revision_laws.setdefault(str(assertion["revision_id"]), set()).add(
+                        identity["law_id"]
+                    )
+            names: dict[str, set[str]] = {}
+            decisions: dict[tuple[str, str], set[str]] = {}
+            authorized_mutations: dict[str, set[str]] = {}
+            for aid, assertion in in_scope_assertions.items():
+                authorized_mutations.setdefault(
+                    str(assertion["mutation_id"]), set()
+                ).add(aid)
+            chunk_order: dict[str, tuple[str, str, int]] = {}
+            authorized_chunks = {str(a["chunk_id"]) for a in in_scope_assertions.values()}
+            named_revisions: set[str] = set()
+            async with self._search_read_connection(_search_db) as db:
+                for offset in range(0, len(revisions), 500):
+                    batch = revisions[offset : offset + 500]
+                    marks = ",".join("?" for _ in batch)
+                    async with db.execute(
+                        "SELECT c.chunk_id,c.ordinal,c.revision_id,r.document_id,d.title,"
+                        "CASE WHEN c.ordinal=0 THEN c.content_payload ELSE '' END AS header,"
+                        "m.mutation_id,CASE WHEN c.ordinal=0 THEN m.metadata_json ELSE '{}' END AS rule_metadata "
+                        "FROM source_chunks c JOIN document_revisions r ON r.revision_id=c.revision_id "
+                        "JOIN documents d ON d.document_id=r.document_id "
+                        "LEFT JOIN memory_mutations m ON m.chunk_id=c.chunk_id AND m.tenant_id=c.tenant_id "
+                        f"WHERE c.tenant_id=? AND c.revision_id IN ({marks})",
+                        (tenant_id, *batch),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            if str(row["chunk_id"]) not in authorized_chunks:
+                                continue
+                            revision = str(row["revision_id"])
+                            chunk_order[str(row["chunk_id"])] = (
+                                str(row["document_id"]),
+                                revision,
+                                int(row["ordinal"]),
+                            )
+                            # Only the authorized first chunk can teach its own
+                            # künye; later quotations and out-of-scope mutations
+                            # of the same revision cannot enter the map.
+                            mid = str(row["mutation_id"])
+                            if row["ordinal"] == 0 and mid in authorized_mutations:
+                                item_set = _decode_registry_metadata(
+                                    row["rule_metadata"]
+                                ).get("_mesa_legal_items")
+                                items = (
+                                    item_set.get("items", [])
+                                    if isinstance(item_set, dict)
+                                    else []
+                                )
+                                for item in items if isinstance(items, list) else ():
+                                    if not isinstance(item, dict):
+                                        continue
+                                    start = item.get("start")
+                                    docket = item.get("docket_no")
+                                    decision = item.get("decision_no")
+                                    if (
+                                        item.get("type") == "decision_ref"
+                                        and isinstance(start, int)
+                                        and 0 <= start < 300
+                                        and isinstance(docket, str)
+                                        and docket
+                                        and isinstance(decision, str)
+                                        and decision
+                                    ):
+                                        decisions.setdefault(
+                                            (docket, decision), set()
+                                        ).update(authorized_mutations[mid])
+                            laws = revision_laws.get(revision, set())
+                            if len(laws) != 1:
+                                continue
+                            header = re.split(
+                                r"\bKanun(?:un)?\s+(?:Numarası|No\.)",
+                                str(row["header"] or "")[:3000],
+                                maxsplit=1,
+                                flags=re.IGNORECASE,
+                            )
+                            header_name = ""
+                            if len(header) == 2:
+                                header_tail = header[0].rstrip()
+                                end = len(header_tail)
+                                while end and header_tail[end - 1].isdecimal():
+                                    end -= 1
+                                header_name = header_tail[:end].strip()
+                            revision_names = [header_name]
+                            if revision not in named_revisions:
+                                revision_names.append(str(row["title"] or ""))
+                                named_revisions.add(revision)
+                            for name in revision_names:
+                                if name and len(name) <= 200:
+                                    names.setdefault(
+                                        normalize_law_name(name), set()
+                                    ).update(laws)
+            scope["legal_context"] = {
+                "names": {
+                    name: next(iter(laws))
+                    for name, laws in names.items()
+                    if len(laws) == 1
+                },
+                "chunk_order": chunk_order,
+                "identities": identities,
+                "decisions": decisions,
+                "ordered_assertions": sorted(
+                    in_scope_assertions,
+                    key=lambda aid: (
+                        *chunk_order.get(
+                            str(in_scope_assertions[aid]["chunk_id"]),
+                            (
+                                str(in_scope_assertions[aid]["document_id"]),
+                                str(in_scope_assertions[aid]["revision_id"]),
+                                0,
+                            ),
+                        ),
+                        aid,
+                    ),
+                ),
+            }
+        legal_context = scope["legal_context"]
+        legal_resolver = LegalEntityResolver(law_names=legal_context["names"])
+        # Resolver positions stay internal; outer whitespace carries no identity.
+        # Avoid retrying its boundary patterns along an empty query prefix.
+        legal_citations = await asyncio.to_thread(
+            legal_resolver.extract_citations, query.strip()
+        )
+        target_statutes = {c.statute_code for c in legal_citations}
+        exact_keys = {(c.statute_code, c.article) for c in legal_citations if c.article}
+        decision_ids: set[str] = set()
+        query_items = (
+            await asyncio.to_thread(legal_rules.extract, query)
+            if legal_context["decisions"]
+            else ()
+        )
+        for item in query_items:
+            if item["type"] == "decision_ref":
+                decision_ids.update(
+                    legal_context["decisions"].get(
+                        (item.get("docket_no"), item.get("decision_no")), ()
+                    )
+                )
+        exact_ids: list[str] = []
+        exact_kinds: dict[str, str] = {}
+        seen_chunks: set[str] = set()
+        for aid in (
+            legal_context["ordered_assertions"] if exact_keys or decision_ids else ()
+        ):
+            assertion = in_scope_assertions[aid]
+            identity = legal_context["identities"].get(aid)
+            chunk = str(assertion["chunk_id"])
+            if (
+                identity
+                and (identity["statute_code"], identity["article_id"]) in exact_keys
+                or aid in decision_ids
+            ) and chunk not in seen_chunks:
+                exact_ids.append(aid)
+                exact_kinds[aid] = (
+                    "article"
+                    if identity
+                    and (identity["statute_code"], identity["article_id"]) in exact_keys
+                    else "decision"
+                )
+                seen_chunks.add(chunk)
+                if len(exact_ids) == 3:
+                    break
         typed_legal_candidate_ids: set[str] = set()
         if legal_citations:
             identity_clauses: list[str] = []
@@ -6298,6 +6487,9 @@ class MemoryDAO:
                     typed_legal_candidate_ids = {
                         str(row["assertion_id"]) for row in await cursor.fetchall()
                     }
+        typed_legal_candidate_ids.update(
+            aid for aid in exact_ids if exact_kinds[aid] == "article"
+        )
         in_scope_entity_ids_from_assertions = {
             str(row["subject_id"])
             for row in in_scope_assertion_rows
@@ -6527,6 +6719,10 @@ class MemoryDAO:
                 continue
             content_tokens.append(t)
 
+        # Keep the existing filters/order and substring matching, but bound
+        # repeated scans of API-sized candidate text.
+        scoring_content_tokens = content_tokens[:64]
+
         lexical_lane: list[str] = []
         lexical_assertions: dict[str, dict[str, Any]] = {}
         lexical_scores: dict[str, float] = {}
@@ -6649,14 +6845,16 @@ class MemoryDAO:
                 p_score = -raw_bm25
 
                 matched_tokens = 0
-                for token in content_tokens:
+                for token in scoring_content_tokens:
                     if token in p_text:
                         matched_tokens += 1
                         p_score += 10.0 + min(len(token), 10)
-                if content_tokens and matched_tokens == len(content_tokens):
+                if scoring_content_tokens and matched_tokens == len(
+                    scoring_content_tokens
+                ):
                     p_score += 50.0
 
-                clean_query = " ".join(content_tokens)
+                clean_query = " ".join(scoring_content_tokens)
                 if clean_query and clean_query in p_text:
                     p_score += 100.0
 
@@ -6678,7 +6876,9 @@ class MemoryDAO:
                     else:
                         if "passage_citations" not in features:
                             features["passage_citations"] = (
-                                legal_resolver.extract_citations(p_raw_text)
+                                await asyncio.to_thread(
+                                    legal_resolver.extract_citations, p_raw_text
+                                )
                             )
                         row_citations = features["passage_citations"]
                         row_identities = {
@@ -6740,7 +6940,7 @@ class MemoryDAO:
                                 lexical_entity_lane.append(eid)
 
         # Assertion Lane Redesign (Phase 5)
-        tokens_to_match = content_tokens if content_tokens else raw_tokens
+        tokens_to_match = (content_tokens if content_tokens else raw_tokens)[:64]
         # Reuse the scoped FTS candidate pool.  This avoids admitting rows
         # through SQLite's ASCII-only LIKE casing before Turkish-aware scoring.
         assertion_rows = passage_candidate_rows
@@ -6835,7 +7035,8 @@ class MemoryDAO:
                 else:
                     if "assertion_citations" not in features:
                         features["assertion_citations"] = (
-                            legal_resolver.extract_citations(
+                            await asyncio.to_thread(
+                                legal_resolver.extract_citations,
                                 " ".join(
                                     str(a_row.get(field) or "")
                                     for field in (
@@ -7151,6 +7352,9 @@ class MemoryDAO:
             "assertion": assertion_lane,
             "graph": graph_lane,
         }
+        lane_rankings["assertion"] = assertion_lane + [
+            aid for aid in exact_ids if aid not in assertion_lane
+        ]
         for candidate_id, fused_score, lane_ranks in rrf_fuse_lanes(
             lane_rankings,
             k=effective_k,
@@ -7300,7 +7504,8 @@ class MemoryDAO:
                     tuple(cand_texts),
                 )
                 if citation_key not in text_features:
-                    text_features[citation_key] = legal_resolver.extract_citations(
+                    text_features[citation_key] = await asyncio.to_thread(
+                        legal_resolver.extract_citations,
                         " ".join(cand_texts)
                     )
                 candidate_citations = text_features[citation_key]
@@ -7332,6 +7537,11 @@ class MemoryDAO:
         ordered_candidates = sorted(
             candidates.values(),
             key=lambda c: (-(c["rrf_score"] * c["legal_factor"]), c["candidate_id"]),
+        )
+        exact_candidates = [candidates[aid] for aid in exact_ids if aid in candidates]
+        ordered_candidates = (
+            exact_candidates
+            + [c for c in ordered_candidates if c["candidate_id"] not in exact_ids]
         )[:limit]
 
         needed_entity_ids = sorted(
@@ -7415,6 +7625,7 @@ class MemoryDAO:
             }
         )
         metadata_by_mutation: dict[str, dict[str, Any]] = {}
+        legal_items_by_mutation: dict[str, dict[str, Any]] = {}
         rerank_texts: dict[str, str] = {}
         async with self._search_read_connection(_search_db) as db:
             if mutation_ids:
@@ -7434,6 +7645,9 @@ class MemoryDAO:
                         except (TypeError, json.JSONDecodeError):
                             metadata = {}
                         if isinstance(metadata, dict):
+                            item_set = metadata.get("_mesa_legal_items")
+                            if isinstance(item_set, dict):
+                                legal_items_by_mutation[str(row["mutation_id"])] = item_set
                             metadata_by_mutation[str(row["mutation_id"])] = {
                                 key: value
                                 for key, value in metadata.items()
@@ -7494,6 +7708,11 @@ class MemoryDAO:
                 "lane_ranks": cand["lane_ranks"],
                 "raw_scores": cand["raw_scores"],
             }
+            if cand["candidate_id"] in exact_ids:
+                retrieval_provenance["exact_match"] = {
+                    "kind": exact_kinds[cand["candidate_id"]],
+                    "order": exact_ids.index(cand["candidate_id"]),
+                }
             if cand["assertion_id"]:
                 retrieval_provenance["assertion_id"] = cand["assertion_id"]
             if cand["source_chunk_id"]:
@@ -7526,6 +7745,9 @@ class MemoryDAO:
             cand_prov = cand["materialized_provenance"]
             if not cand_prov:
                 continue
+            item_set = legal_items_by_mutation.get(str(cand_prov[0]["mutation_id"]))
+            if item_set is not None:
+                retrieval_provenance["legal_items"] = item_set
             result = {
                 "entity": entities.get(eid, {}),
                 "candidate_id": cand["candidate_id"],
