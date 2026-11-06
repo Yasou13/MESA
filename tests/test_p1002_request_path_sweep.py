@@ -209,6 +209,29 @@ def test_punctuation_prefix_keeps_longest_name():
     ] == [("8888", "49")]
 
 
+@pytest.mark.parametrize(
+    "law_names,text,expected",
+    [
+        ({"§": "7777"}, "§ m. 49", [("7777", "49")]),
+        ({"قانون": "7778"}, "قانون m. 3", [("7778", "3")]),
+        ({"İmar Kanunu": "3194"}, "İMAR K. m. 18", [("3194", "18")]),
+        ({"123 Özel Kanunu": "8888"}, "123 Özel Kanunu m. 7", [("8888", "7")]),
+        (
+            {"Tebligat Kanunu": "7201"},
+            "ﷺ" * 4096 + " Tebligat K. m. 21",
+            [("7201", "21")],
+        ),
+    ],
+)
+def test_stored_names_keep_unicode_punctuation_and_late_matches(
+    law_names, text, expected
+):
+    assert [
+        (citation.statute_code, citation.article)
+        for citation in LegalEntityResolver(law_names=law_names).extract_citations(text)
+    ] == expected
+
+
 @pytest.mark.asyncio
 async def test_normalized_store_names_keep_the_200_character_bound(model_runtime):
     async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
