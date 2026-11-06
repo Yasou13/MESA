@@ -7,34 +7,62 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.2] - 2026-11-06
+
+This release hardens the Turkish legal extraction and retrieval features from
+Round 16 and Round 17. V4 HTTP routes remain compatible. Production qualification
+remains **NO-GO** pending the normal certification and production-like release gates.
+
+### Added
+
+- Rule-based Turkish legal item extraction for newly admitted chunks, capturing
+  versioned legal rule items with chunk offsets (obligation, prohibition,
+  permission, amount, duration, and outcome). Extracted items are returned in
+  search provenance under `legal_items` separately from SPO facts, without
+  affecting fusion scores. Document purge erases their source quotes.
+- Store-learned law names: authorized document titles and law headers provide
+  scope-cached and indexed law names, including the `K.` abbreviation.
+- Exact-match-first slot: queries matching a decision's own docket/decision reference
+  or exact law/article occupy at most three leading search positions in document order,
+  preserving remaining result order. Decision matching requires references beginning in
+  the first 300 characters of an authorized first chunk; later quotations do not count.
 
 ### Changed
 
-- Queries matching a decision's own docket/decision reference promote its
-  first chunk through the existing exact-match slot, shared with articles
-  (at most three chunks total). Only stored references beginning in the first
-  300 characters of an authorized first chunk count; later quotations do not.
-
-- Newly admitted chunks keep versioned Turkish legal rule items with chunk
-  offsets, returned in search provenance separately from SPO facts. Item storage
-  preserves fusion scores, and document purge erases their source quotes. The existing
-  `MESA_LEGAL_RULES_ENABLED` switch controls admission.
-
+- `MESA_LEGAL_RULES_ENABLED` defaults to `true`. When set to `false`, it disables
+  automatic legal identity assignment and item extraction during ingestion. During
+  search, it disables legal processing (citation resolution, exact-match slot,
+  decision künye promotion, legal ranking factors, and graph citation parsing) and
+  suppresses stored legal result overlays in returned copies while keeping durable
+  identities and snapshots intact.
+- Open-ended SPO fact extraction (`MESA_EXTRACTION_ENABLED`) defaults to `false`
+  regardless of `MESA_MODEL_ENABLED`; an explicit `true` still enables it.
 - Constitutional Court names (`Anayasa Mahkemesi`, its suffix forms and `AYM`)
-  no longer activate Constitution citation ranking. Separate statute citations
-  in the same query are preserved.
+  no longer activate Constitution citation ranking; separate statute citations in
+  the same query are preserved.
+- Large-document admission waits for queue room on `queue_over_capacity` without
+  repeating full document chunk planning.
 
-- Exact law/article matches now occupy at most three leading search positions
-  in document order, preserving the remaining order. Authorized document titles
-  and law headers provide scope-cached law names, including the `K.` abbreviation.
-- Document article plans assign the existing typed legal identity to ordinary
-  articles and their continuation chunks. Generic 3–5 digit law-number
-  citations use the existing retrieval lane; `MESA_LEGAL_RULES_ENABLED=false`
-  disables automatic identity assignment for new chunks. Document fallback
-  assertions preserve their existing document/chunk graph and lexical shape.
-- Open-ended SPO fact extraction (`MESA_EXTRACTION_ENABLED`) defaults to false
-  regardless of `MESA_MODEL_ENABLED`; an explicit true still enables it (D46).
+### Security
+
+- Fixed synchronous CPU-bound request-path stalls that also affect 0.9.1: rule
+  extraction, citation resolution, scope building, and heavy token scoring now bound
+  caller-text work and yield thread execution, keeping `/health` responsive under
+  high load. Users of 0.9.1 are recommended to upgrade.
+
+### Known issues
+
+- Heavy 1,000-candidate search takes approximately 11.6 s; `/health` responsiveness
+  is restored for measured repros, but heavy-query execution time is not proved faster.
+- Older whole-document secret scanning and extreme Unicode normalization can still
+  cause sub-second request-path stalls.
+- UUID ties can change ordering across separately ingested stores; same-store
+  retrieval remains deterministic for retained inputs.
+- Large documents take minutes to become fully ready: a 5 MB document
+  (4,999,000 bytes) took about 7 minutes (7m00.6s) to become ready with models off
+  and graph on.
+- Non-object document requests keep an INFO-level 422 detail wording difference;
+  HTTP status, error code, location, and OpenAPI schema remain unchanged.
 
 ## [0.9.1] - 2026-11-01
 
@@ -645,7 +673,9 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
-[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/Yasou13/MESA/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/Yasou13/MESA/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Yasou13/MESA/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Yasou13/MESA/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Yasou13/MESA/compare/v0.7.1...v0.8.0
