@@ -31,12 +31,12 @@ _ABBREVIATIONS = frozenset({
 })
 _TRAILING_WORD = re.compile(r"([^\W_]+)$")
 _ARTICLE_HEADING = re.compile(
-    r"^[ \t]*(?:(?:GEÇİCİ|EK)[ \t]+)?MADDE[ \t]+\d+"
-    r"(?:/[A-ZÇĞİÖŞÜ]+)?(?:[ \t]+ila[ \t]+\d+)?[ \t]*[-–—−:]",
+    r"^[ \t]*+(?:(?:GEÇİCİ|EK)[ \t]++)?MADDE[ \t]++\d++"
+    r"(?:/[A-ZÇĞİÖŞÜ]++)?(?:[ \t]++ila[ \t]++\d++)?[ \t]*+[-–—−:]",
     re.MULTILINE | re.IGNORECASE,
 )
 _CASE_LAW_PREAMBLE = re.compile(
-    r'^[ \t]*["“]?İçtihat Metni["”]?[ \t]*\r?$', re.MULTILINE | re.IGNORECASE
+    r'^[ \t]*+["“]?İçtihat Metni["”]?[ \t]*+\r?$', re.MULTILINE | re.IGNORECASE
 )
 
 

@@ -1,5 +1,5 @@
 """
-MESA v0.9.1 Client SDK
+MESA v0.9.2 Client SDK
 
 A robust, type-safe Python client for the MESA memory system.
 Provides both synchronous and asynchronous implementations utilizing httpx.
@@ -262,7 +262,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.1"}
+        headers = {"User-Agent": "mesa-client/v0.9.2"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -327,7 +327,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.1"}
+        headers = {"User-Agent": "mesa-client/v0.9.2"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -779,7 +779,10 @@ class MesaV4Client(MesaClient):
         backoff = 0.5
         while True:
             try:
-                return self._request("POST", "/v4/documents", json=payload)
+                return self._request(
+                    "POST", "/v4/documents", json=payload,
+                    timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                )
             except MesaAPIError as exc:
                 if (
                     exc.status_code == 503
@@ -1230,7 +1233,10 @@ class AsyncMesaV4Client(AsyncMesaClient):
         backoff = 0.5
         while True:
             try:
-                return await self._request("POST", "/v4/documents", json=payload)
+                return await self._request(
+                    "POST", "/v4/documents", json=payload,
+                    timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                )
             except MesaAPIError as exc:
                 if (
                     exc.status_code == 503

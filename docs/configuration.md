@@ -45,7 +45,12 @@ chunking mode, ordinary article chunks inherit the document's law number from
 `metadata.law_number` or a `Kanun Numarası`, `Kanunun Numarası` or `Kanun No.`
 header in the first 3,000 characters. Continuation pieces keep that article's
 identity; preambles, GEÇİCİ/EK articles and plain plans receive none. Setting the
-switch to false disables automatic identity assignment for new chunks. Stored
+switch to false disables automatic identity assignment for new chunks. It also
+disables legal processing during search, including citation resolution, the
+exact-match slot, decision künye promotion, legal ranking factors and graph
+citation parsing. Ordinary lexical, vector and graph retrieval still run.
+Search ignores stored legal identities and item snapshots while the switch is
+off and omits their legal result annotations; it does not erase them. Stored
 identities are immutable on resume. Any 3–5 digit law number is accepted by the
 typed identity API; known numbers retain their existing statute code (6098 →
 TBK). Unknown law names and inconsistent number/code pairs are rejected.
@@ -60,8 +65,9 @@ amount, duration and outcome items. Search returns them in
 offsets refer to the original chunk, including when a result quotes a shorter
 extracted fact. Items remain separate from SPO facts and do not enter fusion
 scores. Decision references can use the bounded exact-match slot below.
-Disabling the switch prevents new item snapshots; existing
-snapshots remain. Purging a document erases these source quotes too.
+Disabling the switch prevents new item snapshots and hides existing snapshots
+from search results. Existing snapshots remain stored. Purging a document
+erases these source quotes too.
 
 An exact law-and-article query puts at most three matching chunks first, in
 document order. Other results retain their fused order (or reranked order when

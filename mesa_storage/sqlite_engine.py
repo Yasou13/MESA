@@ -459,7 +459,7 @@ class AsyncEngine:
     # Health check
     # ------------------------------------------------------------------
 
-    async def health_check(self) -> dict:
+    async def health_check(self, *, check_integrity: bool = True) -> dict:
         """Perform a lightweight health check on the database.
 
         Returns:
@@ -491,10 +491,10 @@ class AsyncEngine:
                     row = await cursor.fetchone()
                     result["journal_mode"] = row[0] if row else "unknown"
 
-                # Check integrity (quick)
-                async with db.execute("PRAGMA quick_check;") as cursor:
-                    row = await cursor.fetchone()
-                    result["integrity"] = row[0] if row else "unknown"
+                if check_integrity:
+                    async with db.execute("PRAGMA quick_check;") as cursor:
+                        row = await cursor.fetchone()
+                        result["integrity"] = row[0] if row else "unknown"
 
         except Exception as exc:
             result["status"] = "unhealthy"

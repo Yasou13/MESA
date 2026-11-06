@@ -1435,24 +1435,37 @@ def create_v4_router(
                 if ordinal in admitted:
                     continue
                 chunk_id = f"{revision_id}-c{ordinal:05d}"
-                response = await insert_memory(
-                    request,
-                    V4MemoryInsertRequest(
-                        **payload.model_dump(exclude={"content"}),
-                        content=chunk,
-                        legal_identity=identities[ordinal],
-                        revision_id=revision_id,
-                        chunk_id=chunk_id,
-                        revision_number=revision["revision_number"],
-                        chunk_ordinal=ordinal,
-                        supersedes_revision_id=revision["supersedes_revision_id"],
-                        finalize_revision=ordinal == len(chunks) - 1,
-                        idempotency_key=chunk_id,
-                    ),
-                    dao,
-                    access_control,
-                    document_chunk=True,
+                chunk_payload = V4MemoryInsertRequest(
+                    **payload.model_dump(exclude={"content"}),
+                    content=chunk,
+                    legal_identity=identities[ordinal],
+                    revision_id=revision_id,
+                    chunk_id=chunk_id,
+                    revision_number=revision["revision_number"],
+                    chunk_ordinal=ordinal,
+                    supersedes_revision_id=revision["supersedes_revision_id"],
+                    finalize_revision=ordinal == len(chunks) - 1,
+                    idempotency_key=chunk_id,
                 )
+                capacity_deadline = asyncio.get_running_loop().time() + 5.0
+                while True:
+                    try:
+                        response = await insert_memory(
+                            request, chunk_payload, dao, access_control,
+                            document_chunk=True,
+                        )
+                        break
+                    except HTTPException as exc:
+                        if (
+                            exc.status_code != 503
+                            or exc.detail != "queue_over_capacity"
+                            or asyncio.get_running_loop().time() >= capacity_deadline
+                            or await request.is_disconnected()
+                        ):
+                            raise
+                        # Retain the plan and current ordinal while the durable
+                        # consumer makes room. Other errors keep their contract.
+                        await asyncio.sleep(0.05)
                 admitted[ordinal] = response["mutation_id"]
             return {
                 "document_id": payload.document_id,

@@ -1,5 +1,6 @@
 """Citation parsing must stay responsive for queries and stored API-sized text."""
 
+import gc
 import json
 import random
 import signal
@@ -15,6 +16,10 @@ from mesa_storage.legal_identity import LegalEntityResolver
 # Wall-clock tests use no_cover so tracing does not consume the 200 ms budget.
 # They still run in the coverage job; functional/structural tests stay traced.
 def _timed_extract(resolver, text):
+    # Drain garbage left by earlier tests before measuring this parser call.
+    # Collection remains enabled during extraction, with the same 200 ms cap.
+    gc.collect()
+
     def expired(*_):
         raise AssertionError("citation resolution exceeded 200 ms")
 

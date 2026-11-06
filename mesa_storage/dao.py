@@ -23,6 +23,7 @@ import logging
 import math
 import re
 import sqlite3
+import time
 import unicodedata
 import uuid
 from collections import Counter, OrderedDict
@@ -6269,7 +6270,7 @@ class MemoryDAO:
             }
         in_scope_assertions = scope["assertions"]
         in_scope_assertion_ids = set(in_scope_assertions)
-        if "legal_context" not in scope:
+        if self._legal_rules_enabled and "legal_context" not in scope:
             # Only authorized assertions select revisions. Header/title names and
             # chunk ordinals share the existing data_version scope-cache lifetime.
             revisions = sorted(
@@ -6370,9 +6371,9 @@ class MemoryDAO:
                                 named_revisions.add(revision)
                             for name in revision_names:
                                 if name and len(name) <= 200:
-                                    names.setdefault(
-                                        normalize_law_name(name), set()
-                                    ).update(laws)
+                                    normalized_name = normalize_law_name(name)
+                                    if len(normalized_name) <= 200:
+                                        names.setdefault(normalized_name, set()).update(laws)
             scope["legal_context"] = {
                 "names": {
                     name: next(iter(laws))
@@ -6397,13 +6398,23 @@ class MemoryDAO:
                     ),
                 ),
             }
-        legal_context = scope["legal_context"]
-        legal_resolver = LegalEntityResolver(law_names=legal_context["names"])
-        # Resolver positions stay internal; outer whitespace carries no identity.
-        # Avoid retrying its boundary patterns along an empty query prefix.
-        legal_citations = await asyncio.to_thread(
-            legal_resolver.extract_citations, query.strip()
-        )
+        legal_context = scope["legal_context"] if self._legal_rules_enabled else {
+            "names": {}, "chunk_order": {}, "identities": {}, "decisions": {},
+            "ordered_assertions": [],
+        }
+        if self._legal_rules_enabled:
+            if "legal_resolver" not in scope:
+                scope["legal_resolver"] = await asyncio.to_thread(
+                    LegalEntityResolver, law_names=legal_context["names"]
+                )
+            legal_resolver = scope["legal_resolver"]
+            # Resolver positions stay internal; outer whitespace carries no identity.
+            # Avoid retrying its boundary patterns along an empty query prefix.
+            legal_citations = await asyncio.to_thread(
+                legal_resolver.extract_citations, query.strip()
+            )
+        else:
+            legal_citations = []
         target_statutes = {c.statute_code for c in legal_citations}
         exact_keys = {(c.statute_code, c.article) for c in legal_citations if c.article}
         decision_ids: set[str] = set()
@@ -6822,6 +6833,7 @@ class MemoryDAO:
                 passage_candidate_rows.append(typed_row)
 
             scored_passage_candidates: list[tuple[float, str, dict[str, Any]]] = []
+            scoring_deadline = time.monotonic() + 0.002
             for p_row in passage_candidate_rows:
                 aid = str(p_row["assertion_id"])
                 features = text_features.setdefault(
@@ -6901,6 +6913,11 @@ class MemoryDAO:
                             p_score -= 150.0
 
                 scored_passage_candidates.append((p_score, aid, p_row))
+                if time.monotonic() >= scoring_deadline:
+                    # Let threaded I/O finish between CPU slices. sleep(0)
+                    # requeues scoring ahead of each /health SQLite await.
+                    await asyncio.sleep(0.001)
+                    scoring_deadline = time.monotonic() + 0.002
 
             scored_passage_candidates.sort(key=lambda x: (-x[0], x[1]))
             for score, aid, p_row in scored_passage_candidates:
@@ -6948,6 +6965,7 @@ class MemoryDAO:
         # Composite multi-signal scoring for assertion candidates
         query_norm = _normalize_identity_text(query)
         scored_assertions: list[tuple[float, str, dict[str, Any]]] = []
+        scoring_deadline = time.monotonic() + 0.002
 
         for a_row in assertion_rows:
             aid = str(a_row["assertion_id"])
@@ -7077,6 +7095,9 @@ class MemoryDAO:
             score = max(score, float(raw_conf) if raw_conf is not None else 0.1)
 
             scored_assertions.append((score, aid, a_row))
+            if time.monotonic() >= scoring_deadline:
+                await asyncio.sleep(0.001)
+                scoring_deadline = time.monotonic() + 0.002
 
         scored_assertions.sort(
             key=lambda x: (
@@ -7192,6 +7213,9 @@ class MemoryDAO:
         if effective_graph and graph_seed_ids and graph_provider is not None:
             if not self.graph_operational:
                 raise GraphSearchError("configured graph backend is unavailable")
+            graph_legal_options: dict[str, Any] = {}
+            if not self._legal_rules_enabled:
+                graph_legal_options["legal_rules_enabled"] = False
             try:
                 graph_hits = await graph_provider.search_v4_graph(
                     agent_id=agent_id,
@@ -7206,6 +7230,7 @@ class MemoryDAO:
                     limit=min(500, max(limit * 10, 50)),
                     query=query,
                     seed_scores=seed_scores,
+                    **graph_legal_options,
                 )
                 seen_graph_paths: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
                 for hit in graph_hits:
@@ -7601,6 +7626,14 @@ class MemoryDAO:
                     if source_assertion is None:
                         continue
                     matched_assertion = dict(source_assertion)
+                    if not self._legal_rules_enabled:
+                        # Hide stored overlays in the returned copy; canonical
+                        # identities survive switch changes and upload resumes.
+                        for field in (
+                            "law_id", "statute_code", "article_id", "paragraph_id",
+                            "clause_id", "legal_version_id", "legal_identity_source",
+                        ):
+                            matched_assertion[field] = ""
                     subject_id = str(matched_assertion.get("subject_id") or "")
                     object_id = str(matched_assertion.get("object_entity_id") or "")
                     if subject_id in cand_entity_names:
@@ -7646,7 +7679,7 @@ class MemoryDAO:
                             metadata = {}
                         if isinstance(metadata, dict):
                             item_set = metadata.get("_mesa_legal_items")
-                            if isinstance(item_set, dict):
+                            if self._legal_rules_enabled and isinstance(item_set, dict):
                                 legal_items_by_mutation[str(row["mutation_id"])] = item_set
                             metadata_by_mutation[str(row["mutation_id"])] = {
                                 key: value
@@ -7738,7 +7771,10 @@ class MemoryDAO:
                 }
             if cand.get("graph_evidence"):
                 retrieval_provenance.update(cand["graph_evidence"])
-            legal_identity = _assertion_legal_identity(cand["assertion"] or {})
+            legal_identity = (
+                _assertion_legal_identity(cand["assertion"] or {})
+                if self._legal_rules_enabled else None
+            )
             if legal_identity is not None:
                 retrieval_provenance["legal_identity"] = legal_identity
 
@@ -11143,9 +11179,13 @@ class MemoryDAO:
             "rejection_reasons": dict(sorted(rejection_reasons.items())),
         }
 
-    async def health_check(self) -> dict[str, Any]:
+    async def health_check(self, *, detailed: bool = True) -> dict[str, Any]:
         """Aggregate health status from all storage backends."""
-        sql_health = await self._sql.health_check()
+        sql_health = (
+            await self._sql.health_check()
+            if detailed
+            else await self._sql.health_check(check_integrity=False)
+        )
         vec_health = await self._vec.health_check()
         result: dict[str, Any] = {
             "sqlite": sql_health,
@@ -11166,6 +11206,11 @@ class MemoryDAO:
                 "db_path": self._graph.db_path,
                 "timeout_seconds": getattr(self._graph, "search_timeout_seconds", None),
             }
+        if not detailed:
+            # /health consumes only backend status and rebuild maintenance.
+            # Keep corpus-sized integrity/ownership audits in full diagnostics.
+            result["v4_rebuild"] = await self._rebuild_health.snapshot()
+            return result
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT state, COUNT(*) FROM projection_outbox GROUP BY state"

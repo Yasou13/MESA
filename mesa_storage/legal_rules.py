@@ -1003,6 +1003,8 @@ _OUTCOME_WORD = re.compile(r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.]{1,64}+")
 def _forwarding_spans(text: str) -> Iterator[tuple[int, int]]:
     # Start at a terminator; examine only a bounded preceding word sequence.
     # Retrying every possible prefix of a failed gönderilmek clause was cubic.
+    if "gönderilmek" not in text:
+        return
     for end in _OUTCOME_END.finditer(text):
         words = []
         pos = end.start()
@@ -1024,8 +1026,8 @@ def _forwarding_spans(text: str) -> Iterator[tuple[int, int]]:
         words.reverse()
         for i, (_, word) in enumerate(words):
             if word == "gönderilmek" and i + 1 < len(words) and words[i + 1][1] == "üzere":
-                if i <= 12 and len(words) - i - 2 <= 12:
-                    yield words[0][0], end.end()
+                if len(words) - i - 2 <= 12:
+                    yield words[max(0, i - 12)][0], end.end()
                     break
 
 
