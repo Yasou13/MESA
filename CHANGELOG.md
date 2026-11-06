@@ -16,8 +16,8 @@ remains **NO-GO** pending the normal certification and production-like release g
 ### Added
 
 - Rule-based Turkish legal item extraction for newly admitted chunks, capturing
-  versioned legal rule items with chunk offsets (obligation, prohibition,
-  permission, amount, duration, and outcome). Extracted items are returned in
+  versioned legal rule items with chunk offsets (citation, decision_ref,
+  date, amount, duration, and outcome). Extracted items are returned in
   search provenance under `legal_items` separately from SPO facts, without
   affecting fusion scores. Document purge erases their source quotes.
 - Store-learned law names: authorized document titles and law headers provide
