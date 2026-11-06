@@ -911,7 +911,7 @@ def _canonical_readiness_failures(health: dict[str, object]) -> list[str]:
 
 @app.get("/health", dependencies=[Depends(get_api_key)])
 async def health():  # type: ignore[no-untyped-def]
-    health = await state.dao.health_check()
+    health = await state.dao.health_check(detailed=False)
     rebuild = health.get("v4_rebuild") or {}
     backend_healthy = all(
         health.get(component, {}).get("status") in {"healthy", "not_initialized"}

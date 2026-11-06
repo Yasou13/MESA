@@ -23,6 +23,7 @@ import logging
 import math
 import re
 import sqlite3
+import time
 import unicodedata
 import uuid
 from collections import Counter, OrderedDict
@@ -6822,6 +6823,7 @@ class MemoryDAO:
                 passage_candidate_rows.append(typed_row)
 
             scored_passage_candidates: list[tuple[float, str, dict[str, Any]]] = []
+            scoring_deadline = time.monotonic() + 0.002
             for p_row in passage_candidate_rows:
                 aid = str(p_row["assertion_id"])
                 features = text_features.setdefault(
@@ -6901,6 +6903,11 @@ class MemoryDAO:
                             p_score -= 150.0
 
                 scored_passage_candidates.append((p_score, aid, p_row))
+                if time.monotonic() >= scoring_deadline:
+                    # Let threaded I/O finish between CPU slices. sleep(0)
+                    # requeues scoring ahead of each /health SQLite await.
+                    await asyncio.sleep(0.001)
+                    scoring_deadline = time.monotonic() + 0.002
 
             scored_passage_candidates.sort(key=lambda x: (-x[0], x[1]))
             for score, aid, p_row in scored_passage_candidates:
@@ -6948,6 +6955,7 @@ class MemoryDAO:
         # Composite multi-signal scoring for assertion candidates
         query_norm = _normalize_identity_text(query)
         scored_assertions: list[tuple[float, str, dict[str, Any]]] = []
+        scoring_deadline = time.monotonic() + 0.002
 
         for a_row in assertion_rows:
             aid = str(a_row["assertion_id"])
@@ -7077,6 +7085,9 @@ class MemoryDAO:
             score = max(score, float(raw_conf) if raw_conf is not None else 0.1)
 
             scored_assertions.append((score, aid, a_row))
+            if time.monotonic() >= scoring_deadline:
+                await asyncio.sleep(0.001)
+                scoring_deadline = time.monotonic() + 0.002
 
         scored_assertions.sort(
             key=lambda x: (
@@ -11143,9 +11154,13 @@ class MemoryDAO:
             "rejection_reasons": dict(sorted(rejection_reasons.items())),
         }
 
-    async def health_check(self) -> dict[str, Any]:
+    async def health_check(self, *, detailed: bool = True) -> dict[str, Any]:
         """Aggregate health status from all storage backends."""
-        sql_health = await self._sql.health_check()
+        sql_health = (
+            await self._sql.health_check()
+            if detailed
+            else await self._sql.health_check(check_integrity=False)
+        )
         vec_health = await self._vec.health_check()
         result: dict[str, Any] = {
             "sqlite": sql_health,
@@ -11166,6 +11181,11 @@ class MemoryDAO:
                 "db_path": self._graph.db_path,
                 "timeout_seconds": getattr(self._graph, "search_timeout_seconds", None),
             }
+        if not detailed:
+            # /health consumes only backend status and rebuild maintenance.
+            # Keep corpus-sized integrity/ownership audits in full diagnostics.
+            result["v4_rebuild"] = await self._rebuild_health.snapshot()
+            return result
         async with self._sql.connection() as db:
             async with db.execute(
                 "SELECT state, COUNT(*) FROM projection_outbox GROUP BY state"
