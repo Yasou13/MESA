@@ -41,6 +41,7 @@ def _timed_extract(resolver, text):
     [
         "1",
         " ",
+        "ﷺ",
         "TCK/1 ",
         "TCK m. 81 ",
         "TBK 117 CMK 86 ",
