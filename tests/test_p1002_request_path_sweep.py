@@ -1,6 +1,7 @@
 """One seeded harness for caller-text parsers and the R16 audit regressions."""
 
 import asyncio
+import gc
 import random
 import re
 import signal
@@ -25,6 +26,10 @@ from tests.test_p908_search_limits import _insert, _search
 
 
 def _bounded_call(label, function, *args, **kwargs):
+    # Earlier integration tests leave cycles and weakref cleanup behind.
+    # Keep that cleanup outside this call's unchanged 200 ms timing budget.
+    gc.collect()
+
     def expired(*_):
         raise AssertionError(f"{label} exceeded 200 ms")
 
