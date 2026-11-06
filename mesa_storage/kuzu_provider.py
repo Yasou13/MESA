@@ -197,6 +197,7 @@ class BaseGraphProvider(abc.ABC):
         query: str | None = None,
         seed_scores: Mapping[str, float] | None = None,
         direction: str = "any",
+        legal_rules_enabled: bool = True,
     ) -> list[dict[str, Any]]:
         """Traverse only the caller's canonical entity/assertion universe."""
 
@@ -1135,6 +1136,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         query: str | None = None,
         seed_scores: Mapping[str, float] | None = None,
         direction: str = "any",
+        legal_rules_enabled: bool = True,
     ) -> list[dict[str, Any]]:
         """Multi-hop Graph V2 traversal from seed entities with strict tenant isolation.
 
@@ -1185,14 +1187,15 @@ class KuzuGraphProvider(BaseGraphProvider):
             query_tokens = list(
                 dict.fromkeys(t for t in re.findall(r"\w+", norm_q) if len(t) >= 2)
             )
-            from mesa_storage.legal_identity import LegalEntityResolver
+            if legal_rules_enabled:
+                from mesa_storage.legal_identity import LegalEntityResolver
 
-            resolver = LegalEntityResolver()
-            citations = await asyncio.to_thread(resolver.extract_citations, query)
-            target_statutes = {c.statute_code for c in citations}
-            competing_statutes = (
-                sorted(resolver.laws - target_statutes) if target_statutes else []
-            )
+                resolver = LegalEntityResolver()
+                citations = await asyncio.to_thread(resolver.extract_citations, query)
+                target_statutes = {c.statute_code for c in citations}
+                competing_statutes = (
+                    sorted(resolver.laws - target_statutes) if target_statutes else []
+                )
 
         paths_by_target: dict[str, list[dict[str, Any]]] = {}
         seen_path_keys: set[tuple[str, str, tuple[str, ...]]] = set()
