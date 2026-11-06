@@ -98,3 +98,9 @@ Canonical V4 insertion requires the combined processing consumer. A combined
 runtime without models stores documents and finds them with BM25; vector search
 starts when embedding is enabled (`degraded_sources` shows `vector` until then);
 503 `canonical_processing_unavailable` happens only on a non-combined profile.
+
+Document ingestion briefly waits for queue capacity for the current chunk,
+keeping its chunk plan within the request. Persistent pressure still returns
+`503 queue_over_capacity`; retry the exact payload to resume stored ordinals.
+SDK `add_document(deadline=600)` uses the remaining document budget for this
+HTTP request, allowing a large upload to wait for capacity.

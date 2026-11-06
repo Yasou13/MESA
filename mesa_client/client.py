@@ -779,7 +779,10 @@ class MesaV4Client(MesaClient):
         backoff = 0.5
         while True:
             try:
-                return self._request("POST", "/v4/documents", json=payload)
+                return self._request(
+                    "POST", "/v4/documents", json=payload,
+                    timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                )
             except MesaAPIError as exc:
                 if (
                     exc.status_code == 503
@@ -1230,7 +1233,10 @@ class AsyncMesaV4Client(AsyncMesaClient):
         backoff = 0.5
         while True:
             try:
-                return await self._request("POST", "/v4/documents", json=payload)
+                return await self._request(
+                    "POST", "/v4/documents", json=payload,
+                    timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                )
             except MesaAPIError as exc:
                 if (
                     exc.status_code == 503
