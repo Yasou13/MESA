@@ -29,6 +29,27 @@ def normalize_law_name(text: str) -> str:
     return " ".join(re.sub(r"\bk\.(?=\W|$)", "kanunu", text).split())
 
 
+_SCOPE_WORD = re.compile(r"\w+|[^\w\s]")
+_SCOPE_ARTICLE = re.compile(
+    r"\s{0,128}+(?:(?:m\.|md\.?|madde)\s{0,128}+(?P<marked>[0-9]{1,12}+(?![0-9]))"
+    r"|(?P<ordinal>[0-9]{1,12}+(?![0-9]))(?:\.|\s{1,128}+(?:inci|uncu|üncü|nci|ncu|ncü))?\s{1,128}+madde(?:si)?)"
+)
+_SCOPE_POSSESSIVES = ("nun", "un", "nin", "in")
+
+
+def _scope_name_end(text: str, end: int) -> int | None:
+    suffix_start = end + 1 if text[end : end + 1] in ("'", "’") else end
+    for suffix in _SCOPE_POSSESSIVES:
+        after = suffix_start + len(suffix)
+        if text.startswith(suffix, suffix_start) and (
+            after == len(text) or not (text[after].isalnum() or text[after] == "_")
+        ):
+            return after
+    if end == len(text) or not (text[end].isalnum() or text[end] == "_"):
+        return end
+    return None
+
+
 @dataclass(frozen=True)
 class LegalCitation:
     statute_code: str
@@ -286,27 +307,57 @@ class LegalEntityResolver:
             for name, number in (law_names or {}).items()
             if name and re.fullmatch(r"[0-9]{3,5}", number)
         }
-        name_patterns = []
+        # Normalize once, index by the first lexical word, and retain the
+        # existing longest-name priority. No stored name becomes regex source.
+        self._scope_names: dict[str, list[tuple[str, int]]] = {}
+        self._scope_punctuation: dict[str, list[tuple[str, int]]] = {}
         for name in sorted(self._law_names, key=len, reverse=True):
-            escaped = re.escape(name)
-            if name.endswith("kanunu"):
-                escaped = re.escape(name[:-1]) + r"u?"
-            name_patterns.append(escaped)
-        self._scope_name_pattern = (
-            re.compile(
-                r"(?<!\w)(?P<name>" + "|".join(name_patterns) + r")"
-                r"(?:['’]?(?:nun|un|nin|in))?(?!\w)"
-                r"(?:\s{0,128}+(?:(?:m\.|md\.?|madde)\s{0,128}+(?P<marked>[0-9]{1,12}+(?![0-9]))"
-                r"|(?P<ordinal>[0-9]{1,12}+(?![0-9]))(?:\.|\s{1,128}+(?:inci|uncu|üncü|nci|ncu|ncü))?\s{1,128}+madde(?:si)?))?"
-            )
-            if name_patterns
-            else None
-        )
+            variants = (name, name[:-1]) if name.endswith("kanunu") else (name,)
+            for variant in variants:
+                first = re.search(r"\w+", variant)
+                if first is not None and first.start():
+                    self._scope_punctuation.setdefault(variant[0], []).append(
+                        (variant, 0)
+                    )
+                if first is None:
+                    self._scope_punctuation.setdefault(variant[0], []).append(
+                        (variant, 0)
+                    )
+                    continue
+                keys = {first[0]}
+                if first.end() == len(variant):
+                    keys.update(first[0] + suffix for suffix in _SCOPE_POSSESSIVES)
+                for key in keys:
+                    self._scope_names.setdefault(key, []).append(
+                        (variant, first.start())
+                    )
+        self._scope_direct = {
+            key
+            for key, names in self._scope_names.items()
+            if all(offset == 0 for _, offset in names)
+        }
+        self._scope_min_lengths = {
+            key: min(len(name) - offset for name, offset in names)
+            for key, names in self._scope_names.items()
+        }
+        self._scope_windows = {
+            key: max(len(name) for name, _ in self._scope_names[key]) + 5
+            for key in self._scope_direct
+            if len(self._scope_names[key]) > 32
+        }
+        # Keep the existing internal grammar-audit handle, now a fixed suffix
+        # pattern shared by every scope rather than a name alternation.
+        self._scope_name_pattern = _SCOPE_ARTICLE
         for code, info in self.ontology.items():
             for alias in info["aliases"]:
                 self.alias_to_code[normalize_turkish(alias)] = code
         aliases = sorted(self.alias_to_code, key=len, reverse=True)
         alias_pattern = "|".join(re.escape(alias) for alias in aliases)
+        # No boundary assertions here, so the regex engine can skip characters
+        # outside the aliases' initial alphabet before the full grammar scan.
+        self._alias_probe = re.compile(
+            "|".join(re.escape(alias.casefold().replace("ı", "i")) for alias in aliases)
+        )
         # A legal token has at most 12 digits and each layout gap at most 128
         # characters. Possessive runs cannot backtrack or parse a digit suffix
         # as a different article. Long input is still scanned in full.
@@ -337,6 +388,59 @@ class LegalEntityResolver:
             r"ay|yıl|gün|hafta|saat|dakika)(?:\W|$)"
         )
 
+    def _scope_matches(self, text: str) -> list[tuple[str, str | None, int, int]]:
+        matches = []
+        consumed_to = 0
+        missed_windows: set[tuple[str, str]] = set()
+        for word in _SCOPE_WORD.finditer(text):
+            if word.start() < consumed_to:
+                continue
+            candidates = self._scope_names.get(word[0], ())
+            is_word = word[0][0].isalnum() or word[0][0] == "_"
+            if not is_word:
+                candidates = self._scope_punctuation.get(word[0], ())
+            elif len(text) - word.start() < self._scope_min_lengths.get(word[0], 0):
+                continue
+            window = self._scope_windows.get(word[0]) if is_word else None
+            miss_key = (
+                (word[0], text[word.start() : word.start() + window])
+                if window
+                else None
+            )
+            if miss_key in missed_windows:
+                continue
+            best: tuple[str, str | None, int, int] | None = None
+            for name, offset in candidates:
+                start = word.start() - offset
+                if start < consumed_to or (
+                    start and (text[start - 1].isalnum() or text[start - 1] == "_")
+                ):
+                    continue
+                if not text.startswith(name, start):
+                    continue
+                end = _scope_name_end(text, start + len(name))
+                if end is None:
+                    continue
+                article = self._scope_name_pattern.match(text, end)
+                candidate = (
+                    name,
+                    (article["marked"] or article["ordinal"]) if article else None,
+                    start,
+                    article.end() if article else end,
+                )
+                if best is None or start < best[2]:
+                    best = candidate
+                if not is_word or word[0] in self._scope_direct:
+                    break
+            if best is not None:
+                matches.append(best)
+                consumed_to = best[3]
+            elif miss_key is not None and len(missed_windows) < 128:
+                # A failed literal name + optional possessive needs at most
+                # five lookahead chars. Cache only such misses, never articles.
+                missed_windows.add(miss_key)
+        return matches
+
     def extract_citations(self, text: str) -> list[LegalCitation]:
         if not text:
             return []
@@ -348,9 +452,9 @@ class LegalEntityResolver:
             text,
             flags=re.IGNORECASE,
         )
-        if self._scope_name_pattern is not None:
+        if self._scope_names or self._scope_punctuation:
             normalized_name_text = normalize_law_name(text)
-            matches = list(self._scope_name_pattern.finditer(normalized_name_text))
+            matches = self._scope_matches(normalized_name_text)
             if matches:
                 scoped_citations = []
                 # Name normalization folds Turkish letters, expands K. and
@@ -372,8 +476,7 @@ class LegalEntityResolver:
                 if source_spans and source_text[-1].isspace():
                     source_spans.pop()
                 remainder = list(source_text)
-                for match in matches:
-                    name = match["name"]
+                for name, scoped_article, match_start, match_end in matches:
                     number = self._law_names.get(name)
                     if number is None:
                         number = self._law_names.get(name + "u")
@@ -382,7 +485,6 @@ class LegalEntityResolver:
                     scoped_code = next(
                         (c for c, n in LAW_IDS.items() if n == number), number
                     )
-                    scoped_article = match["marked"] or match["ordinal"]
                     scoped_citations.append(
                         LegalCitation(
                             statute_code=scoped_code,
@@ -394,9 +496,11 @@ class LegalEntityResolver:
                             aliases=(name,),
                         )
                     )
-                    start = source_spans[match.start()][0]
-                    end = source_spans[match.end() - 1][1]
-                    remainder[start:end] = " " * (end - start)
+                    start = source_spans[match_start][0]
+                    end = source_spans[match_end - 1][1]
+                    # A consumed name separates its neighbours: whitespace
+                    # would let an earlier acronym borrow a later bare number.
+                    remainder[start:end] = "|" * (end - start)
                 # A store name consumes its entire span before ontology matching,
                 # so a shorter ontology alias cannot reinterpret that same name.
                 scoped_citations.extend(
@@ -408,6 +512,10 @@ class LegalEntityResolver:
 
         # Numbered statutes use the same typed candidate lane as ontology aliases.
         numbered_matches = list(self._numbered_law_pattern.finditer(normalized))
+        if not numbered_matches and not self._alias_probe.search(
+            normalized.casefold().replace("ı", "i")
+        ):
+            return []
         for match in numbered_matches:
             number = match.group("number")
             code = next((code for code, n in LAW_IDS.items() if n == number), number)
@@ -427,9 +535,11 @@ class LegalEntityResolver:
         # Both streams advance left to right; never re-scan numbered matches.
         numbered_index = 0
         article_codes: dict[tuple[int, int], set[str]] = {}
+        has_alias = False
 
         # Find forward matches (statute [article])
         for match in self._forward_pattern.finditer(normalized):
+            has_alias = True
             while (
                 numbered_index < len(numbered_matches)
                 and numbered_matches[numbered_index].end() <= match.start()
@@ -500,6 +610,13 @@ class LegalEntityResolver:
         for item in raw_matches:
             if item.get("article_span") is not None:
                 article_codes.setdefault(item["article_span"], set()).add(item["code"])
+
+        # Reverse matches require an alias also recognized by the forward
+        # pattern (whose article is optional). Avoid a second full scan when
+        # expanded Unicode text contains no statute at all. Track even aliases
+        # rejected above: a reverse article marker can make those valid.
+        if not has_alias and not raw_matches:
+            return []
 
         # Find reverse matches ([article] statute)
         for match in self._reverse_pattern.finditer(normalized):

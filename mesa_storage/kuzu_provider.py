@@ -1188,7 +1188,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             from mesa_storage.legal_identity import LegalEntityResolver
 
             resolver = LegalEntityResolver()
-            citations = resolver.extract_citations(query)
+            citations = await asyncio.to_thread(resolver.extract_citations, query)
             target_statutes = {c.statute_code for c in citations}
             competing_statutes = (
                 sorted(resolver.laws - target_statutes) if target_statutes else []
@@ -1197,6 +1197,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         paths_by_target: dict[str, list[dict[str, Any]]] = {}
         seen_path_keys: set[tuple[str, str, tuple[str, ...]]] = set()
 
+        scoring_deadline = time.monotonic() + 0.002
         t_deadline = time.monotonic() + self._search_timeout_seconds
 
         def remaining_timeout() -> float:
@@ -1283,6 +1284,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                 }
                 paths_by_target.setdefault(t_id, []).append(path_obj)
                 hop1_paths.append(path_obj)
+                if time.monotonic() >= scoring_deadline:
+                    await asyncio.sleep(0.001)
+                    scoring_deadline = time.monotonic() + 0.002
 
             # -----------------------------------------------------------
             # Hop 2: Bounded frontier expansion
@@ -1386,6 +1390,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                         }
                         paths_by_target.setdefault(t_id, []).append(path_obj)
                         hop2_paths.append(path_obj)
+                        if time.monotonic() >= scoring_deadline:
+                            await asyncio.sleep(0.001)
+                            scoring_deadline = time.monotonic() + 0.002
 
             # -----------------------------------------------------------
             # Hop 3: Bounded frontier expansion
@@ -1487,6 +1494,9 @@ class KuzuGraphProvider(BaseGraphProvider):
                             "jurisdictions": jurisdictions,
                         }
                         paths_by_target.setdefault(t_id, []).append(path_obj)
+                        if time.monotonic() >= scoring_deadline:
+                            await asyncio.sleep(0.001)
+                            scoring_deadline = time.monotonic() + 0.002
 
             self._operational = True
         except asyncio.TimeoutError as exc:
@@ -1656,19 +1666,25 @@ class KuzuGraphProvider(BaseGraphProvider):
         pred_bonus = 0.0
         query_tokens = list(dict.fromkeys(query_tokens))[:64]
         if query_tokens:
+            edge_features: dict[tuple[str, str, str], tuple[str, str, set[str]]] = {}
             for pred, ev, jur in zip(predicates, evidence_spans, jurisdictions):
-                p_norm = _normalize_text(pred)
-                ev_norm = _normalize_text(ev)
+                key = (pred, ev, jur)
+                if key not in edge_features:
+                    edge_features[key] = (
+                        _normalize_text(pred),
+                        _normalize_text(ev),
+                        {
+                            c.statute_code
+                            for c in resolver.extract_citations(f"{pred} {ev} {jur}")
+                        } if target_statutes and resolver is not None else set(),
+                    )
+                p_norm, ev_norm, edge_statutes = edge_features[key]
                 for tok in query_tokens:
                     if tok in p_norm:
                         pred_bonus += 0.6
                     elif tok in ev_norm:
                         pred_bonus += 0.3
                 if target_statutes and resolver is not None:
-                    edge_statutes = {
-                        c.statute_code
-                        for c in resolver.extract_citations(f"{pred} {ev} {jur}")
-                    }
                     if edge_statutes & target_statutes:
                         pred_bonus += 0.4
                     if edge_statutes & set(competing_statutes):

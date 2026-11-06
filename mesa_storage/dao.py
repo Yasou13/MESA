@@ -6371,9 +6371,9 @@ class MemoryDAO:
                                 named_revisions.add(revision)
                             for name in revision_names:
                                 if name and len(name) <= 200:
-                                    names.setdefault(
-                                        normalize_law_name(name), set()
-                                    ).update(laws)
+                                    normalized_name = normalize_law_name(name)
+                                    if len(normalized_name) <= 200:
+                                        names.setdefault(normalized_name, set()).update(laws)
             scope["legal_context"] = {
                 "names": {
                     name: next(iter(laws))
@@ -6399,7 +6399,11 @@ class MemoryDAO:
                 ),
             }
         legal_context = scope["legal_context"]
-        legal_resolver = LegalEntityResolver(law_names=legal_context["names"])
+        if "legal_resolver" not in scope:
+            scope["legal_resolver"] = await asyncio.to_thread(
+                LegalEntityResolver, law_names=legal_context["names"]
+            )
+        legal_resolver = scope["legal_resolver"]
         # Resolver positions stay internal; outer whitespace carries no identity.
         # Avoid retrying its boundary patterns along an empty query prefix.
         legal_citations = await asyncio.to_thread(
