@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name = "mesa-memory"
 version = "0.9.2"
 description = "Enterprise AI agent memory engine"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [
     {name = "MESA Core Team"},

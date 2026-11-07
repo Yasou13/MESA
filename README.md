@@ -2,7 +2,7 @@
 
 [![MESA CI](https://github.com/Yasou13/MESA/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Yasou13/MESA/actions/workflows/ci.yml?query=branch%3Amain)
 [![Release](https://img.shields.io/github/v/release/Yasou13/MESA)](https://github.com/Yasou13/MESA/releases/latest)
-[![License: MIT](https://img.shields.io/github/license/Yasou13/MESA)](https://github.com/Yasou13/MESA/blob/main/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/Yasou13/MESA/blob/main/LICENSE)
 [![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://github.com/Yasou13/MESA/blob/main/pyproject.toml)
 
 MESA is an LLM-independent, source-linked memory engine for AI applications. It stores documents with exact provenance (document, revision, passage) and returns verifiable, scoped evidence over HTTP, Python SDK, and MCP. MESA returns evidence; it never writes the final answer or hallucinates sources.
@@ -122,4 +122,4 @@ See [testing](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for loc
 
 ## License
 
-[MIT](https://github.com/Yasou13/MESA/blob/main/LICENSE).
+MESA is licensed under the [Apache License, Version 2.0](https://github.com/Yasou13/MESA/blob/main/LICENSE). See [NOTICE](https://github.com/Yasou13/MESA/blob/main/NOTICE) for copyright information.
