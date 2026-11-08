@@ -130,7 +130,7 @@ jobs:
           printf 'rbac_exit=%s\nchaos_exit=%s\ngraph_exit=%s\n' \
             "$rbac_status" "$chaos_status" "$graph_status" | tee security-assurance-summary.txt
           test "$rbac_status" -eq 0 -a "$chaos_status" -eq 0 -a "$graph_status" -eq 0
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: security-and-graph-assurance
@@ -205,7 +205,7 @@ jobs:
           format: cyclonedx
           output: supply-chain-sbom.cdx.json
           exit-code: "0"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: supply-chain-sbom
@@ -233,7 +233,7 @@ jobs:
           --cov=mesa_mcp.v4_service --cov-fail-under=55
           --cov-report=term-missing --cov-report=xml:mcp-coverage.xml
           --cov-report=json:mcp-coverage.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: mcp-coverage-report
           path: |
@@ -314,7 +314,7 @@ jobs:
           printf 'black_exit=%s\nmypy_exit=%s\n' "$black_status" "$mypy_status" \
             | tee legacy-static-summary.txt
           test "$black_status" -eq 0 -a "$mypy_status" -eq 0
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: legacy-static-baseline
@@ -395,7 +395,7 @@ jobs:
           uv run python -m scripts.capture_v4_closure_evidence
           --junit v4-contract.xml
           --output v4-closure-evidence.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: v4-contract
@@ -438,7 +438,7 @@ jobs:
           uv run python -m scripts.capture_v4_closure_evidence
           --junit migration-dr.xml
           --output migration-dr-evidence.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: migration-dr
@@ -494,7 +494,7 @@ jobs:
           subject-path: |
             dist/a/*.whl
             dist/mesa-runtime.cdx.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: package-report
           path: dist/
@@ -532,7 +532,7 @@ jobs:
           --ignore=tests/go_live_proofs --ignore=tests/bench
       - name: SDK coverage collection contract
         run: uv run python -m pytest --collect-only -q tests/test_async_client_auth_contract.py tests/test_mcp_api_boundary.py
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage-report-${{ matrix.python-version }}
           path: |
