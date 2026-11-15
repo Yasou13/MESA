@@ -49,6 +49,21 @@ async def _search(env, query):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["YARGITAY", "yargıtay"])
+@pytest.mark.parametrize("cache_enabled", [False, True])
+async def test_fts_query_matches_uppercase_turkish_i(
+    model_runtime, query, cache_enabled
+):
+    async with model_runtime(
+        MESA_GRAPH_ENABLED=False, MESA_SEARCH_SCOPE_CACHE=cache_enabled
+    ) as env:
+        await _insert(env, 0, "YARGITAY KARARI")
+        results = await _search(env, query)
+        assert results
+        assert results[0]["source_chunk_id"] == "chunk-0"
+
+
+@pytest.mark.asyncio
 async def test_ten_crafted_law_headers_do_not_block_after_each_write(model_runtime):
     async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
         for index in range(10):
