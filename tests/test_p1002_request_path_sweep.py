@@ -7,6 +7,7 @@ import re
 import signal
 import threading
 import time
+from functools import partial
 
 import pytest
 
@@ -25,9 +26,9 @@ from tests.test_model_optional_runtime import model_runtime as model_runtime
 from tests.test_p908_search_limits import _insert, _search
 
 
-def _bounded_call(label, function, *args, **kwargs):
+def _bounded_call(label, function, *args, check_cpu_budget=False, **kwargs):
     # Earlier integration tests leave cycles and weakref cleanup behind.
-    # Keep that cleanup outside this call's unchanged 200 ms CPU budget.
+    # Keep that cleanup outside the hang guard and optional 200 ms CPU budget.
     gc.collect()
 
     def expired(*_):
@@ -38,15 +39,16 @@ def _bounded_call(label, function, *args, **kwargs):
     start = time.thread_time()
     try:
         result = function(*args, **kwargs)
-        assert time.thread_time() - start < 0.2, label
+        elapsed = time.thread_time() - start
+        if check_cpu_budget:
+            assert elapsed < 0.2, f"{label}: {elapsed:.6f} s CPU (budget < 0.2 s)"
         return result
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
 
 
-@pytest.mark.no_cover
-def test_seeded_shared_parser_harness_at_api_limits():
+def _exercise_api_limit_parsers(bounded_call):
     rng = random.Random(1702)
     resolvers = [
         LegalEntityResolver(),
@@ -77,23 +79,23 @@ def test_seeded_shared_parser_harness_at_api_limits():
         text = raw[:32768]
         query = text[:4096]
         for resolver in resolvers:
-            _bounded_call("citations", resolver.extract_citations, text)
-        _bounded_call("rules", legal_rules.extract, text)
-        _bounded_call("DAO normalize", dao_module._normalize_identity_text, text)
-        _bounded_call("graph normalize", _normalize_text, text)
-        _bounded_call("planner normalize", normalize_planner_query, query)
-        _bounded_call("admission validation", validate_write_payload, text, {})
-        _bounded_call("MCP validation", reject_secrets, text[:20000])
+            bounded_call("citations", resolver.extract_citations, text)
+        bounded_call("rules", legal_rules.extract, text)
+        bounded_call("DAO normalize", dao_module._normalize_identity_text, text)
+        bounded_call("graph normalize", _normalize_text, text)
+        bounded_call("planner normalize", normalize_planner_query, query)
+        bounded_call("admission validation", validate_write_payload, text, {})
+        bounded_call("MCP validation", reject_secrets, text[:20000])
         if query.strip():
-            _bounded_call(
+            bounded_call(
                 "MCP query",
                 _required_string,
                 {"query": query[:2000]},
                 "query",
                 max_length=2000,
             )
-        _bounded_call("MCP result", _typed_result, {"content": text})
-        _bounded_call(
+        bounded_call("MCP result", _typed_result, {"content": text})
+        bounded_call(
             "MCP untrusted wrapper",
             render_untrusted_memory,
             [("Memory", [{"content": text}])],
@@ -103,10 +105,10 @@ def test_seeded_shared_parser_harness_at_api_limits():
             chunks._SENTENCE_END,
             chunks._TRAILING_WORD,
         ):
-            _bounded_call(
+            bounded_call(
                 "chunk window " + pattern.pattern, lambda: list(pattern.finditer(text))
             )
-        _bounded_call(
+        bounded_call(
             "graph path scoring",
             KuzuGraphProvider._compute_path_score,
             hop=3,
@@ -122,6 +124,17 @@ def test_seeded_shared_parser_harness_at_api_limits():
             competing_statutes=[],
             resolver=resolvers[0],
         )
+
+
+@pytest.mark.no_cover
+@pytest.mark.timing
+def test_api_limit_parser_cpu_budget():
+    _exercise_api_limit_parsers(partial(_bounded_call, check_cpu_budget=True))
+
+
+@pytest.mark.no_cover
+def test_seeded_shared_parser_harness_at_api_limits():
+    _exercise_api_limit_parsers(_bounded_call)
     # Whole-document regex scans see 5 MB. Tokenization/queue throughput is
     # measured separately by P10-03; D47 defers the 5 MB secret scan.
     for stem in ["a", " ", "MADDE 1 x\n", "İçtihat Metnix\n"]:

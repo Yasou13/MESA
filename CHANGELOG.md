@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known issues
 
+- The 200 ms parser CPU budget is checked separately on a quiet machine with
+  `uv run pytest -q -m timing tests/test_p1002_request_path_sweep.py`;
+  the full local suite retains the 2 s hang guard for every parser call.
 - Per-minute and daily rate limits are not enforced for `/v4/*` and `/control/*`
   in this version; the API documentation now states this limitation.
 - The ASCII query `yargitay` still does not match text written `Yargıtay`;
