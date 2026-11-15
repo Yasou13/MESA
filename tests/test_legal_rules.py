@@ -2,7 +2,50 @@
 
 import unittest
 
+import pytest
+
 from mesa_storage.legal_rules import RULES_VERSION, extract
+
+
+@pytest.mark.parametrize(
+    "titlecase, uppercase, expected",
+    [
+        ("5 İş Günü", "5 İŞ GÜNÜ", {"type": "duration", "value": 5, "unit": "iş günü"}),
+        ("15 Ekim 2023", "15 EKİM 2023", {"type": "date", "value": "2023-10-15"}),
+        ("1 Nisan 2022", "1 NİSAN 2022", {"type": "date", "value": "2022-04-01"}),
+        ("Ekim 2023", "EKİM 2023", {"type": "date", "value": "2023-10"}),
+    ],
+)
+def test_turkish_uppercase_duration_and_dates(titlecase, uppercase, expected):
+    for text in (titlecase, uppercase):
+        items = extract(text)
+        assert len(items) == 1
+        assert {key: items[0][key] for key in expected} == expected
+        assert text[items[0]["start"] : items[0]["end"]] == items[0]["text"] == text
+
+
+@pytest.mark.parametrize(
+    "titlecase, uppercase, court, chamber",
+    [
+        ("Yargıtay 3. Hukuk Dairesi", "YARGITAY 3. HUKUK DAİRESİ", "Yargıtay", "3. Hukuk Dairesi"),
+        ("Danıştay 5. Dairesi", "DANIŞTAY 5. DAİRESİ", "Danıştay", "5. Dairesi"),
+    ],
+)
+def test_turkish_uppercase_court_and_chamber(titlecase, uppercase, court, chamber):
+    suffix = " 2022/1 E., 2023/2 K."
+    baseline = extract(titlecase + suffix)
+    assert len(baseline) == 1
+    assert (baseline[0]["court"], baseline[0]["chamber"]) == (court, chamber)
+    items = extract(uppercase + suffix)
+    assert len(items) == 1
+    item = items[0]
+    assert item["court"] == court
+    assert item["chamber"] is not None
+    i_variants = str.maketrans("İı", "ii")
+    assert item["chamber"].translate(i_variants).lower() == chamber.translate(i_variants).lower()
+    assert item["docket_no"] == "2022/1"
+    assert item["decision_no"] == "2023/2"
+    assert (uppercase + suffix)[item["start"] : item["end"]] == item["text"]
 
 
 class TestLegalRulesExtractor(unittest.TestCase):
