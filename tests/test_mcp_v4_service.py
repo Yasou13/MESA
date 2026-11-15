@@ -388,3 +388,50 @@ async def test_recall_preserves_distinct_evidence_and_primary_content():
     assert [r["memory_id"] for r in results] == ["ast-a", "ast-b"]
     assert [r["content"] for r in results] == ["matched ast-a", "matched ast-b"]
     assert [r["chunk_id"] for r in results] == ["chunk-ast-a", "chunk-ast-b"]
+
+
+@pytest.mark.asyncio
+async def test_get_session_id_provisions_workspace_and_dataset_on_400() -> None:
+    class FreshStoreClient:
+        def __init__(self) -> None:
+            self.start_calls = 0
+            self.workspace_calls: list[dict] = []
+            self.dataset_calls: list[dict] = []
+
+        async def start_session(self, **_kwargs):
+            self.start_calls += 1
+            if self.start_calls == 1:
+                raise MesaAPIError(400, "CATALOG_NOT_FOUND", "dataset not found")
+            return {"session_id": "session-provisioned"}
+
+        async def create_workspace(self, **kwargs):
+            self.workspace_calls.append(kwargs)
+            return {"workspace_id": kwargs["workspace_id"]}
+
+        async def create_dataset(self, **kwargs):
+            self.dataset_calls.append(kwargs)
+            return {"dataset_id": kwargs["dataset_id"]}
+
+        async def aclose(self) -> None:
+            return None
+
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    await service._http_client.aclose()
+    client = FreshStoreClient()
+    service._http_client = client  # type: ignore[assignment]
+
+    session_id = await service._get_session_id(
+        client,  # type: ignore[arg-type]
+        "default",
+        tenant_id="local",
+        workspace_id="default",
+        actor_id="local-agent",
+    )
+
+    assert session_id == "session-provisioned"
+    assert client.start_calls == 2
+    assert client.workspace_calls == [{"tenant_id": "local", "workspace_id": "default"}]
+    assert client.dataset_calls == [
+        {"tenant_id": "local", "workspace_id": "default", "dataset_id": "default"}
+    ]
+

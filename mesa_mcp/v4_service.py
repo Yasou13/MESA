@@ -78,12 +78,37 @@ class MesaHttpV4Service:
             if cached is not None:
                 return cached
             try:
-                resp = await client.start_session(
-                    tenant_id=tenant_id,
-                    workspace_id=workspace_id,
-                    dataset_ids=[dataset_id],
-                    agent_id=actor_id,
-                )
+                try:
+                    resp = await client.start_session(
+                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
+                        dataset_ids=[dataset_id],
+                        agent_id=actor_id,
+                    )
+                except MesaAPIError as exc:
+                    if exc.status_code != 400:
+                        raise
+                    for create in (
+                        lambda: client.create_workspace(
+                            tenant_id=tenant_id, workspace_id=workspace_id
+                        ),
+                        lambda: client.create_dataset(
+                            tenant_id=tenant_id,
+                            workspace_id=workspace_id,
+                            dataset_id=dataset_id,
+                        ),
+                    ):
+                        try:
+                            await create()
+                        except MesaAPIError as create_exc:
+                            if create_exc.status_code != 409:
+                                raise
+                    resp = await client.start_session(
+                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
+                        dataset_ids=[dataset_id],
+                        agent_id=actor_id,
+                    )
                 session_id = resp["session_id"]
                 self._session_cache.put(cache_key, session_id)
                 return session_id
