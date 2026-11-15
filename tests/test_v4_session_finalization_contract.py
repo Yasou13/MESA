@@ -66,13 +66,17 @@ async def test_v4_finalization_failure_is_bounded_and_stale_fence_is_rejected(
         claim_token=newer["claim_token"],
         error_class="Unavailable",
     )
+    pending_logs = await env.dao.get_pending_session_raw_logs("agent-a", env.session_id)
+    assert pending_logs
+    for log_id in pending_logs:
+        await env.dao.update_raw_log_status("agent-a", log_id, "failed")
     assert (
         await process_session_finalization("agent-a", env.session_id, env.dao, None)
         == "BLOCKED"
     )
     final = await env.dao.get_session_finalization("agent-a", env.session_id)
     assert final["state"] == "BLOCKED" and final["attempt_count"] == 3
-    assert final["last_error_class"] == "ConsolidationUnavailable"
+    assert final["last_error_class"] == "IncompleteSessionWork"
 
 
 @pytest.mark.asyncio
@@ -109,3 +113,24 @@ async def test_finalization_processes_pending_v4_log_without_legacy_extraction(
     extraction.assert_not_awaited()
     loop.run_batch.assert_awaited_once()
     assert await env.dao.get_pending_session_raw_logs("agent-a", env.session_id) == []
+
+
+@pytest.mark.asyncio
+async def test_v4_mode_zero_finalization_completes_without_consolidation_loop(
+    v4_release_env,
+):
+    env = v4_release_env
+    await insert_memory(env)
+    response = await env.client.post(f"/v4/sessions/{env.session_id}/end")
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert await env.dao.get_pending_session_raw_logs("agent-a", env.session_id)
+
+    assert (
+        await process_session_finalization("agent-a", env.session_id, env.dao, None)
+        == "COMPLETED"
+    )
+    assert await env.dao.get_pending_session_raw_logs("agent-a", env.session_id) == []
+    final = await env.dao.get_session_finalization("agent-a", env.session_id)
+    assert final is not None and final["state"] == "COMPLETED"
+
