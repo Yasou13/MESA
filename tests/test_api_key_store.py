@@ -7,6 +7,17 @@ from mesa_memory.security.api_keys import APIKeyStore
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_rejects_dotted_secret_without_storing_it(tmp_path) -> None:
+    store = APIKeyStore(str(tmp_path / "rbac.db"))
+    await store.initialize()
+    with pytest.raises(ValueError, match="MESA_API_KEY must not contain"):
+        await store.bootstrap_legacy_key(
+            secret="legacy.secret", principal_id="principal-a", principal_type="USER"
+        )
+    assert not await store.has_active_key()
+
+
+@pytest.mark.asyncio
 async def test_api_keys_are_key_id_addressed_hashed_and_rotatable(tmp_path) -> None:
     store = APIKeyStore(str(tmp_path / "rbac.db"))
     await store.initialize()
