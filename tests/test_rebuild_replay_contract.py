@@ -1134,3 +1134,16 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
     assert [record["node_id"] for record in vector.records] == ["assertion-1"]
     assert [node[0] for node in graph.nodes] == ["entity-1", "entity-2"]
     assert operations.current["state"] == "VERIFYING"
+
+
+def test_vector_smoke_cases_payload_text_matches_vector_replay_query(
+    tmp_path: Path,
+) -> None:
+    database = _source_database(tmp_path)
+    snapshot = ProjectionSnapshot(database)
+    replayed = snapshot.fetch("vector", offset=0, limit=10)
+    smoke = snapshot.vector_smoke_cases(limit=10)
+    assert len(replayed) == 1
+    assert len(smoke) == 1
+    assert smoke[0]["payload_text"] == replayed[0]["payload_text"]
+
