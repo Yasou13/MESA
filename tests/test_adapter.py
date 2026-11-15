@@ -10,6 +10,7 @@ pytestmark = pytest.mark.optional_provider
 
 
 def test_claude_adapter_embed():
+    pytest.importorskip("anthropic")
     mock_embedding = VEC_BASE_1536
     mock_response = MagicMock()
     mock_response.data = [MagicMock(embedding=mock_embedding)]
@@ -35,6 +36,7 @@ def test_claude_adapter_embed():
 
 def test_claude_adapter_local_embed_fallback():
     """When no OpenAI key is provided, embed() should fall back to local model."""
+    pytest.importorskip("anthropic")
     mock_embedding = VEC_BASE_384  # all-MiniLM-L6-v2 produces 384-dim vectors
 
     with (
