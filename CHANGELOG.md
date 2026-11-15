@@ -7,6 +7,53 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- MCP session creation now provisions the workspace and dataset when a fresh
+  store reports them missing, then retries once. Other errors retain their
+  existing handling.
+- Ending a session in default Mode 0 now processes deferred records without a
+  consolidation loop, allowing finalization to complete.
+- Turkish legal rule comparisons and date lookups handle uppercase İ/I
+  consistently with lowercase text. Original text, offsets and rule versions
+  are preserved.
+- Scoped FTS queries include deduplicated `ı` → `i` variants, so `YARGITAY`
+  and `yargıtay` find text written `YARGITAY KARARI`.
+- Context requests reject timestamps without timezone offsets with HTTP 422
+  before comparing ranges. Fact validation treats date-only values as UTC
+  when comparing them with timezone-aware timestamps, preventing datetime errors.
+- Gateway circuit breakers release half-open probes after permanent errors or
+  cancellation. Non-retryable bridge writes enter a terminal failed state
+  instead of being sent again on every drain.
+- Projection rebuild smoke checks use the same assertion text, including the
+  evidence span, as vector replay.
+- Duplicate or stale projection completion calls preserve committed artifacts;
+  artifact compensation remains restricted to fenced mutations.
+- SDK quickstart examples wait for ingestion before requesting context and close
+  document files. Documentation links and the architecture version are corrected,
+  and embedding setup notes explain downloading the model before enabling it.
+- Parser regression checks retain their 200 ms budget using thread CPU time,
+  with a 2 s hang guard. Claude adapter tests skip when the optional `anthropic`
+  package is absent.
+
+### Changed
+
+- Startup fails with a clear error when `MESA_TIER3_MODE=1/2` has no active
+  consolidation loop; extraction must be enabled for these modes.
+- Bootstrap `MESA_API_KEY` secrets containing `.` are rejected at startup.
+  Placeholder API keys and principal IDs in `.env.example` are commented out.
+- Antigravity bridge write spools are isolated per workspace. Entries in the old
+  shared spool are left in place and are not migrated automatically.
+
+### Known issues
+
+- Per-minute and daily rate limits are not enforced for `/v4/*` and `/control/*`
+  in this version; the API documentation now states this limitation.
+- The ASCII query `yargitay` still does not match text written `Yargıtay`;
+  index-side Turkish folding remains deferred.
+
 ## [0.9.2] - 2026-11-06
 
 This release hardens the Turkish legal extraction and retrieval features from
