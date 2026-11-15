@@ -331,6 +331,9 @@ class LegalEntityResolver:
                     self._scope_names.setdefault(key, []).append(
                         (variant, first.start())
                     )
+        self._scope_initials = {key[0] for key in self._scope_names} | set(
+            self._scope_punctuation
+        )
         self._scope_direct = {
             key
             for key, names in self._scope_names.items()
@@ -389,6 +392,9 @@ class LegalEntityResolver:
         )
 
     def _scope_matches(self, text: str) -> list[tuple[str, str | None, int, int]]:
+        # A literal name cannot match without one of its indexed initials.
+        if self._scope_initials.isdisjoint(text):
+            return []
         matches = []
         consumed_to = 0
         missed_windows: set[tuple[str, str]] = set()
