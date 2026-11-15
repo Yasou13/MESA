@@ -52,10 +52,12 @@ By default, `mesa add` waits for all chunks to commit and the revision to become
 Use the high-level `Mesa` client to ingest documents and query evidence contexts:
 
 ```python
+from pathlib import Path
+
 from mesa_client import Mesa
 
 mesa = Mesa()
-mesa.add(open("document.txt").read(), source="file://document.txt")
+mesa.add(Path("document.txt").read_text(), source="file://document.txt", wait=True)
 print(mesa.context("your query"))
 ```
 
@@ -407,10 +409,12 @@ for the example accordingly.
 For local scripting, rapid prototyping, and agent applications, the high-level `Mesa` client provides a clean interface with automatic credential discovery and catalog session handling:
 
 ```python
+from pathlib import Path
+
 from mesa_client import Mesa
 
 mesa = Mesa()
-mesa.add(open("kira.txt").read(), source="file://kira.txt")
+mesa.add(Path("kira.txt").read_text(), source="file://kira.txt", wait=True)
 print(mesa.context("kira ne zaman ödenir?"))
 ```
 

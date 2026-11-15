@@ -37,10 +37,12 @@ mesa search "your query"
 ## Python SDK
 
 ```python
+from pathlib import Path
+
 from mesa_client import Mesa
 
 mesa = Mesa()
-mesa.add(open("document.txt").read(), source="file://document.txt")
+mesa.add(Path("document.txt").read_text(), source="file://document.txt", wait=True)
 print(mesa.context("your query"))
 ```
 
@@ -58,7 +60,7 @@ mesa mcp-config
 
 Models stay off by default. Documents are stored and found through BM25 lexical search without any model running. `FactExtractionService` owns canonical V4 extraction when explicitly enabled (`MESA_EXTRACTION_ENABLED=true`).
 
-To enable semantic vector search with local Ollama, add to `~/.mesa/.env`:
+Before setting `MESA_MODEL_ENABLED=true`, pull or download the configured embedding model (for example `ollama pull bge-m3` for Ollama). To enable semantic vector search with local Ollama, add to `~/.mesa/.env`:
 
 ```bash
 MESA_MODEL_ENABLED=true
@@ -109,7 +111,7 @@ Run MESA with GPU-accelerated Ollama in Colab:
 uv sync --locked --python 3.11
 ```
 
-See [testing](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for local tests, and [docs/testing.md](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for test markers.
+See [testing](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for local tests and test markers.
 
 ## Documentation
 

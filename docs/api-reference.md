@@ -243,8 +243,8 @@ network retry boundary geçerlidir. API HTTP hata yanıtları `MesaAPIError`,
 network `MesaNetworkError`, SDK schema `MesaValidationError` olur. Status
 400/401/403/404/409/413/422/429/503 endpoint'e göre değişir; OpenAPI ve contract
 testleri kaynak otoritesidir. Queue saturation/rebuild maintenance için
-Retry-After dikkate alınır. Dakikalık default 60/minute, daily default 10000
-principal bazındadır; health/metrics daily budget dışındadır.
+Retry-After dikkate alınır. Dakikalık (60/minute) ve günlük (10000) istek limitleri
+bu sürümde uygulanmamaktadır (per-minute and daily limits are not enforced in this version).
 
 ### Whole documents: `POST /v4/documents`
 
