@@ -73,14 +73,19 @@ class CircuitBreaker:
         try:
             result = await operation()
         except MCPError as exc:
-            if exc.retryable:
-                async with self._lock:
+            async with self._lock:
+                if exc.retryable:
                     if probe:
                         self._opened_at = time.monotonic()
                     else:
                         self._failures += 1
                         if self._failures >= self._failure_threshold:
                             self._opened_at = time.monotonic()
+                self._half_open_probe_in_flight = False
+            raise
+        except BaseException:
+            if probe:
+                async with self._lock:
                     self._half_open_probe_in_flight = False
             raise
         else:
