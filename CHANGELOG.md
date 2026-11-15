@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known issues
 
+- The parser CPU-budget check is informational in CI until the parser speed work in Round 20.
 - Kuzu 0.11.3 can write uninitialized memory into graph page tails, so raw graph files may contain fragments of text the process handled; MESA never stores memory text in the graph (checked by query), and the graph directory should be treated as sensitive like the SQLite file.
 - The 200 ms parser CPU budget is checked separately on a quiet machine with
   `uv run pytest -q -m timing tests/test_p1002_request_path_sweep.py`;
