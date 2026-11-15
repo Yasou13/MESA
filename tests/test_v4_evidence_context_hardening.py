@@ -11,6 +11,26 @@ from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_workers.projection_worker import _triplets, process_projection_outbox_once
+from tests.test_model_optional_runtime import model_runtime as model_runtime
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("naive_field", ["valid_at", "valid_from", "valid_to"])
+async def test_v4_context_rejects_mixed_naive_and_aware_dates(
+    model_runtime, naive_field
+):
+    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+        params = {
+            "query": "temporal evidence",
+            "valid_from": "2025-01-01T00:00:00Z",
+            "valid_to": "2025-12-31T00:00:00Z",
+            naive_field: "2025-06-01T00:00:00",
+        }
+        response = await env.client.get(
+            f"/v4/sessions/{env.session_id}/context", params=params
+        )
+        assert response.status_code == 422
+        assert "timezone" in response.json()["detail"]
 
 
 def _candidate(rank: int, *, evidence: str) -> dict:

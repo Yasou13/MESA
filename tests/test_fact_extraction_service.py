@@ -130,6 +130,28 @@ def test_deterministic_fact_validator():
     assert filtered[1].object == "FastAPI"
 
 
+@pytest.mark.parametrize(
+    "valid_from, valid_to, expected",
+    [
+        ("2025-01-01", "2025-12-31T00:00:00Z", True),
+        ("2025-01-01T00:00:00Z", "2025-12-31", True),
+        ("2026-01-01", "2025-12-31T00:00:00Z", False),
+    ],
+)
+def test_validator_handles_mixed_date_and_timezone_values(valid_from, valid_to, expected):
+    candidate = FactCandidate(
+        fact_text="Proje etkin.",
+        subject="Proje",
+        predicate="durum",
+        object="etkin",
+        valid_from=valid_from,
+        valid_to=valid_to,
+    )
+    assert DeterministicFactValidator.validate(candidate) is expected
+    assert candidate.valid_from == valid_from
+    assert candidate.valid_to == valid_to
+
+
 def test_deterministic_fact_validator_rejects_bad_source_span_and_temporal_order():
     validator = DeterministicFactValidator()
     assert not validator.validate(

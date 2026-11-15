@@ -1669,6 +1669,14 @@ def create_v4_router(
             raise HTTPException(
                 status_code=422, detail="token_budget must be positive"
             )
+        for value in (valid_at, valid_from, valid_to):
+            if value is not None and (
+                value.tzinfo is None or value.utcoffset() is None
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="temporal value must include a timezone offset (e.g. 'Z' or '+00:00')",
+                )
         if valid_from and valid_to and valid_from > valid_to:
             raise HTTPException(
                 status_code=422, detail="valid_from must not be after valid_to"
