@@ -11,6 +11,11 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 RULES_VERSION = "tr-legal-rules-3"
 
+
+def _fold(s: str) -> str:
+    return s.replace("İ", "i").lower().replace("ı", "i")
+
+
 def _up_to(piece: str, count: int) -> str:
     """Spell out a small bounded sequence without nested regex repetitions.
 
@@ -197,21 +202,21 @@ def extract_durations(text: str) -> List[Dict[str, Any]]:
         if parsed_val is None:
             continue
 
-        unit_raw = re.sub(r"\s{1,4}+", "", m.group("unit_lemma").lower())
-        if "yarıyıl" in unit_raw or "yariyil" in unit_raw:
+        unit_raw = _fold(re.sub(r"\s{1,4}+", "", m.group("unit_lemma")))
+        if _fold("yarıyıl") in unit_raw:
             unit = "yarıyıl"
-        elif "işgünü" in unit_raw or "isgunu" in unit_raw:
+        elif _fold("işgünü") in unit_raw or "isgunu" in unit_raw:
             unit = "iş günü"
         elif "gün" in unit_raw or "gun" in unit_raw:
             unit = "gün"
         elif "hafta" in unit_raw:
             unit = "hafta"
         elif "ay" in unit_raw:
-            p = text[max(0, start_pos - 15):start_pos].lower().strip()
-            if any(p.endswith(mon) for mon in _MONTH_NAMES):
+            p = _fold(text[max(0, start_pos - 15):start_pos]).strip()
+            if any(p.endswith(_fold(mon)) for mon in _MONTH_NAMES):
                 continue
             unit = "ay"
-        elif "yıl" in unit_raw or "yil" in unit_raw:
+        elif _fold("yıl") in unit_raw:
             unit = "yıl"
         elif "saat" in unit_raw:
             unit = "saat"
@@ -362,12 +367,12 @@ def extract_amounts(text: str) -> List[Dict[str, Any]]:
 # ----------------------------------------------------------------------
 # 4. Dates
 # ----------------------------------------------------------------------
-_MONTHS = {
+_MONTHS = {_fold(name): code for name, code in {
     "ocak": "01", "şubat": "02", "subat": "02", "mart": "03", "nisan": "04",
     "mayıs": "05", "mayis": "05", "haziran": "06", "temmuz": "07",
     "ağustos": "08", "agustos": "08", "eylül": "09", "eylul": "09",
     "ekim": "10", "kasım": "11", "kasim": "11", "aralık": "12", "aralik": "12",
-}
+}.items()}
 
 _NUMERIC_DATE_PAT = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b")
 _TEXT_DATE_PAT = re.compile(
@@ -399,7 +404,7 @@ def extract_dates(text: str) -> List[Dict[str, Any]]:
     for m in _TEXT_DATE_PAT.finditer(text):
         d_str, m_name, y_str = m.groups()
         day = int(d_str)
-        month_code = _MONTHS.get(m_name.lower())
+        month_code = _MONTHS.get(_fold(m_name))
         year = int(y_str)
         if month_code and 1 <= day <= 31 and 1900 <= year <= 2099:
             items.append({
@@ -420,7 +425,7 @@ def extract_dates(text: str) -> List[Dict[str, Any]]:
         if m_end <= date_ends[m_start]:
             continue
         m_name, y_str = m.groups()
-        month_code = _MONTHS.get(m_name.lower())
+        month_code = _MONTHS.get(_fold(m_name))
         year = int(y_str)
         if month_code and 1900 <= year <= 2099:
             items.append({
@@ -517,20 +522,21 @@ def _clean_court_chamber(raw: Optional[str]) -> Tuple[Optional[str], Optional[st
     raw_str = re.sub(r"Mahkemece$", "Mahkemesi", raw_str, flags=re.IGNORECASE)
     raw_str = raw_str.strip()
 
-    if "anayasa mahkemesi" in raw_str.lower():
+    folded = _fold(raw_str)
+    if _fold("anayasa mahkemesi") in folded:
         return "Anayasa Mahkemesi", None
-    elif "danıştay" in raw_str.lower() or "danistay" in raw_str.lower():
+    elif _fold("danıştay") in folded or "danistay" in folded:
         court = "Danıştay"
         cham = re.sub(r"danıştay|danistay", "", raw_str, flags=re.IGNORECASE).strip()
         return court, (cham if cham else None)
-    elif "bölge adliye mahkemesi" in raw_str.lower():
+    elif _fold("bölge adliye mahkemesi") in folded:
         m = re.match(r"^(.{0,256}?Bölge\s{1,4}+Adliye\s{1,4}+Mahkemesi)\s{0,4}+(.{0,256})$", raw_str, re.IGNORECASE)
         if m:
             court = m.group(1).strip()
             cham = m.group(2).strip()
             return court, (cham if cham else None)
         return raw_str, None
-    elif "yargıtay" in raw_str.lower() or "y.c.g.k" in raw_str.lower() or raw_str.lower().startswith("ceza genel") or raw_str.lower().startswith("hukuk genel"):
+    elif _fold("yargıtay") in folded or "y.c.g.k" in folded or folded.startswith("ceza genel") or folded.startswith("hukuk genel"):
         court = "Yargıtay"
         chamber: Optional[str] = None
         if raw_str.upper() == "Y.C.G.K":
@@ -539,7 +545,7 @@ def _clean_court_chamber(raw: Optional[str]) -> Tuple[Optional[str], Optional[st
             cham = re.sub(r"yargıtay", "", raw_str, flags=re.IGNORECASE).strip()
             chamber = cham if cham else None
         return court, chamber
-    elif "mahkeme" in raw_str.lower():
+    elif "mahkeme" in folded:
         return None, raw_str
     else:
         return raw_str, None
@@ -569,7 +575,7 @@ def extract_decision_refs(text: str) -> List[Dict[str, Any]]:
 
             # Strip leading unrelated words ('verilen', 'ilişkin', 'sayılı')
             for bad_prefix in ["verilen ", "ilişkin ", "sayılı "]:
-                if span_str.lower().startswith(bad_prefix):
+                if _fold(span_str).startswith(_fold(bad_prefix)):
                     start += len(bad_prefix)
                     span_str = text[start:end]
                     lstrip_len = len(span_str) - len(span_str.lstrip())
@@ -621,12 +627,12 @@ def extract_decision_refs(text: str) -> List[Dict[str, Any]]:
 # ----------------------------------------------------------------------
 # 6. Citations
 # ----------------------------------------------------------------------
-_ORDINAL_MAP = {
+_ORDINAL_MAP = {_fold(word): value for word, value in {
     "birinci": "1", "ikinci": "2", "üçüncü": "3", "ucuncu": "3",
     "dördüncü": "4", "dorduncu": "4", "beşinci": "5", "besinci": "5",
     "altıncı": "6", "altinci": "6", "yedinci": "7", "sekizinci": "8",
     "dokuzuncu": "9", "onuncu": "10", "onbeşinci": "15",
-}
+}.items()}
 
 _KNOWN_ACRONYMS = {
     "TCK", "TMK", "HMK", "İİK", "IIK", "CMK", "CMUK", "İYUK", "IYUK",
@@ -644,12 +650,12 @@ def _clean_law_name(header: str) -> Optional[str]:
     header = re.sub(r"\s{0,4}+\([^\)\n]{1,60}\)\s{0,4}+", " ", header).strip()
     header = re.sub(r"[’'\x27\u2032\u2018\u201b]\s{0,4}+[a-zçğıöşü]{1,64}+$", "", header).strip()
 
-    lower = header.lower()
-    if lower.startswith("aynı ") or lower.startswith("bu ") or lower == "aynı" or lower == "bu" or lower.startswith("anılan "):
+    lower = _fold(header)
+    if lower.startswith(_fold("aynı ")) or lower.startswith("bu ") or lower == _fold("aynı") or lower == "bu" or lower.startswith(_fold("anılan ")):
         return None
 
     for sfx in ["nun", "nün", "nin", "nın", "unun", "ünün", "inin", "ının"]:
-        if lower.endswith(sfx) and len(header) > len(sfx) + 3:
+        if lower.endswith(_fold(sfx)) and len(header) > len(sfx) + 3:
             header = header[:-len(sfx)]
             break
 
@@ -665,7 +671,7 @@ def _clean_law_name(header: str) -> Optional[str]:
 
 
 def _parse_articles_and_paragraphs(body_text: str) -> Tuple[Optional[str], Optional[str]]:
-    lower = body_text.lower()
+    lower = _fold(body_text)
     if "geçici" in lower:
         m_range = re.search(r"geçici\s{1,4}+(\d{1,12}+)\s{1,4}+il[aâ]\s{1,4}+geçici\s{1,4}+(\d{1,12}+)", body_text, re.IGNORECASE)
         if m_range:
@@ -711,7 +717,7 @@ def _parse_articles_and_paragraphs(body_text: str) -> Tuple[Optional[str], Optio
             )
             if art_m:
                 a_val = re.sub(r"\s{1,4}+", " ", art_m.group(1).strip())
-                if a_val.lower().startswith("mükerrer "):
+                if _fold(a_val).startswith(_fold("mükerrer ")):
                     a_val = "mükerrer " + a_val.split()[1]
                 p_val = art_m.group(2)
                 if not p_val:
@@ -721,7 +727,7 @@ def _parse_articles_and_paragraphs(body_text: str) -> Tuple[Optional[str], Optio
                         re.IGNORECASE,
                     )
                     if pw_m:
-                        w = pw_m.group(1).lower()
+                        w = _fold(pw_m.group(1))
                         p_val = _ORDINAL_MAP.get(w, w)
                 if not p_val:
                     sl_m = re.search(r"\b\d{1,12}+/(\d{1,12}+)\b", cl)
@@ -872,7 +878,7 @@ def extract_citations(text: str) -> List[Dict[str, Any]]:
         # Check if preceded or followed by Anayasa Mahkemesi (court, not constitution citation)
         full_match_text = text[h_start:h_end]
         if "Anayasa" in full_match_text:
-            lookahead = text[h_end:h_end+25].lower()
+            lookahead = _fold(text[h_end:h_end+25])
             if lookahead.startswith(" mahkemesi") or lookahead.startswith("mahkemesi"):
                 continue
 

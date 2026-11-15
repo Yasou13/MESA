@@ -3826,6 +3826,9 @@ class MemoryDAO:
                         "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ?",
                         (projection_id,),
                     )
+                if not is_fenced:
+                    await db.commit()
+                    return False
                 mutation_id_str = str(row["mutation_id"])
                 async with db.execute(
                     "SELECT store_name, artifact_kind, artifact_id FROM memory_artifacts WHERE mutation_id = ?",
@@ -6758,7 +6761,12 @@ class MemoryDAO:
         passage_candidate_rows: list[dict[str, Any]] = []
 
         if fts_query_tokens:
-            fts_expression = " OR ".join(f'"{token}"' for token in fts_query_tokens)
+            variants = dict.fromkeys(
+                variant
+                for token in fts_query_tokens
+                for variant in (token, token.replace("ı", "i"))
+            )
+            fts_expression = " OR ".join(f'"{token}"' for token in variants)
             passage_sql = (
                 "SELECT a.*, s.canonical_name AS subject_name, "
                 "o.canonical_name AS object_name, "
@@ -6936,7 +6944,12 @@ class MemoryDAO:
                 :8
             ]
             if clean_fts_tokens:
-                expression = " OR ".join(f'"{t}"' for t in clean_fts_tokens)
+                variants = dict.fromkeys(
+                    variant
+                    for token in clean_fts_tokens
+                    for variant in (token, token.replace("ı", "i"))
+                )
+                expression = " OR ".join(f'"{t}"' for t in variants)
                 async with self._search_read_connection(_search_db) as db:
                     async with db.execute(
                         build_v4_lexical_query(dataset_count=len(datasets)),

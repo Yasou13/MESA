@@ -427,18 +427,14 @@ async def process_session_finalization(
     try:
         pending_logs = await dao.get_pending_session_raw_logs(agent_id, session_id)
         if pending_logs:
-            if consolidation_loop is None:
-                await dao.fail_session_finalization(
-                    agent_id,
-                    session_id,
-                    worker_id=worker_id,
-                    claim_token=claim["claim_token"],
-                    error_class="ConsolidationUnavailable",
-                )
-                current = await dao.get_session_finalization(agent_id, session_id)
-                return current["state"] if current else "MISSING"
             for log_id in pending_logs:
-                await process_cold_path(log_id, agent_id, dao, consolidation_loop)
+                await process_cold_path(
+                    log_id,
+                    agent_id,
+                    dao,
+                    consolidation_loop,
+                    model_processing_enabled=consolidation_loop is not None,
+                )
         if await dao.complete_session_finalization(
             agent_id,
             session_id,
@@ -453,7 +449,8 @@ async def process_session_finalization(
             claim_token=claim["claim_token"],
             error_class="IncompleteSessionWork",
         )
-        return "RETRY_PENDING"
+        current = await dao.get_session_finalization(agent_id, session_id)
+        return current["state"] if current else "MISSING"
     except Exception as exc:
         await dao.fail_session_finalization(
             agent_id,
@@ -462,4 +459,5 @@ async def process_session_finalization(
             claim_token=claim["claim_token"],
             error_class=type(exc).__name__,
         )
-        return "RETRY_PENDING"
+        current = await dao.get_session_finalization(agent_id, session_id)
+        return current["state"] if current else "MISSING"

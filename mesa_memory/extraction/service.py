@@ -18,7 +18,7 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -217,9 +217,12 @@ class DeterministicFactValidator:
             if len(value) > 128 or any(ord(char) < 32 for char in value):
                 return False
             try:
-                parsed_temporal[field_name] = datetime.fromisoformat(
+                parsed = datetime.fromisoformat(
                     value.replace("Z", "+00:00")
                 )
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                parsed_temporal[field_name] = parsed
             except ValueError:
                 return False
         if candidate.valid_from and candidate.valid_to:

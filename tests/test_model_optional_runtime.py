@@ -173,6 +173,21 @@ async def _assert_committed(env):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [1, 2])
+async def test_tier3_without_extraction_fails_startup(model_runtime, mode):
+    with pytest.raises(
+        RuntimeError,
+        match="MESA_TIER3_MODE=1/2 requires MESA_EXTRACTION_ENABLED=true",
+    ):
+        async with model_runtime(
+            MESA_TIER3_MODE=mode,
+            MESA_EXTRACTION_ENABLED=False,
+            MESA_GRAPH_ENABLED=False,
+        ):
+            pass
+
+
+@pytest.mark.asyncio
 async def test_no_model_flags_store_and_search_without_provider_calls(model_runtime):
     async with model_runtime() as env:
         await _insert(env)

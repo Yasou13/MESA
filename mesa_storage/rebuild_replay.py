@@ -130,17 +130,20 @@ _ACTIVE_OWNERSHIP = (
     "r.state = 'ACTIVE' AND EXISTS (SELECT 1 FROM artifact_sources s "
     "WHERE s.registry_id = r.registry_id AND s.state = 'ACTIVE')"
 )
+_VECTOR_PAYLOAD_TEXT_EXPR = (
+    "CASE WHEN trim(a.evidence_span) != '' THEN "
+    "trim(subject.canonical_name || ' ' || a.predicate || ' ' || "
+    "COALESCE(object_entity.canonical_name, a.literal_value, '')) || "
+    "': ' || trim(a.evidence_span) "
+    "ELSE "
+    "trim(subject.canonical_name || ' ' || a.predicate || ' ' || "
+    "COALESCE(object_entity.canonical_name, a.literal_value, '')) "
+    "END"
+)
 _VECTOR_QUERY = f"""
     SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
            a.assertion_id AS assertion_id,
-           CASE WHEN trim(a.evidence_span) != '' THEN
-             trim(subject.canonical_name || ' ' || a.predicate || ' ' ||
-                  COALESCE(object_entity.canonical_name, a.literal_value, '')) ||
-             ': ' || trim(a.evidence_span)
-           ELSE
-             trim(subject.canonical_name || ' ' || a.predicate || ' ' ||
-                  COALESCE(object_entity.canonical_name, a.literal_value, ''))
-           END AS payload_text
+           {_VECTOR_PAYLOAD_TEXT_EXPR} AS payload_text
     FROM artifact_registry r
     JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
                         AND a.tenant_id = r.tenant_id
@@ -353,8 +356,7 @@ class ProjectionSnapshot:
                 SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
                                 s.dataset_id AS dataset_id,
                                 r.physical_artifact_id AS assertion_id,
-                                subject.canonical_name || ' ' || a.predicate || ' ' ||
-                                COALESCE(object_entity.canonical_name, a.literal_value) AS payload_text
+                                {_VECTOR_PAYLOAD_TEXT_EXPR} AS payload_text
                 FROM artifact_registry r
                 JOIN artifact_sources s ON s.registry_id = r.registry_id
                                        AND s.state = 'ACTIVE'

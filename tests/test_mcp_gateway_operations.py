@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
 from cryptography.fernet import Fernet
 
+from mesa_mcp.errors import MCPError
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
-from mesa_mcp.gateway.operations import GatewayOperationService
+from mesa_mcp.gateway.operations import CircuitBreaker, GatewayOperationService
 from mesa_memory.security.untrusted_memory import TAG_CLOSE, TAG_OPEN, TRUST_HEADER
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -244,3 +246,53 @@ async def test_recall_uses_typed_context_and_singleflight(gateway) -> None:
     assert first["context_text"].count(TAG_CLOSE) == 1
     assert "The gateway owns durable operation state." in first["context_text"]
     assert {first["cache_status"], second["cache_status"]} <= {"MISS", "HIT"}
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_half_open_probe_non_retryable_error_does_not_wedge() -> None:
+    breaker = CircuitBreaker(failure_threshold=1, recovery_seconds=0.0)
+
+    async def fail_retryable() -> None:
+        raise MCPError("BACKEND_UNAVAILABLE", "down", retryable=True)
+
+    with pytest.raises(MCPError) as exc_info:
+        await breaker.call(fail_retryable)
+    assert exc_info.value.retryable is True
+    assert breaker.state == "HALF_OPEN"
+
+    async def fail_non_retryable() -> None:
+        raise MCPError("INVALID_ARGUMENT", "bad request", retryable=False)
+
+    with pytest.raises(MCPError) as non_retry_exc:
+        await breaker.call(fail_non_retryable)
+    assert non_retry_exc.value.code == "INVALID_ARGUMENT"
+
+    async def succeed() -> str:
+        return "ok"
+
+    assert await breaker.call(succeed) == "ok"
+    assert breaker.state == "CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_half_open_probe_cancellation_clears_inflight_flag() -> None:
+    breaker = CircuitBreaker(failure_threshold=1, recovery_seconds=0.0)
+
+    async def fail_retryable() -> None:
+        raise MCPError("BACKEND_UNAVAILABLE", "down", retryable=True)
+
+    with pytest.raises(MCPError):
+        await breaker.call(fail_retryable)
+
+    async def cancelled() -> None:
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await breaker.call(cancelled)
+
+    async def succeed() -> str:
+        return "ok"
+
+    assert await breaker.call(succeed) == "ok"
+    assert breaker.state == "CLOSED"
+

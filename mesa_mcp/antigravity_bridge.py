@@ -98,6 +98,13 @@ class EncryptedWriteSpool:
         )
         self._db.commit()
 
+    def fail(self, operation_id: str, message: str) -> None:
+        self._db.execute(
+            "UPDATE outbound_operations SET status = 'FAILED', completed_at = ?, last_error = ? WHERE operation_id = ?",
+            (time.time(), message[:240], operation_id),
+        )
+        self._db.commit()
+
     def close(self) -> None:
         self._db.close()
 
@@ -215,7 +222,9 @@ def create_mcp_server(
         Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
         / "mesa"
     )
-    spool = EncryptedWriteSpool(root)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    spool = EncryptedWriteSpool(root / "spool" / fingerprint)
     gateway = GatewayClient(
         settings,
         fingerprint,
@@ -299,6 +308,8 @@ async def _drain_spool(spool: EncryptedWriteSpool, gateway: GatewayClient) -> No
         except MCPError as exc:
             if exc.retryable:
                 spool.retry(operation_id, attempts, exc.message)
+            else:
+                spool.fail(operation_id, exc.message)
             continue
         spool.complete(operation_id)
 

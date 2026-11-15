@@ -1,6 +1,6 @@
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -794,6 +794,80 @@ async def test_projection_attempt_started_at_is_claim_time(tmp_path):
             assert attempt_fail is not None
             assert attempt_fail["started_at"] == past_fail_claim_time
             assert attempt_fail["started_at"] != attempt_fail["finished_at"]
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_stale_projection_completion_does_not_compensate_unfenced_artifacts(
+    tmp_path,
+):
+    """Unfenced stale/duplicate completion must return False without deleting artifacts."""
+    engine = AsyncEngine(str(tmp_path / "unfenced_duplicate.db"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    vector_engine = SimpleNamespace(hard_delete=AsyncMock())
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=vector_engine)
+    pipeline_run_id = f"run_{uuid.uuid4().hex[:8]}"
+    mutation_id = f"mut_{uuid.uuid4().hex[:8]}"
+    proj_id = f"proj_{mutation_id}_SQL"
+
+    async with engine.transaction() as db:
+        await db.execute(
+            "INSERT INTO pipeline_runs (pipeline_run_id, tenant_id, session_id, agent_id, state) "
+            "VALUES (?, 't1', 's1', 'a1', 'COMMITTED')",
+            (pipeline_run_id,),
+        )
+        await db.execute(
+            "INSERT INTO memory_mutations (mutation_id, candidate_id, tenant_id, agent_id, pipeline_run_id, session_id, content_payload, state) "
+            "VALUES (?, 'c1', 't1', 'a1', ?, 's1', 'payload', 'STAGED')",
+            (mutation_id, pipeline_run_id),
+        )
+        await db.execute(
+            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state, retry_limit, attempt_count) "
+            "VALUES (?, ?, 'SQL', 'PENDING', 3, 0)",
+            (proj_id, mutation_id),
+        )
+        await db.commit()
+
+    claims = await dao.claim_projection_outbox(worker_id="worker_1", limit=1)
+    assert len(claims) == 1
+    claim = claims[0]
+
+    assert (
+        await dao.complete_projection_outbox(
+            proj_id,
+            worker_id="worker_1",
+            claim_token=claim["claim_token"],
+            outcome="DONE",
+        )
+        is True
+    )
+
+    await dao.record_mutation_artifact(
+        mutation_id,
+        store_name="VECTOR",
+        artifact_kind="ASSERTION_VECTOR",
+        artifact_id="vec_keep_1",
+    )
+
+    duplicate_result = await dao.complete_projection_outbox(
+        proj_id,
+        worker_id="worker_1",
+        claim_token=claim["claim_token"],
+        outcome="DONE",
+    )
+    assert duplicate_result is False
+    vector_engine.hard_delete.assert_not_awaited()
+
+    async with engine.connection() as db:
+        async with db.execute(
+            "SELECT state FROM memory_artifacts WHERE mutation_id = ? AND artifact_id = 'vec_keep_1'",
+            (mutation_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row["state"] == "ACTIVE"
 
     await engine.close()
 

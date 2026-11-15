@@ -112,6 +112,8 @@ class APIKeyStore:
         """
         if not secret or not principal_id:
             return
+        if "." in secret:
+            raise ValueError("MESA_API_KEY must not contain '.'")
         async with self._connect() as db:
             async with db.execute(
                 "SELECT 1 FROM api_keys WHERE key_id = 'bootstrap'"

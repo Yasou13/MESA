@@ -513,6 +513,11 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             "Runtime profile %s starts API/storage without workers", runtime.profile
         )
 
+    if config.effective_tier3_mode() > 0 and state.consolidation_loop is None:
+        raise RuntimeError(
+            "MESA_TIER3_MODE=1/2 requires MESA_EXTRACTION_ENABLED=true"
+        )
+
     if runtime.profile is RuntimeProfile.COMBINED:
         combined_task = await state.worker_supervisor.start(
             "combined-durable-consumer",

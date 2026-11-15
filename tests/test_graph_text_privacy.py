@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import kuzu
 import pytest
 
 from mesa_memory.api import server
@@ -38,6 +39,79 @@ def _graph_text_hits(graph_path, marker):
         str(p): p.read_bytes().count(marker.encode())
         for p in files
         if marker.encode() in p.read_bytes()
+    }
+
+
+def _graph_string_hits(graph_path, marker, *, database=None):
+    """Inspect logical STRING values, excluding Kuzu's unused page tails."""
+    owns_database = database is None
+    if owns_database:
+        database = kuzu.Database(str(graph_path), read_only=True)
+    connection = kuzu.Connection(database)
+    try:
+        with connection.execute("CALL show_tables() RETURN name, type") as result:
+            tables = result.get_all()
+        hits = {}
+        for table, kind in tables:
+            table_literal = table.replace("\\", "\\\\").replace("'", "\\'")
+            with connection.execute(
+                f"CALL table_info('{table_literal}') RETURN name, type"
+            ) as result:
+                properties = [name for name, dtype in result if dtype == "STRING"]
+            if not properties:
+                continue
+            label = "`" + table.replace("`", "``") + "`"
+            assert kind in {"NODE", "REL"}, (table, kind)
+            pattern = f"(item:{label})" if kind == "NODE" else f"()-[item:{label}]->()"
+            columns = ", ".join(
+                "item.`" + name.replace("`", "``") + "`" for name in properties
+            )
+            with connection.execute(f"MATCH {pattern} RETURN {columns}") as result:
+                for row in result:
+                    for name, value in zip(properties, row):
+                        if isinstance(value, str) and marker in value:
+                            key = f"{table}.{name}"
+                            hits[key] = hits.get(key, 0) + 1
+        return hits
+    finally:
+        connection.close()
+        if owns_database:
+            database.close()
+
+
+def test_graph_string_scan_covers_node_and_relationship_properties(tmp_path):
+    path = tmp_path / "graph"
+    database = kuzu.Database(str(path))
+    connection = kuzu.Connection(database)
+    marker = "LOGICALGRAPHPRIVACYMARKER"
+    try:
+        connection.execute(
+            "CREATE NODE TABLE ScanNode (id STRING, text STRING, "
+            "nullable_text STRING, number INT64, PRIMARY KEY (id))"
+        )
+        connection.execute(
+            "CREATE REL TABLE ScanRel (FROM ScanNode TO ScanNode, text STRING)"
+        )
+        connection.execute(
+            "CREATE (:ScanNode {id: 'first', text: $text, number: 42}), "
+            "(:ScanNode {id: 'second', text: 'safe'})",
+            {"text": f"prefix {marker} suffix"},
+        )
+        connection.execute(
+            "MATCH (a:ScanNode {id: 'first'}), (b:ScanNode {id: 'second'}) "
+            "CREATE (a)-[:ScanRel {text: $text}]->(b)",
+            {"text": marker},
+        )
+        assert _graph_string_hits(path, marker, database=database) == {
+            "ScanNode.text": 1,
+            "ScanRel.text": 1,
+        }
+    finally:
+        connection.close()
+        database.close()
+    assert _graph_string_hits(path, marker) == {
+        "ScanNode.text": 1,
+        "ScanRel.text": 1,
     }
 
 
@@ -132,9 +206,11 @@ async def test_purge_leaves_no_evidence_or_literal_in_graph_files(model_runtime)
         graph_path = env.dao._graph.db_path
         await _purge_document(env, "privacy")
         await _purge_document(env, "graph-entity")
-        assert _graph_text_hits(graph_path, marker) == {}
+        assert _graph_string_hits(
+            graph_path, marker, database=env.dao._graph._db
+        ) == {}
         await env.stop()
-        assert _graph_text_hits(graph_path, marker) == {}
+        assert _graph_string_hits(graph_path, marker) == {}
 
 
 @pytest.mark.asyncio
@@ -233,7 +309,7 @@ async def test_schema_migration_does_not_copy_legacy_assertion_text(tmp_path):
         await sql.close()
     assert _graph_text_hits(path, marker)
     migrate_schema_offline(path)
-    assert _graph_text_hits(path, marker) == {}
+    assert _graph_string_hits(path, marker) == {}
 
 
 @pytest.mark.asyncio
@@ -297,7 +373,7 @@ async def test_rebuild_creates_text_free_graph_from_legacy_store(
             await sql.close()
         assert active.graph_path != old_path
         assert active.graph_path.is_file()
-        assert _graph_text_hits(active.graph_path, marker) == {}
+        assert _graph_string_hits(active.graph_path, marker) == {}
         await env.restart()
         results = await env.dao.search_v4_memory(
             tenant_id="model-tenant",
