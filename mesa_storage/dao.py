@@ -3826,6 +3826,9 @@ class MemoryDAO:
                         "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ?",
                         (projection_id,),
                     )
+                if not is_fenced:
+                    await db.commit()
+                    return False
                 mutation_id_str = str(row["mutation_id"])
                 async with db.execute(
                     "SELECT store_name, artifact_kind, artifact_id FROM memory_artifacts WHERE mutation_id = ?",
