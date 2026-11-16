@@ -412,3 +412,35 @@ def test_active_workflows_keep_the_reviewed_ci_uv_pin() -> None:
         ]
         assert installs, path.name
         assert all('"uv==0.13.1"' in line for line in installs), path.name
+
+
+def test_release_workflow_waits_for_reusable_ci_workflow() -> None:
+    ci_workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+    release_workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    )
+
+    ci_triggers = ci_workflow.get("on") or ci_workflow.get(True)
+    assert isinstance(ci_triggers, dict)
+    assert "workflow_call" in ci_triggers
+    assert "push" in ci_triggers
+    assert "pull_request" in ci_triggers
+
+    assert release_workflow["permissions"] == {}
+
+    ci_job = release_workflow["jobs"]["ci"]
+    assert ci_job["uses"] == "./.github/workflows/ci.yml"
+    assert ci_job["permissions"] == {
+        "contents": "read",
+        "attestations": "write",
+        "id-token": "write",
+    }
+
+    build_job = release_workflow["jobs"]["build"]
+    assert build_job["needs"] == "ci"
+
+    publish_job = release_workflow["jobs"]["publish"]
+    assert publish_job["needs"] == "build"
+    assert publish_job["permissions"] == {"id-token": "write"}

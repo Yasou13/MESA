@@ -7,6 +7,7 @@ on:
   pull_request:
     branches: [audit/production-readiness, benchmark/**, feature/mesa-law-readiness, loggin/**, main]
   workflow_dispatch:
+  workflow_call:
   schedule:
     - cron: "17 3 * * 1"
 
