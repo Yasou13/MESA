@@ -13,7 +13,7 @@ from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.policy import DeterministicOnlyValidationPolicy
 from mesa_memory.consolidation.schemas import MemoryCandidate
-from mesa_storage.dao import MemoryDAO
+from mesa_storage.dao import MemoryDAO, can_batch_mode_zero_cold_path
 
 logger = structlog.get_logger("MESA_ColdPath")
 
@@ -289,6 +289,31 @@ async def _process_cold_path_impl(
                             candidate_record
                         )
                     )
+                    if claim is not None and can_batch_mode_zero_cold_path(dao):
+                        mode_zero_status, transitioned = (
+                            await dao.complete_v4_mode_zero_cold_path(
+                                agent_id=payload_agent_id,
+                                mutation_id=candidate.mutation_id,
+                                log_id=log_id,
+                                worker_id=claim["claimed_by"],
+                                claim_token=claim["claim_token"],
+                                audit=mode_zero_audit,
+                            )
+                        )
+                        if not transitioned:
+                            logger.warning(
+                                "COLD_PATH_FENCE_LOST | log_id=%d status=%s",
+                                log_id,
+                                "processed" if mode_zero_status == "processed" else "DEFERRED",
+                            )
+                        if mode_zero_status == "processed":
+                            logger.info(
+                                "COLD_PATH_VALIDATED_AND_PROJECTED | log_id=%d candidate_id=%s mode=%d",
+                                log_id,
+                                candidate.candidate_id,
+                                effective_validation_mode,
+                            )
+                        return
                     candidate_record["_mesa_tier3_audit"] = mode_zero_audit
                     # Mode 0 bypasses ConsolidationLoop, which normally persists
                     # extraction and advances RECEIVED -> EXTRACTED.  Preserve the
