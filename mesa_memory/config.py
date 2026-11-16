@@ -494,7 +494,7 @@ class MesaConfig(BaseSettings):
         "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
     embedding_model: str = Field(
-        "local:magibu/embeddingmagibu-200m", validation_alias="MESA_EMBEDDING_MODEL"
+        "local:BAAI/bge-m3", validation_alias="MESA_EMBEDDING_MODEL"
     )
     model_enabled: bool = Field(False, validation_alias="MESA_MODEL_ENABLED")
     tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")
@@ -513,7 +513,7 @@ class MesaConfig(BaseSettings):
     external_provider_enabled: bool = Field(
         False, validation_alias="MESA_EXTERNAL_PROVIDER_ENABLED"
     )
-    embedding_dimension: int = Field(768, gt=0, validation_alias="MESA_EMBEDDING_DIMENSION")
+    embedding_dimension: int = Field(1024, gt=0, validation_alias="MESA_EMBEDDING_DIMENSION")
     embedding_version: str = Field(
         "v1", min_length=1, validation_alias="MESA_EMBEDDING_VERSION"
     )

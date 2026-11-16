@@ -2,11 +2,14 @@
 Task D008 (Deterministic Model-Enabled E2E), and Task D009 (Multi-Tenant Catalog Physical Identity).
 """
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
+from mesa_memory.config import MesaConfig, configured_embedding_identity
 from mesa_storage.dao import _DEFAULT_QUEUE_ADMISSION_POLICY, MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -14,11 +17,11 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 @pytest.mark.asyncio
 async def test_d007_fresh_install_config_coherence():
-    """Verify the default Magibu embedding profile and Tier-3 examples."""
+    """Verify the default BAAI/bge-m3 embedding profile and Tier-3 examples."""
     content = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
 
-    assert "MESA_EMBEDDING_DIMENSION=768" in content
-    assert "MESA_EMBEDDING_MODEL=local:magibu/embeddingmagibu-200m" in content
+    assert "MESA_EMBEDDING_DIMENSION=1024" in content
+    assert "MESA_EMBEDDING_MODEL=local:BAAI/bge-m3" in content
     for setting in (
         "MESA_TIER3_LLM_PROVIDER_A",
         "MESA_TIER3_LLM_MODEL_A",
@@ -26,6 +29,21 @@ async def test_d007_fresh_install_config_coherence():
         "MESA_TIER3_LLM_MODEL_B",
     ):
         assert f"# {setting}=" in content
+
+
+def test_d58_default_embedding_config_uses_bge_m3_1024():
+    """Fresh MesaConfig() defaults to local:BAAI/bge-m3, dimension 1024, models off."""
+    with patch.dict(os.environ, {}, clear=True):
+        cfg = MesaConfig()
+        ident = configured_embedding_identity(cfg)
+    assert cfg.model_enabled is False
+    assert cfg.embedding_model == "local:BAAI/bge-m3"
+    assert cfg.local_embedding_model == "BAAI/bge-m3"
+    assert cfg.embedding_dimension == 1024
+    assert ident.provider == "local"
+    assert ident.model == "BAAI/bge-m3"
+    assert ident.dimension == 1024
+    assert ident.normalized is True
 
 
 @pytest.mark.asyncio
