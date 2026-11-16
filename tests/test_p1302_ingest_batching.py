@@ -347,7 +347,8 @@ async def test_graph_kuzu_commit_succeeds_then_sqlite_write_fails_retry_idempote
             "retry_pending": 1,
             "dead_letter": 0,
         }
-        assert await graph.execute_query("MATCH (a:Assertion) RETURN count(a)") == [[1]]
+        # The committed Kuzu write had no receipt, so it is compensated (no orphan).
+        assert await graph.execute_query("MATCH (a:Assertion) RETURN count(a)") == [[0]]
 
         # 2) Fail SQLite outbox batch completion AFTER artifact write succeeds.
         orig_complete_batch = MemoryDAO.complete_projection_outbox_batch
@@ -440,4 +441,76 @@ async def test_complete_projection_outbox_batch_fences_stale_claim_token(
         assert states[claimed[0]["projection_id"]] == "COMPLETED"
         assert states[claimed[1]["projection_id"]] == "IN_FLIGHT"
     finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [1, 2])
+async def test_graph_batch_lost_fence_after_kuzu_commit_is_compensated(
+    tmp_path, monkeypatch, count
+) -> None:
+    """A mutation fenced after the Kuzu commit leaves no graph write without a receipt."""
+    engine = AsyncEngine(str(tmp_path / "graph_lost_fence.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    graph_path = tmp_path / "kuzu_db"
+    initialize_schema_artifact(str(graph_path))
+    graph = KuzuGraphProvider(str(graph_path))
+    await graph.initialize()
+    dao = MemoryDAO(
+        engine,
+        SimpleNamespace(get_active_node_ids=AsyncMock(return_value=set())),
+        graph_provider=graph,
+        embedding_enabled=False,
+        graph_enabled=True,
+    )
+    try:
+        mutations = await _seed_validated_mutations(
+            dao, count=count, with_triplets=True
+        )
+        # Complete SQL and VECTOR (skipped).
+        await process_projection_outbox_once(dao, worker_id="worker-lf", limit=20)
+        await process_projection_outbox_once(dao, worker_id="worker-lf", limit=20)
+
+        fenced_mid = mutations[0]["mutation_id"]
+        orig_artifacts_batch = MemoryDAO.record_mutation_artifacts_batch
+
+        async def fence_then_record(self, artifacts):
+            # A rollback wins the race after the graph transaction committed.
+            async with engine.transaction() as db:
+                await db.execute(
+                    "UPDATE memory_mutations SET state = 'ROLLING_BACK' "
+                    "WHERE mutation_id = ?",
+                    (fenced_mid,),
+                )
+                await db.commit()
+            return await orig_artifacts_batch(self, artifacts)
+
+        monkeypatch.setattr(
+            MemoryDAO, "record_mutation_artifacts_batch", fence_then_record
+        )
+        res = await process_projection_outbox_once(dao, worker_id="worker-lf", limit=20)
+        assert res["claimed"] == count
+        assert res["completed"] == count - 1
+
+        assert await graph.execute_query(
+            "MATCH (a:Assertion) WHERE a.mutation_id = $mid RETURN count(a)",
+            {"mid": fenced_mid},
+        ) == [[0]]
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM memory_artifacts "
+                "WHERE mutation_id = ? AND store_name = 'GRAPH'",
+                (fenced_mid,),
+            ) as cur:
+                assert (await cur.fetchone())[0] == 0
+        for item in mutations[1:]:
+            assert await graph.execute_query(
+                "MATCH (a:Assertion) WHERE a.mutation_id = $mid RETURN count(a)",
+                {"mid": item["mutation_id"]},
+            ) == [[1]]
+            stored = await dao.get_mutation("agent-batch", item["mutation_id"])
+            assert stored is not None and stored["state"] == "COMMITTED"
+    finally:
+        await graph.close()
         await engine.close()

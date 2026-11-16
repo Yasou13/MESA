@@ -267,6 +267,7 @@ async def _try_apply_graph_batch(
             work_items.append((mutation, assertions))
 
         pending_artifacts: list[tuple[str, str, str, str, dict[str, Any] | None]] = []
+        written: list[tuple[dict[str, Any], str, list[tuple[str, str]]]] = []
         async with _get_graph_lock():
             async with graph.transaction():
                 for mutation, assertions in work_items:
@@ -296,7 +297,19 @@ async def _try_apply_graph_batch(
                                 {"predicate": str(assertion["predicate"])},
                             )
                         )
-        await dao.record_mutation_artifacts_batch(pending_artifacts)
+                        written.append((mutation, assertion_id, graph_entities))
+            try:
+                await dao.record_mutation_artifacts_batch(pending_artifacts)
+            except Exception:
+                # Same rule as the per-item path: a committed graph write
+                # without a durable receipt is removed or queued for cleanup.
+                for mutation, assertion_id, graph_entities in written:
+                    await dao._compensate_v4_graph_projection(
+                        mutation=mutation,
+                        assertion_id=assertion_id,
+                        graph_entities=graph_entities,
+                    )
+                raise
         return True
     except Exception:
         if len(graph_items) == 1:
