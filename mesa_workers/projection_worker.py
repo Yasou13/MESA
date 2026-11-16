@@ -216,6 +216,7 @@ async def _apply_with_lease_heartbeat(
 
 
 _UNPATCHED_GRAPH_PROJECTOR = GraphProjector
+_UNPATCHED_GRAPH_PROJECT_ASSERTION = GraphProjector.project_assertion
 _UNPATCHED_APPLY_PROJECTION = _apply_projection
 _UNPATCHED_APPLY_HEARTBEAT = _apply_with_lease_heartbeat
 
@@ -223,6 +224,8 @@ _UNPATCHED_APPLY_HEARTBEAT = _apply_with_lease_heartbeat
 def _projection_batch_hooks_unpatched() -> bool:
     return (
         GraphProjector is _UNPATCHED_GRAPH_PROJECTOR
+        and getattr(GraphProjector, "project_assertion", None)
+        is _UNPATCHED_GRAPH_PROJECT_ASSERTION
         and _apply_projection is _UNPATCHED_APPLY_PROJECTION
         and _apply_with_lease_heartbeat is _UNPATCHED_APPLY_HEARTBEAT
     )
@@ -248,6 +251,8 @@ async def _try_apply_sql_batch(
         await dao.apply_v4_sql_projections_batch(batch_inputs)
         return True
     except Exception:
+        if len(sql_items) == 1:
+            raise
         return False
 
 
@@ -315,6 +320,8 @@ async def _try_apply_graph_batch(
         await dao.record_mutation_artifacts_batch(pending_artifacts)
         return True
     except Exception:
+        if len(graph_items) == 1:
+            raise
         return False
 
 
@@ -333,8 +340,45 @@ async def process_projection_outbox_once(
     skipped_projections: list[dict[str, Any]] = []
     successful_projections: list[dict[str, Any]] = []
 
-    async def _handle_one(projection: dict[str, Any]) -> None:
+    async def _record_projection_failure(
+        projection: dict[str, Any], exc: Exception
+    ) -> None:
         projection_id = str(projection["projection_id"])
+        if isinstance(exc, PermanentProjectionError):
+            changed = await dao.fail_projection_outbox(
+                projection_id,
+                worker_id=worker_id,
+                claim_token=str(projection["claim_token"]),
+                error_class=type(exc).__name__,
+                retryable=False,
+            )
+            if changed:
+                result["dead_letter"] += 1
+            logger.warning(
+                "V4_PROJECTION_PERMANENT_FAILURE | projection_id=%s error=%s",
+                projection_id,
+                exc,
+            )
+            return
+        changed = await dao.fail_projection_outbox(
+            projection_id,
+            worker_id=worker_id,
+            claim_token=str(projection["claim_token"]),
+            error_class=type(exc).__name__,
+            retryable=True,
+        )
+        if changed:
+            if int(projection["attempt_count"]) >= int(projection["retry_limit"]):
+                result["dead_letter"] += 1
+            else:
+                result["retry_pending"] += 1
+        logger.warning(
+            "V4_PROJECTION_RETRYABLE_FAILURE | projection_id=%s error=%s",
+            projection_id,
+            exc,
+        )
+
+    async def _handle_one(projection: dict[str, Any]) -> None:
         try:
             if (
                 projection["projection_name"] == "VECTOR" and not dao.embedding_enabled
@@ -354,39 +398,8 @@ async def process_projection_outbox_once(
             else:
                 await _apply_with_lease_heartbeat(dao, projection, worker_id)
             successful_projections.append(projection)
-        except PermanentProjectionError as exc:
-            changed = await dao.fail_projection_outbox(
-                projection_id,
-                worker_id=worker_id,
-                claim_token=str(projection["claim_token"]),
-                error_class=type(exc).__name__,
-                retryable=False,
-            )
-            if changed:
-                result["dead_letter"] += 1
-            logger.warning(
-                "V4_PROJECTION_PERMANENT_FAILURE | projection_id=%s error=%s",
-                projection_id,
-                exc,
-            )
         except Exception as exc:
-            changed = await dao.fail_projection_outbox(
-                projection_id,
-                worker_id=worker_id,
-                claim_token=str(projection["claim_token"]),
-                error_class=type(exc).__name__,
-                retryable=True,
-            )
-            if changed:
-                if int(projection["attempt_count"]) >= int(projection["retry_limit"]):
-                    result["dead_letter"] += 1
-                else:
-                    result["retry_pending"] += 1
-            logger.warning(
-                "V4_PROJECTION_RETRYABLE_FAILURE | projection_id=%s error=%s",
-                projection_id,
-                exc,
-            )
+            await _record_projection_failure(projection, exc)
 
     sorted_projections = sorted(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
@@ -405,8 +418,12 @@ async def process_projection_outbox_once(
     hooks_unpatched = _projection_batch_hooks_unpatched()
     for lane, items in active_by_lane.items():
         if lane == "SQL" and hooks_unpatched and can_batch_sql_projections(dao):
-            if await _try_apply_sql_batch(dao, items):
-                successful_projections.extend(items)
+            try:
+                if await _try_apply_sql_batch(dao, items):
+                    successful_projections.extend(items)
+                    continue
+            except Exception as exc:
+                await _record_projection_failure(items[0], exc)
                 continue
         elif lane == "GRAPH" and hooks_unpatched and can_batch_graph_projections(dao):
             graph = dao._graph
@@ -415,10 +432,14 @@ async def process_projection_outbox_once(
                 graph is not None
                 and getattr(graph, "is_operational", False) is True
                 and callable(graph_transaction)
-                and await _try_apply_graph_batch(dao, graph, items)
             ):
-                successful_projections.extend(items)
-                continue
+                try:
+                    if await _try_apply_graph_batch(dao, graph, items):
+                        successful_projections.extend(items)
+                        continue
+                except Exception as exc:
+                    await _record_projection_failure(items[0], exc)
+                    continue
         for p in items:
             await _handle_one(p)
 
