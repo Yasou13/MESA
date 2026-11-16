@@ -202,7 +202,7 @@ class VectorEngine:
         metric: str = _DEFAULT_METRIC,
         allow_model_loading: bool = False,
         embedding_provider: EmbeddingProvider | None = None,
-        local_embedding_model: str = "magibu/embeddingmagibu-200m",
+        local_embedding_model: str = "BAAI/bge-m3",
         embedding_service: EmbeddingServicePort | None = None,
         maintenance_enabled: bool = True,
         maintenance_mutation_threshold: int = _DEFAULT_MAINTENANCE_MUTATION_THRESHOLD,

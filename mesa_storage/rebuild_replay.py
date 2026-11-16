@@ -512,7 +512,7 @@ class ProjectionReplayer:
         embedding_provider: EmbeddingProvider | None = None,
         embedding_service: Any | None = None,
         allow_model_loading: bool = False,
-        local_embedding_model: str = "magibu/embeddingmagibu-200m",
+        local_embedding_model: str = "BAAI/bge-m3",
         vector_factory: Callable[[Path], VectorReplayTarget] | None = None,
         graph_factory: Callable[[Path], GraphReplayTarget] | None = None,
         should_stop: Callable[[], bool] | None = None,
