@@ -1,21 +1,19 @@
-"""Regression tests for P13-02 batched worker projections and Mode 0 cold-path commits."""
+"""Regression tests for P13-02 / P13-02b batched worker projections."""
 
 from __future__ import annotations
 
-import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from mesa_memory.config import configured_embedding_identity
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_workers.ingestion_worker import process_cold_path
 from mesa_workers.projection_worker import process_projection_outbox_once
 
 
@@ -62,7 +60,7 @@ async def test_projection_outbox_batches_sqlite_commits_and_kuzu_transactions(
     await graph.initialize()
     dao = MemoryDAO(
         engine,
-        SimpleNamespace(),
+        SimpleNamespace(get_active_node_ids=AsyncMock(return_value=set())),
         graph_provider=graph,
         embedding_enabled=False,
         graph_enabled=True,
@@ -184,7 +182,7 @@ async def test_graph_batch_error_falls_back_and_commits_healthy_items(
     await graph.initialize()
     dao = MemoryDAO(
         engine,
-        SimpleNamespace(),
+        SimpleNamespace(get_active_node_ids=AsyncMock(return_value=set())),
         graph_provider=graph,
         embedding_enabled=False,
         graph_enabled=True,
@@ -221,92 +219,225 @@ async def test_graph_batch_error_falls_back_and_commits_healthy_items(
 
 
 @pytest.mark.asyncio
-async def test_mode_zero_cold_path_uses_single_lifecycle_commit_and_honors_fencing(
+async def test_sql_batch_mid_failure_rolls_back_and_fallback_completes_healthy_items(
     tmp_path, monkeypatch
 ) -> None:
-    engine = AsyncEngine(str(tmp_path / "cold_path_batch.sqlite"))
+    """Mid-batch SQL failure rolls back item 0 in the batch tx before clean per-item recovery."""
+    engine = AsyncEngine(str(tmp_path / "sql_mid_fail.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    dao = MemoryDAO(
+        engine,
+        SimpleNamespace(),
+        embedding_enabled=False,
+        graph_enabled=False,
+    )
+    try:
+        mutations = await _seed_validated_mutations(dao, count=3, with_triplets=True)
+        bad_mid = mutations[1]["mutation_id"]
+        orig_assertion_in_tx = MemoryDAO._project_v4_sql_assertion_in_tx
+        batch_rolled_back_cleanly = False
+
+        async def fail_middle_mutation(
+            self, db, *, mutation, triplet, resolved_entities=None, owner_cache=None
+        ):
+            if str(mutation["mutation_id"]) == bad_mid:
+                raise RuntimeError("injected mid-batch sql write failure")
+            return await orig_assertion_in_tx(
+                self,
+                db,
+                mutation=mutation,
+                triplet=triplet,
+                resolved_entities=resolved_entities,
+                owner_cache=owner_cache,
+            )
+
+        monkeypatch.setattr(
+            MemoryDAO, "_project_v4_sql_assertion_in_tx", fail_middle_mutation
+        )
+
+        # First verify rollback when batch fails at item 1: item 0 must not be half-persisted.
+        try:
+            await dao.apply_v4_sql_projections_batch(
+                [
+                    (mutations[0], ["SharedDoc", "Chunk_0"], [{"head": "SharedDoc", "relation": "CONTAINS", "tail": "Chunk_0"}]),
+                    (mutations[1], ["SharedDoc", "Chunk_1"], [{"head": "SharedDoc", "relation": "CONTAINS", "tail": "Chunk_1"}]),
+                ]
+            )
+        except RuntimeError:
+            batch_rolled_back_cleanly = True
+        assert batch_rolled_back_cleanly
+        async with engine.connection() as db:
+            async with db.execute("SELECT COUNT(*) FROM v4_assertions") as cur:
+                assert (await cur.fetchone())[0] == 0
+            async with db.execute("SELECT COUNT(*) FROM v4_entities") as cur:
+                assert (await cur.fetchone())[0] == 0
+
+        res = await process_projection_outbox_once(dao, worker_id="worker-mid", limit=20)
+        assert res["completed"] == 2
+        assert res["retry_pending"] == 1
+
+        await process_projection_outbox_once(dao, worker_id="worker-mid", limit=20)
+        await process_projection_outbox_once(dao, worker_id="worker-mid", limit=20)
+
+        for idx in (0, 2):
+            stored = await dao.get_mutation("agent-batch", mutations[idx]["mutation_id"])
+            assert stored is not None and stored["state"] == "COMMITTED"
+
+        bad_stored = await dao.get_mutation("agent-batch", bad_mid)
+        assert bad_stored is not None and bad_stored["state"] == "RETRY_PENDING"
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM v4_assertions WHERE mutation_id = ?",
+                (bad_mid,),
+            ) as cur:
+                assert (await cur.fetchone())[0] == 0
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_kuzu_commit_succeeds_then_sqlite_write_fails_retry_idempotent(
+    tmp_path, monkeypatch
+) -> None:
+    """If Kuzu commits and SQLite artifact or outbox completion fails, retry is idempotent with zero orphans."""
+    monkeypatch.setattr("mesa_storage.dao._retry_delay_seconds", lambda _attempt: 0)
+    engine = AsyncEngine(str(tmp_path / "graph_split_fail.sqlite"))
+    await engine.initialize()
+    await initialize_schema(engine)
+    graph_path = tmp_path / "kuzu_db"
+    initialize_schema_artifact(str(graph_path))
+    graph = KuzuGraphProvider(str(graph_path))
+    await graph.initialize()
+    dao = MemoryDAO(
+        engine,
+        SimpleNamespace(get_active_node_ids=AsyncMock(return_value=set())),
+        graph_provider=graph,
+        embedding_enabled=False,
+        graph_enabled=True,
+    )
+    try:
+        mutations = await _seed_validated_mutations(dao, count=1)
+        mid = mutations[0]["mutation_id"]
+        # Complete SQL and VECTOR (skipped).
+        await process_projection_outbox_once(dao, worker_id="worker-gs", limit=20)
+        await process_projection_outbox_once(dao, worker_id="worker-gs", limit=20)
+
+        # 1) Fail SQLite artifact batch write AFTER Kuzu commits.
+        orig_artifacts_batch = MemoryDAO.record_mutation_artifacts_batch
+        art_calls = 0
+
+        async def fail_artifacts_once(self, artifacts):
+            nonlocal art_calls
+            art_calls += 1
+            if art_calls == 1:
+                raise RuntimeError("sqlite artifact write failed after kuzu commit")
+            return await orig_artifacts_batch(self, artifacts)
+
+        monkeypatch.setattr(
+            MemoryDAO, "record_mutation_artifacts_batch", fail_artifacts_once
+        )
+
+        first = await process_projection_outbox_once(
+            dao, worker_id="worker-gs", limit=20
+        )
+        assert first == {
+            "claimed": 1,
+            "completed": 0,
+            "retry_pending": 1,
+            "dead_letter": 0,
+        }
+        assert await graph.execute_query("MATCH (a:Assertion) RETURN count(a)") == [[1]]
+
+        # 2) Fail SQLite outbox batch completion AFTER artifact write succeeds.
+        orig_complete_batch = MemoryDAO.complete_projection_outbox_batch
+        complete_calls = 0
+
+        async def fail_complete_once(self, items, *, worker_id, outcome="APPLIED"):
+            nonlocal complete_calls
+            complete_calls += 1
+            if complete_calls == 1:
+                raise RuntimeError("sqlite outbox completion failed")
+            return await orig_complete_batch(
+                self, items, worker_id=worker_id, outcome=outcome
+            )
+
+        monkeypatch.setattr(
+            MemoryDAO, "complete_projection_outbox_batch", fail_complete_once
+        )
+        with pytest.raises(RuntimeError, match="sqlite outbox completion failed"):
+            await process_projection_outbox_once(dao, worker_id="worker-gs", limit=20)
+
+        # Expire the in-flight lease and retry cleanly; retry stays idempotent with zero orphans.
+        async with engine.transaction() as db:
+            await db.execute(
+                "UPDATE projection_outbox SET lease_expires_at = datetime('now', '-1 second') "
+                "WHERE mutation_id = ? AND projection_name = 'GRAPH'",
+                (mid,),
+            )
+            await db.commit()
+
+        final = await process_projection_outbox_once(
+            dao, worker_id="worker-gs", limit=20
+        )
+        assert final == {
+            "claimed": 1,
+            "completed": 1,
+            "retry_pending": 0,
+            "dead_letter": 0,
+        }
+        stored = await dao.get_mutation("agent-batch", mid)
+        assert stored is not None and stored["state"] == "COMMITTED"
+        assert await graph.execute_query("MATCH (a:Assertion) RETURN count(a)") == [[1]]
+        parity = await dao.reconcile_v4_projection_parity()
+        assert parity["missing_graph"] == 0
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT artifact_kind, COUNT(*) FROM memory_artifacts "
+                "WHERE mutation_id = ? AND store_name = 'GRAPH' "
+                "GROUP BY artifact_kind",
+                (mid,),
+            ) as cur:
+                graph_artifacts = {str(r[0]): int(r[1]) for r in await cur.fetchall()}
+        assert graph_artifacts == {"ASSERTION": 1, "ENTITY": 2}
+        orphan_report = await dao.reconcile_v4_bidirectional(
+            tenant_id=str(mutations[0]["tenant_id"]),
+            agent_id="agent-batch",
+            dataset_ids=[str(mutations[0]["dataset_id"])],
+            repair=False,
+        )
+        assert orphan_report["physical_orphans"] == 0
+    finally:
+        await graph.close()
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_complete_projection_outbox_batch_fences_stale_claim_token(
+    tmp_path,
+) -> None:
+    engine = AsyncEngine(str(tmp_path / "outbox_fence.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
     dao = MemoryDAO(engine, SimpleNamespace())
     try:
-        identity = configured_embedding_identity()
-        candidate = MemoryCandidate.from_raw_log(
-            raw_log_id=1,
-            agent_id="agent-cp",
-            session_id="sess-cp",
-            content_payload="Deterministic Mode 0 memory",
-            embedding_provider=identity.provider,
-            embedding_model=identity.model,
-            embedding_version=identity.version,
-            embedding_dimension=identity.dimension,
-            validation_mode=0,
-        ).as_consolidation_record()
-        payload = json.dumps(
-            {
-                "mutation_id": candidate["mutation_id"],
-                "candidate_id": candidate["candidate_id"],
-                "tenant_id": candidate["tenant_id"],
-                "workspace_id": candidate["workspace_id"],
-                "dataset_id": candidate["dataset_id"],
-                "document_id": candidate["document_id"],
-                "revision_id": candidate["revision_id"],
-                "session_id": "sess-cp",
-                "agent_id": "agent-cp",
-                "chunk_id": candidate["chunk_id"],
-                "source_ref": candidate["source_ref"],
-                "content": "Deterministic Mode 0 memory",
-            }
+        await _seed_validated_mutations(dao, count=2)
+        claimed = await dao.claim_projection_outbox(worker_id="worker-f", limit=10)
+        assert len(claimed) == 2
+        stale_item = dict(claimed[1])
+        stale_item["claim_token"] = "stale-claim-token"
+
+        completed = await dao.complete_projection_outbox_batch(
+            [claimed[0], stale_item], worker_id="worker-f", outcome="APPLIED"
         )
-        async with engine.transaction() as db:
-            await db.execute(
-                "INSERT INTO raw_logs (id, agent_id, payload, status) "
-                "VALUES (1, 'agent-cp', ?, 'DEFERRED')",
-                (payload,),
-            )
-            await db.commit()
-        await dao.record_mutation(candidate, raw_log_id=1)
+        assert completed == 1
 
-        sqlite_commits = 0
-        orig_transaction = engine.transaction
-
-        @asynccontextmanager
-        async def counting_sqlite_tx():
-            async with orig_transaction() as db:
-                orig_commit = db.commit
-
-                async def counted_commit():
-                    nonlocal sqlite_commits
-                    sqlite_commits += 1
-                    return await orig_commit()
-
-                monkeypatch.setattr(db, "commit", counted_commit)
-                yield db
-
-        monkeypatch.setattr(engine, "transaction", counting_sqlite_tx)
-
-        await process_cold_path(
-            1,
-            "agent-cp",
-            dao,
-            consolidation_loop=None,
-            model_processing_enabled=False,
-        )
-        # Only claim_raw_log + complete_v4_mode_zero_cold_path (2 commits total vs 5 previously).
-        assert sqlite_commits == 2
-
-        stored = await dao.get_mutation("agent-cp", candidate["mutation_id"])
-        assert stored is not None and stored["state"] == "VALIDATED"
-
-        # Stale claim token is still rejected by fenced completion.
-        outcome, transitioned = await dao.complete_v4_mode_zero_cold_path(
-            agent_id="agent-cp",
-            mutation_id=candidate["mutation_id"],
-            log_id=1,
-            worker_id="cold-path",
-            claim_token="stale-token",
-            audit={"mode": 0},
-        )
-        assert outcome == "deferred"
-        assert transitioned is False
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT projection_id, state FROM projection_outbox"
+            ) as cur:
+                states = {row[0]: row[1] for row in await cur.fetchall()}
+        assert states[claimed[0]["projection_id"]] == "COMPLETED"
+        assert states[claimed[1]["projection_id"]] == "IN_FLIGHT"
     finally:
         await engine.close()

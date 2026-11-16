@@ -535,7 +535,7 @@ async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(
         await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
         with patch.object(
             MemoryDAO,
-            "project_v4_sql_entity",
+            "_project_v4_sql_entity_in_tx",
             new=AsyncMock(side_effect=RuntimeError("transient")),
         ):
             outcomes = [
