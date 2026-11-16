@@ -276,7 +276,7 @@ def test_embedding_identity_independence():
     assert identity.provider is not None
     assert identity.model is not None
     assert identity.version is not None
-    assert identity.dimension == 768
+    assert identity.dimension == 1024
 
 
 @pytest.mark.asyncio
