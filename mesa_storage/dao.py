@@ -3584,112 +3584,6 @@ class MemoryDAO:
             await db.commit()
         return changed
 
-    async def complete_v4_mode_zero_cold_path(
-        self,
-        *,
-        agent_id: str,
-        mutation_id: str,
-        log_id: int,
-        worker_id: str,
-        claim_token: str,
-        audit: dict[str, Any],
-    ) -> tuple[str, bool]:
-        """Persist Mode 0 extraction, Tier-3 audit, VALIDATED state, and raw_log completion in one tx."""
-        _assert_valid_agent_id(agent_id)
-        async with self._sql.transaction() as db:
-            async with db.execute(
-                "SELECT metadata_json, pipeline_run_id, state FROM memory_mutations "
-                "WHERE mutation_id = ? AND agent_id = ?",
-                (mutation_id, agent_id),
-            ) as cursor:
-                row = await cursor.fetchone()
-            if row is None or str(row[2]) not in {
-                "RECEIVED",
-                "EXTRACTED",
-                "RETRY_PENDING",
-            }:
-                deferred_ok = await self._transition_claimed_raw_log_in_tx(
-                    db,
-                    agent_id,
-                    log_id,
-                    worker_id=worker_id,
-                    claim_token=claim_token,
-                    status="DEFERRED",
-                )
-                await db.commit()
-                return ("deferred", deferred_ok)
-
-            try:
-                metadata = json.loads(str(row[0] or "{}"))
-            except (TypeError, ValueError):
-                metadata = {}
-            metadata["_mesa_v4_projection_triplets"] = []
-            metadata["_mesa_tier3_audit"] = audit
-            cursor = await db.execute(
-                "UPDATE memory_mutations SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP "
-                "WHERE mutation_id = ? AND agent_id = ? AND state IN ('RECEIVED', 'EXTRACTED', 'RETRY_PENDING')",
-                (json.dumps(metadata, sort_keys=True), mutation_id, agent_id),
-            )
-            extracted = (
-                cursor.rowcount == 1
-                and await self._transition_memory_mutation_in_tx(
-                    db,
-                    mutation_id,
-                    to_state="EXTRACTED",
-                )
-            )
-            if not extracted:
-                deferred_ok = await self._transition_claimed_raw_log_in_tx(
-                    db,
-                    agent_id,
-                    log_id,
-                    worker_id=worker_id,
-                    claim_token=claim_token,
-                    status="DEFERRED",
-                )
-                await db.commit()
-                return ("deferred", deferred_ok)
-
-            validated = await self._transition_memory_mutation_in_tx(
-                db,
-                mutation_id,
-                to_state="VALIDATED",
-            )
-            if not validated:
-                deferred_ok = await self._transition_claimed_raw_log_in_tx(
-                    db,
-                    agent_id,
-                    log_id,
-                    worker_id=worker_id,
-                    claim_token=claim_token,
-                    status="DEFERRED",
-                )
-                await db.commit()
-                return ("deferred", deferred_ok)
-
-            await db.execute(
-                "UPDATE projection_outbox SET state = 'PENDING', updated_at = CURRENT_TIMESTAMP "
-                "WHERE mutation_id = ? AND state = 'BLOCKED_VALIDATION'",
-                (mutation_id,),
-            )
-            if row[1]:
-                await self._recompute_pipeline_state_in_tx(
-                    db,
-                    str(row[1]),
-                    event_type="MUTATION_VALIDATED",
-                    event_detail={"tier3": audit},
-                )
-            processed_ok = await self._transition_claimed_raw_log_in_tx(
-                db,
-                agent_id,
-                log_id,
-                worker_id=worker_id,
-                claim_token=claim_token,
-                status="processed",
-            )
-            await db.commit()
-        return ("processed", processed_ok)
-
     @staticmethod
     def _parse_projection_mutation_row(row: Any) -> dict[str, Any]:
         record = dict(row)
@@ -4142,21 +4036,6 @@ class MemoryDAO:
         """Record fenced successful projections in one SQLite transaction."""
         if not items:
             return 0
-        if (
-            type(self) is not MemoryDAO
-            or "complete_projection_outbox" in getattr(self, "__dict__", {})
-            or MemoryDAO.complete_projection_outbox is not _UNPATCHED_COMPLETE_OUTBOX
-        ):
-            completed_count = 0
-            for p in items:
-                if await self.complete_projection_outbox(
-                    str(p["projection_id"]),
-                    worker_id=worker_id,
-                    claim_token=str(p["claim_token"]),
-                    outcome=outcome,
-                ):
-                    completed_count += 1
-            return completed_count
 
         completed_count = 0
         fenced_items: list[dict[str, Any]] = []
@@ -10931,39 +10810,6 @@ class MemoryDAO:
             claimed["payload"] = json.loads(claimed["payload"])
         return claimed
 
-    async def _transition_claimed_raw_log_in_tx(
-        self,
-        db: Any,
-        agent_id: str,
-        log_id: int,
-        *,
-        worker_id: str,
-        claim_token: str,
-        status: str,
-        error_reason: str | None = None,
-    ) -> bool:
-        _assert_valid_agent_id(agent_id)
-        if status not in {"processed", "failed", "rejected", "DEFERRED"}:
-            raise ValueError("claimed job status must be terminal or DEFERRED.")
-        final_status = f"{status}:{error_reason}" if error_reason else status
-        cursor = await db.execute(
-            "UPDATE raw_logs SET status = ?, claim_token = NULL, claimed_by = NULL, "
-            "lease_expires_at = NULL, last_error = ?, processed_at = "
-            "CASE WHEN ? = 'processed' THEN CURRENT_TIMESTAMP ELSE processed_at END "
-            "WHERE id = ? AND agent_id = ? AND status = 'processing' "
-            "AND claimed_by = ? AND claim_token = ?",
-            (
-                final_status,
-                error_reason,
-                status,
-                log_id,
-                agent_id,
-                worker_id,
-                claim_token,
-            ),
-        )
-        return cursor.rowcount == 1
-
     async def transition_claimed_raw_log(
         self,
         agent_id: str,
@@ -10975,18 +10821,29 @@ class MemoryDAO:
         error_reason: str | None = None,
     ) -> bool:
         """Finalize a job only when its owner and fencing token still match."""
+        _assert_valid_agent_id(agent_id)
+        if status not in {"processed", "failed", "rejected", "DEFERRED"}:
+            raise ValueError("claimed job status must be terminal or DEFERRED.")
+        final_status = f"{status}:{error_reason}" if error_reason else status
         async with self._sql.transaction() as db:
-            changed = await self._transition_claimed_raw_log_in_tx(
-                db,
-                agent_id,
-                log_id,
-                worker_id=worker_id,
-                claim_token=claim_token,
-                status=status,
-                error_reason=error_reason,
+            cursor = await db.execute(
+                "UPDATE raw_logs SET status = ?, claim_token = NULL, claimed_by = NULL, "
+                "lease_expires_at = NULL, last_error = ?, processed_at = "
+                "CASE WHEN ? = 'processed' THEN CURRENT_TIMESTAMP ELSE processed_at END "
+                "WHERE id = ? AND agent_id = ? AND status = 'processing' "
+                "AND claimed_by = ? AND claim_token = ?",
+                (
+                    final_status,
+                    error_reason,
+                    status,
+                    log_id,
+                    agent_id,
+                    worker_id,
+                    claim_token,
+                ),
             )
             await db.commit()
-        return changed
+        return cursor.rowcount == 1
 
     async def recover_expired_raw_log_claims(self) -> int:
         """Return expired claims to DEFERRED without changing terminal rows."""
@@ -11827,65 +11684,4 @@ class MemoryDAO:
         if row and row[0] > limit:
             return False
         return True
-
-
-_UNPATCHED_COMPLETE_OUTBOX = MemoryDAO.complete_projection_outbox
-_UNPATCHED_SQL_BATCH_NAMES = (
-    "get_projection_mutation",
-    "project_v4_sql_entity",
-    "project_v4_sql_assertion",
-)
-_UNPATCHED_SQL_BATCH_METHODS = tuple(
-    getattr(MemoryDAO, name) for name in _UNPATCHED_SQL_BATCH_NAMES
-)
-_UNPATCHED_GRAPH_BATCH_NAMES = (
-    "get_projection_mutation",
-    "list_v4_assertions_for_mutation",
-    "project_v4_graph_assertion",
-    "record_mutation_artifact",
-)
-_UNPATCHED_GRAPH_BATCH_METHODS = tuple(
-    getattr(MemoryDAO, name) for name in _UNPATCHED_GRAPH_BATCH_NAMES
-)
-_UNPATCHED_MODE_ZERO_NAMES = (
-    "record_mutation_extraction",
-    "record_mutation_tier3_audit",
-    "set_mutation_state",
-    "transition_claimed_raw_log",
-)
-_UNPATCHED_MODE_ZERO_METHODS = tuple(
-    getattr(MemoryDAO, name) for name in _UNPATCHED_MODE_ZERO_NAMES
-)
-
-
-def _dao_methods_unpatched(
-    dao: Any, names: tuple[str, ...], expected: tuple[Any, ...]
-) -> bool:
-    if type(dao) is not MemoryDAO:
-        return False
-    dao_dict = getattr(dao, "__dict__", {})
-    if any(name in dao_dict for name in names):
-        return False
-    return tuple(getattr(MemoryDAO, name) for name in names) == expected
-
-
-def can_batch_sql_projections(dao: Any) -> bool:
-    """Return True when MemoryDAO SQL projection methods are unpatched."""
-    return _dao_methods_unpatched(
-        dao, _UNPATCHED_SQL_BATCH_NAMES, _UNPATCHED_SQL_BATCH_METHODS
-    )
-
-
-def can_batch_graph_projections(dao: Any) -> bool:
-    """Return True when MemoryDAO GRAPH projection methods are unpatched."""
-    return _dao_methods_unpatched(
-        dao, _UNPATCHED_GRAPH_BATCH_NAMES, _UNPATCHED_GRAPH_BATCH_METHODS
-    )
-
-
-def can_batch_mode_zero_cold_path(dao: Any) -> bool:
-    """Return True when MemoryDAO Mode 0 lifecycle methods are unpatched."""
-    return _dao_methods_unpatched(
-        dao, _UNPATCHED_MODE_ZERO_NAMES, _UNPATCHED_MODE_ZERO_METHODS
-    )
 

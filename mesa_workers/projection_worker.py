@@ -12,12 +12,7 @@ import math
 from typing import Any
 
 from mesa_memory.graph.projector import GraphProjector
-from mesa_storage.dao import (
-    MemoryDAO,
-    can_batch_graph_projections,
-    can_batch_sql_projections,
-    classify_graph_object,
-)
+from mesa_storage.dao import MemoryDAO, classify_graph_object
 
 logger = logging.getLogger("MESA_ProjectionWorker")
 
@@ -215,22 +210,6 @@ async def _apply_with_lease_heartbeat(
     await _apply_projection(dao, projection)
 
 
-_UNPATCHED_GRAPH_PROJECTOR = GraphProjector
-_UNPATCHED_GRAPH_PROJECT_ASSERTION = GraphProjector.project_assertion
-_UNPATCHED_APPLY_PROJECTION = _apply_projection
-_UNPATCHED_APPLY_HEARTBEAT = _apply_with_lease_heartbeat
-
-
-def _projection_batch_hooks_unpatched() -> bool:
-    return (
-        GraphProjector is _UNPATCHED_GRAPH_PROJECTOR
-        and getattr(GraphProjector, "project_assertion", None)
-        is _UNPATCHED_GRAPH_PROJECT_ASSERTION
-        and _apply_projection is _UNPATCHED_APPLY_PROJECTION
-        and _apply_with_lease_heartbeat is _UNPATCHED_APPLY_HEARTBEAT
-    )
-
-
 async def _try_apply_sql_batch(
     dao: MemoryDAO, sql_items: list[dict[str, Any]]
 ) -> bool:
@@ -407,7 +386,7 @@ async def process_projection_outbox_once(
     active_by_lane: dict[str, list[dict[str, Any]]] = {}
     for p in sorted_projections:
         lane = str(p["projection_name"])
-        if type(dao) is MemoryDAO and (
+        if (
             (lane == "VECTOR" and not dao.embedding_enabled)
             or (lane == "GRAPH" and not dao.graph_enabled)
         ):
@@ -415,9 +394,8 @@ async def process_projection_outbox_once(
         else:
             active_by_lane.setdefault(lane, []).append(p)
 
-    hooks_unpatched = _projection_batch_hooks_unpatched()
     for lane, items in active_by_lane.items():
-        if lane == "SQL" and hooks_unpatched and can_batch_sql_projections(dao):
+        if lane == "SQL":
             try:
                 if await _try_apply_sql_batch(dao, items):
                     successful_projections.extend(items)
@@ -425,8 +403,8 @@ async def process_projection_outbox_once(
             except Exception as exc:
                 await _record_projection_failure(items[0], exc)
                 continue
-        elif lane == "GRAPH" and hooks_unpatched and can_batch_graph_projections(dao):
-            graph = dao._graph
+        elif lane == "GRAPH":
+            graph = getattr(dao, "_graph", None)
             graph_transaction = getattr(graph, "transaction", None)
             if (
                 graph is not None
