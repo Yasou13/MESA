@@ -5,7 +5,7 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     context: .
     dockerfile: Dockerfile
     target: runtime
-  image: ${MESA_V4_IMAGE:-mesa-memory:0.9.2}
+  image: ${MESA_V4_IMAGE:-mesa-memory:0.9.3}
   restart: "on-failure:5"
   read_only: true
   tmpfs:
@@ -37,7 +37,7 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     MESA_LLM_BASE_URL: ${MESA_LLM_BASE_URL:-}
     MESA_LLM_API_KEY: ${MESA_LLM_API_KEY:-}
     MESA_LLM_TIMEOUT_SECONDS: ${MESA_LLM_TIMEOUT_SECONDS:-60}
-    MESA_EMBEDDING_MODEL: ${MESA_EMBEDDING_MODEL:-local:magibu/embeddingmagibu-200m}
+    MESA_EMBEDDING_MODEL: ${MESA_EMBEDDING_MODEL:-local:BAAI/bge-m3}
     # Pass through only if set on the host; otherwise probe at startup.
     MESA_EMBEDDING_DIMENSION:
     MESA_EMBEDDING_VERSION: ${MESA_EMBEDDING_VERSION:-v1}
