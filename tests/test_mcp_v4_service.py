@@ -6,6 +6,7 @@ import pytest
 
 from mesa_client.client import MesaAPIError
 from mesa_mcp.configuration import MCPSettings
+from mesa_mcp.errors import MCPError
 from mesa_mcp.v4_service import MesaHttpV4Service
 
 
@@ -434,4 +435,40 @@ async def test_get_session_id_provisions_workspace_and_dataset_on_400() -> None:
     assert client.dataset_calls == [
         {"tenant_id": "local", "workspace_id": "default", "dataset_id": "default"}
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_create", ["workspace", "dataset"])
+async def test_catalog_creation_failure_preserves_original_session_error(failed_create):
+    original = MesaAPIError(400, "CATALOG_NOT_FOUND", "dataset not found")
+    create_error = MesaAPIError(403, "FORBIDDEN", "only the owner can create catalog")
+    calls = []
+
+    class NonOwnerClient:
+        async def start_session(self, **kwargs):
+            calls.append("start")
+            raise original
+
+        async def create_workspace(self, **kwargs):
+            calls.append("workspace")
+            if failed_create == "workspace":
+                raise create_error
+
+        async def create_dataset(self, **kwargs):
+            calls.append("dataset")
+            raise create_error
+
+    service = MesaHttpV4Service(MCPSettings(api_key="test-key", use_v4=True))
+    try:
+        with pytest.raises(MCPError) as raised:
+            await service._get_session_id(NonOwnerClient(), "default")
+        assert raised.value.code == "INVALID_ARGUMENT"
+        assert raised.value.__cause__ is original
+        assert original.__cause__ is create_error
+        assert calls == ["start", "workspace"] + (
+            ["dataset"] if failed_create == "dataset" else []
+        )
+        assert len(service._session_cache) == 0
+    finally:
+        await service.close()
 
