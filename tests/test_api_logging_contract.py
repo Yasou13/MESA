@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 
 import pytest
@@ -14,6 +15,26 @@ from fastapi.responses import PlainTextResponse
 from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.logger import setup_logging
 from mesa_memory.observability.metrics import PROM_HTTP_REQUESTS
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging_configuration():
+    """Do not leave setup_logging bound to a closed per-test capture stream."""
+    root = logging.getLogger()
+    handlers = list(root.handlers)
+    level = root.level
+    structlog_config = structlog.get_config().copy()
+    try:
+        yield
+    finally:
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+            if handler not in handlers:
+                handler.close()
+        for handler in handlers:
+            root.addHandler(handler)
+        root.setLevel(level)
+        structlog.configure(**structlog_config)
 
 
 def _app() -> FastAPI:
