@@ -141,7 +141,7 @@ async def _process_cold_path_impl(
             # ==============================================================
             # 1. RETRIEVE PAYLOAD + STATUS GUARD
             # ==============================================================
-            if type(dao) is MemoryDAO:
+            if isinstance(dao, MemoryDAO):
                 claim = await dao.claim_raw_log(agent_id, log_id, worker_id="cold-path")
                 raw_log = claim
             else:

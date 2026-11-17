@@ -64,7 +64,7 @@ class RebuildProviderRuntime:
     manifest: dict[str, Any]
     embedding_provider: EmbeddingProvider | None
     allow_model_loading: bool
-    local_embedding_model: str = "magibu/embeddingmagibu-200m"
+    local_embedding_model: str = "BAAI/bge-m3"
     embedding_service: EmbeddingService | None = None
 
 

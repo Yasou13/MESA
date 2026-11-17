@@ -558,7 +558,7 @@ def default_vector_verification_factory(
     embedding_provider: EmbeddingProvider | None,
     embedding_service: Any | None = None,
     allow_model_loading: bool,
-    local_embedding_model: str = "magibu/embeddingmagibu-200m",
+    local_embedding_model: str = "BAAI/bge-m3",
 ) -> Callable[[Path], VectorVerificationTarget]:
     return lambda path: VectorEngine(
         str(path),

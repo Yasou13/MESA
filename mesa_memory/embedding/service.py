@@ -136,9 +136,9 @@ class EmbeddingService:
             self._identity = EmbeddingIdentity(
                 provider="local",
                 model=getattr(
-                    config, "local_embedding_model", "magibu/embeddingmagibu-200m"
+                    config, "local_embedding_model", "BAAI/bge-m3"
                 ),
-                dimension=getattr(config, "embedding_dimension", 768),
+                dimension=getattr(config, "embedding_dimension", 1024),
                 version=getattr(config, "embedding_version", "v1"),
                 normalized=getattr(config, "embedding_normalized", True),
                 model_revision=getattr(config, "embedding_model_revision", None),

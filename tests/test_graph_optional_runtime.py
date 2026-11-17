@@ -104,7 +104,7 @@ async def test_restart_backfills_skipped_graph_without_hiding_records(model_runt
 async def test_failed_graph_backfill_keeps_committed_evidence(
     model_runtime, monkeypatch
 ):
-    from mesa_memory.graph.projector import GraphProjector
+    from mesa_storage.dao import MemoryDAO
 
     async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
         await _insert(env)
@@ -115,7 +115,7 @@ async def test_failed_graph_backfill_keeps_committed_evidence(
         async def fail(*args, **kwargs):
             raise RuntimeError("injected graph outage")
 
-        monkeypatch.setattr(GraphProjector, "project_assertion", fail)
+        monkeypatch.setattr(MemoryDAO, "_write_v4_graph_assertion_in_tx", fail)
         for attempt in range(1, 6):
             await _consume(env)
             assert (await _lanes(env))["GRAPH"] == (

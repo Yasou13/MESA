@@ -17,6 +17,14 @@ from mesa_storage.dao import MemoryDAO, classify_graph_object
 logger = logging.getLogger("MESA_ProjectionWorker")
 
 _LANE_ORDER = {"SQL": 0, "VECTOR": 1, "GRAPH": 2}
+_PROJECTABLE_MUTATION_STATES = {
+    "VALIDATED",
+    "SQL_APPLIED",
+    "VECTOR_APPLIED",
+    "GRAPH_APPLIED",
+    "RETRY_PENDING",
+    "COMMITTED",
+}
 _graph_lock: asyncio.Lock | None = None
 
 
@@ -143,21 +151,9 @@ def _triplets(record: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
-    mutation = await dao.get_projection_mutation(str(projection["mutation_id"]))
-    if mutation is None:
-        raise PermanentProjectionError("mutation no longer exists")
-    if mutation["state"] not in {
-        "VALIDATED",
-        "SQL_APPLIED",
-        "VECTOR_APPLIED",
-        "GRAPH_APPLIED",
-        "RETRY_PENDING",
-        "COMMITTED",
-    }:
-        raise PermanentProjectionError(
-            f"mutation is not projectable: {mutation['state']}"
-        )
+def _prepare_sql_projection(
+    mutation: dict[str, Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
     triplets = _triplets(mutation)
     entities = sorted(
         {
@@ -167,6 +163,18 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
             if entity
         }
     )
+    return (entities, triplets)
+
+
+async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
+    mutation = await dao.get_projection_mutation(str(projection["mutation_id"]))
+    if mutation is None:
+        raise PermanentProjectionError("mutation no longer exists")
+    if mutation["state"] not in _PROJECTABLE_MUTATION_STATES:
+        raise PermanentProjectionError(
+            f"mutation is not projectable: {mutation['state']}"
+        )
+    entities, triplets = _prepare_sql_projection(mutation)
     lane = projection["projection_name"]
     if lane == "SQL":
         for entity in entities:
@@ -202,6 +210,113 @@ async def _apply_with_lease_heartbeat(
     await _apply_projection(dao, projection)
 
 
+async def _try_apply_sql_batch(
+    dao: MemoryDAO, sql_items: list[dict[str, Any]]
+) -> bool:
+    try:
+        mutations_by_id = await dao.get_projection_mutations_batch(
+            [str(p["mutation_id"]) for p in sql_items]
+        )
+        batch_inputs: list[tuple[dict[str, Any], list[str], list[dict[str, Any]]]] = []
+        for p in sql_items:
+            mutation = mutations_by_id.get(str(p["mutation_id"]))
+            if (
+                mutation is None
+                or mutation["state"] not in _PROJECTABLE_MUTATION_STATES
+            ):
+                return False
+            entities, triplets = _prepare_sql_projection(mutation)
+            batch_inputs.append((mutation, entities, triplets))
+        await dao.apply_v4_sql_projections_batch(batch_inputs)
+        return True
+    except Exception:
+        if len(sql_items) == 1:
+            raise
+        return False
+
+
+async def _try_apply_graph_batch(
+    dao: MemoryDAO, graph: Any, graph_items: list[dict[str, Any]]
+) -> bool:
+    try:
+        (
+            mutations_by_id,
+            assertions_by_mutation,
+            fenced_ids,
+        ) = await dao.load_v4_graph_projection_inputs_batch(
+            [str(p["mutation_id"]) for p in graph_items]
+        )
+        work_items: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+        for p in graph_items:
+            mid = str(p["mutation_id"])
+            mutation = mutations_by_id.get(mid)
+            if (
+                mutation is None
+                or mid in fenced_ids
+                or mutation["state"] not in _PROJECTABLE_MUTATION_STATES
+            ):
+                return False
+            assertions = assertions_by_mutation.get(mid, [])
+            for assertion in assertions:
+                if not assertion.get("assertion_id") or not assertion.get("subject_id"):
+                    return False
+                has_entity = assertion.get("object_entity_id") is not None
+                has_literal = assertion.get("literal_value") is not None
+                if has_entity == has_literal:
+                    return False
+            work_items.append((mutation, assertions))
+
+        pending_artifacts: list[tuple[str, str, str, str, dict[str, Any] | None]] = []
+        written: list[tuple[dict[str, Any], str, list[tuple[str, str]]]] = []
+        async with _get_graph_lock():
+            async with graph.transaction():
+                for mutation, assertions in work_items:
+                    mid = str(mutation["mutation_id"])
+                    for assertion in assertions:
+                        assertion_id, graph_entities = (
+                            await dao._write_v4_graph_assertion_in_tx(
+                                graph, mutation=mutation, assertion=assertion
+                            )
+                        )
+                        for entity_id, entity_name in graph_entities:
+                            pending_artifacts.append(
+                                (
+                                    mid,
+                                    "GRAPH",
+                                    "ENTITY",
+                                    entity_id,
+                                    {"entity_name": entity_name},
+                                )
+                            )
+                        pending_artifacts.append(
+                            (
+                                mid,
+                                "GRAPH",
+                                "ASSERTION",
+                                assertion_id,
+                                {"predicate": str(assertion["predicate"])},
+                            )
+                        )
+                        written.append((mutation, assertion_id, graph_entities))
+            try:
+                await dao.record_mutation_artifacts_batch(pending_artifacts)
+            except Exception:
+                # Same rule as the per-item path: a committed graph write
+                # without a durable receipt is removed or queued for cleanup.
+                for mutation, assertion_id, graph_entities in written:
+                    await dao._compensate_v4_graph_projection(
+                        mutation=mutation,
+                        assertion_id=assertion_id,
+                        graph_entities=graph_entities,
+                    )
+                raise
+        return True
+    except Exception:
+        if len(graph_items) == 1:
+            raise
+        return False
+
+
 async def process_projection_outbox_once(
     dao: MemoryDAO, *, worker_id: str = "combined-runtime", limit: int = 50
 ) -> dict[str, int]:
@@ -214,37 +329,14 @@ async def process_projection_outbox_once(
         "dead_letter": 0,
     }
 
+    skipped_projections: list[dict[str, Any]] = []
     successful_projections: list[dict[str, Any]] = []
 
-    async def _handle_one(projection: dict[str, Any]) -> None:
+    async def _record_projection_failure(
+        projection: dict[str, Any], exc: Exception
+    ) -> None:
         projection_id = str(projection["projection_id"])
-        try:
-            if (
-                projection["projection_name"] == "VECTOR" and not dao.embedding_enabled
-            ) or (projection["projection_name"] == "GRAPH" and not dao.graph_enabled):
-                result["completed"] += int(
-                    await dao.complete_projection_outbox(
-                        projection_id,
-                        worker_id=worker_id,
-                        claim_token=str(projection["claim_token"]),
-                        outcome="SKIPPED",
-                    )
-                )
-                return
-            graph = dao._graph
-            graph_transaction = getattr(graph, "transaction", None)
-            if (
-                projection.get("projection_name") == "GRAPH"
-                and graph is not None
-                and getattr(graph, "is_operational", False) is True
-                and callable(graph_transaction)
-            ):
-                async with graph_transaction():
-                    await _apply_with_lease_heartbeat(dao, projection, worker_id)
-            else:
-                await _apply_with_lease_heartbeat(dao, projection, worker_id)
-            successful_projections.append(projection)
-        except PermanentProjectionError as exc:
+        if isinstance(exc, PermanentProjectionError):
             changed = await dao.fail_projection_outbox(
                 projection_id,
                 worker_id=worker_id,
@@ -259,31 +351,93 @@ async def process_projection_outbox_once(
                 projection_id,
                 exc,
             )
+            return
+        changed = await dao.fail_projection_outbox(
+            projection_id,
+            worker_id=worker_id,
+            claim_token=str(projection["claim_token"]),
+            error_class=type(exc).__name__,
+            retryable=True,
+        )
+        if changed:
+            if int(projection["attempt_count"]) >= int(projection["retry_limit"]):
+                result["dead_letter"] += 1
+            else:
+                result["retry_pending"] += 1
+        logger.warning(
+            "V4_PROJECTION_RETRYABLE_FAILURE | projection_id=%s error=%s",
+            projection_id,
+            exc,
+        )
+
+    async def _handle_one(projection: dict[str, Any]) -> None:
+        try:
+            if (
+                projection["projection_name"] == "VECTOR" and not dao.embedding_enabled
+            ) or (projection["projection_name"] == "GRAPH" and not dao.graph_enabled):
+                skipped_projections.append(projection)
+                return
+            graph = dao._graph
+            graph_transaction = getattr(graph, "transaction", None)
+            if (
+                projection.get("projection_name") == "GRAPH"
+                and graph is not None
+                and getattr(graph, "is_operational", False) is True
+                and callable(graph_transaction)
+            ):
+                async with graph_transaction():
+                    await _apply_with_lease_heartbeat(dao, projection, worker_id)
+            else:
+                await _apply_with_lease_heartbeat(dao, projection, worker_id)
+            successful_projections.append(projection)
         except Exception as exc:
-            changed = await dao.fail_projection_outbox(
-                projection_id,
-                worker_id=worker_id,
-                claim_token=str(projection["claim_token"]),
-                error_class=type(exc).__name__,
-                retryable=True,
-            )
-            if changed:
-                if int(projection["attempt_count"]) >= int(projection["retry_limit"]):
-                    result["dead_letter"] += 1
-                else:
-                    result["retry_pending"] += 1
-            logger.warning(
-                "V4_PROJECTION_RETRYABLE_FAILURE | projection_id=%s error=%s",
-                projection_id,
-                exc,
-            )
+            await _record_projection_failure(projection, exc)
 
     sorted_projections = sorted(
         claimed, key=lambda item: _LANE_ORDER.get(item["projection_name"], 99)
     )
+    active_by_lane: dict[str, list[dict[str, Any]]] = {}
     for p in sorted_projections:
-        await _handle_one(p)
+        lane = str(p["projection_name"])
+        if (
+            (lane == "VECTOR" and not dao.embedding_enabled)
+            or (lane == "GRAPH" and not dao.graph_enabled)
+        ):
+            skipped_projections.append(p)
+        else:
+            active_by_lane.setdefault(lane, []).append(p)
 
+    for lane, items in active_by_lane.items():
+        if lane == "SQL":
+            try:
+                if await _try_apply_sql_batch(dao, items):
+                    successful_projections.extend(items)
+                    continue
+            except Exception as exc:
+                await _record_projection_failure(items[0], exc)
+                continue
+        elif lane == "GRAPH":
+            graph = getattr(dao, "_graph", None)
+            graph_transaction = getattr(graph, "transaction", None)
+            if (
+                graph is not None
+                and getattr(graph, "is_operational", False) is True
+                and callable(graph_transaction)
+            ):
+                try:
+                    if await _try_apply_graph_batch(dao, graph, items):
+                        successful_projections.extend(items)
+                        continue
+                except Exception as exc:
+                    await _record_projection_failure(items[0], exc)
+                    continue
+        for p in items:
+            await _handle_one(p)
+
+    if skipped_projections:
+        result["completed"] += await dao.complete_projection_outbox_batch(
+            skipped_projections, worker_id=worker_id, outcome="SKIPPED"
+        )
     if successful_projections:
         result["completed"] += await dao.complete_projection_outbox_batch(
             successful_projections, worker_id=worker_id

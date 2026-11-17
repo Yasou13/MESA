@@ -8,6 +8,49 @@ from mesa_storage.legal_rules import RULES_VERSION, extract
 
 
 @pytest.mark.parametrize(
+    "text,docket,decision,date",
+    [
+        ("2022/1 E., 2023/2 K.", "2022/1", "2023/2", None),
+        ("Anayasa Mahkemesi E. 2022/1, K. 2023/2", "2022/1", "2023/2", None),
+        ("Y.C.G.K 2020/527 K", None, "2020/527", None),
+        ("1.2.2023 tarihli ve 12-34 sayılı", "12", "34", "2023-02-01"),
+        (
+            "Bandırma Sulh Hukuk Mahkemesinde görülen 2009/183 Esas",
+            "2009/183", None, None,
+        ),
+        ("２０２２/１ E., ２０２３/２ K.", "２０２２/１", "２０２３/２", None),
+    ],
+)
+def test_decision_year_prefilter_keeps_all_reference_forms(text, docket, decision, date):
+    items = extract(text)
+    assert len(items) == 1
+    item = items[0]
+    assert item["type"] == "decision_ref"
+    assert (item["docket_no"], item["decision_no"], item["date"]) == (
+        docket, decision, date,
+    )
+    assert item["text"] == text[item["start"]:item["end"]] == text.rstrip(" ,.")
+
+
+def test_dense_slash_citations_keep_spans_and_following_law_header():
+    prefix = ("TCK/1 " * 5462)[:32768]
+    suffix = " 6098 sayılı Türk Borçlar Kanununun 49 uncu maddesi"
+    items = extract(prefix + suffix)
+    assert len(items) == 5462
+    for index, item in enumerate(items[:-1]):
+        assert item == {
+            "start": index * 6, "end": index * 6 + 5, "text": "TCK/1",
+            "type": "citation", "law_no": None, "law_name": "TCK",
+            "article": "1", "paragraph": None,
+        }
+    assert items[-1] == {
+        "start": len(prefix) + 1, "end": len(prefix + suffix),
+        "text": suffix.strip(), "type": "citation", "law_no": "6098",
+        "law_name": "Türk Borçlar Kanunu", "article": "49", "paragraph": None,
+    }
+
+
+@pytest.mark.parametrize(
     "titlecase, uppercase, expected",
     [
         ("5 İş Günü", "5 İŞ GÜNÜ", {"type": "duration", "value": 5, "unit": "iş günü"}),

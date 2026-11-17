@@ -102,7 +102,7 @@ class MesaHttpV4Service:
                             await create()
                         except MesaAPIError as create_exc:
                             if create_exc.status_code != 409:
-                                raise
+                                raise exc from create_exc
                     resp = await client.start_session(
                         tenant_id=tenant_id,
                         workspace_id=workspace_id,

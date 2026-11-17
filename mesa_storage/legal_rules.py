@@ -552,10 +552,14 @@ def _clean_court_chamber(raw: Optional[str]) -> Tuple[Optional[str], Optional[st
 
 
 _DECISION_HINT = re.compile(r"E\.|K\b|Esas|Karar", re.IGNORECASE)
+# Every decision grammar needs a year-prefixed docket or a full numeric date.
+_DECISION_YEAR_HINT = re.compile(r"\d{4}/|[./]\d{4}")
 
 
 def extract_decision_refs(text: str) -> List[Dict[str, Any]]:
     if "/" not in text and "-" not in text:
+        return []
+    if not _DECISION_YEAR_HINT.search(text):
         return []
     if not _DECISION_HINT.search(text) and not _NUMERIC_DATE_PAT.search(text):
         return []
@@ -882,27 +886,6 @@ def extract_citations(text: str) -> List[Dict[str, Any]]:
             if lookahead.startswith(" mahkemesi") or lookahead.startswith("mahkemesi"):
                 continue
 
-        groups = m.groupdict()
-        law_no = groups.get("law_no") or groups.get("law_no_bare")
-        raw_name = (
-            groups.get("law_title_1") or
-            groups.get("law_title_bare") or
-            groups.get("acronym") or
-            groups.get("law_title_2")
-        )
-        anaphoric = groups.get("anaphoric") or groups.get("anaph_noun")
-
-        law_name = _clean_law_name(raw_name) if raw_name else None
-        if anaphoric:
-            law_name = None
-            law_no = None
-
-        # Check for Tebliğ No inside parenthetical: (Tebliğ No: 2024/53)
-        if not law_no:
-            teb_m = re.search(r"\((?:Tebliğ\s{1,4}+No:\s{0,4}+|Karar\s{1,4}+No:\s{0,4}+)([\w/-]{1,64}+)\)", full_match_text)
-            if teb_m:
-                law_no = teb_m.group(1)
-
         # Check what follows immediately after the law header
         # The grammar has a fixed maximum clause length; do not copy the entire
         # remaining document for every header in a reference-heavy chunk.
@@ -933,6 +916,27 @@ def extract_citations(text: str) -> List[Dict[str, Any]]:
 
         if not art_span_text:
             continue
+
+        groups = m.groupdict()
+        law_no = groups.get("law_no") or groups.get("law_no_bare")
+        raw_name = (
+            groups.get("law_title_1") or
+            groups.get("law_title_bare") or
+            groups.get("acronym") or
+            groups.get("law_title_2")
+        )
+        anaphoric = groups.get("anaphoric") or groups.get("anaph_noun")
+
+        law_name = _clean_law_name(raw_name) if raw_name else None
+        if anaphoric:
+            law_name = None
+            law_no = None
+
+        # Check for Tebliğ No inside parenthetical: (Tebliğ No: 2024/53)
+        if not law_no:
+            teb_m = re.search(r"\((?:Tebliğ\s{1,4}+No:\s{0,4}+|Karar\s{1,4}+No:\s{0,4}+)([\w/-]{1,64}+)\)", full_match_text)
+            if teb_m:
+                law_no = teb_m.group(1)
 
         art_str, para_str = _parse_articles_and_paragraphs(art_span_text)
 

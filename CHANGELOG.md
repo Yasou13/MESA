@@ -7,13 +7,13 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.3] - 2026-11-16
 
 ### Fixed
 
 - MCP session creation now provisions the workspace and dataset when a fresh
-  store reports them missing, then retries once. Other errors retain their
-  existing handling.
+  store reports them missing, then retries once. If catalog creation fails,
+  callers receive the original session-start error rather than the create error.
 - Ending a session in default Mode 0 now processes deferred records without a
   consolidation loop, allowing finalization to complete.
 - Turkish legal rule comparisons and date lookups handle uppercase İ/I
@@ -37,9 +37,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parser regression checks retain their 200 ms budget using thread CPU time,
   with a 2 s hang guard. Claude adapter tests skip when the optional `anthropic`
   package is absent.
+- Legal rule extraction skips impossible decision-reference scans and delays
+  law-name cleanup until an attached article is found. On the API-limit
+  `TCK/1` input, best-of-five local thread CPU fell from 129.861 ms to
+  52.330 ms (2.48x faster), with identical saved outputs and spans. The
+  isolated 200 ms CI CPU-budget check is blocking again; the full local
+  suite retains its 2 s hang guard.
 
 ### Changed
 
+- Bulk ingestion batches SQL and graph projections and outbox completion in
+  the existing worker pass. The measured 4,999,000-byte document reached full
+  readiness in 245.20 s versus 718.27 s before (2.93x faster), with all 4,882
+  mutations COMMITTED, SQL and GRAPH COMPLETED, VECTOR SKIPPED, and lossless
+  chunk readback. Durability and fencing behavior are preserved.
+- The default embedding model is now `local:BAAI/bge-m3`, with 1024 dimensions
+  and normalization enabled, including the Compose model default. Models remain
+  off by default. Stores created with the old default must keep both
+  `MESA_EMBEDDING_MODEL=local:magibu/embeddingmagibu-200m` and
+  `MESA_EMBEDDING_DIMENSION=768`, or rebuild before switching embedding identity.
+- Tag-triggered PyPI releases wait for the complete reusable CI workflow before
+  building and publishing. The first live tag run will verify this wiring.
 - Startup fails with a clear error when `MESA_TIER3_MODE=1/2` has no active
   consolidation loop; extraction must be enabled for these modes.
 - Bootstrap `MESA_API_KEY` secrets containing `.` are rejected at startup.
@@ -49,11 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known issues
 
-- The parser CPU-budget check is informational in CI until the parser speed work in Round 20.
 - Kuzu 0.11.3 can write uninitialized memory into graph page tails, so raw graph files may contain fragments of text the process handled; MESA never stores memory text in the graph (checked by query), and the graph directory should be treated as sensitive like the SQLite file.
-- The 200 ms parser CPU budget is checked separately on a quiet machine with
-  `uv run pytest -q -m timing tests/test_p1002_request_path_sweep.py`;
-  the full local suite retains the 2 s hang guard for every parser call.
 - Per-minute and daily rate limits are not enforced for `/v4/*` and `/control/*`
   in this version; the API documentation now states this limitation.
 - The ASCII query `yargitay` still does not match text written `Yargıtay`;
@@ -725,7 +739,7 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
-[Unreleased]: https://github.com/Yasou13/MESA/compare/v0.9.2...HEAD
+[0.9.3]: https://github.com/Yasou13/MESA/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Yasou13/MESA/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Yasou13/MESA/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Yasou13/MESA/compare/v0.8.1...v0.9.0

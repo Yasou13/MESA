@@ -219,7 +219,7 @@ Before startup:
    [runbook section 2](RUNBOOK.md#credential-bootstrap).
 2. Install the selected extraction and embedding dependencies; configure their
    provider/model identity. External `text-embedding-3-small` requires dimension
-   1536; the local Magibu default is 768. Equal dimensions alone are insufficient.
+   1536; the local `BAAI/bge-m3` default is 1024. Equal dimensions alone are insufficient.
 3. Select validation mode. Mode 0 has no LLM validator but still needs canonical
    extraction and embeddings; mode 2 requires distinct A/B validator identities.
 4. Supply the issued API key and provider secrets privately to the process.
