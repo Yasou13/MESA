@@ -7,6 +7,15 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Scoped temporary FTS5 lexical search now uses 5-character prefix matching
+  (`"abcde"*` with `prefix='5'`) for query tokens of 6 or more characters that
+  contain no digits, while keeping shorter tokens, digit tokens, and `ı` → `i`
+  variants exact.
+
 ## [0.9.3] - 2026-11-16
 
 ### Fixed
