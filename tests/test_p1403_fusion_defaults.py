@@ -116,3 +116,19 @@ async def test_explicit_env_restores_graph_and_assertion_weight(model_runtime):
         assert "assertion" in ranks
         expected_rrf = sum(1.0 / (60 + rank) for rank in ranks.values())
         assert top["rrf_score"] == pytest.approx(expected_rrf)
+
+
+@pytest.mark.parametrize(("env_value", "expected"), [(None, False), ("true", True)])
+def test_rebuild_provider_manifest_follows_graph_default(
+    monkeypatch, env_value, expected
+):
+    from mesa_memory import rebuild_runner
+
+    monkeypatch.setenv("MESA_EMBEDDING_ENABLED", "false")
+    if env_value is None:
+        monkeypatch.delenv("MESA_GRAPH_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("MESA_GRAPH_ENABLED", env_value)
+
+    providers = rebuild_runner._provider_runtime()
+    assert providers.manifest["graph_enabled"] is expected

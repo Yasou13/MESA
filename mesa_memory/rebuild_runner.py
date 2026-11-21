@@ -96,7 +96,7 @@ def _provider_runtime() -> RebuildProviderRuntime:
     return RebuildProviderRuntime(
         manifest={
             **identity.as_dict(),
-            "graph_enabled": _environment_bool("MESA_GRAPH_ENABLED", default=True),
+            "graph_enabled": _environment_bool("MESA_GRAPH_ENABLED", default=False),
             "embedding_provider": identity.provider,
             "embedding_model": identity.model,
             "embedding_version": identity.version,
