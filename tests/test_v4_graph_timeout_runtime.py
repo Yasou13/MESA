@@ -402,6 +402,7 @@ async def test_combined_runtime_wires_configured_graph_timeout(monkeypatch, tmp_
         api_enabled=True,
         worker_enabled=True,
         require_worker_readiness=False,
+        graph_enabled=True,
     )
 
     monkeypatch.setattr(server, "load_runtime_profile", lambda: runtime)

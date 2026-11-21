@@ -163,7 +163,7 @@ async def test_dao_passes_only_scoped_sqlite_evidence_to_graph(tmp_path):
 @pytest.mark.asyncio
 async def test_purge_leaves_no_evidence_or_literal_in_graph_files(model_runtime):
     marker = "GRAPHRAWPRIVACYMARKER"
-    async with model_runtime() as env:
+    async with model_runtime(MESA_GRAPH_ENABLED=True) as env:
         await _grant_lifecycle_permissions()
         literal = await _insert_document(
             env,
@@ -317,7 +317,7 @@ async def test_rebuild_creates_text_free_graph_from_legacy_store(
     model_runtime, tmp_path
 ):
     marker = "REBUILDGRAPHPRIVACYMARKER"
-    async with model_runtime(MESA_V4_REBUILD_ENABLED=True) as env:
+    async with model_runtime(MESA_V4_REBUILD_ENABLED=True, MESA_GRAPH_ENABLED=True) as env:
         await _insert_document(
             env, content=f"{marker} durable memory.", evidence_span=marker
         )

@@ -228,7 +228,7 @@ async def test_rebuild_with_graph_disabled_never_opens_kuzu(
         assert "graph" not in (await _search(env))["degraded_sources"]
 
 
-def test_graph_flag_defaults_true_and_test_isolated_keeps_its_rule(tmp_path):
+def test_graph_flag_defaults_false_and_test_isolated_keeps_its_rule(tmp_path):
     from mesa_memory.config import load_runtime_profile
 
     runtime = load_runtime_profile(
@@ -237,16 +237,27 @@ def test_graph_flag_defaults_true_and_test_isolated_keeps_its_rule(tmp_path):
             "MESA_STORAGE_ROOT": str(tmp_path / "normal"),
         }
     )
-    assert getattr(runtime, "graph_enabled", None) is True
+    assert getattr(runtime, "graph_enabled", None) is False
+    assert (
+        load_runtime_profile(
+            {
+                "MESA_RUNTIME_PROFILE": "combined",
+                "MESA_STORAGE_ROOT": str(tmp_path / "normal"),
+                "MESA_GRAPH_ENABLED": "true",
+            }
+        ).graph_enabled
+        is True
+    )
     isolated = {
         "MESA_RUNTIME_PROFILE": "test-isolated",
         "MESA_RUNTIME_LAB_ROOT": str(tmp_path),
         "MESA_STORAGE_ROOT": str(tmp_path / "isolated"),
     }
     assert load_runtime_profile(isolated).worker_enabled is False
+    assert load_runtime_profile(isolated).graph_enabled is False
     assert (
-        load_runtime_profile({**isolated, "MESA_GRAPH_ENABLED": "false"}).graph_enabled
-        is False
+        load_runtime_profile({**isolated, "MESA_GRAPH_ENABLED": "true"}).graph_enabled
+        is True
     )
 
 

@@ -278,7 +278,9 @@ async def test_failing_backfill_keeps_committed_record_searchable(model_runtime)
 @pytest.mark.asyncio
 async def test_legacy_model_flag_enables_both_models(model_runtime):
     async with model_runtime(
-        MESA_MODEL_ENABLED=True, MESA_EXTRACTION_ENABLED=True
+        MESA_MODEL_ENABLED=True,
+        MESA_EXTRACTION_ENABLED=True,
+        MESA_GRAPH_ENABLED=True,
     ) as env:
         runtime = server.state.runtime_profile
         assert getattr(runtime, "embedding_enabled", None) is True
@@ -320,7 +322,9 @@ async def test_identity_change_rebuild_allows_skipped_vector_backfill(
     from mesa_storage.sqlite_engine import AsyncEngine
 
     async with model_runtime(
-        MESA_EMBEDDING_VERSION="v1", MESA_V4_REBUILD_ENABLED=True
+        MESA_EMBEDDING_VERSION="v1",
+        MESA_V4_REBUILD_ENABLED=True,
+        MESA_GRAPH_ENABLED=True,
     ) as env:
         await _insert(env)
         await _consume(env, 3)
@@ -679,6 +683,7 @@ async def test_external_openai_compatible_provider_makes_zero_embedding_calls_wh
         "MESA_MODEL_ENABLED": "false",
         "MESA_EMBEDDING_ENABLED": "false",
         "MESA_EXTRACTION_ENABLED": "false",
+        "MESA_GRAPH_ENABLED": "true",
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
         "MESA_EMBEDDING_MODEL": "openai_compatible:external-test-model",
         "MESA_EMBEDDING_DIMENSION": "4",
@@ -758,7 +763,9 @@ async def test_external_openai_compatible_provider_makes_zero_embedding_calls_wh
 
 @pytest.mark.asyncio
 async def test_backfill_keeps_identity_of_skipped_mutation_with_vectors(model_runtime):
-    async with model_runtime(MESA_EMBEDDING_ENABLED=True) as env:
+    async with model_runtime(
+        MESA_EMBEDDING_ENABLED=True, MESA_GRAPH_ENABLED=True
+    ) as env:
         await _insert(env)
         await _consume(env, 3)
         await _assert_committed(env)
