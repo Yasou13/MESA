@@ -6,7 +6,12 @@ import kuzu
 import pytest
 
 from mesa_memory.api import server
-from mesa_memory.config import MesaConfig, RuntimeProfile, RuntimeProfileConfig, load_runtime_profile
+from mesa_memory.config import (
+    MesaConfig,
+    RuntimeProfile,
+    RuntimeProfileConfig,
+    load_runtime_profile,
+)
 from tests.test_model_optional_runtime import (
     _assert_committed,
     _consume,
