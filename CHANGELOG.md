@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not open or create Kùzu). Set `MESA_RRF_ASSERTION_WEIGHT=1.0` and/or
   `MESA_GRAPH_ENABLED=true` to restore the previous behavior (enabling graph
   backfills skipped GRAPH lanes at startup).
+- Fresh installs cap FastAPI below 0.142, LanceDB below 0.35, Kùzu below
+  0.12, and Pydantic below 3.
 
 ## [0.9.3] - 2026-11-16
 
