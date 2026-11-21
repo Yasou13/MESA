@@ -74,13 +74,13 @@ Local `openai_compatible` servers (such as vLLM started with `--port 8001`, at `
 
 ## Graph toggle
 
-To run without the Kùzu graph database, set:
+The Kùzu graph database is off by default (`MESA_GRAPH_ENABLED=false`), so fresh installs do not open or create Kùzu files and GRAPH lanes end `SKIPPED`. To enable it, set:
 
 ```bash
-MESA_GRAPH_ENABLED=false
+MESA_GRAPH_ENABLED=true
 ```
 
-GRAPH lanes end `SKIPPED`, and turning the flag back on later backfills the graph at startup.
+Enabling it on an existing store backfills skipped GRAPH lanes at startup.
 
 ## Docker
 

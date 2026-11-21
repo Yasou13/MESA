@@ -104,14 +104,16 @@ them through BM25. Disabled VECTOR lanes end `SKIPPED`; enabling embedding later
 backfills them at startup using the same embedding identity. Backfill failures
 leave committed records searchable.
 
-`MESA_GRAPH_ENABLED` defaults to `true`, independently of the model flags.
-Set it to `false` to avoid opening Kùzu in the runtime and offline rebuild
-runner. GRAPH lanes end `SKIPPED`, BM25 and enabled vector search still work,
-search reports `graph` in `degraded_sources`, and capability reports no graph.
-Enabling it again backfills skipped GRAPH lanes at combined startup. A rebuild
-with graph disabled also marks previously completed GRAPH lanes `SKIPPED` at
-cutover so the new generation can be backfilled later. Existing graph files and
-retained generations are not erased by changing this flag.
+`MESA_GRAPH_ENABLED` defaults to `false`, independently of the model flags.
+When `false`, Kùzu is never opened in the runtime: GRAPH lanes end `SKIPPED`,
+BM25 and enabled vector search still work, search reports `graph` in
+`degraded_sources`, and capability reports no graph. Set
+`MESA_GRAPH_ENABLED=true` to enable Kùzu; enabling it on an existing store
+backfills skipped GRAPH lanes at combined startup. A rebuild with graph
+disabled (`MESA_GRAPH_ENABLED=false`) also marks previously completed GRAPH
+lanes `SKIPPED` at cutover so the new generation can be backfilled later.
+Existing graph files and retained generations are not erased by changing this
+flag.
 
 Local identity defaults to `BAAI/bge-m3` 1024-d normalized (upgraded from
 `local:magibu/embeddingmagibu-200m` 768-d; existing stores created before v0.9.3 must keep
@@ -276,7 +278,7 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `rrf_k` | `MESA_RRF_K` | `60` |
 | `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `8.0` |
 | `rrf_bm25_weight` | `MESA_RRF_BM25_WEIGHT` | `1.0` |
-| `rrf_assertion_weight` | `MESA_RRF_ASSERTION_WEIGHT` | `1.0` |
+| `rrf_assertion_weight` | `MESA_RRF_ASSERTION_WEIGHT` | `0.0` |
 | `rrf_graph_weight` | `MESA_RRF_GRAPH_WEIGHT` | `1.0` |
 | `search_scope_cache` | `MESA_SEARCH_SCOPE_CACHE` | `True` |
 | `chunking` | `MESA_CHUNKING` | `'auto'` |

@@ -87,7 +87,7 @@ class RuntimeProfileConfig:
     require_worker_readiness: bool
     embedding_enabled: bool = False
     extraction_enabled: bool = False
-    graph_enabled: bool = True
+    graph_enabled: bool = False
 
 
 NEMOTRON_EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b"
@@ -192,7 +192,7 @@ def load_runtime_profile(
         default=False,
     )
     graph_enabled = _parse_runtime_bool(
-        values.get("MESA_GRAPH_ENABLED"), name="MESA_GRAPH_ENABLED", default=True
+        values.get("MESA_GRAPH_ENABLED"), name="MESA_GRAPH_ENABLED", default=False
     )
     provider_enabled = _parse_runtime_bool(
         values.get("MESA_EXTERNAL_PROVIDER_ENABLED"),
@@ -628,7 +628,7 @@ class MesaConfig(BaseSettings):
     rrf_vector_weight: float = Field(8.0, validation_alias="MESA_RRF_VECTOR_WEIGHT")
     rrf_bm25_weight: float = Field(1.0, validation_alias="MESA_RRF_BM25_WEIGHT")
     rrf_assertion_weight: float = Field(
-        1.0, validation_alias="MESA_RRF_ASSERTION_WEIGHT"
+        0.0, validation_alias="MESA_RRF_ASSERTION_WEIGHT"
     )
     rrf_graph_weight: float = Field(1.0, validation_alias="MESA_RRF_GRAPH_WEIGHT")
     search_scope_cache: bool = Field(

@@ -21,8 +21,10 @@ observable diagnostic isolation.
 | Graph | Bounded paths from legal, vector, lexical and entity-name seeds |
 
 For candidate `c`, `RRF(c) = Σ w_lane / (k + rank_lane(c))`, with ranks starting
-at 1 and default `k=60`. Runtime defaults are vector weight `8.0` and the other
-three weights `1.0`, selected by the [dev benchmark](#round-14-dev-benchmark).
+at 1 and default `k=60`. Runtime defaults are vector weight `8.0`, BM25 weight
+`1.0`, assertion weight `0.0`, and graph weight `1.0` (with
+`MESA_GRAPH_ENABLED=false` by default; see the
+[dev benchmark](#round-14-dev-benchmark)).
 Duplicate backend hits cast one vote. Ties use candidate identity. The RRF
 helper in `mesa_storage/retrieval_scope.py` uses unit weights when none are
 passed; the server passes its [configuration](configuration.md) to the DAO.

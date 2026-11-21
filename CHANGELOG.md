@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`"abcde"*` with `prefix='5'`) for query tokens of 6 or more characters that
   contain no digits, while keeping shorter tokens, digit tokens, and `ı` → `i`
   variants exact.
+- Fusion defaults changed based on benchmark v2 dev ablation:
+  `MESA_RRF_ASSERTION_WEIGHT` now defaults to `0.0` (was `1.0`) and
+  `MESA_GRAPH_ENABLED` now defaults to `false` (was `true`, so fresh installs do
+  not open or create Kùzu). Set `MESA_RRF_ASSERTION_WEIGHT=1.0` and/or
+  `MESA_GRAPH_ENABLED=true` to restore the previous behavior (enabling graph
+  backfills skipped GRAPH lanes at startup).
 
 ## [0.9.3] - 2026-11-16
 
