@@ -633,11 +633,12 @@ class MesaConfig(BaseSettings):
 
     # -----------------------------------------------------------------------
     # v0.7.1 Phase 3: Legal Domain Mode
-    # Legal-specific routing and provenance signals remain available inside
-    # the assurance level selected by MESA_TIER3_MODE.  This flag never changes
-    # the configured number of validation LLMs.
     # -----------------------------------------------------------------------
     legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
+
+    def effective_tier3_mode(self) -> int:
+        """Validation is always deterministic Mode 0 (kept for unchanged harness callers)."""
+        return 0
 
     @property
     def local_embedding_model(self) -> str:

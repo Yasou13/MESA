@@ -3,11 +3,8 @@ Phase 1.1 Verification: Split-Brain Elimination — Storage Unification Tests.
 
 Proves that:
   1. The deleted ``mesa_memory.storage`` module is unreachable at import time.
-  2. The cold-path ingestion worker routes ALL writes exclusively through
-     ``MemoryDAO.insert_memory`` (Dual-Write Saga pattern B-7).
-  3. No residual coupling exists between production code and the deleted
+  2. No residual coupling exists between production code and the deleted
      StorageFacade / RawLogStorage / VectorStorage / NetworkXProvider.
-  4. ``ConsolidationLoop`` reads/writes exclusively via MemoryDAO.
 
 asyncio_mode = strict → every async test requires explicit @pytest.mark.asyncio.
 """
