@@ -615,3 +615,25 @@ class FactExtractionService:
 
         # Return identical mapping for both positions for downstream compatibility
         return indexed, {k: v.model_copy(deep=True) for k, v in indexed.items()}
+
+
+def fact_candidates_to_projection_triplets(
+    facts: list[FactCandidate],
+) -> list[dict[str, Any]]:
+    """Map extracted facts to the canonical V4 assertion representation losslessly."""
+    return [
+        {
+            "head": fact.subject,
+            "relation": fact.predicate,
+            "tail": fact.object,
+            "confidence": fact.confidence,
+            "fact_text": fact.fact_text,
+            "valid_from": fact.valid_from,
+            "valid_to": fact.valid_to,
+            "source_span": fact.source_span,
+            "supersedes": fact.supersedes,
+            "metadata": fact.metadata,
+            "object_type": fact.object_type,
+        }
+        for fact in facts
+    ]

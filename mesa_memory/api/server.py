@@ -34,18 +34,12 @@ from mesa_memory.config import (
     load_runtime_profile,
     refresh_config_from_environment,
 )
-from mesa_memory.consolidation.loop import (
-    ConsolidationLoop,
-)
-from mesa_memory.consolidation.policy import (
-    compose_validation_policy,
-)
 from mesa_memory.embedding.service import (
     get_embedding_service as _get_embedding_service,
 )
+from mesa_memory.extraction.service import FactExtractionService
 from mesa_memory.observability.http import RequestLoggingMiddleware
 from mesa_memory.observability.metrics import (
-    ObservabilityLayer,
     update_v4_health_metrics,
 )
 from mesa_memory.security.api_keys import APIKeyStore
@@ -159,8 +153,7 @@ class AppState:
     kuzu_db: kuzu.Database
     graph_provider: KuzuGraphProvider
     dao: MemoryDAO
-    obs_layer: ObservabilityLayer
-    consolidation_loop: ConsolidationLoop
+    fact_extraction_service: FactExtractionService | None
     access_control: AccessControl
     api_key_store: APIKeyStore
     background_tasks: set[asyncio.Task]
@@ -211,8 +204,8 @@ def _acquire_runtime_writer_lock(
 async def _consume_combined_durable_work_once(
     dao: MemoryDAO,
     *,
-    consolidation_loop: ConsolidationLoop | None,
-    model_processing_enabled: bool,
+    fact_extraction_service: FactExtractionService | None = None,
+    model_processing_enabled: bool = False,
 ) -> dict[str, int]:
     """Consume bounded durable work in the single storage-owner runtime."""
     worker_id = "combined-runtime"
@@ -225,9 +218,8 @@ async def _consume_combined_durable_work_once(
             log_id,
             agent_id,
             dao,
-            consolidation_loop=consolidation_loop,
+            fact_extraction_service=fact_extraction_service,
             model_processing_enabled=model_processing_enabled,
-            require_tier3_validation=model_processing_enabled,
             retry_on_failure=True,
         )
         raw_log = await dao.get_raw_log(agent_id, log_id)
@@ -251,7 +243,7 @@ async def _consume_combined_durable_work_once(
             str(finalization["agent_id"]),
             str(finalization["session_id"]),
             dao,
-            consolidation_loop,
+            fact_extraction_service,
         )
     projections = {"completed": 0}
     cleanup = {"completed": 0}
@@ -273,15 +265,15 @@ async def _consume_combined_durable_work_once(
 async def _run_combined_durable_consumer(
     dao: MemoryDAO,
     *,
-    consolidation_loop: ConsolidationLoop | None,
-    model_processing_enabled: bool,
+    fact_extraction_service: FactExtractionService | None = None,
+    model_processing_enabled: bool = False,
 ) -> None:
     """Poll the durable journal without introducing a second storage writer."""
     while True:
         try:
             await _consume_combined_durable_work_once(
                 dao,
-                consolidation_loop=consolidation_loop,
+                fact_extraction_service=fact_extraction_service,
                 model_processing_enabled=model_processing_enabled,
             )
         except asyncio.CancelledError:
@@ -295,7 +287,6 @@ async def _run_combined_durable_consumer(
 async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     refresh_config_from_environment()
     state.is_ready = False
-    state.obs_layer = ObservabilityLayer()
     state.background_tasks = set()
     state.worker_supervisor = WorkerSupervisor(max_restarts=3)
 
@@ -417,26 +408,11 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
 
     # Model/provider and worker startup are explicit profile decisions.
     wal_task = None
-    state.consolidation_loop = None  # type: ignore[assignment]
-    if runtime.worker_enabled and runtime.extraction_enabled:  # type: ignore[assignment]
-        logger.info("CONSOLIDATION_ADAPTER_INITIALIZATION_STARTED")
-        effective_mode = config.effective_tier3_mode()
-        validation_policy = compose_validation_policy(effective_mode)
-
+    state.fact_extraction_service = None
+    if runtime.worker_enabled and runtime.extraction_enabled:
+        logger.info("EXTRACTION_ADAPTER_INITIALIZATION_STARTED")
         extraction_adapter = AdapterFactory.get_extraction_adapter()
-        # Legacy-only collaborators still require an adapter-shaped object.
-        # Canonical vector production is injected separately through
-        # EmbeddingService/VectorEngine, so reuse the extraction adapter here.
-        embedding_adapter = extraction_adapter
-
-        state.consolidation_loop = ConsolidationLoop(
-            dao=state.dao,
-            embedder=embedding_adapter,
-            validation_policy=validation_policy,
-            extraction_llm=extraction_adapter,
-            obs_layer=state.obs_layer,
-            queue_root=runtime.storage_root,
-        )
+        state.fact_extraction_service = FactExtractionService(llm=extraction_adapter)
 
         # ------------------------------------------------------------------
         # Background worker: SQLite WAL Checkpointer
@@ -462,12 +438,8 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
 
     else:
         logger.info(
-            "Runtime profile %s starts API/storage without workers", runtime.profile
-        )
-
-    if config.effective_tier3_mode() > 0 and state.consolidation_loop is None:
-        raise RuntimeError(
-            "MESA_TIER3_MODE=1/2 requires MESA_EXTRACTION_ENABLED=true"
+            "Runtime profile %s starts API/storage without extraction worker",
+            runtime.profile,
         )
 
     if runtime.profile is RuntimeProfile.COMBINED:
@@ -475,7 +447,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             "combined-durable-consumer",
             lambda: _run_combined_durable_consumer(
                 state.dao,
-                consolidation_loop=state.consolidation_loop,
+                fact_extraction_service=state.fact_extraction_service,
                 model_processing_enabled=runtime.extraction_enabled,
             ),
         )
@@ -501,9 +473,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         with suppress(asyncio.CancelledError):
             await wal_task
 
-    # Stop the consolidation loop before flushing state
-    if hasattr(state, "consolidation_loop") and state.consolidation_loop:
-        await state.consolidation_loop.stop()
+    state.fact_extraction_service = None
 
     # Close KuzuGraphProvider — releases its per-instance connection
     if hasattr(state, "graph_provider") and state.graph_provider:
@@ -728,15 +698,6 @@ def get_embedder():
         raise RuntimeError("canonical EmbeddingService is unavailable") from exc
 
 
-def get_consolidation_loop() -> ConsolidationLoop | None:
-    """Dependency injection for the ConsolidationLoop.
-
-    Returns ``None`` before the lifespan has initialised the loop,
-    which safely disables model processing during startup.
-    """
-    return getattr(state, "consolidation_loop", None)
-
-
 def get_access_control() -> AccessControl:
     """Dependency injection for the AccessControl singleton.
 
@@ -762,9 +723,6 @@ router_dependencies = [Depends(get_api_key), Depends(check_daily_limit)]
 v4_router = create_v4_router(
     get_dao=get_dao,
     get_access_control=get_access_control,
-    get_composed_validation_policy=lambda: getattr(
-        getattr(state, "consolidation_loop", None), "validation_policy", None
-    ),
     get_extraction_enabled=lambda: bool(
         getattr(getattr(state, "runtime_profile", None), "extraction_enabled", False)
     ),
