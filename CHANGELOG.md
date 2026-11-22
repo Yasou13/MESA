@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Legacy V3 node store tables (`nodes`, `nodes_fts`, `lancedb_wal`,
+  `purge_journal`, `system_config`) are dropped by forward-only Alembic
+  migration `f7a8b9c0d1e2` along with V3 `MemoryDAO` node/purge/WAL methods,
+  `VectorEngine` soft-delete/Procrustes methods, `KuzuGraphProvider.get_cognitive_salience`,
+  and legacy V3 startup recovery/polling paths. Existing 0.9.3 V4 stores migrate
+  automatically without data loss.
+
 ### Changed
 
 - Scoped temporary FTS5 lexical search now uses 5-character prefix matching
