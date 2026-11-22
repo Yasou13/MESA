@@ -5,7 +5,6 @@ import hashlib
 import json
 import logging
 import os
-import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -672,28 +671,13 @@ class ConsolidationLoop:
         )
 
     async def start(self):
-        """Main consolidation loop — polls DAO for unconsolidated records."""
+        """Legacy idle poll removed with V3 node store."""
         self._running = True
         while self._running:
             try:
-                # Read from the unconsolidated hot-path via MemoryDAO
-                records = await self.dao.get_memories(
-                    self._agent_id,
-                    include_consolidated=False,
-                    limit=config.consolidation_batch_size,
-                )
-                if records:  # type: ignore[no-untyped-def]
-                    await self.run_batch(records)
+                await asyncio.sleep(config.consolidation_idle_timeout)
             except asyncio.CancelledError:
-                logger.info("Consolidation loop cancelled, shutting down.")
                 break
-            except Exception as exc:
-                logger.error(
-                    "CONSOLIDATION_LOOP_ERROR | error=%s",
-                    exc,
-                    exc_info=True,
-                )
-            await asyncio.sleep(config.consolidation_idle_timeout)
 
     async def stop(self):
         self._running = False
@@ -729,13 +713,6 @@ class ConsolidationLoop:
         self, batch: Optional[list[dict]] = None
     ) -> dict[str, list[str]]:
         """Validate records and persist canonical V4 fact extraction."""
-        if batch is None:
-            batch = await self.dao.get_memories(
-                self._agent_id,
-                include_consolidated=False,
-                limit=config.consolidation_batch_size,
-            )
-
         outcome: dict[str, list[str]] = {"accepted": [], "rejected": [], "deferred": []}
         if not batch:
             return outcome
@@ -858,29 +835,7 @@ class ConsolidationLoop:
                         justification="Selected validation policy rejected in consolidation loop",
                         cost={"token_count": 0, "latency_ms": 0.0},
                     )
-                    # Validation Rejection: Invalidate via DAO soft-invalidation (sets invalid_at)
                     record_id = record.get("cmb_id", record.get("id", ""))
-                    agent_id = record.get("agent_id", self._agent_id)
-                    try:
-                        if not record.get("candidate_id"):
-                            await self.dao.invalidate_node(agent_id, node_id=record_id)
-                    except sqlite3.OperationalError as db_exc:
-                        if "database is locked" in str(db_exc):
-                            # Infrastructure error (SQLite WAL lock) -> Do NOT mark as invalid, skip so it retries
-                            logger.error(
-                                "Database locked during invalidate_node for %s",
-                                record_id,
-                            )
-                        else:
-                            logger.error(
-                                "INVALIDATE_FAILED | id=%s error=%s", record_id, db_exc
-                            )
-                    except Exception as inv_exc:
-                        logger.error(
-                            "INVALIDATE_FAILED | id=%s error=%s",
-                            record_id,
-                            inv_exc,
-                        )
                     outcome["rejected"].append(str(record_id))
             else:
                 ready_batch.append(record)
@@ -1041,139 +996,3 @@ def _requires_provenance_dual_review(record: dict[str, Any]) -> bool:
         and isinstance(evidence_span, str)
         and bool(evidence_span.strip())
     )
-
-
-async def start_tier3_deferred_worker(
-    dao: MemoryDAO,
-    consolidation_loop: ConsolidationLoop,
-    agent_id: str = "mesa_consolidation_system",
-    sleep_interval: int = 5,
-    batch_size: int = 10,
-):
-    """
-    Background worker that continuously consumes and processes records marked
-    with the compatibility field ``tier3_deferred=True``. The composed policy
-    determines whether one or two validation LLMs participate.
-
-    Reads exclusively from ``MemoryDAO`` — the single source of truth.
-    """
-    logger.info("Starting Tier-3 Deferred background worker...")
-    while True:
-        try:
-            # Read unconsolidated records from the DAO hot-path
-            records = await dao.get_memories(
-                agent_id,
-                include_consolidated=False,
-                limit=100,
-            )
-            deferred_records = [r for r in records if r.get("tier3_deferred")]
-
-            if deferred_records:
-                batch = deferred_records[:batch_size]
-                logger.debug(
-                    f"Worker fetched {len(deferred_records)} deferred records."
-                )
-                logger.info(f"Worker processing {len(batch)} deferred records.")
-                await consolidation_loop.run_batch(batch)
-
-                # Mark processed records as consolidated to prevent
-                # re-processing in subsequent polls
-                for record in batch:
-                    record_id = record.get("cmb_id", record.get("id", ""))
-                    record_agent = record.get("agent_id", agent_id)
-                    try:
-                        await dao.mark_consolidated(record_agent, node_id=record_id)
-                    except Exception as mark_exc:
-                        logger.error(
-                            "Failed to mark deferred record %s: %s",
-                            record_id,
-                            mark_exc,
-                        )
-            else:
-                await asyncio.sleep(sleep_interval)
-
-        except asyncio.CancelledError:
-            logger.info("Tier-3 Deferred worker cancelled, shutting down.")
-            break
-        except Exception as e:
-            logger.error(
-                "Error in Tier-3 Deferred worker | exception_type=%s",
-                type(e).__name__,
-                exc_info=True,
-            )
-            await asyncio.sleep(sleep_interval)
-
-
-async def start_dlq_worker(
-    dao: MemoryDAO,
-    consolidation_loop: ConsolidationLoop,
-    agent_id: str = "mesa_consolidation_system",
-    sleep_interval: int = 60,
-    batch_size: int = 10,
-):
-    """Replay only leased DLQ records and retain unverified outcomes."""
-    worker_id = f"dlq-worker:{agent_id}"
-    logger.info("Starting DLQ re-processing background worker...")
-    while True:
-        try:
-            claims = await consolidation_loop.dead_letter_queue.aclaim(
-                worker_id=worker_id, limit=batch_size
-            )
-            if not claims:
-                await asyncio.sleep(sleep_interval)
-                continue
-            batch_records: list[dict] = []
-            replayable_claims: list[dict] = []
-            for claim in claims:
-                if await consolidation_loop.dead_letter_queue.areconcile_receipted_claim(
-                    claim, worker_id=worker_id
-                ):
-                    continue
-                record_agent_id = claim.get("agent_id")
-                cmb_id = claim.get("cmb_id")
-                if not record_agent_id or not cmb_id:
-                    await consolidation_loop.dead_letter_queue.anack(
-                        [claim], worker_id=worker_id, error_type="InvalidDLQMetadata"
-                    )
-                    continue
-                record = await dao.get_memory_by_id(record_agent_id, cmb_id)
-                if record is None:
-                    await consolidation_loop.dead_letter_queue.anack(
-                        [claim], worker_id=worker_id, error_type="RecordNotFound"
-                    )
-                    continue
-                batch_records.append(record)
-                replayable_claims.append(claim)
-            for record, claim in zip(batch_records, replayable_claims):
-                try:
-                    await consolidation_loop.run_batch([record])
-                    verified = await dao.get_memory_by_id(
-                        claim["agent_id"], claim["cmb_id"]
-                    )
-                    side_effect_verified = bool(
-                        verified and verified.get("is_consolidated")
-                    )
-                    if not await consolidation_loop.dead_letter_queue.acomplete(
-                        claim,
-                        worker_id=worker_id,
-                        outcome="SUCCEEDED",
-                        side_effect_verified=side_effect_verified,
-                    ):
-                        await consolidation_loop.dead_letter_queue.anack(
-                            [claim],
-                            worker_id=worker_id,
-                            error_type="UnverifiedRecordOutcome",
-                        )
-                except Exception as exc:
-                    await consolidation_loop.dead_letter_queue.anack(
-                        [claim], worker_id=worker_id, error_type=type(exc).__name__
-                    )
-            await asyncio.sleep(sleep_interval)
-        except asyncio.CancelledError:
-            logger.info("DLQ worker cancelled, shutting down.")
-            break
-        except Exception as exc:
-            logger.error(
-                "DLQ worker failure type=%s", type(exc).__name__, exc_info=True
-            )
-            await asyncio.sleep(sleep_interval)

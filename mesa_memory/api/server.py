@@ -437,54 +437,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
             obs_layer=state.obs_layer,
             queue_root=runtime.storage_root,
         )
-        consolidation_loop_task = await state.worker_supervisor.start(
-            "consolidation-loop", state.consolidation_loop.start
-        )
-        state.background_tasks.add(consolidation_loop_task)
-        logger.info("CONSOLIDATION_LOOP_STARTED")
-
-        # REM, PageRank, entity rewrite/consolidation and
-        # maintenance mutation loops are deliberately not part of the MVP
-        # composition.  They used to mutate legacy SQL/vector/graph state
-        # outside the V4 mutation ledger.  Keep them out of the supported
-        # runtime until they emit lifecycle proposals instead of writes.
-        logger.info("EXPERIMENTAL_COGNITIVE_WORKERS_DISABLED")
-
-        # ------------------------------------------------------------------
-        # Background workers: Tier-3 Deferred (when LLM active) and DLQ
-        # ------------------------------------------------------------------
-        try:
-            from mesa_memory.consolidation.loop import (
-                start_dlq_worker,
-                start_tier3_deferred_worker,
-            )
-
-            if effective_mode > 0:
-                tier3_task = await state.worker_supervisor.start(
-                    "tier3-deferred",
-                    lambda: start_tier3_deferred_worker(
-                        dao=state.dao,
-                        consolidation_loop=state.consolidation_loop,
-                        sleep_interval=15,
-                        batch_size=20,
-                    ),
-                )
-                state.background_tasks.add(tier3_task)
-                logger.info("Tier-3 Deferred worker scheduled successfully.")
-
-            dlq_task = await state.worker_supervisor.start(
-                "dlq",
-                lambda: start_dlq_worker(
-                    dao=state.dao,
-                    consolidation_loop=state.consolidation_loop,
-                    sleep_interval=60,
-                    batch_size=10,
-                ),
-            )
-            state.background_tasks.add(dlq_task)
-            logger.info("DLQ re-processing worker scheduled successfully.")
-        except Exception as exc:
-            logger.error("Failed to schedule Tier-3/DLQ workers: %s", exc)
 
         # ------------------------------------------------------------------
         # Background worker: SQLite WAL Checkpointer
