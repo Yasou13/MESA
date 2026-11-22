@@ -25,7 +25,6 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
     mock_vec.is_initialized = True
     mock_vec.compute_embedding = AsyncMock(return_value=[0.1] * 384)
     mock_vec.upsert = AsyncMock()
-    mock_vec.soft_delete = AsyncMock()
 
     mock_graph = SimpleNamespace()
     mock_graph.insert_node = AsyncMock()

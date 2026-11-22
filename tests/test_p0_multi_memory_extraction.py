@@ -22,7 +22,6 @@ async def test_multi_memory_extraction_contract(tmp_path):
     mock_vec.is_initialized = True
     mock_vec.compute_embedding = AsyncMock(return_value=[0.1] * 384)
     mock_vec.upsert = AsyncMock()
-    mock_vec.soft_delete = AsyncMock()
 
     mock_graph = SimpleNamespace()
     mock_graph.insert_node = AsyncMock()

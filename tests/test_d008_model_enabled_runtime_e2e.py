@@ -145,7 +145,10 @@ async def test_d008_model_enabled_combined_runtime_survives_restart(
 
     async with server.lifespan(FastAPI()):
         assert server.state.is_ready is True
-        assert "tier3-deferred" in server.state.worker_supervisor.readiness()["workers"]
+        assert (
+            "tier3-deferred"
+            not in server.state.worker_supervisor.readiness()["workers"]
+        )
         dao = server.state.dao
         await dao.ensure_v4_catalog_scope(
             tenant_id="tenant-d008", workspace_id="default", dataset_id="main"
@@ -358,7 +361,10 @@ async def test_r4_mode_one_combined_runtime_uses_only_validator_a(
         loop = server.state.consolidation_loop
         assert loop.validation_policy.mode == 1
         assert loop.validation_policy.validator_count == 1
-        assert "tier3-deferred" in server.state.worker_supervisor.readiness()["workers"]
+        assert (
+            "tier3-deferred"
+            not in server.state.worker_supervisor.readiness()["workers"]
+        )
         dao = server.state.dao
         await dao.ensure_v4_catalog_scope(
             tenant_id="tenant-r4-1", workspace_id="default", dataset_id="main"

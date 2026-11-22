@@ -168,7 +168,9 @@ def validate_postflight(
     versions = _rows(connection, "SELECT version_num FROM alembic_version")
     if len(versions) != 1 or not versions[0][0]:
         raise SchemaContractError("MESA schema postflight: invalid revision state.")
-    expected_head = ScriptDirectory.from_config(alembic_config).get_current_head()
+    expected_head: str | None = None
+    if require_head or alembic_config.get_main_option("script_location"):
+        expected_head = ScriptDirectory.from_config(alembic_config).get_current_head()
     if require_head and versions[0][0] != expected_head:
         raise SchemaContractError(
             "MESA schema postflight: revision is not at head."
@@ -178,8 +180,9 @@ def validate_postflight(
         raise SchemaContractError("MESA schema postflight: integrity_check failed.")
     if _rows(connection, "PRAGMA foreign_key_check"):
         raise SchemaContractError("MESA schema postflight: foreign key check failed.")
-    if versions[0][0] == expected_head or (
-        "document_revisions" in snapshot.tables and require_head
+    if (expected_head is not None and versions[0][0] == expected_head) or (
+        "document_revisions" in snapshot.tables
+        and "nodes" not in snapshot.tables
     ):
         _assert_v4_head_contract(snapshot)
         revision_columns = {

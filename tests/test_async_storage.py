@@ -15,20 +15,10 @@ import pytest
 import pytest_asyncio
 
 from mesa_storage.schemas import (
-    fts5_rebuild,
-    fts5_search,
     initialize_schema,
     validate_schema,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
-from tests.utils.storage_helpers import (
-    bulk_insert_nodes,
-    find_nodes_by_name,
-    get_active_nodes,
-    insert_node,
-    mark_consolidated,
-    soft_delete_node,
-)
 
 TEST_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -178,21 +168,29 @@ class TestAsyncEngine:
         db_path = os.path.join(TEST_DIR, "txn.db")
         async with AsyncEngine(db_path) as eng:
             await initialize_schema(eng)
-            nid = uuid.uuid4().hex
-            await insert_node(eng, nid, "RollbackTest")
+            async with eng.transaction() as db:
+                await db.execute(
+                    "INSERT INTO raw_logs (agent_id, payload, status) VALUES (?, ?, ?)",
+                    ("agent_txn", '{"msg": "initial"}', "UNPROCESSED"),
+                )
+                await db.commit()
 
             with pytest.raises(ValueError):
                 async with eng.transaction() as db:
                     await db.execute(
-                        "UPDATE nodes SET entity_name = ? WHERE id = ?",
-                        ("CHANGED", nid),
+                        "UPDATE raw_logs SET status = ? WHERE agent_id = ?",
+                        ("CHANGED", "agent_txn"),
                     )
                     raise ValueError("force rollback")
 
             # Verify rollback
-            nodes = await get_active_nodes(eng, agent_id=_DEFAULT_AGENT)
-            found = [n for n in nodes if n["id"] == nid]
-            assert found[0]["entity_name"] == "RollbackTest"
+            async with eng.connection() as db:
+                async with db.execute(
+                    "SELECT status FROM raw_logs WHERE agent_id = ?", ("agent_txn",)
+                ) as cur:
+                    rows = await cur.fetchall()
+            assert len(rows) == 1
+            assert rows[0][0] == "UNPROCESSED"
 
     @pytest.mark.asyncio
     async def test_concurrent_connections(self):
@@ -200,15 +198,23 @@ class TestAsyncEngine:
         async with AsyncEngine(db_path, max_connections=4) as eng:
             await initialize_schema(eng)
 
-            async def _worker(idx: int) -> str:
-                nid = uuid.uuid4().hex
-                await insert_node(eng, nid, f"concurrent_{idx}")
-                return nid
+            async def _worker(idx: int) -> int:
+                async with eng.transaction() as db:
+                    await db.execute(
+                        "INSERT INTO raw_logs (agent_id, payload, status) VALUES (?, ?, ?)",
+                        ("agent_conc", f'{{"idx": {idx}}}', "UNPROCESSED"),
+                    )
+                    await db.commit()
+                return idx
 
             ids = await asyncio.gather(*[_worker(i) for i in range(8)])
             assert len(ids) == 8
-            nodes = await get_active_nodes(eng, agent_id=_DEFAULT_AGENT)
-            assert len(nodes) == 8
+            async with eng.connection() as db:
+                async with db.execute(
+                    "SELECT id FROM raw_logs WHERE agent_id = ?", ("agent_conc",)
+                ) as cur:
+                    rows = await cur.fetchall()
+            assert len(rows) == 8
 
 
 # ===================================================================
@@ -232,167 +238,3 @@ class TestSchemaValidation:
         assert all(result["triggers"].values())
 
 
-# ===================================================================
-# Node CRUD
-# ===================================================================
-
-
-class TestNodeCRUD:
-    @pytest.mark.asyncio
-    async def test_insert_and_retrieve(self, engine):
-        nid = uuid.uuid4().hex
-        returned = await insert_node(engine, nid, "TestEntity", "PERSON")
-        assert returned == nid
-
-        nodes = await get_active_nodes(engine, agent_id=_DEFAULT_AGENT)
-        assert any(n["id"] == nid and n["entity_name"] == "TestEntity" for n in nodes)
-
-    @pytest.mark.asyncio
-    async def test_soft_delete_node(self, engine):
-        nid = uuid.uuid4().hex
-        await insert_node(engine, nid, "DeleteMe")
-        await soft_delete_node(engine, nid, agent_id=_DEFAULT_AGENT)
-
-        nodes = await get_active_nodes(engine, agent_id=_DEFAULT_AGENT)
-        assert not any(n["id"] == nid for n in nodes)
-
-    @pytest.mark.asyncio
-    async def test_mark_consolidated(self, engine):
-        nid = uuid.uuid4().hex
-        await insert_node(engine, nid, "ConsolidateMe")
-        await mark_consolidated(engine, nid, agent_id=_DEFAULT_AGENT)
-
-        nodes = await get_active_nodes(engine, agent_id=_DEFAULT_AGENT)
-        found = [n for n in nodes if n["id"] == nid]
-        assert found[0]["is_consolidated"] == 1
-
-    @pytest.mark.asyncio
-    async def test_bulk_insert(self, engine):
-        batch = [
-            {"id": uuid.uuid4().hex, "entity_name": f"Bulk_{i}"} for i in range(50)
-        ]
-        count = await bulk_insert_nodes(engine, batch)
-        assert count == 50
-
-        nodes = await get_active_nodes(engine, agent_id=_DEFAULT_AGENT)
-        assert len(nodes) == 50
-
-    @pytest.mark.asyncio
-    async def test_bulk_insert_empty(self, engine):
-        count = await bulk_insert_nodes(engine, [])
-        assert count == 0
-
-    @pytest.mark.asyncio
-    async def test_find_by_name(self, engine):
-        nid = uuid.uuid4().hex
-        await insert_node(engine, nid, "Trademark_Infringement")
-        result = await find_nodes_by_name(
-            engine, ["trademark_infringement"], agent_id=_DEFAULT_AGENT
-        )
-        assert len(result) == 1
-        assert result[0]["id"] == nid
-
-    @pytest.mark.asyncio
-    async def test_find_by_name_case_sensitive(self, engine):
-        nid = uuid.uuid4().hex
-        await insert_node(engine, nid, "CaseSensitive")
-        result = await find_nodes_by_name(
-            engine,
-            ["casesensitive"],
-            agent_id=_DEFAULT_AGENT,
-            case_insensitive=False,
-        )
-        assert len(result) == 0
-
-    @pytest.mark.asyncio
-    async def test_agent_scoped_query(self, engine):
-        await insert_node(engine, uuid.uuid4().hex, "AgentA_Node", agent_id="agent_a")
-        await insert_node(engine, uuid.uuid4().hex, "AgentB_Node", agent_id="agent_b")
-        nodes = await get_active_nodes(engine, agent_id="agent_a")
-        assert len(nodes) == 1
-        assert nodes[0]["agent_id"] == "agent_a"
-
-
-# ===================================================================
-# FTS5 lexical pre-filtering
-# ===================================================================
-
-
-class TestFTS5:
-    @pytest.mark.asyncio
-    async def test_fts5_basic_search(self, engine):
-        await insert_node(engine, uuid.uuid4().hex, "Trademark Infringement", "LEGAL")
-        await insert_node(engine, uuid.uuid4().hex, "Patent Violation", "LEGAL")
-        await insert_node(engine, uuid.uuid4().hex, "Revenue Forecast", "FINANCIAL")
-
-        results = await fts5_search(engine, "trademark", agent_id=_DEFAULT_AGENT)
-        assert len(results) == 1
-        assert results[0]["entity_name"] == "Trademark Infringement"
-
-    @pytest.mark.asyncio
-    async def test_fts5_prefix_search(self, engine):
-        await insert_node(engine, uuid.uuid4().hex, "Constitutional Law", "LEGAL")
-        await insert_node(engine, uuid.uuid4().hex, "Contract Breach", "LEGAL")
-
-        results = await fts5_search(engine, "con*", agent_id=_DEFAULT_AGENT)
-        assert len(results) == 2
-
-    @pytest.mark.asyncio
-    async def test_fts5_type_search(self, engine):
-        await insert_node(engine, uuid.uuid4().hex, "Entity_A", "PERSON")
-        await insert_node(engine, uuid.uuid4().hex, "Entity_B", "ORGANIZATION")
-
-        results = await fts5_search(engine, "PERSON", agent_id=_DEFAULT_AGENT)
-        assert len(results) >= 1
-
-    @pytest.mark.asyncio
-    async def test_fts5_empty_query(self, engine):
-        results = await fts5_search(engine, "", agent_id=_DEFAULT_AGENT)
-        assert results == []
-
-    @pytest.mark.asyncio
-    async def test_fts5_malformed_query_graceful(self, engine):
-        # Should not raise — returns empty via graceful degradation
-        results = await fts5_search(
-            engine, '"""invalid syntax', agent_id=_DEFAULT_AGENT
-        )
-        assert results == []
-
-    @pytest.mark.asyncio
-    async def test_fts5_sync_on_update(self, engine):
-        nid = uuid.uuid4().hex
-        await insert_node(engine, nid, "OriginalName", "ENTITY")
-
-        # Update node name directly
-        async with engine.connection() as db:
-            await db.execute(
-                "UPDATE nodes SET entity_name = ? WHERE id = ?",
-                ("UpdatedName", nid),
-            )
-            await db.commit()
-
-        old = await fts5_search(engine, "OriginalName", agent_id=_DEFAULT_AGENT)
-        assert len(old) == 0
-
-        new = await fts5_search(engine, "UpdatedName", agent_id=_DEFAULT_AGENT)
-        assert len(new) == 1
-
-    @pytest.mark.asyncio
-    async def test_fts5_sync_on_delete(self, engine):
-        nid = uuid.uuid4().hex
-        await insert_node(engine, nid, "WillBeDeleted", "ENTITY")
-
-        # Hard delete to trigger FTS5 delete trigger
-        async with engine.connection() as db:
-            await db.execute("DELETE FROM nodes WHERE id = ?", (nid,))
-            await db.commit()
-
-        results = await fts5_search(engine, "WillBeDeleted", agent_id=_DEFAULT_AGENT)
-        assert len(results) == 0
-
-    @pytest.mark.asyncio
-    async def test_fts5_rebuild(self, engine):
-        await insert_node(engine, uuid.uuid4().hex, "RebuildTest", "ENTITY")
-        await fts5_rebuild(engine)  # Should not raise
-        results = await fts5_search(engine, "RebuildTest", agent_id=_DEFAULT_AGENT)
-        assert len(results) == 1

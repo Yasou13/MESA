@@ -582,8 +582,6 @@ async def test_model_disabled_v4_record_follows_durable_lifecycle_without_novelt
                 },
             }
         ),
-        # Identical historical content triggered the removed gate before D6.
-        get_memories=AsyncMock(return_value=[{"entity_name": content}] * 2),
         update_raw_log_status=AsyncMock(),
         record_mutation_extraction=AsyncMock(),
         record_mutation_tier3_audit=AsyncMock(),
@@ -617,8 +615,7 @@ async def test_non_v4_payload_is_rejected_as_unsupported(require_tier3_validatio
             }
         ),
         update_raw_log_status=AsyncMock(),
-        insert_memory=AsyncMock(),
-        insert_edge=AsyncMock(),
+        record_mutation_extraction=AsyncMock(),
     )
     await process_cold_path(
         42, "agent-a", dao, model_processing_enabled=False,
@@ -630,8 +627,7 @@ async def test_non_v4_payload_is_rejected_as_unsupported(require_tier3_validatio
         "rejected",
         error_reason="legacy_payload_unsupported",
     )
-    dao.insert_memory.assert_not_awaited()
-    dao.insert_edge.assert_not_awaited()
+    dao.record_mutation_extraction.assert_not_awaited()
 
 
 def _v4_guard_dao(status: str, payload_overrides: dict) -> SimpleNamespace:

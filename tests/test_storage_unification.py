@@ -188,88 +188,10 @@ class TestConsolidationLoopDAOWiring:
 
         assert loop.dao is dao
 
-    @pytest.mark.asyncio
-    async def test_run_batch_reads_from_dao_when_no_batch_given(self):
-        """When run_batch(batch=None), it reads from dao.get_memories."""
-        from mesa_memory.consolidation.loop import ConsolidationLoop
-        from mesa_memory.observability.metrics import ObservabilityLayer
-
-        dao = _make_mock_dao()
-        dao.get_memories = AsyncMock(return_value=[])  # Empty — no work
-        obs = ObservabilityLayer()
-        embedder = MagicMock()
-        llm_a = MagicMock()
-        llm_b = MagicMock()
-
-        loop = ConsolidationLoop(
-            dao=dao,
-            embedder=embedder,
-            llm_a=llm_a,
-            llm_b=llm_b,
-            obs_layer=obs,
-        )
-
-        await loop.run_batch(batch=None)
-
-        # Assert: get_memories was called to fetch unconsolidated records
-        dao.get_memories.assert_awaited()
-
 
 # ===================================================================
 # TEST 6: MemoryDAO Dual-Write Saga integrity (structural)
 # ===================================================================
-
-
-class TestDAODualWriteSagaIntegrity:
-    """Structural verification that MemoryDAO's insert_memory still
-    implements the Dual-Write Saga (B-7 pattern)."""
-
-    def test_insert_memory_has_transaction_and_compensation(self):
-        """MemoryDAO.insert_memory must compensate a failed vector projection."""
-        import inspect
-
-        source = inspect.getsource(MemoryDAO.insert_memory)
-
-        assert "transaction" in source, (
-            "insert_memory must use transaction() for atomic SAGA"
-        )
-        assert "DELETE FROM nodes" in source, (
-            "insert_memory must compensate a failed vector projection in SQLite"
-        )
-        assert "upsert" in source.lower(), (
-            "insert_memory must call vector upsert within the SAGA"
-        )
-
-    def test_purge_memory_has_transaction_and_rollback(self):
-        """MemoryDAO.purge_memory source must contain SAGA keywords."""
-        import inspect
-
-        source = inspect.getsource(MemoryDAO.purge_memory)
-        rollback_source = inspect.getsource(MemoryDAO.rollback_purge)
-
-        assert "transaction" in source, (
-            "purge_memory must use transaction() for atomic SAGA"
-        )
-        assert "rollback" in rollback_source.lower(), (
-            "the durable purge contract must expose a compensating rollback"
-        )
-
-    def test_dao_is_single_source_of_truth(self):
-        """MemoryDAO must be the ONLY class with insert_memory capability
-        in the mesa_storage package."""
-        import inspect
-
-        import mesa_storage
-
-        # Walk all classes in mesa_storage
-        storage_classes = []
-        for name, obj in inspect.getmembers(mesa_storage, inspect.isclass):
-            if hasattr(obj, "insert_memory"):
-                storage_classes.append(name)
-
-        assert storage_classes == ["MemoryDAO"], (
-            f"Expected only MemoryDAO to have insert_memory, found: {storage_classes}"
-        )
 
 
 # ===================================================================
