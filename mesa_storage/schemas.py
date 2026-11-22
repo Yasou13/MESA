@@ -65,7 +65,6 @@ async def validate_schema(engine: AsyncEngine) -> dict:
         Dict mapping object names to booleans indicating presence.
     """
     expected_tables = {
-        "routing_telemetry",
         "raw_logs",
         "memory_mutations",
         "memory_artifacts",

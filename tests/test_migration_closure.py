@@ -16,7 +16,7 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "f7a8b9c0d1e2"
+HEAD = "f8b9c0d1e2f3"
 PREVIOUS_093_HEAD = "e6f7a8b9c0d1"
 PREVIOUS_HEAD = "fd4e5f6a7b8c"
 ROUND7_PREDECESSOR = "0a7b8c9d0e1f"
@@ -77,7 +77,15 @@ def test_fresh_upgrade_has_one_head_and_complete_durable_schema(tmp_path: Path) 
         "source_chunks",
     } <= tables
     assert not (
-        {"nodes", "nodes_fts", "lancedb_wal", "purge_journal", "system_config"} & tables
+        {
+            "nodes",
+            "nodes_fts",
+            "lancedb_wal",
+            "purge_journal",
+            "system_config",
+            "routing_telemetry",
+        }
+        & tables
     )
 
 
@@ -461,7 +469,15 @@ def test_093_store_upgrades_to_head_and_drops_v3_tables_preserving_v4_data(
 
     tables = _tables(database)
     assert not (
-        {"nodes", "nodes_fts", "lancedb_wal", "purge_journal", "system_config"} & tables
+        {
+            "nodes",
+            "nodes_fts",
+            "lancedb_wal",
+            "purge_journal",
+            "system_config",
+            "routing_telemetry",
+        }
+        & tables
     )
     connection = sqlite3.connect(database)
     assert (

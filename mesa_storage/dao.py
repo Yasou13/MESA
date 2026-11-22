@@ -29,7 +29,6 @@ import uuid
 from collections import Counter, OrderedDict
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -509,7 +508,7 @@ class MemoryDAO:
     bind ``$agent_id`` via strict parameterisation.
 
     Edge storage is owned exclusively by KùzuDB.  SQLite retains
-    ownership of canonical V4 tables, raw_logs, and routing_telemetry.
+    ownership of canonical V4 tables and raw_logs.
 
     This class does NOT own the lifecycle of the underlying engines —
     the caller is responsible for initialising and closing them.
@@ -8343,79 +8342,6 @@ class MemoryDAO:
     # GET MEMORY BY ID — agent-scoped single-node lookup
     # ==================================================================
 
-
-    # ==================================================================
-    # NODE DEGREE — agent-scoped edge count
-    # ==================================================================
-
-
-    # ==================================================================
-    # ROUTING TELEMETRY — audit logging
-    # ==================================================================
-
-    async def insert_routing_telemetry(
-        self,
-        agent_id: str,
-        *,
-        record_id: str,
-        small_model_decision: int,
-        small_model_confidence: float,
-        dual_llm_decision: int,
-        is_hallucination: bool,
-    ) -> str:
-        """Insert a telemetry record for adaptive LLM routing."""
-        _assert_valid_agent_id(agent_id)
-
-        telemetry_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
-
-        async with self._sql.transaction() as db:  # type: ignore[index]
-            await db.execute(
-                "INSERT INTO routing_telemetry "
-                "(id, agent_id, record_id, small_model_decision, "
-                "small_model_confidence, dual_llm_decision, "
-                "is_hallucination, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    telemetry_id,
-                    agent_id,
-                    record_id,
-                    small_model_decision,
-                    small_model_confidence,
-                    dual_llm_decision,
-                    int(is_hallucination),
-                    now,
-                ),
-            )
-            await db.commit()
-
-        return telemetry_id
-
-    async def get_recent_telemetry_stats(
-        self,
-        agent_id: str,
-        limit: int = 100,
-    ) -> dict[str, int]:
-        """Fetch recent routing telemetry to calculate hallucination error rates."""
-        _assert_valid_agent_id(agent_id)
-
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT is_hallucination FROM routing_telemetry "
-                "WHERE agent_id = ? "
-                "ORDER BY created_at DESC LIMIT ?",
-                (agent_id, limit),
-            ) as cursor:
-                results = await cursor.fetchall()
-                rows = list(results)
-
-        total_audits = len(rows)
-        hallucinations = sum(1 for row in rows if row[0] == 1)
-
-        return {
-            "total_audits": total_audits,
-            "hallucinations": hallucinations,  # type: ignore[arg-type]
-        }
 
     # ==================================================================
     # RAW LOG INSERT — hot-path ingestion (< 50ms, pure I/O)

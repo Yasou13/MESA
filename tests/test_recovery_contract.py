@@ -22,7 +22,7 @@ def _synthetic_storage(root: Path) -> Path:
     connection = sqlite3.connect(database)
     connection.executescript("""
         CREATE TABLE alembic_version (version_num TEXT NOT NULL);
-        INSERT INTO alembic_version VALUES ('f7a8b9c0d1e2');
+        INSERT INTO alembic_version VALUES ('f8b9c0d1e2f3');
         CREATE TABLE documents (
             document_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
