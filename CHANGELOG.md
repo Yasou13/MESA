@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Search ranking and tie-breaks across BM25, vector, assertion, graph, exact
+  legal lookup, and RRF fusion now break equal-score ties by stable content
+  identity (`document_id`, `revision_number`, chunk `ordinal`, `chunk_id`)
+  rather than random UUIDs, and `CatalogRepository` assigns tenant-scoped
+  deterministic UUID5 physical keys so two fresh stores built from the same
+  corpus produce identical ranks without changing scores.
 - Scoped temporary FTS5 lexical search now uses 5-character prefix matching
   (`"abcde"*` with `prefix='5'`) for query tokens of 6 or more characters that
   contain no digits, while keeping shorter tokens, digit tokens, and `ı` → `i`
