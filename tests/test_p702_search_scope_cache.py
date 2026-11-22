@@ -150,7 +150,7 @@ async def test_data_version_invalidates_on_insert_and_unrelated_commit(
     statements.clear()
     async with sql.transaction() as db:
         await db.execute(
-            "INSERT INTO system_config(key, value) VALUES ('cache-test', 'changed')"
+            "INSERT INTO tenants(tenant_id, display_name) VALUES ('cache-test', 'changed')"
         )
         await db.commit()
     await _search(cached)

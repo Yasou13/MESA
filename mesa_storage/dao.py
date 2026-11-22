@@ -662,24 +662,15 @@ class MemoryDAO:
 
         DDL ownership lives exclusively in ``schemas.py`` which MUST be
         called via ``initialize_schema(engine)`` before this method.
-
-        E1 FIX: Runs a startup reconciliation scan that detects SQLite
-        nodes with no corresponding LanceDB vector entry (orphans from
-        a SIGKILL mid-saga).  Orphaned nodes are stamped ``invalid_at``
-        to remove them from active queries.
         """
         logger.info("MemoryDAO.initialize() — schema owned by schemas.py")
 
-        # E1 FIX: Reconcile orphaned nodes from interrupted dual-write sagas
-        await self._reconcile_orphaned_nodes()
         parity = await self.reconcile_v4_projection_parity(limit=200, repair=True)
         recovered_logs = await self.recover_expired_raw_log_claims()
-        recovered_wal = await self.recover_expired_lancedb_wal_claims()
-        if recovered_logs or recovered_wal:
+        if recovered_logs:
             logger.warning(
-                "STARTUP_CLAIM_RECOVERY | raw_logs=%d lancedb_wal=%d",
+                "STARTUP_CLAIM_RECOVERY | raw_logs=%d",
                 recovered_logs,
-                recovered_wal,
             )
         if parity["missing_artifacts"]:
             logger.warning("V4_PROJECTION_PARITY_RECOVERY | %s", parity)

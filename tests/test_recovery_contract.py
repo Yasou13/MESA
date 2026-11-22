@@ -22,22 +22,41 @@ def _synthetic_storage(root: Path) -> Path:
     connection = sqlite3.connect(database)
     connection.executescript("""
         CREATE TABLE alembic_version (version_num TEXT NOT NULL);
-        INSERT INTO alembic_version VALUES ('b2e3f4a5c6d7');
-        CREATE TABLE nodes (
-            id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, invalid_at TEXT,
-            deleted_at TEXT, purge_id TEXT
+        INSERT INTO alembic_version VALUES ('f7a8b9c0d1e2');
+        CREATE TABLE documents (
+            document_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            status TEXT NOT NULL
         );
-        CREATE TABLE purge_journal (
-            purge_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
-            target_node_ids TEXT NOT NULL, state TEXT NOT NULL
+        CREATE TABLE document_revisions (
+            revision_id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            status TEXT NOT NULL
         );
-        CREATE TABLE lancedb_wal (state TEXT NOT NULL);
+        CREATE TABLE source_chunks (
+            chunk_id TEXT PRIMARY KEY,
+            revision_id TEXT NOT NULL,
+            content_payload TEXT NOT NULL
+        );
+        CREATE TABLE v4_assertions (
+            assertion_id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            status TEXT NOT NULL
+        );
+        CREATE TABLE projection_outbox (state TEXT NOT NULL);
+        CREATE TABLE artifact_cleanup_outbox (state TEXT NOT NULL);
         CREATE TABLE dispatch_queue (state TEXT NOT NULL);
         CREATE TABLE session_finalization_journal (state TEXT NOT NULL);
-        INSERT INTO nodes VALUES ('purged', 'agent-a', 'now', 'now', 'purge-1');
-        INSERT INTO nodes VALUES ('active', 'agent-a', NULL, NULL, NULL);
-        INSERT INTO purge_journal VALUES ('purge-1', 'agent-a', '["purged"]', 'FINALIZED');
-        INSERT INTO lancedb_wal VALUES ('BLOCKED');
+        INSERT INTO documents VALUES ('doc-purged', 'agent-a', 'PURGED');
+        INSERT INTO documents VALUES ('doc-active', 'agent-a', 'ACTIVE');
+        INSERT INTO document_revisions VALUES ('rev-purged', 'doc-purged', 'PURGED');
+        INSERT INTO document_revisions VALUES ('rev-active', 'doc-active', 'ACTIVE');
+        INSERT INTO source_chunks VALUES ('chunk-purged', 'rev-purged', '');
+        INSERT INTO source_chunks VALUES ('chunk-active', 'rev-active', 'active content');
+        INSERT INTO v4_assertions VALUES ('assert-purged', 'doc-purged', 'PURGED');
+        INSERT INTO v4_assertions VALUES ('assert-active', 'doc-active', 'ACTIVE');
+        INSERT INTO projection_outbox VALUES ('COMPLETED');
+        INSERT INTO artifact_cleanup_outbox VALUES ('RETRY_PENDING');
         INSERT INTO dispatch_queue VALUES ('COMPLETED');
         INSERT INTO session_finalization_journal VALUES ('RETRY_PENDING');
         """)
@@ -62,10 +81,11 @@ def test_manifest_backup_restore_preserves_durable_state(tmp_path: Path) -> None
     created = create_backup(source, backup, tmp_path, stores_stopped=True)
     assert created["valid"] is True
     assert created["sqlite"]["mesa.db"]["purge"] == {
-        "records": 1,
-        "verified_targets": 1,
+        "purged_documents": 1,
+        "verified_documents": 1,
     }
-    assert created["sqlite"]["mesa.db"]["wal_states"] == {"BLOCKED": 1}
+    assert created["sqlite"]["mesa.db"]["projection_states"] == {"COMPLETED": 1}
+    assert created["sqlite"]["mesa.db"]["cleanup_states"] == {"RETRY_PENDING": 1}
     assert created["completion_receipt_files"] == ["dlq.jsonl.receipts.jsonl"]
 
     restored = restore_backup(backup, restore, tmp_path)
@@ -75,7 +95,7 @@ def test_manifest_backup_restore_preserves_durable_state(tmp_path: Path) -> None
     connection = sqlite3.connect(restore / "mesa.db")
     assert (
         connection.execute(
-            "SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL"
+            "SELECT COUNT(*) FROM documents WHERE status = 'ACTIVE'"
         ).fetchone()[0]
         == 1
     )
@@ -105,7 +125,7 @@ def test_hash_tamper_and_purge_resurrection_fail_closed(tmp_path: Path) -> None:
     database = backup / "mesa.db"
     connection = sqlite3.connect(database)
     connection.execute(
-        "UPDATE nodes SET invalid_at = NULL, deleted_at = NULL WHERE id = 'purged'"
+        "UPDATE v4_assertions SET status = 'ACTIVE' WHERE assertion_id = 'assert-purged'"
     )
     connection.commit()
     connection.close()
@@ -307,7 +327,7 @@ def test_restore_readback_canonical_verification(tmp_path: Path) -> None:
     db = source / "mesa.db"
     conn = sqlite3.connect(db)
     conn.execute(
-        "INSERT INTO nodes VALUES ('r8-test-node', 'agent-r8', NULL, NULL, NULL);"
+        "INSERT INTO documents VALUES ('r8-test-doc', 'agent-r8', 'ACTIVE');"
     )
     conn.commit()
     conn.close()
@@ -321,9 +341,9 @@ def test_restore_readback_canonical_verification(tmp_path: Path) -> None:
     restored_db = restore / "mesa.db"
     conn2 = sqlite3.connect(restored_db)
     row = conn2.execute(
-        "SELECT id, agent_id FROM nodes WHERE id = 'r8-test-node'"
+        "SELECT document_id, tenant_id FROM documents WHERE document_id = 'r8-test-doc'"
     ).fetchone()
-    assert row == ("r8-test-node", "agent-r8")
+    assert row == ("r8-test-doc", "agent-r8")
     conn2.close()
 
 
