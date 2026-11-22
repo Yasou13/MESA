@@ -56,7 +56,6 @@ async def retry_runtime(tmp_path, monkeypatch):
         "MESA_MODEL_ENABLED": "true",
         "MESA_EXTRACTION_ENABLED": "true",
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
-        "MESA_TIER3_MODE": "0",
         "MESA_EMBEDDING_DIMENSION": "384",
         "MESA_LLM_MODEL": "mock:test",
         "MESA_API_KEY": "retry-test-key",
@@ -273,10 +272,10 @@ async def test_v4_refused_write_keeps_dispatch_retryable(
     monkeypatch.setattr(dao_type, method_name, refused)
     await server._consume_combined_durable_work_once(
         env.dao,
-        consolidation_loop=(
+        fact_extraction_service=(
             None
             if write == "model_disabled_extraction"
-            else server.state.consolidation_loop
+            else server.state.fact_extraction_service
         ),
         model_processing_enabled=write != "model_disabled_extraction",
     )
@@ -299,7 +298,7 @@ async def test_v4_refused_write_keeps_dispatch_retryable(
 async def _consume_once(env):
     return await server._consume_combined_durable_work_once(
         env.dao,
-        consolidation_loop=server.state.consolidation_loop,
+        fact_extraction_service=server.state.fact_extraction_service,
         model_processing_enabled=True,
     )
 

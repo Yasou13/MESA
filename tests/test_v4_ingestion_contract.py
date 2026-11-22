@@ -39,7 +39,6 @@ def test_memory_candidate_is_retry_stable_and_preserves_payload() -> None:
     assert record["cmb_id"] == first.candidate_id
     assert record["content_payload"] == "The exact text passed to Tier-3."
     assert record["embedding_provider"] == "provider-a"
-    assert record["tier3_deferred"] is True
 
 
 @pytest.mark.asyncio
@@ -278,7 +277,7 @@ async def test_combined_owner_consumes_one_dispatch_and_pending_finalization() -
             return_value=[{"agent_id": "tenant-a", "session_id": "session-a"}]
         ),
     )
-    loop = SimpleNamespace()
+    extraction_service = SimpleNamespace()
 
     with (
         patch("mesa_memory.api.server.process_cold_path", new=AsyncMock()) as cold_path,
@@ -287,16 +286,17 @@ async def test_combined_owner_consumes_one_dispatch_and_pending_finalization() -
         ) as finalizer,
     ):
         result = await _consume_combined_durable_work_once(
-            dao, consolidation_loop=loop, model_processing_enabled=True
+            dao,
+            fact_extraction_service=extraction_service,
+            model_processing_enabled=True,
         )
 
     cold_path.assert_awaited_once_with(
         9,
         "tenant-a",
         dao,
-        consolidation_loop=loop,
+        fact_extraction_service=extraction_service,
         model_processing_enabled=True,
-        require_tier3_validation=True,
         retry_on_failure=True,
     )
     dao.complete_dispatch_queue.assert_awaited_once_with(
@@ -306,7 +306,7 @@ async def test_combined_owner_consumes_one_dispatch_and_pending_finalization() -
         outcome="processed",
         side_effect_verified=True,
     )
-    finalizer.assert_awaited_once_with("tenant-a", "session-a", dao, loop)
+    finalizer.assert_awaited_once_with("tenant-a", "session-a", dao, extraction_service)
     assert result == {
         "dispatches": 1,
         "finalizations": 1,
@@ -603,8 +603,7 @@ async def test_model_disabled_v4_record_follows_durable_lifecycle_without_novelt
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("require_tier3_validation", [False, True])
-async def test_non_v4_payload_is_rejected_as_unsupported(require_tier3_validation):
+async def test_non_v4_payload_is_rejected_as_unsupported():
     from mesa_workers.ingestion_worker import process_cold_path
 
     dao = SimpleNamespace(
@@ -618,8 +617,10 @@ async def test_non_v4_payload_is_rejected_as_unsupported(require_tier3_validatio
         record_mutation_extraction=AsyncMock(),
     )
     await process_cold_path(
-        42, "agent-a", dao, model_processing_enabled=False,
-        require_tier3_validation=require_tier3_validation,
+        42,
+        "agent-a",
+        dao,
+        model_processing_enabled=False,
     )
     dao.update_raw_log_status.assert_awaited_with(
         "agent-a",

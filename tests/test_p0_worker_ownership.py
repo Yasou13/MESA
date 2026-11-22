@@ -74,7 +74,7 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
         await db.execute("UPDATE raw_logs SET status = 'processed' WHERE id = ?", (log_id_2,))
         await db.commit()
 
-    res = await _consume_combined_durable_work_once(dao, consolidation_loop=None, model_processing_enabled=False)
+    res = await _consume_combined_durable_work_once(dao, fact_extraction_service=None, model_processing_enabled=False)
     assert res["finalizations"] == 1
 
     fin2_after = await dao.get_session_finalization(agent_id, session_id_2)

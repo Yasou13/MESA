@@ -83,19 +83,6 @@ def test_egress_fence_blocks_external_embedding_service(monkeypatch):
         EmbeddingService(identity=ident, external_enabled=False)
 
 
-def test_egress_fence_mode_2_fails_closed_without_permitted_validators(monkeypatch):
-    monkeypatch.setattr(config, "external_provider_enabled", False)
-    monkeypatch.setattr(config, "tier3_llm_provider_a", "openai_compatible")
-    monkeypatch.setattr(config, "tier3_llm_model_name_a", "gpt-4o-mini")
-    monkeypatch.setattr(config, "tier3_llm_provider_b", "claude")
-    monkeypatch.setattr(config, "tier3_llm_model_name_b", "claude-3-haiku")
-
-    with pytest.raises(
-        ValueError, match="forbidden when MESA_EXTERNAL_PROVIDER_ENABLED=false"
-    ):
-        AdapterFactory.get_validation_adapters(2)
-
-
 @pytest.fixture
 def model_clients(monkeypatch):
     import mesa_memory.adapter.live as live

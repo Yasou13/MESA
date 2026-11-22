@@ -26,7 +26,6 @@ def model_runtime(tmp_path, monkeypatch):
         "MESA_STORAGE_ROOT": str(tmp_path / "storage"),
         "MESA_LOAD_DOTENV": "false",
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
-        "MESA_TIER3_MODE": "0",
         "MESA_EMBEDDING_DIMENSION": "384",
         "MESA_LLM_MODEL": "mock:test",
         "MESA_API_KEY": "model-test-key",
@@ -140,8 +139,8 @@ async def _consume(env, count=1):
     for _ in range(count):
         await server._consume_combined_durable_work_once(
             env.dao,
-            consolidation_loop=server.state.consolidation_loop,
-            model_processing_enabled=server.state.consolidation_loop is not None,
+            fact_extraction_service=server.state.fact_extraction_service,
+            model_processing_enabled=server.state.fact_extraction_service is not None,
         )
 
 
@@ -174,17 +173,20 @@ async def _assert_committed(env):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [1, 2])
-async def test_tier3_without_extraction_fails_startup(model_runtime, mode):
-    with pytest.raises(
-        RuntimeError,
-        match="MESA_TIER3_MODE=1/2 requires MESA_EXTRACTION_ENABLED=true",
-    ):
+async def test_removed_tier3_mode_logs_warning_and_starts_in_mode_zero(
+    model_runtime, mode, caplog
+):
+    with caplog.at_level("WARNING", logger="MESA_Config"):
         async with model_runtime(
             MESA_TIER3_MODE=mode,
             MESA_EXTRACTION_ENABLED=False,
             MESA_GRAPH_ENABLED=False,
-        ):
-            pass
+        ) as env:
+            assert env.dao is not None
+    assert any(
+        "MESA_TIER3_MODE" in rec.getMessage() and "removed" in rec.getMessage()
+        for rec in caplog.records
+    )
 
 
 @pytest.mark.asyncio

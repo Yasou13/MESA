@@ -9,7 +9,6 @@ os.environ["MESA_API_KEY"] = "test_key"
 
 from mesa_memory.adapter.live import OpenAICompatibleAdapter
 from mesa_memory.api.server import app, get_embedder
-from mesa_memory.consolidation.loop import ConsolidationLoop
 
 
 @pytest.fixture(autouse=True)
@@ -105,27 +104,6 @@ def test_get_dao_embedder():
 
 
 
-
-
-# -------------------------
-# Consolidation Loop Tests
-# -------------------------
-
-
-@pytest.mark.asyncio
-async def test_consolidation_loop_stop():
-    dao = AsyncMock()
-    dao.get_all_embeddings = MagicMock(return_value=[])
-    dao.load_embedding_cache = MagicMock(return_value=[])
-    loop = ConsolidationLoop(
-        dao=dao,
-        embedder=MagicMock(),
-        llm_a=MagicMock(),
-        llm_b=MagicMock(),
-        obs_layer=MagicMock(),
-    )
-    await loop.stop()
-    assert not loop._running
 
 
 # -------------------------

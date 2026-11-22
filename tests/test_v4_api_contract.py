@@ -11,11 +11,6 @@ from pydantic import ValidationError
 
 import mesa_api.v4_router as v4_api
 from mesa_api.v4_router import V4MemoryInsertRequest, create_v4_router
-from mesa_memory.consolidation.policy import (
-    DeterministicOnlyValidationPolicy,
-    SingleLLMValidationPolicy,
-    ValidationPolicy,
-)
 from mesa_storage.dao import (
     NonHeadRollbackConflictError,
     QueueOverCapacityError,
@@ -40,7 +35,6 @@ def _app(
     *,
     principal_id: str = "principal-a",
     maintenance_pending: bool = False,
-    validation_policy: ValidationPolicy | None = None,
 ) -> FastAPI:  # type: ignore[no-untyped-def]
     async def attach_principal(request: Request) -> None:
         request.state.principal = SimpleNamespace(
@@ -61,9 +55,6 @@ def _app(
         create_v4_router(
             get_dao=get_dao,
             get_access_control=get_access_control,
-            get_composed_validation_policy=(
-                (lambda: validation_policy) if validation_policy is not None else None
-            ),
         )
     )
     return app
@@ -338,7 +329,6 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
 ) -> None:
     monkeypatch.setattr(v4_api.config, "v4_rebuild_enabled", False)
     monkeypatch.setattr(v4_api.config, "model_enabled", False)
-    monkeypatch.setattr(v4_api.config, "tier3_mode", None)
     available_dao = MagicMock()
     available_dao.canonical_v4_writes_enabled = True
     client = asgi_client(_app(available_dao, _access()))
@@ -457,12 +447,11 @@ async def test_v4_capability_reports_only_enabled_specific_behaviours(
 
 
 @pytest.mark.asyncio
-async def test_v4_capability_reports_the_composed_validation_policy(
+async def test_v4_capability_always_reports_deterministic_mode_zero(
     asgi_client: ClientFactory,
 ) -> None:
     dao = MagicMock()
     dao.canonical_v4_writes_enabled = True
-    policy = SingleLLMValidationPolicy(MagicMock())
 
     async def attach_principal(request: Request) -> None:
         request.state.principal = SimpleNamespace(
@@ -477,17 +466,16 @@ async def test_v4_capability_reports_the_composed_validation_policy(
         create_v4_router(
             get_dao=get_dao,
             get_access_control=_access(),
-            get_composed_validation_policy=lambda: policy,
         )
     )
     response = await asgi_client(app).get("/v4/capability")
 
     assert response.status_code == 200
     assert response.json()["validation"] == {
-        "mode": 1,
-        "policy": "single_llm",
-        "llm_validation_enabled": True,
-        "validator_count": 1,
+        "mode": 0,
+        "policy": "deterministic_only",
+        "llm_validation_enabled": False,
+        "validator_count": 0,
     }
 
 
@@ -522,7 +510,6 @@ async def test_v4_insert_creates_canonical_mutation_after_authorized_admission(
         _app(
             dao,
             _access(),
-            validation_policy=DeterministicOnlyValidationPolicy(),
         )
     )
 

@@ -130,9 +130,6 @@ class TestNoProductionImportsFromDeletedStorage:
 
     PRODUCTION_MODULES = [
         "mesa_workers.ingestion_worker",
-        "mesa_memory.consolidation.loop",
-        "mesa_memory.consolidation.router",
-        "mesa_memory.consolidation.validator",
         "mesa_memory.api.server",
         "mesa_storage.dao",
     ]
@@ -152,50 +149,5 @@ class TestNoProductionImportsFromDeletedStorage:
         assert "import mesa_memory.storage" not in source, (
             f"{module_name} still imports the deleted mesa_memory.storage package"
         )
-
-
-# ===================================================================
-# TEST 3: Cold-path ingestion routes exclusively through MemoryDAO
-# ===================================================================
-
-
-# ===================================================================
-# TEST 4: ConsolidationLoop is wired to MemoryDAO
-# ===================================================================
-
-
-class TestConsolidationLoopDAOWiring:
-    """Verify ConsolidationLoop reads from MemoryDAO, not StorageFacade."""
-
-    def test_constructor_accepts_dao(self):
-        """ConsolidationLoop.__init__ accepts a MemoryDAO instance."""
-        from mesa_memory.consolidation.loop import ConsolidationLoop
-        from mesa_memory.observability.metrics import ObservabilityLayer
-
-        dao = _make_mock_dao()
-        obs = ObservabilityLayer()
-        embedder = MagicMock()
-        llm_a = MagicMock()
-        llm_b = MagicMock()
-
-        loop = ConsolidationLoop(
-            dao=dao,
-            embedder=embedder,
-            llm_a=llm_a,
-            llm_b=llm_b,
-            obs_layer=obs,
-        )
-
-        assert loop.dao is dao
-
-
-# ===================================================================
-# TEST 6: MemoryDAO Dual-Write Saga integrity (structural)
-# ===================================================================
-
-
-# ===================================================================
-# TEST 7: Novelty module has zero storage coupling
-# ===================================================================
 
 

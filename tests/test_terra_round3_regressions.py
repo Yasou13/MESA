@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from mesa_memory.consolidation.router import _BoundedRoutingStates
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -110,23 +109,3 @@ async def test_revision_waits_for_each_manifest_chunk_not_duplicate_children(tmp
         ).fetchone()
     assert row[0] == "PENDING"
     await engine.close()
-
-
-def test_adaptive_routing_state_has_lru_capacity_bound():
-    states = _BoundedRoutingStates(max_entries=3, ttl_seconds=60)
-    for index in range(4):
-        states.get_or_create(f"agent-{index}", 0.85)
-    assert len(states._entries) == 3
-    assert "agent-0" not in states._entries
-
-
-def test_adaptive_routing_state_expires(monkeypatch):
-    now = [100.0]
-    monkeypatch.setattr(
-        "mesa_memory.consolidation.router.time.monotonic", lambda: now[0]
-    )
-    states = _BoundedRoutingStates(max_entries=3, ttl_seconds=10)
-    first = states.get_or_create("agent", 0.85)
-    now[0] += 11
-    second = states.get_or_create("agent", 0.85)
-    assert first is not second
