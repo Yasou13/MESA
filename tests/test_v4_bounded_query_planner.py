@@ -761,7 +761,7 @@ async def test_real_v4_retrieval_planner_rescue_reaches_context(tmp_path) -> Non
             tenant_id="tenant-integration",
             agent_id="agent-integration",
             dataset_ids=["dataset-integration"],
-            query="Eşimin beni aldattığını öğrendim, ne kadar sürem var?",
+            query="Eşimin beni aldattığını fark ettim, ne kadar zamanım var?",
             jurisdiction="TR",
             retrieval_mode="adaptive",
         )

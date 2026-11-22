@@ -7110,12 +7110,17 @@ class MemoryDAO:
         passage_candidate_rows: list[dict[str, Any]] = []
 
         if fts_query_tokens:
-            variants = dict.fromkeys(
-                variant
-                for token in fts_query_tokens
-                for variant in (token, token.replace("ı", "i"))
-            )
-            fts_expression = " OR ".join(f'"{token}"' for token in variants)
+            fts_terms: list[str] = []
+            for token in fts_query_tokens:
+                if len(token) >= 6 and not any(ch.isdigit() for ch in token):
+                    base = token[:5]
+                    suffix = "*"
+                else:
+                    base = token
+                    suffix = ""
+                for variant in (base, base.replace("ı", "i")):
+                    fts_terms.append(f'"{variant}"{suffix}')
+            fts_expression = " OR ".join(dict.fromkeys(fts_terms))
             passage_sql = (
                 "SELECT a.*, s.canonical_name AS subject_name, "
                 "o.canonical_name AS object_name, "
@@ -7148,7 +7153,7 @@ class MemoryDAO:
                         f"CREATE VIRTUAL TABLE temp.{scoped_fts} USING fts5("
                         "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
                         "source_ref, subject_name, object_name, chunk_payload, "
-                        "tokenize='unicode61 remove_diacritics 2')"
+                        "tokenize='unicode61 remove_diacritics 2', prefix='5')"
                     )
                     await db.execute(
                         f"INSERT INTO temp.{scoped_fts} "

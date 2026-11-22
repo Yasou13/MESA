@@ -428,9 +428,9 @@ async def test_e_tenant_isolation_in_graph_traversal(tmp_path):
             agent_id="tenant-a",
             dataset_id="default-ds",
             mutation_id="m_a",
-            subject_name="SecretAlpha",
+            subject_name="AlphaSecret",
             predicate="protects",
-            object_name="VaultAlpha",
+            object_name="AlphaVault",
         )
         # Tenant B
         await dao.create_v4_workspace(
@@ -446,27 +446,27 @@ async def test_e_tenant_isolation_in_graph_traversal(tmp_path):
             agent_id="tenant-b",
             dataset_id="default-ds",
             mutation_id="m_b",
-            subject_name="SecretBeta",
+            subject_name="BetaSecret",
             predicate="protects",
-            object_name="VaultBeta",
+            object_name="BetaVault",
         )
 
-        # Search Tenant A for SecretBeta -> 0 results
+        # Search Tenant A for BetaSecret -> 0 results
         res_a = await dao.search_v4_memory(
             tenant_id="tenant-a",
             agent_id="tenant-a",
             dataset_ids=["default-ds"],
-            query="SecretBeta",
+            query="BetaSecret",
             limit=10,
         )
         assert len(res_a) == 0
 
-        # Search Tenant B for SecretAlpha -> 0 results
+        # Search Tenant B for AlphaSecret -> 0 results
         res_b = await dao.search_v4_memory(
             tenant_id="tenant-b",
             agent_id="tenant-b",
             dataset_ids=["default-ds"],
-            query="SecretAlpha",
+            query="AlphaSecret",
             limit=10,
         )
         assert len(res_b) == 0

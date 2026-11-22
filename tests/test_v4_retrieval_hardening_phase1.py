@@ -269,7 +269,10 @@ async def test_phase1_endpoint_expansion_does_not_displace_vector_rank(tmp_path)
             tenant_id=tenant_id,
             agent_id=agent_id,
             dataset_ids=[dataset_id],
-            query="test relations",
+            # No query token may lexically match either fixture: with D63
+            # prefix BM25, "relations" matched both via "relat*" and tied
+            # lexical ranks made the order nondeterministic.
+            query="test links",
             limit=5,
         )
 

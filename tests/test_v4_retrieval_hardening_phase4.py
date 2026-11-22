@@ -320,7 +320,7 @@ async def test_phase4_tenant_dataset_isolation(tmp_path):
             dataset_id="dataset-A",
             doc_id="doc-A",
             subject="GizliBelge",
-            predicate="açıklar",
+            predicate="saklar",
             literal_value="Gizli ticari sırlar",
             evidence_span="Tenant A özel şirket sırları ve finansal tablolar.",
             raw_log_id=100,

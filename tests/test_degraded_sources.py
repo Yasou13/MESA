@@ -14,7 +14,7 @@ from tests.test_model_optional_runtime import (
 
 @pytest.mark.asyncio
 async def test_embedding_off_reports_vector_degradation(model_runtime):
-    async with model_runtime() as env:
+    async with model_runtime(MESA_GRAPH_ENABLED=True) as env:
         await _insert(env)
         await _consume(env, 3)
         result = await _search(env)
@@ -27,7 +27,9 @@ async def test_embedding_off_reports_vector_degradation(model_runtime):
     "lane_state", ["SKIPPED", "PENDING", "RETRY_PENDING", "DEAD_LETTER", "COMPLETED"]
 )
 async def test_degradation_tracks_committed_vector_lane(model_runtime, lane_state):
-    async with model_runtime(MESA_EMBEDDING_ENABLED=True) as env:
+    async with model_runtime(
+        MESA_EMBEDDING_ENABLED=True, MESA_GRAPH_ENABLED=True
+    ) as env:
         await _insert(env)
         await _consume(env, 3)
         async with env.dao._sql.transaction() as db:
@@ -46,7 +48,9 @@ async def test_degradation_tracks_committed_vector_lane(model_runtime, lane_stat
 
 @pytest.mark.asyncio
 async def test_excluded_assertions_do_not_degrade_the_search(model_runtime):
-    async with model_runtime(MESA_EMBEDDING_ENABLED=True) as env:
+    async with model_runtime(
+        MESA_EMBEDDING_ENABLED=True, MESA_GRAPH_ENABLED=True
+    ) as env:
         await _insert(env)
         await _consume(env, 3)
         async with env.dao._sql.transaction() as db:
