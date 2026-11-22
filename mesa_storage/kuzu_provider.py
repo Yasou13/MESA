@@ -188,6 +188,7 @@ class BaseGraphProvider(abc.ABC):
         seed_scores: Mapping[str, float] | None = None,
         direction: str = "any",
         legal_rules_enabled: bool = True,
+        assertion_sort_keys: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Traverse only the caller's canonical entity/assertion universe."""
 
@@ -1005,6 +1006,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         seed_scores: Mapping[str, float] | None = None,
         direction: str = "any",
         legal_rules_enabled: bool = True,
+        assertion_sort_keys: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Multi-hop Graph V2 traversal from seed entities with strict tenant isolation.
 
@@ -1398,6 +1400,11 @@ class KuzuGraphProvider(BaseGraphProvider):
             raise GraphSearchError("Kùzu graph retrieval is unavailable") from exc
 
         # Aggregate multiple paths per target entity
+        def _assertion_tie_key(aid: str) -> Any:
+            if assertion_sort_keys is not None and aid in assertion_sort_keys:
+                return assertion_sort_keys[aid]
+            return (aid,)
+
         hits: dict[str, dict[str, Any]] = {}
         for t_id, target_paths in paths_by_target.items():
             target_paths.sort(
@@ -1405,7 +1412,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                     -p["path_score"],
                     p["hops"],
                     p["seed_id"],
-                    tuple(p["path_assertions"]),
+                    tuple(_assertion_tie_key(aid) for aid in p["path_assertions"]),
                 )
             )
             best_p = target_paths[0]
@@ -1483,6 +1490,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND dst.agent_id = $agent_id "
             "  AND dst.id <> src.id "
             "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.jurisdiction, 'forward' AS direction "
+            "ORDER BY src.id, dst.id, a.predicate, a.confidence DESC, a.id "
             "LIMIT $limit"
         )
         q_reverse = (
@@ -1493,6 +1501,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND dst.agent_id = $agent_id "
             "  AND dst.id <> src.id "
             "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.jurisdiction, 'reverse' AS direction "
+            "ORDER BY src.id, dst.id, a.predicate, a.confidence DESC, a.id "
             "LIMIT $limit"
         )
 

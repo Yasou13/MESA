@@ -6604,6 +6604,70 @@ class MemoryDAO:
             }
         in_scope_assertions = scope["assertions"]
         in_scope_assertion_ids = set(in_scope_assertions)
+        if "assertion_stable_keys" not in scope:
+            # Build a deterministic content-identity tie-break key per assertion
+            # once per scope/data_version so two fresh stores with different
+            # opaque physical UUIDs break every lane and fusion tie identically.
+            chunk_stable_order: dict[str, tuple[str, int, int, str]] = {}
+            authorized_chunk_ids = sorted(
+                {str(a["chunk_id"]) for a in in_scope_assertions.values() if a.get("chunk_id")}
+            )
+            async with self._search_read_connection(_search_db) as db:
+                for offset in range(0, len(authorized_chunk_ids), 500):
+                    batch = authorized_chunk_ids[offset : offset + 500]
+                    marks = ",".join("?" for _ in batch)
+                    async with db.execute(
+                        "SELECT c.chunk_id, c.ordinal, r.revision_number, "
+                        "COALESCE(ci_doc.external_id, r.document_id) AS ext_document_id, "
+                        "COALESCE(ci_chunk.external_id, c.chunk_id) AS ext_chunk_id "
+                        "FROM source_chunks c "
+                        "JOIN document_revisions r ON r.revision_id = c.revision_id "
+                        "LEFT JOIN v4_catalog_identities ci_doc "
+                        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = r.document_id "
+                        "LEFT JOIN v4_catalog_identities ci_chunk "
+                        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = c.chunk_id "
+                        f"WHERE c.tenant_id = ? AND c.chunk_id IN ({marks})",
+                        (tenant_id, *batch),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            chunk_stable_order[str(row["chunk_id"])] = (
+                                str(row["ext_document_id"] or ""),
+                                int(row["revision_number"] or 0),
+                                int(row["ordinal"] or 0),
+                                str(row["ext_chunk_id"] or ""),
+                            )
+            assertion_stable_keys: dict[str, tuple[Any, ...]] = {}
+            for aid, assertion in in_scope_assertions.items():
+                cid = str(assertion.get("chunk_id") or "")
+                chunk_key = chunk_stable_order.get(
+                    cid,
+                    (
+                        str(assertion.get("document_id") or ""),
+                        0,
+                        0,
+                        cid,
+                    ),
+                )
+                assertion_stable_keys[aid] = (
+                    *chunk_key,
+                    str(assertion.get("predicate") or ""),
+                    str(assertion.get("subject_id") or ""),
+                    str(assertion.get("object_entity_id") or ""),
+                    str(assertion.get("literal_value") or ""),
+                    str(assertion.get("evidence_span") or ""),
+                    str(assertion.get("source_ref") or ""),
+                    aid,
+                )
+            scope["chunk_stable_order"] = chunk_stable_order
+            scope["assertion_stable_keys"] = assertion_stable_keys
+        chunk_stable_order = scope["chunk_stable_order"]
+        assertion_stable_keys = scope["assertion_stable_keys"]
+
+        def _assertion_stable_key(aid: str) -> tuple[Any, ...]:
+            key = assertion_stable_keys.get(aid)
+            if key is not None:
+                return key
+            return ("", 0, 0, "", "", "", "", "", "", "", aid)
         if self._legal_rules_enabled and "legal_context" not in scope:
             # Only authorized assertions select revisions. Header/title names and
             # chunk ordinals share the existing data_version scope-cache lifetime.
@@ -6719,17 +6783,7 @@ class MemoryDAO:
                 "decisions": decisions,
                 "ordered_assertions": sorted(
                     in_scope_assertions,
-                    key=lambda aid: (
-                        *chunk_order.get(
-                            str(in_scope_assertions[aid]["chunk_id"]),
-                            (
-                                str(in_scope_assertions[aid]["document_id"]),
-                                str(in_scope_assertions[aid]["revision_id"]),
-                                0,
-                            ),
-                        ),
-                        aid,
-                    ),
+                    key=_assertion_stable_key,
                 ),
             }
         legal_context = scope["legal_context"] if self._legal_rules_enabled else {
@@ -6802,6 +6856,12 @@ class MemoryDAO:
             typed_candidate_query = (
                 "SELECT a.assertion_id FROM v4_assertions a INDEXED BY "
                 "idx_v4_assertions_legal_identity_scope "
+                "LEFT JOIN source_chunks c ON c.chunk_id = a.chunk_id "
+                "LEFT JOIN document_revisions r ON r.revision_id = a.revision_id "
+                "LEFT JOIN v4_catalog_identities ci_doc "
+                "ON ci_doc.kind = 'document' AND ci_doc.physical_id = a.document_id "
+                "LEFT JOIN v4_catalog_identities ci_chunk "
+                "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = a.chunk_id "
                 f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
                 f"AND {assertion_status_sql} "
                 "AND a.legal_identity_source IN ('catalog', 'verified_ingestion') "
@@ -6815,7 +6875,9 @@ class MemoryDAO:
                     else ""
                 )
                 + " ORDER BY a.statute_code, a.article_id, a.legal_version_id, "
-                "a.assertion_id LIMIT ?"
+                "COALESCE(ci_doc.external_id, a.document_id), "
+                "COALESCE(r.revision_number, 0), COALESCE(c.ordinal, 0), "
+                "COALESCE(ci_chunk.external_id, a.chunk_id), a.assertion_id LIMIT ?"
             )
             async with self._search_read_connection(_search_db) as db:
                 async with db.execute(
@@ -6949,14 +7011,24 @@ class MemoryDAO:
                 vector_lane_diagnostics["search_result_count"] = len(vector_rows)
                 seen_vec: set[str] = set()
                 ranked_assertion_ids: list[str] = []
+                has_explicit_distance = False
                 for v_row in vector_rows:
                     node_id = str(v_row.get("node_id", ""))
                     if node_id in allowed_vector_ids and node_id not in seen_vec:
                         ranked_assertion_ids.append(node_id)
                         seen_vec.add(node_id)
+                        if "_distance" in v_row and v_row["_distance"] is not None:
+                            has_explicit_distance = True
                         vector_raw_distances[node_id] = float(
                             v_row.get("_distance", 0.0)
                         )
+                if has_explicit_distance and len(ranked_assertion_ids) > 1:
+                    ranked_assertion_ids.sort(
+                        key=lambda aid: (
+                            vector_raw_distances[aid],
+                            _assertion_stable_key(aid),
+                        )
+                    )
                 if ranked_assertion_ids:
                     vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
                     async with self._search_read_connection(_search_db) as db:
@@ -7106,7 +7178,7 @@ class MemoryDAO:
             passage_sql = (
                 "SELECT a.*, s.canonical_name AS subject_name, "
                 "o.canonical_name AS object_name, "
-                f"bm25({scoped_fts}, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
+                f"bm25({scoped_fts}, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0, 0.0) "
                 f"AS bm25_score FROM {scoped_fts} "
                 f"JOIN v4_assertions a ON a.rowid = {scoped_fts}.rowid "
                 "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
@@ -7123,7 +7195,7 @@ class MemoryDAO:
                     else ""
                 )
                 + " "
-                "ORDER BY bm25_score, a.assertion_id LIMIT ?"
+                f"ORDER BY bm25_score, {scoped_fts}.stable_key, a.assertion_id LIMIT ?"
             )
             async with self._search_read_connection(_search_db) as db:
                 if not scope.get("fts_built"):
@@ -7135,17 +7207,30 @@ class MemoryDAO:
                         f"CREATE VIRTUAL TABLE temp.{scoped_fts} USING fts5("
                         "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
                         "source_ref, subject_name, object_name, chunk_payload, "
+                        "stable_key UNINDEXED, "
                         "tokenize='unicode61 remove_diacritics 2', prefix='5')"
                     )
                     await db.execute(
                         f"INSERT INTO temp.{scoped_fts} "
                         "(rowid, assertion_id, predicate, evidence_span, literal_value, "
-                        "source_ref, subject_name, object_name, chunk_payload) "
+                        "source_ref, subject_name, object_name, chunk_payload, stable_key) "
                         "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
                         "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
-                        "f.chunk_payload FROM v4_assertions_fts f "
+                        "f.chunk_payload, "
+                        "COALESCE(ci_doc.external_id, scoped.document_id) || char(0) || "
+                        "printf('%010d', COALESCE(r.revision_number, 0)) || char(0) || "
+                        "printf('%010d', COALESCE(c.ordinal, 0)) || char(0) || "
+                        "COALESCE(ci_chunk.external_id, scoped.chunk_id) || char(0) || "
+                        "COALESCE(scoped.predicate, '') "
+                        "FROM v4_assertions_fts f "
                         f"JOIN ({in_scope_assertion_query}) scoped "
-                        "ON scoped.assertion_id = f.assertion_id",
+                        "ON scoped.assertion_id = f.assertion_id "
+                        "LEFT JOIN source_chunks c ON c.chunk_id = scoped.chunk_id "
+                        "LEFT JOIN document_revisions r ON r.revision_id = scoped.revision_id "
+                        "LEFT JOIN v4_catalog_identities ci_doc "
+                        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = scoped.document_id "
+                        "LEFT JOIN v4_catalog_identities ci_chunk "
+                        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = scoped.chunk_id",
                         (tenant_id, *datasets, agent_id, *provenance_params),
                     )
                     scope["fts_built"] = True
@@ -7169,7 +7254,9 @@ class MemoryDAO:
             # columns; arbitrary free-form metadata and bare article text never
             # enter this path.
             passage_ids = {str(row["assertion_id"]) for row in passage_candidate_rows}
-            for assertion_id in sorted(typed_legal_candidate_ids - passage_ids):
+            for assertion_id in sorted(
+                typed_legal_candidate_ids - passage_ids, key=_assertion_stable_key
+            ):
                 typed_row = dict(in_scope_assertions[assertion_id])
                 typed_row["subject_name"] = ""
                 typed_row["object_name"] = ""
@@ -7263,7 +7350,9 @@ class MemoryDAO:
                     await asyncio.sleep(0.001)
                     scoring_deadline = time.monotonic() + 0.002
 
-            scored_passage_candidates.sort(key=lambda x: (-x[0], x[1]))
+            scored_passage_candidates.sort(
+                key=lambda x: (-x[0], _assertion_stable_key(x[1]))
+            )
             for score, aid, p_row in scored_passage_candidates:
                 if (
                     str(p_row["subject_id"]) in allowed_entity_ids
@@ -7454,7 +7543,7 @@ class MemoryDAO:
                 -float(
                     x[2]["confidence"] if x[2].get("confidence") is not None else 0.0
                 ),
-                str(x[1]),
+                _assertion_stable_key(x[1]),
             )
         )
 
@@ -7575,6 +7664,7 @@ class MemoryDAO:
                         aid: str(assertion.get("evidence_span") or "")
                         for aid, assertion in in_scope_assertions.items()
                     },
+                    assertion_sort_keys=assertion_stable_keys,
                     max_hops=3,
                     limit=min(500, max(limit * 10, 50)),
                     query=query,
@@ -7662,7 +7752,10 @@ class MemoryDAO:
                             -p["score"],
                             len(p["assertion_ids"]),
                             tuple(p["entity_ids"]),
-                            tuple(p["assertion_ids"]),
+                            tuple(
+                                _assertion_stable_key(aid)
+                                for aid in p["assertion_ids"]
+                            ),
                         )
                     )
                     best = paths[0]
@@ -7702,7 +7795,7 @@ class MemoryDAO:
                     graph_evidence_by_candidate,
                     key=lambda aid: (
                         -graph_evidence_by_candidate[aid]["graph_score"],
-                        aid,
+                        _assertion_stable_key(aid),
                     ),
                 )
             except GraphSearchError as exc:
@@ -7733,6 +7826,7 @@ class MemoryDAO:
             lane_rankings,
             k=effective_k,
             weights=effective_weights,
+            tie_break_key=_assertion_stable_key,
         ):
             fused_assertion = candidate_assertions.get(candidate_id)
             if fused_assertion is None:
@@ -7910,7 +8004,10 @@ class MemoryDAO:
 
         ordered_candidates = sorted(
             candidates.values(),
-            key=lambda c: (-(c["rrf_score"] * c["legal_factor"]), c["candidate_id"]),
+            key=lambda c: (
+                -(c["rrf_score"] * c["legal_factor"]),
+                _assertion_stable_key(c["candidate_id"]),
+            ),
         )
         exact_candidates = [candidates[aid] for aid in exact_ids if aid in candidates]
         ordered_candidates = (
