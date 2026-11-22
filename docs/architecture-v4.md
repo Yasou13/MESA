@@ -89,9 +89,9 @@ always discarded, so free-form metadata cannot opt into legal ranking. The
 producer remains responsible for verifying that the declared identity belongs
 to the source; MESA_Data must not populate it from a bare article heading.
 
-Validation is an explicit policy gate configured via `MESA_TIER3_MODE` (0 = deterministic-only, 1 = single LLM validator, 2 = dual-LLM consensus). A rejected mutation may keep its raw
+Validation runs deterministically (Mode 0, zero LLM validator dependencies). A rejected mutation may keep its raw
 audit source, but it cannot create an active SQL, vector, entity, edge or
-assertion artifact. In Mode 0, deterministic admission checks gate progression with zero LLM validator dependencies.
+assertion artifact.
 
 ## Pipeline and failure model
 

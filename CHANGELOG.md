@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VectorEngine` soft-delete/Procrustes methods, `KuzuGraphProvider.get_cognitive_salience`,
   and legacy V3 startup recovery/polling paths. Existing 0.9.3 V4 stores migrate
   automatically without data loss.
+- LLM consolidation (`ConsolidationLoop`, `AdaptiveRouter`, `Tier3Validator`,
+  `ValidationPolicy` modes 1/2), `routing_telemetry` (dropped by Alembic
+  migration `f8b9c0d1e2f3`), valence/consolidation `ObservabilityLayer` metrics,
+  and their settings (`MESA_TIER3_MODE`, `MESA_TIER3_LLM_*`, `MESA_T_ROUTE`,
+  `MESA_RETRY_*`, `MESA_CIRCUIT_BREAKER_*`, `CONSOLIDATION_*`, `HISTOGRAM_MAX_SIZE`,
+  `METRICS_*_THRESHOLD`, `MESA_HUMAN_REVIEW_QUEUE_PATH`,
+  `MESA_DEAD_LETTER_QUEUE_PATH`). Validation is always deterministic (Mode 0);
+  optional fact extraction (`MESA_EXTRACTION_ENABLED=true`) runs directly via
+  `FactExtractionService`. Removed settings log one startup warning and are
+  ignored.
 
 ### Changed
 

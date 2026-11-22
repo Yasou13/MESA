@@ -95,9 +95,8 @@ requested number of results. Tied scores retain fused order. Results keep their
 fusion fields, including `rrf_score` and `final_score`, and add `rerank_score`.
 The first search includes model-load latency; subsequent searches reuse it.
 
-Model and external-provider flags default false. Validation defaults to
-mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
-needs distinct A/B validator identities. Extraction and validation are separate.
+Model and external-provider flags default false. Validation is always
+deterministic (Mode 0; zero LLM validator dependencies).
 `MESA_EMBEDDING_ENABLED` defaults to `MESA_MODEL_ENABLED`; `MESA_EXTRACTION_ENABLED`
 defaults to `false` (D46). A combined runtime accepts writes with both off and finds
 them through BM25. Disabled VECTOR lanes end `SKIPPED`; enabling embedding later
@@ -152,7 +151,6 @@ export MESA_RUNTIME_PROFILE=combined
 export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=true
 export MESA_EXTERNAL_PROVIDER_ENABLED=true
-export MESA_TIER3_MODE=0
 export MESA_LLM_MODEL=openai:gpt-4o-mini
 export MESA_LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
 export MESA_EMBEDDING_MODEL=openai:text-embedding-3-small
@@ -257,11 +255,6 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `llm_embedding_model_name` | `LLM_EMBEDDING_MODEL` | `'sentence-transformers/all-MiniLM-L6-v2'` |
 | `embedding_model` | `MESA_EMBEDDING_MODEL` | `'local:BAAI/bge-m3'` |
 | `model_enabled` | `MESA_MODEL_ENABLED` | `False` |
-| `tier3_mode` | `MESA_TIER3_MODE` | `None` |
-| `tier3_llm_provider_a` | `MESA_TIER3_LLM_PROVIDER_A` | `None` |
-| `tier3_llm_model_name_a` | `MESA_TIER3_LLM_MODEL_A` | `None` |
-| `tier3_llm_provider_b` | `MESA_TIER3_LLM_PROVIDER_B` | `None` |
-| `tier3_llm_model_name_b` | `MESA_TIER3_LLM_MODEL_B` | `None` |
 | `external_provider_enabled` | `MESA_EXTERNAL_PROVIDER_ENABLED` | `False` |
 | `embedding_dimension` | `MESA_EMBEDDING_DIMENSION` | detected at startup when enabled and unset; otherwise `1024` |
 | `embedding_version` | `MESA_EMBEDDING_VERSION` | `'v1'` |
@@ -270,11 +263,6 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `context_window_limit` | `CONTEXT_WINDOW_LIMIT` | `8000` |
 | `lancedb_memory_limit_bytes` | `LANCEDB_MEMORY_LIMIT_BYTES` | `1073741824` |
 | `ram_allocation_fraction` | `RAM_ALLOCATION_FRACTION` | `0.18` |
-| `consolidation_batch_size` | `CONSOLIDATION_BATCH_SIZE` | `20` |
-| `consolidation_idle_timeout` | `CONSOLIDATION_IDLE_TIMEOUT` | `10` |
-| `histogram_max_size` | `HISTOGRAM_MAX_SIZE` | `10000` |
-| `metrics_admission_threshold` | `METRICS_ADMISSION_THRESHOLD` | `0.8` |
-| `metrics_divergence_threshold` | `METRICS_DIVERGENCE_THRESHOLD` | `0.5` |
 | `rrf_k` | `MESA_RRF_K` | `60` |
 | `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `8.0` |
 | `rrf_bm25_weight` | `MESA_RRF_BM25_WEIGHT` | `1.0` |
@@ -285,7 +273,6 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `rerank_enabled` | `MESA_RERANK_ENABLED` | `False` |
 | `rerank_model` | `MESA_RERANK_MODEL` | `'BAAI/bge-reranker-v2-m3'` |
 | `rerank_depth` | `MESA_RERANK_DEPTH` | `50` |
-| `t_route` | `MESA_T_ROUTE` | `0.85` |
 | `v4_rebuild_enabled` | `MESA_V4_REBUILD_ENABLED` | `False` |
 | `v4_graph_timeout_seconds` | `MESA_V4_GRAPH_TIMEOUT_SECONDS` | `15.0` |
 | `crossencoder_pool_multiplier` | `MESA_CROSSENCODER_POOL_MULTIPLIER` | `3` |
@@ -295,14 +282,7 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `ollama_url` | `MESA_OLLAMA_URL` | `'http://localhost:11434'` |
 | `ollama_timeout_seconds` | `MESA_OLLAMA_TIMEOUT_SECONDS` | `300.0` |
 | `ollama_num_ctx` | `MESA_OLLAMA_NUM_CTX` | `8192` |
-| `retry_max_attempts` | `MESA_RETRY_MAX_ATTEMPTS` | `5` |
-| `retry_min_wait_sec` | `MESA_RETRY_MIN_WAIT_SEC` | `2` |
-| `retry_max_wait_sec` | `MESA_RETRY_MAX_WAIT_SEC` | `60` |
-| `circuit_breaker_threshold` | `MESA_CIRCUIT_BREAKER_THRESHOLD` | `10` |
-| `circuit_breaker_cooldown_sec` | `MESA_CIRCUIT_BREAKER_COOLDOWN` | `60.0` |
 | `storage_path` | `MESA_STORAGE_PATH` | `derived from cwd; runtime requires explicit storage root` |
-| `human_review_queue_path` | `MESA_HUMAN_REVIEW_QUEUE_PATH` | `'' (server puts this file under MESA_STORAGE_ROOT; variable applies only outside the server)` |
-| `dead_letter_queue_path` | `MESA_DEAD_LETTER_QUEUE_PATH` | `'' (server puts this file under MESA_STORAGE_ROOT; variable applies only outside the server)` |
 | `queue_max_pending_records` | `MESA_QUEUE_MAX_PENDING_RECORDS` | `50000` |
 | `queue_max_pending_bytes` | `MESA_QUEUE_MAX_PENDING_BYTES` | `2147483648` |
 | `queue_max_pending_records_per_tenant` | `MESA_QUEUE_MAX_PENDING_RECORDS_PER_TENANT` | `50000` |

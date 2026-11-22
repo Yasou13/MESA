@@ -222,9 +222,7 @@ Before startup:
 2. Install the selected extraction and embedding dependencies; configure their
    provider/model identity. External `text-embedding-3-small` requires dimension
    1536; the local `BAAI/bge-m3` default is 1024. Equal dimensions alone are insufficient.
-3. Select validation mode. Mode 0 has no LLM validator but still needs canonical
-   extraction and embeddings; mode 2 requires distinct A/B validator identities.
-4. Supply the issued API key and provider secrets privately to the process.
+3. Supply the issued API key and provider secrets privately to the process.
 
 Example profile after those prerequisites (the storage path is an operator
 example, not an automatically provisioned directory):
@@ -234,7 +232,6 @@ export MESA_STORAGE_ROOT=/srv/mesa/v4-data
 export MESA_RUNTIME_PROFILE=combined
 export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=true
-export MESA_TIER3_MODE=0
 export MESA_PRINCIPAL_ID=service-api
 # Set MESA_EXTERNAL_PROVIDER_ENABLED to match the reviewed providers.
 .venv/bin/python -m mesa_memory.runtime_entrypoint
@@ -320,7 +317,6 @@ export MESA_RUNTIME_PROFILE=combined
 export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=false
 export MESA_EXTERNAL_PROVIDER_ENABLED=false
-export MESA_TIER3_MODE=0
 export MESA_PRINCIPAL_ID=docs-principal
 export MESA_PORT=18080
 export MESA_API_KEY="$(.venv/bin/mesa-v4-admin issue-key --principal docs-principal)"
