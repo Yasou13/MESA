@@ -19,7 +19,7 @@ def test_memory_candidate_is_retry_stable_and_preserves_payload() -> None:
         raw_log_id=41,
         agent_id="tenant-a",
         session_id="session-a",
-        content_payload="The exact text passed to Tier-3.",
+        content_payload="The original text submitted for validation.",
         metadata={"source_ref": "test"},
         embedding_provider="provider-a",
         embedding_model="model-a",
@@ -30,14 +30,14 @@ def test_memory_candidate_is_retry_stable_and_preserves_payload() -> None:
         raw_log_id=41,
         agent_id="tenant-a",
         session_id="session-a",
-        content_payload="The exact text passed to Tier-3.",
+        content_payload="The original text submitted for validation.",
     )
 
     record = first.as_consolidation_record()
     assert first.candidate_id == second.candidate_id
     assert first.mutation_id == second.mutation_id
     assert record["cmb_id"] == first.candidate_id
-    assert record["content_payload"] == "The exact text passed to Tier-3."
+    assert record["content_payload"] == "The original text submitted for validation."
     assert record["embedding_provider"] == "provider-a"
 
 
@@ -382,8 +382,7 @@ async def test_mutation_ledger_is_idempotent_and_creates_projection_outbox(
             ) as cursor:
                 projections = [row[0] for row in await cursor.fetchall()]
         assert projections == ["SQL", "VECTOR"]
-        # Tier-3 rejection cannot race a projector: lanes begin blocked until
-        # the exact validated extraction is durably recorded.
+        # Projection lanes stay blocked until validation records the extraction.
         assert await dao.claim_projection_outbox(worker_id="projector-a", limit=1) == []
         assert await dao.record_mutation_extraction(
             "tenant-a",

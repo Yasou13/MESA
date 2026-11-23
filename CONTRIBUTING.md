@@ -1,8 +1,7 @@
 # Contributing to MESA
 
-MESA v3 is the lexical-core compatibility surface. V4 is a versioned,
-full-cognitive runtime and remains `NO-GO` until its release gates
-pass. Contributions must preserve that distinction.
+MESA's supported API and runtime use the V4 contract. Contributions must
+preserve that contract and satisfy the applicable release gates.
 
 ## Workflow
 
@@ -41,7 +40,7 @@ make test-all
 ```
 
 V4 API/storage/retrieval changes must also run the relevant
-`tests/test_v4_*.py`, Graph V2 and API-key tests. Benchmark changes must keep
+`tests/test_v4_*.py` and API-key tests. Benchmark changes must keep
 dataset/checksum/evidence validity and may not convert provider errors into
 empty successful answers.
 
@@ -51,9 +50,8 @@ empty successful answers.
   bundles.
 - V4 authorization is principal → tenant → workspace → dataset → session.
   Agent IDs are not standalone tenant boundaries.
-- Tier-3 rejection may not create an active SQL/vector/graph artifact.
+- A rejected mutation may not create an active SQL or vector artifact.
 - Projection/rollback code must remain idempotent and source-owner aware.
-- PageRank is observation-only and cannot quarantine or delete data.
 - Migration and recovery tests use copies and new restore roots; they never
   alter production storage in place.
 

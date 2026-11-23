@@ -1,6 +1,6 @@
 # MESA v0.3.0 — MemoryDAO Unit Tests (Coverage Gap Filler)
 """
-Tests targeting untested DAO paths that remain after the V3 node store removal.
+Coverage for DAO storage and validation paths.
 """
 
 from __future__ import annotations

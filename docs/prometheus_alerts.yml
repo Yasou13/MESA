@@ -10,15 +10,6 @@ groups:
       summary: "High API error rate"
       description: "More than 5% of requests are failing in the last 5 minutes."
 
-  - alert: LegacyV3DualWriteSagaFailure
-    expr: rate(saga_failure_total[5m]) > 0
-    for: 1m
-    labels:
-      severity: critical
-    annotations:
-      summary: "Legacy v3 dual-write saga failures detected"
-      description: "The v3 lexical-core compatibility path reported a compensation failure."
-
   - alert: HighDiskUsage
     expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 90
     for: 5m
@@ -44,7 +35,7 @@ groups:
       severity: warning
     annotations:
       summary: "V4 projection backlog is not draining"
-      description: "More than 100 ordered SQL/vector/graph lanes remain pending."
+      description: "More than 100 SQL or vector projections remain pending."
 
   - alert: V4ProjectionDeadLetter
     expr: mesa_v4_projection_dead_letter > 0

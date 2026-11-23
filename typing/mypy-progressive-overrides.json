@@ -1,9 +1,5 @@
 {
   "modules": [
-    "mesa_memory.consolidation.loop",
-    "mesa_memory.consolidation.parser",
-    "mesa_memory.consolidation.router",
-    "mesa_memory.consolidation.validator",
     "mesa_memory.observability.metrics",
     "mesa_memory.retrieval.*",
     "mesa_memory.adapter.*",
@@ -14,7 +10,6 @@
     "mesa_api.schemas",
     "mesa_storage.dao",
     "mesa_storage.schemas",
-    "mesa_storage.kuzu_provider",
     "mesa_workers.*"
   ],
   "relaxed_options": [

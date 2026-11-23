@@ -1,4 +1,4 @@
-"""V4 equivalents of the V3 principal authorization release contracts."""
+"""V4 principal authorization release contracts."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock

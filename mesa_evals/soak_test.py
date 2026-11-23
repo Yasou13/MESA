@@ -761,7 +761,6 @@ async def setup_soak_runtime(
         "MESA_LOAD_DOTENV": "false",
         "MESA_MODEL_ENABLED": "true",
         "MESA_EXTERNAL_PROVIDER_ENABLED": "true",
-        "MESA_TIER3_MODE": "0",
         "MESA_EMBEDDING_DIMENSION": "384",
         "MESA_LLM_MODEL": "mock:test",
         "MESA_API_KEY": api_key,

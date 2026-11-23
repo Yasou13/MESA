@@ -414,12 +414,7 @@ def _v4_operation_path(operation_id: str, suffix: str = "") -> str:
 
 
 class MesaV4Client(MesaClient):
-    """Client for the breaking V4 full-cognitive lifecycle contract.
-
-    V3 methods intentionally remain on :class:`MesaClient`.  A separate
-    class prevents an application silently mixing a lexical-core insert with
-    V4 mutation polling.
-    """
+    """Client for the V4 API and durable mutation lifecycle."""
 
     def capability(self) -> dict[str, Any]:
         """Return the server's bounded V4 capability and rebuild-scope truth."""

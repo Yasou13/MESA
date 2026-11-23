@@ -112,11 +112,11 @@ jobs:
           path: ./
           version: 3.99.2
           extra_args: --results=verified,unknown
-      - name: Install graph-audit test dependencies
+      - name: Install security test dependencies
         run: |
           python -m pip install "uv==0.13.1"
           uv sync --locked --extra dev
-      - name: Enforce graph-poisoning guardrail
+      - name: Run isolation, recovery, and legal audit checks
         run: |
           set +e
           timeout 240s uv run python -m pytest -q tests/test_rbac_leak.py --tb=short \
@@ -372,7 +372,7 @@ jobs:
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev
       - run: uv pip check
-      - name: V4 API, SDK, ownership, Graph V2, projection and RRF contracts
+      - name: V4 API, SDK, ownership, projection and RRF contracts
         run: >-
           uv run python -m pytest -q --junitxml=v4-contract.xml
           tests/test_api_key_store.py
@@ -422,7 +422,7 @@ jobs:
       - run: python -m pip install "uv==0.13.1"
       - run: uv sync --locked --extra dev
       - run: uv pip check
-      - name: V3 recovery and V4 migration/rebuild contracts
+      - name: Recovery, migration and rebuild contracts
         run: >-
           uv run python -m pytest -q --junitxml=migration-dr.xml
           tests/test_migration_closure.py

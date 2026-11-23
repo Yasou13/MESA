@@ -81,7 +81,7 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
     assert fin2_after["state"] == "COMPLETED"
 
     # A runtime without a combined projection consumer may own finalization, but it
-    # must not admit V4 work whose Tier-3/projection lifecycle cannot progress.
+    # must not admit V4 work whose projection lifecycle cannot progress.
     unavailable = MemoryDAO(
         sqlite_engine=engine,
         vector_engine=mock_vec,
