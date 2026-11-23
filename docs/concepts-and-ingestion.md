@@ -48,9 +48,8 @@ rollback and blocked cleanup. The SDK terminal set is `COMMITTED`, `REJECTED`,
 Internal outbox/pipeline records may use `DLQ`; inspect each object's state.
 
 Canonical `FactExtractionService` preserves zero-to-many extracted facts.
-Validation mode 0 checks deterministically, mode 1 uses validator A, and mode 2
-requires distinct A/B provider-model pairs. The runtime-selected policy is
-snapshotted into admitted work; reserved `_mesa_*` metadata cannot downgrade it.
+Validation uses deterministic mode 0. The runtime records this policy with
+admitted work and protects it from changes via reserved `_mesa_*` metadata.
 Rejected work may retain audit source but creates no active retrieval artifact.
 
 Projection order is SQL → vector → graph. Separate stores do not share an ACID

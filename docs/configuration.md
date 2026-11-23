@@ -140,8 +140,7 @@ define a fenced embedding space; switch through reindex/rebuild, not live fallba
 
 Install optional ML/provider SDK extras for the selected backend. With models
 disabled semantic generation is intentionally unavailable. `MESA_ZERO_COST_MODE`
-selects local Ollama configuration but preserves validator settings and does
-not prove an air gap. RAM budget precedence is explicit MAX_RAM_MB/MAX_MEMORY_BYTES,
+selects local Ollama configuration. RAM budget precedence is explicit MAX_RAM_MB/MAX_MEMORY_BYTES,
 cgroups, psutil, then 1 GiB safe fallback; this is not an RSS guarantee.
 Queue per-tenant bounds must fit within global bounds. `.env.example` deliberately
 uses smaller sample global and per-tenant bounds than code defaults.

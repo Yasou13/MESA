@@ -16,7 +16,7 @@ karşılanmış yapmaz:
 - kilitli build, Ruff, Black ve Mypy;
 - tüm core ve benchmark contract testleri;
 - v4 API/SDK/MCP contract parity;
-- Tier-3 ret, retry, lease kaybı, projection crash ve rollback testleri;
+- deterministik doğrulama reddi, retry, lease kaybı, projection crash ve rollback testleri;
 - Graph V2 identity/provenance/purge ve iki yönlü reconciliation;
 - cross-tenant/workspace/dataset negatif güvenlik testleri;
 - dataset filtreli RRF lane-ablation ve vector-only karşılaştırma raporu;
