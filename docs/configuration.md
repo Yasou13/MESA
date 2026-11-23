@@ -1,9 +1,22 @@
 # Configuration reference
 
-Source: `mesa_memory/config.py`, `load_runtime_profile` and `MesaConfig`.
-Defaults below are field declarations, not evidence of an operational model.
+## Common
 
-## Startup and precedence
+| Setting | Default and usage |
+|---|---|
+| `MESA_STORAGE_ROOT` | `mesa start` uses `<MESA_HOME>/data`. Set a dedicated writable directory for the direct runtime launcher. |
+| `MESA_API_KEY`, `MESA_PRINCIPAL_ID` | `mesa start` and Docker provision local credentials. Supply both for direct-launch bootstrap when the registry has no active key. |
+| `MESA_MODEL_ENABLED` | `false`. Enables embeddings by default when set to `true`. |
+| `MESA_EMBEDDING_ENABLED`, `MESA_EXTRACTION_ENABLED` | Embedding follows `MESA_MODEL_ENABLED` when unset. Extraction defaults to `false`. |
+| `MESA_EMBEDDING_MODEL`, `MESA_EMBEDDING_DIMENSION` | `local:BAAI/bge-m3`. Dimension is detected at startup when embeddings are enabled and defaults to `1024` when disabled. |
+| `MESA_RERANK_ENABLED` | `false`. Set `true` to rerank search results with the configured model. |
+| `MESA_GRAPH_ENABLED` | `false`. Set `true` to enable Kùzu graph projection and retrieval. |
+| `MESA_LEGAL_RULES_ENABLED` | `true`. Enables Turkish legal rule processing during ingestion and search. |
+| `MESA_LOG_LEVEL` | `INFO`. |
+
+## Advanced
+
+### Startup and precedence
 
 `MESA_RUNTIME_PROFILE` and `MESA_STORAGE_ROOT` are required by the runtime
 loader. Profiles: `combined`, `test-isolated`. V4 requires one combined writer.
@@ -27,8 +40,10 @@ The direct runtime launcher requires `MESA_API_KEY` bootstrap or an existing act
 A bootstrap key requires the server-authored `MESA_PRINCIPAL_ID`; use offline
 admin provisioning for ACL. `MESA_PORT` defaults to 8000; `MESA_LOG_LEVEL` to INFO
 and `MESA_LOG_FORMAT` to json. Secrets must be injected privately.
+Settings for retired features are ignored. The server logs a warning for each
+retired key found in its startup environment.
 
-## Providers and capacity
+### Providers and capacity
 
 `MESA_CHUNKING=auto` (default) splits new document revisions at Turkish article
 headings when at least three occur at line starts. The preamble stays separate;
@@ -95,9 +110,8 @@ requested number of results. Tied scores retain fused order. Results keep their
 fusion fields, including `rrf_score` and `final_score`, and add `rerank_score`.
 The first search includes model-load latency; subsequent searches reuse it.
 
-Model and external-provider flags default false. Validation defaults to
-mode 0; mode 1 or 2 must be set explicitly via `MESA_TIER3_MODE`. Mode 2
-needs distinct A/B validator identities. Extraction and validation are separate.
+Model and external-provider flags default false. Validation is always
+deterministic (Mode 0; zero LLM validator dependencies).
 `MESA_EMBEDDING_ENABLED` defaults to `MESA_MODEL_ENABLED`; `MESA_EXTRACTION_ENABLED`
 defaults to `false` (D46). A combined runtime accepts writes with both off and finds
 them through BM25. Disabled VECTOR lanes end `SKIPPED`; enabling embedding later
@@ -126,13 +140,12 @@ define a fenced embedding space; switch through reindex/rebuild, not live fallba
 
 Install optional ML/provider SDK extras for the selected backend. With models
 disabled semantic generation is intentionally unavailable. `MESA_ZERO_COST_MODE`
-selects local Ollama configuration but preserves validator settings and does
-not prove an air gap. RAM budget precedence is explicit MAX_RAM_MB/MAX_MEMORY_BYTES,
+selects local Ollama configuration. RAM budget precedence is explicit MAX_RAM_MB/MAX_MEMORY_BYTES,
 cgroups, psutil, then 1 GiB safe fallback; this is not an RSS guarantee.
 Queue per-tenant bounds must fit within global bounds. `.env.example` deliberately
 uses smaller sample global and per-tenant bounds than code defaults.
 
-## Minimal V4 provider setup
+### Minimal V4 provider setup
 
 Start with the disposable root, key and grants from the
 [quickstart](getting-started.md#provision-before-startup-manual), with the server stopped.
@@ -152,7 +165,6 @@ export MESA_RUNTIME_PROFILE=combined
 export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=true
 export MESA_EXTERNAL_PROVIDER_ENABLED=true
-export MESA_TIER3_MODE=0
 export MESA_LLM_MODEL=openai:gpt-4o-mini
 export MESA_LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
 export MESA_EMBEDDING_MODEL=openai:text-embedding-3-small
@@ -166,9 +178,8 @@ export MESA_EMBEDDING_VERSION=v1
 A root without active vector artifacts adopts a changed embedding identity at
 startup and backfills skipped VECTOR lanes. A root with active vectors requires
 an explicit rebuild before changing identity. Keep `MESA_API_KEY` (MESA access) separate
-from `MESA_LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Modes 1/2 need
-the validator A or A/B settings from the table below. Extraction is configured
-separately and mode 0 still calls it.
+from `MESA_LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Enable fact
+extraction separately with `MESA_EXTRACTION_ENABLED=true` when an LLM is configured.
 
 `AdapterFactory` parses `provider:model` (`ollama`, `openai`, `openai_compatible`,
 `anthropic`, `mock`). Embeddings support local sentence-transformers (`ml` extra) or
@@ -182,7 +193,7 @@ Select embeddings with `MESA_EMBEDDING_MODEL=provider:model`: `local:...`,
 model name. `MESA_EMBEDDING_BASE_URL` overrides the endpoint; Ollama otherwise
 uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server.
 
-### Local model servers and external providers (D31)
+#### Local model servers and external providers (D31)
 
 An endpoint is considered **local** when its scheme is `http` or `https` and its host is `localhost`, `127.0.0.1`, `::1`, or `host.docker.internal`.
 
@@ -196,7 +207,7 @@ An endpoint is considered **local** when its scheme is `http` or `https` and its
     `MESA_EMBEDDING_API_KEY`); local `openai_compatible` endpoints still default
     to `local`, and Ollama keeps its existing key-free behavior.
 
-### Missing optional packages (P5-01)
+#### Missing optional packages (P5-01)
 
 If an optional provider or model extra is selected but not installed, server startup halts with a clear one-line installation command:
 - Ollama LLM, Ollama embedding, or OpenAI-compatible embedding:
@@ -215,13 +226,10 @@ external-model and local-model variables stop runtime startup with the
 replacement setting. Nemotron still requires `MESA_EMBEDDING_VERSION=nemotron-qpass-v1`
 and 2048 dimensions (explicit or detected).
 
-The built-in `mock` adapter returns no extracted facts; it is not a source-backed
-V4 demo. Contract tests inject deterministic fact and embedding providers
-explicitly. Models-disabled startup, deterministic V4 tests and real-provider
-V4 runs are different verification levels. V3 raw-memory processing requires
-embeddings too; models-disabled boot does not demonstrate insert/search success.
+The built-in `mock` adapter returns no extracted facts. Contract tests inject
+deterministic fact and embedding providers explicitly.
 
-## Environment file and first startup
+### Environment file and first startup
 
 The [template](../.env.example) uses a standalone `combined` owner with models
 disabled. Copy it only if needed, replace the storage path with an absolute,
@@ -231,17 +239,15 @@ path **in the launching shell**; setting them only inside the file cannot enable
 loading. Do not load dotenv in `test-isolated`. The quickstart's exported settings
 work without creating any `.env` file.
 
-Fresh combined startup creates/migrates SQLite and initializes LanceDB/Kùzu;
-there is no manual fresh-database migration step. Keep old storage migrations
-separate: use the [upgrade procedure](RUNBOOK.md#upgrade-v080), never delete an
-existing database to resolve a startup error. Startup failures occur in the server terminal before
+Fresh combined startup creates or migrates SQLite, initializes LanceDB and opens
+Kùzu only when graph is enabled. For older stores, follow the
+[upgrade procedure](RUNBOOK.md#upgrade-v080). Startup failures occur in the server terminal before
 readiness; check the named variable, writable path or missing selected extra
 there. Do not paste secrets or entire environment files into bug reports.
 
-## Declared MesaConfig fields
+### Declared MesaConfig fields
 
-Field-declaration reference; compare it with `MesaConfig` when configuration changes.
-`required` or derived defaults are explicit. Legacy controls are present for V3;
+See `mesa_memory/config.py` and `MesaConfig` for field declarations.
 
 | Python field | Environment name | Declared default |
 |---|---|---|
@@ -255,26 +261,13 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `extraction_thinking` | `MESA_EXTRACTION_THINKING` | `False` |
 | `extraction_max_tokens` | `MESA_EXTRACTION_MAX_TOKENS` | `4096` |
 | `llm_embedding_model_name` | `LLM_EMBEDDING_MODEL` | `'sentence-transformers/all-MiniLM-L6-v2'` |
-| `embedding_model` | `MESA_EMBEDDING_MODEL` | `'local:BAAI/bge-m3'` |
-| `model_enabled` | `MESA_MODEL_ENABLED` | `False` |
-| `tier3_mode` | `MESA_TIER3_MODE` | `None` |
-| `tier3_llm_provider_a` | `MESA_TIER3_LLM_PROVIDER_A` | `None` |
-| `tier3_llm_model_name_a` | `MESA_TIER3_LLM_MODEL_A` | `None` |
-| `tier3_llm_provider_b` | `MESA_TIER3_LLM_PROVIDER_B` | `None` |
-| `tier3_llm_model_name_b` | `MESA_TIER3_LLM_MODEL_B` | `None` |
 | `external_provider_enabled` | `MESA_EXTERNAL_PROVIDER_ENABLED` | `False` |
-| `embedding_dimension` | `MESA_EMBEDDING_DIMENSION` | detected at startup when enabled and unset; otherwise `1024` |
 | `embedding_version` | `MESA_EMBEDDING_VERSION` | `'v1'` |
 | `embedding_model_revision` | `MESA_EMBEDDING_MODEL_REVISION` | `None` |
 | `embedding_normalized` | `MESA_EMBEDDING_NORMALIZED` | `True` |
 | `context_window_limit` | `CONTEXT_WINDOW_LIMIT` | `8000` |
 | `lancedb_memory_limit_bytes` | `LANCEDB_MEMORY_LIMIT_BYTES` | `1073741824` |
 | `ram_allocation_fraction` | `RAM_ALLOCATION_FRACTION` | `0.18` |
-| `consolidation_batch_size` | `CONSOLIDATION_BATCH_SIZE` | `20` |
-| `consolidation_idle_timeout` | `CONSOLIDATION_IDLE_TIMEOUT` | `10` |
-| `histogram_max_size` | `HISTOGRAM_MAX_SIZE` | `10000` |
-| `metrics_admission_threshold` | `METRICS_ADMISSION_THRESHOLD` | `0.8` |
-| `metrics_divergence_threshold` | `METRICS_DIVERGENCE_THRESHOLD` | `0.5` |
 | `rrf_k` | `MESA_RRF_K` | `60` |
 | `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `8.0` |
 | `rrf_bm25_weight` | `MESA_RRF_BM25_WEIGHT` | `1.0` |
@@ -282,27 +275,17 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `rrf_graph_weight` | `MESA_RRF_GRAPH_WEIGHT` | `1.0` |
 | `search_scope_cache` | `MESA_SEARCH_SCOPE_CACHE` | `True` |
 | `chunking` | `MESA_CHUNKING` | `'auto'` |
-| `rerank_enabled` | `MESA_RERANK_ENABLED` | `False` |
 | `rerank_model` | `MESA_RERANK_MODEL` | `'BAAI/bge-reranker-v2-m3'` |
 | `rerank_depth` | `MESA_RERANK_DEPTH` | `50` |
-| `t_route` | `MESA_T_ROUTE` | `0.85` |
 | `v4_rebuild_enabled` | `MESA_V4_REBUILD_ENABLED` | `False` |
 | `v4_graph_timeout_seconds` | `MESA_V4_GRAPH_TIMEOUT_SECONDS` | `15.0` |
 | `crossencoder_pool_multiplier` | `MESA_CROSSENCODER_POOL_MULTIPLIER` | `3` |
-| `legal_domain_mode` | `MESA_LEGAL_DOMAIN_MODE` | `False` |
 | `extraction_lang` | `MESA_EXTRACTION_LANG` | `'tr'` |
 | `zero_cost_mode` | `MESA_ZERO_COST_MODE` | `False` |
 | `ollama_url` | `MESA_OLLAMA_URL` | `'http://localhost:11434'` |
 | `ollama_timeout_seconds` | `MESA_OLLAMA_TIMEOUT_SECONDS` | `300.0` |
 | `ollama_num_ctx` | `MESA_OLLAMA_NUM_CTX` | `8192` |
-| `retry_max_attempts` | `MESA_RETRY_MAX_ATTEMPTS` | `5` |
-| `retry_min_wait_sec` | `MESA_RETRY_MIN_WAIT_SEC` | `2` |
-| `retry_max_wait_sec` | `MESA_RETRY_MAX_WAIT_SEC` | `60` |
-| `circuit_breaker_threshold` | `MESA_CIRCUIT_BREAKER_THRESHOLD` | `10` |
-| `circuit_breaker_cooldown_sec` | `MESA_CIRCUIT_BREAKER_COOLDOWN` | `60.0` |
 | `storage_path` | `MESA_STORAGE_PATH` | `derived from cwd; runtime requires explicit storage root` |
-| `human_review_queue_path` | `MESA_HUMAN_REVIEW_QUEUE_PATH` | `'' (server puts this file under MESA_STORAGE_ROOT; variable applies only outside the server)` |
-| `dead_letter_queue_path` | `MESA_DEAD_LETTER_QUEUE_PATH` | `'' (server puts this file under MESA_STORAGE_ROOT; variable applies only outside the server)` |
 | `queue_max_pending_records` | `MESA_QUEUE_MAX_PENDING_RECORDS` | `50000` |
 | `queue_max_pending_bytes` | `MESA_QUEUE_MAX_PENDING_BYTES` | `2147483648` |
 | `queue_max_pending_records_per_tenant` | `MESA_QUEUE_MAX_PENDING_RECORDS_PER_TENANT` | `50000` |
@@ -320,7 +303,7 @@ Field-declaration reference; compare it with `MesaConfig` when configuration cha
 | `readiness_cleanup_blocked_max` | `MESA_READINESS_CLEANUP_BLOCKED_MAX` | `0` |
 | `readiness_orphan_registry_max` | `MESA_READINESS_ORPHAN_REGISTRY_MAX` | `0` |
 
-## MCP and operator variables
+### MCP and operator variables
 
 `mesa_mcp/configuration.py` owns separate `MCPSettings`; see [MCP](../README_MCP.md).
 MCP stdio uses V4; direct V4 requires explicit tenant,

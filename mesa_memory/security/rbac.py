@@ -29,8 +29,8 @@ def _access_level_satisfies(granted: str, required: str) -> bool:
 # ---------------------------------------------------------------------------
 # Advisory prompt injection patterns — logged for observability but NOT used
 # to hard-block content.  MESA's primary injection defense is architectural:
-# all user content is interpolated inside <CONTENT>…</CONTENT> sandbox tags
-# in the LLM prompt templates (see consolidation/loop.py), so the model is
+# all user content is interpolated inside <UNTRUSTED_SOURCE> sandbox tags
+# in the LLM prompt templates (see extraction/service.py), so the model is
 # explicitly instructed to treat the block as untrusted data.
 # ---------------------------------------------------------------------------
 INJECTION_PATTERNS = [

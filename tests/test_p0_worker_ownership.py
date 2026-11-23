@@ -25,7 +25,6 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
     mock_vec.is_initialized = True
     mock_vec.compute_embedding = AsyncMock(return_value=[0.1] * 384)
     mock_vec.upsert = AsyncMock()
-    mock_vec.soft_delete = AsyncMock()
 
     mock_graph = SimpleNamespace()
     mock_graph.insert_node = AsyncMock()
@@ -75,7 +74,7 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
         await db.execute("UPDATE raw_logs SET status = 'processed' WHERE id = ?", (log_id_2,))
         await db.commit()
 
-    res = await _consume_combined_durable_work_once(dao, consolidation_loop=None, model_processing_enabled=False)
+    res = await _consume_combined_durable_work_once(dao, fact_extraction_service=None, model_processing_enabled=False)
     assert res["finalizations"] == 1
 
     fin2_after = await dao.get_session_finalization(agent_id, session_id_2)

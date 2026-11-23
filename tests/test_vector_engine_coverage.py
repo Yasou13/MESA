@@ -24,7 +24,6 @@ import os
 import shutil
 import uuid
 
-import numpy as np
 import pytest
 
 from mesa_storage.vector_engine import (
@@ -276,16 +275,6 @@ class TestSearch:
 
 
 class TestDeleteOperations:
-    @pytest.mark.asyncio
-    async def test_soft_delete(self, engine):
-        await engine.upsert("del-1", "agent-d", [0.1] * 8)
-        await engine.soft_delete("del-1", "agent-d")
-        assert engine.metrics.soft_deletes == 1
-
-        # Should not appear in active search
-        results = await engine.search([0.1] * 8, agent_id="agent-d")
-        found = [r for r in results if r["node_id"] == "del-1"]
-        assert len(found) == 0
 
     @pytest.mark.asyncio
     async def test_hard_delete(self, engine):
@@ -299,11 +288,6 @@ class TestDeleteOperations:
         found = [r for r in results if r["node_id"] == "hdel-1"]
         assert len(found) == 0
 
-    @pytest.mark.asyncio
-    async def test_soft_delete_uninitialized_raises(self):
-        eng = VectorEngine("/tmp/fake.lance")
-        with pytest.raises(RuntimeError):
-            await eng.soft_delete("n", "agent_1")
 
     @pytest.mark.asyncio
     async def test_hard_delete_uninitialized_raises(self):
@@ -329,31 +313,12 @@ class TestActiveNodeIds:
         assert "act-2" in ids_a
         assert "act-3" not in ids_a
 
-    @pytest.mark.asyncio
-    async def test_excludes_soft_deleted(self, engine):
-        await engine.upsert("sd-1", "agent-sd", [0.4] * 8)
-        await engine.soft_delete("sd-1", "agent-sd")
-
-        ids = await engine.get_active_node_ids(agent_id="agent-sd")
-        assert "sd-1" not in ids
 
     @pytest.mark.asyncio
     async def test_uninitialized_raises(self):
         eng = VectorEngine("/tmp/fake.lance")
         with pytest.raises(RuntimeError):
             await eng.get_active_node_ids()
-
-
-class TestEmbeddingHydration:
-    @pytest.mark.asyncio
-    async def test_get_all_embeddings_scopes_to_agent(self, engine):
-        await engine.upsert("emb-a", "agent-a", [0.1] * 8)
-        await engine.upsert("emb-b", "agent-b", [0.2] * 8)
-
-        embeddings = await engine.get_all_embeddings(agent_id="agent-a")
-
-        assert len(embeddings) == 1
-        assert embeddings[0] == pytest.approx([0.1] * 8)
 
 
 # ===================================================================
@@ -373,12 +338,11 @@ class TestCountRecords:
     @pytest.mark.asyncio
     async def test_count_all(self, engine):
         await engine.upsert("cnt-a", "agent-cnt", [0.1] * 8)
-        await engine.soft_delete("cnt-a", "agent_1")
         await engine.upsert("cnt-b", "agent-cnt", [0.2] * 8)
 
         counts = await engine.count_records(active_only=False)
         total = sum(counts.values())
-        assert total == 2  # Both soft-deleted and active
+        assert total == 2
 
     @pytest.mark.asyncio
     async def test_uninitialized_raises(self):
@@ -406,79 +370,3 @@ class TestHealthCheck:
         result = await eng.health_check()
         assert result["status"] == "not_initialized"
         assert result["initialized"] is False
-
-
-# ===================================================================
-# Blue/Green Procrustes alignment
-# ===================================================================
-
-
-class TestProcrustesAlignment:
-    @pytest.mark.asyncio
-    async def test_no_active_tables_returns_false(self, engine):
-        """Empty engine has no active tables → returns False."""
-        R = np.eye(8, dtype=np.float32)
-        result = await engine.apply_procrustes_and_switch(
-            transformation_matrix=R,
-            golden_dataset=[],
-        )
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_successful_alignment(self, engine):
-        """Full pipeline: insert → transform → verify → switch."""
-        # Insert test data
-        for i in range(5):
-            vec = np.zeros(8, dtype=np.float32)
-            vec[i % 8] = 1.0
-            await engine.upsert(f"align-{i}", "agent-align", vec.tolist())
-
-        # Identity transform — recall should be perfect
-        R = np.eye(8, dtype=np.float32)
-        golden = [
-            {
-                "query_vector": [1.0] + [0.0] * 7,
-                "expected_node_id": "align-0",
-            }
-        ]
-
-        result = await engine.apply_procrustes_and_switch(
-            transformation_matrix=R,
-            golden_dataset=golden,
-            threshold=0.5,
-        )
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_rollback_on_low_recall(self, engine):
-        """Transform passes, but recall is too low → rollback."""
-        for i in range(5):
-            vec = np.zeros(8, dtype=np.float32)
-            vec[i % 8] = 1.0
-            await engine.upsert(f"roll-{i}", "agent-roll", vec.tolist())
-
-        # Zero matrix destroys all embeddings → guaranteed 0 recall
-        R = np.zeros((8, 8), dtype=np.float32)
-
-        golden = [
-            {
-                "query_vector": [1.0] + [0.0] * 7,
-                "expected_node_id": "roll-0",
-            },
-        ]
-
-        result = await engine.apply_procrustes_and_switch(
-            transformation_matrix=R,
-            golden_dataset=golden,
-            threshold=0.99,  # Very high threshold → guaranteed rollback
-        )
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_uninitialized_raises(self):
-        eng = VectorEngine("/tmp/fake.lance")
-        with pytest.raises(RuntimeError, match="not been initialized"):
-            await eng.apply_procrustes_and_switch(
-                transformation_matrix=np.eye(8),
-                golden_dataset=[],
-            )

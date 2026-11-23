@@ -64,15 +64,16 @@ def test_stdlib_and_structlog_share_the_v1_json_schema():
 
 def test_observability_event_is_emitted_once_without_nested_json():
     result = _run_python(
+        "import structlog; "
         "from mesa_memory.observability.logger import setup_logging; "
         "setup_logging(role='api'); "
-        "from mesa_memory.observability.metrics import ObservabilityLayer; "
-        "ObservabilityLayer().log_consolidation_batch('batch-1', 2, 0, 2, 1.5)"
+        "structlog.get_logger('MESA_Observability').info("
+        "'v4_projection_batch', batch_id='batch-1', processed=2)"
     )
 
     records = [r for r in _json_lines(result) if r.get("batch_id") == "batch-1"]
     assert len(records) == 1
-    assert records[0]["event"] == "consolidation_batch"
+    assert records[0]["event"] == "v4_projection_batch"
 
 
 def test_bootstrap_replaces_prior_handlers_and_is_idempotent():

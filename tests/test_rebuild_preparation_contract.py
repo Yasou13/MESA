@@ -85,7 +85,7 @@ def test_preflight_requires_drain_capacity_and_safe_nonoverlapping_paths(
     with StorageWriterLock.acquire(storage, owner="rebuild-runner") as writer_lock:
         preflight = _inspect(trusted, storage, work, writer_lock)
         assert preflight.source_generation_id == "legacy"
-        assert preflight.source_manifest["alembic_head"] == "e6f7a8b9c0d1"
+        assert preflight.source_manifest["alembic_head"] == "f8b9c0d1e2f3"
 
         connection = sqlite3.connect(database)
         connection.execute(
@@ -174,7 +174,7 @@ def test_source_manifest_ignores_operation_progress_but_detects_canonical_change
 
         connection = sqlite3.connect(database)
         connection.execute(
-            "INSERT INTO system_config (key, value) VALUES ('rebuild-test', 'changed')"
+            "INSERT INTO tenants (tenant_id, display_name) VALUES ('rebuild-test', 'changed')"
         )
         connection.commit()
         connection.close()

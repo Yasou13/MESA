@@ -2,7 +2,7 @@
 
 Bu klasörde 12 kullanım/geliştirme rehberi ve 8 mimari karar belgesi vardır.
 Hepsini sırayla okumak gerekmez. Amacınıza göre aşağıdaki giriş noktasını seçin.
-Paket sürümü 0.9.3; V4 güncel API'dir.
+Paket sürümü 0.9.4; V4 güncel API'dir.
 
 ## Nereden başlamalıyım?
 
@@ -47,8 +47,8 @@ kurallarıdır; Markdown rehberi değildir.
 ## Belgeleri güncel tutma
 
 Her konu için yukarıdaki ana belgeyi güncelleyin; aynı konuyu anlatan yeni
-“final/latest/current” dosyaları açmayın. API/paket sürümü, V3/V4 ayrımı,
-uygulanmış özellik ve ölçülmüş sonuç birbirine karıştırılmamalıdır.
+“final/latest/current” dosyaları açmayın. API sürümünü, paket sürümünü ve
+ölçülmüş sonuçların ait olduğu sürümü açıkça belirtin.
 Üretim uygunluğu [release kapıları](release.md) ile değerlendirilir; birim test
 başarısı veya sürüm numarası production GO değildir.
 

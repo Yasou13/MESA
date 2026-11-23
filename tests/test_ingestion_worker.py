@@ -1,15 +1,16 @@
-"""V4 cold-path validation and failure handling."""
+"""V4 cold-path extraction, deterministic validation, and failure handling."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from mesa_memory.extraction.service import FactCandidate, FactExtractionError
 from mesa_workers.ingestion_worker import process_cold_path
 
 
 class TestProcessColdPath:
     @pytest.mark.asyncio
-    async def test_full_cognitive_validates_canonical_candidate_before_projection(self):
+    async def test_full_cognitive_extracts_canonical_candidate_before_projection(self):
         mock_dao = MagicMock()
         mock_dao.get_raw_log = AsyncMock(
             return_value={
@@ -26,17 +27,18 @@ class TestProcessColdPath:
                     "revision_id": "revision-v4",
                     "chunk_id": "chunk-v4",
                     "source_ref": "mcp-tool",
-                    "validation_mode": 2,
+                    "validation_mode": 0,
                 },
             }
         )
         mock_dao.update_raw_log_status = AsyncMock()
-        loop = MagicMock()
+        mock_dao.record_mutation_extraction = AsyncMock(return_value=True)
+        mock_dao.record_mutation_tier3_audit = AsyncMock()
+        mock_dao.set_mutation_state = AsyncMock(return_value=True)
+        extraction_service = MagicMock()
 
-        async def accept(records):
-            record = records[0]
+        async def extract(record):
             assert record["content_payload"] == "Validated content"
-            assert record["tier3_deferred"] is True
             assert record["raw_log_id"] == 17
             assert record["candidate_id"] == record["cmb_id"]
             assert record["tenant_id"] == "tenant-v4"
@@ -46,28 +48,34 @@ class TestProcessColdPath:
             assert record["revision_id"] == "revision-v4"
             assert record["chunk_id"] == "chunk-v4"
             assert record["source_ref"] == "mcp-tool"
-            return {
-                "accepted": [record["candidate_id"]],
-                "rejected": [],
-                "deferred": [],
-            }
+            return [
+                FactCandidate(
+                    subject="MESA",
+                    predicate="preserves",
+                    object="Validated content",
+                    fact_text="MESA preserves Validated content.",
+                    confidence=0.95,
+                )
+            ]
 
-        loop.run_batch = AsyncMock(side_effect=accept)
+        extraction_service.extract_facts_from_record = AsyncMock(side_effect=extract)
 
         await process_cold_path(
             log_id=17,
             agent_id="test-agent",
             dao=mock_dao,
-            consolidation_loop=loop,
+            fact_extraction_service=extraction_service,
             model_processing_enabled=True,
-            require_tier3_validation=True,
         )
 
+        mock_dao.record_mutation_extraction.assert_awaited_once()
+        triplets = mock_dao.record_mutation_extraction.await_args.args[2]
+        assert len(triplets) == 1
+        assert triplets[0]["head"] == "MESA"
         mock_dao.update_raw_log_status.assert_any_call("test-agent", 17, "processed")
 
     @pytest.mark.asyncio
-    async def test_full_cognitive_update_is_deferred_to_tier3(self):
-        """Potentially contradictory updates must receive the selected validation policy."""
+    async def test_extraction_failure_defers_for_retry_with_failure_class(self):
         mock_dao = MagicMock()
         mock_dao.get_raw_log = AsyncMock(
             return_value={
@@ -75,76 +83,33 @@ class TestProcessColdPath:
                 "payload": {
                     "agent_id": "test-agent",
                     "session_id": "session-1",
-                    "content": "The policy now permits remote work.",
+                    "content": "Temporary outage content",
                     "validation_mode": 0,
                 },
             }
         )
         mock_dao.update_raw_log_status = AsyncMock()
-        loop = MagicMock()
-
-        async def accept(records):
-            return {
-                "accepted": [records[0]["candidate_id"]],
-                "rejected": [],
-                "deferred": [],
-            }
-
-        loop.run_batch = AsyncMock(side_effect=accept)
-
-        await process_cold_path(
-            log_id=19,
-            agent_id="test-agent",
-            dao=mock_dao,
-            consolidation_loop=loop,
-            model_processing_enabled=True,
-            require_tier3_validation=True,
+        mock_dao.set_mutation_state = AsyncMock()
+        extraction_service = MagicMock()
+        extraction_service.extract_facts_from_record = AsyncMock(
+            side_effect=FactExtractionError("provider timeout")
         )
-
-        loop.run_batch.assert_awaited_once()
-        mock_dao.update_raw_log_status.assert_any_call("test-agent", 19, "processed")
-        assert all(
-            call.args[2] != "rejected"
-            for call in mock_dao.update_raw_log_status.await_args_list
-        )
-
-    @pytest.mark.asyncio
-    async def test_full_cognitive_rejection_creates_no_legacy_projection(self):
-        mock_dao = MagicMock()
-        mock_dao.get_raw_log = AsyncMock(
-            return_value={
-                "status": "DEFERRED",
-                "payload": {
-                    "agent_id": "test-agent",
-                    "session_id": "session-1",
-                    "content": "Rejected content",
-                    "validation_mode": 0,
-                },
-            }
-        )
-        mock_dao.update_raw_log_status = AsyncMock()
-        loop = MagicMock()
-
-        async def reject(records):
-            return {
-                "accepted": [],
-                "rejected": [records[0]["candidate_id"]],
-                "deferred": [],
-            }
-
-        loop.run_batch = AsyncMock(side_effect=reject)
 
         await process_cold_path(
             log_id=18,
             agent_id="test-agent",
             dao=mock_dao,
-            consolidation_loop=loop,
-            require_tier3_validation=True,
+            fact_extraction_service=extraction_service,
+            model_processing_enabled=True,
         )
 
-        mock_dao.update_raw_log_status.assert_any_call(
-            "test-agent", 18, "rejected", error_reason="tier3_validation_rejected"
+        mock_dao.set_mutation_state.assert_awaited_once()
+        assert mock_dao.set_mutation_state.await_args.args[2] == "RETRY_PENDING"
+        assert (
+            mock_dao.set_mutation_state.await_args.kwargs["failure_class"]
+            == "Tier3Unavailable"
         )
+        mock_dao.update_raw_log_status.assert_any_call("test-agent", 18, "DEFERRED")
 
     @pytest.mark.asyncio
     async def test_cold_path_safety_net_catch_all(self):

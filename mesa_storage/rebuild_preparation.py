@@ -23,7 +23,7 @@ from mesa_storage.repositories.operations import OperationRepositoryPort
 from mesa_storage.sqlite_engine import configure_sqlite_connection
 from mesa_storage.writer_lock import StorageWriterLock
 
-REBUILD_ALEMBIC_HEAD = "e6f7a8b9c0d1"
+REBUILD_ALEMBIC_HEAD = "f8b9c0d1e2f3"
 _ADMIN_TABLES = frozenset(
     {
         "system_operations",
@@ -220,7 +220,6 @@ def _backlog_counts(connection: sqlite3.Connection) -> dict[str, int]:
             "SELECT COUNT(*) FROM artifact_cleanup_outbox WHERE state != 'COMPLETED'"
         ),
         "dispatch": ("SELECT COUNT(*) FROM dispatch_queue WHERE state != 'FINALIZED'"),
-        "vector_wal": "SELECT COUNT(*) FROM lancedb_wal WHERE state != 'ACKED'",
         "session_finalization": (
             "SELECT COUNT(*) FROM session_finalization_journal "
             "WHERE state != 'COMPLETED'"

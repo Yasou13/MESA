@@ -5,7 +5,7 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     context: .
     dockerfile: Dockerfile
     target: runtime
-  image: ${MESA_V4_IMAGE:-mesa-memory:0.9.3}
+  image: ${MESA_V4_IMAGE:-mesa-memory:0.9.4}
   restart: "on-failure:5"
   read_only: true
   tmpfs:
@@ -48,11 +48,6 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     MESA_EXTRACTION_THINKING: ${MESA_EXTRACTION_THINKING:-false}
     MESA_EXTRACTION_MAX_TOKENS: ${MESA_EXTRACTION_MAX_TOKENS:-4096}
     MESA_EXTRACTION_LANG: ${MESA_EXTRACTION_LANG:-tr}
-    MESA_TIER3_MODE: ${MESA_TIER3_MODE:-}
-    MESA_TIER3_LLM_PROVIDER_A: ${MESA_TIER3_LLM_PROVIDER_A:-}
-    MESA_TIER3_LLM_MODEL_A: ${MESA_TIER3_LLM_MODEL_A:-}
-    MESA_TIER3_LLM_PROVIDER_B: ${MESA_TIER3_LLM_PROVIDER_B:-}
-    MESA_TIER3_LLM_MODEL_B: ${MESA_TIER3_LLM_MODEL_B:-}
     MESA_OLLAMA_URL: ${MESA_OLLAMA_URL:-http://host.docker.internal:11434}
     MESA_PORT: "8000"
     MESA_LOG_LEVEL: ${MESA_LOG_LEVEL:-INFO}

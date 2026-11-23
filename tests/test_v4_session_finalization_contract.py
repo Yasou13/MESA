@@ -100,23 +100,22 @@ async def test_finalization_processes_pending_v4_log_without_legacy_extraction(
     extraction = AsyncMock(side_effect=AssertionError("legacy extraction called"))
     monkeypatch.setattr(worker, "_run_rebel_extraction", extraction, raising=False)
 
-    async def accept(records):
-        record = records[0]
-        await env.dao.record_mutation_extraction("agent-a", record["mutation_id"], [])
-        return {"accepted": [record["candidate_id"]], "rejected": [], "deferred": []}
-
-    loop = SimpleNamespace(run_batch=AsyncMock(side_effect=accept))
+    extraction_service = SimpleNamespace(
+        extract_facts_from_record=AsyncMock(return_value=[])
+    )
     assert (
-        await process_session_finalization("agent-a", env.session_id, env.dao, loop)
+        await process_session_finalization(
+            "agent-a", env.session_id, env.dao, extraction_service
+        )
         == "COMPLETED"
     )
     extraction.assert_not_awaited()
-    loop.run_batch.assert_awaited_once()
+    extraction_service.extract_facts_from_record.assert_awaited_once()
     assert await env.dao.get_pending_session_raw_logs("agent-a", env.session_id) == []
 
 
 @pytest.mark.asyncio
-async def test_v4_mode_zero_finalization_completes_without_consolidation_loop(
+async def test_v4_mode_zero_finalization_completes_without_extraction_service(
     v4_release_env,
 ):
     env = v4_release_env

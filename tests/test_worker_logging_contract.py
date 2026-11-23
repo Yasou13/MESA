@@ -67,7 +67,7 @@ async def test_v4_insert_raw_log_id_is_the_worker_operation_id(
 
     monkeypatch.setattr(worker, "_process_cold_path_impl", implementation)
     await _consume_combined_durable_work_once(
-        v4_release_env.dao, consolidation_loop=None, model_processing_enabled=False
+        v4_release_env.dao, fact_extraction_service=None, model_processing_enabled=False
     )
 
     assert observed["operation_id"] == str(admitted["raw_log_id"])

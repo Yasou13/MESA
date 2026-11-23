@@ -1,5 +1,5 @@
 """
-MESA v0.9.3 Client SDK
+MESA v0.9.4 Client SDK
 
 A robust, type-safe Python client for the MESA memory system.
 Provides both synchronous and asynchronous implementations utilizing httpx.
@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, TypeVar
+from typing import Any, Callable, Literal, Optional
 from urllib.parse import quote
 
 import httpx
@@ -22,8 +22,6 @@ from typing_extensions import Self
 from mesa_api.schemas import ErrorResponse
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 RECOMMENDED_SYSTEM_PROMPT = (
     "You are an AI assistant answering questions using retrieved memory evidence.\n"
@@ -262,7 +260,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.3"}
+        headers = {"User-Agent": "mesa-client/v0.9.4"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -327,7 +325,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.3"}
+        headers = {"User-Agent": "mesa-client/v0.9.4"}
         if api_key:
             headers["X-API-Key"] = api_key
 

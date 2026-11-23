@@ -26,7 +26,7 @@ def test_single_container_image_canary_uses_the_self_contained_runtime() -> None
     assert "--env MESA_RUNTIME_PROFILE=combined" in smoke_step["run"]
 
 
-def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
+def test_compose_forwards_provider_settings_and_omits_removed_settings() -> None:
     compose = yaml.safe_load(
         (ROOT / "docker-compose.v4.yml").read_text(encoding="utf-8")
     )
@@ -47,12 +47,9 @@ def test_full_cognitive_compose_forwards_provider_and_tier3_contract() -> None:
         "MESA_EXTRACTION_THINKING",
         "MESA_EXTRACTION_MAX_TOKENS",
         "MESA_EXTRACTION_LANG",
-        "MESA_TIER3_LLM_PROVIDER_A",
-        "MESA_TIER3_LLM_MODEL_A",
-        "MESA_TIER3_LLM_PROVIDER_B",
-        "MESA_TIER3_LLM_MODEL_B",
         "MESA_OLLAMA_URL",
     } <= set(environment)
+    assert not any(name.startswith("MESA_TIER3_") for name in environment)
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "ARG MESA_EXTRAS=adapters" in dockerfile
     assert dockerfile.count("ARG MESA_EXTRAS") == 3

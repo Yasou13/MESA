@@ -142,11 +142,6 @@ async def test_public_remember_approval_recall_survives_restart(
         "_get_embedding_service",
         lambda **_kwargs: _embedding_service(provider),
     )
-    monkeypatch.setattr(
-        server.AdapterFactory,
-        "get_tier3_adapters",
-        staticmethod(lambda: (provider, provider)),
-    )
 
 
     settings = MCPSettings(

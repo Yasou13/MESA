@@ -49,6 +49,40 @@ REMOVED_MESA_ENV_VARS: tuple[str, ...] = (
     "MESA_LOCAL_EMBEDDING_MODEL",
 )
 
+# Settings of removed features: logged once as a warning at startup and ignored (D71).
+REMOVED_IGNORED_MESA_ENV_VARS: tuple[str, ...] = (
+    "MESA_TIER3_MODE",
+    "MESA_TIER3_LLM_PROVIDER_A",
+    "MESA_TIER3_LLM_MODEL_A",
+    "MESA_TIER3_LLM_PROVIDER_B",
+    "MESA_TIER3_LLM_MODEL_B",
+    "MESA_LEGAL_DOMAIN_MODE",
+    "MESA_USE_V4",
+    "CONSOLIDATION_BATCH_SIZE",
+    "CONSOLIDATION_IDLE_TIMEOUT",
+    "HISTOGRAM_MAX_SIZE",
+    "METRICS_ADMISSION_THRESHOLD",
+    "METRICS_DIVERGENCE_THRESHOLD",
+    "MESA_T_ROUTE",
+    "MESA_RETRY_MAX_ATTEMPTS",
+    "MESA_RETRY_MIN_WAIT_SEC",
+    "MESA_RETRY_MAX_WAIT_SEC",
+    "MESA_CIRCUIT_BREAKER_THRESHOLD",
+    "MESA_CIRCUIT_BREAKER_COOLDOWN",
+    "MESA_HUMAN_REVIEW_QUEUE_PATH",
+    "MESA_DEAD_LETTER_QUEUE_PATH",
+)
+
+
+def warn_removed_env_vars() -> None:
+    """Log one warning per removed-feature env var present and ignore it (D71)."""
+    for var in REMOVED_IGNORED_MESA_ENV_VARS:
+        if var in os.environ:
+            logger.warning(
+                "Environment variable '%s' has been removed and is ignored.",
+                var,
+            )
+
 
 def _resolve_runtime_lab_root(values: Mapping[str, str]) -> Path:
     """Return the explicit test-isolated trust boundary without accepting relative paths."""
@@ -497,19 +531,6 @@ class MesaConfig(BaseSettings):
         "local:BAAI/bge-m3", validation_alias="MESA_EMBEDDING_MODEL"
     )
     model_enabled: bool = Field(False, validation_alias="MESA_MODEL_ENABLED")
-    tier3_mode: int | None = Field(None, validation_alias="MESA_TIER3_MODE")
-    tier3_llm_provider_a: str | None = Field(
-        None, validation_alias="MESA_TIER3_LLM_PROVIDER_A"
-    )
-    tier3_llm_model_name_a: str | None = Field(
-        None, validation_alias="MESA_TIER3_LLM_MODEL_A"
-    )
-    tier3_llm_provider_b: str | None = Field(
-        None, validation_alias="MESA_TIER3_LLM_PROVIDER_B"
-    )
-    tier3_llm_model_name_b: str | None = Field(
-        None, validation_alias="MESA_TIER3_LLM_MODEL_B"
-    )
     external_provider_enabled: bool = Field(
         False, validation_alias="MESA_EXTERNAL_PROVIDER_ENABLED"
     )
@@ -554,46 +575,6 @@ class MesaConfig(BaseSettings):
             )
         return val
 
-    @field_validator("tier3_mode", mode="before")
-    @classmethod
-    def validate_tier3_mode_input(cls, v: Any) -> int | None:
-        if v is None:
-            return None
-        if isinstance(v, str):
-            v_str = v.strip()
-            if not v_str:
-                return None
-            if not (v_str.isdigit() or (v_str.startswith("-") and v_str[1:].isdigit())):
-                raise ValueError(
-                    f"MESA_TIER3_MODE must be 0, 1, or 2; got '{v}' (public 'auto' is not supported)"
-                )
-            try:
-                v_int = int(v_str)
-            except ValueError:
-                raise ValueError(f"MESA_TIER3_MODE must be 0, 1, or 2; got '{v}'")
-        elif isinstance(v, int):
-            if isinstance(v, bool):
-                raise ValueError(f"MESA_TIER3_MODE must be 0, 1, or 2; got boolean {v}")
-            v_int = v
-        else:
-            raise ValueError(
-                f"MESA_TIER3_MODE must be an integer 0, 1, or 2; got {type(v).__name__}"
-            )
-
-        if v_int not in (0, 1, 2):
-            raise ValueError(f"MESA_TIER3_MODE must be 0, 1, or 2; got {v_int}")
-        return v_int
-
-    def effective_tier3_mode(self) -> int:
-        """Resolve the effective validation mode.
-
-        If explicitly set: returns 0, 1, or 2.
-        If unset (None): returns 0 (validation is opt-in).
-        """
-        if self.tier3_mode is not None:
-            return self.tier3_mode
-        return 0
-
     context_window_limit: int = 8000
     lancedb_memory_limit_bytes: int = _SAFE_MODE_RAM_BYTES
 
@@ -607,18 +588,10 @@ class MesaConfig(BaseSettings):
         # to keep normal deployments responsive and bounded.
         return max(1, min(4, self.lancedb_memory_limit_bytes // (512 * 1024 * 1024)))
 
-    # Consolidation loop parameters (Module 8)
-    consolidation_batch_size: int = 20
-    consolidation_idle_timeout: int = 10
-
-    # Observability (Module 4)
-    histogram_max_size: int = 10000
     chunking: Literal["auto", "plain"] = Field(
         "auto", validation_alias="MESA_CHUNKING"
     )
     legal_rules_enabled: bool = Field(True, validation_alias="MESA_LEGAL_RULES_ENABLED")
-    metrics_admission_threshold: float = 0.8
-    metrics_divergence_threshold: float = 0.5
 
     # Hybrid retrieval parameters (Module 9).  V4 fuses independent
     # vector/lexical/graph rankings with Reciprocal Rank Fusion; do not add
@@ -639,7 +612,6 @@ class MesaConfig(BaseSettings):
         "BAAI/bge-reranker-v2-m3", min_length=1, validation_alias="MESA_RERANK_MODEL"
     )
     rerank_depth: int = Field(50, ge=1, le=50, validation_alias="MESA_RERANK_DEPTH")
-    t_route: float = Field(0.85, validation_alias="MESA_T_ROUTE")
 
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this
     # flag advertises and admits the durable workflow; it never makes it online.
@@ -655,14 +627,6 @@ class MesaConfig(BaseSettings):
     crossencoder_pool_multiplier: int = Field(
         3, validation_alias="MESA_CROSSENCODER_POOL_MULTIPLIER"
     )
-
-    # -----------------------------------------------------------------------
-    # v0.7.1 Phase 3: Legal Domain Mode
-    # Legal-specific routing and provenance signals remain available inside
-    # the assurance level selected by MESA_TIER3_MODE.  This flag never changes
-    # the configured number of validation LLMs.
-    # -----------------------------------------------------------------------
-    legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
 
     @property
     def local_embedding_model(self) -> str:
@@ -702,19 +666,6 @@ class MesaConfig(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
-    # Resilience & Circuit Breaker (Phase 2.3)
-    # -----------------------------------------------------------------------
-    retry_max_attempts: int = Field(5, validation_alias="MESA_RETRY_MAX_ATTEMPTS")
-    retry_min_wait_sec: int = Field(2, validation_alias="MESA_RETRY_MIN_WAIT_SEC")
-    retry_max_wait_sec: int = Field(60, validation_alias="MESA_RETRY_MAX_WAIT_SEC")
-    circuit_breaker_threshold: int = Field(
-        10, validation_alias="MESA_CIRCUIT_BREAKER_THRESHOLD"
-    )
-    circuit_breaker_cooldown_sec: float = Field(
-        60.0, validation_alias="MESA_CIRCUIT_BREAKER_COOLDOWN"
-    )
-
-    # -----------------------------------------------------------------------
     # Central storage base directory (Phase 5.1 — P7 remediation)
     # All persistent data paths are derived from this root unless
     # explicitly overridden via their own env vars.  Matches the
@@ -723,19 +674,6 @@ class MesaConfig(BaseSettings):
     storage_path: str = Field(
         os.path.abspath(os.path.join(os.getcwd(), "storage")),
         validation_alias="MESA_STORAGE_PATH",
-    )
-
-    # -----------------------------------------------------------------------
-    # Persistent Queue Paths (Phase 5.1 — P7 remediation)
-    # Configurable via env vars. When empty, derived from storage_path.
-    # -----------------------------------------------------------------------
-    human_review_queue_path: str = Field(
-        "",
-        validation_alias="MESA_HUMAN_REVIEW_QUEUE_PATH",
-    )
-    dead_letter_queue_path: str = Field(
-        "",
-        validation_alias="MESA_DEAD_LETTER_QUEUE_PATH",
     )
 
     # WAVE-004B: bounded durable queue admission. Each operator value is
@@ -820,27 +758,6 @@ class MesaConfig(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def derive_queue_paths(self) -> "MesaConfig":
-        """Derive queue file paths from ``storage_path`` when not set explicitly.
-
-        Uses ``pathlib.Path`` for cross-platform concatenation.
-        """
-        base = Path(self.storage_path)
-        if not self.human_review_queue_path:
-            object.__setattr__(
-                self,
-                "human_review_queue_path",
-                str(base / "human_review_queue.jsonl"),
-            )
-        if not self.dead_letter_queue_path:
-            object.__setattr__(
-                self,
-                "dead_letter_queue_path",
-                str(base / "dead_letter_queue.jsonl"),
-            )
-        return self
-
-    @model_validator(mode="after")
     def validate_hard_constraints(self) -> "MesaConfig":
         # Constructing the typed policy validates all fail-closed queue bounds.
         self.queue_admission_policy
@@ -859,10 +776,6 @@ class MesaConfig(BaseSettings):
                 or weight < 0
             ):
                 raise ValueError(f"rrf {lane} weight MUST be positive and finite, got {weight}")
-        if not (0.5 < self.t_route < 0.99):
-            raise ValueError(
-                f"t_route MUST be strictly between 0.5 and 0.99, got {self.t_route}"
-            )
         if self.crossencoder_pool_multiplier < 1:
             raise ValueError(
                 f"crossencoder_pool_multiplier MUST be >= 1, got {self.crossencoder_pool_multiplier}"

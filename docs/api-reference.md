@@ -1,6 +1,6 @@
 # API reference
 
-MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.3; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
+MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.4; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
@@ -178,9 +178,8 @@ sync clients support `client.close()`.
 `MesaV4Client` ve `AsyncMesaV4Client`; capability, catalog, session, insert,
 search, status, wait, replay, rollback, purge, context ve end işlemlerinin
 yanında `submit_rebuild`, `operation_status`, `cancel_operation` ve
-`retry_operation` control-plane metotlarını sunar. V3 istemcileri `MesaClient`
-ve `AsyncMesaClient` olarak korunur. Dataset-bound MCP yüzeyi mutating global
-rebuild aracı sunmaz.
+`retry_operation` control-plane metotlarını sunar. Dataset-bound MCP yüzeyi
+mutating global rebuild aracı sunmaz.
 
 ## V4 authorization
 

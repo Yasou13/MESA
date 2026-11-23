@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import hashlib
 import importlib.util
+import json
 import socket
 
 import pytest
@@ -206,6 +207,57 @@ async def test_document_retry_resumes_after_partial_admission(
         await _consume(env, result["chunk_count"] + 2)
         assert (await _rows(env, "document_revisions"))[0]["status"] == "ACTIVE"
         assert await _add(env, content) == {**result, "duplicate": True}
+
+
+@pytest.mark.asyncio
+async def test_document_manifest_seals_once_and_rolls_back_with_final_chunk(
+    model_runtime, monkeypatch
+):
+    content = "Durable memory. " * 600
+    async with model_runtime() as env:
+        original = type(env.dao)._update_revision_manifest
+        manifest_attempts = []
+
+        async def interrupt_first_seal(db, revision_id, *, finalize_revision):
+            assert finalize_revision
+            digest = await original(db, revision_id, finalize_revision=finalize_revision)
+            manifest_attempts.append(digest)
+            if len(manifest_attempts) == 1:
+                raise QueueUnavailableError("interrupted before committing the final chunk")
+            return digest
+
+        monkeypatch.setattr(
+            type(env.dao), "_update_revision_manifest", staticmethod(interrupt_first_seal)
+        )
+        interrupted = await env.client.post("/v4/documents", json=_payload(env, content))
+        assert interrupted.status_code == 503, interrupted.text
+        assert interrupted.json()["detail"] == "queue_unavailable"
+        [draft] = await _rows(env, "document_revisions")
+        assert draft["status"] == "PENDING"
+        assert draft["manifest_hash"] == ""
+        assert draft["manifest_frozen_at"] is None
+        durable_chunks = await _rows(env, "source_chunks")
+        assert len(durable_chunks) > 1
+        assert len(await _rows(env, "memory_mutations")) == len(durable_chunks)
+        assert len(manifest_attempts) == 1
+
+        await env.restart()
+        result = await _add(env, content)
+        assert result["chunk_count"] == len(durable_chunks) + 1
+        chunks = sorted(await _rows(env, "source_chunks"), key=lambda row: row["ordinal"])
+        assert "".join(row["content_payload"] for row in chunks) == content
+        manifest_rows = [
+            {key: row[key] for key in ("chunk_id", "ordinal", "content_hash", "source_ref")}
+            for row in chunks
+        ]
+        original_json = json.dumps(manifest_rows, sort_keys=True, separators=(",", ":"))
+        expected_digest = hashlib.sha256(original_json.encode("utf-8")).hexdigest()
+        [sealed] = await _rows(env, "document_revisions")
+        assert sealed["manifest_hash"] == expected_digest
+        assert sealed["manifest_frozen_at"] is not None
+        assert manifest_attempts == [expected_digest, expected_digest]
+        await _consume(env, result["chunk_count"] + 2)
+        assert (await _rows(env, "document_revisions"))[0]["status"] == "ACTIVE"
 
 
 @pytest.mark.asyncio

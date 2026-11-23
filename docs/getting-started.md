@@ -206,7 +206,7 @@ credentials and operational provider endpoints are separate prerequisites.
 | Local model-disabled startup | `combined`, models/providers false | V4 storage and BM25 search without model calls |
 
 Choose a dedicated absolute writable storage root. Do not use the repository,
-home directory or filesystem root. V3 and V4 must not write the same root.
+home directory or filesystem root.
 Fresh combined startup initializes the databases automatically; keep SQLite,
 LanceDB, Kùzu and the policy database together under that root. The runtime has
 one owner: stop it before running offline admin or migration commands.
@@ -222,9 +222,7 @@ Before startup:
 2. Install the selected extraction and embedding dependencies; configure their
    provider/model identity. External `text-embedding-3-small` requires dimension
    1536; the local `BAAI/bge-m3` default is 1024. Equal dimensions alone are insufficient.
-3. Select validation mode. Mode 0 has no LLM validator but still needs canonical
-   extraction and embeddings; mode 2 requires distinct A/B validator identities.
-4. Supply the issued API key and provider secrets privately to the process.
+3. Supply the issued API key and provider secrets privately to the process.
 
 Example profile after those prerequisites (the storage path is an operator
 example, not an automatically provisioned directory):
@@ -234,7 +232,6 @@ export MESA_STORAGE_ROOT=/srv/mesa/v4-data
 export MESA_RUNTIME_PROFILE=combined
 export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=true
-export MESA_TIER3_MODE=0
 export MESA_PRINCIPAL_ID=service-api
 # Set MESA_EXTERNAL_PROVIDER_ENABLED to match the reviewed providers.
 .venv/bin/python -m mesa_memory.runtime_entrypoint
@@ -251,19 +248,13 @@ require the grants shown in the quickstart.
 V4 provisions local credentials automatically, with models and external
 providers off. Existing deployments may supply `MESA_API_KEY` and
 `MESA_PRINCIPAL_ID` privately. For model-enabled operation, set the model flags
-and provider configuration above:
+and provider configuration above. Run these commands from the repository root:
 
 ```bash
-docker compose -f docker-compose.v4.yml config --quiet
-docker compose -f docker-compose.v4.yml up --build -d
-docker compose -f docker-compose.v4.yml ps
-```
-
-For V3 lexical compatibility:
-
-```bash
+export COMPOSE_FILE=docker-compose.v4.yml
 docker compose config --quiet
 docker compose up --build -d
+docker compose ps
 ```
 
 Compose publishes the API on loopback. V4 mounts its named volume under
@@ -277,8 +268,8 @@ models disabled supports V4 storage and BM25 search.
 
 Use [migration](RUNBOOK.md#upgrade-v080) for schema/representation upgrades,
 [backup and restore](RUNBOOK.md#6-backup-restore-ve-v4-rebuild) for recovery, and
-[projection rebuild](v4-rebuild-runbook.md) for the offline runner. Projection
-rebuild does not convert a V3 database to V4.
+[projection rebuild](v4-rebuild-runbook.md) for the offline runner, which
+rebuilds derived stores from an existing V4 ledger.
 
 Run [developer checks](testing.md) for the affected contracts. Passing these
 checks does not replace real-provider, migration/restore or soak release evidence.
@@ -320,7 +311,6 @@ export MESA_RUNTIME_PROFILE=combined
 export MESA_LOAD_DOTENV=false
 export MESA_MODEL_ENABLED=false
 export MESA_EXTERNAL_PROVIDER_ENABLED=false
-export MESA_TIER3_MODE=0
 export MESA_PRINCIPAL_ID=docs-principal
 export MESA_PORT=18080
 export MESA_API_KEY="$(.venv/bin/mesa-v4-admin issue-key --principal docs-principal)"

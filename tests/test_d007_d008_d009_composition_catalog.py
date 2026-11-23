@@ -17,18 +17,19 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 @pytest.mark.asyncio
 async def test_d007_fresh_install_config_coherence():
-    """Verify the default BAAI/bge-m3 embedding profile and Tier-3 examples."""
+    """Verify the default BAAI/bge-m3 embedding profile and absence of removed Tier-3 examples."""
     content = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
 
     assert "MESA_EMBEDDING_DIMENSION=1024" in content
     assert "MESA_EMBEDDING_MODEL=local:BAAI/bge-m3" in content
     for setting in (
+        "MESA_TIER3_MODE",
         "MESA_TIER3_LLM_PROVIDER_A",
         "MESA_TIER3_LLM_MODEL_A",
         "MESA_TIER3_LLM_PROVIDER_B",
         "MESA_TIER3_LLM_MODEL_B",
     ):
-        assert f"# {setting}=" in content
+        assert setting not in content
 
 
 def test_d58_default_embedding_config_uses_bge_m3_1024():

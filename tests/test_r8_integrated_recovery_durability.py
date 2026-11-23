@@ -1,70 +1,96 @@
-"""Integrated Round 8 certification suite for Recovery, Durability, and V3 Compatibility."""
+"""Integrated certification suite for V4 Recovery and SQLite Production Durability."""
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from mesa_memory.config import QueueAdmissionPolicy
+from mesa_memory.embedding.service import EmbeddingIdentity
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.recovery import create_backup, restore_backup, validate_snapshot
+from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.writer_lock import StorageWriterLock
+from mesa_workers.projection_worker import process_projection_outbox_once
 
 
 @pytest.mark.asyncio
 async def test_integrated_backup_quiescence_and_canonical_readback(
     tmp_path: Path,
 ) -> None:
-    """Track A: Supported production backup entrypoint -> restore -> canonical readback."""
+    """Track A: Supported production backup entrypoint -> restore -> V4 canonical readback."""
     storage_root = tmp_path / "live_storage"
     storage_root.mkdir()
     db_path = storage_root / "mesa.db"
 
-    # Seed canonical SQLite database
-    conn = sqlite3.connect(db_path)
-    conn.executescript("""
-    CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY);
-    INSERT INTO alembic_version VALUES ('fe5f6a7b8c9d');
+    engine = AsyncEngine(str(db_path))
+    await engine.initialize()
+    await initialize_schema(engine)
+    vec_mock = MagicMock()
+    vec_mock.is_initialized = True
+    vec_mock.semantic_operational = False
+    vec_mock.compute_embedding = AsyncMock(return_value=[0.0] * 8)
+    vec_mock.search = AsyncMock(return_value=[])
+    dao = MemoryDAO(
+        sqlite_engine=engine,
+        vector_engine=vec_mock,
+        embedding_enabled=False,
+        graph_enabled=False,
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="r8-tenant", workspace_id="ws-r8", dataset_id="ds-r8"
+    )
+    sess = await dao.create_v4_session(
+        tenant_id="r8-tenant",
+        workspace_id="ws-r8",
+        dataset_ids=["ds-r8"],
+        agent_id="r8-agent-primary",
+        principal_id="r8-principal",
+    )
+    identity = EmbeddingIdentity(
+        provider="test", model="r8", version="v1", dimension=8, normalized=True
+    )
+    admission = await dao.admit_v4_memory(
+        tenant_id="r8-tenant",
+        workspace_id="ws-r8",
+        dataset_id="ds-r8",
+        agent_id="r8-agent-primary",
+        session_id=sess["session_id"],
+        document_id="r8-doc-1",
+        revision_id="r8-rev-1",
+        chunk_id="r8-chunk-0",
+        title="Quantum Computing Overview",
+        content_payload="Canonical state preserved across backup snapshot and restore",
+        source_ref="file://quantum.txt",
+        evidence_span="Canonical state preserved across backup snapshot and restore",
+        revision_number=1,
+        chunk_ordinal=0,
+        supersedes_revision_id=None,
+        metadata={},
+        embedding_provider=identity.provider,
+        embedding_model=identity.model,
+        embedding_version=identity.version,
+        embedding_dimension=identity.dimension,
+        embedding_space_id=identity.embedding_space_id,
+        embedding_normalized=True,
+        policy=QueueAdmissionPolicy(),
+        validation_mode=0,
+    )
+    mutation_id = admission["response"]["mutation_id"]
+    await dao.record_mutation_extraction("r8-agent-primary", mutation_id, [])
+    await dao.set_mutation_state("r8-agent-primary", mutation_id, "VALIDATED")
+    for _ in range(4):
+        res = await process_projection_outbox_once(dao, worker_id="r8-seed", limit=5)
+        if res["claimed"] == 0:
+            break
+    await engine.close()
 
-    CREATE TABLE nodes (
-        id TEXT PRIMARY KEY,
-        entity_name TEXT NOT NULL,
-        type TEXT NOT NULL DEFAULT 'ENTITY',
-        content_payload TEXT NOT NULL DEFAULT '',
-        is_consolidated INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        invalid_at TEXT DEFAULT NULL,
-        deleted_at TEXT DEFAULT NULL,
-        agent_id TEXT NOT NULL DEFAULT '__unset__',
-        session_id TEXT NOT NULL DEFAULT '__unset__',
-        confidence REAL DEFAULT 1.0,
-        is_quarantined INTEGER DEFAULT 0
-    );
-
-    INSERT INTO nodes VALUES (
-        'r8-canonical-node-1',
-        'Quantum Computing Overview',
-        'ENTITY',
-        'Canonical state preserved across backup snapshot and restore',
-        1,
-        '2026-08-19T00:00:00Z',
-        NULL,
-        NULL,
-        'r8-agent-primary',
-        'r8-session-primary',
-        1.0,
-        0
-    );
-    """)
-    conn.commit()
-    conn.close()
-
-    # Create dummy projection artifacts
+    # Create dummy projection artifact
     (storage_root / "vector.lance").mkdir()
     (storage_root / "vector.lance" / "metadata.bin").write_bytes(b"lance-vector-data")
 
@@ -91,26 +117,26 @@ async def test_integrated_backup_quiescence_and_canonical_readback(
     assert snapshot_validation["valid"] is True
 
     # Readback through canonical AsyncEngine & MemoryDAO
-    engine = AsyncEngine(str(restored_root / "mesa.db"))
-    await engine.initialize()
-    vec_mock = MagicMock()
-    vec_mock.compute_embedding = AsyncMock(return_value=[0.0] * 384)
-    vec_mock.search = AsyncMock(return_value=[])
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec_mock)
-
-    nodes = await dao.get_nodes_by_ids_batch(
-        "r8-agent-primary", ["r8-canonical-node-1"]
-    )
-    assert "r8-canonical-node-1" in nodes
-    node = nodes["r8-canonical-node-1"]
-    assert node["entity_name"] == "Quantum Computing Overview"
-    assert node["type"] == "ENTITY"
-    assert (
-        node["content_payload"]
-        == "Canonical state preserved across backup snapshot and restore"
-    )
-
-    await engine.close()
+    restored_engine = AsyncEngine(str(restored_root / "mesa.db"))
+    await restored_engine.initialize()
+    try:
+        restored_dao = MemoryDAO(
+            sqlite_engine=restored_engine,
+            vector_engine=vec_mock,
+            embedding_enabled=False,
+            graph_enabled=False,
+        )
+        found = await restored_dao.search_v4_memory(
+            tenant_id="r8-tenant",
+            agent_id="r8-agent-primary",
+            dataset_ids=["ds-r8"],
+            query="backup snapshot restore",
+            limit=5,
+            graph_enabled=False,
+        )
+        assert any(r["document_id"] == "r8-doc-1" for r in found)
+    finally:
+        await restored_engine.close()
 
 
 @pytest.mark.asyncio
@@ -148,103 +174,3 @@ async def test_integrated_sqlite_production_durability(tmp_path: Path) -> None:
         async with db.execute("PRAGMA synchronous;") as cursor:
             row = await cursor.fetchone()
             assert row[0] == 2
-
-
-@pytest.mark.asyncio
-async def test_integrated_v3_cold_start_and_retrieval(tmp_path: Path) -> None:
-    """Track C: Pre-V4 schema fixture cold-start -> legacy retrieval without V4 table assumption."""
-    v3_db = tmp_path / "legacy_v3_store.db"
-    conn = sqlite3.connect(v3_db)
-    conn.executescript("""
-    CREATE TABLE nodes (
-        id TEXT PRIMARY KEY,
-        entity_name TEXT NOT NULL,
-        type TEXT NOT NULL DEFAULT 'ENTITY',
-        content_payload TEXT NOT NULL DEFAULT '',
-        is_consolidated INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        invalid_at TEXT DEFAULT NULL,
-        deleted_at TEXT DEFAULT NULL,
-        agent_id TEXT NOT NULL DEFAULT '__unset__',
-        session_id TEXT NOT NULL DEFAULT '__unset__',
-        confidence REAL DEFAULT 1.0,
-        is_quarantined INTEGER DEFAULT 0
-    );
-
-    CREATE VIRTUAL TABLE nodes_fts USING fts5(
-        entity_name,
-        type,
-        content='nodes',
-        content_rowid='rowid'
-    );
-
-    INSERT INTO nodes VALUES (
-        'v3-node-101',
-        'European Union AI Act',
-        'ENTITY',
-        'Regulatory framework for artificial intelligence governance',
-        1,
-        '2026-01-15T12:00:00Z',
-        NULL,
-        NULL,
-        'legal-agent-1',
-        'session-legal-101',
-        1.0,
-        0
-    );
-    INSERT INTO nodes_fts (rowid, entity_name, type) VALUES (1, 'European Union AI Act', 'ENTITY');
-    """)
-    conn.commit()
-    tables_before = [
-        r[0]
-        for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        ).fetchall()
-    ]
-    conn.close()
-
-    assert "artifact_registry" not in tables_before
-
-    engine = AsyncEngine(str(v3_db))
-    await engine.initialize()
-    vec_mock = MagicMock()
-    vec_mock.compute_embedding = AsyncMock(return_value=[0.1] * 384)
-    vec_mock.search = AsyncMock(return_value=[])
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec_mock)
-
-    # Cold start count
-    count = await dao.count_active_memories(
-        tenant_id="legal-agent-1", agent_id="legal-agent-1"
-    )
-    assert count == 1
-
-    # Perform retrieval on legacy database
-    results = await dao.search_memory_fts(
-        "legal-agent-1",
-        query="European Union AI Act",
-    )
-    assert [r["id"] for r in results] == ["v3-node-101"]
-
-    await engine.close()
-
-    # Reopen and repeat to verify persistence across restarts
-    engine2 = AsyncEngine(str(v3_db))
-    await engine2.initialize()
-    dao2 = MemoryDAO(sqlite_engine=engine2, vector_engine=vec_mock)
-    results2 = await dao2.search_memory_fts(
-        "legal-agent-1",
-        query="European Union AI Act",
-    )
-    assert [r["id"] for r in results2] == ["v3-node-101"]
-    await engine2.close()
-
-    # Verify no silent V4 schema mutation occurred
-    conn = sqlite3.connect(v3_db)
-    tables_after = [
-        r[0]
-        for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        ).fetchall()
-    ]
-    conn.close()
-    assert set(tables_after) == set(tables_before)

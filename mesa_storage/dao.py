@@ -1,8 +1,7 @@
 """Compatibility facade and canonical V4 storage orchestration.
 
 SQLite owns V4 catalog, assertions, mutations, source/artifact ownership and
-ordered projection outboxes. LanceDB and Kùzu are derived projections. V3
-methods retain legacy agent/session partitioning; V4 uses server-verified
+ordered projection outboxes. LanceDB and Kùzu are derived projections. V4 uses server-verified
 principal/tenant/workspace/dataset/session scope and explicit storage filters.
 An agent ID alone is not a tenant credential or an absolute isolation guarantee.
 
@@ -29,7 +28,6 @@ import uuid
 from collections import Counter, OrderedDict
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -41,6 +39,7 @@ from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
     normalize_law_name,
+    normalize_turkish,
 )
 from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
@@ -219,14 +218,6 @@ class PurgeRetryPendingError(RuntimeError):
     """A purge remains tombstoned and requires an idempotent retry."""
 
 
-class PurgeBlockedError(RuntimeError):
-    """A purge exceeded its bounded retry budget and needs operator action."""
-
-
-class PurgeAlreadyFinalizedError(RuntimeError):
-    """A finalized purge cannot be reported as a duplicate success."""
-
-
 class NonHeadRollbackConflictError(ValueError):
     """A historical revision cannot be rolled back beneath a newer head."""
 
@@ -326,11 +317,26 @@ def _normalize_identity_text(value: str) -> str:
     return _WHITESPACE_RE.sub(" ", cleaned.strip()).casefold()
 
 
-def _escape_like_pattern(value: str) -> str:
-    """Escape % and _ wildcards and backslash for SQLite LIKE ? ESCAPE '\\'."""
-    if not value:
-        return ""
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def normalize_planner_query(query: str) -> str:
+    """Apply Unicode, Turkish case and whitespace normalization."""
+    return " ".join(normalize_turkish(unicodedata.normalize("NFKC", query)).split())
+
+
+def introduces_legal_citation(original: str, expansion: str) -> bool:
+    """Reject new statutes or articles introduced by a query reformulation."""
+    resolver = LegalEntityResolver()
+    original_citations = {
+        (citation.statute_code, citation.article)
+        for citation in resolver.extract_citations(original)
+    }
+    original_statutes = {statute for statute, _ in original_citations}
+    for citation in resolver.extract_citations(expansion):
+        statute, article = citation.statute_code, citation.article
+        if statute not in original_statutes:
+            return True
+        if article is not None and (statute, article) not in original_citations:
+            return True
+    return False
 
 
 def _normalize_ontology_uri(value: str) -> str:
@@ -517,7 +523,7 @@ class MemoryDAO:
     bind ``$agent_id`` via strict parameterisation.
 
     Edge storage is owned exclusively by KùzuDB.  SQLite retains
-    ownership of nodes, raw_logs, and routing_telemetry.
+    ownership of canonical V4 tables and raw_logs.
 
     This class does NOT own the lifecycle of the underlying engines —
     the caller is responsible for initialising and closing them.
@@ -538,7 +544,6 @@ class MemoryDAO:
         "_rebuild_admission",
         "_rebuild_health",
         "_canonical_v4_writes_enabled",
-        "_secondary_writes_enabled",
         "_embedding_enabled",
         "_graph_enabled",
         "_rrf_k",
@@ -559,7 +564,6 @@ class MemoryDAO:
         graph_provider: KuzuGraphProvider | None = None,
         *,
         canonical_v4_writes_enabled: bool = True,
-        secondary_writes_enabled: bool = True,
         embedding_enabled: bool = True,
         graph_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
@@ -577,7 +581,6 @@ class MemoryDAO:
         self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
         self._rebuild_health = RebuildHealthReader(sqlite_engine)
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
-        self._secondary_writes_enabled = secondary_writes_enabled
         self._embedding_enabled = embedding_enabled
         self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
@@ -662,24 +665,15 @@ class MemoryDAO:
 
         DDL ownership lives exclusively in ``schemas.py`` which MUST be
         called via ``initialize_schema(engine)`` before this method.
-
-        E1 FIX: Runs a startup reconciliation scan that detects SQLite
-        nodes with no corresponding LanceDB vector entry (orphans from
-        a SIGKILL mid-saga).  Orphaned nodes are stamped ``invalid_at``
-        to remove them from active queries.
         """
         logger.info("MemoryDAO.initialize() — schema owned by schemas.py")
 
-        # E1 FIX: Reconcile orphaned nodes from interrupted dual-write sagas
-        await self._reconcile_orphaned_nodes()
         parity = await self.reconcile_v4_projection_parity(limit=200, repair=True)
         recovered_logs = await self.recover_expired_raw_log_claims()
-        recovered_wal = await self.recover_expired_lancedb_wal_claims()
-        if recovered_logs or recovered_wal:
+        if recovered_logs:
             logger.warning(
-                "STARTUP_CLAIM_RECOVERY | raw_logs=%d lancedb_wal=%d",
+                "STARTUP_CLAIM_RECOVERY | raw_logs=%d",
                 recovered_logs,
-                recovered_wal,
             )
         if parity["missing_artifacts"]:
             logger.warning("V4_PROJECTION_PARITY_RECOVERY | %s", parity)
@@ -2242,17 +2236,30 @@ class MemoryDAO:
                     raise ValueError(
                         "source chunk identity is immutable and already differs"
                     )
-                await self._update_revision_manifest(
-                    db,
-                    revision_id,
-                    finalize_revision=finalize_revision,
-                )
-
                 global_usage = await self._queue_usage(db)
                 tenant_usage = await self._queue_usage(db, tenant_id)
                 self._enforce_queue_capacity(
                     global_usage, tenant_usage, payload_bytes, policy
                 )
+                # Whole-document uploads can resume from durable chunks. Hash
+                # their membership only when accepting the final chunk.
+                if finalize_revision or not document_chunk:
+                    await self._update_revision_manifest(
+                        db,
+                        revision_id,
+                        finalize_revision=finalize_revision,
+                    )
+                elif (
+                    existing_revision is not None
+                    and existing_revision["status"] == "PENDING"
+                    and existing_revision["manifest_frozen_at"] is None
+                    and existing_revision["manifest_hash"]
+                ):
+                    # A resumed draft may still have a hash of an old prefix.
+                    await db.execute(
+                        "UPDATE document_revisions SET manifest_hash = '' WHERE revision_id = ?",
+                        (revision_id,),
+                    )
                 cursor = await db.execute(
                     "INSERT INTO raw_logs (agent_id, payload, status) VALUES (?, ?, 'DEFERRED')",
                     (agent_id, serialized),
@@ -6622,6 +6629,70 @@ class MemoryDAO:
             }
         in_scope_assertions = scope["assertions"]
         in_scope_assertion_ids = set(in_scope_assertions)
+        if "assertion_stable_keys" not in scope:
+            # Build a deterministic content-identity tie-break key per assertion
+            # once per scope/data_version so two fresh stores with different
+            # opaque physical UUIDs break every lane and fusion tie identically.
+            chunk_stable_order: dict[str, tuple[str, int, int, str]] = {}
+            authorized_chunk_ids = sorted(
+                {str(a["chunk_id"]) for a in in_scope_assertions.values() if a.get("chunk_id")}
+            )
+            async with self._search_read_connection(_search_db) as db:
+                for offset in range(0, len(authorized_chunk_ids), 500):
+                    batch = authorized_chunk_ids[offset : offset + 500]
+                    marks = ",".join("?" for _ in batch)
+                    async with db.execute(
+                        "SELECT c.chunk_id, c.ordinal, r.revision_number, "
+                        "COALESCE(ci_doc.external_id, r.document_id) AS ext_document_id, "
+                        "COALESCE(ci_chunk.external_id, c.chunk_id) AS ext_chunk_id "
+                        "FROM source_chunks c "
+                        "JOIN document_revisions r ON r.revision_id = c.revision_id "
+                        "LEFT JOIN v4_catalog_identities ci_doc "
+                        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = r.document_id "
+                        "LEFT JOIN v4_catalog_identities ci_chunk "
+                        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = c.chunk_id "
+                        f"WHERE c.tenant_id = ? AND c.chunk_id IN ({marks})",
+                        (tenant_id, *batch),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            chunk_stable_order[str(row["chunk_id"])] = (
+                                str(row["ext_document_id"] or ""),
+                                int(row["revision_number"] or 0),
+                                int(row["ordinal"] or 0),
+                                str(row["ext_chunk_id"] or ""),
+                            )
+            assertion_stable_keys: dict[str, tuple[Any, ...]] = {}
+            for aid, assertion in in_scope_assertions.items():
+                cid = str(assertion.get("chunk_id") or "")
+                chunk_key = chunk_stable_order.get(
+                    cid,
+                    (
+                        str(assertion.get("document_id") or ""),
+                        0,
+                        0,
+                        cid,
+                    ),
+                )
+                assertion_stable_keys[aid] = (
+                    *chunk_key,
+                    str(assertion.get("predicate") or ""),
+                    str(assertion.get("subject_id") or ""),
+                    str(assertion.get("object_entity_id") or ""),
+                    str(assertion.get("literal_value") or ""),
+                    str(assertion.get("evidence_span") or ""),
+                    str(assertion.get("source_ref") or ""),
+                    aid,
+                )
+            scope["chunk_stable_order"] = chunk_stable_order
+            scope["assertion_stable_keys"] = assertion_stable_keys
+        chunk_stable_order = scope["chunk_stable_order"]
+        assertion_stable_keys = scope["assertion_stable_keys"]
+
+        def _assertion_stable_key(aid: str) -> tuple[Any, ...]:
+            key = assertion_stable_keys.get(aid)
+            if key is not None:
+                return key
+            return ("", 0, 0, "", "", "", "", "", "", "", aid)
         if self._legal_rules_enabled and "legal_context" not in scope:
             # Only authorized assertions select revisions. Header/title names and
             # chunk ordinals share the existing data_version scope-cache lifetime.
@@ -6737,17 +6808,7 @@ class MemoryDAO:
                 "decisions": decisions,
                 "ordered_assertions": sorted(
                     in_scope_assertions,
-                    key=lambda aid: (
-                        *chunk_order.get(
-                            str(in_scope_assertions[aid]["chunk_id"]),
-                            (
-                                str(in_scope_assertions[aid]["document_id"]),
-                                str(in_scope_assertions[aid]["revision_id"]),
-                                0,
-                            ),
-                        ),
-                        aid,
-                    ),
+                    key=_assertion_stable_key,
                 ),
             }
         legal_context = scope["legal_context"] if self._legal_rules_enabled else {
@@ -6820,6 +6881,12 @@ class MemoryDAO:
             typed_candidate_query = (
                 "SELECT a.assertion_id FROM v4_assertions a INDEXED BY "
                 "idx_v4_assertions_legal_identity_scope "
+                "LEFT JOIN source_chunks c ON c.chunk_id = a.chunk_id "
+                "LEFT JOIN document_revisions r ON r.revision_id = a.revision_id "
+                "LEFT JOIN v4_catalog_identities ci_doc "
+                "ON ci_doc.kind = 'document' AND ci_doc.physical_id = a.document_id "
+                "LEFT JOIN v4_catalog_identities ci_chunk "
+                "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = a.chunk_id "
                 f"WHERE a.tenant_id = ? AND a.dataset_id IN ({placeholders}) "
                 f"AND {assertion_status_sql} "
                 "AND a.legal_identity_source IN ('catalog', 'verified_ingestion') "
@@ -6833,7 +6900,9 @@ class MemoryDAO:
                     else ""
                 )
                 + " ORDER BY a.statute_code, a.article_id, a.legal_version_id, "
-                "a.assertion_id LIMIT ?"
+                "COALESCE(ci_doc.external_id, a.document_id), "
+                "COALESCE(r.revision_number, 0), COALESCE(c.ordinal, 0), "
+                "COALESCE(ci_chunk.external_id, a.chunk_id), a.assertion_id LIMIT ?"
             )
             async with self._search_read_connection(_search_db) as db:
                 async with db.execute(
@@ -6967,14 +7036,24 @@ class MemoryDAO:
                 vector_lane_diagnostics["search_result_count"] = len(vector_rows)
                 seen_vec: set[str] = set()
                 ranked_assertion_ids: list[str] = []
+                has_explicit_distance = False
                 for v_row in vector_rows:
                     node_id = str(v_row.get("node_id", ""))
                     if node_id in allowed_vector_ids and node_id not in seen_vec:
                         ranked_assertion_ids.append(node_id)
                         seen_vec.add(node_id)
+                        if "_distance" in v_row and v_row["_distance"] is not None:
+                            has_explicit_distance = True
                         vector_raw_distances[node_id] = float(
                             v_row.get("_distance", 0.0)
                         )
+                if has_explicit_distance and len(ranked_assertion_ids) > 1:
+                    ranked_assertion_ids.sort(
+                        key=lambda aid: (
+                            vector_raw_distances[aid],
+                            _assertion_stable_key(aid),
+                        )
+                    )
                 if ranked_assertion_ids:
                     vector_placeholders = ",".join("?" for _ in ranked_assertion_ids)
                     async with self._search_read_connection(_search_db) as db:
@@ -7124,7 +7203,7 @@ class MemoryDAO:
             passage_sql = (
                 "SELECT a.*, s.canonical_name AS subject_name, "
                 "o.canonical_name AS object_name, "
-                f"bm25({scoped_fts}, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0) "
+                f"bm25({scoped_fts}, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0, 0.0) "
                 f"AS bm25_score FROM {scoped_fts} "
                 f"JOIN v4_assertions a ON a.rowid = {scoped_fts}.rowid "
                 "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
@@ -7141,7 +7220,7 @@ class MemoryDAO:
                     else ""
                 )
                 + " "
-                "ORDER BY bm25_score, a.assertion_id LIMIT ?"
+                f"ORDER BY bm25_score, {scoped_fts}.stable_key, a.assertion_id LIMIT ?"
             )
             async with self._search_read_connection(_search_db) as db:
                 if not scope.get("fts_built"):
@@ -7153,17 +7232,30 @@ class MemoryDAO:
                         f"CREATE VIRTUAL TABLE temp.{scoped_fts} USING fts5("
                         "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
                         "source_ref, subject_name, object_name, chunk_payload, "
+                        "stable_key UNINDEXED, "
                         "tokenize='unicode61 remove_diacritics 2', prefix='5')"
                     )
                     await db.execute(
                         f"INSERT INTO temp.{scoped_fts} "
                         "(rowid, assertion_id, predicate, evidence_span, literal_value, "
-                        "source_ref, subject_name, object_name, chunk_payload) "
+                        "source_ref, subject_name, object_name, chunk_payload, stable_key) "
                         "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
                         "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
-                        "f.chunk_payload FROM v4_assertions_fts f "
+                        "f.chunk_payload, "
+                        "COALESCE(ci_doc.external_id, scoped.document_id) || char(0) || "
+                        "printf('%010d', COALESCE(r.revision_number, 0)) || char(0) || "
+                        "printf('%010d', COALESCE(c.ordinal, 0)) || char(0) || "
+                        "COALESCE(ci_chunk.external_id, scoped.chunk_id) || char(0) || "
+                        "COALESCE(scoped.predicate, '') "
+                        "FROM v4_assertions_fts f "
                         f"JOIN ({in_scope_assertion_query}) scoped "
-                        "ON scoped.assertion_id = f.assertion_id",
+                        "ON scoped.assertion_id = f.assertion_id "
+                        "LEFT JOIN source_chunks c ON c.chunk_id = scoped.chunk_id "
+                        "LEFT JOIN document_revisions r ON r.revision_id = scoped.revision_id "
+                        "LEFT JOIN v4_catalog_identities ci_doc "
+                        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = scoped.document_id "
+                        "LEFT JOIN v4_catalog_identities ci_chunk "
+                        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = scoped.chunk_id",
                         (tenant_id, *datasets, agent_id, *provenance_params),
                     )
                     scope["fts_built"] = True
@@ -7187,7 +7279,9 @@ class MemoryDAO:
             # columns; arbitrary free-form metadata and bare article text never
             # enter this path.
             passage_ids = {str(row["assertion_id"]) for row in passage_candidate_rows}
-            for assertion_id in sorted(typed_legal_candidate_ids - passage_ids):
+            for assertion_id in sorted(
+                typed_legal_candidate_ids - passage_ids, key=_assertion_stable_key
+            ):
                 typed_row = dict(in_scope_assertions[assertion_id])
                 typed_row["subject_name"] = ""
                 typed_row["object_name"] = ""
@@ -7281,7 +7375,9 @@ class MemoryDAO:
                     await asyncio.sleep(0.001)
                     scoring_deadline = time.monotonic() + 0.002
 
-            scored_passage_candidates.sort(key=lambda x: (-x[0], x[1]))
+            scored_passage_candidates.sort(
+                key=lambda x: (-x[0], _assertion_stable_key(x[1]))
+            )
             for score, aid, p_row in scored_passage_candidates:
                 if (
                     str(p_row["subject_id"]) in allowed_entity_ids
@@ -7472,7 +7568,7 @@ class MemoryDAO:
                 -float(
                     x[2]["confidence"] if x[2].get("confidence") is not None else 0.0
                 ),
-                str(x[1]),
+                _assertion_stable_key(x[1]),
             )
         )
 
@@ -7593,6 +7689,7 @@ class MemoryDAO:
                         aid: str(assertion.get("evidence_span") or "")
                         for aid, assertion in in_scope_assertions.items()
                     },
+                    assertion_sort_keys=assertion_stable_keys,
                     max_hops=3,
                     limit=min(500, max(limit * 10, 50)),
                     query=query,
@@ -7680,7 +7777,10 @@ class MemoryDAO:
                             -p["score"],
                             len(p["assertion_ids"]),
                             tuple(p["entity_ids"]),
-                            tuple(p["assertion_ids"]),
+                            tuple(
+                                _assertion_stable_key(aid)
+                                for aid in p["assertion_ids"]
+                            ),
                         )
                     )
                     best = paths[0]
@@ -7720,7 +7820,7 @@ class MemoryDAO:
                     graph_evidence_by_candidate,
                     key=lambda aid: (
                         -graph_evidence_by_candidate[aid]["graph_score"],
-                        aid,
+                        _assertion_stable_key(aid),
                     ),
                 )
             except GraphSearchError as exc:
@@ -7751,6 +7851,7 @@ class MemoryDAO:
             lane_rankings,
             k=effective_k,
             weights=effective_weights,
+            tie_break_key=_assertion_stable_key,
         ):
             fused_assertion = candidate_assertions.get(candidate_id)
             if fused_assertion is None:
@@ -7928,7 +8029,10 @@ class MemoryDAO:
 
         ordered_candidates = sorted(
             candidates.values(),
-            key=lambda c: (-(c["rrf_score"] * c["legal_factor"]), c["candidate_id"]),
+            key=lambda c: (
+                -(c["rrf_score"] * c["legal_factor"]),
+                _assertion_stable_key(c["candidate_id"]),
+            ),
         )
         exact_candidates = [candidates[aid] for aid in exact_ids if aid in candidates]
         ordered_candidates = (
@@ -8190,117 +8294,6 @@ class MemoryDAO:
             results.append(result)
         return results
 
-    async def count_active_memories(
-        self,
-        tenant_id: str,
-        *,
-        dataset_ids: list[str] | None = None,
-        agent_id: str | None = None,
-    ) -> int:
-        """Fast SQL COUNT(*) for active entities in catalog without materializing records."""
-        if agent_id:
-            _assert_valid_agent_id(agent_id)
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_registry'"
-            ) as cursor:
-                has_v4_catalog = await cursor.fetchone() is not None
-
-            if not has_v4_catalog:
-                async with db.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes'"
-                ) as cursor:
-                    has_nodes = await cursor.fetchone() is not None
-                if not has_nodes:
-                    return 0
-                legacy_agent_id = agent_id or tenant_id
-                async with db.execute(
-                    "SELECT COUNT(*) FROM nodes WHERE agent_id = ? AND invalid_at IS NULL AND deleted_at IS NULL",
-                    (legacy_agent_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    return int(row[0]) if row else 0
-
-            datasets = [
-                await self._catalog.resolve_id_in_tx(
-                    db,
-                    tenant_id=tenant_id,
-                    kind="dataset",
-                    external_id=ds,
-                )
-                for ds in (dataset_ids or [])
-            ]
-            placeholders = ",".join("?" for _ in datasets)
-            dataset_filter = (
-                f"AND s.dataset_id IN ({placeholders}) " if datasets else ""
-            )
-            agent_filter = "AND m.agent_id = ? " if agent_id else ""
-            params: tuple[Any, ...] = (
-                tenant_id,
-                *datasets,
-                *((agent_id,) if agent_id else ()),
-            )
-            async with db.execute(
-                "SELECT COUNT(DISTINCT r.physical_artifact_id) FROM artifact_registry r "
-                "JOIN artifact_sources s ON s.registry_id = r.registry_id "
-                "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
-                f"WHERE r.tenant_id = ? {dataset_filter}{agent_filter}"
-                "AND m.state = 'COMMITTED' AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
-                "AND r.artifact_kind IN ('ENTITY', 'ENTITY_VECTOR')",
-                params,
-            ) as cursor:
-                row = await cursor.fetchone()
-                return int(row[0]) if row else 0
-
-    async def has_active_memories(
-        self,
-        tenant_id: str,
-        *,
-        dataset_ids: list[str] | None = None,
-    ) -> bool:
-        """Fast bounded existence query (EXISTS/LIMIT 1) for active memories."""
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_registry'"
-            ) as cursor:
-                has_v4_catalog = await cursor.fetchone() is not None
-
-            if not has_v4_catalog:
-                async with db.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes'"
-                ) as cursor:
-                    has_nodes = await cursor.fetchone() is not None
-                if not has_nodes:
-                    return False
-                async with db.execute(
-                    "SELECT 1 FROM nodes WHERE agent_id = ? AND invalid_at IS NULL AND deleted_at IS NULL LIMIT 1",
-                    (tenant_id,),
-                ) as cursor:
-                    return await cursor.fetchone() is not None
-
-            datasets = [
-                await self._catalog.resolve_id_in_tx(
-                    db,
-                    tenant_id=tenant_id,
-                    kind="dataset",
-                    external_id=ds,
-                )
-                for ds in (dataset_ids or [])
-            ]
-            placeholders = ",".join("?" for _ in datasets)
-            dataset_filter = (
-                f"AND s.dataset_id IN ({placeholders}) " if datasets else ""
-            )
-            async with db.execute(
-                "SELECT 1 FROM artifact_registry r "
-                "JOIN artifact_sources s ON s.registry_id = r.registry_id "
-                "JOIN memory_mutations m ON m.mutation_id = s.mutation_id "
-                f"WHERE r.tenant_id = ? {dataset_filter}"
-                "AND m.state = 'COMMITTED' AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
-                "AND r.artifact_kind IN ('ENTITY', 'ENTITY_VECTOR') LIMIT 1",
-                (tenant_id, *datasets),
-            ) as cursor:
-                return await cursor.fetchone() is not None
 
     @staticmethod
     async def _advance_mutation_projection_state(db: Any, mutation_id: str) -> None:
@@ -8411,1375 +8404,37 @@ class MemoryDAO:
     # E1 FIX: Startup orphan reconciliation
     # ------------------------------------------------------------------
 
-    def get_all_embeddings(
-        self, limit: int = 10000, *, agent_id: str | None = None
-    ) -> list[list[float]]:
-        """Synchronously load active embeddings for ValenceMotor hydration."""
-        return self.vector_engine._sync_get_all_embeddings(limit, agent_id)
-
-    async def _reconcile_orphaned_nodes(self) -> None:
-        """Detect and invalidate SQLite nodes with no LanceDB vector.
-
-        This handles the SIGKILL atomicity gap: if the process is killed
-        between the SQLite INSERT and LanceDB upsert steps of the dual-write
-        saga, the SQLite node exists but has no vector representation.
-
-        These orphans appear in ``get_memories()`` but produce zero vector
-        search hits, causing silent data inconsistency.  Stamping them
-        ``invalid_at`` removes them from active queries while preserving
-        them for audit recovery.
-
-        Scans in bounded 100-agent / 500-node batches so older or high-cardinality
-        tenants cannot fall permanently outside reconciliation coverage.
-        """
-
-        async def reconcile_agent(db: Any, agent_id: str) -> int:
-            agent_orphans = 0
-            node_cursor: tuple[str, str] | None = None
-            while True:
-                params: tuple[str, ...]
-                if node_cursor is None:
-                    statement = (
-                        "SELECT id, created_at FROM nodes "
-                        "WHERE agent_id = ? AND invalid_at IS NULL "
-                        "AND deleted_at IS NULL "
-                        "ORDER BY created_at DESC, id DESC LIMIT 500"
-                    )
-                    params = (agent_id,)
-                else:
-                    statement = (
-                        "SELECT id, created_at FROM nodes "
-                        "WHERE agent_id = ? AND invalid_at IS NULL "
-                        "AND deleted_at IS NULL "
-                        "AND (created_at < ? OR (created_at = ? AND id < ?)) "
-                        "ORDER BY created_at DESC, id DESC LIMIT 500"
-                    )
-                    params = (
-                        agent_id,
-                        node_cursor[0],
-                        node_cursor[0],
-                        node_cursor[1],
-                    )
-                async with db.execute(statement, params) as cursor:
-                    node_rows = await cursor.fetchall()
-                if not node_rows:
-                    break
-
-                node_ids = [str(row[0]) for row in node_rows]
-                try:
-                    existing_vector_ids = await self._vec.get_existing_node_ids(
-                        agent_id, node_ids
-                    )
-                except Exception:
-                    # Vector availability remains fail-open for startup.  A later
-                    # healthy restart retries the complete scan.
-                    logger.warning(
-                        "ORPHAN_RECONCILIATION_SKIP | agent_id=%s "
-                        "vector engine check failed",
-                        agent_id,
-                        exc_info=True,
-                    )
-                    break
-
-                orphans = [
-                    node_id
-                    for node_id in node_ids
-                    if node_id not in existing_vector_ids
-                ]
-                if orphans:
-                    now = datetime.now(timezone.utc).isoformat()
-                    await db.executemany(
-                        "UPDATE nodes SET invalid_at = ? "
-                        "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
-                        [(now, orphan_id, agent_id) for orphan_id in orphans],
-                    )
-                    await db.commit()
-                    agent_orphans += len(orphans)
-
-                node_cursor = (str(node_rows[-1][1]), str(node_rows[-1][0]))
-            return agent_orphans
-
-        try:
-            orphan_count = 0
-            agent_cursor = ""
-            while True:
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT DISTINCT agent_id FROM nodes "
-                        "WHERE invalid_at IS NULL AND deleted_at IS NULL "
-                        "AND agent_id > ? ORDER BY agent_id LIMIT 100",
-                        (agent_cursor,),
-                    ) as cursor:
-                        agent_rows = list(await cursor.fetchall())
-
-                if not agent_rows:
-                    break
-
-                async with self._sql.connection() as db:
-                    for agent_row in agent_rows:
-                        agent_id = str(agent_row[0])
-                        if agent_id not in _FORBIDDEN_AGENT_IDS:
-                            orphan_count += await reconcile_agent(db, agent_id)
-
-                agent_cursor = str(agent_rows[-1][0])
-
-            if orphan_count:
-                logger.warning(
-                    "ORPHAN_RECONCILIATION | invalidated %d orphaned nodes "
-                    "(SQLite nodes with no LanceDB vector — likely SIGKILL mid-saga)",
-                    orphan_count,
-                )
-            else:
-                logger.debug("ORPHAN_RECONCILIATION | no orphans detected")
-
-        except Exception as exc:
-            # Reconciliation failure is non-fatal — log and continue startup
-            logger.warning("ORPHAN_RECONCILIATION_FAILED | error=%s — skipping", exc)
 
     # ==================================================================
     # Migration State Polling
     # ==================================================================
 
-    async def _is_lancedb_migrating(self, db_conn: Any = None) -> bool:
-        """Check if LanceDB is currently undergoing Blue/Green alignment.
-
-        If true, new vectors must be queued in the SQLite WAL table to
-        prevent phantom writes to a table that is about to be dropped.
-        """
-        try:  # type: ignore[no-any-return]
-            if db_conn is not None:
-                async with db_conn.execute(
-                    "SELECT value FROM system_config WHERE key = 'lancedb_is_migrating'"
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    if row:
-                        return row[0].lower() == "true"
-            else:  # type: ignore[no-any-return]
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT value FROM system_config WHERE key = 'lancedb_is_migrating'"
-                    ) as cursor:
-                        row = await cursor.fetchone()
-                        if row:
-                            return row[0].lower() == "true"
-        except Exception as exc:
-            logger.warning("IS_MIGRATING_CHECK_FAILED | error=%s", exc)
-        return False
-
-    async def align_memory_space(
-        self,
-        transformation_matrix: Any,  # numpy.ndarray
-        golden_dataset: list[dict[str, Any]],
-    ) -> bool:
-        """Orchestrate the Blue/Green vector alignment and WAL flush.
-
-        Args:
-            transformation_matrix: Orthogonal rotation matrix (R*).
-            golden_dataset: Evaluation dataset for Recall@5 verification.
-
-        Returns:
-            True if alignment was successful and promoted, False otherwise.
-        """
-        success = False
-
-        # ACTION 1 (LOCK)
-        try:
-            async with self._sql.transaction() as db:
-                await db.execute(
-                    "UPDATE system_config SET value = 'true' WHERE key = 'lancedb_is_migrating'"
-                )
-                await db.commit()
-            logger.info("MIGRATION_LOCK_ACQUIRED | lancedb_is_migrating='true'")
-        except Exception as exc:
-            logger.error("Failed to acquire migration lock: %s", exc)
-            return False
-
-        try:
-            # ACTION 2 (TRANSFORM)
-            success = await self._vec.apply_procrustes_and_switch(
-                transformation_matrix, golden_dataset
-            )
-
-            # ACTION 3 (FLUSH)
-            if success:
-                flushed = await self.replay_lancedb_wal(worker_id="alignment-flush")
-                logger.info("WAL_FLUSHED | count=%d", flushed)
-
-        except Exception as exc:
-            logger.error("ALIGNMENT_ORCHESTRATION_ERROR | error=%s", exc)
-            success = False
-
-        finally:
-            # ACTION 4 (UNLOCK)
-            try:
-                async with self._sql.transaction() as db:
-                    await db.execute(
-                        "UPDATE system_config SET value = 'false' WHERE key = 'lancedb_is_migrating'"
-                    )
-                    await db.commit()
-                logger.info("MIGRATION_LOCK_RELEASED | lancedb_is_migrating='false'")
-            except Exception as exc:
-                logger.critical("Failed to release migration lock: %s", exc)
-
-        return success
 
     # ==================================================================
     # INSERT — agent-scoped memory ingestion
     # ==================================================================
 
-    async def insert_memory(
-        self,
-        agent_id: str,
-        *,
-        node_id: str | None = None,
-        entity_name: str,
-        content: str,
-        embedding: list[float],
-        node_type: str = "ENTITY",
-        session_id: str = "__unset__",
-        content_hash: str | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> str:
-        """Insert a memory record scoped exclusively to ``agent_id`` with Check-Then-Act semantic conflict resolution.
-
-        Performs a dual-write:
-            1. SQLite ``nodes`` table — relational graph vertex.
-            2. LanceDB vector table — embedding for similarity search.
-
-        Before insertion, it evaluates existing vectors for high semantic similarity.
-        If a contradiction or update is detected, the older conflicting records are
-        soft-deleted to prevent data corruption.
-        Both writes carry the same ``agent_id`` to maintain referential
-        parity across storage backends.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            node_id: Optional UUID; auto-generated if omitted.
-            entity_name: Human-readable entity label.
-            content: Raw text content (stored as entity context).
-            embedding: Float32 embedding vector.
-            node_type: Graph node type (default ``ENTITY``).
-            session_id: Session scope within the agent.
-            content_hash: Optional SHA-256 of content for dedup.
-            metadata: Optional flat key-value metadata dict.
-
-        Returns:
-            The ``node_id`` (UUID) of the inserted record.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        # P3 FIX: Input validation to prevent payload DoS (1MB limit)
-        if len(content.encode("utf-8")) > 1_048_576:
-            raise ValueError(
-                f"Content payload exceeds 1MB limit for entity {entity_name!r}"
-            )
-
-        if node_id is None:
-            node_id = str(uuid.uuid4())
-        elif hasattr(self._sql, "connection"):
-            # Deterministic V4 entity IDs make repeated delivery idempotent.
-            # Do this before touching any secondary store so a retry cannot
-            # recreate vectors/graph nodes for an already-owned entity.  Some
-            # legacy/test storage adapters intentionally expose transactions
-            # only; those adapters retain the original saga behavior.
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT id FROM nodes WHERE id = ? AND agent_id = ? "
-                    "AND invalid_at IS NULL AND deleted_at IS NULL",
-                    (node_id, agent_id),
-                ) as cursor:
-                    existing = await cursor.fetchone()
-            if existing is not None:
-                return str(existing[0])
-
-        now = datetime.now(timezone.utc).isoformat()
-
-        # ---- Check-Then-Act: Semantic Conflict Resolution --------
-        # Query vector index for highly similar existing triplets
-        similar_memories = await self.search_memory(
-            agent_id=agent_id,
-            query_vector=embedding,
-            limit=5,
-            include_graph=True,
-        )
-
-        conflicting_node_ids = []
-        for mem in similar_memories:
-            distance = mem.get("_distance", 1.0)
-            graph_data = mem.get("graph")
-            if not graph_data:
-                continue
-
-            # Semantic similarity heuristic:
-            # - Exact subject match (entity_name)
-            # - High semantic similarity (distance < 0.15) -> UPDATE or CONTRADICTION
-            if graph_data.get("entity_name") == entity_name and distance < 0.15:
-                conflicting_node_ids.append(mem["node_id"])
-
-        is_migrating = await self._is_lancedb_migrating()
-
-        # PHASE 1: stage the replacement in canonical SQLite without making it
-        # current.  The previous good memory remains visible until every new
-        # secondary projection is complete.
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "INSERT INTO nodes "
-                "(id, entity_name, type, content_payload, is_consolidated, created_at, "
-                " agent_id, session_id, invalid_at) "
-                "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
-                (
-                    node_id,
-                    entity_name,
-                    node_type,
-                    content,
-                    now,
-                    agent_id,
-                    session_id,
-                    now,
-                ),
-            )
-
-            if is_migrating:
-                import json
-
-                import numpy as np
-
-                vector_bytes = np.array(embedding, dtype=np.float32).tobytes()
-                wal_metadata = json.dumps(
-                    {
-                        "node_id": node_id,
-                        "content_hash": content_hash,
-                        "entity_name": entity_name,
-                        "graph_required": self._graph is not None,
-                        "canonical_agent_id": agent_id,
-                        "payload_version": 1,
-                        "expected_vector_projection": True,
-                        "expected_graph_projection": self._graph is not None,
-                    }
-                )
-                wal_record_id = str(uuid.uuid4())
-                await db.execute(
-                    "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
-                    "VALUES (?, ?, ?, ?)",
-                    (wal_record_id, agent_id, vector_bytes, wal_metadata),
-                )
-                logger.info("UPSERT_QUEUED_IN_WAL | node_id=%s", node_id)
-
-            await db.commit()
-
-        # PHASE 2: Secondary store projections
-        soft_deleted_cids: list[str] = []
-        if not is_migrating:
-            try:
-                await self._vec.upsert(
-                    node_id=node_id,
-                    agent_id=agent_id,
-                    embedding=embedding,
-                    content_hash=content_hash,
-                )
-            except Exception as vec_exc:
-                logger.error(
-                    "INSERT_SECONDARY_VECTOR_FAILURE | agent_id=%s node_id=%s error=%s",
-                    agent_id,
-                    node_id,
-                    vec_exc,
-                )
-                compensation_error: Exception | None = None
-                try:
-                    await self._vec.hard_delete(node_id, agent_id)
-                except Exception as cleanup_exc:
-                    compensation_error = cleanup_exc
-                async with self._sql.transaction() as db:
-                    await db.execute(
-                        "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
-                        (node_id, agent_id),
-                    )
-                    if conflicting_node_ids:
-                        placeholders = ",".join("?" for _ in conflicting_node_ids)
-                        await db.execute(
-                            f"UPDATE nodes SET invalid_at = NULL WHERE id IN ({placeholders}) AND agent_id = ?",
-                            (*conflicting_node_ids, agent_id),
-                        )
-                    await db.commit()
-                if compensation_error is not None:
-                    raise RuntimeError(
-                        "V3 failed vector replacement left compensation pending"
-                    ) from compensation_error
-                raise
-
-        if self._graph is not None and not is_migrating:
-            try:
-                await self._graph.insert_node(
-                    node_id=node_id,
-                    name=entity_name,
-                    agent_id=agent_id,
-                )
-            except Exception as graph_exc:
-                logger.error(
-                    "INSERT_SECONDARY_GRAPH_FAILURE | agent_id=%s node_id=%s error=%s",
-                    agent_id,
-                    node_id,
-                    graph_exc,
-                )
-                compensation_errors: list[Exception] = []
-                if not is_migrating:
-                    try:
-                        await self._vec.hard_delete(node_id, agent_id)
-                    except Exception as cleanup_exc:
-                        compensation_errors.append(cleanup_exc)
-                    if hasattr(self._graph, "delete_nodes"):
-                        try:
-                            await self._graph.delete_nodes(
-                                purge_id=f"failed-replacement:{node_id}",
-                                agent_id=agent_id,
-                                node_ids=[node_id],
-                            )
-                        except Exception as cleanup_exc:
-                            compensation_errors.append(cleanup_exc)
-                async with self._sql.transaction() as db:
-                    await db.execute(
-                        "DELETE FROM nodes WHERE id = ? AND agent_id = ?",
-                        (node_id, agent_id),
-                    )
-                    if conflicting_node_ids:
-                        placeholders = ",".join("?" for _ in conflicting_node_ids)
-                        await db.execute(
-                            f"UPDATE nodes SET invalid_at = NULL WHERE id IN ({placeholders}) AND agent_id = ?",
-                            (*conflicting_node_ids, agent_id),
-                        )
-                    await db.commit()
-                if compensation_errors:
-                    raise RuntimeError(
-                        "V3 failed graph replacement left compensation pending"
-                    ) from compensation_errors[0]
-                raise
-
-        # PHASE 3: only after the replacement exists in every required
-        # secondary store may the old vector visibility and SQL head move.
-        # Any failure before the SQL CAS leaves the previous SQL memory active.
-        try:
-            if not is_migrating:
-                for cid in conflicting_node_ids:
-                    await self._vec.soft_delete(cid, agent_id)
-                    soft_deleted_cids.append(cid)
-            async with self._sql.transaction() as db:
-                if conflicting_node_ids:
-                    placeholders = ",".join("?" for _ in conflicting_node_ids)
-                    await db.execute(
-                        f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
-                        f"WHERE id IN ({placeholders}) AND agent_id = ? "
-                        f"AND invalid_at IS NULL",
-                        (*conflicting_node_ids, agent_id),
-                    )
-                activated = await db.execute(
-                    "UPDATE nodes SET invalid_at = NULL WHERE id = ? AND agent_id = ? "
-                    "AND invalid_at = ?",
-                    (node_id, agent_id, now),
-                )
-                if activated.rowcount != 1:
-                    raise RuntimeError("replacement activation fence lost")
-                await db.commit()
-        except Exception:
-            rollback_compensation_errors: list[Exception] = []
-            for cid in soft_deleted_cids:
-                try:
-                    await self._vec.restore_soft_delete(cid, agent_id)
-                except Exception as restore_exc:
-                    rollback_compensation_errors.append(restore_exc)
-            if not is_migrating:
-                try:
-                    await self._vec.hard_delete(node_id, agent_id)
-                except Exception as delete_exc:
-                    rollback_compensation_errors.append(delete_exc)
-            if self._graph is not None and hasattr(self._graph, "delete_nodes"):
-                try:
-                    await self._graph.delete_nodes(
-                        purge_id=f"failed-replacement:{node_id}",
-                        agent_id=agent_id,
-                        node_ids=[node_id],
-                    )
-                except Exception as graph_delete_exc:
-                    rollback_compensation_errors.append(graph_delete_exc)
-            async with self._sql.transaction() as db:
-                await db.execute(
-                    "DELETE FROM nodes WHERE id = ? AND agent_id = ? AND invalid_at IS NOT NULL",
-                    (node_id, agent_id),
-                )
-                await db.commit()
-            if rollback_compensation_errors:
-                raise RuntimeError(
-                    "V3 replacement compensation could not restore physical state"
-                ) from rollback_compensation_errors[0]
-            raise
-
-        if conflicting_node_ids:
-            logger.info(
-                "SEMANTIC_CONFLICT_RESOLUTION | agent_id=%s new_node_id=%s "
-                "resolved_conflicts=%d soft_deleted=%s",
-                agent_id,
-                node_id,
-                len(conflicting_node_ids),
-                conflicting_node_ids,
-            )
-
-        logger.info(
-            "INSERT_MEMORY | agent_id=%s node_id=%s entity=%s dim=%d",
-            agent_id,
-            node_id,
-            entity_name,
-            len(embedding),
-        )
-        return node_id
-
-    async def bulk_insert_memory(
-        self,
-        agent_id: str,
-        *,
-        records: list[dict[str, Any]],
-    ) -> int:
-        """Batch-insert multiple memory records for a single agent.
-
-        Each dict in ``records`` must contain at minimum:
-            ``entity_name``, ``content``, ``embedding``.
-        Optional keys: ``node_id``, ``node_type``, ``session_id``,
-        ``content_hash``.
-
-        All records are stamped with the supplied ``agent_id`` —
-        per-record agent_id overrides are **rejected** to prevent
-        accidental cross-tenant writes.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key (applied to ALL
-                      records uniformly).
-            records: List of memory record dicts.
-
-        Returns:
-            Number of records successfully inserted.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        if not records:
-            return 0
-
-        # P3 FIX: Input validation to prevent payload DoS (1MB limit)
-        for rec in records:
-            content = rec.get("content", "")
-            if len(content.encode("utf-8")) > 1_048_576:
-                raise ValueError(
-                    f"Content payload exceeds 1MB limit for entity {rec.get('entity_name')!r}"
-                )
-
-        now = datetime.now(timezone.utc).isoformat()
-        sql_rows: list[tuple] = []
-        vec_rows: list[dict] = []
-
-        for rec in records:
-            nid = rec.get("node_id") or str(uuid.uuid4())
-            sql_rows.append(
-                (
-                    nid,
-                    rec["entity_name"],
-                    rec.get("node_type", "ENTITY"),
-                    rec.get("content", ""),
-                    0,
-                    now,
-                    agent_id,  # hardcoded — never from record dict
-                    rec.get("session_id", "__unset__"),
-                )
-            )
-            vec_rows.append(
-                {
-                    "node_id": nid,
-                    "agent_id": agent_id,  # hardcoded
-                    "embedding": rec["embedding"],
-                    "content_hash": rec.get("content_hash"),
-                    "entity_name": rec["entity_name"],
-                }
-            )
-
-        is_migrating = await self._is_lancedb_migrating()
-
-        # PHASE 1: Canonical SQLite transaction FIRST
-        async with self._sql.transaction() as db:
-            await db.executemany(
-                "INSERT INTO nodes "
-                "(id, entity_name, type, content_payload, is_consolidated, created_at, "
-                " agent_id, session_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                sql_rows,
-            )
-
-            if is_migrating:
-                import json
-
-                import numpy as np
-
-                wal_records = []
-                for r in vec_rows:
-                    vector_bytes = np.array(r["embedding"], dtype=np.float32).tobytes()
-                    wal_metadata = json.dumps(
-                        {
-                            "node_id": r["node_id"],
-                            "content_hash": r.get("content_hash"),
-                            "entity_name": r["entity_name"],
-                            "graph_required": self._graph is not None,
-                            "canonical_agent_id": agent_id,
-                            "payload_version": 1,
-                            "expected_vector_projection": True,
-                            "expected_graph_projection": self._graph is not None,
-                        }
-                    )
-                    wal_records.append(
-                        (str(uuid.uuid4()), agent_id, vector_bytes, wal_metadata)
-                    )
-
-                await db.executemany(
-                    "INSERT INTO lancedb_wal (id, agent_id, vector, metadata) "
-                    "VALUES (?, ?, ?, ?)",
-                    wal_records,
-                )
-                logger.info("BULK_UPSERT_QUEUED_IN_WAL | count=%d", len(wal_records))
-
-            await db.commit()
-
-        # PHASE 2: Secondary store projections
-        if not is_migrating:
-            try:
-                await self._vec.bulk_upsert(vec_rows)
-            except Exception as vec_exc:
-                logger.error(
-                    "BULK_INSERT_SECONDARY_VECTOR_FAILURE | agent_id=%s count=%d error=%s",
-                    agent_id,
-                    len(records),
-                    vec_exc,
-                )
-                for sql_row in sql_rows:
-                    try:
-                        await self._vec.soft_delete(sql_row[0], agent_id)
-                    except Exception:
-                        pass
-                async with self._sql.transaction() as db:
-                    inserted_ids = [r[0] for r in sql_rows]
-                    placeholders = ",".join("?" for _ in inserted_ids)
-                    await db.execute(
-                        f"DELETE FROM nodes WHERE id IN ({placeholders}) AND agent_id = ?",
-                        (*inserted_ids, agent_id),
-                    )
-                    await db.commit()
-                raise
-
-        if self._graph is not None and not is_migrating:
-            try:
-                for rec, sql_row in zip(records, sql_rows):
-                    await self._graph.insert_node(
-                        node_id=sql_row[0],
-                        name=sql_row[1],
-                        agent_id=agent_id,
-                    )
-            except Exception as graph_exc:
-                logger.error(
-                    "BULK_INSERT_SECONDARY_GRAPH_FAILURE | agent_id=%s count=%d error=%s",
-                    agent_id,
-                    len(records),
-                    graph_exc,
-                )
-                if not is_migrating:
-                    try:
-                        for sql_row in sql_rows:
-                            await self._vec.soft_delete(sql_row[0], agent_id)
-                    except Exception:
-                        pass
-                async with self._sql.transaction() as db:
-                    inserted_ids = [r[0] for r in sql_rows]
-                    placeholders = ",".join("?" for _ in inserted_ids)
-                    await db.execute(
-                        f"DELETE FROM nodes WHERE id IN ({placeholders}) AND agent_id = ?",
-                        (*inserted_ids, agent_id),
-                    )
-                    await db.commit()
-                raise
-
-        logger.info(
-            "BULK_INSERT_MEMORY | agent_id=%s count=%d",
-            agent_id,
-            len(records),
-        )
-        return len(records)
 
     # ==================================================================
     # SEARCH — agent-scoped memory retrieval
     # ==================================================================
 
-    async def search_memory(
-        self,
-        agent_id: str,
-        *,
-        query_vector: list[float],
-        limit: int = 10,
-        include_graph: bool = False,
-        temporal_filter: dict | None = None,
-    ) -> list[dict[str, Any]]:
-        """Search memories scoped exclusively to ``agent_id``.
-
-        Performs a cosine similarity search in LanceDB with a hardcoded
-        ``agent_id`` filter, then optionally enriches each result with
-        relational data from the SQLite ``nodes`` table (also filtered
-        by ``agent_id``).
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            query_vector: Float32 query embedding.
-            limit: Maximum results (default 10).
-            include_graph: If ``True``, join each vector hit with its
-                           corresponding ``nodes`` row for full context.
-
-        Returns:
-            List of result dicts sorted by ascending cosine distance.
-            Each dict contains at minimum: ``node_id``, ``agent_id``,
-            ``_distance``, ``content_hash``, ``created_at``.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        # ---- LanceDB search (agent_id filter hardcoded) --------------
-        results = await self._vec.search(
-            query_vector=query_vector,
-            limit=limit,
-            agent_id=agent_id,  # RLS: hardcoded into LanceDB WHERE clause
-        )
-
-        if not results:
-            return []
-
-        # SQLite is canonical for tombstones: filter vector-only hits too.
-        # ---- SQLite enrichment (agent_id filter hardcoded) -----------
-        node_ids = [r["node_id"] for r in results]
-        placeholders = ",".join("?" for _ in node_ids)
-
-        # RLS: agent_id = ? hardcoded — even if a node_id existed under
-        # a different agent, it will NOT be returned.
-        base_query = (
-            f"SELECT id, entity_name, type, content_payload, is_consolidated, "
-            f"       created_at, session_id, confidence, is_quarantined "
-            f"FROM nodes "
-            f"WHERE agent_id = ? "
-            f"  AND id IN ({placeholders}) "
-            f"  AND invalid_at IS NULL "
-            f"  AND deleted_at IS NULL"
-        )
-        params: list[Any] = [agent_id, *node_ids]
-
-        if temporal_filter:
-            valid_at = temporal_filter.get("valid_at")
-            valid_from = temporal_filter.get("valid_from")
-            valid_to = temporal_filter.get("valid_to")
-
-            if valid_at:
-                base_query += " AND (valid_from IS NULL OR valid_from <= ?) AND (valid_to IS NULL OR valid_to >= ?)"
-                params.extend([valid_at, valid_at])
-            else:
-                if valid_from:
-                    base_query += " AND (valid_to IS NULL OR valid_to >= ?)"
-                    params.append(valid_from)
-                if valid_to:
-                    base_query += " AND (valid_from IS NULL OR valid_from <= ?)"
-                    params.append(valid_to)
-
-        graph_map: dict[str, dict] = {}
-        async with self._sql.connection() as db:
-            async with db.execute(base_query, params) as cursor:
-                rows = await cursor.fetchall()
-                for row in rows:
-                    row_dict = self._sanitize_payload(dict(row))
-                    graph_map[row_dict["id"]] = row_dict
-
-        # Filter every vector result through canonical SQLite tombstones.
-        filtered_results = []
-        for r in results:
-            nid = r["node_id"]
-            if nid not in graph_map:
-                continue
-            if include_graph:
-                r["graph"] = graph_map[nid]
-            filtered_results.append(r)
-        return filtered_results
-
-    async def search_memory_fts(
-        self,
-        agent_id: str,
-        *,
-        query: str,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        """Lexical FTS5 search scoped exclusively to ``agent_id``.
-
-        Uses the ``nodes_fts`` virtual table for zero-VRAM lexical
-        pre-filtering, with a mandatory ``agent_id`` filter on the
-        joined ``nodes`` table.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            query: FTS5 MATCH expression (AND, OR, NOT, prefix*).
-            limit: Maximum results (default 100 for broader pre-filter pool).
-
-        Returns:
-            List of matching node dicts ranked by FTS5 relevance.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        if not query or not query.strip():
-            return []
-
-        # Convert strict AND to soft OR for broader BM25 matching
-        # e.g., "hello world" -> '"hello" OR "world"'
-        terms = query.replace('"', "").split()
-        parsed_query = " OR ".join([f'"{term}"' for term in terms]) if terms else query
-
-        # RLS: `AND n.agent_id = ?` hardcoded into the JOIN predicate
-        sql = (
-            "SELECT n.*, rank "
-            "FROM nodes_fts "
-            "JOIN nodes n ON n.rowid = nodes_fts.rowid "
-            "WHERE nodes_fts MATCH ? "
-            "  AND n.agent_id = ? "
-            "  AND n.invalid_at IS NULL "
-            "  AND n.deleted_at IS NULL "
-            "ORDER BY rank "
-            "LIMIT ?"
-        )
-
-        async with self._sql.connection() as db:
-            try:
-                async with db.execute(sql, (parsed_query, agent_id, limit)) as cursor:
-                    rows = await cursor.fetchall()
-                    return [dict(row) for row in rows]
-            except Exception as exc:
-                logger.warning(
-                    "FTS5_SEARCH_ERROR | agent_id=%s query=%r error=%s",
-                    agent_id,
-                    parsed_query,
-                    exc,
-                )
-                return []
-
-    async def get_memories(
-        self,
-        agent_id: str,
-        *,
-        limit: int | None = None,
-        include_consolidated: bool = True,
-    ) -> list[dict[str, Any]]:
-        """Retrieve all active memories for an agent.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            limit: Optional maximum rows.
-            include_consolidated: If False, only unconsolidated nodes.
-
-        Returns:
-            List of node dicts ordered by creation time.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        # RLS: `WHERE agent_id = ?` — non-negotiable
-        query = (
-            "SELECT * FROM nodes "
-            "WHERE agent_id = ? "
-            "  AND invalid_at IS NULL "
-            "  AND deleted_at IS NULL"
-        )
-        params: list[Any] = [agent_id]
-
-        if not include_consolidated:
-            query += " AND is_consolidated = 0"
-
-        query += " ORDER BY created_at ASC"
-
-        if limit is not None:
-            query += " LIMIT ?"
-            params.append(limit)
-
-        async with self._sql.connection() as db:
-            async with db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
-
-    async def get_epistemic_data_for_nodes(
-        self, agent_id: str, node_ids: list[str]
-    ) -> dict[str, dict[str, Any]]:
-        """Fetch confidence and quarantine status for a batch of nodes.
-
-        Args:
-            agent_id: Mandatory tenant isolation key.
-            node_ids: List of UUIDs to fetch.
-
-        Returns:
-            Dict mapping node_id -> {"confidence": float, "is_quarantined": bool}
-        """
-        if not node_ids:
-            return {}
-
-        _assert_valid_agent_id(agent_id)
-
-        placeholders = ",".join("?" for _ in node_ids)
-        query = (
-            f"SELECT id, confidence, is_quarantined "
-            f"FROM nodes "
-            f"WHERE agent_id = ? AND id IN ({placeholders})"
-        )
-        params: list[Any] = [agent_id, *node_ids]
-
-        results = {}
-        async with self._sql.connection() as db:
-            async with db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-                for row in rows:
-                    results[row[0]] = {
-                        "confidence": float(row[1]),
-                        "is_quarantined": bool(row[2]),
-                    }
-        return results
-
-    async def get_nodes_by_ids_batch(
-        self, agent_id: str, node_ids: list[str]
-    ) -> dict[str, dict[str, Any]]:
-        """Batch retrieve node metadata and content by their IDs.
-
-        RLS: Mandatory ``agent_id`` hardcoded into WHERE predicate.
-        Only returns active nodes (not tombstoned or soft-deleted).
-
-        Args:
-            agent_id: Mandatory tenant isolation key.
-            node_ids: List of UUIDs to fetch.
-
-        Returns:
-            Dict mapping node_id -> dict of node attributes (entity_name, content_payload, type, etc.).
-        """
-        if not node_ids:
-            return {}
-
-        _assert_valid_agent_id(agent_id)
-
-        placeholders = ",".join("?" for _ in node_ids)
-        query = (
-            f"SELECT id, entity_name, type, content_payload, is_consolidated, "
-            f"confidence, is_quarantined "
-            f"FROM nodes "
-            f"WHERE agent_id = ? AND id IN ({placeholders}) "
-            f"  AND invalid_at IS NULL AND deleted_at IS NULL"
-        )
-        params: list[Any] = [agent_id, *node_ids]
-
-        results: dict[str, dict[str, Any]] = {}
-        async with self._sql.connection() as db:
-            async with db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-                for row in rows:
-                    row_dict = dict(row)
-                    results[row_dict["id"]] = row_dict
-        return results
 
     # ==================================================================
 
     # PURGE — agent-scoped soft-delete
     # ==================================================================
 
-    async def purge_memory(
-        self,
-        agent_id: str,
-        *,
-        scope: str = "agent",
-        session_id: str | None = None,
-        principal_id: str | None = None,
-        idempotency_key: str | None = None,
-    ) -> int:
-        """Create an exact-scope durable purge and process it fail-closed.
-
-        SQLite is the canonical mutation coordinator. It persists the exact
-        target set and tombstones it before Kuzu or LanceDB is touched; retries
-        resume journal state rather than recomputing request scope.
-        """
-        _assert_valid_agent_id(agent_id)
-        if scope not in {"agent", "session"}:
-            raise ValueError("scope must be exactly 'agent' or 'session'.")
-        if scope == "session":
-            if not session_id or session_id == "*":
-                raise ValueError(
-                    "session scope requires one exact non-wildcard session_id."
-                )
-        elif session_id is not None:
-            raise ValueError("agent scope must not carry a session_id.")
-        if idempotency_key is not None and not idempotency_key.strip():
-            raise ValueError("idempotency_key must be non-empty when supplied.")
-
-        journal_key = idempotency_key or f"purge:{uuid.uuid4()}"
-        journal_principal = principal_id or "__internal__"
-        purge_id: str | None = None
-        async with self._sql.transaction() as db:
-            async with db.execute(
-                "SELECT purge_id, agent_id, scope, session_id, state "
-                "FROM purge_journal WHERE idempotency_key = ?",
-                (journal_key,),
-            ) as cursor:
-                existing = await cursor.fetchone()
-            if existing is not None:
-                if (
-                    existing["agent_id"] != agent_id
-                    or existing["scope"] != scope
-                    or existing["session_id"] != session_id
-                ):
-                    raise ValueError(
-                        "idempotency key cannot be reused for a different purge scope."
-                    )
-                if existing["state"] == "FINALIZED":
-                    raise PurgeAlreadyFinalizedError("purge is already FINALIZED.")
-                purge_id = existing["purge_id"]
-            else:
-                if scope == "session":
-                    select_sql = (
-                        "SELECT id FROM nodes WHERE agent_id = ? AND session_id = ? "
-                        "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
-                    )
-                    select_params: tuple[Any, ...] = (agent_id, session_id)
-                    mutation_where = "agent_id = ? AND session_id = ?"
-                    mutation_params: tuple[Any, ...] = (agent_id, session_id)
-                else:
-                    select_sql = (
-                        "SELECT id FROM nodes WHERE agent_id = ? "
-                        "AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL"
-                    )
-                    select_params = (agent_id,)
-                    mutation_where = "agent_id = ?"
-                    mutation_params = (agent_id,)
-                purged_mutation_ids = await self._purge_mutations_in_tx(
-                    db, where_sql=mutation_where, params=mutation_params
-                )
-                if purged_mutation_ids:
-                    mutation_placeholders = ",".join("?" for _ in purged_mutation_ids)
-                    await db.execute(
-                        "UPDATE projection_outbox SET state = 'CANCELLED', claim_token = NULL, claimed_by = NULL, "
-                        "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP "
-                        f"WHERE mutation_id IN ({mutation_placeholders})",
-                        purged_mutation_ids,
-                    )
-                async with db.execute(select_sql, select_params) as cursor:
-                    node_ids = [row[0] for row in await cursor.fetchall()]
-                if not node_ids:
-                    await db.commit()
-                    return 0
-                purge_id = str(uuid.uuid4())
-                now = datetime.now(timezone.utc).isoformat()
-                await db.execute(
-                    "INSERT INTO purge_journal "
-                    "(purge_id, idempotency_key, principal_id, agent_id, scope, session_id, "
-                    "target_node_ids, state, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'PREPARED', ?, ?)",
-                    (
-                        purge_id,
-                        journal_key,
-                        journal_principal,
-                        agent_id,
-                        scope,
-                        session_id,
-                        json.dumps(node_ids),
-                        now,
-                        now,
-                    ),
-                )
-                placeholders = ",".join("?" for _ in node_ids)
-                await db.execute(
-                    f"UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP, "
-                    f"deleted_at = CURRENT_TIMESTAMP, purge_id = ? "
-                    f"WHERE agent_id = ? AND id IN ({placeholders}) "
-                    f"AND invalid_at IS NULL AND deleted_at IS NULL AND purge_id IS NULL",
-                    (purge_id, agent_id, *node_ids),
-                )
-                await db.execute(
-                    "UPDATE purge_journal SET state = 'TOMBSTONED', updated_at = ? "
-                    "WHERE purge_id = ? AND state = 'PREPARED'",
-                    (now, purge_id),
-                )
-            await db.commit()
-        assert purge_id is not None
-        if not self._secondary_writes_enabled:
-            # API-only processes own durable intent and canonical tombstones,
-            # never the embedded vector/graph writer.  The storage-owner
-            # worker resumes this exact journal entry.
-            record = await self._get_purge_record(purge_id)
-            assert record is not None
-            return len(json.loads(record["target_node_ids"]))
-        return await self.resume_purge(purge_id)
-
-    async def resume_purge(self, purge_id: str) -> int:
-        """Resume one journal-recorded purge without widening its scope."""
-        if not self._secondary_writes_enabled:
-            raise PurgeBlockedError("this runtime is not the secondary-store writer")
-        record = await self._get_purge_record(purge_id)
-        if record is None:
-            raise ValueError("unknown purge_id")
-        if record["state"] == "FINALIZED":
-            raise PurgeAlreadyFinalizedError("purge is already FINALIZED.")
-        if record["state"] in {"BLOCKED", "COMPENSATION_REQUIRED", "FAILED_SAFE"}:
-            raise PurgeBlockedError(f"purge is not resumable from {record['state']}.")
-        node_ids = json.loads(record["target_node_ids"])
-        agent_id = record["agent_id"]
-        if self._graph is None or self._vec is None:
-            return len(node_ids)
-        if record["kuzu_result"] != "APPLIED":
-            try:
-                await self._graph.delete_nodes(
-                    purge_id=purge_id, agent_id=agent_id, node_ids=node_ids
-                )
-                if not await self._graph.verify_nodes_absent(
-                    agent_id=agent_id, node_ids=node_ids
-                ):
-                    raise RuntimeError("Kuzu delete verification failed.")
-                await self._advance_purge(
-                    purge_id, state="KUZU_APPLIED", kuzu_result="APPLIED"
-                )
-            except Exception as exc:
-                await self._mark_purge_retry(purge_id, exc, phase="kuzu")
-                raise PurgeRetryPendingError(
-                    f"Kuzu purge pending for {purge_id}"
-                ) from exc
-        record = await self._get_purge_record(purge_id)
-        assert record is not None
-        if record["vector_result"] != "APPLIED":
-            try:
-                for node_id in node_ids:
-                    await self._vec.hard_delete(node_id, agent_id)
-                active_ids = await self._vec.get_active_node_ids(agent_id)
-                if any(node_id in active_ids for node_id in node_ids):
-                    raise RuntimeError("Vector delete verification failed.")
-                await self._advance_purge(
-                    purge_id, state="VECTOR_APPLIED", vector_result="APPLIED"
-                )
-            except Exception as exc:
-                await self._mark_purge_retry(purge_id, exc, phase="vector")
-                raise PurgeRetryPendingError(
-                    f"vector purge pending for {purge_id}"
-                ) from exc
-        await self._advance_purge(purge_id, state="VERIFIED")
-        await self._advance_purge(purge_id, state="FINALIZED")
-        return len(node_ids)
-
-    async def resume_incomplete_purges(self, limit: int = 100) -> dict[str, str]:
-        """Bounded crash recovery using canonical journal scope only."""
-        if limit < 1 or limit > 1000:
-            raise ValueError("limit must be between 1 and 1000.")
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT purge_id FROM purge_journal WHERE state IN "
-                "('PREPARED', 'TOMBSTONED', 'KUZU_APPLIED', 'VECTOR_APPLIED', "
-                "'VERIFIED', 'RETRY_PENDING') ORDER BY updated_at LIMIT ?",
-                (limit,),
-            ) as cursor:
-                purge_ids = [row[0] for row in await cursor.fetchall()]
-        outcomes: dict[str, str] = {}
-        for candidate in purge_ids:
-            try:
-                await self.resume_purge(candidate)
-                outcomes[candidate] = "FINALIZED"
-            except PurgeRetryPendingError:
-                outcomes[candidate] = "RETRY_PENDING"
-            except PurgeBlockedError:
-                outcomes[candidate] = "BLOCKED"
-        return outcomes
-
-    async def rollback_purge(self, purge_id: str) -> int:
-        """Rollback only a tombstone whose downstream deletes never succeeded."""
-        record = await self._get_purge_record(purge_id)
-        if record is None:
-            raise ValueError("unknown purge_id")
-        if (
-            record["state"] not in {"PREPARED", "TOMBSTONED", "RETRY_PENDING"}
-            or record["kuzu_result"] != "PENDING"
-            or record["vector_result"] != "PENDING"
-        ):
-            raise PurgeBlockedError(
-                "purge compensation requires a verified pre-downstream snapshot."
-            )
-        node_ids = json.loads(record["target_node_ids"])
-        placeholders = ",".join("?" for _ in node_ids)
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                f"UPDATE nodes SET invalid_at = NULL, deleted_at = NULL, purge_id = NULL "
-                f"WHERE purge_id = ? AND agent_id = ? AND id IN ({placeholders})",
-                (purge_id, record["agent_id"], *node_ids),
-            )
-            await db.execute(
-                "UPDATE purge_journal SET state = 'FAILED_SAFE', "
-                "last_error = 'pre-downstream tombstone rollback', updated_at = ? "
-                "WHERE purge_id = ?",
-                (datetime.now(timezone.utc).isoformat(), purge_id),
-            )
-            await db.commit()
-        return cursor.rowcount
-
-    async def _get_purge_record(self, purge_id: str) -> dict[str, Any] | None:
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT * FROM purge_journal WHERE purge_id = ?", (purge_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
-
-    async def _advance_purge(
-        self,
-        purge_id: str,
-        *,
-        state: str,
-        kuzu_result: str | None = None,
-        vector_result: str | None = None,
-    ) -> None:
-        assignments = ["state = ?", "updated_at = ?", "last_error = NULL"]
-        params: list[Any] = [state, datetime.now(timezone.utc).isoformat()]
-        if kuzu_result is not None:
-            assignments.append("kuzu_result = ?")
-            params.append(kuzu_result)
-        if vector_result is not None:
-            assignments.append("vector_result = ?")
-            params.append(vector_result)
-        params.append(purge_id)
-        async with self._sql.transaction() as db:
-            await db.execute(
-                f"UPDATE purge_journal SET {', '.join(assignments)} WHERE purge_id = ?",
-                params,
-            )
-            await db.commit()
-
-    async def _mark_purge_retry(
-        self, purge_id: str, exc: Exception, *, phase: str
-    ) -> None:
-        async with self._sql.transaction() as db:
-            async with db.execute(
-                "SELECT retry_count FROM purge_journal WHERE purge_id = ?", (purge_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-            if row is None:
-                raise ValueError("unknown purge_id")
-            next_retry = int(row[0]) + 1
-            state = "BLOCKED" if next_retry >= _PURGE_MAX_RETRIES else "RETRY_PENDING"  # type: ignore[no-untyped-def]
-            await db.execute(
-                "UPDATE purge_journal SET state = ?, retry_count = ?, last_error = ?, "
-                "updated_at = ? WHERE purge_id = ?",
-                (
-                    state,
-                    next_retry,
-                    f"{phase}: {type(exc).__name__}",
-                    datetime.now(timezone.utc).isoformat(),
-                    purge_id,
-                ),
-            )
-            await db.commit()
-
-    async def _atomic_saga_commit(
-        self,
-        db_conn: Any,
-        vector_func: Any = None,
-        graph_func: Any = None,
-    ) -> None:
-        """Central helper for executing dual/tri-write sagas.
-        Ensures secondary stores (LanceDB, Kuzu) succeed before committing SQLite.
-        """
-        try:
-            if graph_func is not None:
-                await graph_func()
-            if vector_func is not None:
-                await vector_func()
-        except Exception as exc:
-            await db_conn.rollback()
-            logger.error("SAGA_ROLLBACK | Failed to write to secondary store: %s", exc)
-            raise
-        await db_conn.commit()
 
     # ==================================================================
     # UPDATE ENTITY DESCRIPTION
     # ==================================================================
 
-    async def update_entity_description(
-        self,
-        agent_id: str,
-        node_id: str,
-        new_content: str,
-        new_embedding: list[float],
-    ) -> None:
-        """Update an existing entity node's content and embedding.
-
-        This performs a dual-write:
-            1. Updates `content_payload` in the SQLite nodes table.
-            2. Upserts the new text and embedding in the LanceDB vector index.
-
-        Args:
-            agent_id: Mandatory tenant isolation key.
-            node_id: UUID of the node to update.
-            new_content: The new consolidated text description.
-            new_embedding: Float32 embedding of the new content.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "UPDATE nodes SET content_payload = ? "
-                "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
-                (new_content, node_id, agent_id),
-            )
-
-            async def _vec_update():
-                await self.vector_engine.upsert(
-                    agent_id=agent_id,
-                    node_id=node_id,
-                    embedding=new_embedding,
-                )
-
-            await self._atomic_saga_commit(db, vector_func=_vec_update)
 
     # ==================================================================
     # MARK CONSOLIDATED — agent-scoped
     # ==================================================================
 
-    async def mark_consolidated(
-        self,
-        agent_id: str,
-        *,
-        node_id: str,
-    ) -> None:
-        """Mark a node as consolidated, scoped to ``agent_id``.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            node_id: UUID of the node to mark.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        # RLS: WHERE agent_id = ? AND id = ?
-        async with self._sql.connection() as db:
-            await db.execute(
-                "UPDATE nodes SET is_consolidated = 1 "
-                "WHERE id = ? "
-                "  AND agent_id = ? "
-                "  AND invalid_at IS NULL "
-                "  AND deleted_at IS NULL",
-                (node_id, agent_id),
-            )
-            await db.commit()
 
     # ==================================================================
     # EDGE OPERATIONS — KùzuDB (Single Source of Truth)
@@ -9794,455 +8449,21 @@ class MemoryDAO:
             )
         return self._graph
 
-    async def insert_edge(
-        self,
-        agent_id: str,
-        *,
-        source_id: str,
-        target_id: str,
-        relation_type: str,
-        weight: float = 1.0,
-        edge_id: str | None = None,
-        epistemic_uncertainty: float = 0.0,
-    ) -> str:
-        """Upsert a directed edge in KùzuDB, scoped to ``agent_id``.
-
-        Delegates to ``KuzuGraphProvider.insert_edge`` which uses
-        ``MERGE ... ON CREATE SET`` for idempotent writes.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            source_id: UUID of the source Entity node.
-            target_id: UUID of the target Entity node.
-            relation_type: Semantic label (logged but not stored in
-                           KùzuDB — the Observed rel type is implicit).
-            weight: Edge weight (default 1.0).
-            edge_id: Accepted for backward compatibility but ignored
-                     (KùzuDB edges are identified by endpoint pair).
-            epistemic_uncertainty: Uncertainty score (0.0 = certain,
-                1.0 = fully uncertain). Propagated to the legacy Observed
-                relationship for observation-only PageRank telemetry.
-
-        Returns:
-            A deterministic edge identifier ``"{source_id}->{target_id}"``.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-            RuntimeError: If the graph provider is not configured.
-        """
-        _assert_valid_agent_id(agent_id)
-        graph = self._require_graph()
-
-        await graph.insert_edge(
-            source_id=source_id,
-            target_id=target_id,
-            weight=weight,
-            agent_id=agent_id,
-            epistemic_uncertainty=epistemic_uncertainty,
-        )
-
-        # DP2: Epistemic Dampening Logic
-        if relation_type.upper() == "CONTRADICTS":
-            async with self._sql.transaction() as db:
-                for n_id in (source_id, target_id):
-                    await db.execute(
-                        "UPDATE nodes SET confidence = confidence * 0.8 "
-                        "WHERE id = ? AND agent_id = ?",
-                        (n_id, agent_id),
-                    )
-                    await db.execute(
-                        "UPDATE nodes SET is_quarantined = 1 "
-                        "WHERE id = ? AND agent_id = ? AND confidence < 0.2",
-                        (n_id, agent_id),
-                    )
-                await db.commit()
-            logger.info(
-                "EPISTEMIC_DAMPENING | CONTRADICTS relation triggered dampening for nodes %s and %s",
-                source_id,
-                target_id,
-            )
-
-        logger.debug(
-            "INSERT_EDGE | agent_id=%s %s-[%s]->%s w=%.3f eu=%.3f",
-            agent_id,
-            source_id,
-            relation_type,
-            target_id,
-            weight,
-            epistemic_uncertainty,
-        )
-        return f"{source_id}->{target_id}"
-
-    async def get_all_edges(
-        self,
-        agent_id: str,
-    ) -> list[dict[str, Any]]:
-        """Return all Observed edges scoped to ``agent_id`` from KùzuDB.
-
-        Returns:
-            List of dicts with keys: ``source_id``, ``target_id``,
-            ``weight``, ``agent_id``, ``epistemic_uncertainty``.
-        """
-        _assert_valid_agent_id(agent_id)
-        graph = self._require_graph()
-
-        rows = await graph.execute_query(
-            "MATCH (a:Entity {agent_id: $agent_id})-[r:Observed]->(b:Entity {agent_id: $agent_id}) "
-            "WHERE r.agent_id = $agent_id "
-            "RETURN a.id, b.id, r.weight, r.agent_id, r.epistemic_uncertainty",
-            {"agent_id": agent_id},
-        )
-
-        return [
-            {
-                "source_id": row[0],
-                "target_id": row[1],
-                "weight": row[2],
-                "agent_id": row[3],
-                "epistemic_uncertainty": row[4] if len(row) > 4 else 0.0,
-            }
-            for row in rows
-        ]
-
-    async def get_neighbors(
-        self,
-        agent_id: str,
-        *,
-        node_id: str,
-        direction: str = "both",
-        max_hops: int = 1,
-    ) -> list[dict[str, Any]]:
-        """Return neighbor nodes connected to a node via KùzuDB traversal.
-
-        Delegates to ``KuzuGraphProvider.get_neighbors`` for multi-hop
-        Cypher traversal with dual ``agent_id`` enforcement.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            node_id: UUID of the pivot node.
-            direction: Accepted for backward compatibility. KùzuDB
-                       traversal is always undirected.
-            max_hops: Maximum traversal depth (1, 2, or 3).
-
-        Returns:
-            List of neighbor dicts with keys: ``id``, ``name``, ``hops``.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-            RuntimeError: If the graph provider is not configured.
-        """
-        _assert_valid_agent_id(agent_id)
-        graph = self._require_graph()
-
-        neighbors = await graph.get_neighbors(
-            node_id=node_id,
-            agent_id=agent_id,
-            max_hops=max_hops,
-        )
-        active = await self.get_nodes_by_ids_batch(
-            agent_id, [neighbor["id"] for neighbor in neighbors]
-        )
-        return [neighbor for neighbor in neighbors if neighbor["id"] in active]
 
     # ==================================================================
     # INVALIDATION — agent-scoped soft-invalidation
     # ==================================================================
 
-    async def invalidate_node(
-        self,
-        agent_id: str,
-        *,
-        node_id: str,
-    ) -> None:
-        """Soft-invalidate a node by setting ``invalid_at``.
-
-        Also cascade-invalidates all connected edges.  No physical
-        DELETEs are issued.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            node_id: UUID of the node to invalidate.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        try:
-            if self._vec:
-                await self._vec.hard_delete(node_id, agent_id)
-            if self._graph:
-                await self._graph.execute_write(
-                    "MATCH (n:Entity {id: $node_id, agent_id: $agent_id})"
-                    "-[r:Observed]-() DELETE r",
-                    {"node_id": node_id, "agent_id": agent_id},
-                )
-        except Exception as exc:
-            logger.error(
-                "INVALIDATE_SAGA_ROLLBACK | agent_id=%s error=%s", agent_id, exc
-            )
-            raise
-
-        async with self._sql.transaction() as db:
-            await db.execute(
-                "UPDATE nodes SET invalid_at = CURRENT_TIMESTAMP "
-                "WHERE id = ? AND agent_id = ? AND invalid_at IS NULL",
-                (node_id, agent_id),
-            )
-            await db.commit()
-
-        logger.info(
-            "INVALIDATE_NODE | agent_id=%s node_id=%s",
-            agent_id,
-            node_id,
-        )
 
     # ==================================================================
     # FIND NODES — agent-scoped entity name lookup
     # ==================================================================
 
-    async def find_nodes_by_name(
-        self,
-        agent_id: str,
-        *,
-        names: list[str],
-        case_insensitive: bool = True,
-    ) -> list[dict[str, Any]]:
-        """Find active nodes whose ``entity_name`` matches any in ``names``.
-
-        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE clause.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            names: Entity names to match.
-            case_insensitive: If True, compare via ``LOWER()``.
-
-        Returns:
-            List of matching node dicts.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        if not names:
-            return []
-
-        if case_insensitive:
-            conditions = " OR ".join("LOWER(entity_name) = ?" for _ in names)
-            params: list[Any] = [agent_id] + [n.lower() for n in names]
-        else:
-            conditions = " OR ".join("entity_name = ?" for _ in names)
-            params = [agent_id] + list(names)
-
-        query = (
-            f"SELECT * FROM nodes WHERE agent_id = ? "
-            f"AND invalid_at IS NULL "
-            f"AND deleted_at IS NULL "
-            f"AND ({conditions})"
-        )
-
-        async with self._sql.connection() as db:
-            async with db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
-
-    async def find_consolidated_nodes_by_name(
-        self,
-        agent_id: str,
-        *,
-        entity_name: str,
-        case_insensitive: bool = True,
-    ) -> list[dict[str, Any]]:
-        """Find active *consolidated* nodes matching ``entity_name``.
-
-        Like ``find_nodes_by_name`` but additionally filters on
-        ``is_consolidated = 1``.  Used by the REM cycle worker to
-        detect contradictions against existing consolidated knowledge.
-
-        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            entity_name: Single entity name to match.
-            case_insensitive: If True, compare via ``LOWER()``.
-
-        Returns:
-            List of matching consolidated node dicts.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        if not entity_name:
-            return []
-
-        if case_insensitive:
-            name_clause = "LOWER(entity_name) = LOWER(?)"
-        else:
-            name_clause = "entity_name = ?"
-
-        query = (
-            f"SELECT * FROM nodes WHERE agent_id = ? "
-            f"AND {name_clause} "
-            f"AND is_consolidated = 1 "
-            f"AND invalid_at IS NULL "
-            f"AND deleted_at IS NULL"
-        )
-
-        async with self._sql.connection() as db:
-            async with db.execute(query, (agent_id, entity_name)) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
 
     # ==================================================================
     # GET MEMORY BY ID — agent-scoped single-node lookup
     # ==================================================================
 
-    async def get_memory_by_id(
-        self,
-        agent_id: str,
-        node_id: str,
-        *,
-        session_id: str | None = None,
-    ) -> dict[str, Any] | None:
-        """Retrieve a single memory node by its primary key.
-
-        RLS: ``agent_id`` is mandatory and hardcoded into the WHERE
-        clause — a node belonging to a different agent will never be
-        returned, even if the caller knows the ``node_id``.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            node_id: UUID primary key of the node.
-
-        Returns:
-            Node dict if found and active, ``None`` otherwise.
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-        """
-        _assert_valid_agent_id(agent_id)
-
-        query = (
-            "SELECT * FROM nodes "
-            "WHERE id = ? "
-            "  AND agent_id = ? "
-            "  AND invalid_at IS NULL "
-            "  AND deleted_at IS NULL"
-        )
-        params: tuple[str, ...] = (node_id, agent_id)
-        if session_id is not None:
-            query += " AND session_id = ?"
-            params = (node_id, agent_id, session_id)
-
-        async with self._sql.connection() as db:
-            async with db.execute(query, params) as cursor:
-                row = await cursor.fetchone()
-                return self._sanitize_payload(dict(row)) if row else None
-
-    # ==================================================================
-    # NODE DEGREE — agent-scoped edge count
-    # ==================================================================
-
-    async def get_node_degree(
-        self,
-        agent_id: str,
-        *,
-        node_id: str,
-    ) -> int:
-        """Return the number of Observed edges connected to a node.
-
-        Queries KùzuDB for both inbound and outbound relationships,
-        with ``agent_id`` enforced via Cypher ``$param`` binding.
-
-        Args:
-            agent_id: **Mandatory** tenant isolation key.
-            node_id: UUID of the node.
-
-        Returns:
-            Total edge count (in + out).
-
-        Raises:
-            ValueError: If ``agent_id`` is invalid or reserved.
-            RuntimeError: If the graph provider is not configured.
-        """
-        _assert_valid_agent_id(agent_id)
-        graph = self._require_graph()
-
-        rows = await graph.execute_query(
-            "MATCH (a:Entity {id: $node_id, agent_id: $agent_id})"
-            "-[r:Observed]-() "
-            "RETURN count(r)",
-            {"node_id": f"{agent_id}::{node_id}", "agent_id": agent_id},
-        )
-        return rows[0][0] if rows else 0
-
-    # ==================================================================
-    # ROUTING TELEMETRY — audit logging
-    # ==================================================================
-
-    async def insert_routing_telemetry(
-        self,
-        agent_id: str,
-        *,
-        record_id: str,
-        small_model_decision: int,
-        small_model_confidence: float,
-        dual_llm_decision: int,
-        is_hallucination: bool,
-    ) -> str:
-        """Insert a telemetry record for adaptive LLM routing."""
-        _assert_valid_agent_id(agent_id)
-
-        telemetry_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
-
-        async with self._sql.transaction() as db:  # type: ignore[index]
-            await db.execute(
-                "INSERT INTO routing_telemetry "
-                "(id, agent_id, record_id, small_model_decision, "
-                "small_model_confidence, dual_llm_decision, "
-                "is_hallucination, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    telemetry_id,
-                    agent_id,
-                    record_id,
-                    small_model_decision,
-                    small_model_confidence,
-                    dual_llm_decision,
-                    int(is_hallucination),
-                    now,
-                ),
-            )
-            await db.commit()
-
-        return telemetry_id
-
-    async def get_recent_telemetry_stats(
-        self,
-        agent_id: str,
-        limit: int = 100,
-    ) -> dict[str, int]:
-        """Fetch recent routing telemetry to calculate hallucination error rates."""
-        _assert_valid_agent_id(agent_id)
-
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT is_hallucination FROM routing_telemetry "
-                "WHERE agent_id = ? "
-                "ORDER BY created_at DESC LIMIT ?",
-                (agent_id, limit),
-            ) as cursor:
-                results = await cursor.fetchall()
-                rows = list(results)
-
-        total_audits = len(rows)
-        hallucinations = sum(1 for row in rows if row[0] == 1)
-
-        return {
-            "total_audits": total_audits,
-            "hallucinations": hallucinations,  # type: ignore[arg-type]
-        }
 
     # ==================================================================
     # RAW LOG INSERT — hot-path ingestion (< 50ms, pure I/O)
@@ -10890,316 +9111,6 @@ class MemoryDAO:
             "dispatch_queue": d_cursor.rowcount,
         }
 
-    async def claim_lancedb_wal_entries(
-        self, *, worker_id: str, limit: int = 100, lease_seconds: int = 300
-    ) -> list[dict[str, Any]]:
-        """Durably claim only non-terminal projection work with a new fence."""
-        if not worker_id or not 1 <= limit <= 1000 or not 1 <= lease_seconds <= 3600:
-            raise ValueError("invalid WAL claim bounds.")
-        token = str(uuid.uuid4())
-        async with self._sql.transaction() as db:
-            async with db.execute(
-                "SELECT id FROM lancedb_wal WHERE state IN ('PENDING', 'SQLITE_COMMITTED', 'RETRY_PENDING') "
-                "OR (state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP) ORDER BY id LIMIT ?",
-                (limit,),
-            ) as cursor:
-                identifiers = [row[0] for row in await cursor.fetchall()]
-            claimed_ids: list[str] = []
-            for identifier in identifiers:
-                cursor = await db.execute(
-                    "UPDATE lancedb_wal SET state = 'CLAIMED', claim_token = ?, claimed_by = ?, "
-                    "lease_expires_at = datetime('now', ?), attempt_count = attempt_count + 1, "
-                    "fence_epoch = fence_epoch + 1, last_error = NULL "
-                    "WHERE id = ? AND (state IN ('PENDING', 'SQLITE_COMMITTED', 'RETRY_PENDING') "
-                    "OR (state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP))",
-                    (token, worker_id, f"+{lease_seconds} seconds", identifier),
-                )
-                if cursor.rowcount == 1:
-                    claimed_ids.append(identifier)
-            if not claimed_ids:
-                await db.commit()
-                return []
-            placeholders = ",".join("?" for _ in claimed_ids)
-            async with db.execute(
-                f"SELECT id, mutation_id, idempotency_key, agent_id, vector, metadata, claim_token, "
-                f"claimed_by, attempt_count, fence_epoch, vector_state, graph_state, reconciliation_state "
-                f"FROM lancedb_wal WHERE id IN ({placeholders}) ORDER BY id",
-                claimed_ids,
-            ) as cursor:
-                rows = [dict(row) for row in await cursor.fetchall()]
-            await db.commit()
-        return rows
-
-    async def get_lancedb_mutation_state(self, wal_id: str) -> dict[str, Any] | None:
-        """Return the durable canonical state for one mutation without mutation."""
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT * FROM lancedb_wal WHERE id = ?", (wal_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-        return dict(row) if row else None
-
-    async def record_lancedb_projection_state(
-        self, wal_id: str, *, worker_id: str, claim_token: str, projection: str
-    ) -> bool:
-        """Fence a single projection transition; stale claimants are rejected."""
-        mapping = {
-            "VECTOR_APPLIED": ("vector_state", "VECTOR_APPLIED"),
-            "GRAPH_APPLIED": ("graph_state", "GRAPH_APPLIED"),
-            "GRAPH_NOT_REQUIRED": ("graph_state", "NOT_REQUIRED"),
-        }
-        if projection not in mapping:
-            raise ValueError("unsupported projection state")
-        column, value = mapping[projection]
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                f"UPDATE lancedb_wal SET {column} = ? WHERE id = ? AND state = 'CLAIMED' "
-                "AND claimed_by = ? AND claim_token = ?",
-                (value, wal_id, worker_id, claim_token),
-            )
-            await db.commit()
-        return cursor.rowcount == 1
-
-    async def _retry_lancedb_wal_entry(
-        self, wal_id: str, *, worker_id: str, claim_token: str, error: str
-    ) -> bool:
-        """Release a fenced failure without erasing completed downstream state."""
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                "UPDATE lancedb_wal SET state = CASE WHEN attempt_count >= retry_limit THEN 'BLOCKED' "
-                "ELSE 'RETRY_PENDING' END, claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL, "
-                "last_error = ? WHERE id = ? AND state = 'CLAIMED' AND claimed_by = ? AND claim_token = ?",
-                (error[:500], wal_id, worker_id, claim_token),
-            )
-            await db.commit()
-        return cursor.rowcount == 1
-
-    async def _graph_has_wal_node(self, *, node_id: str, agent_id: str) -> bool:
-        if self._graph is None:
-            return False
-        has_node = getattr(self._graph, "has_node", None)
-        if has_node is not None:
-            return bool(await has_node(node_id=node_id, agent_id=agent_id))
-        verify_absent = getattr(self._graph, "verify_nodes_absent", None)
-        if verify_absent is None:
-            raise RuntimeError(
-                "graph provider does not expose exact-scope verification"
-            )
-        return not bool(await verify_absent(agent_id=agent_id, node_ids=[node_id]))
-
-    async def reconcile_lancedb_wal_entry(
-        self, wal_id: str, *, worker_id: str, claim_token: str
-    ) -> str:
-        """Persist exact-scope downstream observation before final ACK."""
-        state = await self.get_lancedb_mutation_state(wal_id)
-        if state is None:
-            raise ValueError("unknown WAL mutation")
-        metadata = json.loads(state["metadata"])
-        node_id = metadata["node_id"]
-        agent_id = state["agent_id"]
-        graph_required = bool(metadata.get("graph_required", False))
-        canonical_agent_id = metadata.get("canonical_agent_id", agent_id)
-        payload_version = metadata.get("payload_version", 1)
-        expected_vector = bool(metadata.get("expected_vector_projection", True))
-        expected_graph_marker = metadata.get("expected_graph_projection")
-        try:
-            if canonical_agent_id != agent_id:
-                result = "SCOPE_MISMATCH"
-            elif payload_version != 1:
-                result = "PAYLOAD_OR_VERSION_MISMATCH"  # type: ignore[index]
-            else:
-                vector_present = node_id in await self._vec.get_existing_node_ids(
-                    agent_id, [node_id]
-                )
-                graph_present = (not graph_required) or await self._graph_has_wal_node(
-                    node_id=node_id, agent_id=agent_id
-                )
-                if not expected_vector and vector_present:
-                    result = "VECTOR_EXTRA"
-                elif (  # type: ignore[index]
-                    expected_graph_marker is False
-                    and self._graph is not None
-                    and await self._graph_has_wal_node(
-                        node_id=node_id, agent_id=agent_id
-                    )
-                ):
-                    result = "GRAPH_EXTRA"
-                elif expected_vector and not vector_present:
-                    result = "VECTOR_MISSING"
-                elif graph_required and not graph_present:
-                    result = "GRAPH_MISSING"
-                else:
-                    result = "ALIGNED"
-        except Exception:
-            result = "UNKNOWN_OR_UNVERIFIABLE"
-
-        if result == "ALIGNED":
-            next_state = "RECONCILED"  # type: ignore[str, Any]
-            vector_state = state["vector_state"]
-            graph_state = state["graph_state"]
-            release_claim = False
-        elif result == "VECTOR_MISSING":
-            next_state = "RETRY_PENDING"
-            vector_state = "PENDING"
-            graph_state = state["graph_state"]
-            release_claim = True
-        elif result == "GRAPH_MISSING":
-            next_state = "RETRY_PENDING"
-            vector_state = state["vector_state"]
-            graph_state = "PENDING"
-            release_claim = True
-        elif result == "SCOPE_MISMATCH":
-            next_state = "BLOCKED"
-            vector_state = state["vector_state"]
-            graph_state = state["graph_state"]
-            release_claim = True
-        else:
-            next_state = "RECONCILIATION_REQUIRED"
-            vector_state = state["vector_state"]
-            graph_state = state["graph_state"]
-            release_claim = True
-
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                "UPDATE lancedb_wal SET reconciliation_state = ?, reconciled_at = CURRENT_TIMESTAMP, "
-                "state = ?, vector_state = ?, graph_state = ?, "
-                "claim_token = CASE WHEN ? THEN NULL ELSE claim_token END, "
-                "claimed_by = CASE WHEN ? THEN NULL ELSE claimed_by END, "
-                "lease_expires_at = CASE WHEN ? THEN NULL ELSE lease_expires_at END "
-                "WHERE id = ? AND state = 'CLAIMED' AND claimed_by = ? AND claim_token = ?",
-                (
-                    result,
-                    next_state,
-                    vector_state,
-                    graph_state,
-                    release_claim,
-                    release_claim,
-                    release_claim,
-                    wal_id,
-                    worker_id,
-                    claim_token,
-                ),
-            )
-            await db.commit()
-        if cursor.rowcount != 1:
-            return "FENCED_OUT"
-        return result
-
-    async def ack_lancedb_wal_entry(
-        self, wal_id: str, *, worker_id: str, claim_token: str
-    ) -> bool:
-        """ACK only a reconciled mutation owned by the current durable fence."""
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                "UPDATE lancedb_wal SET state = 'ACKED', acknowledged_at = CURRENT_TIMESTAMP, "
-                "claim_token = NULL, claimed_by = NULL, lease_expires_at = NULL "
-                "WHERE id = ? AND state = 'RECONCILED' AND reconciliation_state = 'ALIGNED' "
-                "AND claimed_by = ? AND claim_token = ?",
-                (wal_id, worker_id, claim_token),
-            )
-            await db.commit()
-        return cursor.rowcount == 1
-
-    async def recover_expired_lancedb_wal_claims(self) -> int:
-        """Make expired, non-finalized work retryable while retaining its fence history."""
-        async with self._sql.transaction() as db:
-            cursor = await db.execute(
-                "UPDATE lancedb_wal SET state = 'RETRY_PENDING', claim_token = NULL, claimed_by = NULL, "
-                "lease_expires_at = NULL WHERE state = 'CLAIMED' AND lease_expires_at <= CURRENT_TIMESTAMP"
-            )
-            await db.commit()
-        return cursor.rowcount
-
-    async def replay_claimed_lancedb_wal_entry(
-        self, entry: dict[str, Any], *, worker_id: str
-    ) -> bool:
-        """Apply only missing projections, reconcile, then issue a fenced ACK."""
-        wal_id = entry["id"]
-        token = entry["claim_token"]
-        metadata = json.loads(entry["metadata"])
-        node_id = metadata["node_id"]
-        agent_id = entry["agent_id"]
-        import numpy as np
-
-        if entry.get("vector_state") != "VECTOR_APPLIED":
-            try:
-                await self._vec.upsert(
-                    node_id=node_id,
-                    agent_id=agent_id,
-                    embedding=np.frombuffer(entry["vector"], dtype=np.float32).tolist(),
-                    content_hash=metadata.get("content_hash"),
-                )
-            except Exception as exc:
-                await self._retry_lancedb_wal_entry(
-                    wal_id,
-                    worker_id=worker_id,
-                    claim_token=token,
-                    error=type(exc).__name__,
-                )
-                raise
-            if not await self.record_lancedb_projection_state(
-                wal_id,
-                worker_id=worker_id,
-                claim_token=token,
-                projection="VECTOR_APPLIED",
-            ):
-                return False
-        if bool(metadata.get("graph_required", False)):
-            if entry.get("graph_state") != "GRAPH_APPLIED":
-                if self._graph is None:
-                    await self._retry_lancedb_wal_entry(
-                        wal_id,
-                        worker_id=worker_id,
-                        claim_token=token,
-                        error="GraphProviderUnavailable",
-                    )
-                    raise RuntimeError("graph projection is required but unavailable")
-                try:
-                    await self._graph.insert_node(
-                        node_id=node_id,
-                        name=metadata.get("entity_name", node_id),
-                        agent_id=agent_id,
-                    )
-                except Exception as exc:
-                    await self._retry_lancedb_wal_entry(
-                        wal_id,
-                        worker_id=worker_id,
-                        claim_token=token,
-                        error=type(exc).__name__,
-                    )
-                    raise
-                if not await self.record_lancedb_projection_state(
-                    wal_id,
-                    worker_id=worker_id,
-                    claim_token=token,
-                    projection="GRAPH_APPLIED",
-                ):
-                    return False
-        elif entry.get("graph_state") != "NOT_REQUIRED":
-            if not await self.record_lancedb_projection_state(
-                wal_id,
-                worker_id=worker_id,
-                claim_token=token,
-                projection="GRAPH_NOT_REQUIRED",
-            ):
-                return False
-        result = await self.reconcile_lancedb_wal_entry(
-            wal_id, worker_id=worker_id, claim_token=token
-        )
-        if result != "ALIGNED":
-            return False
-        return await self.ack_lancedb_wal_entry(
-            wal_id, worker_id=worker_id, claim_token=token
-        )
-
-    async def replay_lancedb_wal(self, *, worker_id: str, limit: int = 100) -> int:
-        """Replay real downstream projections without treating partial work as success."""
-        entries = await self.claim_lancedb_wal_entries(worker_id=worker_id, limit=limit)
-        completed = 0
-        for entry in entries:
-            if await self.replay_claimed_lancedb_wal_entry(entry, worker_id=worker_id):
-                completed += 1
-        return completed
 
     async def dispatch_raw_log(
         self,
@@ -11640,18 +9551,6 @@ class MemoryDAO:
         result["v4_vector_consumer"] = await self.vector_consumer_status()
         return result
 
-    @staticmethod
-    def _sanitize_payload(row_dict: dict[str, Any]) -> dict[str, Any]:
-        """Normalize sqlite row dict for external consumption."""
-        if "content_payload" in row_dict:
-            row_dict["content"] = row_dict.pop("content_payload")
-        if "type" in row_dict:
-            row_dict["node_type"] = row_dict.pop("type")
-        if "is_consolidated" in row_dict:
-            row_dict["is_consolidated"] = bool(row_dict["is_consolidated"])
-        if "is_quarantined" in row_dict:
-            row_dict["is_quarantined"] = bool(row_dict["is_quarantined"])
-        return row_dict
 
     # ==================================================================
     # COST CONTROL (Daily Limits)

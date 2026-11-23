@@ -1,6 +1,6 @@
 # Release procedure
 
-V4 paket sürümü `0.9.3`; yayın aşağıdaki “Yayınlama”
+V4 paket sürümü `0.9.4`; yayın aşağıdaki “Yayınlama”
 adımlarıyla depo sahibinindir. Aşağıda kayıtlı yayın istisnasını depo sahibi
 v0.8.1 source release için açıkça onayladı. Production qualification halen
 release candidate olarak değerlendirilir. Production kararı
@@ -16,7 +16,7 @@ karşılanmış yapmaz:
 - kilitli build, Ruff, Black ve Mypy;
 - tüm core ve benchmark contract testleri;
 - v4 API/SDK/MCP contract parity;
-- Tier-3 ret, retry, lease kaybı, projection crash ve rollback testleri;
+- deterministik doğrulama reddi, retry, lease kaybı, projection crash ve rollback testleri;
 - Graph V2 identity/provenance/purge ve iki yönlü reconciliation;
 - cross-tenant/workspace/dataset negatif güvenlik testleri;
 - dataset filtreli RRF lane-ablation ve vector-only karşılaştırma raporu;
@@ -61,8 +61,8 @@ Release commit’inde şu workflow’lar geçmelidir:
 - Benchmark contractları ve dataset filtreli RRF ablation artifact’ı:
   eski `Benchmark data quality` workflow’u Core’dan çıkarılmıştır; ayrı
   `mesa_benchmark` kanıtı aynı release commitine bağlanmalıdır. Yokluğu PASS değildir;
-- `MESA external release gates`: v3 compatibility Compose, v4 combined Compose,
-  flow, bounded capacity ve executable docs.
+- `MESA external release gates`: v4 combined Compose, flow, bounded capacity ve
+  executable docs.
 
 24 saat soak GitHub hosted runner süresine sığdırılmaz; production-benzeri
 ortamda dışarıda yürütülür. Başlangıç/bitiş zamanı, image digest, config hash,
@@ -109,7 +109,8 @@ Release artifact’ları şunları birlikte taşır:
 - benchmark ve soak evidence.
 
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
-yapılmaz; eski storage ve v3 compatibility servisi korunur.
+yapılmaz. Geri dönüş için önceki storage yedeği ile uyumlu kod ve yapılandırma
+korunur.
 
 ## Yayınlama (yalnızca depo sahibi)
 

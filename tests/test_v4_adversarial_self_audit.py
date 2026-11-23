@@ -32,10 +32,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mesa_memory.context_builder import ContextBuilder, _count_tokens
-from mesa_memory.retrieval.legal_resolver import normalize_turkish
 from mesa_storage.dao import MemoryDAO, classify_graph_object
 from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.kuzu_setup import initialize_schema_artifact
+from mesa_storage.legal_identity import normalize_turkish
 from mesa_storage.retrieval_scope import (
     V4_RRF_DEFAULT_K,
     V4_RRF_LANE_WEIGHTS,
@@ -740,8 +740,8 @@ def test_audit_v14_cold_tokenizer_deterministic_offline():
 def test_audit_v15_no_hardcoded_benchmark_shortcuts():
     """Attack 15: Source code must not contain hardcoded benchmark/eval query IDs."""
     import mesa_memory.context_builder as cb_mod
-    import mesa_memory.retrieval.legal_resolver as lr_mod
     import mesa_storage.dao as dao_mod
+    import mesa_storage.legal_identity as lr_mod
 
     for mod in (dao_mod, lr_mod, cb_mod):
         source = inspect.getsource(mod)

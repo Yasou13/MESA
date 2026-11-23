@@ -5,12 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from mesa_memory.consolidation.loop import ConsolidationLoop
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_memory.extraction.service import (
     FactExtractionService,
     fact_candidates_to_extracted_triplet,
+    fact_candidates_to_projection_triplets,
 )
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
@@ -100,7 +100,7 @@ async def test_extraction_type_scope_and_source_survive_real_outbox(
         facts = await service.extract_facts(source)
         assert len(facts) == len(_MATRIX)
         if conversion == "canonical":
-            triplets = ConsolidationLoop._canonical_triplets(facts)
+            triplets = fact_candidates_to_projection_triplets(facts)
         else:
             extracted = fact_candidates_to_extracted_triplet(facts)
             assert extracted is not None

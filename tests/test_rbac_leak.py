@@ -1,174 +1,224 @@
-"""MESA v0.7.1 — Phase 3B: Cross-Tenant RBAC Leakage Test.
+"""Cross-tenant RBAC and storage isolation proof across V4 retrieval surfaces.
 
-Mathematically proves that the DAO's mandatory ``WHERE agent_id = ?``
-predicate prevents cross-tenant data access.  The test inserts data
-under agent_A, then exhaustively verifies that agent_B's queries —
-via get_memories, search_memory_fts, and search_memory — return
-strictly empty result sets.
-
-This is a Zero-Trust proof, not a smoke test: we assert the *absence*
-of data, not just the presence of expected data.
+Proves that tenant/agent B cannot read, search, or traverse tenant/agent A's
+canonical V4 SQLite rows, BM25 FTS index, LanceDB vector index, or Kùzu graph.
 """
 
 from __future__ import annotations
 
-import asyncio
-import os
-import shutil
-import uuid
-
 import pytest
+import pytest_asyncio
 
+from mesa_memory.config import QueueAdmissionPolicy
+from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema as init_kuzu_schema
+from mesa_storage.kuzu_setup import initialize_schema_artifact
+from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
+from mesa_workers.projection_worker import process_projection_outbox_once
 
-TEST_DIR = os.path.join(os.path.dirname(__file__), ".test_storage_tmp", "rbac_leak")
 VEC8 = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-AGENT_A = "tenant-alpha"
-AGENT_B = "tenant-beta"
-SENTINEL_ENTITY = "TopSecret_Contract_§42"
-SENTINEL_CONTENT = "This clause governs liability under Turkish law TBK m.49"
+TENANT_A = "tenant-alpha"
+TENANT_B = "tenant-beta"
+AGENT_A = "agent-alpha"
+AGENT_B = "agent-beta"
+SENTINEL_ENTITY = "TopSecret_Contract_42"
+SENTINEL_CONTENT = (
+    "TopSecret_Contract_42 governs liability under Turkish law TBK m.49"
+)
 
 
-@pytest.fixture(autouse=True)
-def _clean():
-    os.makedirs(TEST_DIR, exist_ok=True)
-    yield
-    shutil.rmtree(TEST_DIR, ignore_errors=True)
+@pytest_asyncio.fixture
+async def dao_env(tmp_path):
+    db_path = tmp_path / "rbac_leak.db"
+    vec_path = tmp_path / "vec.lance"
+    graph_path = tmp_path / "graph"
+    sql = AsyncEngine(str(db_path), max_connections=2)
+    identity = EmbeddingIdentity(
+        provider="test", model="rbac-vec", version="v1", dimension=8, normalized=True
+    )
+    vec = VectorEngine(
+        str(vec_path),
+        max_workers=1,
+        embedding_service=EmbeddingService(
+            identity=identity,
+            provider_fn=lambda _text: list(VEC8),
+        ),
+    )
+    initialize_schema_artifact(str(graph_path))
+    graph = KuzuGraphProvider(db_path=str(graph_path), max_workers=1)
+    await sql.initialize()
+    await initialize_schema(sql)
+    await vec.initialize()
+    await graph.initialize()
+    dao = MemoryDAO(
+        sqlite_engine=sql,
+        vector_engine=vec,
+        graph_provider=graph,
+        embedding_enabled=True,
+        graph_enabled=True,
+    )
+    await dao.initialize()
+    try:
+        yield dao, identity
+    finally:
+        await graph.close()
+        await vec.close()
+        await sql.close()
 
 
-@pytest.fixture
-def dao_env():
-    uid = uuid.uuid4().hex[:8]
-    db_path = os.path.join(TEST_DIR, f"rbac_{uid}.db")
-    vec_path = os.path.join(TEST_DIR, f"vec_{uid}.lance")
-    graph_path = os.path.join(TEST_DIR, f"graph_{uid}.kuzu")
-    sql = AsyncEngine(db_path, max_connections=2)
-    vec = VectorEngine(vec_path, max_workers=1)
-    init_kuzu_schema(graph_path)
-    graph_eng = KuzuGraphProvider(db_path=graph_path)
-    loop = asyncio.new_event_loop()
-    loop.run_until_complete(sql.initialize())
-    loop.run_until_complete(initialize_schema(sql))
-    loop.run_until_complete(vec.initialize())
-    loop.run_until_complete(graph_eng.initialize())
-    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vec, graph_provider=graph_eng)
-    yield dao, sql, vec, loop
-    loop.run_until_complete(sql.close())
-    loop.run_until_complete(vec.close())
-    loop.run_until_complete(graph_eng.close())
-    loop.close()
+async def _seed_tenant_a(dao: MemoryDAO, identity: EmbeddingIdentity) -> dict[str, str]:
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=TENANT_A, workspace_id="ws-a", dataset_id="ds-a"
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id=TENANT_B, workspace_id="ws-b", dataset_id="ds-b"
+    )
+    session = await dao.create_v4_session(
+        tenant_id=TENANT_A,
+        workspace_id="ws-a",
+        dataset_ids=["ds-a"],
+        agent_id=AGENT_A,
+        principal_id="principal-a",
+    )
+    admission = await dao.admit_v4_memory(
+        tenant_id=TENANT_A,
+        workspace_id="ws-a",
+        dataset_id="ds-a",
+        agent_id=AGENT_A,
+        session_id=session["session_id"],
+        document_id="doc-alpha",
+        revision_id="rev-alpha-1",
+        chunk_id="chunk-alpha-1",
+        title="Confidential Contract",
+        content_payload=SENTINEL_CONTENT,
+        source_ref="file://alpha-contract.txt",
+        evidence_span=SENTINEL_CONTENT,
+        revision_number=1,
+        chunk_ordinal=0,
+        supersedes_revision_id=None,
+        metadata={},
+        embedding_provider=identity.provider,
+        embedding_model=identity.model,
+        embedding_version=identity.version,
+        embedding_dimension=identity.dimension,
+        embedding_space_id=identity.embedding_space_id,
+        embedding_normalized=True,
+        policy=QueueAdmissionPolicy(),
+        validation_mode=0,
+    )
+    mutation_id = admission["response"]["mutation_id"]
+    await dao.record_mutation_extraction(
+        AGENT_A,
+        mutation_id,
+        [
+            {
+                "head": SENTINEL_ENTITY,
+                "relation": "DAYANIR",
+                "tail": "TBK Madde 49",
+                "fact_text": SENTINEL_CONTENT,
+                "source_span": SENTINEL_CONTENT,
+                "confidence": 1.0,
+            }
+        ],
+    )
+    await dao.set_mutation_state(AGENT_A, mutation_id, "VALIDATED")
+    for _ in range(4):
+        res = await process_projection_outbox_once(dao, worker_id="rbac-test", limit=10)
+        if res["claimed"] == 0:
+            break
+
+    control = await dao.search_v4_memory(
+        tenant_id=TENANT_A,
+        agent_id=AGENT_A,
+        dataset_ids=["ds-a"],
+        query=SENTINEL_ENTITY,
+        limit=10,
+        graph_enabled=True,
+    )
+    assert control, "Control failed: tenant A seed data not searchable"
+    return {"session_id": session["session_id"], "mutation_id": mutation_id}
 
 
 class TestCrossTenantIsolation:
-    """Prove zero cross-tenant leakage across all DAO retrieval surfaces."""
+    """Prove zero cross-tenant leakage across all V4 retrieval and read surfaces."""
 
-    def _seed_agent_a(self, dao: MemoryDAO, loop: asyncio.AbstractEventLoop) -> str:
-        """Insert a sentinel memory node exclusively under agent_A."""
-        node_id = loop.run_until_complete(
-            dao.insert_memory(
-                AGENT_A,
-                entity_name=SENTINEL_ENTITY,
-                content=SENTINEL_CONTENT,
-                embedding=VEC8,
-                node_type="ENTITY",
-                session_id="session-alpha",
+    @pytest.mark.asyncio
+    async def test_session_and_mutation_read_isolation(self, dao_env):
+        dao, identity = dao_env
+        seeded = await _seed_tenant_a(dao, identity)
+
+        assert (
+            await dao.get_v4_session(seeded["session_id"], principal_id="principal-b")
+            is None
+        )
+        assert (
+            await dao.list_session_mutation_summaries(
+                AGENT_B, seeded["session_id"]
             )
-        )
-        # Verify the node actually exists for agent_A (control assertion)
-        memories = loop.run_until_complete(dao.get_memories(AGENT_A))
-        assert any(
-            m["entity_name"] == SENTINEL_ENTITY for m in memories
-        ), "Control failed: agent_A seed data not found"
-        return node_id
-
-    def test_get_memories_isolation(self, dao_env):
-        """agent_B.get_memories() must return [] when only agent_A has data."""
-        dao, _, _, loop = dao_env
-        self._seed_agent_a(dao, loop)
-
-        agent_b_memories = loop.run_until_complete(dao.get_memories(AGENT_B))
-
-        assert agent_b_memories == [], (
-            f"RBAC VIOLATION: agent_B retrieved {len(agent_b_memories)} records "
-            f"belonging to agent_A"
+            == []
         )
 
-    def test_fts_search_isolation(self, dao_env):
-        """agent_B.search_memory_fts() must not return agent_A's entities."""
-        dao, _, _, loop = dao_env
-        self._seed_agent_a(dao, loop)
+    @pytest.mark.asyncio
+    async def test_bm25_lexical_search_isolation(self, dao_env):
+        dao, identity = dao_env
+        await _seed_tenant_a(dao, identity)
 
-        # Search using the exact sentinel entity name — should be invisible
-        agent_b_fts = loop.run_until_complete(
-            dao.search_memory_fts(AGENT_B, query=SENTINEL_ENTITY)
+        b_res = await dao.search_v4_memory(
+            tenant_id=TENANT_B,
+            agent_id=AGENT_B,
+            dataset_ids=["ds-b"],
+            query=SENTINEL_ENTITY,
+            limit=10,
+            rrf_weights={"vector": 0.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
+            graph_enabled=False,
         )
+        assert b_res == []
 
-        assert agent_b_fts == [], (
-            f"RBAC VIOLATION: FTS5 search for agent_B returned "
-            f"{len(agent_b_fts)} results from agent_A"
+    @pytest.mark.asyncio
+    async def test_vector_search_isolation(self, dao_env):
+        dao, identity = dao_env
+        await _seed_tenant_a(dao, identity)
+
+        # Identical query vector (perfect cosine match), different tenant/agent.
+        b_res = await dao.search_v4_memory(
+            tenant_id=TENANT_B,
+            agent_id=AGENT_B,
+            dataset_ids=["ds-b"],
+            query=SENTINEL_CONTENT,
+            limit=10,
+            rrf_weights={"vector": 8.0, "bm25": 0.0, "assertion": 0.0, "graph": 0.0},
+            graph_enabled=False,
         )
+        assert b_res == []
 
-    def test_vector_search_isolation(self, dao_env):
-        """agent_B.search_memory() must not return agent_A's vectors."""
-        dao, _, _, loop = dao_env
-        self._seed_agent_a(dao, loop)
+    @pytest.mark.asyncio
+    async def test_cross_tenant_isolation_all_lanes_and_forged_dataset(self, dao_env):
+        dao, identity = dao_env
+        await _seed_tenant_a(dao, identity)
 
-        # Use the exact same embedding that agent_A inserted — should be
-        # a perfect cosine match, but the agent_id filter must block it.
-        agent_b_vec = loop.run_until_complete(
-            dao.search_memory(AGENT_B, query_vector=VEC8, limit=10)
+        # Tenant B's own dataset returns nothing; passing tenant A's dataset_id fails closed.
+        b_all = await dao.search_v4_memory(
+            tenant_id=TENANT_B,
+            agent_id=AGENT_B,
+            dataset_ids=["ds-b"],
+            query=SENTINEL_ENTITY,
+            limit=10,
+            rrf_weights={"vector": 8.0, "bm25": 1.0, "assertion": 1.0, "graph": 1.0},
+            graph_enabled=True,
         )
-
-        assert agent_b_vec == [], (
-            f"RBAC VIOLATION: vector search for agent_B returned "
-            f"{len(agent_b_vec)} results from agent_A"
-        )
-
-    def test_cross_tenant_isolation(self, dao_env):
-        """Combined proof: all three retrieval surfaces are airtight."""
-        dao, _, _, loop = dao_env
-        node_id = self._seed_agent_a(dao, loop)
-
-        # 1. Direct memory retrieval
-        b_memories = loop.run_until_complete(dao.get_memories(AGENT_B))
-        assert b_memories == [], "Leakage via get_memories"
-
-        # 2. FTS5 lexical search
-        b_fts = loop.run_until_complete(
-            dao.search_memory_fts(AGENT_B, query=SENTINEL_ENTITY)
-        )
-        assert b_fts == [], "Leakage via search_memory_fts"
-
-        # 3. Vector similarity search
-        b_vec = loop.run_until_complete(
-            dao.search_memory(AGENT_B, query_vector=VEC8, limit=10)
-        )
-        assert b_vec == [], "Leakage via search_memory"
-
-        # 4. Edge isolation — if agent_A has edges, agent_B must not see them
-        n2 = loop.run_until_complete(
-            dao.insert_memory(
-                AGENT_A,
-                entity_name="RelatedEntity",
-                content="related",
-                embedding=VEC8,
+        assert b_all == [], "Cross-tenant leak on tenant B dataset"
+        with pytest.raises(CatalogIdentityNotFoundError):
+            await dao.search_v4_memory(
+                tenant_id=TENANT_B,
+                agent_id=AGENT_B,
+                dataset_ids=["ds-a"],
+                query=SENTINEL_ENTITY,
+                limit=10,
+                rrf_weights={"vector": 8.0, "bm25": 1.0, "assertion": 1.0, "graph": 1.0},
+                graph_enabled=True,
             )
-        )
-        loop.run_until_complete(
-            dao.insert_edge(
-                AGENT_A,
-                source_id=node_id,
-                target_id=n2,
-                relation_type="DAYANIR",
-            )
-        )
-        b_neighbors = loop.run_until_complete(
-            dao.get_neighbors(AGENT_B, node_id=node_id)
-        )
-        assert b_neighbors == [], "Leakage via get_neighbors"

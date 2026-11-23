@@ -11,9 +11,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter
-from mesa_memory.retrieval.core import normalize_query
-from mesa_memory.retrieval.legal_resolver import LegalEntityResolver, normalize_turkish
-from mesa_storage.dao import MemoryDAO
+from mesa_storage.dao import (
+    MemoryDAO,
+    introduces_legal_citation,
+)
+from mesa_storage.dao import (
+    normalize_planner_query as normalize_planner_query,
+)
 from mesa_storage.retrieval_scope import V4_RRF_DEFAULT_K, rrf_fuse_lanes
 
 logger = logging.getLogger("MESA_AdaptiveRetrieval")
@@ -41,31 +45,6 @@ class PlannerResult:
 class AdaptiveRetrievalResult:
     candidates: list[dict[str, Any]]
     diagnostics: dict[str, Any]
-
-
-def normalize_planner_query(query: str) -> str:
-    """Apply only Unicode, whitespace and case normalization."""
-    normalized_unicode = unicodedata.normalize("NFKC", query)
-    normalized_turkish = normalize_turkish(normalized_unicode)
-    return normalize_query(normalized_turkish)
-
-
-def _citation_identities(query: str) -> set[tuple[str, str | None]]:
-    return {
-        (citation.statute_code, citation.article)
-        for citation in LegalEntityResolver().extract_citations(query)
-    }
-
-
-def _introduces_citation(original: str, expansion: str) -> bool:
-    original_citations = _citation_identities(original)
-    original_statutes = {statute for statute, _ in original_citations}
-    for statute, article in _citation_identities(expansion):
-        if statute not in original_statutes:
-            return True
-        if article is not None and (statute, article) not in original_citations:
-            return True
-    return False
 
 
 def _has_invalid_control_character(query: str) -> bool:
@@ -134,7 +113,7 @@ class BoundedQueryPlanner:
                 or normalized in seen
             ):
                 continue
-            if _introduces_citation(normalized_original, normalized):
+            if introduces_legal_citation(normalized_original, normalized):
                 continue
             seen.add(normalized)
             accepted.append(normalized)

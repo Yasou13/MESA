@@ -101,13 +101,10 @@ def deterministic_embedding(text: str, dim: int = 768) -> list[float]:
 
 
 @pytest.fixture(autouse=True)
-def reset_circuit_breaker():
+def reset_runtime_config():
     """Reset process-wide runtime state before and after every test."""
     from mesa_memory.config import config
-    from mesa_memory.consolidation.loop import llm_circuit_breaker
 
-    llm_circuit_breaker.failures = 0
-    llm_circuit_breaker.last_failure_time = 0.0
     baseline_config = {
         field_name: deepcopy(getattr(config, field_name))
         for field_name in config.__class__.model_fields

@@ -287,7 +287,6 @@ def _build_test_api(
         create_v4_router(
             get_dao=lambda: dao,
             get_access_control=lambda: access_control,
-            get_composed_validation_policy=None,
         )
     )
     return app

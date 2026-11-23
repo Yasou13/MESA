@@ -189,7 +189,6 @@ class MemoryCandidate(BaseModel):
             "created_artifact_ids": self.created_artifact_ids,
             "validation_mode": self.validation_mode,
             "validation_policy": self.validation_policy,
-            "tier3_deferred": self.validation_mode is None or self.validation_mode > 0,
         }
 
 
@@ -244,12 +243,3 @@ class ExtractedTriplet(BaseModel):
                 for item in self.additional_triplets
             ],
         ]
-
-
-class BatchExtractionResponse(BaseModel):
-    """Root schema: zero or more triplets for a multi-record batch."""
-
-    triplets: list[ExtractedTriplet] = Field(
-        default_factory=list,
-        description="Zero or more triplets per input record, indexed by record_index",
-    )

@@ -30,7 +30,6 @@ async def test_embedding_contract_and_dimension_validation(tmp_path):
         model_revision="revision-a",
     )
     mock_vec.upsert = AsyncMock()
-    mock_vec.soft_delete = AsyncMock()
 
     mock_graph = SimpleNamespace()
     mock_graph.insert_node = AsyncMock()

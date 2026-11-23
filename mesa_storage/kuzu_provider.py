@@ -174,16 +174,6 @@ class BaseGraphProvider(abc.ABC):
         """Return distinct neighbor nodes within max_hops, scoped by agent_id."""
 
     @abc.abstractmethod
-    async def get_cognitive_salience(
-        self,
-        seed_id: str,
-        agent_id: str,
-        max_hops: int = 3,
-        limit: int = 15,
-    ) -> list[dict[str, Any]]:
-        """Compute cognitive salience via spreading activation from a seed node."""
-
-    @abc.abstractmethod
     async def search_v4_graph(
         self,
         *,
@@ -198,6 +188,7 @@ class BaseGraphProvider(abc.ABC):
         seed_scores: Mapping[str, float] | None = None,
         direction: str = "any",
         legal_rules_enabled: bool = True,
+        assertion_sort_keys: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Traverse only the caller's canonical entity/assertion universe."""
 
@@ -998,128 +989,6 @@ class KuzuGraphProvider(BaseGraphProvider):
         return result
 
     # ------------------------------------------------------------------
-    # Phase 4.2 — Cognitive Salience via Spreading Activation
-    # ------------------------------------------------------------------
-
-    async def get_cognitive_salience(
-        self,
-        seed_id: str,
-        agent_id: str,
-        max_hops: int = 3,
-        limit: int = 15,
-    ) -> list[dict[str, Any]]:
-        """Compute cognitive salience scores via in-engine spreading activation.
-
-        Executes a **single Cypher query** that simulates energy spreading
-        from a seed Entity node across the graph.  The salience score for
-        each reachable node is calculated as::
-
-            salience = (1.0 / hops) / (fan_out + 1)
-
-        Where:
-          - ``hops`` is the minimum path length from the seed node.
-          - ``fan_out`` is the outgoing edge count of the candidate node.
-          - The ``+ 1`` prevents division-by-zero for leaf nodes and
-            penalises high-fan-out hubs (information dilution).
-
-        **ADR 001 compliance**: The entire computation is pushed into the
-        KùzuDB engine via a single Cypher traversal.  No N+1 Python
-        round-trips, no intermediate materialisation.
-
-        **V4 safety rule**: PageRank is topology telemetry only.  Graph
-        retrieval does not exclude a node merely because it has low centrality
-        or a legacy graph-only quarantine flag. Evidence-based validation and
-        assertion status determine retrieval eligibility.
-
-        **Zero-Trust**: Both the seed node MATCH and the traversal
-        destination enforce ``agent_id`` via parameterised binding.
-
-        **Error handling**: KùzuDB ``RuntimeError`` exceptions (e.g.
-        malformed graph state, engine failures) are caught, logged,
-        and degraded to an empty result set — never crash the caller.
-
-        Args:
-            seed_id: UUID of the seed Entity node (activation source).
-            agent_id: Tenant isolation key (mandatory).
-            max_hops: Maximum traversal depth (1, 2, or 3).  Defaults
-                      to 3 for deep cognitive spreading.
-            limit: Maximum results returned, ordered by descending
-                   salience.  Defaults to 15.
-
-        Returns:
-            List of dicts ordered by descending salience::
-
-                [
-                    {
-                        "node_id": str,   # Entity UUID
-                        "score":   float,  # Cognitive salience
-                    },
-                    ...
-                ]
-
-            Empty list if the seed node doesn't exist, no reachable
-            nodes are found, or the query fails.
-
-        Raises:
-            ValueError: If *max_hops* is not in the allowed set {1, 2, 3}.
-            RuntimeError: If the provider has not been initialised.
-        """
-        if max_hops not in self._ALLOWED_MAX_HOPS:
-            raise ValueError(
-                f"max_hops must be one of {sorted(self._ALLOWED_MAX_HOPS)}, "
-                f"got {max_hops}"
-            )
-        self._ensure_initialized()
-
-        comp_seed_id = self._composite_id(agent_id, seed_id)
-
-        # Build Cypher with literal hop bound (safe — validated int).
-        # The entire spreading activation runs inside the KùzuDB engine
-        # in a single query — zero N+1 context switches.
-        cypher = (
-            f"MATCH (seed:Entity {{id: $seed_id, agent_id: $agent_id}}) "
-            f"MATCH (seed)-[r*1..{max_hops}]-(n:Entity {{agent_id: $agent_id}}) "
-            f"WITH n, min(length(r)) AS hops "
-            f"OPTIONAL MATCH (n)-[:Observed]->(m:Entity) "
-            f"WITH n, hops, count(m) AS fan "
-            f"RETURN n.id AS node_id, "
-            f"       (1.0 / hops) / CAST(fan + 1 AS FLOAT) AS salience_score "
-            f"ORDER BY salience_score DESC "
-            f"LIMIT $limit"
-        )
-
-        try:
-            rows = await self.execute_query(
-                cypher,
-                {
-                    "seed_id": comp_seed_id,
-                    "agent_id": agent_id,
-                    "limit": limit,
-                },
-            )
-        except RuntimeError as exc:
-            logger.error(
-                "COGNITIVE_SALIENCE_FAILED | agent_id=%s seed_id=%s error=%s",
-                agent_id,
-                seed_id,
-                exc,
-            )
-            return []
-
-        prefix = f"{agent_id}::"
-        return [
-            {
-                "node_id": (
-                    row[0][len(prefix) :]
-                    if isinstance(row[0], str) and row[0].startswith(prefix)
-                    else row[0]
-                ),
-                "score": float(row[1]) if row[1] is not None else 0.0,
-            }
-            for row in rows
-        ]
-
-    # ------------------------------------------------------------------
     # Phase 4.3 — V4 Multi-Hop Graph Traversal
     # ------------------------------------------------------------------
 
@@ -1137,6 +1006,7 @@ class KuzuGraphProvider(BaseGraphProvider):
         seed_scores: Mapping[str, float] | None = None,
         direction: str = "any",
         legal_rules_enabled: bool = True,
+        assertion_sort_keys: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Multi-hop Graph V2 traversal from seed entities with strict tenant isolation.
 
@@ -1530,6 +1400,11 @@ class KuzuGraphProvider(BaseGraphProvider):
             raise GraphSearchError("Kùzu graph retrieval is unavailable") from exc
 
         # Aggregate multiple paths per target entity
+        def _assertion_tie_key(aid: str) -> Any:
+            if assertion_sort_keys is not None and aid in assertion_sort_keys:
+                return assertion_sort_keys[aid]
+            return (aid,)
+
         hits: dict[str, dict[str, Any]] = {}
         for t_id, target_paths in paths_by_target.items():
             target_paths.sort(
@@ -1537,7 +1412,7 @@ class KuzuGraphProvider(BaseGraphProvider):
                     -p["path_score"],
                     p["hops"],
                     p["seed_id"],
-                    tuple(p["path_assertions"]),
+                    tuple(_assertion_tie_key(aid) for aid in p["path_assertions"]),
                 )
             )
             best_p = target_paths[0]
@@ -1615,6 +1490,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND dst.agent_id = $agent_id "
             "  AND dst.id <> src.id "
             "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.jurisdiction, 'forward' AS direction "
+            "ORDER BY src.id, dst.id, a.predicate, a.confidence DESC, a.id "
             "LIMIT $limit"
         )
         q_reverse = (
@@ -1625,6 +1501,7 @@ class KuzuGraphProvider(BaseGraphProvider):
             "  AND dst.agent_id = $agent_id "
             "  AND dst.id <> src.id "
             "RETURN src.id, dst.id, dst.name, a.id, a.predicate, a.confidence, a.jurisdiction, 'reverse' AS direction "
+            "ORDER BY src.id, dst.id, a.predicate, a.confidence DESC, a.id "
             "LIMIT $limit"
         )
 

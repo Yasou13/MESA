@@ -31,7 +31,6 @@ from mesa_api.admission import require_mutation_admission as _require_mutation_a
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
-from mesa_memory.consolidation.policy import ValidationPolicy
 from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.document_chunking import (
     _ARTICLE_HEADING,
@@ -595,19 +594,11 @@ def create_v4_router(
     get_dao: Callable[[], MemoryDAO],
     *,
     get_access_control: Callable[[], AccessControl],
-    get_composed_validation_policy: Callable[[], ValidationPolicy | None] | None = None,
     get_extraction_enabled: Callable[[], bool] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/v4", tags=["v4-full-cognitive"])
     # ponytail: serialize document uploads; use per-document locks if throughput requires it.
     document_admission_lock = asyncio.Lock()
-
-    def current_validation_policy() -> ValidationPolicy | None:
-        return (
-            get_composed_validation_policy()
-            if get_composed_validation_policy is not None
-            else None
-        )
 
     def is_extraction_enabled() -> bool:
         if get_extraction_enabled is not None:
@@ -984,28 +975,12 @@ def create_v4_router(
                 graph_available if isinstance(graph_available, bool) else False
             ),
         )
-        policy = current_validation_policy()
-        if policy is not None:
-            val_cap = V4ValidationCapability(
-                mode=policy.mode,
-                policy=policy.name,
-                llm_validation_enabled=policy.llm_validation_enabled,
-                validator_count=policy.validator_count,
-            )
-        elif config.effective_tier3_mode() == 0:
-            val_cap = V4ValidationCapability(
-                mode=0,
-                policy="deterministic_only",
-                llm_validation_enabled=False,
-                validator_count=0,
-            )
-        else:
-            val_cap = V4ValidationCapability(
-                mode=config.effective_tier3_mode(),
-                policy="not_composed",
-                llm_validation_enabled=False,
-                validator_count=0,
-            )
+        val_cap = V4ValidationCapability(
+            mode=0,
+            policy="deterministic_only",
+            llm_validation_enabled=False,
+            validator_count=0,
+        )
 
         return V4CapabilityResponse(
             features=[
@@ -1196,7 +1171,6 @@ def create_v4_router(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
         embedding_identity = configured_embedding_identity()
-        validation_policy = current_validation_policy()
         try:
             admission = await dao.admit_v4_memory(
                 tenant_id=str(session["tenant_id"]),
@@ -1229,11 +1203,7 @@ def create_v4_router(
                 embedding_model_revision=embedding_identity.model_revision,
                 embedding_normalized=embedding_identity.normalized,
                 policy=config.queue_admission_policy,
-                validation_mode=(
-                    validation_policy.mode
-                    if validation_policy is not None
-                    else config.effective_tier3_mode()
-                ),
+                validation_mode=0,
                 idempotency_key=payload.idempotency_key,
                 payload_hash=payload_hash if payload.idempotency_key else None,
                 finalize_revision=payload.finalize_revision,

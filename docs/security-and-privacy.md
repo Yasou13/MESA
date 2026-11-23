@@ -16,8 +16,7 @@ Revalidate roles for each request; user metadata grants no authority.
 Tenant → workspace → dataset roles inherit downwards. Sessions bind immutable
 dataset membership and agent context. Negative isolation contracts cover SQL,
 vectors, graph and historical mutation management; passing tests is not an
-absolute guarantee against every possible leak. V3 agent/session checks are a
-separate compatibility contract.
+absolute guarantee against every possible leak.
 
 ## Network and authentication
 

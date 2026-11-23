@@ -82,7 +82,7 @@ def test_sanitize_cmb_content():
 async def test_system_daemon_identity_succeeds(tmp_path):
     """The reserved SYSTEM_AGENT_ID / SYSTEM_SESSION_ID must have WRITE access.
 
-    This is the legitimate internal daemon path (ConsolidationLoop, etc.).
+    This is the legitimate internal system daemon path.
     """
     from mesa_memory.security.rbac_constants import SYSTEM_AGENT_ID, SYSTEM_SESSION_ID
 

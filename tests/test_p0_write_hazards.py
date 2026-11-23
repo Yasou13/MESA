@@ -1,54 +1,102 @@
-import uuid
+"""Verify canonical V4 SQLite intent is durably committed before secondary vector writes."""
+
+from __future__ import annotations
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from mesa_memory.config import QueueAdmissionPolicy
+from mesa_memory.embedding.service import EmbeddingIdentity
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_workers.projection_worker import process_projection_outbox_once
 
 
 @pytest.mark.asyncio
 async def test_canonical_sql_intent_established_before_secondary_writes(tmp_path):
-    """Verify SQL canonical record is established before secondary stores are mutated."""
+    """Verify V4 canonical SQLite rows exist before VectorEngine.upsert is invoked."""
     db_path = tmp_path / "mesa_test_hazards.db"
     engine = AsyncEngine(str(db_path))
     await engine.initialize()
     await initialize_schema(engine)
 
-    mock_vec = SimpleNamespace()
-    mock_vec.is_initialized = True
-    mock_vec.compute_embedding = AsyncMock(return_value=[0.1, 0.2, 0.3])
-    mock_vec.upsert = AsyncMock()
-    mock_vec.soft_delete = AsyncMock()
-    mock_vec.search = AsyncMock(return_value=[])
-
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec)
-
-    agent_id = "agent_hazard_test"
-    node_id = str(uuid.uuid4())
-    content = "Test content for canonical write hazard"
-    embedding = [0.1, 0.2, 0.3]
-
-    # Insert memory
-    inserted_id = await dao.insert_memory(
-        agent_id=agent_id,
-        node_id=node_id,
-        entity_name="HazardEntity",
-        content=content,
-        embedding=embedding,
+    identity = EmbeddingIdentity(
+        provider="test", model="hazard", version="v1", dimension=3, normalized=True
     )
-    assert inserted_id == node_id
+    sql_seen_at_upsert: list[int] = []
 
-    # Verify canonical SQL record exists
-    async with engine.transaction() as db:
-        async with db.execute("SELECT id, entity_name FROM nodes WHERE id = ?", (node_id,)) as cursor:
-            row = await cursor.fetchone()
-            assert row is not None
-            assert row["entity_name"] == "HazardEntity"
+    async def _recording_upsert(**_kwargs):
+        async with engine.connection() as db:
+            async with db.execute("SELECT COUNT(*) FROM v4_assertions") as cursor:
+                row = await cursor.fetchone()
+                sql_seen_at_upsert.append(int(row[0]))
 
-    # Verify vector engine upsert was called AFTER SQL record exists
-    mock_vec.upsert.assert_called_once()
+    mock_vec = SimpleNamespace(
+        is_initialized=True,
+        semantic_operational=True,
+        embedding_identity=identity,
+        compute_embedding=AsyncMock(return_value=[0.1, 0.2, 0.3]),
+        upsert=AsyncMock(side_effect=_recording_upsert),
+        search=AsyncMock(return_value=[]),
+    )
+
+    dao = MemoryDAO(
+        sqlite_engine=engine,
+        vector_engine=mock_vec,
+        embedding_enabled=True,
+        graph_enabled=False,
+    )
+    await dao.ensure_v4_catalog_scope(
+        tenant_id="tenant-hazard", workspace_id="ws-h", dataset_id="ds-h"
+    )
+    sess = await dao.create_v4_session(
+        tenant_id="tenant-hazard",
+        workspace_id="ws-h",
+        dataset_ids=["ds-h"],
+        agent_id="agent_hazard_test",
+        principal_id="p-h",
+    )
+    admission = await dao.admit_v4_memory(
+        tenant_id="tenant-hazard",
+        workspace_id="ws-h",
+        dataset_id="ds-h",
+        agent_id="agent_hazard_test",
+        session_id=sess["session_id"],
+        document_id="doc-hazard",
+        revision_id="rev-hazard-1",
+        chunk_id="chunk-hazard-0",
+        title="HazardEntity",
+        content_payload="Test content for canonical write hazard",
+        source_ref="file://hazard.txt",
+        evidence_span="Test content for canonical write hazard",
+        revision_number=1,
+        chunk_ordinal=0,
+        supersedes_revision_id=None,
+        metadata={},
+        embedding_provider=identity.provider,
+        embedding_model=identity.model,
+        embedding_version=identity.version,
+        embedding_dimension=identity.dimension,
+        embedding_space_id=identity.embedding_space_id,
+        embedding_normalized=True,
+        policy=QueueAdmissionPolicy(),
+        validation_mode=0,
+    )
+    mutation_id = admission["response"]["mutation_id"]
+    await dao.record_mutation_extraction("agent_hazard_test", mutation_id, [])
+    await dao.set_mutation_state("agent_hazard_test", mutation_id, "VALIDATED")
+
+    # SQL lane runs first; vector upsert has NOT been called yet.
+    assert mock_vec.upsert.await_count == 0
+    await process_projection_outbox_once(dao, worker_id="hazard-w", limit=1)
+    assert mock_vec.upsert.await_count == 0
+
+    # Vector lane runs next; canonical v4_assertions row is already committed in SQLite.
+    await process_projection_outbox_once(dao, worker_id="hazard-w", limit=1)
+    assert mock_vec.upsert.await_count == 1
+    assert sql_seen_at_upsert == [1]
 
     await engine.close()

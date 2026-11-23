@@ -3,7 +3,7 @@
 import hashlib
 import json
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 V4_RRF_DEFAULT_K = 60
@@ -81,6 +81,7 @@ def rrf_fuse_lanes(
     *,
     k: int = V4_RRF_DEFAULT_K,
     weights: Mapping[str, float] | None = None,
+    tie_break_key: Callable[[str], Any] | None = None,
 ) -> list[tuple[str, float, dict[str, int]]]:
     """Deterministic, weighted multi-lane Reciprocal Rank Fusion.
 
@@ -88,10 +89,11 @@ def rrf_fuse_lanes(
         lane_rankings: Mapping of lane name to an ordered sequence of candidate IDs.
         k: Smoothing constant (default: 60).
         weights: Optional mapping of lane name to weight multiplier.
+        tie_break_key: Optional stable secondary key for equal fused scores.
 
     Returns:
         List of (candidate_id, fused_rrf_score, lane_ranks_dict), sorted
-        deterministically by (-fused_rrf_score, candidate_id).
+        deterministically by (-fused_rrf_score, tie_break_key(candidate_id)).
     """
     if weights is not None:
         for lane_name, w in weights.items():
@@ -118,7 +120,13 @@ def rrf_fuse_lanes(
                 lane_ranks[cand_id] = {}
             lane_ranks[cand_id][lane] = rank
 
-    ordered = sorted(scores.keys(), key=lambda cid: (-scores[cid], cid))
+    ordered = sorted(
+        scores.keys(),
+        key=lambda cid: (
+            -scores[cid],
+            tie_break_key(cid) if tie_break_key is not None else cid,
+        ),
+    )
     return [(cid, scores[cid], lane_ranks[cid]) for cid in ordered]
 
 

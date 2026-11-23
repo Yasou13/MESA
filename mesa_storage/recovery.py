@@ -276,49 +276,43 @@ def _state_counts(connection: sqlite3.Connection, table: str) -> dict[str, int]:
     }
 
 
-def _reconcile_purge_ledger(connection: sqlite3.Connection) -> dict[str, int]:
-    if not _table_exists(connection, "purge_journal"):
-        return {"records": 0, "verified_targets": 0}
-    records = connection.execute(
-        "SELECT purge_id, agent_id, target_node_ids, state FROM purge_journal"
-    ).fetchall()
+def _reconcile_v4_purged_documents(connection: sqlite3.Connection) -> dict[str, int]:
+    if not _table_exists(connection, "documents"):
+        return {"purged_documents": 0, "verified_documents": 0}
+    purged_docs = [
+        str(row[0])
+        for row in connection.execute(
+            "SELECT document_id FROM documents WHERE status = 'PURGED'"
+        ).fetchall()
+    ]
+    has_assertions = _table_exists(connection, "v4_assertions")
+    has_revisions = _table_exists(connection, "document_revisions")
+    has_chunks = _table_exists(connection, "source_chunks")
     verified = 0
-    protected_states = {
-        "TOMBSTONED",
-        "KUZU_APPLIED",
-        "VECTOR_APPLIED",
-        "VERIFIED",
-        "FINALIZED",
-        "RETRY_PENDING",
-        "COMPENSATION_REQUIRED",
-        "BLOCKED",
-    }
-    for purge_id, agent_id, raw_targets, state in records:
-        try:
-            targets = json.loads(raw_targets)
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise RecoveryError(
-                f"purge journal has invalid target set: {purge_id}"
-            ) from exc
-        if not isinstance(targets, list) or any(
-            not isinstance(item, str) for item in targets
-        ):
-            raise RecoveryError(f"purge journal has invalid target set: {purge_id}")
-        if state not in protected_states:
-            continue
-        for node_id in targets:
-            row = connection.execute(
-                "SELECT invalid_at, deleted_at, purge_id FROM nodes WHERE id = ? AND agent_id = ?",
-                (node_id, agent_id),
-            ).fetchone()
-            if row is not None and (
-                row[0] is None or row[1] is None or row[2] != purge_id
-            ):
+    for document_id in purged_docs:
+        if has_assertions:
+            active_assertions = connection.execute(
+                "SELECT COUNT(*) FROM v4_assertions "
+                "WHERE document_id = ? AND status != 'PURGED'",
+                (document_id,),
+            ).fetchone()[0]
+            if int(active_assertions) > 0:
                 raise RecoveryError(
-                    f"purged node would be active after restore: {node_id}"
+                    f"purged document would be active after restore: {document_id}"
                 )
-            verified += 1
-    return {"records": len(records), "verified_targets": verified}
+        if has_revisions and has_chunks:
+            non_empty_chunks = connection.execute(
+                "SELECT COUNT(*) FROM source_chunks sc "
+                "JOIN document_revisions dr ON dr.revision_id = sc.revision_id "
+                "WHERE dr.document_id = ? AND sc.content_payload != ''",
+                (document_id,),
+            ).fetchone()[0]
+            if int(non_empty_chunks) > 0:
+                raise RecoveryError(
+                    f"purged document retains source text after restore: {document_id}"
+                )
+        verified += 1
+    return {"purged_documents": len(purged_docs), "verified_documents": verified}
 
 
 def validate_snapshot(snapshot: Path) -> dict[str, Any]:
@@ -339,8 +333,11 @@ def validate_snapshot(snapshot: Path) -> dict[str, Any]:
             result["sqlite"][relative] = {
                 "integrity_check": "ok",
                 "alembic_version": _alembic_version(database),
-                "purge": _reconcile_purge_ledger(connection),
-                "wal_states": _state_counts(connection, "lancedb_wal"),
+                "purge": _reconcile_v4_purged_documents(connection),
+                "projection_states": _state_counts(connection, "projection_outbox"),
+                "cleanup_states": _state_counts(
+                    connection, "artifact_cleanup_outbox"
+                ),
                 "dispatch_states": _state_counts(connection, "dispatch_queue"),
                 "finalization_states": _state_counts(
                     connection, "session_finalization_journal"

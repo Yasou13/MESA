@@ -82,7 +82,10 @@ class CatalogRepository:
             raise CatalogIdentityNotFoundError(
                 f"unknown {kind} external identifier in tenant scope"
             )
-        physical_id = f"mesa-{kind}-{uuid.uuid4().hex}"
+        physical_id = (
+            f"mesa-{kind}-"
+            f"{uuid.uuid5(uuid.NAMESPACE_URL, f'mesa:catalog:{tenant_id}:{kind}:{external_id}').hex}"
+        )
         await db.execute(
             "INSERT INTO v4_catalog_identities "
             "(tenant_id, kind, external_id, physical_id) VALUES (?, ?, ?, ?)",
