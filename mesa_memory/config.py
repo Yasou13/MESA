@@ -628,10 +628,6 @@ class MesaConfig(BaseSettings):
         3, validation_alias="MESA_CROSSENCODER_POOL_MULTIPLIER"
     )
 
-    def effective_tier3_mode(self) -> int:
-        """Validation is always deterministic Mode 0 (kept for unchanged harness callers)."""
-        return 0
-
     @property
     def local_embedding_model(self) -> str:
         """Model component for legacy local-adapter callers; no separate setting."""
