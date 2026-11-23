@@ -7,7 +7,7 @@ rehberidir. Production kararı Final MVP Certification tamamlanana kadar
 ## 1. Desteklenen v4 topology
 
 V4 aynı storage root’a yazan tek bir `combined` process ile çalışır. API
-admission, durable consumer, validation ve SQLite/LanceDB/Kùzu projection
+admission, durable consumer, validation ve SQLite/LanceDB projection
 işleri bu process’tedir.
 
 ```bash
@@ -135,9 +135,9 @@ precondition'ıdır; tek başına consistency kanıtı değildir. Backup
 implementation'ı ayrıca storage-root writer lock'ını doğrular/alır, her SQLite
 dosyasını SQLite'ın online backup primitive'iyle ayrı bir tutarlı snapshot
 olarak kopyalar ve ancak staging doğrulamasından sonra atomik publish yapar.
-SQL authoritative/canonical truth'tür. LanceDB vector ve Kùzu graph
-projection'ları rebuildable derived state'tir ve yalnız exclusive writer-lock
-boundary altında kopyalanır.
+SQL authoritative/canonical truth'tür. LanceDB vector projection'ları
+rebuildable derived state'tir ve yalnız exclusive writer-lock boundary altında
+kopyalanır.
 
 Restore mevcut hedefi ezmemelidir. Backup'ı yeni boş root'a, uyumlu kod ve
 config ile geri yükleyip doğrulayın. [Migration rehberi](RUNBOOK.md#upgrade-v080)
@@ -219,14 +219,12 @@ IDs and error class. Never include keys, claim tokens or full source/query text.
 | Insert 409 | Frozen revision, identity/idempotency conflict | Reuse exact retry payload or create a new revision |
 | Embedding 409/mismatch | Full provider/model/revision/dimension/normalization identity | Follow offline migration/rebuild; equal dimension is not equal space |
 | `503 vector_backend_unavailable` | Provider availability and operational identity | Restore the selected provider; no silent model switch |
-| `503 graph_backend_unavailable` | Health, timeout, Kùzu schema/parity | Diagnose query/backend and bounded traversal; do not advertise complete results |
 | `503 maintenance_pending` | Active/retryable rebuild status | Follow [rebuild runbook](v4-rebuild-runbook.md); no manual lease/queue deletion |
 | Mutation stalls or enters DLQ | Projection predecessor, fenced claim, provider errors | Repair cause, then authorized replay if state permits |
 | Semantic rejection | Rejection reason and validation policy | Treat as terminal; generic replay returns `NON_REPLAYABLE` |
 | Cleanup `BLOCKED` | Store availability and shared ownership | Preserve evidence, repair store, run supported recovery |
 | Readiness 503 | Worker liveness, thresholds, canonical backlog | Resolve health; process alive does not mean ready |
 | FTS/parity error | Matching Alembic head and checksummed backup | Stop writers and rehearse recovery into a new root |
-| Old Kùzu timestamp/schema error | Release code and offline schema migration | Upgrade/rehearse from backups; do not issue ad hoc ALTER or wipe |
 | Growing RSS/disk | Lance fragments/versions, queues and retained generations | Measure representative workload; apply supported maintenance, reserve capacity |
 
 Inspect `/v4/capability` before assuming semantic/graph availability. A model-disabled

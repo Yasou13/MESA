@@ -125,7 +125,7 @@ jobs:
           timeout 240s uv run python -m pytest -q tests/test_chaos.py --tb=short \
             --junitxml=chaos-saga.xml | tee chaos-saga.log
           chaos_status=${PIPESTATUS[0]}
-          timeout 240s uv run python -m pytest -q tests/test_kuzu_isolation.py tests/test_legal_audit.py \
+          timeout 240s uv run python -m pytest -q tests/test_legal_audit.py \
             --tb=short --junitxml=graph-assurance.xml | tee graph-assurance.log
           graph_status=${PIPESTATUS[0]}
           printf 'rbac_exit=%s\nchaos_exit=%s\ngraph_exit=%s\n' \
@@ -383,7 +383,6 @@ jobs:
           tests/test_v4_projection_integration.py
           tests/test_v4_rrf_ablation.py
           tests/test_v4_sdk_contract.py
-          tests/test_graph_v2_purge.py
           tests/test_operation_repository_contract.py
           tests/test_projection_generation_contract.py
           tests/test_rebuild_observability_contract.py
@@ -429,7 +428,6 @@ jobs:
           tests/test_migration_closure.py
           tests/test_recovery_contract.py
           tests/test_v4_projection_integration.py
-          tests/test_graph_v2_purge.py
           tests/test_rebuild_preparation_contract.py
           tests/test_rebuild_replay_contract.py
           tests/test_rebuild_provider_rehearsal.py

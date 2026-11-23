@@ -1,11 +1,11 @@
 # Retrieval, graph and evidence
 
-## Four lanes and scoring
+## Lanes and scoring
 
 `MemoryDAO.search_v4_memory` is the canonical search primitive. Tenant, dataset,
 agent, committed-state, jurisdiction and temporal eligibility are checked
-before candidate rank contribution. Physical vector IDs and graph assertions
-must agree with canonical ownership/evidence.
+before candidate rank contribution. Physical vector IDs must agree with
+canonical ownership/evidence.
 
 BM25 uses a temporary FTS5 index containing only authorized assertions, so
 out-of-scope rows do not enter its corpus statistics. The scope cache reuses
@@ -18,12 +18,10 @@ observable diagnostic isolation.
 | Vector | Compatible `ASSERTION_VECTOR` semantic representation; query embedding |
 | BM25 | FTS5 passage/evidence and lexical matching; scoped typed citation lookup |
 | Assertion | Predicate, subject, object/literal, evidence, token coverage and confidence |
-| Graph | Bounded paths from legal, vector, lexical and entity-name seeds |
 
 For candidate `c`, `RRF(c) = Σ w_lane / (k + rank_lane(c))`, with ranks starting
 at 1 and default `k=60`. Runtime defaults are vector weight `8.0`, BM25 weight
-`1.0`, assertion weight `0.0`, and graph weight `1.0` (with
-`MESA_GRAPH_ENABLED=false` by default; see the
+`1.0`, and assertion weight `0.0` (see the
 [dev benchmark](#round-14-dev-benchmark)).
 Duplicate backend hits cast one vote. Ties use candidate identity. The RRF
 helper in `mesa_storage/retrieval_scope.py` uses unit weights when none are
@@ -49,26 +47,15 @@ little title context. Reserved caller metadata cannot opt into trusted identity.
 This contract checks structural linkage; it cannot prove a producer attached
 the correct law, revision or real-world interpretation.
 
-## Graph bounds and failure behavior
+## Backend failure behavior
 
-SQLite owns entities/assertions; Kùzu is a projection. Search uses at most 20
-ranked seeds and 3 hops. The DAO asks for at most 500 graph hits; the provider
-bounds frontiers to 64 and per-node fan-out to 32, with bounded native fetches.
-The default graph request timeout is 15 seconds. These are traversal/resource
-bounds, not exhaustive multi-hop completeness or latency guarantees.
-
-Graph evidence preserves path assertion IDs, entities, predicates and direction,
-and is reconciled against authorized canonical records. PageRank is telemetry
-only. `graph_mode=disabled` turns off this lane for matched ablation; it does
-not disable canonical assertion retrieval or graph projection writes.
-Responses expose bounded `scope_audit`, `graph_ablation` and `vector_lane`
+SQLite owns canonical entities and assertions; LanceDB is the derived vector
+projection. Responses expose bounded `scope_audit` and `vector_lane`
 diagnostics. Their hashes identify contracts/config/scope, not a certification.
 
 A configured operational backend failure yields explicit `503` rather than
-silently claiming complete search. Projection-only graph adapters have no
-neighbor implementation and report the capability false. A request timeout does
-not permanently mark the graph provider unhealthy. Custom embedding providers
-are configured but non-operational until a successful embedding call.
+silently claiming complete search. Custom embedding providers are configured
+but non-operational until a successful embedding call.
 
 ## Context and adaptive search
 

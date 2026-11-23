@@ -10,7 +10,6 @@
 | `MESA_EMBEDDING_ENABLED`, `MESA_EXTRACTION_ENABLED` | Embedding follows `MESA_MODEL_ENABLED` when unset. Extraction defaults to `false`. |
 | `MESA_EMBEDDING_MODEL`, `MESA_EMBEDDING_DIMENSION` | `local:BAAI/bge-m3`. Dimension is detected at startup when embeddings are enabled and defaults to `1024` when disabled. |
 | `MESA_RERANK_ENABLED` | `false`. Set `true` to rerank search results with the configured model. |
-| `MESA_GRAPH_ENABLED` | `false`. Set `true` to enable Kùzu graph projection and retrieval. |
 | `MESA_LEGAL_RULES_ENABLED` | `true`. Enables Turkish legal rule processing during ingestion and search. |
 | `MESA_LOG_LEVEL` | `INFO`. |
 
@@ -62,8 +61,8 @@ header in the first 3,000 characters. Continuation pieces keep that article's
 identity; preambles, GEÇİCİ/EK articles and plain plans receive none. Setting the
 switch to false disables automatic identity assignment for new chunks. It also
 disables legal processing during search, including citation resolution, the
-exact-match slot, decision künye promotion, legal ranking factors and graph
-citation parsing. Ordinary lexical, vector and graph retrieval still run.
+exact-match slot, decision künye promotion, and legal ranking factors.
+Ordinary lexical and vector retrieval still run.
 Search ignores stored legal identities and item snapshots while the switch is
 off and omits their legal result annotations; it does not erase them. Stored
 identities are immutable on resume. Any 3–5 digit law number is accepted by the
@@ -118,16 +117,11 @@ them through BM25. Disabled VECTOR lanes end `SKIPPED`; enabling embedding later
 backfills them at startup using the same embedding identity. Backfill failures
 leave committed records searchable.
 
-`MESA_GRAPH_ENABLED` defaults to `false`, independently of the model flags.
-When `false`, Kùzu is never opened in the runtime: GRAPH lanes end `SKIPPED`,
-BM25 and enabled vector search still work, search reports `graph` in
-`degraded_sources`, and capability reports no graph. Set
-`MESA_GRAPH_ENABLED=true` to enable Kùzu; enabling it on an existing store
-backfills skipped GRAPH lanes at combined startup. A rebuild with graph
-disabled (`MESA_GRAPH_ENABLED=false`) also marks previously completed GRAPH
-lanes `SKIPPED` at cutover so the new generation can be backfilled later.
-Existing graph files and retained generations are not erased by changing this
-flag.
+The former graph projection store was removed in v0.9.5. Any `kuzu_db` files
+left on disk in older stores are ignored by the runtime and can be deleted by
+hand after verifying backups. Retired graph settings (`MESA_GRAPH_ENABLED`,
+`MESA_RRF_GRAPH_WEIGHT`, `MESA_V4_GRAPH_TIMEOUT_SECONDS`) log a startup warning
+and are ignored.
 
 Local identity defaults to `BAAI/bge-m3` 1024-d normalized (upgraded from
 `local:magibu/embeddingmagibu-200m` 768-d; existing stores created before v0.9.3 must keep
@@ -239,8 +233,8 @@ path **in the launching shell**; setting them only inside the file cannot enable
 loading. Do not load dotenv in `test-isolated`. The quickstart's exported settings
 work without creating any `.env` file.
 
-Fresh combined startup creates or migrates SQLite, initializes LanceDB and opens
-Kùzu only when graph is enabled. For older stores, follow the
+Fresh combined startup creates or migrates SQLite and initializes LanceDB. For
+older stores, follow the
 [upgrade procedure](RUNBOOK.md#upgrade-v080). Startup failures occur in the server terminal before
 readiness; check the named variable, writable path or missing selected extra
 there. Do not paste secrets or entire environment files into bug reports.
@@ -272,13 +266,11 @@ See `mesa_memory/config.py` and `MesaConfig` for field declarations.
 | `rrf_vector_weight` | `MESA_RRF_VECTOR_WEIGHT` | `8.0` |
 | `rrf_bm25_weight` | `MESA_RRF_BM25_WEIGHT` | `1.0` |
 | `rrf_assertion_weight` | `MESA_RRF_ASSERTION_WEIGHT` | `0.0` |
-| `rrf_graph_weight` | `MESA_RRF_GRAPH_WEIGHT` | `1.0` |
 | `search_scope_cache` | `MESA_SEARCH_SCOPE_CACHE` | `True` |
 | `chunking` | `MESA_CHUNKING` | `'auto'` |
 | `rerank_model` | `MESA_RERANK_MODEL` | `'BAAI/bge-reranker-v2-m3'` |
 | `rerank_depth` | `MESA_RERANK_DEPTH` | `50` |
 | `v4_rebuild_enabled` | `MESA_V4_REBUILD_ENABLED` | `False` |
-| `v4_graph_timeout_seconds` | `MESA_V4_GRAPH_TIMEOUT_SECONDS` | `15.0` |
 | `crossencoder_pool_multiplier` | `MESA_CROSSENCODER_POOL_MULTIPLIER` | `3` |
 | `extraction_lang` | `MESA_EXTRACTION_LANG` | `'tr'` |
 | `zero_cost_mode` | `MESA_ZERO_COST_MODE` | `False` |

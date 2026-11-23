@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lexical FTS5 indexing, lexical passage/assertion scoring, and legal citation
   text matching so query numbers cannot accidentally match opaque internal IDs.
 
+### Removed
+
+- The Kùzu graph database dependency, graph projection worker/outbox lane,
+  graph search lane, and graph rebuild paths (D79). Forward-only Alembic
+  migration `f9c0d1e2f3a4` removes legacy `GRAPH` rows from `projection_outbox`,
+  `projection_attempts`, `artifact_registry`, `artifact_sources`,
+  `artifact_cleanup_outbox`, and `memory_artifacts`, and promotes any completed
+  `VECTOR_APPLIED`/`GRAPH_APPLIED` mutations to `COMMITTED`. Existing `kuzu_db`
+  files on disk are ignored and can be deleted manually after verifying backups.
+- Retired graph settings (`MESA_GRAPH_ENABLED`, `MESA_RRF_GRAPH_WEIGHT`,
+  `MESA_V4_GRAPH_TIMEOUT_SECONDS`) log one startup warning per key and are
+  ignored.
+
 ## [0.9.4] - 2026-11-23
 
 ### Retrieval quality

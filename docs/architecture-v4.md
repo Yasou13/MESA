@@ -30,7 +30,7 @@ boundary. See ADRs [0012](adr/0012-memory-dao-repository-boundaries.md) and
 ## Runtime boundary
 
 V4 has one supported storage-writing topology: one `combined` process owns
-SQLite, LanceDB and Kùzu. API admission and background consumers run in that
+SQLite and LanceDB. API admission and background consumers run in that
 process. A second writer must never mount the same storage root.
 
 Canonical v4 fact extraction is owned by `FactExtractionService`.
@@ -69,7 +69,7 @@ belong to one or more principals and can be revoked or rotated independently.
 - one `MemoryCandidate`;
 - one `memory_mutations` ledger row;
 - one `pipeline_runs` row plus append-only events;
-- ordered SQL, vector and graph outbox lanes.
+- ordered SQL and vector outbox lanes.
 
 The candidate explicitly carries tenant, workspace, dataset, document,
 revision, chunk, source reference, evidence span, agent/session, pipeline,
@@ -119,7 +119,7 @@ state; receiving an admission response alone does not establish completion.
 Projection prerequisites are enforced in the database:
 
 ```text
-SQL → vector → graph
+SQL → vector
 ```
 
 The projector only claims a later lane when its predecessor is complete.
@@ -147,10 +147,10 @@ retained.
 
 Canonical SQLite connections use WAL and `synchronous=FULL` by default;
 weaker synchronization is restricted to the explicit test profile. This does
-not create a transaction spanning SQLite, LanceDB and Kùzu.
+not create a transaction spanning SQLite and LanceDB.
 
 SQLite is authoritative for `v4_entities` and immutable `v4_assertions`.
-Kùzu is an idempotent projection. Assertions include subject, predicate,
+Assertions include subject, predicate,
 entity or literal object, document/revision/chunk source, evidence span,
 jurisdiction, authority, confidence, validity interval, mutation and pipeline
 run. Assertion identity includes predicate, source and temporal context, so
@@ -313,7 +313,7 @@ locking is not a distributed/NFS coordinator.
 | Python | `pyproject.toml`; CI matrix 3.11–3.13 | Successful jobs for the target commit |
 | OS | CI uses Ubuntu; no full OS support matrix declared | Target-platform validation |
 | Dependencies | Ranges in `pyproject.toml`, exact graph in `uv.lock` | Locked install and compatibility check |
-| Storage | SQLite FTS5, LanceDB, Kùzu | Native-store contracts plus representative capacity/recovery runs |
+| Storage | SQLite FTS5, LanceDB | Native-store contracts plus representative capacity/recovery runs |
 | Models | Explicit provider/model identity | Real-provider behavior, quality and cost measurements |
 | Docker | Dockerfile and two Compose topologies | Image and deployment evidence for the target commit |
 
