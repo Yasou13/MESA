@@ -13,7 +13,7 @@ airtight.
 
 Test Scenarios:
     1. Cross-tenant node invisibility via get_neighbors.
-    2. Cross-tenant edge invisibility via get_all_edges.
+    2. Cross-tenant edge invisibility via execute_query.
     3. Rogue edge injection — a manually inserted cross-tenant edge
        MUST NOT leak data through traversal.
     4. Node degree isolation — cross-tenant edges must not inflate
@@ -216,7 +216,7 @@ class TestCrossTenantTraversal:
 
 
 class TestCrossTenantEdgeVisibility:
-    """Verify that get_all_edges (via execute_query) respects agent_id."""
+    """Verify that edge reads through execute_query respect agent_id."""
 
     @pytest.mark.asyncio
     async def test_agent_a_edges_invisible_to_agent_b(self, kuzu_provider):

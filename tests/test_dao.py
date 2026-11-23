@@ -1,8 +1,6 @@
 # MESA v0.3.0 — MemoryDAO Unit Tests (Coverage Gap Filler)
 """
-Tests targeting untested DAO paths: agent_id validation, edge operations,
-get_neighbors directions, mark_consolidated, health_check, bulk_insert,
-get_memories filters, FTS5 error handling, and purge edge cases.
+Tests targeting untested DAO paths that remain after the V3 node store removal.
 """
 
 from __future__ import annotations

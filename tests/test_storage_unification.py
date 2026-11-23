@@ -11,52 +11,8 @@ asyncio_mode = strict → every async test requires explicit @pytest.mark.asynci
 
 import importlib
 import sys
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-from mesa_storage.dao import MemoryDAO
-
-# ===================================================================
-# Helpers
-# ===================================================================
-
-
-def _make_mock_dao() -> MagicMock:
-    """Build a mock MemoryDAO with all async methods pre-configured."""
-    dao = MagicMock(spec=MemoryDAO)
-    dao.get_raw_log = AsyncMock(
-        return_value={
-            "id": 1,
-            "payload": {
-                "agent_id": "test_agent",
-                "session_id": "test_session",
-                "content": "EU regulation Article 5 mandates data protection compliance.",
-                "metadata": {},
-            },
-            "status": "DEFERRED",
-            "created_at": "2026-05-30T00:00:00Z",
-        }
-    )
-    dao.update_raw_log_status = AsyncMock()
-    dao.vector_engine = MagicMock()
-    dao.vector_engine.compute_embedding_batch = AsyncMock(
-        return_value=[[0.1] * 768, [0.1] * 768]
-    )
-    dao.get_memories = AsyncMock(return_value=[])
-    dao.insert_memory = AsyncMock(return_value="node-uuid-001")
-    dao.insert_edge = AsyncMock(return_value="edge-uuid-001")
-    dao.mark_consolidated = AsyncMock()
-    dao.invalidate_node = AsyncMock()
-    dao.find_nodes_by_name = AsyncMock(return_value=[])
-    dao.get_node_degree = AsyncMock(return_value=0)
-    dao.search_memory = AsyncMock(return_value=[])
-    dao.search_memory_fts = AsyncMock(return_value=[])
-    dao.get_all_edges = AsyncMock(return_value=[])
-    dao.insert_raw_log = AsyncMock(return_value=1)
-    dao.health_check = AsyncMock(return_value={"sqlite": "ok", "vector": "ok"})
-    return dao
-
 
 # ===================================================================
 # TEST 1: Old storage module is unreachable
