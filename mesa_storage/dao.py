@@ -2236,17 +2236,30 @@ class MemoryDAO:
                     raise ValueError(
                         "source chunk identity is immutable and already differs"
                     )
-                await self._update_revision_manifest(
-                    db,
-                    revision_id,
-                    finalize_revision=finalize_revision,
-                )
-
                 global_usage = await self._queue_usage(db)
                 tenant_usage = await self._queue_usage(db, tenant_id)
                 self._enforce_queue_capacity(
                     global_usage, tenant_usage, payload_bytes, policy
                 )
+                # Whole-document uploads can resume from durable chunks. Hash
+                # their membership only when accepting the final chunk.
+                if finalize_revision or not document_chunk:
+                    await self._update_revision_manifest(
+                        db,
+                        revision_id,
+                        finalize_revision=finalize_revision,
+                    )
+                elif (
+                    existing_revision is not None
+                    and existing_revision["status"] == "PENDING"
+                    and existing_revision["manifest_frozen_at"] is None
+                    and existing_revision["manifest_hash"]
+                ):
+                    # A resumed draft may still have a hash of an old prefix.
+                    await db.execute(
+                        "UPDATE document_revisions SET manifest_hash = '' WHERE revision_id = ?",
+                        (revision_id,),
+                    )
                 cursor = await db.execute(
                     "INSERT INTO raw_logs (agent_id, payload, status) VALUES (?, ?, 'DEFERRED')",
                     (agent_id, serialized),

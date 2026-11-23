@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Whole-document uploads compute the revision manifest when the final chunk is
+  admitted. Interrupted uploads resume from committed chunks, and the sealed
+  manifest uses the same hash format.
 - Search ranking and tie-breaks across BM25, vector, assertion, graph, exact
   legal lookup, and RRF fusion now break equal-score ties by stable content
   identity (`document_id`, `revision_number`, chunk `ordinal`, `chunk_id`)
