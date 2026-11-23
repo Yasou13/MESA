@@ -42,8 +42,8 @@ logger = logging.getLogger("MESA_Storage")
 _DEFAULT_METRIC = "cosine"
 _DEFAULT_TABLE_PREFIX = "mesa_vectors_"
 _MAX_WORKERS = 4
-# A single-row merge_insert creates a new Lance dataset version. The real
-# soak showed that allowing hundreds of those versions to accumulate makes
+# Each merge_insert creates a Lance dataset version per table, regardless of
+# row count. The real soak showed that allowing hundreds of versions to accumulate makes
 # both metadata memory and query latency grow rapidly. 128 gave the best
 # measured tradeoff: bounded active fragments without the maintenance-induced
 # write-latency spikes observed at 32 and 64.
@@ -588,13 +588,11 @@ class VectorEngine:
             total = await loop.run_in_executor(
                 self._executor, self._sync_bulk_upsert, records
             )
-            mutations_by_table: dict[str, int] = {}
-            for record in records:
-                table_name = f"{_DEFAULT_TABLE_PREFIX}{len(record['embedding'])}"
-                mutations_by_table[table_name] = (
-                    mutations_by_table.get(table_name, 0) + 1
-                )
-            await self._record_mutations_and_maybe_maintain(mutations_by_table)
+            table_writes = {
+                f"{_DEFAULT_TABLE_PREFIX}{len(record['embedding'])}": 1
+                for record in records
+            }
+            await self._record_mutations_and_maybe_maintain(table_writes)
             return total
 
     def _sync_bulk_upsert(self, records: list[dict]) -> int:
