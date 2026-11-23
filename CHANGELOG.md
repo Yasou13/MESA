@@ -7,6 +7,15 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
+  `assertion_id`, and catalog-mapped `mesa-*` entity names) are excluded from
+  lexical FTS5 indexing, lexical passage/assertion scoring, and legal citation
+  text matching so query numbers cannot accidentally match opaque internal IDs.
+
 ## [0.9.4] - 2026-11-23
 
 ### Retrieval quality

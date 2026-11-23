@@ -188,6 +188,49 @@ _SECRET_PATTERNS = (
 )
 
 
+_INTERNAL_CATALOG_ID_PREFIXES = (
+    "mesa-tenant-",
+    "mesa-workspace-",
+    "mesa-dataset-",
+    "mesa-session-",
+    "mesa-document-",
+    "mesa-revision-",
+    "mesa-chunk-",
+)
+
+_INTERNAL_ID_ROW_FIELDS = (
+    "document_id",
+    "revision_id",
+    "chunk_id",
+    "assertion_id",
+    "mutation_id",
+    "subject_id",
+    "object_entity_id",
+)
+
+
+def _is_internal_scoring_id(
+    value: str, row: Mapping[str, Any] | None = None
+) -> bool:
+    if not value:
+        return False
+    if value.startswith(_INTERNAL_CATALOG_ID_PREFIXES):
+        return True
+    if row is not None:
+        for field in _INTERNAL_ID_ROW_FIELDS:
+            raw = row.get(field)
+            if raw and value == str(raw):
+                return True
+    return False
+
+
+def _scoring_entity_name(
+    value: Any, row: Mapping[str, Any] | None = None
+) -> str:
+    text = str(value or "")
+    return "" if _is_internal_scoring_id(text, row) else text
+
+
 def _validate_write_payload(content: str, metadata: dict[str, Any]) -> dict[str, Any]:
     encoded = json.dumps(metadata, sort_keys=True, default=str).encode()
     if len(encoded) > 16 * 1024:
@@ -7240,7 +7283,31 @@ class MemoryDAO:
                         "(rowid, assertion_id, predicate, evidence_span, literal_value, "
                         "source_ref, subject_name, object_name, chunk_payload, stable_key) "
                         "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
-                        "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
+                        "f.literal_value, f.source_ref, "
+                        "CASE WHEN f.subject_name IN ("
+                        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
+                        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
+                        "COALESCE(scoped.object_entity_id, '')) "
+                        "OR f.subject_name LIKE 'mesa-document-%' "
+                        "OR f.subject_name LIKE 'mesa-revision-%' "
+                        "OR f.subject_name LIKE 'mesa-chunk-%' "
+                        "OR f.subject_name LIKE 'mesa-tenant-%' "
+                        "OR f.subject_name LIKE 'mesa-workspace-%' "
+                        "OR f.subject_name LIKE 'mesa-dataset-%' "
+                        "OR f.subject_name LIKE 'mesa-session-%' "
+                        "THEN '' ELSE f.subject_name END, "
+                        "CASE WHEN f.object_name IN ("
+                        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
+                        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
+                        "COALESCE(scoped.object_entity_id, '')) "
+                        "OR f.object_name LIKE 'mesa-document-%' "
+                        "OR f.object_name LIKE 'mesa-revision-%' "
+                        "OR f.object_name LIKE 'mesa-chunk-%' "
+                        "OR f.object_name LIKE 'mesa-tenant-%' "
+                        "OR f.object_name LIKE 'mesa-workspace-%' "
+                        "OR f.object_name LIKE 'mesa-dataset-%' "
+                        "OR f.object_name LIKE 'mesa-session-%' "
+                        "THEN '' ELSE f.object_name END, "
                         "f.chunk_payload, "
                         "COALESCE(ci_doc.external_id, scoped.document_id) || char(0) || "
                         "printf('%010d', COALESCE(r.revision_number, 0)) || char(0) || "
@@ -7296,11 +7363,16 @@ class MemoryDAO:
                     (aid, p_row.get("subject_name"), p_row.get("object_name")), {}
                 )
                 if "passage_text" not in features:
+                    p_subject_name = _scoring_entity_name(
+                        p_row.get("subject_name"), p_row
+                    )
+                    p_object_name = _scoring_entity_name(
+                        p_row.get("object_name"), p_row
+                    )
                     p_raw_text = (
-                        f"{p_row.get('subject_name') or ''} {p_row.get('source_ref') or ''} "
-                        f"{p_row.get('document_id') or ''} "
+                        f"{p_subject_name} {p_row.get('source_ref') or ''} "
                         f"{p_row.get('literal_value') or ''} {p_row.get('evidence_span') or ''} "
-                        f"{p_row.get('predicate') or ''} {p_row.get('object_name') or ''}"
+                        f"{p_row.get('predicate') or ''} {p_object_name}"
                     )
                     features["passage_raw_text"] = p_raw_text
                     features["passage_text"] = _normalize_identity_text(p_raw_text)
@@ -7443,10 +7515,10 @@ class MemoryDAO:
                 pred_raw = str(a_row.get("predicate") or "").lower()
                 pred_norm = _normalize_identity_text(pred_raw)
                 s_name_norm = _normalize_identity_text(
-                    str(a_row.get("subject_name") or "")
+                    _scoring_entity_name(a_row.get("subject_name"), a_row)
                 )
                 o_name_norm = _normalize_identity_text(
-                    str(a_row.get("object_name") or "")
+                    _scoring_entity_name(a_row.get("object_name"), a_row)
                 )
                 lit_norm = _normalize_identity_text(
                     str(a_row.get("literal_value") or "")
@@ -7519,16 +7591,19 @@ class MemoryDAO:
                             await asyncio.to_thread(
                                 legal_resolver.extract_citations,
                                 " ".join(
-                                    str(a_row.get(field) or "")
-                                    for field in (
-                                        "predicate",
-                                        "subject_name",
-                                        "object_name",
-                                        "literal_value",
-                                        "evidence_span",
-                                        "source_ref",
+                                    (
+                                        str(a_row.get("predicate") or ""),
+                                        _scoring_entity_name(
+                                            a_row.get("subject_name"), a_row
+                                        ),
+                                        _scoring_entity_name(
+                                            a_row.get("object_name"), a_row
+                                        ),
+                                        str(a_row.get("literal_value") or ""),
+                                        str(a_row.get("evidence_span") or ""),
+                                        str(a_row.get("source_ref") or ""),
                                     )
-                                )
+                                ),
                             )
                         )
                     row_citations = features["assertion_citations"]
@@ -7970,26 +8045,31 @@ class MemoryDAO:
                 if ass is not None:
                     cand_texts.extend(
                         [
-                            str(ass.get("document_id") or ""),
                             str(ass.get("source_ref") or ""),
                             str(ass.get("predicate") or ""),
                             str(ass.get("literal_value") or ""),
                             str(ass.get("evidence_span") or ""),
                         ]
                     )
-                    sub_name = cand_entity_names.get(
-                        str(ass.get("subject_id") or ""), ""
+                    sub_name = _scoring_entity_name(
+                        cand_entity_names.get(str(ass.get("subject_id") or ""), ""),
+                        ass,
                     )
                     if sub_name:
                         cand_texts.append(sub_name)
-                    obj_name = cand_entity_names.get(
-                        str(ass.get("object_entity_id") or ""), ""
+                    obj_name = _scoring_entity_name(
+                        cand_entity_names.get(
+                            str(ass.get("object_entity_id") or ""), ""
+                        ),
+                        ass,
                     )
                     if obj_name:
                         cand_texts.append(obj_name)
                 eid = str(cand.get("entity_id") or "")
                 if eid and eid in cand_entity_names:
-                    cand_texts.append(cand_entity_names[eid])
+                    ent_name = _scoring_entity_name(cand_entity_names[eid], ass)
+                    if ent_name:
+                        cand_texts.append(ent_name)
 
                 citation_key = (
                     "candidate_citations",
