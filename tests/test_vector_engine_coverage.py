@@ -103,11 +103,12 @@ class TestVectorMetrics:
 class TestBuildSchema:
     def test_builds_schema_for_dim(self):
         schema = _build_schema(384)
-        assert len(schema) == 6
+        assert len(schema) == 7
         field_names = [f.name for f in schema]
         assert "node_id" in field_names
         assert "embedding" in field_names
         assert "agent_id" in field_names
+        assert schema.field("scope_key").nullable
 
     def test_different_dimensions(self):
         s8 = _build_schema(8)

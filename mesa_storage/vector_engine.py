@@ -925,6 +925,12 @@ class VectorEngine:
                     query = query.where(predicate, prefilter=True).where(
                         "expired_at IS NULL"
                     )
+                query = query.select(
+                    [
+                        "node_id", "agent_id", "content_hash", "created_at", "expired_at",
+                        "_distance",
+                    ]
+                )
             else:
                 filters: list[str] = []
                 if not include_expired:
@@ -939,11 +945,8 @@ class VectorEngine:
                     quoted_ids = ", ".join(f"'{node_id}'" for node_id in ordered_ids)
                     filters.append(f"node_id IN ({quoted_ids})")
                 if filters:
-                    query = query.where(" AND ".join(filters), prefilter=True)
-            query = query.select(
-                ["node_id", "agent_id", "content_hash", "created_at", "expired_at", "_distance"]
-            ).limit(limit)
-            results = query.to_list()
+                    query = query.where(" AND ".join(filters))
+            results = query.limit(limit).to_list()
         except Exception as exc:
             logger.error("VECTOR_SEARCH_ERROR", exc_info=exc)
             with self._metrics._lock:
@@ -955,6 +958,10 @@ class VectorEngine:
             self._metrics.searches += 1
             self._metrics.total_search_time_ms += elapsed_ms
 
+        if scope_keys is None:
+            for row in results:
+                row.pop("embedding", None)
+                row.pop("scope_key", None)
         return typing.cast(list[dict[typing.Any, typing.Any]], results), physical_count
 
     def _scoped_search_predicate(
