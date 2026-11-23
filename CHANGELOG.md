@@ -7,7 +7,14 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.4] - 2026-11-23
+
+### Retrieval quality
+
+- On the shared Tier M dev store with models and reranking disabled, passage
+  Hit@5 rose from 50/112 to 61/112 and MRR from 0.3411 to 0.3955. Median search
+  latency fell from 361.3 ms to 233.9 ms (35%). The comparison used the same
+  128 dev questions, including 16 no-answer questions.
 
 ### Removed
 
@@ -19,25 +26,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automatically without data loss.
 - LLM consolidation (`ConsolidationLoop`, `AdaptiveRouter`, `Tier3Validator`,
   `ValidationPolicy` modes 1/2), `routing_telemetry` (dropped by Alembic
-  migration `f8b9c0d1e2f3`), valence/consolidation `ObservabilityLayer` metrics,
-  and their settings (`MESA_TIER3_MODE`, `MESA_TIER3_LLM_*`, `MESA_T_ROUTE`,
-  `MESA_RETRY_*`, `MESA_CIRCUIT_BREAKER_*`, `CONSOLIDATION_*`, `HISTOGRAM_MAX_SIZE`,
-  `METRICS_*_THRESHOLD`, `MESA_HUMAN_REVIEW_QUEUE_PATH`,
-  `MESA_DEAD_LETTER_QUEUE_PATH`, `MESA_LEGAL_DOMAIN_MODE`). Validation is always deterministic (Mode 0);
-  optional fact extraction (`MESA_EXTRACTION_ENABLED=true`) runs directly via
-  `FactExtractionService`. Removed settings log one startup warning and are
-  ignored.
+  migration `f8b9c0d1e2f3`), and valence/consolidation `ObservabilityLayer`
+  metrics. Validation uses deterministic mode 0. Optional fact extraction
+  (`MESA_EXTRACTION_ENABLED=true`) runs through `FactExtractionService`.
+- MESA ignores the retired settings below and logs one warning per key at startup.
+  - `MESA_TIER3_MODE`, `MESA_TIER3_LLM_PROVIDER_A`, `MESA_TIER3_LLM_MODEL_A`,
+    `MESA_TIER3_LLM_PROVIDER_B`, `MESA_TIER3_LLM_MODEL_B`, `MESA_LEGAL_DOMAIN_MODE`,
+    `MESA_T_ROUTE`, `MESA_USE_V4`
+  - `MESA_RETRY_MAX_ATTEMPTS`, `MESA_RETRY_MIN_WAIT_SEC`, `MESA_RETRY_MAX_WAIT_SEC`,
+    `MESA_CIRCUIT_BREAKER_THRESHOLD`, `MESA_CIRCUIT_BREAKER_COOLDOWN`,
+    `MESA_HUMAN_REVIEW_QUEUE_PATH`, `MESA_DEAD_LETTER_QUEUE_PATH`
+  - `CONSOLIDATION_BATCH_SIZE`, `CONSOLIDATION_IDLE_TIMEOUT`, `HISTOGRAM_MAX_SIZE`,
+    `METRICS_ADMISSION_THRESHOLD`, `METRICS_DIVERGENCE_THRESHOLD`
 - Retired unused gateway scaffolding and internal retrieval compatibility
   modules. Adaptive retrieval retains its Turkish query normalization and
   citation checks.
-- The retired `MESA_USE_V4` flag is also ignored with a startup warning. The
-  configuration guide and environment template now put common settings first.
 
 ### Changed
 
 - Whole-document uploads compute the revision manifest when the final chunk is
   admitted. Interrupted uploads resume from committed chunks, and the sealed
-  manifest uses the same hash format.
+  manifest uses the same hash format. For the 5 MB models-off fixture,
+  admission fell from 246.52 s to 169.42 s and end-to-end readiness from
+  249.99 s to 172.61 s, with all 4,882 chunks committed in both runs.
 - Search ranking and tie-breaks across BM25, vector, assertion, graph, exact
   legal lookup, and RRF fusion now break equal-score ties by stable content
   identity (`document_id`, `revision_number`, chunk `ordinal`, `chunk_id`)
@@ -47,13 +58,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scoped temporary FTS5 lexical search now uses 5-character prefix matching
   (`"abcde"*` with `prefix='5'`) for query tokens of 6 or more characters that
   contain no digits, while keeping shorter tokens, digit tokens, and `ı` → `i`
-  variants exact.
+  variants exact. To use the previous exact-token matching, run v0.9.3 with a
+  pre-upgrade store snapshot.
 - Fusion defaults changed based on benchmark v2 dev ablation:
   `MESA_RRF_ASSERTION_WEIGHT` now defaults to `0.0` (was `1.0`) and
-  `MESA_GRAPH_ENABLED` now defaults to `false` (was `true`, so fresh installs do
-  not open or create Kùzu). Set `MESA_RRF_ASSERTION_WEIGHT=1.0` and/or
-  `MESA_GRAPH_ENABLED=true` to restore the previous behavior (enabling graph
-  backfills skipped GRAPH lanes at startup).
+  `MESA_GRAPH_ENABLED` now defaults to `false` (was `true`). Restore the earlier
+  fusion defaults with `MESA_RRF_ASSERTION_WEIGHT=1.0` and `MESA_GRAPH_ENABLED=true`.
+  Enabling the graph backfills skipped GRAPH projections at startup.
+- The configuration guide and environment template put common settings first.
 - Fresh installs cap FastAPI below 0.142, LanceDB below 0.35, Kùzu below
   0.12, and Pydantic below 3.
 
@@ -789,6 +801,7 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.9.4]: https://github.com/Yasou13/MESA/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Yasou13/MESA/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Yasou13/MESA/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Yasou13/MESA/compare/v0.9.0...v0.9.1
