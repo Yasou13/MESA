@@ -33,6 +33,7 @@ from mesa_memory.config import (
     load_explicit_dotenv,
     load_runtime_profile,
     refresh_config_from_environment,
+    warn_removed_env_vars,
 )
 from mesa_memory.embedding.service import (
     get_embedding_service as _get_embedding_service,
@@ -562,6 +563,7 @@ async def lifespan(app: FastAPI):
     # Configure and fence the storage root before opening any embedded store.
     bootstrap = load_runtime_profile()
     load_explicit_dotenv(bootstrap)
+    warn_removed_env_vars()
     refresh_config_from_environment()
     runtime = load_runtime_profile()
     _refresh_auth_config()

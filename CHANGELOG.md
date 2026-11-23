@@ -23,13 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and their settings (`MESA_TIER3_MODE`, `MESA_TIER3_LLM_*`, `MESA_T_ROUTE`,
   `MESA_RETRY_*`, `MESA_CIRCUIT_BREAKER_*`, `CONSOLIDATION_*`, `HISTOGRAM_MAX_SIZE`,
   `METRICS_*_THRESHOLD`, `MESA_HUMAN_REVIEW_QUEUE_PATH`,
-  `MESA_DEAD_LETTER_QUEUE_PATH`). Validation is always deterministic (Mode 0);
+  `MESA_DEAD_LETTER_QUEUE_PATH`, `MESA_LEGAL_DOMAIN_MODE`). Validation is always deterministic (Mode 0);
   optional fact extraction (`MESA_EXTRACTION_ENABLED=true`) runs directly via
   `FactExtractionService`. Removed settings log one startup warning and are
   ignored.
 - Retired unused gateway scaffolding and internal retrieval compatibility
   modules. Adaptive retrieval retains its Turkish query normalization and
   citation checks.
+- The retired `MESA_USE_V4` flag is also ignored with a startup warning. The
+  configuration guide and environment template now put common settings first.
 
 ### Changed
 

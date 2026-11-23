@@ -173,20 +173,33 @@ async def _assert_committed(env):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [1, 2])
-async def test_removed_tier3_mode_logs_warning_and_starts_in_mode_zero(
-    model_runtime, mode, caplog
+async def test_removed_settings_warn_once_and_start_in_mode_zero(
+    model_runtime, mode, caplog, monkeypatch, tmp_path
 ):
+    dotenv_path = tmp_path / "startup.env"
+    dotenv_path.write_text("MESA_LEGAL_DOMAIN_MODE=obsolete-value\n", encoding="utf-8")
+    monkeypatch.setenv("MESA_LEGAL_DOMAIN_MODE", "")
+    monkeypatch.delenv("MESA_LEGAL_DOMAIN_MODE")
     with caplog.at_level("WARNING", logger="MESA_Config"):
         async with model_runtime(
             MESA_TIER3_MODE=mode,
+            MESA_USE_V4="",
+            MESA_LOAD_DOTENV=True,
+            MESA_DOTENV_PATH=dotenv_path,
             MESA_EXTRACTION_ENABLED=False,
             MESA_GRAPH_ENABLED=False,
         ) as env:
-            assert env.dao is not None
-    assert any(
-        "MESA_TIER3_MODE" in rec.getMessage() and "removed" in rec.getMessage()
+            response = await env.client.get("/v4/capability")
+            assert response.status_code == 200, response.text
+            assert response.json()["validation"]["mode"] == 0
+    warnings = [
+        rec.getMessage()
         for rec in caplog.records
-    )
+        if rec.name == "MESA_Config" and "has been removed" in rec.getMessage()
+    ]
+    for key in ("MESA_TIER3_MODE", "MESA_USE_V4", "MESA_LEGAL_DOMAIN_MODE"):
+        assert sum(f"'{key}'" in warning for warning in warnings) == 1
+    assert all("obsolete-value" not in warning for warning in warnings)
 
 
 @pytest.mark.asyncio

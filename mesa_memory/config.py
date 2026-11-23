@@ -56,6 +56,8 @@ REMOVED_IGNORED_MESA_ENV_VARS: tuple[str, ...] = (
     "MESA_TIER3_LLM_MODEL_A",
     "MESA_TIER3_LLM_PROVIDER_B",
     "MESA_TIER3_LLM_MODEL_B",
+    "MESA_LEGAL_DOMAIN_MODE",
+    "MESA_USE_V4",
     "CONSOLIDATION_BATCH_SIZE",
     "CONSOLIDATION_IDLE_TIMEOUT",
     "HISTOGRAM_MAX_SIZE",
@@ -72,18 +74,14 @@ REMOVED_IGNORED_MESA_ENV_VARS: tuple[str, ...] = (
 )
 
 
-def warn_removed_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
+def warn_removed_env_vars() -> None:
     """Log one warning per removed-feature env var present and ignore it (D71)."""
-    values = os.environ if environ is None else environ
-    found: list[str] = []
     for var in REMOVED_IGNORED_MESA_ENV_VARS:
-        if values.get(var) is not None:
+        if var in os.environ:
             logger.warning(
                 "Environment variable '%s' has been removed and is ignored.",
                 var,
             )
-            found.append(var)
-    return found
 
 
 def _resolve_runtime_lab_root(values: Mapping[str, str]) -> Path:
@@ -184,7 +182,6 @@ def load_runtime_profile(
                 f"'{removed_var}' has been removed. Use provider:model instead "
                 f"(e.g. {replacement})."
             )
-    warn_removed_env_vars(values)
     raw_profile = values.get("MESA_RUNTIME_PROFILE")
     if raw_profile is None:
         raise RuntimeProfileError("MESA_RUNTIME_PROFILE is required")
@@ -630,11 +627,6 @@ class MesaConfig(BaseSettings):
     crossencoder_pool_multiplier: int = Field(
         3, validation_alias="MESA_CROSSENCODER_POOL_MULTIPLIER"
     )
-
-    # -----------------------------------------------------------------------
-    # v0.7.1 Phase 3: Legal Domain Mode
-    # -----------------------------------------------------------------------
-    legal_domain_mode: bool = Field(False, validation_alias="MESA_LEGAL_DOMAIN_MODE")
 
     def effective_tier3_mode(self) -> int:
         """Validation is always deterministic Mode 0 (kept for unchanged harness callers)."""
