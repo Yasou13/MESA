@@ -102,10 +102,16 @@ async def test_fts_prefix5_matches_other_suffixes_and_uses_prefix5_option(
         assert results[0]["assertion_id"] == row["assertion_id"]
 
         create_stmts = [
-            s for s, _ in statements if "CREATE VIRTUAL TABLE temp." in s and "fts5(" in s
+            s
+            for s, _ in statements
+            if (
+                "CREATE VIRTUAL TABLE temp." in s
+                or "CREATE VIRTUAL TABLE IF NOT EXISTS main.v4_dataset_fts_" in s
+            )
+            and "fts5(" in s
         ]
         assert create_stmts
-        assert any("prefix='5'" in s for s in create_stmts)
+        assert all("prefix='5'" in s for s in create_stmts)
 
         match_exprs = [
             params[0]

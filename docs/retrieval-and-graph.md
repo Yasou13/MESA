@@ -10,6 +10,13 @@ canonical ownership/evidence.
 BM25 uses a temporary FTS5 index containing only authorized assertions, so
 out-of-scope rows do not enter its corpus statistics. The scope cache reuses
 that index only while SQLite's data version matches the pinned read snapshot.
+When a search's authorized corpus is exactly one dataset's active committed
+chunks (single dataset, no temporal or jurisdiction filter, and the agent
+scope excludes zero active committed rows), MESA uses that dataset's
+persistent per-(tenant, dataset) FTS5 index maintained in the same SQLite
+commit, supersession, rollback, and purge transactions (and rebuilt from
+SQLite if missing). Persistent indexes are never shared across datasets or
+tenants, and every narrower scope uses the per-query temporary FTS5 index.
 The `scope_audit` describes eligibility; negative tests also check rank and
 observable diagnostic isolation.
 

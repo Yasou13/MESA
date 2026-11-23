@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-(tenant, dataset) persistent FTS5 BM25 index for exact dataset-wide
+  queries (D80), updated inside the commit, supersession, rollback, and purge
+  SQLite transactions and automatically rebuilt from canonical SQLite when
+  missing. Narrower scopes (multi-dataset, temporal/jurisdiction filters, or
+  multi-agent datasets where the agent filter excludes rows) continue to use
+  per-query temporary FTS5 indexes.
+
 ### Fixed
 
 - Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
