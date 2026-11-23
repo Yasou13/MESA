@@ -7,6 +7,16 @@ agent, committed-state, jurisdiction and temporal eligibility are checked
 before candidate rank contribution. Physical vector IDs must agree with
 canonical ownership/evidence.
 
+LanceDB prefilters vectors by tenant, dataset and agent. MESA checks the
+matching IDs against SQLite's authorized candidates before cosine ranking,
+including any narrower time, jurisdiction or ownership constraints. It also
+rechecks SQLite ownership when materializing results. A whole-table search
+can skip the rank-time filter when MESA has verified every row in the pinned
+LanceDB version. On startup, MESA fills
+the scope column in older vector tables from SQLite and preserves the stored
+embeddings. Live projection groups vector writes and keeps each mutation's
+own durable receipt. LanceDB periodically compacts the resulting fragments.
+
 BM25 uses a temporary FTS5 index containing only authorized assertions, so
 out-of-scope rows do not enter its corpus statistics. The scope cache reuses
 that index only while SQLite's data version matches the pinned read snapshot.

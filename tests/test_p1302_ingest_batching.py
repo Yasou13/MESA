@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -9,9 +10,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
+from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_storage.vector_engine import VectorEngine
 from mesa_workers.projection_worker import process_projection_outbox_once
 
 
@@ -21,8 +24,19 @@ async def _seed_validated_mutations(
     count: int,
     agent_id: str = "agent-batch",
     with_triplets: bool = False,
+    embedding_identity: EmbeddingIdentity | None = None,
 ) -> list[dict]:
     mutations: list[dict] = []
+    embedding = {}
+    if embedding_identity is not None:
+        embedding = {
+            "embedding_provider": embedding_identity.provider,
+            "embedding_model": embedding_identity.model,
+            "embedding_version": embedding_identity.version,
+            "embedding_dimension": embedding_identity.dimension,
+            "embedding_space_id": embedding_identity.embedding_space_id,
+            "embedding_normalized": embedding_identity.normalized,
+        }
     for idx in range(count):
         triplets = (
             [{"head": "SharedDoc", "relation": "CONTAINS", "tail": f"Chunk_{idx}"}]
@@ -37,6 +51,7 @@ async def _seed_validated_mutations(
             document_id="doc-shared",
             revision_id="rev-1",
             chunk_id=f"chunk-{idx}",
+            **embedding,
         ).as_consolidation_record()
         await dao.record_mutation(candidate, raw_log_id=idx + 1)
         await dao.record_mutation_extraction(agent_id, candidate["mutation_id"], triplets)
@@ -96,6 +111,104 @@ async def test_projection_outbox_batches_sqlite_commits(
             assert stored is not None and stored["state"] == "COMMITTED"
     finally:
         await engine.close()
+
+
+@pytest.mark.parametrize("crash_at", ["partial_write", "first_receipt"])
+@pytest.mark.asyncio
+async def test_vector_batch_recovers_after_interruption(tmp_path, monkeypatch, crash_at):
+    class WorkerStopped(BaseException):
+        pass
+
+    identity = EmbeddingIdentity(
+        provider="test", model="vector-batch", version="v1", dimension=4, normalized=True
+    )
+    service = EmbeddingService(
+        identity=identity, provider_fn=lambda _: [1.0, 0.0, 0.0, 0.0]
+    )
+    db_path = str(tmp_path / "canonical.sqlite")
+    vector_path = str(tmp_path / "vectors")
+
+    async with AsyncEngine(db_path) as engine, VectorEngine(
+        vector_path, embedding_service=service
+    ) as vector:
+        await initialize_schema(engine)
+        dao = MemoryDAO(engine, vector)
+        mutations = await _seed_validated_mutations(
+            dao, count=3, embedding_identity=identity
+        )
+        assert (await process_projection_outbox_once(dao))["completed"] == 3
+        expected_ids = {
+            assertion["assertion_id"]
+            for mutation in mutations
+            for assertion in await dao.list_v4_assertions_for_mutation(
+                mutation["mutation_id"]
+            )
+        }
+        assert len(expected_ids) == 3
+
+        bulk_upsert = vector.bulk_upsert
+        record_receipt = MemoryDAO._record_v4_vector_receipt
+
+        async def interrupt_write(records):
+            assert len(records) == 3
+            await bulk_upsert(records[:1])
+            raise WorkerStopped
+
+        async def interrupt_after_receipt(self, *args):
+            await record_receipt(self, *args)
+            raise WorkerStopped
+
+        with monkeypatch.context() as patch:
+            if crash_at == "partial_write":
+                patch.setattr(vector, "bulk_upsert", interrupt_write)
+            else:
+                patch.setattr(
+                    MemoryDAO, "_record_v4_vector_receipt", interrupt_after_receipt
+                )
+            with pytest.raises(WorkerStopped):
+                await process_projection_outbox_once(dao, worker_id="stopped")
+
+        assert len(await vector.get_active_node_ids("agent-batch")) == (
+            1 if crash_at == "partial_write" else 3
+        )
+        async with engine.transaction() as db:
+            async with db.execute(
+                "SELECT state FROM projection_outbox WHERE projection_name = 'VECTOR'"
+            ) as cursor:
+                assert [row[0] for row in await cursor.fetchall()] == ["IN_FLIGHT"] * 3
+            await db.execute(
+                "UPDATE projection_outbox SET lease_expires_at = datetime('now', '-1 second') "
+                "WHERE projection_name = 'VECTOR'"
+            )
+            await db.commit()
+
+    async with AsyncEngine(db_path) as engine, VectorEngine(
+        vector_path, embedding_service=service
+    ) as vector:
+        dao = MemoryDAO(engine, vector)
+        await dao.initialize()
+        result = await process_projection_outbox_once(dao, worker_id="restarted")
+        assert result == {
+            "claimed": 3, "completed": 3, "retry_pending": 0, "dead_letter": 0
+        }
+        assert (await process_projection_outbox_once(dao))["claimed"] == 0
+        rows = await vector.search([1.0, 0.0, 0.0, 0.0], agent_id="agent-batch")
+        assert Counter(row["node_id"] for row in rows) == Counter(expected_ids)
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT p.mutation_id, p.state, a.attempt_number, a.outcome "
+                "FROM projection_outbox p JOIN projection_attempts a USING (projection_id) "
+                "WHERE p.projection_name = 'VECTOR'"
+            ) as cursor:
+                assert {tuple(row) for row in await cursor.fetchall()} == {
+                    (mutation["mutation_id"], "COMPLETED", 2, "APPLIED")
+                    for mutation in mutations
+                }
+            async with db.execute(
+                "SELECT physical_artifact_id FROM artifact_registry "
+                "WHERE store_name = 'VECTOR' AND state = 'ACTIVE'"
+            ) as cursor:
+                assert Counter(row[0] for row in await cursor.fetchall()) == Counter(expected_ids)
 
 
 @pytest.mark.asyncio

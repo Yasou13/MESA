@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Iterator
 from typing import Any
 
 from mesa_storage.dao import MemoryDAO, classify_graph_object
@@ -15,6 +16,7 @@ from mesa_storage.dao import MemoryDAO, classify_graph_object
 logger = logging.getLogger("MESA_ProjectionWorker")
 
 _LANE_ORDER = {"SQL": 0, "VECTOR": 1}
+_VECTOR_WRITE_BATCH_SIZE = 100
 _PROJECTABLE_MUTATION_STATES = {
     "VALIDATED",
     "SQL_APPLIED",
@@ -151,7 +153,9 @@ def _prepare_sql_projection(
     return (entities, triplets)
 
 
-async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
+async def _load_projectable_mutation(
+    dao: MemoryDAO, projection: dict[str, Any]
+) -> dict[str, Any]:
     mutation = await dao.get_projection_mutation(str(projection["mutation_id"]))
     if mutation is None:
         raise PermanentProjectionError("mutation no longer exists")
@@ -159,6 +163,11 @@ async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
         raise PermanentProjectionError(
             f"mutation is not projectable: {mutation['state']}"
         )
+    return mutation
+
+
+async def _apply_projection(dao: MemoryDAO, projection: dict[str, Any]) -> None:
+    mutation = await _load_projectable_mutation(dao, projection)
     entities, triplets = _prepare_sql_projection(mutation)
     lane = projection["projection_name"]
     if lane == "SQL":
@@ -293,6 +302,49 @@ async def process_projection_outbox_once(
             except Exception as exc:
                 await _record_projection_failure(items[0], exc)
                 continue
+        if (
+            lane == "VECTOR"
+            and len(items) > 1
+            and callable(getattr(type(dao.vector_engine), "bulk_upsert", None))
+        ):
+            for start in range(0, len(items), _VECTOR_WRITE_BATCH_SIZE):
+                group = items[start : start + _VECTOR_WRITE_BATCH_SIZE]
+                pending: list[
+                    tuple[dict[str, Any], dict[str, Any], Iterator[dict[str, Any]]]
+                ] = []
+                for projection in group:
+                    try:
+                        mutation = await _load_projectable_mutation(dao, projection)
+                        _prepare_sql_projection(mutation)
+                        assertions = await dao.list_v4_assertions_for_mutation(
+                            str(mutation["mutation_id"])
+                        )
+                    except Exception as exc:
+                        await _record_projection_failure(projection, exc)
+                    else:
+                        pending.append((projection, mutation, iter(assertions)))
+
+                # Keep assertion order within each mutation. A failed assertion
+                # ends work for that mutation without advancing its outbox row.
+                while pending:
+                    writes = []
+                    writing = []
+                    for entry in pending:
+                        projection, mutation, remaining_assertions = entry
+                        assertion = next(remaining_assertions, None)
+                        if assertion is None:
+                            successful_projections.append(projection)
+                        else:
+                            writes.append((mutation, assertion))
+                            writing.append(entry)
+                    pending = []
+                    outcomes = await dao.project_v4_vector_assertions_batch(writes)
+                    for entry, outcome in zip(writing, outcomes, strict=True):
+                        if outcome is None:
+                            pending.append(entry)
+                        else:
+                            await _record_projection_failure(entry[0], outcome)
+            continue
         for p in items:
             await _handle_one(p)
 

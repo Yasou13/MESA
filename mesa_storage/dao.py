@@ -66,6 +66,7 @@ from mesa_storage.vector_engine import (
     SemanticRuntimeDisabledError,
     VectorEngine,
     VectorSearchError,
+    vector_scope_key,
 )
 
 logger = logging.getLogger("MESA_DAO")
@@ -753,6 +754,23 @@ class MemoryDAO:
         called via ``initialize_schema(engine)`` before this method.
         """
         logger.info("MemoryDAO.initialize() — schema owned by schemas.py")
+
+        if (
+            isinstance(self._vec, VectorEngine)
+            and self._vec.is_initialized
+            and await self._vec.needs_scope_backfill()
+        ):
+            scopes: dict[tuple[str, str], str] = {}
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT a.assertion_id, m.agent_id, a.tenant_id, a.dataset_id "
+                    "FROM v4_assertions a JOIN memory_mutations m USING (mutation_id)"
+                ) as cursor:
+                    async for node_id, agent_id, tenant_id, dataset_id in cursor:
+                        scopes[(node_id, agent_id)] = vector_scope_key(
+                            tenant_id, dataset_id
+                        )
+            await self._vec.backfill_scopes(scopes)
 
         parity = await self.reconcile_v4_projection_parity(limit=200, repair=True)
         recovered_logs = await self.recover_expired_raw_log_claims()
@@ -5429,6 +5447,23 @@ class MemoryDAO:
         self, *, mutation: dict[str, Any], assertion: dict[str, Any]
     ) -> str:
         """Embed canonical assertion text for supported V4 memory retrieval."""
+        return await self._project_v4_vector_payload(
+            mutation=mutation,
+            vector_id=str(assertion["assertion_id"]),
+            payload_text=self._v4_assertion_embedding_text(assertion),
+            artifact_kind="ASSERTION_VECTOR",
+            scope_key=self._v4_assertion_vector_scope(assertion),
+        )
+
+    def _v4_assertion_vector_scope(self, assertion: dict[str, Any]) -> str | None:
+        if isinstance(self._vec, VectorEngine):
+            return vector_scope_key(
+                str(assertion["tenant_id"]), str(assertion["dataset_id"])
+            )
+        return None
+
+    @staticmethod
+    def _v4_assertion_embedding_text(assertion: dict[str, Any]) -> str:
         subject = str(assertion.get("head") or "").strip()
         predicate = str(assertion.get("predicate") or "").strip()
         object_value = (
@@ -5445,13 +5480,70 @@ class MemoryDAO:
         )
         if not payload_text:
             raise ValueError("assertion vector representation is empty")
+        return payload_text
 
-        return await self._project_v4_vector_payload(
-            mutation=mutation,
-            vector_id=str(assertion["assertion_id"]),
-            payload_text=payload_text,
-            artifact_kind="ASSERTION_VECTOR",
-        )
+    async def project_v4_vector_assertions_batch(
+        self, inputs: list[tuple[dict[str, Any], dict[str, Any]]]
+    ) -> list[Exception | None]:
+        """Group one assertion per mutation into a write with independent receipts."""
+        outcomes: list[Exception | None] = [None] * len(inputs)
+        prepared: list[tuple[int, str, dict[str, Any], dict[str, Any]]] = []
+        for index, (mutation, assertion) in enumerate(inputs):
+            mutation_id = str(mutation["mutation_id"])
+            try:
+                record, metadata = await self._prepare_v4_vector_payload(
+                    mutation=mutation,
+                    vector_id=str(assertion["assertion_id"]),
+                    payload_text=self._v4_assertion_embedding_text(assertion),
+                    artifact_kind="ASSERTION_VECTOR",
+                    scope_key=self._v4_assertion_vector_scope(assertion),
+                )
+                prepared.append((index, mutation_id, record, metadata))
+            except Exception as exc:
+                outcomes[index] = exc
+
+        writable: list[tuple[int, str, dict[str, Any], dict[str, Any]]] = []
+        if not prepared:
+            return outcomes
+        try:
+            async with self._sql.connection() as db:
+                for item in prepared:
+                    index, mutation_id, _, _ = item
+                    try:
+                        await self._assert_v4_projection_write_allowed_in_db(
+                            db, mutation_id
+                        )
+                    except Exception as exc:
+                        outcomes[index] = exc
+                    else:
+                        writable.append(item)
+        except Exception as exc:
+            for index, _, _, _ in prepared:
+                if outcomes[index] is None:
+                    outcomes[index] = exc
+            return outcomes
+
+        if not writable:
+            return outcomes
+        batch_written = True
+        try:
+            await self._vec.bulk_upsert([record for _, _, record, _ in writable])
+        except Exception:
+            batch_written = False
+
+        for index, mutation_id, record, metadata in writable:
+            try:
+                # Isolate a failed batch write per mutation. Upsert also makes
+                # replay safe when the prior write succeeded before it raised.
+                if not batch_written:
+                    await self._assert_v4_projection_write_allowed(mutation_id)
+                    await self._vec.upsert(**record)
+                await self._record_v4_vector_receipt(
+                    mutation_id, "ASSERTION_VECTOR", record, metadata
+                )
+            except Exception as exc:
+                outcomes[index] = exc
+        return outcomes
 
     async def _project_v4_vector_payload(
         self,
@@ -5460,15 +5552,35 @@ class MemoryDAO:
         vector_id: str,
         payload_text: str,
         artifact_kind: str,
+        scope_key: str | None = None,
     ) -> str:
         """Project one explicitly selected semantic payload through EmbeddingService."""
+        record, metadata = await self._prepare_v4_vector_payload(
+            mutation=mutation,
+            vector_id=vector_id,
+            payload_text=payload_text,
+            artifact_kind=artifact_kind,
+            scope_key=scope_key,
+        )
+        await self._vec.upsert(**record)
+        await self._record_v4_vector_receipt(
+            str(mutation["mutation_id"]), artifact_kind, record, metadata
+        )
+        return vector_id
+
+    async def _prepare_v4_vector_payload(
+        self,
+        *,
+        mutation: dict[str, Any],
+        vector_id: str,
+        payload_text: str,
+        artifact_kind: str,
+        scope_key: str | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
-        # This is deliberately checked immediately before the non-transactional
-        # write.  ``record_mutation_artifact`` below is the post-write receipt
-        # fence; if it loses, its caller compensates the physical write.
+        # The receipt below fences lifecycle races after this pre-write check.
         await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
-        node_id = vector_id
         producer_identity = getattr(self._vec, "embedding_identity", None)
         if producer_identity is None and isinstance(self._vec, VectorEngine):
             raise ValueError("canonical vector projection requires producer identity")
@@ -5577,42 +5689,54 @@ class MemoryDAO:
             raise ValueError(
                 f"embedding dimension mismatch: expected {expected_dim}, got {len(embedding)}"
             )
-        await self._vec.upsert(
-            node_id=node_id,
-            agent_id=agent_id,
-            embedding=embedding,
-            content_hash=hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
-        )
+        record = {
+            "node_id": vector_id,
+            "agent_id": agent_id,
+            "embedding": embedding,
+            "content_hash": hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
+        }
+        if scope_key is not None:
+            record["scope_key"] = scope_key
+        return record, {
+            **producer_identity_metadata,
+            "embedding_dimension": len(embedding),
+            "representation_version": (
+                V4_VECTOR_REPRESENTATION_VERSION
+                if artifact_kind == "ASSERTION_VECTOR"
+                else "entity-v1"
+            ),
+        }
+
+    async def _record_v4_vector_receipt(
+        self,
+        mutation_id: str,
+        artifact_kind: str,
+        record: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> None:
+        node_id = record["node_id"]
+        agent_id = record["agent_id"]
         try:
             await self.record_mutation_artifact(
-                str(mutation["mutation_id"]),
+                mutation_id,
                 store_name="VECTOR",
                 artifact_kind=artifact_kind,
                 artifact_id=node_id,
-                metadata={
-                    **producer_identity_metadata,
-                    "embedding_dimension": len(embedding),
-                    "representation_version": (
-                        V4_VECTOR_REPRESENTATION_VERSION
-                        if artifact_kind == "ASSERTION_VECTOR"
-                        else "entity-v1"
-                    ),
-                },
+                metadata=metadata,
             )
         except Exception as exc:
             try:
                 await self._vec.hard_delete(node_id, agent_id)
             except Exception:
                 await self._enqueue_unowned_projection_cleanup(
-                    str(mutation["mutation_id"]),
+                    mutation_id,
                     [("VECTOR", artifact_kind, node_id)],
                 )
             else:
                 await self._finalize_terminal_projection_compensation(
-                    str(mutation["mutation_id"])
+                    mutation_id
                 )
             raise exc
-        return node_id
 
     async def _assert_v4_projection_write_allowed_in_db(
         self, db: Any, mutation_id: str
@@ -7043,43 +7167,48 @@ class MemoryDAO:
         vector_assertions: dict[str, dict[str, Any]] = {}
         if self._embedding_enabled and self._vec is not None and allowed_vector_ids:
             try:
-                searchable_vector_ids = allowed_vector_ids
-                if callable(getattr(type(self._vec), "get_existing_node_ids", None)):
-                    existing_vector_ids = await self._vec.get_existing_node_ids(
-                        agent_id, sorted(allowed_vector_ids)
-                    )
-                    searchable_vector_ids = allowed_vector_ids & existing_vector_ids
-                    missing_vector_ids = allowed_vector_ids - existing_vector_ids
-                    vector_lane_diagnostics["physical_vector_id_count"] = len(
-                        searchable_vector_ids
-                    )
-                    vector_lane_diagnostics["missing_vector_id_count"] = len(
-                        missing_vector_ids
-                    )
-                    if missing_vector_ids:
-                        logger.warning(
-                            "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "
-                            "agent_id=%s missing_vector_ids=%s",
-                            tenant_id,
-                            agent_id,
-                            len(missing_vector_ids),
-                        )
-                    if not searchable_vector_ids:
-                        vector_lane_diagnostics["status"] = "registry_vector_mismatch"
-                if not searchable_vector_ids:
-                    vector_rows = []
-                else:
-                    if _query_error is not None:
-                        raise _query_error
-                    if _query_vector is None:
-                        raise VectorSearchError("query embedding is unavailable")
-                    vector_rows = await self._vec.search(
+                if _query_error is not None:
+                    raise _query_error
+                if _query_vector is None:
+                    raise VectorSearchError("query embedding is unavailable")
+                vector_limit = min(500, max(limit * 10, 50))
+                if isinstance(self._vec, VectorEngine):
+                    vector_rows, physical_count = await self._vec.search_scoped(
                         _query_vector,
                         agent_id=agent_id,
-                        allowed_node_ids=searchable_vector_ids,
-                        limit=min(500, max(limit * 10, 50)),
+                        scope_keys={vector_scope_key(tenant_id, key) for key in datasets},
+                        allowed_node_ids=allowed_vector_ids,
+                        limit=vector_limit,
                     )
-                    vector_lane_diagnostics["search_executed"] = True
+                else:
+                    # Other storage providers still have the explicit allowlist seam.
+                    searchable_vector_ids = allowed_vector_ids
+                    if callable(getattr(type(self._vec), "get_existing_node_ids", None)):
+                        existing_vector_ids = await self._vec.get_existing_node_ids(
+                            agent_id, sorted(allowed_vector_ids)
+                        )
+                        searchable_vector_ids = allowed_vector_ids & existing_vector_ids
+                    physical_count = len(searchable_vector_ids)
+                    vector_rows = []
+                    if physical_count:
+                        vector_rows = await self._vec.search(
+                            _query_vector,
+                            agent_id=agent_id,
+                            allowed_node_ids=searchable_vector_ids,
+                            limit=vector_limit,
+                        )
+                missing_count = len(allowed_vector_ids) - physical_count
+                vector_lane_diagnostics["physical_vector_id_count"] = physical_count
+                vector_lane_diagnostics["missing_vector_id_count"] = missing_count
+                vector_lane_diagnostics["search_executed"] = bool(physical_count)
+                if missing_count:
+                    logger.warning(
+                        "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "
+                        "agent_id=%s missing_vector_ids=%s",
+                        tenant_id,
+                        agent_id,
+                        missing_count,
+                    )
                 vector_lane_diagnostics["search_result_count"] = len(vector_rows)
                 seen_vec: set[str] = set()
                 ranked_assertion_ids: list[str] = []
@@ -7127,7 +7256,7 @@ class MemoryDAO:
                 vector_lane_diagnostics["candidate_count"] = len(vector_lane)
                 if vector_lane:
                     vector_lane_diagnostics["status"] = "active"
-                elif not vector_rows and searchable_vector_ids:
+                elif not vector_rows:
                     vector_lane_diagnostics["status"] = "registry_vector_mismatch"
                     logger.warning(
                         "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "

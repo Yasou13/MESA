@@ -16,6 +16,7 @@ reduces event-loop blocking; it is not a universal latency guarantee.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import threading
@@ -53,6 +54,7 @@ _DEFAULT_MAINTENANCE_MUTATION_THRESHOLD = 128
 _DEFAULT_MAINTENANCE_MIN_INTERVAL_SECONDS = 0.0
 _DEFAULT_MAINTENANCE_CLEANUP_OLDER_THAN = timedelta(days=7)
 _DEFAULT_MAINTENANCE_FAILURE_RETRY_SECONDS = 60.0
+_SCOPE_BACKFILL_BATCH_SIZE = 2_048
 
 EmbeddingProvider = Callable[[str], Awaitable[list[float]]]
 
@@ -105,6 +107,11 @@ def _validate_filter_value(value: str, field_name: str) -> None:
         raise ValueError(
             f"{field_name} contains unsafe characters for LanceDB filter: {value!r}"
         )
+
+
+def vector_scope_key(tenant_id: str, dataset_id: str) -> str:
+    """Identify a physical dataset within its SQLite tenant."""
+    return hashlib.sha256(f"{len(tenant_id)}:{tenant_id}{dataset_id}".encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +175,7 @@ def _build_schema(dimension: int) -> pa.Schema:
             pa.field("content_hash", pa.string(), nullable=True),
             pa.field("created_at", pa.string(), nullable=False),
             pa.field("expired_at", pa.string(), nullable=True),
+            pa.field("scope_key", pa.string(), nullable=True),
         ]
     )
 
@@ -228,6 +236,9 @@ class VectorEngine:
         self._db: lancedb.db.LanceDBConnection | None = None
         self._tables: dict[str, Any] = {}
         self._table_lock = threading.Lock()
+        self._scoped_ids_cache: tuple[
+            tuple[str, int, str, frozenset[str]], frozenset[str], bool
+        ] | None = None
         self._mutation_lock = asyncio.Lock()
         # Public write paths hold _mutation_lock for the whole optimize, so
         # optimization cannot overlap a mutation in this engine. This separate
@@ -353,6 +364,47 @@ class VectorEngine:
         except (FileNotFoundError, ValueError):
             return self._db.create_table(table_name, schema=schema)
 
+    def _legacy_scope_tables(self) -> list[Any]:
+        assert self._db is not None
+        tables = [
+            self._db.open_table(name)
+            for name in self._list_table_names()
+            if name.startswith(_DEFAULT_TABLE_PREFIX)
+        ]
+        return [table for table in tables if "scope_key" not in table.schema.names]
+
+    async def needs_scope_backfill(self) -> bool:
+        loop = asyncio.get_running_loop()
+        return bool(await loop.run_in_executor(self._executor, self._legacy_scope_tables))
+
+    async def backfill_scopes(self, scopes: dict[tuple[str, str], str]) -> None:
+        """Add the scope column with one atomic replacement per legacy table."""
+        loop = asyncio.get_running_loop()
+        async with self._mutation_lock:
+            await loop.run_in_executor(self._executor, self._sync_backfill_scopes, scopes)
+
+    def _sync_backfill_scopes(self, scopes: dict[tuple[str, str], str]) -> None:
+        assert self._db is not None
+        for table in self._legacy_scope_tables():
+            field = pa.field("scope_key", pa.string(), nullable=True)
+            schema = table.schema.append(field)
+            old_batches = table.search().to_batches(batch_size=_SCOPE_BACKFILL_BATCH_SIZE)
+
+            def scoped_batches() -> typing.Iterator[pa.RecordBatch]:
+                for batch in old_batches:
+                    keys = [
+                        scopes.get((node_id, agent_id))
+                        for node_id, agent_id in zip(
+                            batch.column("node_id").to_pylist(),
+                            batch.column("agent_id").to_pylist(),
+                            strict=True,
+                        )
+                    ]
+                    yield batch.append_column(field, pa.array(keys, type=field.type))
+
+            with pa.RecordBatchReader.from_batches(schema, scoped_batches()) as reader:
+                self._db.create_table(table.name, reader, mode="overwrite")
+
     # ------------------------------------------------------------------
     # Embedding generation
     # ------------------------------------------------------------------
@@ -441,6 +493,8 @@ class VectorEngine:
         agent_id: str,
         embedding: list[float],
         content_hash: str | None = None,
+        *,
+        scope_key: str | None = None,
     ) -> None:
         """Insert or update a vector record linked to a graph node.
 
@@ -468,6 +522,7 @@ class VectorEngine:
                 agent_id,
                 embedding,
                 content_hash,
+                scope_key,
             )
             await self._record_mutations_and_maybe_maintain(
                 {f"{_DEFAULT_TABLE_PREFIX}{len(embedding)}": 1}
@@ -479,6 +534,7 @@ class VectorEngine:
         agent_id: str,
         embedding: list[float],
         content_hash: str | None,
+        scope_key: str | None = None,
     ) -> None:
         """Synchronous upsert (runs in executor thread)."""
         dimension = len(embedding)
@@ -492,6 +548,7 @@ class VectorEngine:
             "content_hash": content_hash,
             "created_at": now,
             "expired_at": None,
+            "scope_key": scope_key,
         }
 
         try:
@@ -561,6 +618,7 @@ class VectorEngine:
                     "content_hash": r.get("content_hash"),
                     "created_at": now,
                     "expired_at": None,
+                    "scope_key": r.get("scope_key"),
                 }
                 for r in batch
             ]
@@ -656,7 +714,7 @@ class VectorEngine:
                 )
 
     def _sync_optimize_table(self, table_name: str) -> None:
-        """Compact one table with LanceDB 0.34's safe optimize API."""
+        """Compact one table while retaining the LanceDB version safety window."""
         assert self._db is not None
         table = self._db.open_table(table_name)
         table.optimize(
@@ -699,6 +757,9 @@ class VectorEngine:
             )
 
         _validate_filter_value(agent_id, "agent_id")
+        requested = {node_id for node_id in node_ids if _SAFE_FILTER_VALUE_RE.match(node_id)}
+        if not requested:
+            return set()
         loop = asyncio.get_running_loop()
 
         def _check() -> set[str]:
@@ -723,41 +784,17 @@ class VectorEngine:
                         f"get_existing_node_ids failed to open table {table_name}: {exc}"
                     ) from exc
 
-                # Query for existing node_ids in batches to avoid
-                # oversized filter expressions
-                batch_size = 100
-                for i in range(0, len(node_ids), batch_size):
-                    batch = node_ids[i : i + batch_size]
-                    # Build a safe OR filter scoped to agent_id
-                    id_conditions = " OR ".join(
-                        f"node_id = '{nid}'"
-                        for nid in batch
-                        if _SAFE_FILTER_VALUE_RE.match(nid)
-                    )
-                    if not id_conditions:
-                        continue
-                    where = f"agent_id = '{agent_id}' AND ({id_conditions})"
-                    try:
-                        result = (
-                            table.search()
-                            .where(where)
-                            .select(["node_id"])
-                            .limit(batch_size)
-                            .to_arrow()
-                        )
-                        for row_idx in range(result.num_rows):
-                            found.add(str(result.column("node_id")[row_idx]))
-                    except Exception as exc:
-                        logger.error(
-                            "get_existing_node_ids query failed for table=%s agent=%s: %s",
-                            table_name,
-                            agent_id,
-                            exc,
-                            exc_info=True,
-                        )
-                        raise RuntimeError(
-                            f"get_existing_node_ids query failed for table {table_name}: {exc}"
-                        ) from exc
+                where = f"agent_id = '{agent_id}'"
+                if len(requested) <= 100:
+                    keys = ", ".join(f"'{key}'" for key in sorted(requested))
+                    where += f" AND node_id IN ({keys})"
+                try:
+                    result = table.search().where(where).select(["node_id"]).to_arrow()
+                    found.update(requested.intersection(result.column("node_id").to_pylist()))
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"get_existing_node_ids query failed for table {table_name}: {exc}"
+                    ) from exc
 
             return found
 
@@ -798,7 +835,7 @@ class VectorEngine:
             return []
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
+        rows, _ = await loop.run_in_executor(
             self._executor,
             self._sync_search,
             query_vector,
@@ -806,6 +843,33 @@ class VectorEngine:
             agent_id,
             allowed_node_ids,
             include_expired,
+        )
+        return rows
+
+    async def search_scoped(
+        self,
+        query_vector: list[float],
+        *,
+        agent_id: str,
+        scope_keys: set[str],
+        allowed_node_ids: set[str],
+        limit: int,
+    ) -> tuple[list[dict], int]:
+        """Rank only physical vectors that the SQLite snapshot authorizes."""
+        if not self._initialized:
+            raise RuntimeError("VectorEngine has not been initialized.")
+        if not scope_keys or not allowed_node_ids:
+            return [], 0
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._sync_search,
+            query_vector,
+            limit,
+            agent_id,
+            allowed_node_ids,
+            False,
+            scope_keys,
         )
 
     def _sync_search(
@@ -815,7 +879,8 @@ class VectorEngine:
         agent_id: str | None,
         allowed_node_ids: set[str] | None,
         include_expired: bool,
-    ) -> list[dict]:
+        scope_keys: set[str] | None = None,
+    ) -> tuple[list[dict], int]:
         """Synchronous cosine search (runs in executor thread)."""
         t_start = time.monotonic()
 
@@ -844,25 +909,42 @@ class VectorEngine:
         try:
             table = self._sync_get_or_create_table(dimension)
         except (FileNotFoundError, ValueError):
-            return []
+            return [], 0
 
+        physical_count = 0
         try:
+            if scope_keys is not None:
+                table.checkout(table.version)
             query = table.search(query_vector).metric(self._metric)
-            filters: list[str] = []
-            if not include_expired:
-                filters.append("expired_at IS NULL")
-            if agent_id is not None:
-                _validate_filter_value(agent_id, "agent_id")
-                filters.append(f"agent_id = '{agent_id}'")
-            if allowed_node_ids is not None:
-                ordered_ids = sorted(allowed_node_ids)
-                for node_id in ordered_ids:
-                    _validate_filter_value(node_id, "node_id")
-                quoted_ids = ", ".join(f"'{node_id}'" for node_id in ordered_ids)
-                filters.append(f"node_id IN ({quoted_ids})")
-            if filters:
-                query = query.where(" AND ".join(filters))
-            query = query.limit(limit)
+            if scope_keys is not None:
+                assert agent_id is not None and allowed_node_ids is not None
+                predicate, physical_count = self._scoped_search_predicate(
+                    table, agent_id, scope_keys, allowed_node_ids
+                )
+                if not physical_count:
+                    return [], 0
+                if predicate is not None:
+                    query = query.where(predicate, prefilter=True).where(
+                        "expired_at IS NULL"
+                    )
+            else:
+                filters: list[str] = []
+                if not include_expired:
+                    filters.append("expired_at IS NULL")
+                if agent_id is not None:
+                    _validate_filter_value(agent_id, "agent_id")
+                    filters.append(f"agent_id = '{agent_id}'")
+                if allowed_node_ids is not None:
+                    ordered_ids = sorted(allowed_node_ids)
+                    for node_id in ordered_ids:
+                        _validate_filter_value(node_id, "node_id")
+                    quoted_ids = ", ".join(f"'{node_id}'" for node_id in ordered_ids)
+                    filters.append(f"node_id IN ({quoted_ids})")
+                if filters:
+                    query = query.where(" AND ".join(filters), prefilter=True)
+            query = query.select(
+                ["node_id", "agent_id", "content_hash", "created_at", "expired_at", "_distance"]
+            ).limit(limit)
             results = query.to_list()
         except Exception as exc:
             logger.error("VECTOR_SEARCH_ERROR", exc_info=exc)
@@ -875,13 +957,40 @@ class VectorEngine:
             self._metrics.searches += 1
             self._metrics.total_search_time_ms += elapsed_ms
 
-        # Strip embedding from results to reduce memory on hot paths  # type: ignore[dict[Any, Any]
-        for r in results:
-            r.pop("embedding", None)
+        return typing.cast(list[dict[typing.Any, typing.Any]], results), physical_count
 
-        import typing
+    def _scoped_search_predicate(
+        self, table: Any, agent_id: str, scope_keys: set[str], allowed_node_ids: set[str]
+    ) -> tuple[Any, int]:
+        from lancedb.expr import col
 
-        return typing.cast(list[dict[typing.Any, typing.Any]], results)
+        scope_filter = (col("agent_id") == agent_id) & col("scope_key").isin(scope_keys)
+        cache_key = (table.name, table.version, agent_id, frozenset(scope_keys))
+        with self._table_lock:
+            cached = self._scoped_ids_cache
+        if cached is not None and cached[0] == cache_key:
+            _, physical_ids, all_rows_live_in_scope = cached
+        else:
+            scoped = table.search().where(scope_filter).select(
+                ["node_id", "expired_at"]
+            ).to_arrow()
+            physical_ids = frozenset(scoped.column("node_id").to_pylist())
+            all_rows_live_in_scope = (
+                scoped.num_rows == scoped.column("expired_at").null_count
+                and scoped.num_rows == table.count_rows()
+            )
+            with self._table_lock:
+                self._scoped_ids_cache = (cache_key, physical_ids, all_rows_live_in_scope)
+
+        # The pinned Lance snapshot and the SQLite allowlist can prove that
+        # every physical row is eligible before ranking the whole table.
+        eligible_ids = physical_ids & allowed_node_ids
+        excluded_ids = physical_ids - eligible_ids
+        if not excluded_ids:
+            return (None if all_rows_live_in_scope else scope_filter), len(eligible_ids)
+        if len(excluded_ids) <= len(eligible_ids):
+            return scope_filter & ~col("node_id").isin(excluded_ids), len(eligible_ids)
+        return scope_filter & col("node_id").isin(eligible_ids), len(eligible_ids)
 
     # ------------------------------------------------------------------
     # Delete operations

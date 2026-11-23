@@ -17,7 +17,7 @@ from mesa_storage.rebuild_preparation import (
     canonical_sqlite_manifest,
 )
 from mesa_storage.repositories.operations import OperationRepositoryPort
-from mesa_storage.vector_engine import EmbeddingProvider, VectorEngine
+from mesa_storage.vector_engine import EmbeddingProvider, VectorEngine, vector_scope_key
 
 _LANES = ("vector",)
 
@@ -97,7 +97,7 @@ _VECTOR_PAYLOAD_TEXT_EXPR = (
 )
 _VECTOR_QUERY = f"""
     SELECT DISTINCT r.tenant_id AS tenant_id, r.agent_id AS agent_id,
-           a.assertion_id AS assertion_id,
+           a.assertion_id AS assertion_id, a.dataset_id AS dataset_id,
            {_VECTOR_PAYLOAD_TEXT_EXPR} AS payload_text
     FROM artifact_registry r
     JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
@@ -527,6 +527,9 @@ class ProjectionReplayer:
                     {
                         "node_id": str(row["assertion_id"]),
                         "agent_id": str(row["agent_id"]),
+                        "scope_key": vector_scope_key(
+                            str(row["tenant_id"]), str(row["dataset_id"])
+                        ),
                         "embedding": embedding,
                         "content_hash": hashlib.sha256(
                             str(row["payload_text"]).encode()

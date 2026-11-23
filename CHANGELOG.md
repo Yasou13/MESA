@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-agent datasets where the agent filter excludes rows) continue to use
   per-query temporary FTS5 indexes.
 
+### Changed
+
+- LanceDB is locked to 0.41.0 with an upper bound below 0.42. Vector search
+  prefilters by dataset and agent before ranking and verifies eligibility in
+  SQLite. Older LanceDB tables receive their scope keys on startup. The live
+  projection worker batches vector upserts and retains per-mutation receipts.
+
 ### Fixed
 
 - Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
