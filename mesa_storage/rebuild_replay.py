@@ -1,4 +1,4 @@
-"""Deterministic, resumable replay of vector and graph projections."""
+"""Deterministic, resumable replay of vector projections."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import (
     resolve_projection_generation_paths,
 )
@@ -20,7 +19,7 @@ from mesa_storage.rebuild_preparation import (
 from mesa_storage.repositories.operations import OperationRepositoryPort
 from mesa_storage.vector_engine import EmbeddingProvider, VectorEngine
 
-_LANES = ("vector", "graph_entity", "graph_assertion", "graph_link")
+_LANES = ("vector",)
 
 
 class RebuildReplayError(RuntimeError):
@@ -74,50 +73,6 @@ class VectorReplayTarget(Protocol):
     async def close(self) -> None: ...
 
 
-class GraphReplayTarget(Protocol):
-    @property
-    def db_path(self) -> str: ...
-
-    async def initialize(self) -> None: ...
-
-    async def insert_node(self, node_id: str, name: str, agent_id: str) -> None: ...
-
-    async def insert_assertion(
-        self,
-        *,
-        assertion_id: str,
-        subject_id: str,
-        object_id: str | None,
-        object_value: str | None = None,
-        agent_id: str,
-        predicate: str,
-        mutation_id: str,
-        source_ref: str = "",
-        evidence_span: str = "",
-        jurisdiction: str = "",
-        authority_level: str = "",
-        valid_from: str = "",
-        valid_to: str = "",
-        observed_at: str = "",
-        confidence: float = 1.0,
-        pipeline_run_id: str = "",
-        status: str = "ACTIVE",
-        object_type: str = "LEGACY",
-        representation_version: str = "legacy-v0",
-    ) -> None: ...
-
-    async def link_assertions(
-        self,
-        *,
-        source_assertion_id: str,
-        target_assertion_id: str,
-        agent_id: str,
-        relation_type: str,
-    ) -> None: ...
-
-    async def close(self) -> None: ...
-
-
 @dataclass(frozen=True)
 class RebuildReplayResult:
     operation: dict[str, Any]
@@ -153,76 +108,16 @@ _VECTOR_QUERY = f"""
       AND r.store_name = 'VECTOR' AND r.artifact_kind = 'ASSERTION_VECTOR'
     ORDER BY tenant_id, agent_id, assertion_id
 """
-_GRAPH_ENTITY_QUERY = f"""
-    SELECT DISTINCT r.agent_id, r.physical_artifact_id AS entity_id,
-           e.canonical_name
-    FROM artifact_registry r
-    JOIN v4_entities e ON e.entity_id = r.physical_artifact_id
-                      AND e.tenant_id = r.tenant_id
-    WHERE {_ACTIVE_OWNERSHIP}
-      AND r.store_name = 'GRAPH' AND r.artifact_kind = 'ENTITY'
-    ORDER BY r.agent_id, r.physical_artifact_id
-"""
-_GRAPH_ASSERTION_QUERY = f"""
-    SELECT DISTINCT r.agent_id, a.assertion_id, a.subject_id,
-           a.object_entity_id, a.literal_value, a.predicate, a.mutation_id,
-           a.source_ref, a.evidence_span, a.jurisdiction, a.authority_level,
-           a.valid_from, a.valid_to, a.observed_at, a.confidence,
-           a.pipeline_run_id, a.status, a.object_type, a.representation_version
-    FROM artifact_registry r
-    JOIN v4_assertions a ON a.assertion_id = r.physical_artifact_id
-                        AND a.tenant_id = r.tenant_id
-    JOIN memory_mutations m ON m.mutation_id = a.mutation_id
-                           AND m.agent_id = r.agent_id
-    WHERE {_ACTIVE_OWNERSHIP}
-      AND r.store_name = 'GRAPH' AND r.artifact_kind = 'ASSERTION'
-    ORDER BY r.agent_id, a.assertion_id
-"""
-_GRAPH_LINK_QUERY = f"""
-    SELECT DISTINCT source_registry.agent_id, links.source_assertion_id,
-           links.target_assertion_id, links.relation_type
-    FROM v4_assertion_links links
-    JOIN v4_assertions source_assertion
-      ON source_assertion.assertion_id = links.source_assertion_id
-    JOIN memory_mutations source_mutation
-      ON source_mutation.mutation_id = source_assertion.mutation_id
-    JOIN artifact_registry source_registry
-      ON source_registry.physical_artifact_id = links.source_assertion_id
-     AND source_registry.tenant_id = source_assertion.tenant_id
-     AND source_registry.agent_id = source_mutation.agent_id
-     AND source_registry.store_name = 'GRAPH'
-     AND source_registry.artifact_kind = 'ASSERTION'
-    JOIN v4_assertions target_assertion
-      ON target_assertion.assertion_id = links.target_assertion_id
-    JOIN memory_mutations target_mutation
-      ON target_mutation.mutation_id = target_assertion.mutation_id
-     AND target_mutation.agent_id = source_mutation.agent_id
-    JOIN artifact_registry target_registry
-      ON target_registry.physical_artifact_id = links.target_assertion_id
-     AND target_registry.tenant_id = target_assertion.tenant_id
-     AND target_registry.agent_id = source_registry.agent_id
-     AND target_registry.store_name = 'GRAPH'
-     AND target_registry.artifact_kind = 'ASSERTION'
-    WHERE source_assertion.tenant_id = target_assertion.tenant_id
-      AND {_ACTIVE_OWNERSHIP.replace("r.", "source_registry.")}
-      AND {_ACTIVE_OWNERSHIP.replace("r.", "target_registry.")}
-    ORDER BY source_registry.agent_id, links.source_assertion_id,
-             links.target_assertion_id, links.relation_type
-"""
 _QUERIES = {
     "vector": _VECTOR_QUERY,
-    "graph_entity": _GRAPH_ENTITY_QUERY,
-    "graph_assertion": _GRAPH_ASSERTION_QUERY,
-    "graph_link": _GRAPH_LINK_QUERY,
 }
 
 
 class ProjectionSnapshot:
     """Bounded read model over one immutable backup SQLite snapshot."""
 
-    def __init__(self, database: Path, *, graph_enabled: bool = True) -> None:
+    def __init__(self, database: Path) -> None:
         self._database = database
-        self.graph_enabled = graph_enabled
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(f"file:{self._database}?mode=ro", uri=True)
@@ -233,57 +128,29 @@ class ProjectionSnapshot:
     def validate_ownership(self) -> None:
         connection = self._connect()
         try:
-            missing_endpoints = int(connection.execute(f"""
-                    SELECT COUNT(*) FROM ({_GRAPH_ASSERTION_QUERY}) assertion
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM ({_GRAPH_ENTITY_QUERY}) entity
-                        WHERE entity.agent_id = assertion.agent_id
-                          AND entity.entity_id = assertion.subject_id
-                    ) OR (
-                        assertion.object_entity_id IS NOT NULL AND NOT EXISTS (
-                            SELECT 1 FROM ({_GRAPH_ENTITY_QUERY}) entity
-                            WHERE entity.agent_id = assertion.agent_id
-                              AND entity.entity_id = assertion.object_entity_id
-                        )
-                    )
-                    """).fetchone()[0])
             invalid_links = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM v4_assertion_links "
                     "WHERE relation_type NOT IN ('CONTRADICTS', 'SUPERSEDES')"
                 ).fetchone()[0]
             )
-            cross_scope_links = int(connection.execute(f"""
+            cross_scope_links = int(connection.execute("""
                     SELECT COUNT(*)
                     FROM v4_assertion_links links
                     JOIN v4_assertions source_assertion
                       ON source_assertion.assertion_id = links.source_assertion_id
                     JOIN memory_mutations source_mutation
                       ON source_mutation.mutation_id = source_assertion.mutation_id
-                    JOIN artifact_registry source_registry
-                      ON source_registry.physical_artifact_id = links.source_assertion_id
-                     AND source_registry.store_name = 'GRAPH'
-                     AND source_registry.artifact_kind = 'ASSERTION'
                     JOIN v4_assertions target_assertion
                       ON target_assertion.assertion_id = links.target_assertion_id
                     JOIN memory_mutations target_mutation
                       ON target_mutation.mutation_id = target_assertion.mutation_id
-                    JOIN artifact_registry target_registry
-                      ON target_registry.physical_artifact_id = links.target_assertion_id
-                     AND target_registry.store_name = 'GRAPH'
-                     AND target_registry.artifact_kind = 'ASSERTION'
-                    WHERE {_ACTIVE_OWNERSHIP.replace("r.", "source_registry.")}
-                      AND {_ACTIVE_OWNERSHIP.replace("r.", "target_registry.")}
-                      AND (
-                        source_assertion.tenant_id != target_assertion.tenant_id
-                        OR source_registry.agent_id != target_registry.agent_id
-                        OR source_registry.agent_id != source_mutation.agent_id
-                        OR target_registry.agent_id != target_mutation.agent_id
-                      )
+                    WHERE source_assertion.tenant_id != target_assertion.tenant_id
+                       OR source_mutation.agent_id != target_mutation.agent_id
                     """).fetchone()[0])
         finally:
             connection.close()
-        if missing_endpoints or invalid_links or cross_scope_links:
+        if invalid_links or cross_scope_links:
             raise ProjectionOwnershipError("projection ownership validation failed")
 
     def provider_signatures(
@@ -326,8 +193,6 @@ class ProjectionSnapshot:
                 lane: int(
                     connection.execute(f"SELECT COUNT(*) FROM ({query})").fetchone()[0]
                 )
-                if self.graph_enabled or lane == "vector"
-                else 0
                 for lane, query in _QUERIES.items()
             }
         finally:
@@ -514,7 +379,6 @@ class ProjectionReplayer:
         allow_model_loading: bool = False,
         local_embedding_model: str = "BAAI/bge-m3",
         vector_factory: Callable[[Path], VectorReplayTarget] | None = None,
-        graph_factory: Callable[[Path], GraphReplayTarget] | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> RebuildReplayResult:
         if not 1 <= batch_size <= 1000:
@@ -528,10 +392,7 @@ class ProjectionReplayer:
             != preparation.source_manifest["canonical_sha256"]
         ):
             raise RebuildSourceChangedError("rebuild source snapshot changed")
-        snapshot = ProjectionSnapshot(
-            preparation.backup_root / "mesa.db",
-            graph_enabled=provider_manifest.get("graph_enabled", True),
-        )
+        snapshot = ProjectionSnapshot(preparation.backup_root / "mesa.db")
         snapshot.validate_ownership()
         expected_provider = _validate_provider(snapshot, provider_manifest)
         counts = snapshot.counts()
@@ -571,31 +432,12 @@ class ProjectionReplayer:
                 local_embedding_model=local_embedding_model,
             )
         )
-        graph: GraphReplayTarget | None = None
-        if not snapshot.graph_enabled:
-            pass
-        elif graph_factory is None:
-            from mesa_storage import kuzu_setup
-
-            kuzu_setup.initialize_schema_artifact(str(paths.graph_path))
-            graph = KuzuGraphProvider(str(paths.graph_path))
-        else:
-            graph = graph_factory(paths.graph_path)
         try:
             if Path(vector.uri).resolve(strict=False) != paths.vector_path:
                 raise RebuildReplayError(
                     "vector target does not match staging generation"
                 )
-            if (
-                graph is not None
-                and Path(graph.db_path).resolve(strict=False) != paths.graph_path
-            ):
-                raise RebuildReplayError(
-                    "graph target does not match staging generation"
-                )
             await vector.initialize()
-            if graph is not None:
-                await graph.initialize()
             for lane in _LANES:
                 while offsets[lane] < counts[lane]:
                     if should_stop is not None and should_stop():
@@ -616,7 +458,6 @@ class ProjectionReplayer:
                         lane,
                         rows,
                         vector=vector,
-                        graph=graph,
                         expected_provider=expected_provider,
                     )
                     offsets[lane] += len(rows)
@@ -638,9 +479,7 @@ class ProjectionReplayer:
                     "rebuild interrupted after replay checkpoint"
                 )
             checkpoint["phase"] = "REPLAYED"
-            checkpoint["staging_bytes"] = _staging_bytes(
-                paths.vector_path, paths.graph_path
-            )
+            checkpoint["staging_bytes"] = _staging_bytes(paths.vector_path)
             operation = await self._operations.transition(
                 operation_id,
                 to_state="VERIFYING",
@@ -652,8 +491,6 @@ class ProjectionReplayer:
                 checkpoint=checkpoint,
             )
         finally:
-            if graph is not None:
-                await graph.close()
             await vector.close()
         return RebuildReplayResult(
             operation=operation,
@@ -668,7 +505,6 @@ class ProjectionReplayer:
         rows: list[dict[str, Any]],
         *,
         vector: VectorReplayTarget,
-        graph: GraphReplayTarget | None,
         expected_provider: tuple[str, str, str, int] | None,
     ) -> None:
         if lane == "vector":
@@ -699,49 +535,5 @@ class ProjectionReplayer:
                     for row, embedding in zip(rows, embeddings)
                 ]
             )
-        elif graph is None:
-            raise RebuildReplayError("graph replay target is disabled")
-        elif lane == "graph_entity":
-            for row in rows:
-                await graph.insert_node(
-                    str(row["entity_id"]),
-                    str(row["canonical_name"]),
-                    str(row["agent_id"]),
-                )
-        elif lane == "graph_assertion":
-            for row in rows:
-                await graph.insert_assertion(
-                    assertion_id=str(row["assertion_id"]),
-                    subject_id=str(row["subject_id"]),
-                    object_id=(
-                        str(row["object_entity_id"])
-                        if row["object_entity_id"] is not None
-                        else None
-                    ),
-                    object_value="" if row["literal_value"] is not None else None,
-                    agent_id=str(row["agent_id"]),
-                    predicate=str(row["predicate"]),
-                    mutation_id=str(row["mutation_id"]),
-                    source_ref="",
-                    evidence_span="",
-                    jurisdiction=str(row["jurisdiction"]),
-                    authority_level=str(row["authority_level"]),
-                    valid_from=str(row["valid_from"]),
-                    valid_to=str(row["valid_to"]),
-                    observed_at=str(row["observed_at"]),
-                    confidence=float(row["confidence"]),
-                    pipeline_run_id=str(row["pipeline_run_id"]),
-                    status=str(row["status"]),
-                    object_type=str(row["object_type"]),
-                    representation_version=str(row["representation_version"]),
-                )
-        elif lane == "graph_link":
-            for row in rows:
-                await graph.link_assertions(
-                    source_assertion_id=str(row["source_assertion_id"]),
-                    target_assertion_id=str(row["target_assertion_id"]),
-                    agent_id=str(row["agent_id"]),
-                    relation_type=str(row["relation_type"]),
-                )
         else:
             raise ValueError("unknown projection replay lane")

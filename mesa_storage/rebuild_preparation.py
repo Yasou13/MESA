@@ -23,7 +23,7 @@ from mesa_storage.repositories.operations import OperationRepositoryPort
 from mesa_storage.sqlite_engine import configure_sqlite_connection
 from mesa_storage.writer_lock import StorageWriterLock
 
-REBUILD_ALEMBIC_HEAD = "f8b9c0d1e2f3"
+REBUILD_ALEMBIC_HEAD = "f9c0d1e2f3a4"
 _ADMIN_TABLES = frozenset(
     {
         "system_operations",
@@ -516,7 +516,7 @@ async def resume_cutover_preparation(
             f"projection-generations/{target_generation_id}/vector.lance"
         ),
         "graph_relative_path": (
-            f"projection-generations/{target_generation_id}/kuzu_db"
+            f"projection-generations/{target_generation_id}/graph_unused"
         ),
     }
     return RebuildPreparation(

@@ -365,7 +365,7 @@ class ProjectionGenerationRepository:
         manifest_hash = _manifest_hash(source_manifest_hash)
         manifest_json = _provider_manifest(provider_manifest)
         vector_relative = f"projection-generations/{generation}/vector.lance"
-        graph_relative = f"projection-generations/{generation}/kuzu_db"
+        graph_relative = f"projection-generations/{generation}/graph_unused"
 
         async with self._sql.transaction() as db:
             operation = await self._operation(db, operation_identifier)
@@ -605,16 +605,6 @@ class ProjectionGenerationRepository:
                 (representation_version,),
             )
             updated = int(cursor.rowcount)
-            if (
-                json.loads(active["provider_manifest_json"] or "{}").get(
-                    "graph_enabled", True
-                )
-                is False
-            ):
-                await db.execute(
-                    "UPDATE projection_outbox SET state = 'SKIPPED', updated_at = CURRENT_TIMESTAMP "
-                    "WHERE projection_name = 'GRAPH' AND state = 'COMPLETED'"
-                )
             await db.commit()
         return updated
 

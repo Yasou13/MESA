@@ -7,7 +7,7 @@ predictable load for up to 24 hours without external LLM/API dependencies.
 Key Architecture:
     - Model/Embedding Boundary: Deterministic provider (zero remote LLM calls).
     - Runtime & Storage: Real FastAPI, real MESA workers, real SQLite, LanceDB,
-      Kùzu graph, mutation ledger, outbox projections, RBAC, and ContextBuilder.
+      mutation ledger, outbox projections, RBAC, and ContextBuilder.
     - Lifecycle Operations: Insert, search recall verification, revisions,
       idempotency checks, rollbacks, document purges, context retrieval,
       and cross-scope isolation audits.
@@ -2404,7 +2404,7 @@ async def run_soak(
             use_embedded = True
 
     if use_embedded:
-        mode_name = "Embedded V4 Combined Runtime (Real SQLite/LanceDB/Kuzu + Deterministic LLM)"
+        mode_name = "Embedded V4 Combined Runtime (Real SQLite/LanceDB + Deterministic LLM)"
         logger.info("SOAK_MODE | Running %s", mode_name)
         s_root = (
             storage_root

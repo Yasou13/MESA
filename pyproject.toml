@@ -42,7 +42,6 @@ dependencies = [
     # Data & Storage
     "lancedb>=0.30.0,<0.35",
     "pyarrow>=24.0.0",
-    "kuzu>=0.0.11,<0.12",
     # Numerical / Scientific
     "numpy>=2.2.0",
     # Observability & Resilience
@@ -181,7 +180,6 @@ module = [
     "mesa_api.schemas",
     "mesa_storage.dao",
     "mesa_storage.schemas",
-    "mesa_storage.kuzu_provider",
     "mesa_workers.*",
 ]
 disallow_untyped_defs = false
