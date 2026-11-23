@@ -265,6 +265,83 @@ class NonReplayableMutationConflictError(ValueError):
     """A semantically rejected mutation cannot be replayed."""
 
 
+class _DatasetFtsNeedsRebuild(Exception):
+    """Internal control flow: persistent dataset FTS table missing or stale."""
+
+    def __init__(self, tenant_id: str, dataset_id: str) -> None:
+        super().__init__(f"{tenant_id}:{dataset_id}")
+        self.tenant_id = tenant_id
+        self.dataset_id = dataset_id
+
+
+_FTS5_BM25_WEIGHTS = "0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0, 0.0"
+_FTS5_SCHEMA_SQL = (
+    "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
+    "source_ref, subject_name, object_name, chunk_payload, "
+    "stable_key UNINDEXED, "
+    "tokenize='unicode61 remove_diacritics 2', prefix='5'"
+)
+_FTS5_INSERT_COLUMNS_SQL = (
+    "(rowid, assertion_id, predicate, evidence_span, literal_value, "
+    "source_ref, subject_name, object_name, chunk_payload, stable_key)"
+)
+
+
+def _dataset_fts_table_name(tenant_id: str, dataset_id: str) -> str:
+    """Return the per-(tenant, physical dataset) persistent FTS5 table name (D80)."""
+    digest = hashlib.sha256(
+        f"{tenant_id}\x00{dataset_id}".encode("utf-8")
+    ).hexdigest()[:24]
+    return f"v4_dataset_fts_{digest}"
+
+
+def _fts5_select_from_scoped_sql(scoped_subquery: str) -> str:
+    """Build the P16-01-sanitized FTS5 projection shared by persistent and temp indexes."""
+    return (
+        "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
+        "f.literal_value, f.source_ref, "
+        "CASE WHEN f.subject_name IN ("
+        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
+        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
+        "COALESCE(scoped.object_entity_id, '')) "
+        "OR f.subject_name LIKE 'mesa-document-%' "
+        "OR f.subject_name LIKE 'mesa-revision-%' "
+        "OR f.subject_name LIKE 'mesa-chunk-%' "
+        "OR f.subject_name LIKE 'mesa-tenant-%' "
+        "OR f.subject_name LIKE 'mesa-workspace-%' "
+        "OR f.subject_name LIKE 'mesa-dataset-%' "
+        "OR f.subject_name LIKE 'mesa-session-%' "
+        "THEN '' ELSE f.subject_name END, "
+        "CASE WHEN f.object_name IN ("
+        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
+        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
+        "COALESCE(scoped.object_entity_id, '')) "
+        "OR f.object_name LIKE 'mesa-document-%' "
+        "OR f.object_name LIKE 'mesa-revision-%' "
+        "OR f.object_name LIKE 'mesa-chunk-%' "
+        "OR f.object_name LIKE 'mesa-tenant-%' "
+        "OR f.object_name LIKE 'mesa-workspace-%' "
+        "OR f.object_name LIKE 'mesa-dataset-%' "
+        "OR f.object_name LIKE 'mesa-session-%' "
+        "THEN '' ELSE f.object_name END, "
+        "f.chunk_payload, "
+        "COALESCE(ci_doc.external_id, scoped.document_id) || char(0) || "
+        "printf('%010d', COALESCE(r.revision_number, 0)) || char(0) || "
+        "printf('%010d', COALESCE(c.ordinal, 0)) || char(0) || "
+        "COALESCE(ci_chunk.external_id, scoped.chunk_id) || char(0) || "
+        "COALESCE(scoped.predicate, '') "
+        "FROM v4_assertions_fts f "
+        f"JOIN ({scoped_subquery}) scoped "
+        "ON scoped.assertion_id = f.assertion_id "
+        "LEFT JOIN source_chunks c ON c.chunk_id = scoped.chunk_id "
+        "LEFT JOIN document_revisions r ON r.revision_id = scoped.revision_id "
+        "LEFT JOIN v4_catalog_identities ci_doc "
+        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = scoped.document_id "
+        "LEFT JOIN v4_catalog_identities ci_chunk "
+        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = scoped.chunk_id"
+    )
+
+
 class QueueAdmissionError(RuntimeError):
     """Base class for stable, non-sensitive queue admission outcomes."""
 
@@ -583,6 +660,7 @@ class MemoryDAO:
         "_rrf_k",
         "_rrf_weights",
         "_search_scope_cache_enabled",
+        "_persistent_dataset_fts_enabled",
         "_legal_rules_enabled",
         "_search_scope_cache",
         "_search_cache_db",
@@ -601,6 +679,7 @@ class MemoryDAO:
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
         search_scope_cache_enabled: bool = True,
+        persistent_dataset_fts_enabled: bool = True,
         legal_rules_enabled: bool = True,
         reranker: Any = None,
         rerank_depth: int = 50,
@@ -616,6 +695,7 @@ class MemoryDAO:
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
         self._search_scope_cache_enabled = search_scope_cache_enabled
+        self._persistent_dataset_fts_enabled = persistent_dataset_fts_enabled
         self._legal_rules_enabled = legal_rules_enabled
         self._search_scope_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = (
             OrderedDict()
@@ -1394,12 +1474,20 @@ class MemoryDAO:
                     str(row[0]) for row in await cursor.fetchall() if row[0]
                 ]
 
+            dataset_fts = _dataset_fts_table_name(tenant_id, dataset_id)
+            has_dataset_fts = await self._dataset_fts_exists_in_tx(db, dataset_fts)
+
             # Earlier FTS5 secure-delete has false integrity failures (fixed
             # in SQLite 3.46.1). Rebuild those indexes after erasure instead.
             if sqlite3.sqlite_version_info >= (3, 46, 1):
                 for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
                     await db.execute(
                         f"INSERT INTO {fts_table}({fts_table}, rank) "
+                        "VALUES('secure-delete', 1)"
+                    )
+                if has_dataset_fts:
+                    await db.execute(
+                        f"INSERT INTO main.{dataset_fts}({dataset_fts}, rank) "
                         "VALUES('secure-delete', 1)"
                     )
             purged_mutation_ids = await self._purge_mutations_in_tx(
@@ -1510,11 +1598,23 @@ class MemoryDAO:
                 "AND s.state = 'ACTIVE' AND s.document_id IS NOT ?)",
                 (tenant_id, dataset_id, document_id, document_id),
             )
+            if has_dataset_fts:
+                await db.execute(
+                    f"DELETE FROM main.{dataset_fts} WHERE rowid IN ("
+                    "SELECT rowid FROM v4_assertions "
+                    "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                    "AND status != 'ACTIVE')",
+                    (tenant_id, dataset_id, document_id),
+                )
             if sqlite3.sqlite_version_info < (3, 46, 1):
                 # ponytail: full index work on old SQLite; upgrade for secure-delete.
                 for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
                     await db.execute(
                         f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                    )
+                if has_dataset_fts:
+                    await db.execute(
+                        f"INSERT INTO main.{dataset_fts}({dataset_fts}) VALUES('rebuild')"
                     )
             await db.commit()
 
@@ -2972,6 +3072,243 @@ class MemoryDAO:
         )
 
     @staticmethod
+    async def _dataset_fts_exists_in_tx(db: Any, table_name: str) -> bool:
+        async with db.execute(
+            "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    @staticmethod
+    async def _ensure_and_populate_dataset_fts_in_tx(
+        db: Any, tenant_id: str, dataset_id: str
+    ) -> str:
+        """Create and populate the persistent per-(tenant, dataset) FTS5 table (D80)."""
+        table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+        await db.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS main.{table_name} "
+            f"USING fts5({_FTS5_SCHEMA_SQL})"
+        )
+        await db.execute(f"DELETE FROM main.{table_name}")
+        scoped_subquery = (
+            "SELECT a.* FROM v4_assertions a "
+            "WHERE a.tenant_id = ? AND a.dataset_id = ? AND a.status = 'ACTIVE' "
+            "AND EXISTS (SELECT 1 FROM memory_mutations m "
+            "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+        )
+        await db.execute(
+            f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+            + _fts5_select_from_scoped_sql(scoped_subquery),
+            (tenant_id, dataset_id),
+        )
+        return table_name
+
+    async def _rebuild_dataset_fts_index(
+        self, tenant_id: str, dataset_id: str
+    ) -> str:
+        """Rebuild a missing or out-of-sync per-dataset FTS5 index from SQLite."""
+        async with self._sql.transaction() as db:
+            table_name = await self._ensure_and_populate_dataset_fts_in_tx(
+                db, tenant_id, dataset_id
+            )
+            await db.commit()
+        return table_name
+
+    @staticmethod
+    async def _sync_dataset_fts_add_mutation_in_tx(db: Any, mutation_id: str) -> None:
+        async with db.execute(
+            "SELECT DISTINCT tenant_id, dataset_id FROM v4_assertions "
+            "WHERE mutation_id = ? AND status = 'ACTIVE'",
+            (mutation_id,),
+        ) as cursor:
+            datasets = [(str(row[0]), str(row[1])) for row in await cursor.fetchall()]
+        for tenant_id, dataset_id in datasets:
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                await MemoryDAO._ensure_and_populate_dataset_fts_in_tx(
+                    db, tenant_id, dataset_id
+                )
+                continue
+            await db.execute(
+                f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                "SELECT rowid FROM v4_assertions "
+                "WHERE tenant_id = ? AND dataset_id = ? AND mutation_id = ?)",
+                (tenant_id, dataset_id, mutation_id),
+            )
+            scoped_subquery = (
+                "SELECT a.* FROM v4_assertions a "
+                "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                "AND a.mutation_id = ? AND a.status = 'ACTIVE' "
+                "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+            )
+            await db.execute(
+                f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+                + _fts5_select_from_scoped_sql(scoped_subquery),
+                (tenant_id, dataset_id, mutation_id),
+            )
+
+    @staticmethod
+    async def _sync_dataset_fts_delete_mutation_in_tx(
+        db: Any, mutation_id: str
+    ) -> None:
+        async with db.execute(
+            "SELECT rowid, tenant_id, dataset_id FROM v4_assertions "
+            "WHERE mutation_id = ?",
+            (mutation_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        grouped: dict[tuple[str, str], list[int]] = {}
+        for row in rows:
+            grouped.setdefault((str(row[1]), str(row[2])), []).append(int(row[0]))
+        for (tenant_id, dataset_id), rowids in grouped.items():
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            for offset in range(0, len(rowids), 500):
+                rowid_batch = rowids[offset : offset + 500]
+                marks = ",".join("?" for _ in rowid_batch)
+                await db.execute(
+                    f"DELETE FROM main.{table_name} WHERE rowid IN ({marks})",
+                    rowid_batch,
+                )
+
+    @staticmethod
+    async def _sync_dataset_fts_delete_assertions_in_tx(
+        db: Any, assertion_ids: list[str]
+    ) -> None:
+        if not assertion_ids:
+            return
+        grouped: dict[tuple[str, str], list[int]] = {}
+        for offset in range(0, len(assertion_ids), 500):
+            batch = list(assertion_ids[offset : offset + 500])
+            marks = ",".join("?" for _ in batch)
+            async with db.execute(
+                "SELECT rowid, tenant_id, dataset_id FROM v4_assertions "
+                f"WHERE assertion_id IN ({marks})",
+                batch,
+            ) as cursor:
+                for row in await cursor.fetchall():
+                    grouped.setdefault((str(row[1]), str(row[2])), []).append(
+                        int(row[0])
+                    )
+        for (tenant_id, dataset_id), rowids in grouped.items():
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            for offset in range(0, len(rowids), 500):
+                rowid_batch = rowids[offset : offset + 500]
+                marks = ",".join("?" for _ in rowid_batch)
+                await db.execute(
+                    f"DELETE FROM main.{table_name} WHERE rowid IN ({marks})",
+                    rowid_batch,
+                )
+
+    @staticmethod
+    async def _sync_dataset_fts_delete_revision_in_tx(
+        db: Any, tenant_id: str, revision_id: str
+    ) -> None:
+        async with db.execute(
+            "SELECT DISTINCT dataset_id FROM v4_assertions "
+            "WHERE tenant_id = ? AND revision_id = ?",
+            (tenant_id, revision_id),
+        ) as cursor:
+            dataset_ids = [str(row[0]) for row in await cursor.fetchall()]
+        for dataset_id in dataset_ids:
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            await db.execute(
+                f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                "SELECT rowid FROM v4_assertions "
+                "WHERE tenant_id = ? AND dataset_id = ? AND revision_id = ? "
+                "AND status != 'ACTIVE')",
+                (tenant_id, dataset_id, revision_id),
+            )
+
+    @staticmethod
+    async def _sync_dataset_fts_upsert_assertions_in_tx(
+        db: Any, assertion_ids: list[str]
+    ) -> None:
+        if not assertion_ids:
+            return
+        grouped: dict[tuple[str, str], list[str]] = {}
+        for offset in range(0, len(assertion_ids), 500):
+            batch = list(assertion_ids[offset : offset + 500])
+            marks = ",".join("?" for _ in batch)
+            async with db.execute(
+                "SELECT a.assertion_id, a.tenant_id, a.dataset_id "
+                "FROM v4_assertions a "
+                "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                f"WHERE a.assertion_id IN ({marks}) "
+                "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED'",
+                batch,
+            ) as cursor:
+                for row in await cursor.fetchall():
+                    grouped.setdefault((str(row[1]), str(row[2])), []).append(
+                        str(row[0])
+                    )
+        for (tenant_id, dataset_id), aids in grouped.items():
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            for offset in range(0, len(aids), 500):
+                batch = aids[offset : offset + 500]
+                marks = ",".join("?" for _ in batch)
+                await db.execute(
+                    f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                    "SELECT rowid FROM v4_assertions "
+                    f"WHERE assertion_id IN ({marks}))",
+                    batch,
+                )
+                scoped_subquery = (
+                    "SELECT a.* FROM v4_assertions a "
+                    f"WHERE a.assertion_id IN ({marks}) AND a.status = 'ACTIVE' "
+                    "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                    "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+                )
+                await db.execute(
+                    f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+                    + _fts5_select_from_scoped_sql(scoped_subquery),
+                    batch,
+                )
+
+    @staticmethod
+    async def _sync_dataset_fts_upsert_revision_in_tx(
+        db: Any, tenant_id: str, revision_id: str
+    ) -> None:
+        async with db.execute(
+            "SELECT DISTINCT a.dataset_id FROM v4_assertions a "
+            "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+            "WHERE a.tenant_id = ? AND a.revision_id = ? "
+            "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED'",
+            (tenant_id, revision_id),
+        ) as cursor:
+            dataset_ids = [str(row[0]) for row in await cursor.fetchall()]
+        for dataset_id in dataset_ids:
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            await db.execute(
+                f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                "SELECT rowid FROM v4_assertions "
+                "WHERE tenant_id = ? AND dataset_id = ? AND revision_id = ?)",
+                (tenant_id, dataset_id, revision_id),
+            )
+            scoped_subquery = (
+                "SELECT a.* FROM v4_assertions a "
+                "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                "AND a.revision_id = ? AND a.status = 'ACTIVE' "
+                "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+            )
+            await db.execute(
+                f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+                + _fts5_select_from_scoped_sql(scoped_subquery),
+                (tenant_id, dataset_id, revision_id),
+            )
+
+    @staticmethod
     async def _transition_memory_mutation_in_tx(
         db: Any,
         mutation_id: str,
@@ -3111,7 +3448,10 @@ class MemoryDAO:
                 if pr and pr[0]:
                     await MemoryDAO._recompute_pipeline_state_in_tx(db, str(pr[0]))
             if to_state == "COMMITTED":
+                await MemoryDAO._sync_dataset_fts_add_mutation_in_tx(db, mutation_id)
                 await MemoryDAO._activate_committed_revision_in_tx(db, mutation_id)
+            elif current == "COMMITTED":
+                await MemoryDAO._sync_dataset_fts_delete_mutation_in_tx(db, mutation_id)
             return True
         return False
 
@@ -3154,12 +3494,19 @@ class MemoryDAO:
             (mutation_id,),
         ) as cursor:
             targets = await cursor.fetchall()
+        superseded_ids: list[str] = []
         for target_id, source_valid_from in targets:
-            await db.execute(
+            res = await db.execute(
                 "UPDATE v4_assertions SET status = 'SUPERSEDED', "
                 "valid_to = CASE WHEN valid_to = '' AND ? != '' THEN ? ELSE valid_to END "
                 "WHERE assertion_id = ? AND status = 'ACTIVE'",
                 (source_valid_from or "", source_valid_from or "", target_id),
+            )
+            if res.rowcount > 0:
+                superseded_ids.append(str(target_id))
+        if superseded_ids:
+            await MemoryDAO._sync_dataset_fts_delete_assertions_in_tx(
+                db, superseded_ids
             )
 
     @staticmethod
@@ -3255,6 +3602,9 @@ class MemoryDAO:
                 "WHERE tenant_id = ? AND revision_id = ? AND status = 'ACTIVE'",
                 (valid_from, valid_from, tenant_id, supersedes_revision_id),
             )
+            await MemoryDAO._sync_dataset_fts_delete_revision_in_tx(
+                db, tenant_id, supersedes_revision_id
+            )
         else:
             cursor = await db.execute(
                 "UPDATE document_revisions SET status = 'ACTIVE' "
@@ -3307,6 +3657,7 @@ class MemoryDAO:
             (pipeline_run_id,),
         ) as cursor:
             fact_level_targets = [str(row[0]) for row in await cursor.fetchall()]
+        restored_target_ids: list[str] = []
         for target_id in fact_level_targets:
             async with db.execute(
                 "SELECT 1 FROM v4_assertion_links l "
@@ -3318,11 +3669,17 @@ class MemoryDAO:
             ) as cursor:
                 still_superseded = await cursor.fetchone()
             if still_superseded is None:
-                await db.execute(
+                res = await db.execute(
                     "UPDATE v4_assertions SET status = 'ACTIVE', valid_to = '' "
                     "WHERE assertion_id = ? AND status = 'SUPERSEDED'",
                     (target_id,),
                 )
+                if res.rowcount > 0:
+                    restored_target_ids.append(target_id)
+        if restored_target_ids:
+            await MemoryDAO._sync_dataset_fts_upsert_assertions_in_tx(
+                db, restored_target_ids
+            )
         async with db.execute(
             "SELECT DISTINCT m.tenant_id, m.revision_id, m.metadata_json, "
             "r.document_id, r.supersedes_revision_id, d.status "
@@ -3372,6 +3729,9 @@ class MemoryDAO:
                 "valid_to = CASE WHEN ? != '' AND valid_to = ? THEN '' ELSE valid_to END "
                 "WHERE tenant_id = ? AND revision_id = ? AND status = 'SUPERSEDED'",
                 (valid_from, valid_from, row[0], predecessor_id),
+            )
+            await MemoryDAO._sync_dataset_fts_upsert_revision_in_tx(
+                db, str(row[0]), predecessor_id
             )
 
     async def _purge_mutations_in_tx(
@@ -4310,6 +4670,9 @@ class MemoryDAO:
                         "WHERE assertion_id = ?",
                         (artifact["physical_artifact_id"],),
                     )
+                    await self._sync_dataset_fts_delete_assertions_in_tx(
+                        db, [str(artifact["physical_artifact_id"])]
+                    )
                 await db.execute(
                     "INSERT OR IGNORE INTO artifact_cleanup_outbox "
                     "(cleanup_id, pipeline_run_id, registry_id) VALUES (?, ?, ?)",
@@ -4525,7 +4888,29 @@ class MemoryDAO:
             await self._vec.hard_delete(artifact_id, agent_id)
         elif store == "SQL":
             async with self._sql.transaction() as db:
+                touched_dataset_fts: str | None = None
                 if kind == "ASSERTION":
+                    async with db.execute(
+                        "SELECT rowid, tenant_id, dataset_id FROM v4_assertions "
+                        "WHERE assertion_id = ?",
+                        (artifact_id,),
+                    ) as cursor:
+                        a_row = await cursor.fetchone()
+                    if a_row is not None:
+                        cand_fts = _dataset_fts_table_name(
+                            str(a_row[1]), str(a_row[2])
+                        )
+                        if await self._dataset_fts_exists_in_tx(db, cand_fts):
+                            touched_dataset_fts = cand_fts
+                            if sqlite3.sqlite_version_info >= (3, 46, 1):
+                                await db.execute(
+                                    f"INSERT INTO main.{cand_fts}({cand_fts}, rank) "
+                                    "VALUES('secure-delete', 1)"
+                                )
+                            await db.execute(
+                                f"DELETE FROM main.{cand_fts} WHERE rowid = ?",
+                                (int(a_row[0]),),
+                            )
                     await db.execute(
                         "DELETE FROM v4_assertion_links "
                         "WHERE source_assertion_id = ? OR target_assertion_id = ?",
@@ -4555,6 +4940,11 @@ class MemoryDAO:
                     for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
                         await db.execute(
                             f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                        )
+                    if touched_dataset_fts is not None:
+                        await db.execute(
+                            f"INSERT INTO main.{touched_dataset_fts}"
+                            f"({touched_dataset_fts}) VALUES('rebuild')"
                         )
                 await db.commit()
 
@@ -5562,6 +5952,8 @@ class MemoryDAO:
                 pipeline_run_id,
             ),
         )
+        if str(mutation.get("state") or "") == "COMMITTED":
+            await self._sync_dataset_fts_upsert_assertions_in_tx(db, [assertion_id])
         async with db.execute(
             "SELECT supersedes_revision_id FROM document_revisions "
             "WHERE revision_id = ?",
@@ -5775,67 +6167,120 @@ class MemoryDAO:
             _query_vector=query_vector,
             _query_error=query_error,
         )
-        if not self._search_scope_cache_enabled:
-            if self._reranker is None:
-                return await self._search_v4_memory_uncached(**kwargs)
-            result = await self._search_v4_memory_uncached(**kwargs)
-            return await self._rerank_results(query, result, limit)
-        async with self._sql.search_connection() as db:
-            if self._search_cache_db is not db:
-                self._search_scope_cache.clear()
-                self._search_data_version = None
-                self._search_cache_db = db
-            previous_tables = {
-                scope["fts_table"] for scope in self._search_scope_cache.values()
-            }
+        initial_cert = (
+            dict(certification_metadata) if certification_metadata is not None else None
+        )
+        allow_persistent_fts = self._persistent_dataset_fts_enabled
+        result: list[dict[str, Any]] = []
+        for attempt in range(2):
+            if attempt > 0 and certification_metadata is not None and initial_cert is not None:
+                certification_metadata.clear()
+                certification_metadata.update(initial_cert)
             try:
-                await db.execute("BEGIN")
-                # Pin the WAL read snapshot before comparing the connection-local
-                # version. A concurrent commit cannot mix old FTS with new rows.
-                async with db.execute(
-                    "SELECT rootpage FROM main.sqlite_master LIMIT 1"
-                ) as cursor:
-                    await cursor.fetchone()
-                async with db.execute("PRAGMA data_version") as cursor:
-                    version = int((await cursor.fetchone())[0])
-                if version != self._search_data_version:
-                    await self._clear_search_scope_cache(db)
-                    self._search_data_version = version
-                key = (
-                    tenant_id,
-                    tuple(sorted(set(dataset_ids))),
-                    agent_id,
-                    jurisdiction,
-                    valid_at,
-                    valid_from,
-                    valid_to,
-                )
-                scope = self._search_scope_cache.get(key)
-                if scope is None:
-                    if len(self._search_scope_cache) == 4:
-                        _old_key, old_scope = self._search_scope_cache.popitem(
-                            last=False
-                        )
-                        await db.execute(
-                            f"DROP TABLE IF EXISTS temp.{old_scope['fts_table']}"
-                        )
-                    scope = {
-                        "fts_table": "v4_scoped_assertions_fts_" + uuid.uuid4().hex
+                if not self._search_scope_cache_enabled:
+                    result = await self._search_v4_memory_uncached(
+                        **kwargs, _allow_persistent_fts=allow_persistent_fts
+                    )
+                    break
+                async with self._sql.search_connection() as db:
+                    if self._search_cache_db is not db:
+                        self._search_scope_cache.clear()
+                        self._search_data_version = None
+                        self._search_cache_db = db
+                    previous_tables = {
+                        scope["fts_table"]
+                        for scope in self._search_scope_cache.values()
                     }
-                    self._search_scope_cache[key] = scope
-                self._search_scope_cache.move_to_end(key)
-                result = await self._search_v4_memory_uncached(
-                    **kwargs, _search_db=db, _scope=scope
-                )
-                await db.commit()  # Only TEMP can be written on this connection.
-            except BaseException:
-                await db.rollback()
-                # Rollback can restore tables evicted earlier in this search.
-                for table in previous_tables:
-                    await db.execute(f"DROP TABLE IF EXISTS temp.{table}")
-                await self._clear_search_scope_cache(db)
-                self._search_data_version = None
-                raise
+                    try:
+                        await db.execute("BEGIN")
+                        # Pin the WAL read snapshot before comparing the connection-local
+                        # version. A concurrent commit cannot mix old FTS with new rows.
+                        async with db.execute(
+                            "SELECT rootpage FROM main.sqlite_master LIMIT 1"
+                        ) as cursor:
+                            await cursor.fetchone()
+                        async with db.execute("PRAGMA data_version") as cursor:
+                            version = int((await cursor.fetchone())[0])
+                        if version != self._search_data_version:
+                            await self._clear_search_scope_cache(db)
+                            self._search_data_version = version
+                        key = (
+                            tenant_id,
+                            tuple(sorted(set(dataset_ids))),
+                            agent_id,
+                            jurisdiction,
+                            valid_at,
+                            valid_from,
+                            valid_to,
+                        )
+                        scope = self._search_scope_cache.get(key)
+                        if scope is None:
+                            if len(self._search_scope_cache) == 4:
+                                _old_key, old_scope = self._search_scope_cache.popitem(
+                                    last=False
+                                )
+                                await db.execute(
+                                    f"DROP TABLE IF EXISTS temp.{old_scope['fts_table']}"
+                                )
+                            scope = {
+                                "fts_table": "v4_scoped_assertions_fts_"
+                                + uuid.uuid4().hex
+                            }
+                            self._search_scope_cache[key] = scope
+                        self._search_scope_cache.move_to_end(key)
+                        result = await self._search_v4_memory_uncached(
+                            **kwargs,
+                            _search_db=db,
+                            _scope=scope,
+                            _allow_persistent_fts=allow_persistent_fts,
+                        )
+                        await db.commit()  # Only TEMP can be written on this connection.
+                    except BaseException:
+                        await db.rollback()
+                        # Rollback can restore tables evicted earlier in this search.
+                        for table in previous_tables:
+                            await db.execute(f"DROP TABLE IF EXISTS temp.{table}")
+                        await self._clear_search_scope_cache(db)
+                        self._search_data_version = None
+                        raise
+                break
+            except _DatasetFtsNeedsRebuild as rebuild_req:
+                if attempt == 0:
+                    try:
+                        await self._rebuild_dataset_fts_index(
+                            rebuild_req.tenant_id, rebuild_req.dataset_id
+                        )
+                        continue
+                    except sqlite3.OperationalError:
+                        allow_persistent_fts = False
+                        continue
+                allow_persistent_fts = False
+                if not self._search_scope_cache_enabled:
+                    result = await self._search_v4_memory_uncached(
+                        **kwargs, _allow_persistent_fts=False
+                    )
+                else:
+                    async with self._sql.search_connection() as db:
+                        await db.execute("BEGIN")
+                        try:
+                            fallback_scope = {
+                                "fts_table": "v4_scoped_assertions_fts_"
+                                + uuid.uuid4().hex
+                            }
+                            result = await self._search_v4_memory_uncached(
+                                **kwargs,
+                                _search_db=db,
+                                _scope=fallback_scope,
+                                _allow_persistent_fts=False,
+                            )
+                            await db.execute(
+                                f"DROP TABLE IF EXISTS temp.{fallback_scope['fts_table']}"
+                            )
+                            await db.commit()
+                        except BaseException:
+                            await db.rollback()
+                            raise
+                break
         if self._reranker is not None:
             return await self._rerank_results(query, result, limit)
         return result
@@ -5894,6 +6339,7 @@ class MemoryDAO:
         _scope: dict[str, Any] | None = None,
         _query_vector: list[float] | None = None,
         _query_error: Exception | None = None,
+        _allow_persistent_fts: bool = True,
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
@@ -6743,103 +7189,212 @@ class MemoryDAO:
                 for variant in (base, base.replace("ı", "i")):
                     fts_terms.append(f'"{variant}"{suffix}')
             fts_expression = " OR ".join(dict.fromkeys(fts_terms))
-            passage_sql = (
-                "SELECT a.*, s.canonical_name AS subject_name, "
-                "o.canonical_name AS object_name, "
-                f"bm25({scoped_fts}, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0, 0.0) "
-                f"AS bm25_score FROM {scoped_fts} "
-                f"JOIN v4_assertions a ON a.rowid = {scoped_fts}.rowid "
-                "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
-                "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-                f"WHERE {scoped_fts} MATCH ? AND a.tenant_id = ? "
-                f"AND a.dataset_id IN ({placeholders}) "
-                f"AND {assertion_status_sql} "
-                "AND EXISTS (SELECT 1 FROM memory_mutations m "
-                "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
-                "AND m.state = 'COMMITTED') "
-                + (
-                    "AND " + " AND ".join(provenance_filters)
-                    if provenance_filters
-                    else ""
-                )
-                + " "
-                f"ORDER BY bm25_score, {scoped_fts}.stable_key, a.assertion_id LIMIT ?"
-            )
+            passage_limit = min(1000, max(limit * 25, 100))
             async with self._search_read_connection(_search_db) as db:
-                if not scope.get("fts_built"):
-                    # WHERE filters do not scope FTS5's corpus statistics. Build a
-                    # connection-local index of the authorized corpus so foreign
-                    # rows cannot change scores, rank or the pre-rank LIMIT. The
-                    # cache retains it only for this scope and main data_version.
-                    await db.execute(
-                        f"CREATE VIRTUAL TABLE temp.{scoped_fts} USING fts5("
-                        "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
-                        "source_ref, subject_name, object_name, chunk_payload, "
-                        "stable_key UNINDEXED, "
-                        "tokenize='unicode61 remove_diacritics 2', prefix='5')"
-                    )
-                    await db.execute(
-                        f"INSERT INTO temp.{scoped_fts} "
-                        "(rowid, assertion_id, predicate, evidence_span, literal_value, "
-                        "source_ref, subject_name, object_name, chunk_payload, stable_key) "
-                        "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
-                        "f.literal_value, f.source_ref, "
-                        "CASE WHEN f.subject_name IN ("
-                        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
-                        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
-                        "COALESCE(scoped.object_entity_id, '')) "
-                        "OR f.subject_name LIKE 'mesa-document-%' "
-                        "OR f.subject_name LIKE 'mesa-revision-%' "
-                        "OR f.subject_name LIKE 'mesa-chunk-%' "
-                        "OR f.subject_name LIKE 'mesa-tenant-%' "
-                        "OR f.subject_name LIKE 'mesa-workspace-%' "
-                        "OR f.subject_name LIKE 'mesa-dataset-%' "
-                        "OR f.subject_name LIKE 'mesa-session-%' "
-                        "THEN '' ELSE f.subject_name END, "
-                        "CASE WHEN f.object_name IN ("
-                        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
-                        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
-                        "COALESCE(scoped.object_entity_id, '')) "
-                        "OR f.object_name LIKE 'mesa-document-%' "
-                        "OR f.object_name LIKE 'mesa-revision-%' "
-                        "OR f.object_name LIKE 'mesa-chunk-%' "
-                        "OR f.object_name LIKE 'mesa-tenant-%' "
-                        "OR f.object_name LIKE 'mesa-workspace-%' "
-                        "OR f.object_name LIKE 'mesa-dataset-%' "
-                        "OR f.object_name LIKE 'mesa-session-%' "
-                        "THEN '' ELSE f.object_name END, "
-                        "f.chunk_payload, "
-                        "COALESCE(ci_doc.external_id, scoped.document_id) || char(0) || "
-                        "printf('%010d', COALESCE(r.revision_number, 0)) || char(0) || "
-                        "printf('%010d', COALESCE(c.ordinal, 0)) || char(0) || "
-                        "COALESCE(ci_chunk.external_id, scoped.chunk_id) || char(0) || "
-                        "COALESCE(scoped.predicate, '') "
-                        "FROM v4_assertions_fts f "
-                        f"JOIN ({in_scope_assertion_query}) scoped "
-                        "ON scoped.assertion_id = f.assertion_id "
-                        "LEFT JOIN source_chunks c ON c.chunk_id = scoped.chunk_id "
-                        "LEFT JOIN document_revisions r ON r.revision_id = scoped.revision_id "
-                        "LEFT JOIN v4_catalog_identities ci_doc "
-                        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = scoped.document_id "
-                        "LEFT JOIN v4_catalog_identities ci_chunk "
-                        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = scoped.chunk_id",
-                        (tenant_id, *datasets, agent_id, *provenance_params),
-                    )
-                    scope["fts_built"] = True
+                if "exact_dataset_scope" in scope:
+                    exact_dataset_scope = bool(scope["exact_dataset_scope"])
+                elif (
+                    _allow_persistent_fts
+                    and len(datasets) == 1
+                    and not provenance_filters
+                    and not historical_query
+                ):
+                    async with db.execute(
+                        "SELECT 1 FROM v4_assertions a "
+                        "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                        "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                        "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED' "
+                        "AND m.agent_id != ? LIMIT 1",
+                        (tenant_id, datasets[0], agent_id),
+                    ) as cursor:
+                        exact_dataset_scope = await cursor.fetchone() is None
+                    scope["exact_dataset_scope"] = exact_dataset_scope
+                else:
+                    exact_dataset_scope = False
+                    scope["exact_dataset_scope"] = False
+
+                if exact_dataset_scope and _allow_persistent_fts:
+                    dataset_fts = _dataset_fts_table_name(tenant_id, datasets[0])
+                    if scope.get("persistent_fts_table") != dataset_fts:
+                        if not await self._dataset_fts_exists_in_tx(db, dataset_fts):
+                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
+                        async with db.execute(
+                            f"SELECT COUNT(*), COALESCE(SUM(id), 0) "
+                            f"FROM main.{dataset_fts}_docsize"
+                        ) as cursor:
+                            fts_stats = await cursor.fetchone()
+                        async with db.execute(
+                            "SELECT COUNT(*), COALESCE(SUM(a.rowid), 0) "
+                            "FROM v4_assertions a "
+                            "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                            "AND a.status = 'ACTIVE' "
+                            "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                            "WHERE m.mutation_id = a.mutation_id "
+                            "AND m.state = 'COMMITTED')",
+                            (tenant_id, datasets[0]),
+                        ) as cursor:
+                            canon_stats = await cursor.fetchone()
+                        if (
+                            fts_stats is None
+                            or canon_stats is None
+                            or int(fts_stats[0]) != int(canon_stats[0])
+                            or int(fts_stats[1]) != int(canon_stats[1])
+                        ):
+                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
+                        scope["persistent_fts_table"] = dataset_fts
+                    active_fts_ref = f"main.{dataset_fts}"
+                    active_fts_name = dataset_fts
+                else:
+                    if not scope.get("fts_built"):
+                        # WHERE filters do not scope FTS5's corpus statistics. Build a
+                        # connection-local index of the authorized corpus so foreign
+                        # rows cannot change scores, rank or the pre-rank LIMIT. The
+                        # cache retains it only for this scope and main data_version.
+                        await db.execute(
+                            f"CREATE VIRTUAL TABLE temp.{scoped_fts} "
+                            f"USING fts5({_FTS5_SCHEMA_SQL})"
+                        )
+                        await db.execute(
+                            f"INSERT INTO temp.{scoped_fts} {_FTS5_INSERT_COLUMNS_SQL} "
+                            + _fts5_select_from_scoped_sql(in_scope_assertion_query),
+                            (tenant_id, *datasets, agent_id, *provenance_params),
+                        )
+                        scope["fts_built"] = True
+                    active_fts_ref = f"temp.{scoped_fts}"
+                    active_fts_name = scoped_fts
+
+                # Index-only FTS5 top-K scan avoids touching FTS5 content blobs
+                # and joining canonical tables on non-top-K rows. Any tie at the
+                # exact K-th score boundary is broken identically by
+                # (stable_key, assertion_id).
                 async with db.execute(
-                    passage_sql,
-                    (
-                        fts_expression,
-                        tenant_id,
-                        *datasets,
-                        agent_id,
-                        *provenance_params,
-                        min(1000, max(limit * 25, 100)),
-                    ),
+                    f"SELECT rowid, bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) "
+                    f"AS bm25_score FROM {active_fts_ref} "
+                    f"WHERE {active_fts_name} MATCH ? "
+                    "ORDER BY bm25_score LIMIT ?",
+                    (fts_expression, passage_limit + 1),
                 ) as cursor:
-                    passage_candidate_rows = [
-                        dict(row) for row in await cursor.fetchall()
+                    scored_hits = [
+                        (int(r[0]), float(r[1])) for r in await cursor.fetchall()
                     ]
+
+                top_hits: list[tuple[int, float]] | None = None
+                if (
+                    len(scored_hits) > passage_limit
+                    and scored_hits[passage_limit - 1][1] == scored_hits[passage_limit][1]
+                ):
+                    cutoff = scored_hits[passage_limit - 1][1]
+                    strict_hits = [
+                        item for item in scored_hits[:passage_limit] if item[1] < cutoff
+                    ]
+                    remaining = passage_limit - len(strict_hits)
+                    async with db.execute(
+                        f"SELECT rowid, bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) "
+                        f"AS bm25_score FROM {active_fts_ref} "
+                        f"WHERE {active_fts_name} MATCH ? "
+                        f"AND bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) = ? "
+                        "ORDER BY stable_key, assertion_id LIMIT ?",
+                        (fts_expression, cutoff, remaining),
+                    ) as cursor:
+                        tied_hits = [
+                            (int(r[0]), float(r[1])) for r in await cursor.fetchall()
+                        ]
+                    if len(tied_hits) == remaining:
+                        top_hits = strict_hits + tied_hits
+                else:
+                    top_hits = scored_hits[:passage_limit]
+
+                if top_hits is None:
+                    passage_sql = (
+                        "SELECT a.*, s.canonical_name AS subject_name, "
+                        "o.canonical_name AS object_name, "
+                        f"bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) "
+                        f"AS bm25_score FROM {active_fts_ref} "
+                        f"JOIN v4_assertions a ON a.rowid = {active_fts_name}.rowid "
+                        "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
+                        "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
+                        f"WHERE {active_fts_name} MATCH ? AND a.tenant_id = ? "
+                        f"AND a.dataset_id IN ({placeholders}) "
+                        f"AND {assertion_status_sql} "
+                        "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                        "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
+                        "AND m.state = 'COMMITTED') "
+                        + (
+                            "AND " + " AND ".join(provenance_filters)
+                            if provenance_filters
+                            else ""
+                        )
+                        + " "
+                        f"ORDER BY bm25_score, {active_fts_name}.stable_key, a.assertion_id LIMIT ?"
+                    )
+                    async with db.execute(
+                        passage_sql,
+                        (
+                            fts_expression,
+                            tenant_id,
+                            *datasets,
+                            agent_id,
+                            *provenance_params,
+                            passage_limit,
+                        ),
+                    ) as cursor:
+                        passage_candidate_rows = [
+                            dict(row) for row in await cursor.fetchall()
+                        ]
+                elif top_hits:
+                    score_by_rowid = dict(top_hits)
+                    hit_rowids = [rowid for rowid, _ in top_hits]
+                    joined_rows: list[tuple[float, str, str, dict[str, Any]]] = []
+                    for offset in range(0, len(hit_rowids), 500):
+                        batch_ids = hit_rowids[offset : offset + 500]
+                        id_marks = ",".join("?" for _ in batch_ids)
+                        join_sql = (
+                            "SELECT a.*, a.rowid AS _fts_rowid, "
+                            "s.canonical_name AS subject_name, "
+                            "o.canonical_name AS object_name, "
+                            "f.stable_key AS _fts_stable_key "
+                            "FROM v4_assertions a "
+                            f"JOIN {active_fts_ref} f ON f.rowid = a.rowid "
+                            "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
+                            "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
+                            f"WHERE a.rowid IN ({id_marks}) AND a.tenant_id = ? "
+                            f"AND a.dataset_id IN ({placeholders}) "
+                            f"AND {assertion_status_sql} "
+                            "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
+                            "AND m.state = 'COMMITTED') "
+                            + (
+                                "AND " + " AND ".join(provenance_filters)
+                                if provenance_filters
+                                else ""
+                            )
+                        )
+                        async with db.execute(
+                            join_sql,
+                            (
+                                *batch_ids,
+                                tenant_id,
+                                *datasets,
+                                agent_id,
+                                *provenance_params,
+                            ),
+                        ) as cursor:
+                            for raw_row in await cursor.fetchall():
+                                row_dict = dict(raw_row)
+                                rowid = int(row_dict.pop("_fts_rowid"))
+                                stable_key = str(row_dict.pop("_fts_stable_key") or "")
+                                bm25_score = score_by_rowid[rowid]
+                                row_dict["bm25_score"] = bm25_score
+                                joined_rows.append(
+                                    (
+                                        bm25_score,
+                                        stable_key,
+                                        str(row_dict["assertion_id"]),
+                                        row_dict,
+                                    )
+                                )
+                    joined_rows.sort(key=lambda item: (item[0], item[1], item[2]))
+                    passage_candidate_rows = [item[3] for item in joined_rows]
 
             # Trusted typed legal identity participates in candidate generation
             # before lane ranking.  It is sourced only from canonical assertion
