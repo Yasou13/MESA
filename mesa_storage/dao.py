@@ -6251,7 +6251,7 @@ class MemoryDAO:
                             rebuild_req.tenant_id, rebuild_req.dataset_id
                         )
                         continue
-                    except sqlite3.OperationalError:
+                    except (sqlite3.OperationalError, AttributeError):
                         allow_persistent_fts = False
                         continue
                 allow_persistent_fts = False
@@ -6406,6 +6406,63 @@ class MemoryDAO:
                 )
                 scope["datasets"] = datasets
             placeholders = ",".join("?" for _ in datasets)
+            # Check persistent per-dataset FTS readiness before scope loading
+            # or vector search so a missing/stale index rebuild never repeats
+            # scope queries or LanceDB scans.
+            if "exact_dataset_scope" in scope:
+                exact_dataset_scope = bool(scope["exact_dataset_scope"])
+            elif (
+                _allow_persistent_fts
+                and len(datasets) == 1
+                and not provenance_filters
+                and not historical_query
+            ):
+                async with db.execute(
+                    "SELECT 1 FROM v4_assertions a "
+                    "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                    "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                    "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED' "
+                    "AND m.agent_id != ? LIMIT 1",
+                    (tenant_id, datasets[0], agent_id),
+                ) as cursor:
+                    exact_dataset_scope = await cursor.fetchone() is None
+                scope["exact_dataset_scope"] = exact_dataset_scope
+            else:
+                exact_dataset_scope = False
+                scope["exact_dataset_scope"] = False
+
+            if exact_dataset_scope and _allow_persistent_fts:
+                dataset_fts = _dataset_fts_table_name(tenant_id, datasets[0])
+                if scope.get("persistent_fts_table") != dataset_fts:
+                    async with db.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(a.rowid), 0) "
+                        "FROM v4_assertions a "
+                        "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                        "AND a.status = 'ACTIVE' "
+                        "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                        "WHERE m.mutation_id = a.mutation_id "
+                        "AND m.state = 'COMMITTED')",
+                        (tenant_id, datasets[0]),
+                    ) as cursor:
+                        canon_stats = await cursor.fetchone()
+                    canon_count = int(canon_stats[0]) if canon_stats is not None else 0
+                    canon_sum = int(canon_stats[1]) if canon_stats is not None else 0
+                    if not await self._dataset_fts_exists_in_tx(db, dataset_fts):
+                        if canon_count > 0:
+                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
+                    else:
+                        async with db.execute(
+                            f"SELECT COUNT(*), COALESCE(SUM(id), 0) "
+                            f"FROM main.{dataset_fts}_docsize"
+                        ) as cursor:
+                            fts_stats = await cursor.fetchone()
+                        if (
+                            fts_stats is None
+                            or int(fts_stats[0]) != canon_count
+                            or int(fts_stats[1]) != canon_sum
+                        ):
+                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
+                        scope["persistent_fts_table"] = dataset_fts
             if "artifact_rows" in scope:
                 artifact_rows = scope["artifact_rows"]
             else:
@@ -7191,59 +7248,15 @@ class MemoryDAO:
             fts_expression = " OR ".join(dict.fromkeys(fts_terms))
             passage_limit = min(1000, max(limit * 25, 100))
             async with self._search_read_connection(_search_db) as db:
-                if "exact_dataset_scope" in scope:
-                    exact_dataset_scope = bool(scope["exact_dataset_scope"])
-                elif (
-                    _allow_persistent_fts
-                    and len(datasets) == 1
-                    and not provenance_filters
-                    and not historical_query
+                persistent_fts_table = scope.get("persistent_fts_table")
+                if (
+                    exact_dataset_scope
+                    and _allow_persistent_fts
+                    and isinstance(persistent_fts_table, str)
+                    and persistent_fts_table
                 ):
-                    async with db.execute(
-                        "SELECT 1 FROM v4_assertions a "
-                        "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
-                        "WHERE a.tenant_id = ? AND a.dataset_id = ? "
-                        "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED' "
-                        "AND m.agent_id != ? LIMIT 1",
-                        (tenant_id, datasets[0], agent_id),
-                    ) as cursor:
-                        exact_dataset_scope = await cursor.fetchone() is None
-                    scope["exact_dataset_scope"] = exact_dataset_scope
-                else:
-                    exact_dataset_scope = False
-                    scope["exact_dataset_scope"] = False
-
-                if exact_dataset_scope and _allow_persistent_fts:
-                    dataset_fts = _dataset_fts_table_name(tenant_id, datasets[0])
-                    if scope.get("persistent_fts_table") != dataset_fts:
-                        if not await self._dataset_fts_exists_in_tx(db, dataset_fts):
-                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
-                        async with db.execute(
-                            f"SELECT COUNT(*), COALESCE(SUM(id), 0) "
-                            f"FROM main.{dataset_fts}_docsize"
-                        ) as cursor:
-                            fts_stats = await cursor.fetchone()
-                        async with db.execute(
-                            "SELECT COUNT(*), COALESCE(SUM(a.rowid), 0) "
-                            "FROM v4_assertions a "
-                            "WHERE a.tenant_id = ? AND a.dataset_id = ? "
-                            "AND a.status = 'ACTIVE' "
-                            "AND EXISTS (SELECT 1 FROM memory_mutations m "
-                            "WHERE m.mutation_id = a.mutation_id "
-                            "AND m.state = 'COMMITTED')",
-                            (tenant_id, datasets[0]),
-                        ) as cursor:
-                            canon_stats = await cursor.fetchone()
-                        if (
-                            fts_stats is None
-                            or canon_stats is None
-                            or int(fts_stats[0]) != int(canon_stats[0])
-                            or int(fts_stats[1]) != int(canon_stats[1])
-                        ):
-                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
-                        scope["persistent_fts_table"] = dataset_fts
-                    active_fts_ref = f"main.{dataset_fts}"
-                    active_fts_name = dataset_fts
+                    active_fts_ref = f"main.{persistent_fts_table}"
+                    active_fts_name = persistent_fts_table
                 else:
                     if not scope.get("fts_built"):
                         # WHERE filters do not scope FTS5's corpus statistics. Build a
